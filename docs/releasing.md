@@ -124,7 +124,7 @@ Optional repository variables `MARATHON_MACOS_RUNNER` and
 `ubuntu-22.04`. Native architecture is checked before building. The workflow
 provisions CLI prerequisites and the pinned Rust toolchain; self-hosted
 machines need rustup, Homebrew or apt/sudo, Python, the native SDK/linker and
-GitHub CLI (`gh`). Provisioned packages include rsync and sshpass; the gate
+GitHub CLI (`gh`). Provisioned packages include rsync, sshpass and xmllint; the gate
 uses fake/offline workers, with no real-host credentials.
 
 With no Kotlin source checkout the gate explicitly skips
