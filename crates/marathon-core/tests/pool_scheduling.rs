@@ -252,10 +252,21 @@ fn retries_of_batches_that_failed_together_on_different_workers_swap_workers() {
             let fail = Gate::default();
             let ready_a2 = Gate::default();
             let ready_b2 = Gate::default();
+            let finish = Gate::default();
+            let passed = finish.clone();
+            let passing = on_execute(move |e| {
+                let passed = passed.clone();
+                async move {
+                    passed.wait_in(&e.context).await?;
+                    e.result
+                        .complete(Ok(e.device.report(&e.batch, model::TestStatus::Passed)));
+                    Ok(())
+                }
+            });
             let device_a1 = worker("serial-A1", "worker-A", None, fail_on(&fail));
             let device_b1 = worker("serial-B1", "worker-B", None, fail_on(&fail));
-            let device_a2 = worker("serial-A2", "worker-A", Some(prepare_on(&ready_a2)), report_passed());
-            let device_b2 = worker("serial-B2", "worker-B", Some(prepare_on(&ready_b2)), report_passed());
+            let device_a2 = worker("serial-A2", "worker-A", Some(prepare_on(&ready_a2)), passing.clone());
+            let device_b2 = worker("serial-B2", "worker-B", Some(prepare_on(&ready_b2)), passing);
             let pool = h.start_pool(tests(2, "Scheduling"), quota(2, 1));
 
             for d in &[&device_a1, &device_b1, &device_a2, &device_b2] {
@@ -269,6 +280,12 @@ fn retries_of_batches_that_failed_together_on_different_workers_swap_workers() {
             h.run_current().await;
 
             fail.open();
+            // A fast successful retry can ask again before the other failure notifies parked devices
+            // (as in U99). Keep both retries in flight until the shared failure wave has settled.
+            h.run_current().await;
+            assert_eq!(device_a2.batches().len(), 1);
+            assert_eq!(device_b2.batches().len(), 1);
+            finish.open();
             h.advance_until_idle().await;
 
             assert_eq!(device_b2.executed_tests(), device_a1.executed_tests());
