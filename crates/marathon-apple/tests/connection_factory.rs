@@ -666,12 +666,18 @@ async fn pending_cleanup_joins_later_closes_before_returning_the_first_error() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn succeeded_tasks_are_pruned_when_new_ones_are_retained() {
     let (f, _) = factory(true, 8);
+    // Each spawn prunes only tasks whose body has returned; a create or dispose
+    // returns on its acknowledgement while its task may still be finishing, so how
+    // many recent tasks survive a prune depends on scheduling. Without pruning, 200
+    // cycles would retain about 400 tasks; the count must stay flat instead.
+    const BOUND: usize = 8;
+    let mut most = 0;
     for _ in 0..200 {
         let e = get(&f, "a").await;
         f.dispose(e).await.unwrap();
+        most = most.max(f.retained_tasks());
     }
-    // The last dispose, plus at most a create whose task had not yet observed its acknowledgement.
-    assert!(f.retained_tasks() <= 2, "{} tasks retained", f.retained_tasks());
+    assert!(most <= BOUND, "{most} tasks retained");
     done(&f).await;
     assert_eq!(f.retained_tasks(), 0);
 }
