@@ -64,11 +64,14 @@ fn shell(script: &mut Value, command: &str, stdout: &str) {
         .unwrap()
         .push(json!({"exact":command,"stdout":stdout}));
 }
+/// Polls rather than spinning: a yield loop keeps a vendor worker busy and starves the fake
+/// server and the capture encoder on small CI runners. The first screenshot is a debug-build GIF
+/// encode of a 1080x1920 frame, which takes seconds there, so the deadline only catches hangs.
 async fn until(mut ready: impl FnMut() -> bool) {
     checked(
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while !ready() {
-                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
         })
         .await,
