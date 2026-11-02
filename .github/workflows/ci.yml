@@ -39,6 +39,17 @@ jobs:
           rustup toolchain install
       - name: Workspace gate
         run: scripts/check.sh
+      - name: Keep failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-evidence-${{ matrix.target }}
+          path: |
+            tools/differential/runs/
+            tools/oracle/runs/
+            tools/fake-worker/runs/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Version cache and runtime environment checks
         env:
           TARGET: ${{ matrix.target }}

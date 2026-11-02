@@ -272,7 +272,10 @@ def main():
         for name in selected:
             work = args.output/name; work.mkdir()
             recording = capture(name,'native',work.resolve(),binaries)
-            compare_golden(name,recording,work/'mismatch')
+            try:
+                compare_golden(name,recording,work/'mismatch')
+            except e.Invalid as error:
+                raise e.Invalid(f'{name}: {error}') from error
         print('PASS profile=registered-vendor-native; '+str(len(selected))+' complete vendor captures')
     elif args.operation in ('validate', 'check'):
         ledger = validate_all()

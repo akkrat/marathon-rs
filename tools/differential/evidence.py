@@ -474,7 +474,31 @@ def first_difference(left, right, pointer=''):
             a, b = left[i] if i < len(left) else None, right[i] if i < len(right) else None
             if a != b:
                 return first_difference(a, b, pointer + '/' + str(i))
+    if isinstance(left, str) and isinstance(right, str):
+        line = first_differing_line(decoded_bytes(left), decoded_bytes(right))
+        if line is not None:
+            return pointer + ': ' + line
     return pointer + ': ' + repr(left)[:180] + ' -> ' + repr(right)[:180]
+
+
+def decoded_bytes(text):
+    # Byte-mode content is base64; a common prefix of two encodings says nothing about the bytes.
+    try:
+        data = base64.b64decode(text, validate=True)
+        data.decode()
+        return data
+    except ValueError:
+        return text.encode()
+
+
+def first_differing_line(left, right):
+    a, b = left.splitlines(), right.splitlines()
+    for i in range(max(len(a), len(b))):
+        x, y = a[i] if i < len(a) else None, b[i] if i < len(b) else None
+        if x != y:
+            show = lambda v: '<end of content>' if v is None else repr(v.decode(errors='replace'))[:400]
+            return f'line {i + 1}: {show(x)} -> {show(y)}'
+    return None
 
 
 def compare(expected, actual, contract, mismatch=None):

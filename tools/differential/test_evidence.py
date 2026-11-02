@@ -87,6 +87,14 @@ class EvidenceTests(unittest.TestCase):
                 self.assertTrue((mismatch / 'expected/evidence.json').is_file())
                 self.assertTrue((mismatch / 'actual/evidence.json').is_file())
 
+    def test_byte_content_difference_names_the_first_differing_line(self):
+        (self.tree / 'log').write_bytes(b'same\nsecond line\n')
+        expected = self.record('line-expected', 'jvm')
+        (self.tree / 'log').write_bytes(b'same\nother line\n')
+        actual = self.record('line-actual')
+        with self.assertRaisesRegex(e.Invalid, "line 2: 'second line' -> 'other line'"):
+            e.compare(expected, actual, self.contract)
+
     def test_mode(self):
         self.reject_changed_tree(lambda: (self.tree / 'log').chmod(0o700))
 
