@@ -1,0 +1,41 @@
+name: TEMP x5 differential probe
+
+on:
+  push:
+    branches: ['wp/x5-hosted-ci']
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prerequisites
+        run: |
+          brew install rsync sshpass
+          rustup toolchain install
+      - name: Repeat the vendor differential
+        shell: bash
+        run: |
+          cargo test -q -p marathon-cli --test differential_vendors --no-run
+          fails=0
+          for i in 1 2 3 4 5 6; do
+            cargo test -q -p marathon-cli --test differential_vendors > out.txt 2>&1 || fails=$((fails+1))
+            grep -oE "observable differences.{0,1500}|test result.*" out.txt || true
+          done
+          echo "failures: $fails"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-${{ matrix.shard }}
+          path: tools/differential/runs/
+          if-no-files-found: ignore
+          retention-days: 3
