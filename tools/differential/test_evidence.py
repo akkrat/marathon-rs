@@ -95,6 +95,16 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(e.Invalid, "line 2: 'second line' -> 'other line'"):
             e.compare(expected, actual, self.contract)
 
+    def test_sshpass_warning_must_match_the_capture_host(self):
+        import vendor_console as vc
+        warned = (vc.SSHPASS_WARNING + 'Marathon execution failed\n').encode()
+        quiet = b'Marathon execution failed\n'
+        self.assertEqual(vc.normalize(warned, {}, 'native', 'stderr', {vc.SSHPASS_FACT: False}), quiet)
+        self.assertEqual(vc.normalize(quiet, {}, 'native', 'stderr', {vc.SSHPASS_FACT: True}), quiet)
+        for data, present in [(quiet, False), (warned, True)]:
+            with self.subTest(present=present), self.assertRaisesRegex(e.Invalid, 'sshpass warning'):
+                vc.normalize(data, {}, 'native', 'stderr', {vc.SSHPASS_FACT: present})
+
     def test_mode(self):
         self.reject_changed_tree(lambda: (self.tree / 'log').chmod(0o700))
 

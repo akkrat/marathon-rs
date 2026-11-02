@@ -6,14 +6,24 @@ SLF4J = 'SLF4J(I): Connected with provider of type [ch.qos.logback.classic.spi.L
 D1 = 'Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored'
 THREAD = re.compile(r'^((?:[A-Z] )?\d{2}:\d{2}:\d{2}\.\d{3}) \[[^\]]+\]')
 SYSTEM = '<com.malinskiy.marathon.Marathon> '
+SSHPASS = '/usr/bin/sshpass'
+SSHPASS_FACT = 'host_usr_bin_sshpass'
+SSHPASS_WARNING = (f"WARNING: sshpass binary not installed? Was looking for '{SSHPASS}'. "
+                   'You can use environment variable RSYNC4J_SSHPASS to point to the binary.\n')
 
 
-def normalize(data, values, implementation, stream):
+def normalize(data, values, implementation, stream, facts=None):
     text = data.decode('utf-8')
     if stream == 'stderr':
         if implementation == 'jvm':
             e.require(text.count(SLF4J) == 1,'missing/duplicate JVM provider line')
             text = text.replace(SLF4J,'',1)
+        if facts is not None and SSHPASS_FACT in facts:
+            # Both implementations warn exactly when the capture host lacks the default sshpass; the
+            # JVM goldens come from such a host, a hosted Linux runner has one.
+            missing = not facts[SSHPASS_FACT]
+            e.require(text.count(SSHPASS_WARNING) == int(missing), 'sshpass warning does not match the capture host')
+            text = text.replace(SSHPASS_WARNING, '', 1)
         return text.encode()
     result = []
     system = False; system_seen = False

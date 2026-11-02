@@ -430,7 +430,11 @@ def normalized(directory, contract):
             if contract.get('scenario') == 'vendor' and name in ('stdout','stderr','transcript.jsonl','host-argv.jsonl'):
                 import vendor_console, vendor_transport
                 if name in ('stdout','stderr'):
-                    content = base64.b64encode(vendor_console.normalize(data,record['identities'],record['implementation'],name)).decode()
+                    facts = record['provenance']
+                    if contract['transport'] == 'ssh' and vendor_console.SSHPASS_FACT not in facts:
+                        # Apple goldens predate the fact; their stderr shows the host had no default sshpass.
+                        facts = dict(facts, **{vendor_console.SSHPASS_FACT: False})
+                    content = base64.b64encode(vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)).decode()
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(data,record['identities'])
                 else:

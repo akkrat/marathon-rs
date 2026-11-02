@@ -11,6 +11,7 @@ import subprocess
 import time
 import zipfile
 import evidence as e
+import vendor_console
 
 ROOT = Path(__file__).resolve().parents[2]
 JDK = '/Applications/Android Studio.app/Contents/jbr/Contents/Home'
@@ -328,6 +329,8 @@ def pack(name, implementation, raw, contract, destination, provenance):
     if apple(name):
         trees['worker'] = raw/'root'
         artifacts['host-argv.jsonl'] = (raw/'host-argv.jsonl').read_bytes()
+        # rsync4j warns on stderr when its default sshpass path is missing; which stream is right depends on the host.
+        facts[vendor_console.SSHPASS_FACT] = os.path.exists(vendor_console.SSHPASS)
     else:
         facts['stdin_payloads'] = {str(p.relative_to(ROOT)):e.sha(p.read_bytes()) for p in
             [ROOT/'fixtures/vendor-android/apk'/apk for apk in ['app-debug.apk','app-debug-androidTest.apk']]}
