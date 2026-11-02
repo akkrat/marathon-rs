@@ -198,7 +198,8 @@ fn timeout_has_three_inner_attempts_and_unregisters_every_attempt() {
                         .count()
                         < attempt
                     {
-                        tokio::task::yield_now().await;
+                        // Polls: a yield loop would keep the vendor worker busy while the fake server needs it.
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                     }
                     clock.attempts.add_permits(1);
                 }

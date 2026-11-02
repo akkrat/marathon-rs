@@ -227,9 +227,11 @@ fn test_start_and_kill_adb_server() {
 
 /// Waits until each fake server has seen at least `count` logcat streams, i.e. the devices it announced have finished
 /// the transport handshake that follows `Connected`.
+/// Polls rather than spinning on yield_now, which holds a vendor worker and starves the fake servers on small runners;
+/// the deadline only catches a hang.
 async fn logcat_streams(wanted: &[(&marathon_adb::server::FakeAdbServer, usize)]) {
     checked(
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
             for (server, count) in wanted {
                 while server
                     .transcript()
@@ -238,7 +240,7 @@ async fn logcat_streams(wanted: &[(&marathon_adb::server::FakeAdbServer, usize)]
                     .count()
                     < *count
                 {
-                    tokio::task::yield_now().await;
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 }
             }
         })

@@ -262,7 +262,8 @@ async fn device_log_wrapper_owns_jobs_and_joins_before_pull() -> Result<()> {
     w.fs.remove("/tmp/marathon/device.log").await?;
     let lost_pid = String::from_utf8(exec(&a, &start).await?.0)?.trim().parse::<u64>()?;
     a.disconnect(russh::Disconnect::ByApplication, "fixture", "").await?;
-    timeout(Duration::from_secs(2), async {
+    // Polls the worker process's event log; the deadline only catches a hang on a slow runner.
+    timeout(Duration::from_secs(60), async {
         loop {
             let text = tokio::fs::read_to_string(dir.path().join("events.jsonl")).await?;
             if text
@@ -272,7 +273,7 @@ async fn device_log_wrapper_owns_jobs_and_joins_before_pull() -> Result<()> {
             {
                 break;
             }
-            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
         Ok::<_, anyhow::Error>(())
     })

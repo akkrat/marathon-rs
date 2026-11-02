@@ -114,9 +114,10 @@ async fn total_timeout_leaves_process_alive_until_explicit_close() {
         assert_eq!(session.await_result(&context()).await.unwrap().exit_code, None);
         assert!(session.is_alive());
         session.close().await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        // Polls the real child's exit; the deadline only catches a hang on a slow runner.
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while session.is_alive() {
-                tokio::task::yield_now().await;
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
         })
         .await
