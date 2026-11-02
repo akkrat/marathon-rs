@@ -662,22 +662,61 @@ async fn pending_cleanup_joins_later_closes_before_returning_the_first_error() {
     assert_eq!(second_fake.count(), 1);
     done(&f).await;
 }
+/// Records every task the factory spawns, so a test can join them.
+struct Recording(std::sync::Mutex<Vec<Arc<dyn marathon_core::runtime::VendorTask>>>);
+impl marathon_core::runtime::VendorRuntime for Recording {
+    fn spawn_cancellable(
+        &self,
+        body: marathon_core::runtime::VendorTaskBody,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        let task = Runtime.spawn_cancellable(body);
+        self.0.lock().unwrap().push(task.clone());
+        task
+    }
+    fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        let task = Runtime.spawn(body);
+        self.0.lock().unwrap().push(task.clone());
+        task
+    }
+    fn spawn_blocking(
+        &self,
+        body: Box<dyn FnOnce() -> marathon_core::error::VendorResult<()> + Send>,
+    ) -> Arc<dyn marathon_core::runtime::VendorTask> {
+        let task = Runtime.spawn_blocking(body);
+        self.0.lock().unwrap().push(task.clone());
+        task
+    }
+}
 /// Not a Kotlin test: retained tasks must not grow with every create/dispose of a long run.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn succeeded_tasks_are_pruned_when_new_ones_are_retained() {
-    let (f, _) = factory(true, 8);
-    // Each spawn prunes only tasks whose body has returned; a create or dispose
-    // returns on its acknowledgement while its task may still be finishing, so how
-    // many recent tasks survive a prune depends on scheduling. Without pruning, 200
-    // cycles would retain about 400 tasks; the count must stay flat instead.
-    const BOUND: usize = 8;
-    let mut most = 0;
+    let c = Control::new();
+    let runtime = Arc::new(Recording(std::sync::Mutex::new(Vec::new())));
+    let f = ConnectionFactory::with_seams(
+        false,
+        config(true),
+        rsync(),
+        duration(1000),
+        8,
+        runtime.clone(),
+        Arc::new(Clock::default()),
+        c.logging.clone(),
+        Arc::new(TestConnector(c.clone())),
+        Arc::new(Probe),
+    )
+    .unwrap();
     for _ in 0..200 {
         let e = get(&f, "a").await;
+        // connect_worker returns on the create task's acknowledgement, before its body
+        // returns. Join every task spawned since the last cycle; dispose joins its own.
+        let spawned = std::mem::take(&mut *runtime.0.lock().unwrap());
+        for task in spawned {
+            support::watchdog(task.join()).await.unwrap();
+        }
         f.dispose(e).await.unwrap();
-        most = most.max(f.retained_tasks());
+        // The dispose's spawn pruned every earlier task, all succeeded; only its own remains.
+        assert_eq!(f.retained_tasks(), 1);
     }
-    assert!(most <= BOUND, "{most} tasks retained");
     done(&f).await;
     assert_eq!(f.retained_tasks(), 0);
 }
