@@ -86,7 +86,7 @@ step "cargo clippy"
 cargo clippy --workspace --all-targets -- -D warnings
 
 step "cargo test"
-cargo test --workspace
+cargo test --workspace --no-fail-fast
 
 step "vendored russh client tests (vendor/russh/README.marathon.md)"
 CARGO_TARGET_DIR="$PWD/target/vendor-tests" cargo test --manifest-path vendor/russh/Cargo.toml --lib client:: -q
