@@ -15,6 +15,13 @@ use marathon_core::{
 };
 use std::collections::HashMap;
 use support::*;
+/// The loopback test releases a free port and expects it to stay free until the provider has
+/// asked it for a version; other tests here bind ephemeral ports and could take it meanwhile.
+/// It holds this lock exclusively; the others share it.
+static PORTS: std::sync::RwLock<()> = std::sync::RwLock::new(());
+fn shared_ports() -> std::sync::RwLockReadGuard<'static, ()> {
+    PORTS.read().unwrap_or_else(|e| e.into_inner())
+}
 fn d(s: &str, state: S) -> AdbDevice {
     AdbDevice {
         serial: s.into(),
@@ -23,6 +30,7 @@ fn d(s: &str, state: S) -> AdbDevice {
 }
 #[test]
 fn tracker_vanished_first_and_non_device_retention() {
+    let _ports = shared_ports();
     let t = DeviceStateTracker::default();
     assert_eq!(
         t.update(&[d("a", S::Device), d("b", S::Offline)]),
@@ -41,6 +49,7 @@ fn tracker_vanished_first_and_non_device_retention() {
 }
 #[test]
 fn serial_strategies_and_ipv6() {
+    let _ports = shared_ports();
     let mut props = HashMap::new();
     for (k, v) in [
         ("marathon.serialno", "m"),
@@ -71,6 +80,7 @@ async fn event(provider: &AdamDeviceProvider) -> DeviceEvent {
 }
 #[test]
 fn multi_server_disconnect_keeps_identity_and_disposed_borrow() {
+    let _ports = shared_ports();
     run(configuration(), |runtime, context| {
         Box::pin(async move {
             let mut first = server(base_script(27, vec![])).await;
@@ -117,6 +127,7 @@ fn multi_server_disconnect_keeps_identity_and_disposed_borrow() {
 }
 #[test]
 fn disconnect_before_setup_has_no_connected_event() {
+    let _ports = shared_ports();
     run(configuration(), |runtime, context| {
         Box::pin(async move {
             let mut script = base_script(27, vec![]);
@@ -143,6 +154,7 @@ fn disconnect_before_setup_has_no_connected_event() {
 }
 #[test]
 fn track_eof_ends_loop_without_reconnect() {
+    let _ports = shared_ports();
     run(configuration(), |runtime, context| {
         Box::pin(async move {
             let mut script = base_script(27, vec![]);
@@ -177,6 +189,7 @@ fn track_eof_ends_loop_without_reconnect() {
 }
 #[test]
 fn no_devices_messages() {
+    let _ports = shared_ports();
     let mut c = configuration();
     android(&mut c).wait_for_devices_timeout_millis = 25;
     run(c, |runtime, context| {
@@ -199,6 +212,7 @@ fn no_devices_messages() {
 }
 #[test]
 fn test_start_and_kill_adb_server() {
+    let _ports = shared_ports();
     use std::os::unix::fs::PermissionsExt;
     let temp = checked(tempfile::tempdir());
     checked(std::fs::create_dir(temp.path().join("platform-tools")));
@@ -252,6 +266,7 @@ async fn logcat_streams(wanted: &[(&marathon_adb::server::FakeAdbServer, usize)]
 /// one server touches only that server's device, whichever of the two equal serials was stored last.
 #[test]
 fn same_serial_on_two_servers_is_keyed_per_server_d18() {
+    let _ports = shared_ports();
     run(configuration(), |runtime, context| {
         Box::pin(async move {
             let mut first = server(base_script(27, vec![])).await;
@@ -318,6 +333,7 @@ fn same_serial_on_two_servers_is_keyed_per_server_d18() {
 
 #[test]
 fn loopback_start_server_retries_version_after_fake_binary() {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     use marathon_adb::server::{FakeAdbServer, Script, ServerOptions};
     use std::os::unix::fs::PermissionsExt;
     let temp = checked(tempfile::tempdir());
@@ -328,7 +344,7 @@ fn loopback_start_server_retries_version_after_fake_binary() {
     checked(std::fs::write(
         &binary,
         format!(
-            "#!/bin/sh\ntouch '{}'\ni=0\nwhile [ ! -f '{}' ]; do i=$((i+1)); [ $i -lt 500 ] || exit 1; sleep 0.01; done\n",
+            "#!/bin/sh\ntouch '{}'\ni=0\nwhile [ ! -f '{}' ]; do i=$((i+1)); [ $i -lt 6000 ] || exit 1; sleep 0.01; done\n",
             marker.display(),
             ready.display(),
         ),
@@ -347,18 +363,14 @@ fn loopback_start_server_retries_version_after_fake_binary() {
             let startup = tokio::spawn(async move {
                 // Real time: the provider spawns the fake binary as a process, which a loaded
                 // host can delay by seconds; the deadline only catches a hang.
-                let started = tokio::time::timeout(std::time::Duration::from_secs(60), async {
-                    while !checked(tokio::fs::try_exists(&marker).await) {
-                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                    }
-                })
-                .await;
-                if started.is_err() {
-                    // A listener here means another test took the released port, so the
-                    // provider's first version request succeeded and it never started adb.
-                    let taken = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok();
-                    panic!("fake adb binary not started within 60 s; port {port} taken by another listener: {taken}");
-                }
+                checked(
+                    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                        while !checked(tokio::fs::try_exists(&marker).await) {
+                            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        }
+                    })
+                    .await,
+                );
                 let script = checked(Script::from_yaml(&base_script(27, vec![]).to_string()));
                 let server = checked(
                     FakeAdbServer::start(
