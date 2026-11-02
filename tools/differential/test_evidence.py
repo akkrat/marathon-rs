@@ -119,12 +119,13 @@ class EvidenceTests(unittest.TestCase):
         for lines in [[wait, admission, progress, final], [admission, progress, wait, final]]:
             with self.subTest(lines=lines):
                 self.assertEqual(vc.normalize(''.join(lines).encode(), values, 'native', 'stdout'), canonical)
-        # Another owner's barrier does not close the window; this owner's barrier does, because
-        # Kotlin's await logs only after the work, which logs its wait first, has completed.
-        canonical = vc.normalize((admission + wait + other_barrier + final).encode(), values, 'native', 'stdout')
-        self.assertEqual(vc.normalize((admission + other_barrier + wait + final).encode(), values, 'native', 'stdout'), canonical)
-        for lines in [[admission, progress, final, wait], [wait, progress, admission, final],
-                      [admission, barrier, wait, final], [admission, progress, barrier, wait, final]]:
+        # A barrier line names no batch, and Kotlin's await logs outside its lock, so an await that
+        # began before this admission may log before the wait: barriers do not close the window.
+        for b in [barrier, other_barrier]:
+            with self.subTest(barrier=b):
+                canonical = vc.normalize((admission + wait + b + final).encode(), values, 'native', 'stdout')
+                self.assertEqual(vc.normalize((admission + b + wait + final).encode(), values, 'native', 'stdout'), canonical)
+        for lines in [[admission, progress, final, wait], [wait, progress, admission, final]]:
             with self.subTest(lines=lines), self.assertRaisesRegex(e.Invalid, 'admission window'):
                 vc.normalize(''.join(lines).encode(), values, 'native', 'stdout')
 

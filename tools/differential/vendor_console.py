@@ -69,25 +69,22 @@ def normalize(data, values, implementation, stream, facts=None):
     # submit logs its admission after launching an independent artifact worker
     # (ArtifactProcessor.start: scope.launch), which logs its queue wait whenever
     # it gets a transfer permit: just before that admission line, or anywhere
-    # after it until the work completes, between the caller's later lines. The
-    # worker logs the wait before running the work (processWorker), and both the
-    # owner's barrier (await) and finalization log only after the work completes,
-    # so the window ends at the first of them. Each wait line moves to just after
-    # its own batch's admission; it must lie in that window, and every other stdout
-    # line keeps its order.
+    # after it until finalization joins the work, between the caller's later
+    # lines. The owner's barrier line cannot bound the window: await snapshots the
+    # pending work under the lock but logs outside it, and the line names no batch,
+    # so an await that began before this admission may log between the admission
+    # and the wait. Each wait line moves to just after its own batch's admission;
+    # it must lie in that window, and every other stdout line keeps its order.
     admission = ' <c.m.marathon.apple.ArtifactProcessor> Artifact admission for '
     waiting = ' <c.m.marathon.apple.ArtifactProcessor> Artifact queue wait for '
     finalization = ' <c.m.marathon.apple.ArtifactProcessor> Artifact finalization took '
-    barrier = ' <c.m.marathon.apple.ArtifactProcessor> Artifact barrier for '
     batch = lambda line, marker: line.split(marker, 1)[1].split(':', 1)[0].split(' took ', 1)[0]
     for line in [line for line in result if waiting in line]:
         key = batch(line, waiting)
         at = result.index(line)
         owners = [i for i, other in enumerate(result) if admission in other and batch(other, admission) == key]
         e.require(len(owners) == 1, 'artifact queue wait without exactly one admission')
-        owner = key.split(', batch ', 1)[0]
-        end = next((i for i, other in enumerate(result) if i > owners[0] and (finalization in other or (
-            barrier in other and other.split(barrier, 1)[1].rsplit(' took ', 1)[0] == owner))), len(result))
+        end = next((i for i, other in enumerate(result) if finalization in other), len(result))
         e.require(at + 1 == owners[0] or owners[0] < at < end, 'artifact queue wait outside its admission window')
         del result[at]
         result.insert(owners[0] if at < owners[0] else owners[0] + 1, line)
