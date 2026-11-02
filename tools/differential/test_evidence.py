@@ -112,12 +112,19 @@ class EvidenceTests(unittest.TestCase):
         admission = p + 'Artifact admission for SERIAL, batch B took 0 ms; outstanding=1, on worker 127.0.0.1:1=1\n'
         wait = p + 'Artifact queue wait for SERIAL, batch B: 0 ms\n'
         final = p + 'Artifact finalization took 0 ms\n'
+        barrier = p + 'Artifact barrier for SERIAL took 0 ms\n'
+        other_barrier = p + 'Artifact barrier for OTHER took 0 ms\n'
         progress = '00% | [omni]-[SERIAL] a.B#c passed\n'
         canonical = vc.normalize((admission + wait + progress + final).encode(), values, 'native', 'stdout')
         for lines in [[wait, admission, progress, final], [admission, progress, wait, final]]:
             with self.subTest(lines=lines):
                 self.assertEqual(vc.normalize(''.join(lines).encode(), values, 'native', 'stdout'), canonical)
-        for lines in [[admission, progress, final, wait], [wait, progress, admission, final]]:
+        # Another owner's barrier does not close the window; this owner's barrier does, because
+        # Kotlin's await logs only after the work, which logs its wait first, has completed.
+        canonical = vc.normalize((admission + wait + other_barrier + final).encode(), values, 'native', 'stdout')
+        self.assertEqual(vc.normalize((admission + other_barrier + wait + final).encode(), values, 'native', 'stdout'), canonical)
+        for lines in [[admission, progress, final, wait], [wait, progress, admission, final],
+                      [admission, barrier, wait, final], [admission, progress, barrier, wait, final]]:
             with self.subTest(lines=lines), self.assertRaisesRegex(e.Invalid, 'admission window'):
                 vc.normalize(''.join(lines).encode(), values, 'native', 'stdout')
 
