@@ -345,14 +345,20 @@ fn loopback_start_server_retries_version_after_fake_binary() {
             let port = checked(listener.local_addr()).port();
             drop(listener);
             let startup = tokio::spawn(async move {
-                checked(
-                    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                        while !checked(tokio::fs::try_exists(&marker).await) {
-                            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                        }
-                    })
-                    .await,
-                );
+                // Real time: the provider spawns the fake binary as a process, which a loaded
+                // host can delay by seconds; the deadline only catches a hang.
+                let started = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while !checked(tokio::fs::try_exists(&marker).await) {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await;
+                if started.is_err() {
+                    // A listener here means another test took the released port, so the
+                    // provider's first version request succeeded and it never started adb.
+                    let taken = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok();
+                    panic!("fake adb binary not started within 60 s; port {port} taken by another listener: {taken}");
+                }
                 let script = checked(Script::from_yaml(&base_script(27, vec![]).to_string()));
                 let server = checked(
                     FakeAdbServer::start(
