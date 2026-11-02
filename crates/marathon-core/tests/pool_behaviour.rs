@@ -238,6 +238,20 @@ fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() 
     scheduling_test(|h| {
         Box::pin(async move {
             let fail = Gate::default();
+            // The four failures resume on vendor workers in any order and at any speed; a retry
+            // that finished before the last failure arrived would free its device for a second pick.
+            let release = Gate::default();
+            let pass_on_release = {
+                let release = release.clone();
+                on_execute(move |e| {
+                    let release = release.clone();
+                    async move {
+                        release.wait_in(&e.context).await?;
+                        e.result.complete(Ok(e.device.report(&e.batch, TestStatus::Passed)));
+                        Ok(())
+                    }
+                })
+            };
             let ready = (0..4).map(|_| Gate::default()).collect::<Vec<_>>();
             let picked = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
             let observed = picked.clone();
@@ -260,10 +274,15 @@ fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() 
                 ));
             }
             let idle = [
-                TestDevice::new("A-first", Some("A"), Some(prepare_on(&ready[0])), report_passed()),
-                TestDevice::new("null", None, Some(prepare_on(&ready[1])), report_passed()),
-                TestDevice::new("B", Some("B"), Some(prepare_on(&ready[2])), report_passed()),
-                TestDevice::new("A-last", Some("A"), Some(prepare_on(&ready[3])), report_passed()),
+                TestDevice::new(
+                    "A-first",
+                    Some("A"),
+                    Some(prepare_on(&ready[0])),
+                    pass_on_release.clone(),
+                ),
+                TestDevice::new("null", None, Some(prepare_on(&ready[1])), pass_on_release.clone()),
+                TestDevice::new("B", Some("B"), Some(prepare_on(&ready[2])), pass_on_release.clone()),
+                TestDevice::new("A-last", Some("A"), Some(prepare_on(&ready[3])), pass_on_release),
             ];
             for device in &idle {
                 pool.add(device);
@@ -274,6 +293,9 @@ fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() 
                 h.run_current().await;
             }
             fail.open();
+            h.run_current().await;
+            assert_eq!(&picked.borrow()[4..], &["null", "B", "A-first", "A-last"]);
+            release.open();
             h.await_pool_termination().await;
             assert_eq!(&picked.borrow()[4..], &["null", "B", "A-first", "A-last"]);
             assert!(pool.aggregate_result().await.unwrap());
