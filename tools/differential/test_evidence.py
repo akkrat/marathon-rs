@@ -105,6 +105,22 @@ class EvidenceTests(unittest.TestCase):
             with self.subTest(present=present), self.assertRaisesRegex(e.Invalid, 'sshpass warning'):
                 vc.normalize(data, {}, 'native', 'stderr', {vc.SSHPASS_FACT: present})
 
+    def test_artifact_queue_wait_moves_only_within_its_admission_window(self):
+        import vendor_console as vc
+        values = dict(sandbox='/sandbox', safe_serial='SAFE', serial='SERIAL', port='1')
+        p = 'D 00:00:00.000 [t] <c.m.marathon.apple.ArtifactProcessor> '
+        admission = p + 'Artifact admission for SERIAL, batch B took 0 ms; outstanding=1, on worker 127.0.0.1:1=1\n'
+        wait = p + 'Artifact queue wait for SERIAL, batch B: 0 ms\n'
+        final = p + 'Artifact finalization took 0 ms\n'
+        progress = '00% | [omni]-[SERIAL] a.B#c passed\n'
+        canonical = vc.normalize((admission + wait + progress + final).encode(), values, 'native', 'stdout')
+        for lines in [[wait, admission, progress, final], [admission, progress, wait, final]]:
+            with self.subTest(lines=lines):
+                self.assertEqual(vc.normalize(''.join(lines).encode(), values, 'native', 'stdout'), canonical)
+        for lines in [[admission, progress, final, wait], [wait, progress, admission, final]]:
+            with self.subTest(lines=lines), self.assertRaisesRegex(e.Invalid, 'admission window'):
+                vc.normalize(''.join(lines).encode(), values, 'native', 'stdout')
+
     def test_mode(self):
         self.reject_changed_tree(lambda: (self.tree / 'log').chmod(0o700))
 

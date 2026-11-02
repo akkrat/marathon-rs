@@ -66,16 +66,25 @@ def normalize(data, values, implementation, stream, facts=None):
         elif re.match(r'^\d+% \| \[omni\]-\[',line):
             line = line.replace('['+values['serial']+']','[{serial}]')
         result.append(line)
-    # submit logs its admission after launching an independent artifact worker.
-    # The worker can log its queue wait on either side of that admission. Only
-    # this adjacent pair is unordered; all other stdout bytes retain order.
+    # submit logs its admission after launching an independent artifact worker
+    # (ArtifactProcessor.start: scope.launch), which logs its queue wait whenever
+    # it gets a transfer permit: just before that admission line, or anywhere
+    # after it until finalization joins the work, between the caller's later
+    # lines. Each wait line moves to just after its own batch's admission; it must
+    # lie in that window, and every other stdout line keeps its order.
     admission = ' <c.m.marathon.apple.ArtifactProcessor> Artifact admission for '
     waiting = ' <c.m.marathon.apple.ArtifactProcessor> Artifact queue wait for '
-    for i in range(len(result)-1):
-        if ((admission in result[i] and waiting in result[i+1]) or
-                (waiting in result[i] and admission in result[i+1])):
-            pair = result[i:i+2]
-            result[i:i+2] = sorted(pair,key=lambda line: waiting in line)
+    finalization = ' <c.m.marathon.apple.ArtifactProcessor> Artifact finalization took '
+    batch = lambda line, marker: line.split(marker, 1)[1].split(':', 1)[0].split(' took ', 1)[0]
+    for line in [line for line in result if waiting in line]:
+        key = batch(line, waiting)
+        at = result.index(line)
+        owners = [i for i, other in enumerate(result) if admission in other and batch(other, admission) == key]
+        e.require(len(owners) == 1, 'artifact queue wait without exactly one admission')
+        end = next((i for i, other in enumerate(result) if finalization in other), len(result))
+        e.require(at + 1 == owners[0] or owners[0] < at < end, 'artifact queue wait outside its admission window')
+        del result[at]
+        result.insert(owners[0] if at < owners[0] else owners[0] + 1, line)
     # initialize launches the independent update consumer before returning.
     # Its two-line update event can precede or follow the caller's timing log.
     timing = ' <Timings> Device provider initialized in '
