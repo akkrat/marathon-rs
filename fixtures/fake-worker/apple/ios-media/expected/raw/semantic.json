@@ -1,0 +1,154 @@
+{
+  "artifact_content": [
+    {
+      "name": "SCRIPTED",
+      "sha256": "03c1a436daf6ccc9e0059390f945bab3724ea796fe41b8c04fd6ecf42856c1a9",
+      "size": 64
+    },
+    {
+      "name": "app.min.css",
+      "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+      "size": 20391
+    },
+    {
+      "name": "app.min.js",
+      "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+      "size": 327442
+    },
+    {
+      "name": "chart.css",
+      "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+      "size": 1662
+    },
+    {
+      "name": "chart.js",
+      "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+      "size": 19868
+    },
+    {
+      "name": "iframeResizer.contentWindow.min.js",
+      "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+      "size": 13616
+    },
+    {
+      "name": "root.json",
+      "sha256": "83733912528b091bea8a64269af56137d9b0abe00666a31fb76ecf35a551b7dd",
+      "size": 1094
+    },
+    {
+      "name": "tests-0.json",
+      "sha256": "ae29e930143f0aca43be3acc3cd688a11678b007b03897135c514273db6c0ba9",
+      "size": 230
+    }
+  ],
+  "command_counts": {
+    "architecture": 1,
+    "boot": 1,
+    "cat-device-plist": 5,
+    "cat-pid": 5,
+    "chmod": 2,
+    "device-log": 1,
+    "device-log-stop": 1,
+    "displays": 1,
+    "environment": 1,
+    "ffmpeg-version": 1,
+    "fs-ln": 1,
+    "fs-mkdir": 7,
+    "fs-mv": 1,
+    "fs-rm-R": 1,
+    "fs-rm-rf": 4,
+    "fs-test-f": 1,
+    "getenv-home": 1,
+    "getenv-simulator_model_identifier": 1,
+    "getenv-simulator_runtime_build_version": 1,
+    "getenv-simulator_runtime_version": 1,
+    "getenv-simulator_version_info": 1,
+    "inventory": 1,
+    "keyboard-add": 1,
+    "keyboard-set": 1,
+    "lipo-archs": 2,
+    "nm-objc": 1,
+    "nm-swift": 1,
+    "nohup": 1,
+    "record-cleanup": 1,
+    "record-stop": 1,
+    "rsync-receive": 3,
+    "rsync-send": 3,
+    "sdk-iphonesimulator-platform-path": 1,
+    "shutdown": 1,
+    "springboard-16plus": 2,
+    "transcode-h264": 1,
+    "write-file": 1,
+    "xcode-test-ios": 1,
+    "xcode-version": 1,
+    "xcresult-id": 1,
+    "xcresult-root": 1
+  },
+  "devices": {
+    "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE": {
+      "available": true,
+      "installed": [
+        "com.malinskiy.marathon.ios.sample-app"
+      ],
+      "keyboard": false,
+      "state": "Shutdown"
+    }
+  },
+  "junit": {
+    "errors": 0,
+    "failures": 1,
+    "skipped": 0,
+    "tests": 1
+  },
+  "media": [
+    {
+      "format": "log",
+      "sha256": "3ae9da98f1d4e29f517fcdb94a31838f408d2f9950771a457d6f7368454bbfb7",
+      "size": 51
+    },
+    {
+      "codec": "h264",
+      "format": "mp4",
+      "height": 852,
+      "sha256": "c1bff12a15fe35f6f286419612e5dc535d7869a146b871719ded0a1a8574eef2",
+      "size": 3008,
+      "width": 568
+    }
+  ],
+  "report_families": {
+    "allure-results": 2,
+    "bill": 1,
+    "device-files": 3,
+    "device-logs": 1,
+    "devices": 1,
+    "html": 10,
+    "logs": 1,
+    "test_result": 2,
+    "tests": 1,
+    "video": 1
+  },
+  "sessions": [
+    {
+      "discovery": false,
+      "selected": [
+        "sample_appUITests/FailingTests/testAlwaysFailing"
+      ],
+      "state": "finished"
+    }
+  ],
+  "tcc_writes": 0,
+  "tests": [
+    {
+      "attachment_types": [
+        "LOG",
+        "VIDEO"
+      ],
+      "class": "FailingTests",
+      "device": "worker-1",
+      "failure": "scripted enriched failure\nfile:///fixture/SmokeTests:1",
+      "method": "testAlwaysFailing",
+      "package": "sample_appUITests",
+      "status": "FAILURE"
+    }
+  ]
+}

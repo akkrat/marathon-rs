@@ -1,0 +1,32 @@
+{"case":"T03","command":["printf","<%s>\\n","plain"],"wire":"printf '<%s>\\n' plain"}
+{"case":"T03","command":["printf","<%s>\\n","a b"],"wire":"printf '<%s>\\n' 'a b'"}
+{"case":"T03","command":["printf","<%s>\\n","$HOME"],"wire":"printf '<%s>\\n' '$HOME'"}
+{"case":"T03","command":["printf","<%s>\\n","it's"],"wire":"printf '<%s>\\n' 'it\\'s'"}
+{"case":"T03","command":["printf","<%s>\\n","'already quoted'"],"wire":"printf '<%s>\\n' 'already quoted'"}
+{"case":"T03","command":["printf","<%s>\\n","\"double quoted\""],"wire":"printf '<%s>\\n' \"double quoted\""}
+{"case":"T03","command":["printf","<%s>\\n","FOO=bar"],"wire":"printf '<%s>\\n' 'FOO=bar'"}
+{"case":"T03","command":["printf","<%s>\\n","/p-a.t,h:+@x"],"wire":"printf '<%s>\\n' /p-a.t,h:+@x"}
+{"case":"T03","command":["printf","<%s>\\n","'half"],"wire":"printf '<%s>\\n' '\\'half'"}
+{"case":"T03","command":["printf","<%s>\\n","half'"],"wire":"printf '<%s>\\n' 'half\\''"}
+{"case":"T03","command":["printf","<%s>\\n","'mixed\""],"wire":"printf '<%s>\\n' '\\'mixed\"'"}
+{"case":"T03","command":["printf","<%s>\\n","a\"b"],"wire":"printf '<%s>\\n' 'a\"b'"}
+{"case":"T03","command":["printf","<%s>\\n","~"],"wire":"printf '<%s>\\n' '~'"}
+{"case":"T03","command":["printf","<%s>\\n","semi;colon"],"wire":"printf '<%s>\\n' 'semi;colon'"}
+{"case":"T03","command":["printf","<%s>\\n",""],"wire":"printf '<%s>\\n' "}
+{"case":"T03","command":["printf","<%s>\\n","tab\tx"],"wire":"printf '<%s>\\n' tab\tx"}
+{"case":"T03","command":["printf","<%s>\\n","back\\slash"],"wire":"printf '<%s>\\n' 'back\\slash'"}
+{"case":"T03","command":["printf","<%s>\\n","star*"],"wire":"printf '<%s>\\n' 'star*'"}
+{"case":"T03","command":["printf","<%s>\\n","$(echo injected)"],"wire":"printf '<%s>\\n' '$(echo injected)'"}
+{"case":"extra","command":["'"],"wire":"'"}
+{"case":"extra","command":["\""],"wire":"\""}
+{"case":"extra","command":["''"],"wire":"''"}
+{"case":"extra","command":["\"'"],"wire":"'\"\\''"}
+{"case":"extra","command":["'\""],"wire":"'\\'\"'"}
+{"case":"extra","command":["x'y"],"wire":"'x\\'y'"}
+{"case":"extra","command":["&"],"wire":"'&'"}
+{"case":"extra","command":["sleep","100000","&"],"wire":"sleep 100000 '&'"}
+{"case":"extra","command":["sh","-c","echo start; seq 1 100000 1>&2; echo end"],"wire":"sh -c 'echo start; seq 1 100000 1>&2; echo end'"}
+{"case":"extra","command":["echo","Hello world"],"wire":"echo 'Hello world'"}
+{"case":"extra","command":["a","","b"],"wire":"a  b"}
+{"case":"extra","command":["dollar$","#hash","[x]","!bang","a>b","a<b","a|b","{x}","(y)","?q","~/t"],"wire":"'dollar$' '#hash' '[x]' '!bang' 'a>b' 'a<b' 'a|b' '{x}' '(y)' '?q' '~/t'"}
+{"case":"extra","command":["ñ ü"],"wire":"'ñ ü'"}

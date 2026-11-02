@@ -1,0 +1,1658 @@
+{
+  "format": "marathon-differential/registry@1",
+  "source": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "profile": "registered-vendors",
+  "profiles": [
+    "macos-arm64",
+    "linux-x86_64"
+  ],
+  "adapters": {
+    "local": {
+      "kind": "portable",
+      "contract": "tools/differential/contracts/local.json",
+      "golden": "fixtures/differential/portable/local/jvm-v1"
+    },
+    "parse": {
+      "kind": "portable",
+      "contract": "tools/differential/contracts/parse.json",
+      "golden": "fixtures/differential/portable/parse/jvm-v1"
+    },
+    "ios-smoke": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-ios-smoke.json",
+      "golden": "fixtures/differential/vendors/ios-smoke/jvm-c95b2128",
+      "alternates": [
+        "fixtures/differential/vendors/ios-smoke/jvm-c95b2128-b"
+      ]
+    },
+    "ios-media": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-ios-media.json",
+      "golden": "fixtures/differential/vendors/ios-media/jvm-c95b2128"
+    },
+    "ios-screenshot": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-ios-screenshot.json",
+      "golden": "fixtures/differential/vendors/ios-screenshot/jvm-c95b2128"
+    },
+    "macos-smoke": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-macos-smoke.json",
+      "golden": "fixtures/differential/vendors/macos-smoke/jvm-c95b2128"
+    },
+    "android-smoke": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-android-smoke.json",
+      "golden": "fixtures/differential/vendors/android-smoke/jvm-c95b2128"
+    },
+    "android-two-devices": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-android-two-devices.json",
+      "golden": "fixtures/differential/vendors/android-two-devices/jvm-c95b2128"
+    },
+    "android-remote": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-android-remote.json",
+      "golden": "fixtures/differential/vendors/android-remote/jvm-c95b2128"
+    },
+    "ios-ignore": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-ios-ignore.json",
+      "golden": "fixtures/differential/vendors/ios-ignore/jvm-c95b2128"
+    },
+    "ios-parse": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-ios-parse.json",
+      "golden": "fixtures/differential/vendors/ios-parse/jvm-c95b2128"
+    },
+    "macos-ignore": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-macos-ignore.json",
+      "golden": "fixtures/differential/vendors/macos-ignore/jvm-c95b2128"
+    },
+    "macos-parse": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-macos-parse.json",
+      "golden": "fixtures/differential/vendors/macos-parse/jvm-c95b2128"
+    },
+    "android-ignore": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-android-ignore.json",
+      "golden": "fixtures/differential/vendors/android-ignore/jvm-c95b2128"
+    },
+    "android-parse": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-android-parse.json",
+      "golden": "fixtures/differential/vendors/android-parse/jvm-c95b2128"
+    },
+    "ios-pass": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-ios-pass.json",
+      "golden": "fixtures/differential/vendors/ios-pass/jvm-c95b2128"
+    },
+    "macos-pass": {
+      "kind": "vendor",
+      "contract": "tools/differential/contracts/vendor-macos-pass.json",
+      "golden": "fixtures/differential/vendors/macos-pass/jvm-c95b2128"
+    }
+  },
+  "factory_entry_sha256": "4b0026f45239386b1a4ed59e5730320a7f0f45e1148b280f7387d850a20efad7",
+  "factory_slots_sha256": "175b21a86df6df39f3020d15256534ccf470addce157bf5ac3830b3b7f40ba89",
+  "evidence_inventory": {
+    "fixtures/differential/verification/manifest.json": "55a6086b2b36e3343d584d4891e058b17fda09f52de5ab9ac02544f05324c981",
+    "fixtures/differential/vendor-verification-c95b2128/manifest.json": "25c2c9c0eff8d034047e0ea08d3a288adc78708d233e0e7420a8b3e869192e49",
+    "tools/differential/release-variants.json": "ca6aa708bd24450453c9687e582591f58b8318962c5e9dc77dcea754fbd27cb7",
+    "fixtures/differential/portable/local/jvm-v1/evidence.json": "d464c64ccba23dd43aae028e2876f21d685daf4c86ce7de592c0e73ee56cf25f",
+    "fixtures/differential/portable/parse/jvm-v1/evidence.json": "b27d894dd5046c20122854ef0779d672c790ab5788405e8d42452abad67652a1",
+    "fixtures/differential/vendors/ios-smoke/jvm-c95b2128/evidence.json": "9df2407541338180a39955805ab039931c65c2ec6fc1544b07bb8c3ce6e1a241",
+    "fixtures/differential/vendors/ios-media/jvm-c95b2128/evidence.json": "07f910b33d8d288c7c7b0cb56875f60e77cf49f8627e4e42d625892b68f3343d",
+    "fixtures/differential/vendors/ios-screenshot/jvm-c95b2128/evidence.json": "0094854a165b0b2da9fd82cd579993fb26e2e7c74f2d212e40012db3b31ca367",
+    "fixtures/differential/vendors/macos-smoke/jvm-c95b2128/evidence.json": "9103812dcc743f614212872b4c4a626fb8f29e46829846c919d714106a43a389",
+    "fixtures/differential/vendors/android-smoke/jvm-c95b2128/evidence.json": "39b8fdd6a6aa5169613a6e1649b21af09ead2bcfb2ec05c6772549e125885e8a",
+    "fixtures/differential/vendors/android-two-devices/jvm-c95b2128/evidence.json": "b0fa614bc58014394f13432956301e449384766c981fc8ed3838a690e773095f",
+    "fixtures/differential/vendors/android-remote/jvm-c95b2128/evidence.json": "98b9ed46ca9a46bce1031e5fd19306f48647562ec196ac1dcd866e591bebf5b4",
+    "fixtures/differential/vendors/ios-ignore/jvm-c95b2128/evidence.json": "8cbc444ceea0d1a7285af63336ed842b949d5eb0ff823fb40fc74f36e949412e",
+    "fixtures/differential/vendors/ios-parse/jvm-c95b2128/evidence.json": "2683d58ad457d851660d91bc001e8661650d9748a1e7f6e51dc2b18f479760fc",
+    "fixtures/differential/vendors/macos-ignore/jvm-c95b2128/evidence.json": "4328c95de1b7dbb89f88f537c393ebda3d98b52625fcc075b6156540a4b5c0ba",
+    "fixtures/differential/vendors/macos-parse/jvm-c95b2128/evidence.json": "d74479fc73e3af3762c0c1f56f9e6aa2bcb8c4adb718608844dab63e00db88f5",
+    "fixtures/differential/vendors/android-ignore/jvm-c95b2128/evidence.json": "5c40390242601e075e6841eddc1f1539cb89343205a0697e5ecbaf19f4b4d10d",
+    "fixtures/differential/vendors/android-parse/jvm-c95b2128/evidence.json": "70cc983073a84ea676ef28a8df3d39db29cd2c4fb81aefbb88ece850a5d0bcf3",
+    "fixtures/differential/vendors/ios-pass/jvm-c95b2128/evidence.json": "5b7463ce1d92fdbb4db5f7904d731565f5f625eb8cb73d9967019a452deda3f5",
+    "fixtures/differential/vendors/macos-pass/jvm-c95b2128/evidence.json": "4833e202f23154ffde45e0a821537c3b9205dfb4a6999c5d632de79b891a4dcc",
+    "fixtures/differential/vendors/ios-smoke/jvm-c95b2128-b/evidence.json": "c304bedc2e6a7fc0278a986967aba7be06e76b4176f55be4e999c111f41a19e4"
+  },
+  "legacy_inventory": {
+    "fixtures/differential/vendor-verification/manifest.json": "4a43d9b1dfdac31e085abae4c7fa4c581c526e44fd2fb3e8138e91fb5724ab28",
+    "fixtures/differential/vendors/android-ignore/jvm-v2/evidence.json": "6e69f713f8c1870dc08cfdf2d59e8bf4b34f52b44b9e1ec1b6ffec5d9b72393f",
+    "fixtures/differential/vendors/android-parse/jvm-v2/evidence.json": "3485b4c947db7b6c9b0c900776e1ae22b301aa135a03e17c716d449c83491a34",
+    "fixtures/differential/vendors/android-remote/jvm-v2/evidence.json": "b18a9a0c5808fb78b6e383faec5591145f6902017fa25085d566d1034ff79c0d",
+    "fixtures/differential/vendors/android-smoke/jvm-v2/evidence.json": "755962ed47d1708c837708820b8781f69497784be8722f956cc202b837e41d8b",
+    "fixtures/differential/vendors/android-two-devices/jvm-v2/evidence.json": "08dbaa28c682cd5c22be4849fcf4241f5a9b72a5f32bf11ea651c27e86f3196f",
+    "fixtures/differential/vendors/ios-ignore/jvm-v2/evidence.json": "e81f8c8079330c6645f3c0367db92d9ebb4005eed0bfe487ffa8f649cc7fae5a",
+    "fixtures/differential/vendors/ios-media/jvm-v2/evidence.json": "bd94cfade30de0e58a4e038c99f795902e20b83e5056ca721a295f9c1ac1f20b",
+    "fixtures/differential/vendors/ios-parse/jvm-v2/evidence.json": "4106aef80389f4bf0ea3dbaa8bf5906fe3536c2d1162ad17174f5c1f33143281",
+    "fixtures/differential/vendors/ios-pass/jvm-v2/evidence.json": "0dfcc36904615150d39aae8348f4e02b4b1888e675928a9fb14d475783a46e0c",
+    "fixtures/differential/vendors/ios-screenshot/jvm-v2/evidence.json": "6eb05d7817bed03f9b6027c2bc62a0c3e3244f1cc543937b90385b32831acb9d",
+    "fixtures/differential/vendors/ios-smoke/jvm-v2/evidence.json": "e388aca7af569a640143dd2d3408d586af91b020bf52ce143113f2060a5ca470",
+    "fixtures/differential/vendors/macos-ignore/jvm-v2/evidence.json": "2f543feed4b006012711cf200b2fc160a42dc16e506ddca117933b0cd0ea407d",
+    "fixtures/differential/vendors/macos-parse/jvm-v2/evidence.json": "481bdb8c36550ba6c492e1deb974193553a5b438a67bbde698ba264108f39ce0",
+    "fixtures/differential/vendors/macos-pass/jvm-v2/evidence.json": "1f5208c78878be8f50b0dec49438de21e837d3342492daa950b3a40841cbbc8a",
+    "fixtures/differential/vendors/macos-smoke/jvm-v2/evidence.json": "57d252fc1f92bfb13bb24936a5bf1f303c49da44cf3d720aac09c2f9ad7d6b9a",
+    "fixtures/fake-adb/adb-requests/devices.yaml": "65f5c5c824bdbcb3129e6e7e57dde8787ef5aa73b4b01221c32f7d49281a86be",
+    "fixtures/fake-adb/adb-requests/kotlin-transcript.jsonl": "2b2a6ef6cdc13e990a77d0ff5fec48e568802a40d7fd100c82c0354f9958c9bb",
+    "fixtures/fake-adb/android-two-devices/expected/marathon.stderr": "c1739635e776101158a34546dcf37b5baf5047964fd29d84dbff28e650bed3b7",
+    "fixtures/fake-adb/android-two-devices/expected/marathon.stdout": "907616581a28eb025a5a81c01ddb3b9a5fe9b9c8c028c83602b18912342e6891",
+    "fixtures/fake-adb/android-two-devices/expected/report-manifest.json": "1980575614146c1f9058373c6a9879e23cf9b770d637c72db01dfffba0767ca5",
+    "fixtures/fake-adb/android-two-devices/expected/results.json": "5d04f29138fd7d95e6ef182b24943ad89a031298fc5d6f1c35ad4e771465bf7c",
+    "fixtures/fake-adb/android-two-devices/expected/transcript.jsonl": "d43c6e0b08dbeb086666263b3fa79fe2ae2a207fe80e62ba5cc12827209c2387",
+    "fixtures/fake-worker/apple/ios-media/expected/normalized/ready.json": "653296a48ad4364af49422bc84e66e9e3f904115e9be9ca78492e641aafecb19",
+    "fixtures/fake-worker/apple/ios-media/expected/normalized/semantic.json": "22969d23171b77c69dc3edc46673e567fc7f0468e1a04c60bdabfe48dcd042d9",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/host-argv.jsonl": "183f8290143eb55564b491a0aa073cf6117ceb1673a5b47d63739f5e628e0c4f",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/manifest.json": "554a444cd60d9c062baaf043e596f87312448da5f3337377d686a481b9cc3ebc",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/media.json": "ff6990e3e2c09338ba9c865062bf0d50898bfb6d5eb84691136fa5008ec69112",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/media/0": "3ae9da98f1d4e29f517fcdb94a31838f408d2f9950771a457d6f7368454bbfb7",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/media/1": "c1bff12a15fe35f6f286419612e5dc535d7869a146b871719ded0a1a8574eef2",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/oracle-manifest.json": "27afe31ec04fb914737360704e6c9134b4ac27df5d836d864d716b053bc53510",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/pushed-xctestrun.json": "1c4d7f3d651aca7c757b69c5e3ed39966dee922bfc1ff2488eb6ec7e88d95f13",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/ready.json": "704739d321b7d4fd6ec3c78d8b602a00c9f2bec1978ea2d4d126d37c978ee633",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/report-manifest.json": "725321508c47d391ab61f771505f4371f6ed7b6e865cf95ea929223a83cba599",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/results.json": "2f8d96b8530dc63ae021862f64a7a0467486ae5e1e0055e79e9f1e92ea44a626",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/semantic.json": "22969d23171b77c69dc3edc46673e567fc7f0468e1a04c60bdabfe48dcd042d9",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/state.json": "a7eabcf34865b57dd89ce0e91002e2e9f0539e9f15eb92a5c91f4494aea3d2c1",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/stderr": "9832f8edc47aaf6eae8bb13b42f51c1689fffa7697112ba2d7279a940b1667b1",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/stdout": "c50161687c9addab9238535bda98ea1f057b5d191744db184efdb14fc5fe613a",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/transcript.jsonl": "10789c586c965f48870b75740ec9ae1f3b47b027dcafb8e0a2bf05de6c2147a6",
+    "fixtures/fake-worker/apple/ios-media/expected/raw/worker.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/normalized/ready.json": "0708c93c5108280ed405c3b277bf359a44d6b4efdb664b8ba59cc7d0951c41a0",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/normalized/semantic.json": "68984aed0b6fc8b67090c1e7980ef45c2955c8b960bc1cda69739782662f94df",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/host-argv.jsonl": "a04e7e9fc1369e60ded2ce7a4dcd4d54b299a6e69bc03be697e9dc0045c4fbdf",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/manifest.json": "aea71bc2e6ee02849b79c3c7621f1a55d974d04e29389ad61f60f08e88915ba0",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/media.json": "53b2a063d6091a0f3e640c0013eb5bb27b682b2eedc18326b5fa26c5e88abe69",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/media/0": "e60b6f8f04234e02250374887ca79ac0775b51f2c578b7fbd7eb887e30a0b495",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/oracle-manifest.json": "bf8a50df270201ec93b39fb542507cfb04db0c549febc68339180f381c2c58bc",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/pushed-xctestrun.json": "6e20bbb615a81e395ff2d616a5a7d2027ad7a2f393792d8da3c5e7832c35eb27",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/ready.json": "5d010b4d1e61d351e8b9c403689fe1deb9813c650276654be202170c4ae354e8",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/report-manifest.json": "3e399ec0ad9b8c749eef39054c6162702ab7f1e10dba4d7cbc94b64b2d6006f0",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/results.json": "141961012aadc880753fb1524c011a757a8dc9c8af0b60237357194cd663f976",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/semantic.json": "68984aed0b6fc8b67090c1e7980ef45c2955c8b960bc1cda69739782662f94df",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/state.json": "04749ae1cbe71c9f0b924d4e35f209aedf093b4e6c26a0e962eac64247f1ce3b",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/stderr": "9832f8edc47aaf6eae8bb13b42f51c1689fffa7697112ba2d7279a940b1667b1",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/stdout": "44db556c551eeeba71ebb6f451ea722074fcad5455c3ea8cf89a868cba8021f8",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/transcript.jsonl": "897d60c9ecef88afbb0a40a04e75dff234dda09e5597595b6e66e2f894ff769c",
+    "fixtures/fake-worker/apple/ios-screenshot/expected/raw/worker.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixtures/fake-worker/apple/ios-smoke/expected/normalized/ready.json": "ab4fbd0d6f2d142ccf56d343803a38c684aa311543dad74f30057fa91ff560fd",
+    "fixtures/fake-worker/apple/ios-smoke/expected/normalized/semantic.json": "796f43ffa1c12346a0590209787fc99961a593fa5cc6d43d68fd85acff297b68",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/host-argv.jsonl": "d88f1f2c26f358432240a8d22e4835de22ed38aace6cf94d2b898a4b3ec4f31d",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/manifest.json": "8f4f448768b36acf10ccbba959beffa49c7428e5700a325080b4625d6025ed9e",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/media.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/oracle-manifest.json": "de8d1068d5a68e17f10136193f4026803cce81b9c1ca291b9a4850cda1b3fd48",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/pushed-xctestrun.json": "6e20bbb615a81e395ff2d616a5a7d2027ad7a2f393792d8da3c5e7832c35eb27",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/ready.json": "e351fdfc43d86cb2d636e40c544362f9596317dea679bae70cb188b5f36b2581",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/report-manifest.json": "6215db548d2cb39dcafa936aafdb3522d71f0dd5ff40a15f9609ef9949c9f544",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/results.json": "b520ef33971803ddc603a844c025e4755bdea466291bcc70ca6ba88329087619",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/semantic.json": "796f43ffa1c12346a0590209787fc99961a593fa5cc6d43d68fd85acff297b68",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/state.json": "081020ced5bce25a2f0a9fc25cc9efd18a4c42e79f7078fe4788251c03731a32",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/stderr": "9832f8edc47aaf6eae8bb13b42f51c1689fffa7697112ba2d7279a940b1667b1",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/stdout": "ed0929c509f2e2aed687e9a56fe0017b0db473751af1e42d6dbab685bb6247a0",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/transcript.jsonl": "7c19fa3ea79e4ce4537f0c0eac71a9e5b67f9e598d34f6c33d7ba9a5a3ccd42d",
+    "fixtures/fake-worker/apple/ios-smoke/expected/raw/worker.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixtures/fake-worker/apple/macos-smoke/expected/normalized/ready.json": "e6687e3ac7d90eb9f1744139e962e79211a397858ebef05c9f34a49929387426",
+    "fixtures/fake-worker/apple/macos-smoke/expected/normalized/semantic.json": "674e447e859824b83e626f8536806dccb052af53472ff8769851daef25f3954d",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/host-argv.jsonl": "fb32958ecffbf44ac5e51109cac39e6a9399d5590f356061ff3a7b2cf9d8e06e",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/manifest.json": "1460c3cac2ca50df952f97d7ef86795e1b22a89d4069bcb157dcedb94eab9b65",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/media.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/oracle-manifest.json": "f8f4ee3f24f3b08e1c6c366bbb917225c41e2892316fa939bca2450b020d5dba",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/pushed-xctestrun.json": "dd579bda19c4b026c8bd636d981b42e3ded87fe4aa57ab0351e2c974d017b070",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/ready.json": "28929a7eb805b2afbd5d87e011a875f25ae5926f8ebefc874a5f03762bc74e10",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/report-manifest.json": "4f2ec4dfb4a59fd5a82a236a6778f76f3547420708196f5dae93845de83b5261",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/results.json": "8b7bbcac0032455d9761480eb1ce32b34ebf444e88407f58a5a9c1a257cb7fb8",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/semantic.json": "674e447e859824b83e626f8536806dccb052af53472ff8769851daef25f3954d",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/state.json": "83277cd02ed1308d3c61aa7e4c9a45b81e2950d29dea1fad662541e3ffde91ee",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/stderr": "9832f8edc47aaf6eae8bb13b42f51c1689fffa7697112ba2d7279a940b1667b1",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/stdout": "d0726179110f13a21f4730610e69b7d5f9f12ddc0256570306efb4a4f5269b85",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/transcript.jsonl": "9aae910d75268bf4445a2468614d2133c796e7702d55545002904bdd5fe73257",
+    "fixtures/fake-worker/apple/macos-smoke/expected/raw/worker.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixtures/oracle/fake-simulator/probes.jsonl": "04e4d81c142c20d0f108e4596df805028f38f99df489fe89477986552df3625e",
+    "fixtures/oracle/run-flow/parse-command.jsonl": "97b033f2ec2929c6a0777627e3d703ecba7a16355944f2e8b9839b4437842f7e",
+    "fixtures/oracle/run-flow/probes.jsonl": "2c7984166b4de91067d99e3bca9d8246e5b5997604eff2ced50eaa3c4490876c",
+    "fixtures/oracle/run-flow/scenarios.jsonl": "5c8364120238899a2903cad65c290b6fc11c765f2aee39f5162b515971126b1e"
+  },
+  "cases": [
+    {
+      "id": "core-success",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/success.json": "5353c5ee173b0af1b83d9f1e5517423e3b687f1bbb16435f67fd280acebe09bf"
+      }
+    },
+    {
+      "id": "core-parse",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/parse.json": "72a2c374f73a2ce147aeb4080e2acd848ffce44a814b1ea5b603bfcbb25cf993"
+      }
+    },
+    {
+      "id": "core-filtering-1",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/filtering-1.json": "9d6eb5c20735b342cf635ab09eced6b73946b08767fa78b71e561cc8410d10de"
+      }
+    },
+    {
+      "id": "core-filtering-2",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/filtering-2.json": "f2bc82d19f2f11fefe5193a87cc1fad6fe298eac202d3d5c1bb982dd4e13e1f7"
+      }
+    },
+    {
+      "id": "core-filtering-3",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/filtering-3.json": "b06a7e554cdb07cad9d1a605f13367924252ec2182cdcd74a00990f6b47460e5"
+      }
+    },
+    {
+      "id": "core-disconnect",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/disconnect.json": "6d0a77dd6f3b94ff2224e9ac176ea8d7f40b8c9ad0236f7c1b00d7853a79faaa"
+      }
+    },
+    {
+      "id": "core-all-lost",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/all-lost.json": "59eac484b8605e73d445745215596c84dd34e750e699cf3dc856cfb2c61d9fb6"
+      }
+    },
+    {
+      "id": "core-invalid-config",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/invalid-config.json": "2197c97fbfb8481026613b7a5042e4679aa1e7e4356096e5ed26d357017e50ef"
+      }
+    },
+    {
+      "id": "core-two-pools-disconnect",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/two-pools-disconnect.json": "713b7e7e6dd63b2827f04385fa7486b22842c637e45587361306c64ec36ba927"
+      }
+    },
+    {
+      "id": "core-uncompleted-1",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/uncompleted-1.json": "5c5c17d6536ee5d4c1e808a79227fafbc64b3928706440d885b8ed6f1784ff31"
+      }
+    },
+    {
+      "id": "core-uncompleted-2",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/uncompleted-2.json": "30256697d10f4c539e0d099aa851c4997af1bf7d37146615fed41ab6da782aeb"
+      }
+    },
+    {
+      "id": "core-uncompleted-3",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/uncompleted-3.json": "ac1fee2b46641c5ed13210eb0f5ba2cddfe7dfa1646f26158e5a862599f2e664"
+      }
+    },
+    {
+      "id": "core-uncompleted-4",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/uncompleted-4.json": "8c9195156b6808a4459bb8096fe5cbb2578e0b232cb9a26922daf34e694ac8d0"
+      }
+    },
+    {
+      "id": "core-scripted",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/scripted.json": "3dbce689987f2e0e2cd5b8f248c7998a1011346e30b3e8ba0d12f8bbc39a8539"
+      }
+    },
+    {
+      "id": "core-scripted-failures",
+      "state": "active",
+      "owner": "3.10",
+      "transport": "injected-core",
+      "comparison": "legacy 3.10 outcome/log/report subset; not strict full-manifest certification",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "run_flow_oracle"
+      ],
+      "evidence": [
+        "fixtures/oracle/run-flow/scenarios.jsonl"
+      ],
+      "inputs": {
+        "tools/oracle/scenarios/scripted-failures.json": "1ef324859437683caecce0947c80421204027952e16d6df0286229b13eb5593d"
+      }
+    },
+    {
+      "id": "strict-local",
+      "state": "active",
+      "owner": "7.1",
+      "transport": "actual-local",
+      "comparison": "full manifest and exact bytes; scoped roles",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-test-support",
+        "--test",
+        "differential_local"
+      ],
+      "evidence": [
+        "fixtures/differential/portable/local/jvm-v1"
+      ],
+      "inputs": {
+        "tools/differential/contracts/local.json": "54eb94b07117e4ae3bacfcdf3d9e0a257f68a9915aab8d46a48236f8cbc62713"
+      }
+    },
+    {
+      "id": "strict-parse",
+      "state": "active",
+      "owner": "7.1",
+      "transport": "injected-core",
+      "comparison": "full manifest and exact bytes; scoped roles",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-test-support",
+        "--test",
+        "differential_parse"
+      ],
+      "evidence": [
+        "fixtures/differential/portable/parse/jvm-v1"
+      ],
+      "inputs": {
+        "tools/differential/contracts/parse.json": "60c4a2c6d7ebdea52fb89cec59dbf6a4ca40a8740a279f5acf69b2ff91f1496a"
+      }
+    },
+    {
+      "id": "apple-fake-oracle",
+      "state": "active",
+      "owner": "5.1",
+      "transport": "injected-world",
+      "comparison": "Kotlin fake command/result corpus",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-test-support",
+        "--test",
+        "fake_simulator_worker"
+      ],
+      "evidence": [
+        "fixtures/oracle/fake-simulator/probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/fake-simulator/probes.jsonl": "04e4d81c142c20d0f108e4596df805028f38f99df489fe89477986552df3625e"
+      }
+    },
+    {
+      "id": "apple-world-contracts",
+      "state": "active",
+      "owner": "5.1",
+      "transport": "injected-world-and-loopback-ssh",
+      "comparison": "46 world/SSH wrapper comparisons plus lifecycle contracts; no whole JVM CLI pair",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-test-support",
+        "--test",
+        "world_executor"
+      ],
+      "evidence": [
+        "fixtures/fake-worker/apple/command-catalogue.json"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "adb-client_fake_adb",
+      "state": "active",
+      "owner": "6.1/6.2",
+      "transport": "scripted-adb",
+      "comparison": "independent JVM request/result/state witnesses; not whole CLI",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-adb",
+        "--test",
+        "client_fake_adb"
+      ],
+      "evidence": [
+        "fixtures/fake-adb/adb-requests/kotlin-transcript.jsonl"
+      ],
+      "inputs": {
+        "fixtures/fake-adb/adb-requests/devices.yaml": "65f5c5c824bdbcb3129e6e7e57dde8787ef5aa73b4b01221c32f7d49281a86be"
+      }
+    },
+    {
+      "id": "adb-request_fake_adb",
+      "state": "active",
+      "owner": "6.1/6.2",
+      "transport": "scripted-adb",
+      "comparison": "independent JVM request/result/state witnesses; not whole CLI",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-adb",
+        "--test",
+        "request_fake_adb"
+      ],
+      "evidence": [
+        "fixtures/fake-adb/adb-requests/kotlin-transcript.jsonl"
+      ],
+      "inputs": {
+        "fixtures/fake-adb/adb-requests/devices.yaml": "65f5c5c824bdbcb3129e6e7e57dde8787ef5aa73b4b01221c32f7d49281a86be"
+      }
+    },
+    {
+      "id": "local-local_executor",
+      "state": "active",
+      "owner": "4.1",
+      "transport": "actual-local",
+      "comparison": "existing local executor/file contracts",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-apple",
+        "--test",
+        "local_executor"
+      ],
+      "evidence": [
+        "tools/oracle/local-transport-probes/README.md"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "local-file_bridge",
+      "state": "active",
+      "owner": "4.1",
+      "transport": "actual-local",
+      "comparison": "existing local executor/file contracts",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-apple",
+        "--test",
+        "file_bridge"
+      ],
+      "evidence": [
+        "tools/oracle/local-transport-probes/README.md"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "report-reporters",
+      "state": "active",
+      "owner": "3.9b/3.9c",
+      "transport": "injected-reporter",
+      "comparison": "owner JVM corpus; scoped Allure structure and gradient-only GIF tolerance",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "reporters"
+      ],
+      "evidence": [
+        "fixtures/oracle/html-allure-gif",
+        "fixtures/oracle/reporters"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "report-allure_reporter",
+      "state": "active",
+      "owner": "3.9b/3.9c",
+      "transport": "injected-reporter",
+      "comparison": "owner JVM corpus; scoped Allure structure and gradient-only GIF tolerance",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "allure_reporter"
+      ],
+      "evidence": [
+        "fixtures/oracle/html-allure-gif",
+        "fixtures/oracle/reporters"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "report-html_reporter",
+      "state": "active",
+      "owner": "3.9b/3.9c",
+      "transport": "injected-reporter",
+      "comparison": "owner JVM corpus; scoped Allure structure and gradient-only GIF tolerance",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "html_reporter"
+      ],
+      "evidence": [
+        "fixtures/oracle/html-allure-gif",
+        "fixtures/oracle/reporters"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "report-timeline_reporter",
+      "state": "active",
+      "owner": "3.9b/3.9c",
+      "transport": "injected-reporter",
+      "comparison": "owner JVM corpus; scoped Allure structure and gradient-only GIF tolerance",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "timeline_reporter"
+      ],
+      "evidence": [
+        "fixtures/oracle/html-allure-gif",
+        "fixtures/oracle/reporters"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "report-screenshot",
+      "state": "active",
+      "owner": "3.9b/3.9c",
+      "transport": "injected-reporter",
+      "comparison": "owner JVM corpus; scoped Allure structure and gradient-only GIF tolerance",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-core",
+        "--test",
+        "screenshot"
+      ],
+      "evidence": [
+        "fixtures/oracle/html-allure-gif",
+        "fixtures/oracle/reporters"
+      ],
+      "inputs": {}
+    },
+    {
+      "id": "ios-smoke",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/ios-smoke/jvm-c95b2128",
+        "fixtures/differential/vendors/ios-smoke/jvm-c95b2128-b"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-ios-smoke.json": "52a91cc25be8c333497bcfd44f9b697ab64138977a19dcdd44bfe14e43c8b921",
+        "fixtures/differential/inputs/ios-smoke/world.json": "75bb68c45974f58f313a66ede65214d3ad0d3119b043140b191566973bea851a",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathonfile": "8d07c66802870d0281070d8212f62ba61c48908b5ce2ed7e470b362512390017",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathondevices": "a711bb20bed8d870103bd010f6608b678d4af5fea282a0fa9fb354539ed2d90f",
+        "fixtures/bundles/ios.zip": "43dc4568e3bfe32c03d46bc6db1e25b5459f97b37cbdc23fb2c84f1bcae70992"
+      }
+    },
+    {
+      "id": "ios-media",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/ios-media/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-ios-media.json": "fecf9efb5044b25936c858bbbd9f5dacf6269c3cea7b46596da0b96d3c5663e5",
+        "fixtures/differential/inputs/ios-media/world-settled.json": "46a5f9f4b8d38a99ec3057cf7426b90181af342ee957ef28229a4871f4401e72",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/ios-media/in/Marathonfile": "627bd0ccd51c3c6be116401f59f03e074a2bda2cd6064b2f30678524341cf5fb",
+        "fixtures/fake-worker/apple/ios-media/in/Marathondevices": "a711bb20bed8d870103bd010f6608b678d4af5fea282a0fa9fb354539ed2d90f",
+        "fixtures/bundles/ios.zip": "43dc4568e3bfe32c03d46bc6db1e25b5459f97b37cbdc23fb2c84f1bcae70992"
+      }
+    },
+    {
+      "id": "ios-screenshot",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/ios-screenshot/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-ios-screenshot.json": "1e0f6269c49788f731ecae3546ec60b966c0543e08c093958aeb97f30012d760",
+        "fixtures/differential/inputs/ios-screenshot/world.json": "b5ee9e67edc92d865fc99acae220f5cc352e9d42091f4e54d2ecb0bdcd305726",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/ios-screenshot/in/Marathonfile": "4b4c6e29f60acac9d270800c9423fbd3652cec467b0ab113bdc370bbd0b1859c",
+        "fixtures/fake-worker/apple/ios-screenshot/in/Marathondevices": "a711bb20bed8d870103bd010f6608b678d4af5fea282a0fa9fb354539ed2d90f",
+        "fixtures/bundles/ios.zip": "43dc4568e3bfe32c03d46bc6db1e25b5459f97b37cbdc23fb2c84f1bcae70992"
+      }
+    },
+    {
+      "id": "macos-smoke",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/macos-smoke/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-macos-smoke.json": "4844bd5789f929e7aac143947c6fc1058073741d45eb097ce162962cbf78ac1e",
+        "fixtures/differential/inputs/macos-smoke/world.json": "02b94647d131e55b9fa23ca46efdf9f63959a495270c10a3dbbd8a49d7955d0f",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathonfile": "57bafbd5257215e8baa7b34ee7213c64c914e2bc7dcf6cb0b4ee8ba274af75bf",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathondevices": "38e9c01a8687e5da095a7b1b675a02617b9807d81ce1e574e2806e0da04bf5e4",
+        "fixtures/bundles/macos.zip": "e35a8e566d2c3a350b861c30b70aea9cfebc1a8cfbc8ee71dd2452038bd5430d"
+      }
+    },
+    {
+      "id": "android-smoke",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "adb",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/android-smoke/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-android-smoke.json": "cc67425096d1454c280caf618cc60f4da2585774dcb73d25d52da339c9d3f986",
+        "fixtures/fake-adb/android-runner-cli/script/devices.yaml": "d01bfc641d864ae2aa5143d708f50d3bf430e01c4da5db759f2beba62de22680",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192",
+        "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+        "fixtures/adam/logcat-long.txt": "4aba03b7f8dd65f201dd3b2869275987cdd34ad3acd095604c7768df78aba1bf",
+        "fixtures/fake-adb/android-two-devices/script/instrumentation.txt": "0b5a91faa5033936a2a56d5e55ab2c89a9e764e93d0522ff4249721dadb44607",
+        "fixtures/fake-adb/android-runner-cli/script/crash.txt": "2cd69f1dbf74bc1942292f149adc1bf7bb3b9d4bf17e77d3ebeac9d4732732c7",
+        "fixtures/fake-adb/android-runner-cli/script/discovery.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/execution.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/started.txt": "7f5f6cf3c0642242e8e0665bd65bdbb256936c43796feb9a4f4a63027b9d82c7"
+      }
+    },
+    {
+      "id": "android-two-devices",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "adb",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/android-two-devices/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-android-two-devices.json": "d676577594e383d5e344d6bf4f2d162a84bcdbab8149d94dd636e7e54f4d8f7e",
+        "fixtures/differential/inputs/android-two-devices/devices.yaml": "1faec387961326ac45cc9eb1728187a50bf510ddccf7b8e36856c3191d60363d",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192",
+        "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+        "fixtures/adam/logcat-long.txt": "4aba03b7f8dd65f201dd3b2869275987cdd34ad3acd095604c7768df78aba1bf",
+        "fixtures/fake-adb/android-two-devices/script/instrumentation.txt": "0b5a91faa5033936a2a56d5e55ab2c89a9e764e93d0522ff4249721dadb44607",
+        "fixtures/fake-adb/android-runner-cli/script/crash.txt": "2cd69f1dbf74bc1942292f149adc1bf7bb3b9d4bf17e77d3ebeac9d4732732c7",
+        "fixtures/fake-adb/android-runner-cli/script/discovery.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/execution.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/started.txt": "7f5f6cf3c0642242e8e0665bd65bdbb256936c43796feb9a4f4a63027b9d82c7"
+      }
+    },
+    {
+      "id": "android-remote",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "adb",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/android-remote/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-android-remote.json": "19e47e00781a99b2cc14004517f88fa4ab14044aa37aa3cf8dfc83ea2aa3c4ba",
+        "fixtures/fake-adb/android-runner-cli/script/devices.yaml": "d01bfc641d864ae2aa5143d708f50d3bf430e01c4da5db759f2beba62de22680",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192",
+        "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+        "fixtures/adam/logcat-long.txt": "4aba03b7f8dd65f201dd3b2869275987cdd34ad3acd095604c7768df78aba1bf",
+        "fixtures/fake-adb/android-two-devices/script/instrumentation.txt": "0b5a91faa5033936a2a56d5e55ab2c89a9e764e93d0522ff4249721dadb44607",
+        "fixtures/fake-adb/android-runner-cli/script/crash.txt": "2cd69f1dbf74bc1942292f149adc1bf7bb3b9d4bf17e77d3ebeac9d4732732c7",
+        "fixtures/fake-adb/android-runner-cli/script/discovery.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/execution.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/started.txt": "7f5f6cf3c0642242e8e0665bd65bdbb256936c43796feb9a4f4a63027b9d82c7"
+      }
+    },
+    {
+      "id": "ios-ignore",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/ios-ignore/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-ios-ignore.json": "6468b94bfbad0387654b90ff8d48251bb2768e46839d405e6d7883ad62fe45f4",
+        "fixtures/differential/inputs/ios-ignore/world.json": "34d4e09e1cf0057d66d99bd755aadf4b6565d5e3928dccd5655ac280743490ec",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathonfile": "8d07c66802870d0281070d8212f62ba61c48908b5ce2ed7e470b362512390017",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathondevices": "a711bb20bed8d870103bd010f6608b678d4af5fea282a0fa9fb354539ed2d90f",
+        "fixtures/bundles/ios.zip": "43dc4568e3bfe32c03d46bc6db1e25b5459f97b37cbdc23fb2c84f1bcae70992"
+      }
+    },
+    {
+      "id": "ios-parse",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/ios-parse/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-ios-parse.json": "6b1de21039958b638f7bff873d7423d40f46ca0d306f0ba98f39856b6a4306a7",
+        "fixtures/differential/inputs/ios-parse/world.json": "8387466746c5a0da0cfcd03cf71e53e8808fabfe7b88349a7d2b6a90490867ea",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathonfile": "8d07c66802870d0281070d8212f62ba61c48908b5ce2ed7e470b362512390017",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathondevices": "a711bb20bed8d870103bd010f6608b678d4af5fea282a0fa9fb354539ed2d90f",
+        "fixtures/bundles/ios.zip": "43dc4568e3bfe32c03d46bc6db1e25b5459f97b37cbdc23fb2c84f1bcae70992"
+      }
+    },
+    {
+      "id": "macos-ignore",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/macos-ignore/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-macos-ignore.json": "9abf9bdac2c880af69f1cb9d23813fee9d8a272826f9ec6398f26ed3d0f80676",
+        "fixtures/differential/inputs/macos-ignore/world.json": "b5bb1e4a1df7ab5d58b825ae0e403c9d270bdb3d8bf7615f996e142dcc3b71a4",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathonfile": "57bafbd5257215e8baa7b34ee7213c64c914e2bc7dcf6cb0b4ee8ba274af75bf",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathondevices": "38e9c01a8687e5da095a7b1b675a02617b9807d81ce1e574e2806e0da04bf5e4",
+        "fixtures/bundles/macos.zip": "e35a8e566d2c3a350b861c30b70aea9cfebc1a8cfbc8ee71dd2452038bd5430d"
+      }
+    },
+    {
+      "id": "macos-parse",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/macos-parse/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-macos-parse.json": "223d51d83162044c6cf0bccf5989bd57e27912e1f4edc666ec2c37dc07ba402e",
+        "fixtures/differential/inputs/macos-parse/world.json": "fd29452096b54cd23f49b0548d042f1fd2e7c6cc195dc70c1c8eb717f21ee7be",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathonfile": "57bafbd5257215e8baa7b34ee7213c64c914e2bc7dcf6cb0b4ee8ba274af75bf",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathondevices": "38e9c01a8687e5da095a7b1b675a02617b9807d81ce1e574e2806e0da04bf5e4",
+        "fixtures/bundles/macos.zip": "e35a8e566d2c3a350b861c30b70aea9cfebc1a8cfbc8ee71dd2452038bd5430d"
+      }
+    },
+    {
+      "id": "android-ignore",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "adb",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/android-ignore/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-android-ignore.json": "1a70ce2e9da2937f23dbf472d0a5904cd4a853bf9a433609dfba69a3b045acea",
+        "fixtures/differential/inputs/android-two-devices/devices.yaml": "1faec387961326ac45cc9eb1728187a50bf510ddccf7b8e36856c3191d60363d",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192",
+        "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+        "fixtures/adam/logcat-long.txt": "4aba03b7f8dd65f201dd3b2869275987cdd34ad3acd095604c7768df78aba1bf",
+        "fixtures/fake-adb/android-two-devices/script/instrumentation.txt": "0b5a91faa5033936a2a56d5e55ab2c89a9e764e93d0522ff4249721dadb44607",
+        "fixtures/fake-adb/android-runner-cli/script/crash.txt": "2cd69f1dbf74bc1942292f149adc1bf7bb3b9d4bf17e77d3ebeac9d4732732c7",
+        "fixtures/fake-adb/android-runner-cli/script/discovery.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/execution.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/started.txt": "7f5f6cf3c0642242e8e0665bd65bdbb256936c43796feb9a4f4a63027b9d82c7"
+      }
+    },
+    {
+      "id": "android-parse",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "adb",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/android-parse/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-android-parse.json": "70c58cf5b84212ea2df17664798a96c646352b633bcc8e6a29f4a93799c59c1f",
+        "fixtures/fake-adb/android-runner-cli/script/devices.yaml": "d01bfc641d864ae2aa5143d708f50d3bf430e01c4da5db759f2beba62de22680",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192",
+        "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+        "fixtures/adam/logcat-long.txt": "4aba03b7f8dd65f201dd3b2869275987cdd34ad3acd095604c7768df78aba1bf",
+        "fixtures/fake-adb/android-two-devices/script/instrumentation.txt": "0b5a91faa5033936a2a56d5e55ab2c89a9e764e93d0522ff4249721dadb44607",
+        "fixtures/fake-adb/android-runner-cli/script/crash.txt": "2cd69f1dbf74bc1942292f149adc1bf7bb3b9d4bf17e77d3ebeac9d4732732c7",
+        "fixtures/fake-adb/android-runner-cli/script/discovery.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/execution.txt": "a76f8901ea7d8ce92fe690a38640088e2985640b47b958b8773b57a1d476296f",
+        "fixtures/fake-adb/android-runner-cli/script/started.txt": "7f5f6cf3c0642242e8e0665bd65bdbb256936c43796feb9a4f4a63027b9d82c7"
+      }
+    },
+    {
+      "id": "ios-pass",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/ios-pass/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-ios-pass.json": "1a32999a377f8a02063671a29ec42d3d85140e4ec8289b8de82d2ca9bdc4af50",
+        "fixtures/differential/inputs/ios-pass/world.json": "e99720686cd73f1b1fd06391f86043509e84ea729787b26016bb3db380354f4c",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathonfile": "8d07c66802870d0281070d8212f62ba61c48908b5ce2ed7e470b362512390017",
+        "fixtures/fake-worker/apple/ios-smoke/in/Marathondevices": "a711bb20bed8d870103bd010f6608b678d4af5fea282a0fa9fb354539ed2d90f",
+        "fixtures/bundles/ios.zip": "43dc4568e3bfe32c03d46bc6db1e25b5459f97b37cbdc23fb2c84f1bcae70992"
+      }
+    },
+    {
+      "id": "macos-pass",
+      "state": "active",
+      "owner": "7.1b",
+      "transport": "ssh",
+      "comparison": "whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-cli",
+        "--test",
+        "differential_vendors"
+      ],
+      "evidence": [
+        "fixtures/differential/vendors/macos-pass/jvm-c95b2128"
+      ],
+      "inputs": {
+        "tools/differential/contracts/vendor-macos-pass.json": "7d859a1af1f67fea663fc8018f036e5ecfa168241bc218cbe9e20d421450700c",
+        "fixtures/differential/inputs/macos-pass/world.json": "418e3a1ebe54b2fa275178fc9f4684b711e1f4e4174bbefd936878304b7378f3",
+        "tools/oracle/scenario-tape.json": "367a23ce76d56bdbd601b640dd81670b76b2c1a2cf3fe1e03b9612e01cfcc5fa",
+        "crates/marathon-cli/examples/differential_cli.rs": "20a0f7c6117f25ce467a751c07ac0d2f96c52daaa6bc104dc22e804b193fc1be",
+        "tools/differential/evidence.py": "c3c9a3ffef02e3c59490f898523bced720cdec1a62c6efbe1a5e2ccfe7b86e47",
+        "tools/differential/run": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+        "tools/differential/vendors.py": "bf0b9fc785fdbccc850f166270847618576a33bde02848463f6f484462764f46",
+        "tools/differential/vendor_reports.py": "8d3ff404074753071f374f630a0e25d2373e1a21e89136c3480f172c4f9b1222",
+        "tools/fake-worker/src/apple.rs": "3080937fafd5ef6432c968d744567d874ce9f2417d67c8f45440ebb246299480",
+        "crates/marathon-adb/src/server/world.rs": "5f9b680d599c07d70bd9bc0d88afc7db7c634ce0d34a024da3cc0adf4f62df86",
+        "tools/differential/vendor_console.py": "49188b87bd5bc076255911b32648438ca3210fcdc33af4ccbd10d8edce951853",
+        "tools/differential/vendor_transport.py": "edaddeffba8e648f3215c41da9a4cee52e3f587db191fb541c218e2f1341a269",
+        "tools/differential/gif_frames.py": "4301120c17771e41913d6861b4b277a7cd654e8055d60b4c35fec217f57a8536",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathonfile": "57bafbd5257215e8baa7b34ee7213c64c914e2bc7dcf6cb0b4ee8ba274af75bf",
+        "fixtures/fake-worker/apple/macos-smoke/in/Marathondevices": "38e9c01a8687e5da095a7b1b675a02617b9807d81ce1e574e2806e0da04bf5e4",
+        "fixtures/bundles/macos.zip": "e35a8e566d2c3a350b861c30b70aea9cfebc1a8cfbc8ee71dd2452038bd5430d"
+      }
+    },
+    {
+      "id": "apple-faults",
+      "state": "active",
+      "owner": "5.5b",
+      "transport": "injected-world",
+      "comparison": "owner JVM recovery/boot/crash/disconnect contracts; no extra whole-CLI fault cross-product",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-ios",
+        "--test",
+        "simulator_recovery"
+      ],
+      "evidence": [
+        "fixtures/oracle/simulator-recovery/probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/simulator-recovery/probes.jsonl": "9534499dabc02a988c1868a24f4b7833bde1a9adbe1887ccedf741f7f526eb7b"
+      }
+    },
+    {
+      "id": "apple-faults-pool",
+      "state": "active",
+      "owner": "5.5b",
+      "transport": "injected-world",
+      "comparison": "owner JVM-backed pool recovery and late admission contracts",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-ios",
+        "--test",
+        "simulator_pool_recovery"
+      ],
+      "evidence": [
+        "fixtures/oracle/simulator-recovery/pool.json"
+      ],
+      "inputs": {
+        "fixtures/oracle/simulator-recovery/pool.json": "0c9abfc0abf7fe17776296c460744d98c3bf057318f991c985e5c548f674be45"
+      }
+    },
+    {
+      "id": "android-install-matrix",
+      "state": "active",
+      "owner": "6.5",
+      "transport": "adb",
+      "comparison": "owner installer/provider request sequences and state; not a whole-CLI report claim",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "scenarios_test"
+      ],
+      "evidence": [
+        "fixtures/fake-adb/android-install-matrix/expected/kotlin.jsonl"
+      ],
+      "inputs": {
+        "fixtures/fake-adb/android-install-matrix/expected/kotlin.jsonl": "4d08e0ebd74997f12dec48c53c4f29626f52c02c033221ac8ef90c166ab13528"
+      }
+    },
+    {
+      "id": "android-video",
+      "state": "active",
+      "owner": "6.6b",
+      "transport": "adb",
+      "comparison": "owner JVM video bytes, requests and cleanup",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "android_artifacts"
+      ],
+      "evidence": [
+        "fixtures/oracle/android-artifact-probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/android-artifact-probes.jsonl": "bcd4663aa4c2a6d98574b84477c3c6f161f32c3f18c432b652cf97513fa661b7"
+      }
+    },
+    {
+      "id": "android-screenshot",
+      "state": "active",
+      "owner": "6.6b",
+      "transport": "adb",
+      "comparison": "owner JVM decoded framebuffer/GIF and metadata",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "android_artifacts"
+      ],
+      "evidence": [
+        "fixtures/oracle/android-artifact-probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/android-artifact-probes.jsonl": "bcd4663aa4c2a6d98574b84477c3c6f161f32c3f18c432b652cf97513fa661b7"
+      }
+    },
+    {
+      "id": "android-filesync-coverage",
+      "state": "active",
+      "owner": "6.6b",
+      "transport": "adb",
+      "comparison": "owner JVM file-sync and coverage listener requests/bytes",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "android_artifacts"
+      ],
+      "evidence": [
+        "fixtures/oracle/android-artifact-probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/android-artifact-probes.jsonl": "bcd4663aa4c2a6d98574b84477c3c6f161f32c3f18c432b652cf97513fa661b7"
+      }
+    },
+    {
+      "id": "android-coverage-argv",
+      "state": "active",
+      "owner": "6.6a",
+      "transport": "adb",
+      "comparison": "owner JVM coverage and instrumentation argv/callback contracts",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "android_runner"
+      ],
+      "evidence": [
+        "fixtures/oracle/android-runner-probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/android-runner-probes.jsonl": "91928197f415d9aaeb400cef489f103f39074d357563a852964fbd8f5ab09e6b"
+      }
+    },
+    {
+      "id": "android-profiling",
+      "state": "active",
+      "owner": "6.6b",
+      "transport": "adb",
+      "comparison": "owner JVM perfetto bytes/commands and D16 cleanup expectations",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "android_artifacts"
+      ],
+      "evidence": [
+        "fixtures/oracle/android-artifact-probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/android-artifact-probes.jsonl": "bcd4663aa4c2a6d98574b84477c3c6f161f32c3f18c432b652cf97513fa661b7"
+      }
+    },
+    {
+      "id": "android-chaos",
+      "state": "active",
+      "owner": "6.5/6.6a",
+      "transport": "adb",
+      "comparison": "owner JVM runner loss/timeout/crash and callback contracts",
+      "prerequisites": [
+        "offline Rust toolchain",
+        "committed JVM evidence"
+      ],
+      "native": [
+        "-p",
+        "marathon-android",
+        "--test",
+        "android_runner"
+      ],
+      "evidence": [
+        "fixtures/oracle/android-runner-probes.jsonl"
+      ],
+      "inputs": {
+        "fixtures/oracle/android-runner-probes.jsonl": "91928197f415d9aaeb400cef489f103f39074d357563a852964fbd8f5ab09e6b"
+      }
+    }
+  ]
+}

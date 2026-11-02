@@ -1,0 +1,78 @@
+{"table":"regex-operations","rows":77,"generator":"tools/oracle/regex-operations/run","jdk":"21.0.10"}
+{"pattern":"","input":"","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,0],"groups":[""]}]}
+{"pattern":"","input":"","op":"replace","limit":0,"replacement":"-","expected":"-"}
+{"pattern":"","input":"","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"","input":"","op":"split","limit":0,"replacement":"-","expected":["",""]}
+{"pattern":"","input":"","op":"split","limit":1,"replacement":"-","expected":[""]}
+{"pattern":"","input":"","op":"split","limit":2,"replacement":"-","expected":["",""]}
+{"pattern":"","input":"","op":"split","limit":3,"replacement":"-","expected":["",""]}
+{"pattern":"","input":"x","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,0],"groups":[""]},{"range":[1,1],"groups":[""]}]}
+{"pattern":"","input":"x","op":"replace","limit":0,"replacement":"-","expected":"-x-"}
+{"pattern":"","input":"x","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"","input":"x","op":"split","limit":0,"replacement":"-","expected":["","x",""]}
+{"pattern":"","input":"x","op":"split","limit":1,"replacement":"-","expected":["x"]}
+{"pattern":"","input":"x","op":"split","limit":2,"replacement":"-","expected":["","x"]}
+{"pattern":"","input":"x","op":"split","limit":3,"replacement":"-","expected":["","x",""]}
+{"pattern":"","input":"ab","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,0],"groups":[""]},{"range":[1,1],"groups":[""]},{"range":[2,2],"groups":[""]}]}
+{"pattern":"","input":"ab","op":"replace","limit":0,"replacement":"-","expected":"-a-b-"}
+{"pattern":"","input":"ab","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"","input":"ab","op":"split","limit":0,"replacement":"-","expected":["","a","b",""]}
+{"pattern":"","input":"ab","op":"split","limit":1,"replacement":"-","expected":["ab"]}
+{"pattern":"","input":"ab","op":"split","limit":2,"replacement":"-","expected":["","ab"]}
+{"pattern":"","input":"ab","op":"split","limit":3,"replacement":"-","expected":["","a","b"]}
+{"pattern":"x*","input":"","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,0],"groups":[""]}]}
+{"pattern":"x*","input":"","op":"replace","limit":0,"replacement":"-","expected":"-"}
+{"pattern":"x*","input":"","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"x*","input":"","op":"split","limit":0,"replacement":"-","expected":["",""]}
+{"pattern":"x*","input":"","op":"split","limit":1,"replacement":"-","expected":[""]}
+{"pattern":"x*","input":"","op":"split","limit":2,"replacement":"-","expected":["",""]}
+{"pattern":"x*","input":"","op":"split","limit":3,"replacement":"-","expected":["",""]}
+{"pattern":"x*","input":"x","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,1],"groups":["x"]},{"range":[1,1],"groups":[""]}]}
+{"pattern":"x*","input":"x","op":"replace","limit":0,"replacement":"-","expected":"--"}
+{"pattern":"x*","input":"x","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"x*","input":"x","op":"split","limit":0,"replacement":"-","expected":["","",""]}
+{"pattern":"x*","input":"x","op":"split","limit":1,"replacement":"-","expected":["x"]}
+{"pattern":"x*","input":"x","op":"split","limit":2,"replacement":"-","expected":["",""]}
+{"pattern":"x*","input":"x","op":"split","limit":3,"replacement":"-","expected":["","",""]}
+{"pattern":"x*","input":"ab","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,0],"groups":[""]},{"range":[1,1],"groups":[""]},{"range":[2,2],"groups":[""]}]}
+{"pattern":"x*","input":"ab","op":"replace","limit":0,"replacement":"-","expected":"-a-b-"}
+{"pattern":"x*","input":"ab","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"x*","input":"ab","op":"split","limit":0,"replacement":"-","expected":["","a","b",""]}
+{"pattern":"x*","input":"ab","op":"split","limit":1,"replacement":"-","expected":["ab"]}
+{"pattern":"x*","input":"ab","op":"split","limit":2,"replacement":"-","expected":["","ab"]}
+{"pattern":"x*","input":"ab","op":"split","limit":3,"replacement":"-","expected":["","a","b"]}
+{"pattern":"a*","input":"","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,0],"groups":[""]}]}
+{"pattern":"a*","input":"","op":"replace","limit":0,"replacement":"-","expected":"-"}
+{"pattern":"a*","input":"","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"a*","input":"","op":"split","limit":0,"replacement":"-","expected":["",""]}
+{"pattern":"a*","input":"","op":"split","limit":1,"replacement":"-","expected":[""]}
+{"pattern":"a*","input":"","op":"split","limit":2,"replacement":"-","expected":["",""]}
+{"pattern":"a*","input":"","op":"split","limit":3,"replacement":"-","expected":["",""]}
+{"pattern":"a*","input":"x","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,0],"groups":[""]},{"range":[1,1],"groups":[""]}]}
+{"pattern":"a*","input":"x","op":"replace","limit":0,"replacement":"-","expected":"-x-"}
+{"pattern":"a*","input":"x","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"a*","input":"x","op":"split","limit":0,"replacement":"-","expected":["","x",""]}
+{"pattern":"a*","input":"x","op":"split","limit":1,"replacement":"-","expected":["x"]}
+{"pattern":"a*","input":"x","op":"split","limit":2,"replacement":"-","expected":["","x"]}
+{"pattern":"a*","input":"x","op":"split","limit":3,"replacement":"-","expected":["","x",""]}
+{"pattern":"a*","input":"ab","op":"findAll","limit":0,"replacement":"-","expected":[{"range":[0,1],"groups":["a"]},{"range":[1,1],"groups":[""]},{"range":[2,2],"groups":[""]}]}
+{"pattern":"a*","input":"ab","op":"replace","limit":0,"replacement":"-","expected":"--b-"}
+{"pattern":"a*","input":"ab","op":"split","limit":-1,"replacement":"-","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"a*","input":"ab","op":"split","limit":0,"replacement":"-","expected":["","","b",""]}
+{"pattern":"a*","input":"ab","op":"split","limit":1,"replacement":"-","expected":["ab"]}
+{"pattern":"a*","input":"ab","op":"split","limit":2,"replacement":"-","expected":["","b"]}
+{"pattern":"a*","input":"ab","op":"split","limit":3,"replacement":"-","expected":["","","b"]}
+{"pattern":"(?<word>a)(b)?","input":"a ab","op":"replace","limit":0,"replacement":"${word}:$2:$0:$12:\\$\\\\","expected":"a::a:a2:$\\ a:b:ab:a2:$\\"}
+{"pattern":"(?<word>a)(b)?","input":"z","op":"replace","limit":0,"replacement":"${word}:$2:$0:$12:\\$\\\\","expected":"z"}
+{"pattern":"(?<word>a)(b)?","input":"a ab","op":"replace","limit":0,"replacement":"$","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"(?<word>a)(b)?","input":"z","op":"replace","limit":0,"replacement":"$","expected":"z"}
+{"pattern":"(?<word>a)(b)?","input":"a ab","op":"replace","limit":0,"replacement":"$3","expected":{"error":"IndexOutOfBoundsException"}}
+{"pattern":"(?<word>a)(b)?","input":"z","op":"replace","limit":0,"replacement":"$3","expected":"z"}
+{"pattern":"(?<word>a)(b)?","input":"a ab","op":"replace","limit":0,"replacement":"${missing}","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"(?<word>a)(b)?","input":"z","op":"replace","limit":0,"replacement":"${missing}","expected":"z"}
+{"pattern":"(?<word>a)(b)?","input":"a ab","op":"replace","limit":0,"replacement":"\\","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"(?<word>a)(b)?","input":"z","op":"replace","limit":0,"replacement":"\\","expected":"z"}
+{"pattern":"(?<word>a)(b)?","input":"a ab","op":"replace","limit":0,"replacement":"$word","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"(?<word>a)(b)?","input":"z","op":"replace","limit":0,"replacement":"$word","expected":"z"}
+{"pattern":"(?<word>a)(b)?","input":"a ab","op":"replace","limit":0,"replacement":"$$","expected":{"error":"IllegalArgumentException"}}
+{"pattern":"(?<word>a)(b)?","input":"z","op":"replace","limit":0,"replacement":"$$","expected":"z"}

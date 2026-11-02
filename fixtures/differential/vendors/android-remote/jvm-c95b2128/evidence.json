@@ -1,0 +1,499 @@
+{
+  "contract": "19e47e00781a99b2cc14004517f88fa4ab14044aa37aa3cf8dfc83ea2aa3c4ba",
+  "entries": [
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/allure-results"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000001-result.json",
+      "sha256": "9a11f4b038f73f20fea1d19f4d7c0289756fa92df0e9825155481fad662a6aef",
+      "size": 564
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/environment.xml",
+      "sha256": "c8cfa40e80577c8ea6437c5deb894ed94d09cb918c7044fa557ccec0e9008b90",
+      "size": 4882
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/bill/omni/127.0.0.1-52777-emulator-5554.json",
+      "sha256": "47a288ccf2a83e16d742ea36a22e8cdb708287bac481d01662e484d1af10ca80",
+      "size": 385
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/devices/omni/127.0.0.1-52777-emulator-5554.json",
+      "sha256": "be64183cfdb03680914391ea247414d45a47ea3d6430babcd7920bf2f22e79ff",
+      "size": 284
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.css",
+      "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+      "size": 20391
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.js",
+      "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+      "size": 327442
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/index.html",
+      "sha256": "4974ab4326024a39fdcdad4362fa4d28618b4b003ef623bac4a7c0c708c7949e",
+      "size": 1287
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni.html",
+      "sha256": "95812fed544925ae82bb4905bed59384f2b9b80da971a2bde02c4f7febb958c6",
+      "size": 1076
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/127.0.0.1-52777-emulator-5554"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-52777-emulator-5554/com.example.MainActivityTest.testText.html",
+      "sha256": "f403e7a9a1a6d6f543289a7f5810c09b1acc9c6780169025933aa5b794f486c0",
+      "size": 978
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/127.0.0.1-52777-emulator-5554/logs"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-52777-emulator-5554/logs/com.example.MainActivityTest.testText.html",
+      "sha256": "b339b9d8438545d47a6fee110f871e68ddcdae06f293d60f06dff47f8204e54c",
+      "size": 764
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/timeline"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.css",
+      "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+      "size": 1662
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.js",
+      "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+      "size": 19868
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/iframeResizer.contentWindow.min.js",
+      "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+      "size": 13616
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/index.html",
+      "sha256": "4e72391082c4e52d2e56eb32504a9c46a2abe48ddff230066091e59c020c5e57",
+      "size": 1502
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni/127.0.0.1-52777-emulator-5554"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni/127.0.0.1-52777-emulator-5554"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni/127.0.0.1-52777-emulator-5554"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/127.0.0.1-52777-emulator-5554/com.example.MainActivityTest#testText.json",
+      "sha256": "e930f266ccfe30262589c545467ffee7b7379bef780291ff79cb39422e9b4c4b",
+      "size": 593
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/raw.json",
+      "sha256": "4c2347f0d72ef3a005d7e439c216605277acc920527546fa83a2e8e106e263fa",
+      "size": 266
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/tests/omni/marathon_junit_report.xml",
+      "sha256": "f9562af73bae33271875f874107296a517f83df82c091cf03f9c7abd2249a58f",
+      "size": 511
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "caed150cf9668fee5fafb2112987b5b58dd0d65d9921a0ca3e6ad3c62c87a74a",
+      "size": 1454
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "f2bc792091ab398eecb9d4801f935d364142ac8f03ea94c1aea801f9ecfb553b",
+      "size": 94
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "06f44a6181362fc852c0471a4c091c1e7e786ff0c3ac7764b112a87f598b2c3d",
+      "size": 1845
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "79434fe6449e3efe24b3592d3911d28696373a37e8f3fac41642ba4f852f63b5",
+      "size": 18092
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "port": "52777",
+    "safe_serial": "127.0.0.1-52777-emulator-5554",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/android-remote/jvm-a/raw",
+    "serial": "127.0.0.1:52777:emulator-5554"
+  },
+  "implementation": "jvm",
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hook_sources": {
+      "tools/oracle/hooks/src/main/kotlin/oracle/hooks/Barriers.kt": "ba6e4937549193af6313e87997a998966b8966f434eb04ead38a99b3349d9c11",
+      "tools/oracle/hooks/src/main/kotlin/oracle/hooks/Logging.kt": "a481454752b826718320ecdefc4ad200da14def2d01133a2af4e270c1b058dce",
+      "tools/oracle/hooks/src/main/kotlin/oracle/hooks/Measure.kt": "499a505f9d47356a612298f838c22a50a00846e6ce8b3f8180e470fd2f5b5ab9",
+      "tools/oracle/hooks/src/main/kotlin/oracle/hooks/OracleHooks.kt": "790bc86f4447367ac1fd77c6af8d3690f4a691754772d64606e5cfeb12c8ab5f",
+      "tools/oracle/hooks/src/main/kotlin/oracle/hooks/Tape.kt": "4e4e1cb02a6fd1a762bb7ef748fd5481d35af62843b8c3fba932c7f4bdab5d66"
+    },
+    "hooks": {
+      "active": true,
+      "calls": {
+        "android.AdamDeviceProvider.borrow": 1,
+        "config.Configuration.identities": 8,
+        "core.Actor.mailbox": 3,
+        "core.AllureReporter.uuid": 1,
+        "core.BillingReporter.defaultStart": 1,
+        "core.BillingReporter.generate": 1,
+        "core.HtmlSummaryReporter.date": 1,
+        "core.MappingTracker.deviceConnected": 1,
+        "core.MappingTracker.test": 1,
+        "core.Marathon.runAsync.parsing": 2,
+        "core.Scheduler.deviceEvents": 1,
+        "core.TemporalTestResult.startTime": 1,
+        "core.TestBatch.id": 1,
+        "core.Track.trackDevicePreparing": 2,
+        "core.Track.trackProviderDevicePreparing": 2,
+        "core.di.Clock": 16,
+        "library.logback.wall": 11
+      },
+      "failures": [],
+      "unused": {}
+    },
+    "jars": {
+      "adam-0.5.8.jar": "741347547431d12ee6bc34ab12c883e2b5d0005ca0e52f1499e0b7d0bd1bde4a",
+      "adapter-rxjava3-2.11.0.jar": "d64d863d0223bd41ed83a30607760f5b90546d279155dd339bd8f61b66ee9450",
+      "allure-descriptions-javadoc-2.8.1.jar": "2319644f08fb356225d4e8935c0cba049fb41797890d72c83a8210da43aa9289",
+      "allure-environment-writer-1.0.0.jar": "401691d8c7cf79f45e9792b4d486036db7368f7852beb928442e5e16e2562b36",
+      "allure-java-commons-2.29.0.jar": "61d8a0db9f977f694a82206868d2f58e02def79aae8112b09ba68d56393ac76e",
+      "allure-kotlin-commons-2.4.0.jar": "5954e907e399dabfdaf2ea6f5f983ff21e7fa6b353e292fd28750a03c90c5442",
+      "allure-kotlin-model-2.4.0.jar": "a9056c1452d0f93344c1c4f12db89c022b48fe6d14e8c9d2c9713f7c7e184dc8",
+      "allure-model-2.29.0.jar": "dfe5ae08305e924cbf2966c711880888cb3200c2f6b6f21e2f7838880de2ad72",
+      "allure-test-filter-2.29.0.jar": "a18abb955670fa06ccfd3f1e6cf203e4ced83bef575272164fc328876b9aa275",
+      "allure-testng-2.8.1.jar": "35c53ba5655869ec6f1cc8200ef1d95ab3fe84079cb7424504e4acaf18c00e30",
+      "android-testrunner-contract-0.5.8.jar": "f722c076018738eacecf5e016a76bac3e984b52a8d9affc978fa1aeffa259c83",
+      "animal-sniffer-annotations-1.23.jar": "9ffe526bf43a6348e9d8b33b9cd6f580a7f5eed0cf055913007eda263de974d0",
+      "annotations-24.0.1.jar": "61666dbce7e42e6c85b43c04fcfb8293a21dcb55b3c80e869270ce42c01a6b35",
+      "annotations-31.6.1.jar": "b25995fa7b220d35fbb8e325df071f8291691bfbaff9734c98e38f45ec2a73ee",
+      "annotations-4.1.1.4.jar": "ba734e1e84c09d615af6a09d33034b4f0442f8772dec120efb376d86a565ae15",
+      "argparse4j-0.9.0.jar": "9eb3b54043038bc111bf0e15a8f69895244f92e3c2bc2800158578ca711f6117",
+      "asn-one-0.6.0.jar": "e4f70fd92849b52240048b8ebace0c9a17d3bb7b9c882b3c7778cec3458495f5",
+      "axmlparser-1.0.jar": "ed3137d0b939a78b4aa3c81063eef1dfa4d8be603b04621e4e01ac3e98acfffd",
+      "base-0.10.1-SNAPSHOT.jar": "d4d22b40ceea0466265a681419ce8a9a8edd176731666e1d4dfa0103f281eedb",
+      "bcpkix-jdk18on-1.78.1.jar": "4b48ea084e5232b9d79ebca1887b9de037b124931807cd60710748c2aee08cc9",
+      "bcprov-jdk18on-1.78.1.jar": "add5915e6acfc6ab5836e1fd8a5e21c6488536a8c1f21f386eeb3bf280b702d7",
+      "bcutil-jdk18on-1.78.1.jar": "d9fa56f97b0f761ce3bc8d9d74c5d7137a987bf5bd3abfe1003f9bafa45a1d2f",
+      "bsh-2.0b6.jar": "a17955976070c0573235ee662f2794a78082758b61accffce8d3f8aedcd91047",
+      "bugsnag-3.7.2.jar": "9001c8719e0555617e5e750e92a5108ec9d43a8a69e7790b70dec6f68a9bcc0d",
+      "checker-qual-3.43.0.jar": "3fbc2e98f05854c3df16df9abaa955b91b15b3ecac33623208ed6424640ef0f6",
+      "cli-0.10.1-SNAPSHOT.jar": "4133f97cd3d09986d5a8ee222dd68c891def35065bb8f9e4869c6785f33768c0",
+      "clikt-jvm.jar": "85e9616ac21ad05ede23494cbc9e4f7a4b8efbca826167c059a9c177efa5ca8d",
+      "clikt-mordant-jvm.jar": "bde76bead79c44be444b87ec0b7b968d354d48947e49d1d2c7edb568c8c39bf3",
+      "colormath-jvm.jar": "59f741adfe62053066782d8b1a45afd06685a4bc64b33277e54876b993ed885c",
+      "common-31.6.1.jar": "4921a6610bf28f02911eb7d6e1ba498db98884e5f233e55272619a0841bd4c79",
+      "commons-codec-1.16.1.jar": "ec87bfb55f22cbd1b21e2190eeda28b2b312ed2a431ee49fbdcc01812d04a5e4",
+      "commons-csv-1.11.0.jar": "b697fe3f94cfc4f7e2a87bddf78d15cd10d8c86cbe56ae9196a62d6edbf6b76d",
+      "commons-io-2.17.0.jar": "4aa4ca48f3dfd30b78220b7881d8cb93eac4093ec94361b6befa9487998a550b",
+      "commons-lang-2.6.jar": "50f11b09f877c294d56f24463f47d28f929cf5044f648661c0f0cfbae9a2f49c",
+      "commons-lang3-3.14.0.jar": "7b96bf3ee68949abb5bc465559ac270e0551596fa34523fddf890ec418dde13c",
+      "commons-pool2-2.11.1.jar": "ea0505ee7515e58b1ac0e686e4d1a5d9f7d808e251a61bc371aa0595b9963f83",
+      "commons-text-1.12.0.jar": "de023257ff166044a56bd1aa9124e843cd05dac5806cc705a9311f3556d5a15f",
+      "configuration-0.10.1-SNAPSHOT.jar": "862627ed24d3d5d5ea7f5828380a10ae945bf6f3813faaab926a3fc21e7c7cd5",
+      "converter-gson-2.11.0.jar": "3d2b4b668909468465c5776430b57232275d0165513f20fc96b0cfe4aa531326",
+      "converter-moshi-2.9.0.jar": "e26cf1256afa208e13ab6d8fbfd458faa448f24b72799d8de55c0363f619be43",
+      "converter-scalars-2.11.0.jar": "647d7e81ac61eedf691ba69d82f0d5685087abf0d58fe7d86b643d02808da911",
+      "core-0.10.1-SNAPSHOT.jar": "3bbedf0b0ff9bd0b8881383c4aaa84283c2f7475d793ff55c4edbb340fa9068b",
+      "dd-plist-1.28.jar": "88ed8e730f7386297485176c4387146c6914a38c0e58fc296e8a01cdc3b621e1",
+      "eddsa-0.3.0.jar": "4dda1120db856640dbec04140ed23242215a075fe127bdefa0dcfa29fb31267d",
+      "error_prone_annotations-2.28.0.jar": "f3fc8a3a0a4020706a373b00e7f57c2512dd26d1f83d28c7d38768f8682b231e",
+      "execution-timeline-0.10.1-SNAPSHOT.jar": "2bd2397e3eabb47552c85a70096418d4de0cc960d2b5fa234c8f7b475a85f135",
+      "failureaccess-1.0.2.jar": "8a8f81cf9b359e3f6dfa691a1e776985c061ef2f223c9b2c80753e1b458e8064",
+      "grpc-api-1.59.0.jar": "67353a1907d3d3ae14c4cb5f58c0c494189bc0ff9ee7159021ff614996961c99",
+      "grpc-context-1.59.0.jar": "5dd49d14dab19a11afe74d7a698173d8ff854f72cb033c52baad169fa6bc65ee",
+      "grpc-core-1.59.0.jar": "1144cb9cd08e45cabab7621ae1417b3fc237a745a5648fc11ccaf77c7b456ad2",
+      "grpc-kotlin-stub-1.4.0.jar": "554b5b71ad63f755ee033d8fed120b5a5a8121902fefc6db555bedb8725e841a",
+      "grpc-okhttp-1.59.0.jar": "f7e41a48051393a4e8bea816272907354f933748ec27b044308ab2c01ce1dd4e",
+      "grpc-protobuf-lite-1.59.0.jar": "27a255dad0db1ff8b1cbff2b0364bd5f541035eafdf5a86e2013513bc1875d5f",
+      "grpc-stub-1.59.0.jar": "7cc797303968d369ec48c3e8dcc966b68fd2763494a39203bd05a8f33730bcf3",
+      "grpc-util-1.59.0.jar": "5031a77705b47164391d7adab7ab190fc78f4bdc8cb00eb7babd4ca286a6a6a3",
+      "gson-2.11.0.jar": "57928d6e5a6edeb2abd3770a8f95ba44dce45f3b23b7a9dc2b309c581552a78b",
+      "guava-33.3.0-jre.jar": "dfadc3bce3101eff1452aae47d7c833fee443b47bdf9ef13311b6c7cab663ddf",
+      "html-report-0.10.1-SNAPSHOT.jar": "1c65e070c80adf3dae600a84b320f6584c10e57d6602614a0dc08938a59458cd",
+      "imgscalr-lib-4.2.jar": "6f128a71c5e87a16f810513a73ad3c77d0ee0bb622ee0ce1ead115bccbc76d0a",
+      "influxdb-client-core-7.2.0.jar": "907bfe223582dcfe8711e92a49430ccb376ad3ade6bf2bc4049417f927f55a82",
+      "influxdb-client-java-7.2.0.jar": "bd732e2729df7464b270709741f61e6777339f72730d3ae9507f6ce38b6a85b2",
+      "influxdb-client-utils-7.2.0.jar": "978399c8302b70b8fb25dc64c040e472c600cc21b49b0cdc85eca1b5169ba86f",
+      "influxdb-java-2.24.jar": "1471868144f6bd6fddfae86129b40d3275d4d34596bb2921a40238981a91088c",
+      "ios-0.10.1-SNAPSHOT.jar": "c0b8506e530337393caccf254123418b424bb56be562a6846ff9e2b178504e57",
+      "jackson-annotations-2.17.2.jar": "873a606e23507969f9bbbea939d5e19274a88775ea5a169ba7e2d795aa5156e1",
+      "jackson-core-2.17.2.jar": "721a189241dab0525d9e858e5cb604d3ecc0ede081e2de77d6f34fa5779a5b46",
+      "jackson-databind-2.17.2.jar": "c04993f33c0f845342653784f14f38373d005280e6359db5f808701cfae73c0c",
+      "jackson-dataformat-yaml-2.17.2.jar": "941bcd8b1381bb3b0d726fab41624fa8ece0ee7b6cf2860ad95e8157ce673376",
+      "jackson-datatype-jsr310-2.17.2.jar": "9b80024a9822e70b07f6bb13824c76c137c1064a1b5eb518374ab141870fdbcc",
+      "jackson-module-kotlin-2.17.2.jar": "f96986fe7bc25559f938324065bd7a0e96c0d59acf17a48e26e517a9abd411e8",
+      "jansi-2.4.1.jar": "2e5e775a9dc58ffa6bbd6aa6f099d62f8b62dcdeb4c3c3bbbe5cf2301bc2dcc1",
+      "javax.annotation-api-1.3.2.jar": "e04ba5195bcd555dc95650f7cc614d151e4bcd52d29a10b8aa2197f3ab89ab9b",
+      "jcommander-1.72.jar": "e0de160b129b2414087e01fe845609cd55caec6820cfd4d0c90fabcc7bdb8c1e",
+      "jna-5.14.0.jar": "34ed1e1f27fa896bca50dbc4e99cf3732967cec387a7a0d5e3486c09673fe8c6",
+      "jna-platform-5.6.0.jar": "9ecea8bf2b1b39963939d18b70464eef60c508fed8820f9dcaba0c35518eabf7",
+      "jsr305-3.0.2.jar": "766ad2a0783f2687962c8ad74ceecc38a28b9f72a2d085ee438b7813e928d0c7",
+      "koin-core-jvm-3.5.6.jar": "823b9b31588ff90215c1fceae30dfa141d2528e3d4e42c2843ea40c8352bdf69",
+      "kotlin-logging-jvm-3.0.5.jar": "2a9477a4138487bb7fbb057ee3ac0f455b58f8d4bed94c885fa64260de59e4dc",
+      "kotlin-process-1.5.jar": "33c4fa90aef8e3054c711885281804ea84bb5c01448b71b9722c52ef54b47bba",
+      "kotlin-reflect-1.9.24.jar": "a65166445bb85ef816cde127279fe0017d2b7cc439b3b972390e1b736d64e94c",
+      "kotlin-stdlib-1.9.24.jar": "858b902696da9cf585ab9d98ffc1c2712269828354dfe9107e3711b084a36468",
+      "kotlin-stdlib-jdk7-1.9.24.jar": "b6699b850ba0789f2e904279cd8bdc7bea9130ffd157cdba001fc7425d8a47b7",
+      "kotlin-stdlib-jdk8-1.9.24.jar": "5b5bbfb3e1184b5e13317c3d42237fa24add443b2e7781961eea334db136adb1",
+      "kotlinx-coroutines-core-jvm-1.8.1.jar": "f3d4f5de1c391bbcc20f3b3435ccbac013521e76b6902d7d59635ec15c1f797e",
+      "kotlinx-coroutines-jdk8-1.8.1.jar": "d8cfb4c363c91c773353b115bd4a6b5a04608e7916fe235d3a9d87efcb996c01",
+      "kotlinx-serialization-core-jvm-1.2.1.jar": "d977bcd4bc3b5d1846e834cb8cc247746540673544432038f5ded1e73996e5fb",
+      "kotlinx-serialization-json-jvm-1.2.1.jar": "95900df927130fdd57c79788bac38aba339cd12c0b0b00b9d03e99db932ed885",
+      "ktor-io-jvm-2.3.6.jar": "efcd9f4451ac800e9e4002ebd758f6627ff4fe84cb9e80a8c62220904d244021",
+      "ktor-network-jvm-2.3.6.jar": "1b379f2ed8f1ea38f6538c9fd0468c6354affd9ef4b8b537f1b02ff8c6bdff31",
+      "ktor-utils-jvm-2.3.6.jar": "008d9ecfa81283d5efa06c8ef3396b192bcbac17044c6f8d6f319e30fe1fcb23",
+      "listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar": "b372a037d4230aa57fbeffdef30fd6123f9c0c2db85d0aced00c91b974f33f99",
+      "logback-classic-1.5.8.jar": "89b0f7bec5fa8a9c9246acd1e99f0e84d6cb3bbadaa5b095a14c2cd0f4732d05",
+      "logback-core-1.5.8.jar": "a698e4cff3eac45eec9b2755df93bb7a9725d853f7938030654ce5430b37c41d",
+      "logging-interceptor-4.12.0.jar": "f3e8d5f0903c250c2b55d2f47fcfe008e80634385da8385161c7a63aaed0c74c",
+      "macos-0.10.1-SNAPSHOT.jar": "1a7e4627d18c9411f2adae9652f6fa110946f5f3d4f2814eb1f01609860632e6",
+      "mordant-jvm-ffm-jvm.jar": "0fdb6002add727daebad1974df8f37d38c45a70445ebe48350173a81b1c72350",
+      "mordant-jvm-graal-ffi-jvm.jar": "9c26068c57fa9b2decc24206719d2e5c30d0ff38f2fa774f32e4f92eb0565b50",
+      "mordant-jvm-jna-jvm.jar": "e5fae304714b8c5a2bb52dee7783c601b1bff6fc204738e27ed430d385b96dec",
+      "mordant-jvm.jar": "9cf9b46d1f49f2d6cf2635462b29dc59e0c29b1fb2f085b3312888bbe9c7cd31",
+      "mordant-omnibus-jvm.jar": "9ed3b976fcccc78da746d49866fa8ebb8f10530a93c544ea0420259a607dd95e",
+      "moshi-1.8.0.jar": "42fe746d2694ea11fe6a02becd9da2ca3dafe97c9efd50a0f9af5c4596e74a6a",
+      "msgpack-core-0.9.6.jar": "6a8111f9fdf52a8b662906cb559abd431d18bc801ff95ff2832b4694336500ee",
+      "netty-buffer-4.1.100.Final.jar": "462874b44ee782fbefec64078cda6eb8e7bf9f0e0af71a928ef4c1f2d564f7ee",
+      "netty-codec-4.1.100.Final.jar": "180a01ed67af399602e24ff1c32864e7f57f57c4a0fa5e9ab3fe9b0e5e9cf051",
+      "netty-codec-dns-4.1.100.Final.jar": "f7f55bee95d2467e8bda6dda980a2830b351b0dd6f0f87fe5114645035ee55ca",
+      "netty-codec-http-4.1.100.Final.jar": "326811d249cb0e5555e78e026e877834e792261c38f0666d80464426695d9590",
+      "netty-codec-http2-4.1.100.Final.jar": "23b4a74350f4cf8d41b93fb93d52b5050667d8d53fffc385672c86eab83b8749",
+      "netty-codec-socks-4.1.100.Final.jar": "608a453b90f8384ba4efcdc6db7f899a1f10b9ea1890954696e6cfac45ff1ba9",
+      "netty-common-4.1.100.Final.jar": "d2908301f1ac6f2910900742473c15d701765d3d4467acdb1eebb9df3aa82885",
+      "netty-handler-4.1.100.Final.jar": "0e10e584c2e7fdf7f4804e14760ed987003f1b62ab982f62eaf13a9892793d3a",
+      "netty-handler-proxy-4.1.100.Final.jar": "686dbc2e61407f216d6cb267dd7954896f851dd34b58be3e757c5a89f20a5e67",
+      "netty-resolver-4.1.100.Final.jar": "c42c481c776e9d367a45cc3a67a06f65897d280334eb30b2362b8c55b7523f4f",
+      "netty-resolver-dns-4.1.100.Final.jar": "4bafbd3e571ed2d9fb3f9550f8348ba37c183eda4a253fba5354166e409624c4",
+      "netty-transport-4.1.100.Final.jar": "b1deeceedab3734cdb959c55f4be5ab4a667a8aed59121ff93763f49470f5470",
+      "netty-transport-native-unix-common-4.1.100.Final.jar": "5d888230a04c4a3e647c64e933cefb64fd49056f969bfb734c8a3fcedf0bea8a",
+      "okhttp-4.12.0.jar": "b1050081b14bb7a3a7e55a4d3ef01b5dcfabc453b4573a4fc019767191d5f4e0",
+      "okio-jvm-3.9.0.jar": "ddc386ff14bd25d5c934167196eaf45b18de4f28e1c55a4db37ae594cbfd37e4",
+      "oracle-hooks.jar": "f5e78a7e8056c885978fde238fd6abb6d4c7dd6e4aabbdb8ce6e8926a89bb4aa",
+      "parser-2.3.4.jar": "55de1bf8663fe38707473e66952fb8aca20cfa3f44ffd1a7d434141d98262d91",
+      "perfmark-api-0.26.0.jar": "b7d23e93a34537ce332708269a0d1404788a5b5e1949e82f5535fce51b3ea95b",
+      "processoutput4j-0.0.12.jar": "20815f4872f75526e02ef786f8a25c8966afa6c330453bbea32493db3509253e",
+      "protobuf-javalite-3.25.0.jar": "c87d43e7560eb2fde316e3f897cbac5e8e28c7bfbddfa33b5149d0aa06bf9f63",
+      "reactive-streams-1.0.4.jar": "f75ca597789b3dac58f61857b9ac2e1034a68fa672db35055a8fb4509e325f28",
+      "retrofit-2.11.0.jar": "9f4fbbce70728584fbeed38d4061f36d4477e89bca74b4e2ac8aeb6819b0fe43",
+      "rsync4j-all-3.3.0-1.jar": "7b17418409be52b31c115cdf6ddd15995a9906649625608f2749d89e5cf211d2",
+      "rsync4j-core-3.3.0-1.jar": "339b4a4ee993421eeafcebd8794d9ce8cdee5b79564ec1b00882e12432bda8c9",
+      "rsync4j-windows64-3.3.0-1.jar": "0d3de9c5c4dc420544254a2f15d24e7552126750b01327893b7ff5ac14926758",
+      "rxjava-3.1.8.jar": "6890becbd4646347928746a4421cc559fca9f34d06ef2a7a947bd7adf7473246",
+      "slf4j-api-2.0.15.jar": "5bfda32d723dde8ccef9db6bdc2537dabdb87321597c7e00e66a73a5777fbb24",
+      "snakeyaml-2.2.jar": "1467931448a0817696ae2805b7b8b20bfb082652bf9c4efaed528930dc49389b",
+      "sshj-0.39.0.jar": "dde162d0137d3d69ef841e038b0686647cbecc339f7143ad3a6f556f1be66985",
+      "stately-concurrency-jvm-2.0.6.jar": "c57cdb6e15d882461b64c2d35bee474ad5f6bb69f6f76358b0031b8e97627cc5",
+      "stately-concurrent-collections-jvm-2.0.6.jar": "7a2673e734bbe9b837397565c3e96f01933556b648a41bf2e7f2c788cd0a26de",
+      "stately-strict-jvm-2.0.6.jar": "70cfd46b4500f19e9f17b85a9140ab402f5cf12d5102d2d56c134fa76beda47c",
+      "testng-6.14.3.jar": "7266b68b9668ea0c4e86e384fd72ccaa29a20a2538b20c586fd3902f008b114e",
+      "usage-0.10.1-SNAPSHOT.jar": "0060ba47758b64d17f3e207f48f2c9fb2e902e2b2d6d935f52716f9e13fd7c47",
+      "vendor-android-0.10.1-SNAPSHOT.jar": "974e9fb5be9604789afefc4bbaf7d1b70a8714255721865bcfe9ce2b4d621c67",
+      "vertx-core-4.4.6.jar": "7a408909f70bd4c2098cc3dd28ff7b61f8f9548c006fb666b101a21597416b93",
+      "vertx-lang-kotlin-4.4.6.jar": "6c4a1e80c9d318c6f50682ff1a9e26c471735cd007bf1f9854008db0e647187c",
+      "vertx-lang-kotlin-coroutines-4.4.6.jar": "28ce93b2e4e918d8b8b7d08445479ded94a88a17e1dc83fe64d4632e42758416"
+    },
+    "jdk": "openjdk version \"21.0.10\" 2026-01-20\nOpenJDK Runtime Environment (build 21.0.10+-117844308-b1163.108)\nOpenJDK 64-Bit Server VM (build 21.0.10+-117844308-b1163.108, mixed mode)",
+    "native_sha": "9e1538c53560b64e018c257afc44474a0d27ed9d",
+    "patches": {
+      "0001-oracle-module.patch": "5bfe1312493c305f196d4e7e1f3dd3ba0c391e5671814c1a42595a3b72b50cac",
+      "0002-oracle-hooks.patch": "42ffdfedafcc5833d59cef18121ef3599cc5c3d8a621236e20dfe84661471475"
+    },
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/oracle/build-c95b212882c7ba7b1ad91b7981916ed175f1530e/marathon-patched/cli/build/install/marathon/bin/marathon",
+        "run",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/android-remote/jvm-a/raw/in/Marathonfile"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+    "stdin_payloads": {
+      "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+      "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192"
+    },
+    "terminal_observation": {
+      "cli": 0,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "storage": "gzip@1"
+}

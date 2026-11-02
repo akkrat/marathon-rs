@@ -1,0 +1,450 @@
+#!/usr/bin/env python3
+"""Opt-in real-host captures and outcome comparison; validate is entirely offline."""
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import select
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import uuid
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common import (FROZEN, HERE, ROOT, LEDGER, REFERENCE_FORMAT, PATCH_FILE, SCENARIOS, SOURCE_KINDS, build_source, capture_source,
+                    check_selection, check_receipt, clean_env, e, execute, git_output, inventory, jar_hashes, private_config, release_sha,
+                    require, require_reference_source, save, source_kind, source_sha, ssh_argv, tree_with_patches)
+from configs import render
+import build as builds
+import outcomes
+
+
+class Worker:
+    def __init__(self, host, log):
+        self.host, self.log, self.proc = host, Path(log), None
+        self.requested_cleanup = False
+
+    def __enter__(self):
+        host = self.host
+        if host['profile'] == 'ssh-26.6':
+            probe = subprocess.run(ssh_argv(host) + ['exit 37'], capture_output=True, timeout=30)
+            require(probe.returncode == 37, 'blocked: SSH does not preserve nonzero exit (U3)')
+            remote = [host['worker_python'], '-I', host['worker_checkout'] + '/tools/real-e2e/worker.py', '--approved']
+            argv = ssh_argv(host) + [shlex.join(remote)]
+        else:
+            argv = [sys.executable, '-I', str(HERE / 'worker.py'), '--approved']
+        self.error = self.log.open('wb')
+        self.proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.error,
+                                     start_new_session=True)
+        return self
+
+    def call(self, op, **kwargs):
+        require(self.proc is not None and self.proc.poll() is None, 'worker session is not alive')
+        self.proc.stdin.write(json.dumps(dict(op=op, **kwargs)).encode() + b'\n'); self.proc.stdin.flush()
+        # A response can contain a full manifest. Reading bytewise through a raw
+        # descriptor avoids buffered readline hanging beyond the watchdog.
+        response = bytearray()
+        import time
+        deadline = time.monotonic() + (480 if op == 'prepare' else 10 if op == 'guard' else 300)
+        fd = self.proc.stdout.fileno()
+        while not response.endswith(b'\n'):
+            remaining = deadline - time.monotonic()
+            require(remaining > 0 and select.select([fd], [], [], remaining)[0], 'worker response watchdog')
+            part = os.read(fd, 65536)
+            require(part, 'worker disconnected; inspect retained worker journal')
+            response.extend(part)
+        result = e.loads(response)
+        require(result['ok'], result.get('error', 'worker failed'))
+        if op == 'cleanup':
+            self.requested_cleanup = True
+        return result['value']
+
+    def __exit__(self, *_):
+        if self.proc:
+            try:
+                self.proc.stdin.close()
+                self.proc.wait(timeout=300)
+            except (BrokenPipeError, subprocess.TimeoutExpired):
+                os.killpg(self.proc.pid, signal.SIGTERM)
+                try:
+                    self.proc.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    os.killpg(self.proc.pid, signal.SIGKILL); self.proc.wait(timeout=10)
+                    raise e.Invalid('worker cleanup watchdog; retained lock needs operator inspection')
+            finally:
+                self.error.close()
+
+
+def stage_inputs(args):
+    build_root = Path(args.build).resolve()
+    manifest = e.load(build_root / 'build.json')
+    expect_source(args.source, manifest)
+    products_root = Path(manifest['products_path'])
+    require(products_root.resolve().is_relative_to(build_root), 'build products escaped staging')
+    require(inventory(products_root) == manifest['products'], 'build products changed')
+    output = Path(args.output).resolve(); output.mkdir(parents=True, exist_ok=False)
+    assets = output / 'assets'; assets.mkdir()
+    products = {}
+    for key, relative in [('application', args.application), ('tests', args.tests)]:
+        e.relative(relative)
+        source = products_root / relative
+        require(source.resolve().is_relative_to(products_root.resolve()) and source.exists(), 'invalid build product')
+        target = assets / source.name
+        require(not target.exists(), 'duplicate product basename')
+        if source.is_dir():
+            shutil.copytree(source, target, symlinks=True)
+        else:
+            shutil.copy2(source, target)
+        products[key] = 'assets/' + source.name
+    shutil.copytree(ROOT / 'fixtures/real-e2e/inputs', output / 'fixtures')
+    save(output / 'products.json', products)
+    shutil.copy2(build_root / 'build.json', output / 'build.json')
+    safe_inputs(output)
+    print('Input products staged. JVM discovery and a reviewed selection are still required.')
+
+
+def expect_source(wanted, build):
+    """An explicit --source is an assertion about the build record, never a second selection."""
+    source = build_source(build)
+    require(wanted is None or SOURCE_KINDS.index(wanted) == SOURCE_KINDS.index(source_kind(source)),
+            'the build record is bound to the %s source, not %s' % (source_kind(source), wanted))
+    return source
+
+
+def safe_inputs(path):
+    root = Path(path).resolve()
+    require(root.is_dir(), 'missing input directory')
+    for entry in root.rglob('*'):
+        require(entry.resolve().is_relative_to(root), 'input symlink escapes sandbox')
+    products = e.load(root / 'products.json')
+    require(set(products) == {'application', 'tests'}, 'products.json needs application and tests')
+    for value in products.values():
+        e.relative(value)
+        require((root / value).exists(), 'missing product: ' + value)
+        require(value.startswith('assets/'), 'products must be under assets/')
+    build = e.load(root / 'build.json')
+    build_source(build)
+    require(build.get('products') and build.get('commands'), 'missing pinned build provenance')
+    return products, build
+
+
+def private_cli_sdk(raw):
+    sdk = Path(raw) / 'sdk/platform-tools'; sdk.mkdir(parents=True)
+    shim = sdk / 'adb'
+    shim.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$MRS_ADB_TRIPWIRE\"\necho 'Blocked unowned ADB startup' >&2\nexit 74\n")
+    shim.chmod(0o755)
+    return str(sdk.parent)
+
+
+def capture(args, host):
+    scenario = SCENARIOS[args.scenario]
+    require(host['profile'] in scenario['profiles'], 'scenario/profile mismatch')
+    require(args.side == 'jvm' or not args.discover, 'discovery must come from Kotlin')
+    pair = Path(args.output).resolve()
+    pair.mkdir(parents=True, exist_ok=True)
+    side_name = 'discovery' if args.discover else args.side
+    raw = pair / side_name
+    require(not raw.exists(), 'attempt already exists; retain failures and choose a new directory')
+    products, build = safe_inputs(args.inputs)
+    input_tree = inventory(args.inputs)
+    require(build['profile'] == host['profile'] and build['worker_id'] == host['worker_id'], 'products built for another host/profile')
+    # WP 7.5: one Kotlin source per capture. The inputs name it (build.json is inside the hashed input tree); the JVM
+    # distribution must prove the same one, and the native side must follow the JVM side's.
+    source = expect_source(args.source, build)
+    reference_binding = require_reference_source(host, source)
+    if args.side == 'native':
+        require((pair / 'jvm/capture.json').is_file(), 'Kotlin must complete first')
+        reference = e.load(pair / 'jvm/capture.json')
+        require(reference['input_tree'] == input_tree, 'pair inputs changed')
+        require(capture_source(reference) == source, 'pair mixes Kotlin sources')
+        require(reference['worker_id'] == host['worker_id'], 'same-host pairing required')
+        require(reference['completed'], 'Kotlin failed to produce a complete capture')
+    raw.mkdir(mode=0o700)
+    shutil.copytree(args.inputs, raw / 'in', symlinks=True)
+    for directory in ('home', 'tmp'):
+        (raw / directory).mkdir()
+    tests = None
+    if not args.discover:
+        tests = check_selection(scenario, e.load(raw / 'in/selection.json'), raw / 'in/discovery.yml')
+    for key in ('jvm', 'native'):
+        require(Path(host[key]).is_absolute() and Path(host[key]).is_file(), 'missing production CLI: ' + key)
+    jdk = java_version(host['java_home'], host['profile'])
+    native_source = subprocess.check_output(['git', '-C', ROOT, 'rev-parse', 'HEAD'], text=True, timeout=10).strip()
+    run_id = uuid.uuid4().hex
+    report = dict(format='marathon-real-e2e/capture@1', source=source, source_kind=source_kind(source),
+                  jvm_reference_source=reference_binding, scenario=scenario['id'], profile=host['profile'],
+                  worker_id=host['worker_id'], run_id=run_id, side=args.side, input_tree=input_tree,
+                  jdk=jdk, native_source=native_source, harness_sha256=host.get('harness_sha256'),
+                  selected_tests=tests, completed=False, cleanup=None,
+                  acceptance='outcome-level; requires a JVM-qualified policy and witness review')
+    save(raw / 'capture.json', report)
+    try:
+        with Worker(host, raw / 'worker.stderr') as worker:
+            try:
+                prepared = worker.call('prepare', config=host, scenario=scenario, run_id=run_id)
+                report['worker_before'] = prepared
+                save(raw / 'capture.json', report)
+                if args.side == 'native':
+                    for fact in ('xcode', 'sdk', 'image', 'image_hashes', 'adb', 'emulator', 'os'):
+                        require(prepared['before'].get(fact) == reference['worker_before']['before'].get(fact),
+                                'host toolchain/image changed between sides: ' + fact)
+                    if scenario['vendor'] == 'iOS':
+                        require(prepared['udid'] != reference['worker_before']['udid'], 'simulator was reused')
+                cli_host = dict(host)
+                if scenario['vendor'] == 'Android':
+                    # The worker already owns a live foreground server. Prevent the
+                    # provider's fallback from spawning an untracked daemon if it dies.
+                    cli_host['sdk'] = private_cli_sdk(raw)
+                config, devices = render(scenario, cli_host, products, tests, prepared)
+                save(raw / 'in/Marathonfile', config)
+                if devices:
+                    save(raw / 'in/Marathondevices', devices)
+                save(raw / 'config.json', config)
+                env = clean_env(raw / 'home', raw / 'tmp', host)
+                if scenario['vendor'] == 'Android':
+                    env.update(MRS_ADB_TRIPWIRE=str(raw / 'adb-tripwire'), ANDROID_HOME=cli_host['sdk'], ANDROID_SDK_ROOT=cli_host['sdk'])
+                argv = [host[args.side], 'parse' if args.discover else 'run', '-m', str(raw / 'in/Marathonfile')]
+                if args.discover:
+                    argv += ['-o', 'discovery']
+                else:
+                    argv += ['--analyticsTracking', 'false', '--bugsnag', 'false']
+                marker = b'MRS_REAL_E2E_SLOW_STARTED' if scenario['id'] == 'macos-cancel' and not args.discover else None
+                process = execute(argv, raw / 'in', env, raw / 'process', timeout=host['watchdog_seconds'],
+                                  marker=marker, guard=lambda: worker.call('guard'))
+                report['process'] = process
+                require(not (raw / 'adb-tripwire').exists(), 'blocked: provider tried to start an unowned ADB server')
+                report['runner_after'] = worker.call('inspect')
+                require(not process['watchdog'] and process['joined'] and not process['interrupted'], 'CLI harness failure')
+                expected = 0 if args.discover else scenario['cli']
+                require(expected is None or process['exit'] == expected, 'unexpected runner exit; functional scenario blocked')
+                if args.side == 'native':
+                    require(process['exit'] == reference['process']['exit'], 'runner exit differs from Kotlin')
+                if not args.discover and scenario['id'] == 'macos-permissions':
+                    streams = b''.join((raw / 'process' / name).read_bytes() for name in ('stdout', 'stderr'))
+                    require(b'Unable to add permissions: requires System Integrity Protection to be disabled' in streams,
+                            'blocked: expected real A18 permission refusal not observed')
+                if not args.discover and scenario['id'] != 'macos-permissions':
+                    require((raw / 'in/report/test_result/raw.json').is_file(), 'missing execution results; config rejection is not certification')
+                report['completed'] = True
+            except BaseException as error:
+                report['failure'] = str(error)
+                raise
+            finally:
+                try:
+                    report['cleanup'] = worker.call('cleanup')
+                    require(report['cleanup']['complete'], 'worker cleanup failed; retain lock and evidence')
+                except BaseException as error:
+                    report['completed'] = False
+                    report['cleanup_error'] = str(error)
+                    raise
+    finally:
+        save(raw / 'capture.json', report)
+    if args.discover:
+        require((raw / 'in/report/discovery.yml').is_file(), 'Kotlin did not produce discovery.yml')
+        print('JVM discovery retained; review exact identities before capture-pair.')
+        return
+    pack(raw, pair)
+    print('Raw production capture retained. Qualify JVM volatility, then compare --release.')
+
+
+def pack(raw, pair):
+    report = e.load(raw / 'capture.json')
+    require(report['completed'] and report['cleanup']['complete'], 'cannot pack incomplete capture')
+    process = report['process']
+    outcome = dict(cli=process['exit'], fake=None, harness=0, watchdog=False, joined=True, unused=[], unmatched=[])
+    contract = dict(format='marathon-differential/contract@1', scenario='artifact', roles={}, paths=['reports', 'stdout', 'stderr'],
+                    normalization={}, outcome=outcome,
+                    scope='WP 7.2 raw outcome inputs; release uses a separately JVM-qualified projection')
+    source = capture_source(report)
+    if source != FROZEN:
+        # Frozen contracts stay byte-identical to the 7.2 ones; any other source is part of the contract hash.
+        contract['source'] = source
+    contract_path = pair / 'contract.json'
+    if report['side'] == 'jvm':
+        require(not contract_path.exists(), 'contract already frozen')
+        save(contract_path, contract)
+    else:
+        require(contract == e.load(contract_path), 'diagnostic contract changed after Kotlin')
+    provenance = dict(terminal_observation=outcome, process=process, capture_sha256=e.sha((raw / 'capture.json').read_bytes()))
+    if source != FROZEN:
+        provenance['source_sha'] = source  # 7.1's envelope then records the release as the evidence source
+    if report['side'] == 'jvm':
+        binary = Path(process['argv'][0])
+        jars = binary.parent.parent / 'lib'
+        require(jars.is_dir(), 'JVM installDist library directory missing')
+        provenance.update(jdk=report['jdk'],
+                          jars={p.name: e.sha(p.read_bytes()) for p in sorted(jars.glob('*.jar'))},
+                          patches={'0001-oracle-module.patch': e.sha((ROOT / 'tools/oracle/patches/0001-oracle-module.patch').read_bytes())})
+    else:
+        provenance['native_source'] = report['native_source']
+        provenance['binary_sha256'] = e.sha(Path(process['argv'][0]).read_bytes())
+    e.write_record(raw / 'evidence', contract, report['side'], {'reports': raw / 'in/report'},
+                   {name: (raw / 'process' / name).read_bytes() for name in ('stdout', 'stderr')},
+                   outcome, provenance, compressed=True)
+
+
+# Decision 13: the reserved Linux worker has its own JDK 21 and no JBR, so its profile accepts any
+# JDK 21; the exact `java -version` text goes into the capture provenance. The Apple profiles keep the pin.
+OWN_JDK_PROFILES = {'linux-kvm'}
+
+
+def java_version(home, profile):
+    result = subprocess.run([str(Path(home) / 'bin/java'), '-version'], capture_output=True, timeout=15)
+    require(result.returncode == 0, 'JDK version unavailable')
+    version = (result.stdout + result.stderr).decode()
+    if profile in OWN_JDK_PROFILES:
+        require(re.search(r'version "21[."]', version), 'JDK 21 required for ' + profile)
+    else:
+        require('21.0.10' in version, 'reference JBR 21.0.10 required')
+    return version
+
+
+def write_reference(args):
+    """Bind a JVM distribution to the oracle build that made it, through that build's own receipt."""
+    sha = source_sha(args.source)
+    clone = Path(args.oracle_clone).resolve()
+    expected = 'build' if sha == FROZEN else 'build-' + sha
+    require(clone.name == 'marathon-src' and clone.parent.name == expected,
+            'the oracle clone is not the one build.sh keeps for this source')
+    require(git_output('-C', str(clone), 'rev-parse', 'HEAD') == sha, 'the oracle clone is not at the selected source')
+    # The receipt is written by build.sh only after the tree check and a successful Gradle build, and a build starts by
+    # deleting the old one. Jars copied into a clone, or left from another source, cannot match it.
+    receipt_path = clone.parent / 'receipt-reference.json'
+    require(receipt_path.is_file(), 'no builder receipt: run tools/oracle/build.sh reference with ORACLE_SOURCE_SHA for this source')
+    receipt = e.load(receipt_path)
+    check_receipt(receipt, sha)
+    require(tree_with_patches(clone, sha, [ROOT / PATCH_FILE]) == receipt['verified_tree'], 'the builder receipt names another source tree')
+    installed, given = clone / 'cli/build/install/marathon/lib', Path(args.jvm).resolve().parent.parent / 'lib'
+    require(installed.is_dir() and jar_hashes(installed) == receipt['jars'], 'the installed jars differ from the builder receipt')
+    require(jar_hashes(given) == receipt['jars'], 'the distribution differs from the builder receipt')
+    out = Path(args.output)
+    require(not out.exists(), 'reference record exists; retain it')
+    save(out, dict(format=REFERENCE_FORMAT, source=sha, source_kind=args.source, jars=receipt['jars'], receipt=receipt,
+                   patches={'0001-oracle-module.patch': e.sha((ROOT / PATCH_FILE).read_bytes())}))
+    print('JVM reference bound to ' + sha)
+
+
+def validate():
+    require(LEDGER['source'] == e.SOURCE, 'ledger source differs')
+    require(source_sha('frozen') == FROZEN and release_sha() != FROZEN, 'source selection differs')
+    require(len(SCENARIOS) == 9 and len(LEDGER['scenarios']) == 9, 'scenario inventory differs')
+    require(sum(len(s['profiles']) for s in SCENARIOS.values()) == 16, 'required pair count differs')
+    require(sum(len(s['profiles']) * s['repeat'] for s in SCENARIOS.values()) == 28, 'repeatability count differs')
+    for scenario in SCENARIOS.values():
+        require(scenario['witnesses'] and scenario['methods'], 'empty coverage declaration')
+    require(LEDGER['release_status'] == 'blocked-awaiting-real-captures', 'offline preparation cannot certify live coverage')
+    coverage = e.load(ROOT / 'fixtures/real-e2e/coverage.json')
+    require(coverage['format'] == 'marathon-real-e2e/coverage@1', 'unknown coverage schema')
+    expected = {(profile, s['id']): s['repeat'] for s in SCENARIOS.values() for profile in s['profiles']}
+    require(len(coverage['pairs']) == len(expected), 'missing/duplicate coverage row')
+    require({(r['profile'], r['scenario']): r['required_repetitions'] for r in coverage['pairs']} == expected,
+            'coverage differs from approved matrix')
+    for row in coverage['pairs']:
+        require(row['status'] == 'blocked' and row['reason'] and row['attempts'] == [],
+                'live evidence publication needs its reviewed outcome/coverage integration')
+    pinned = e.load(HERE / 'inputs.json')
+    for name, digest in pinned.items():
+        require(e.sha((ROOT / name).read_bytes()) == digest, 'fixture digest differs: ' + name)
+    print('16 required pairs / 28 executions; 0 real captures certified. Offline inputs valid.')
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    sub = p.add_subparsers(dest='command', required=True)
+    sub.add_parser('validate')
+    stage = sub.add_parser('stage-inputs')
+    for flag in ('build', 'application', 'tests', 'output'):
+        stage.add_argument('--' + flag, required=True)
+    stage.add_argument('--source', choices=SOURCE_KINDS, help='asserts the build record\'s source; never selects one')
+    ref = sub.add_parser('reference', help='offline: record which Kotlin source a JVM distribution was built from')
+    ref.add_argument('--source', choices=SOURCE_KINDS, required=True)
+    ref.add_argument('--oracle-clone', required=True, help='tools/oracle/build[-<sha>]/marathon-src')
+    ref.add_argument('--jvm', required=True, help='bin/marathon of the distribution (a copy is fine)')
+    ref.add_argument('--output', required=True)
+    for name in ('build', 'preflight', 'capture-pair', 'cleanup'):
+        cmd = sub.add_parser(name)
+        cmd.add_argument('--host', required=True)
+        cmd.add_argument('--approved', action='store_true', help='orchestrator has obtained the required host approval')
+        cmd.add_argument('--output', required=True)
+        if name == 'cleanup':
+            cmd.add_argument('--run-id', required=True)
+        elif name == 'build':
+            cmd.add_argument('--vendor', choices=['iOS', 'macOS', 'Android'], required=True)
+            cmd.add_argument('--source', choices=SOURCE_KINDS, default='frozen',
+                             help='Kotlin source to archive and to bind into build.json (default: the frozen baseline)')
+        else:
+            cmd.add_argument('--scenario', choices=SCENARIOS, required=True)
+        if name == 'capture-pair':
+            cmd.add_argument('--side', choices=['jvm', 'native'], required=True)
+            cmd.add_argument('--inputs', required=True)
+            cmd.add_argument('--discover', action='store_true')
+            cmd.add_argument('--source', choices=SOURCE_KINDS, help='asserts the inputs\' source; never selects one')
+    cmd = sub.add_parser('qualify')
+    for flag in ('reference', 'rerun', 'draft', 'output', 'mismatch'):
+        cmd.add_argument('--' + flag, required=True)
+    cmd = sub.add_parser('compare')
+    cmd.add_argument('pair')
+    cmd.add_argument('--mismatch', required=True)
+    cmd.add_argument('--release', action='store_true')
+    cmd.add_argument('--policy')
+    cmd.add_argument('--verdict', default='release.json', help='--release: file name of the verdict inside the pair (default release.json; '
+                     'a requalified policy writes release-<tag>.json next to the retained one)')
+    args = p.parse_args()
+    if args.command == 'validate':
+        validate(); return
+    if args.command == 'stage-inputs':
+        stage_inputs(args); return
+    if args.command == 'reference':
+        write_reference(args); return
+    if args.command == 'qualify':
+        outcomes.qualify(args.reference, args.rerun, args.draft, args.output, args.mismatch)
+        print('JVM-vs-JVM decision-9 projections match; qualification is bound to both captures.'); return
+    if args.command == 'compare':
+        if args.release:
+            require(args.policy, 'blocked: --release requires a JVM-qualified --policy')
+            require(re.fullmatch(r'release(?:-[A-Za-z0-9_]+)?\.json', args.verdict), 'the verdict must be named release[-tag].json')
+            target = Path(args.pair) / args.verdict
+            require(not target.exists(), 'release result exists; retain it')
+            result = outcomes.release(args.pair, args.policy, args.mismatch)
+            save(target, result)
+            print('Outcome-level pair comparison passed; full matrix coverage is separate.'); return
+        pair = Path(args.pair)
+        e.compare(pair / 'jvm/evidence', pair / 'native/evidence', e.load(pair / 'contract.json'), args.mismatch)
+        print('Diagnostic report/console comparison matches. This is not release acceptance.'); return
+    require(args.approved, 'blocked: real-host operation requires orchestrator --approved')
+    host = private_config(args.host, require_transport=args.command != 'build')
+    os.umask(0o077)
+    if args.command == 'build':
+        builds.build(args.vendor, host, args.output, args.source)
+    elif args.command == 'cleanup':
+        output = Path(args.output); output.mkdir(parents=True, exist_ok=False)
+        with Worker(host, output / 'worker.stderr') as worker:
+            result = worker.call('recover', run_id=args.run_id)
+            save(output / 'cleanup.json', result)
+            require(result['complete'], 'cleanup incomplete; inspect retained journal')
+    elif args.command == 'preflight':
+        output = Path(args.output); output.mkdir(parents=True, exist_ok=False)
+        with Worker(host, output / 'worker.stderr') as worker:
+            facts = worker.call('preflight', config=host, scenario=SCENARIOS[args.scenario], run_id=uuid.uuid4().hex)
+            save(output / 'preflight.json', facts)
+    else:
+        capture(args, host)
+
+
+if __name__ == '__main__':
+    interrupted = False
+    def stop(_signal, _frame):
+        global interrupted
+        if not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        main()
+    except (e.Invalid, OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        print('real-e2e: ' + str(error), file=sys.stderr)
+        sys.exit(2)

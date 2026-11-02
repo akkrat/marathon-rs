@@ -1,0 +1,6 @@
+{
+  "endpoint": "127.0.0.1:<port-9>",
+  "host_key_fingerprint": "<host-key>",
+  "run": "during_exec-2",
+  "schema": 1
+}

@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""Compare real Kotlin/Rust CLIs on strict, fresh loopback fakes. No real adb invocation."""
+import json, os, pathlib, re, shutil, subprocess, tempfile, time
+root = pathlib.Path(__file__).resolve().parents[3]
+source = root / 'fixtures/fake-adb/android-runner-cli/script'
+expected = source.parent / 'expected'
+expected.mkdir(exist_ok=True)
+java_home = '/Applications/Android Studio.app/Contents/jbr/Contents/Home'
+kotlin = pathlib.Path(os.environ.get('MARATHON_KT',os.path.expanduser('~/src/marathon'))) / 'cli/build/install/marathon/bin/marathon'
+# Optional list of source build identifiers to mask in captured output (one per line); without it nothing is masked.
+redactions_path=pathlib.Path(os.environ.get('MARATHON_REDACTIONS',str(pathlib.Path.home()/'.config/marathon-rs/redactions.txt')))
+patterns=[re.compile(re.escape(line.strip()),re.IGNORECASE) for line in redactions_path.read_text().splitlines() if line.strip()] if redactions_path.is_file() else []
+def redact_source_names(text):
+    for pattern in patterns: text=pattern.sub('@SOURCE_NAME@',text)
+    return text
+for mode in ['remote','local','timeout','crash','remote-timeout']:
+    outcomes = {}
+    for implementation, binary in [('kotlin',kotlin),('rust',root/'target/debug/marathon')]:
+        with tempfile.TemporaryDirectory(prefix='mrs66-cli-') as tmp:
+            temp = pathlib.Path(tmp); inp=temp/'in'; inp.mkdir(); (temp/'home').mkdir(); (temp/'tmp').mkdir()
+            for apk in ['app-debug.apk','app-debug-androidTest.apk']:
+                shutil.copyfile(root/'fixtures/vendor-android/apk'/apk, inp/apk)
+            sdk=inp/'sdk/platform-tools'; sdk.mkdir(parents=True)
+            shim=sdk/'adb'; shim.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "'+str(temp/'adb-argv')+'"\nexit 70\n'); shim.chmod(0o755)
+            script=json.loads((source/'devices.yaml').read_text())
+            for entry in script['shell']:
+                if 'stdout_file' in entry:
+                    entry['stdout_file']=str((source/entry['stdout_file']).resolve())
+                if entry.get('prefix')=='am instrument':
+                    if mode=='timeout': entry.update(stdout_file=str(source/'started.txt'),hang=True)
+                    if mode=='crash': entry['stdout_file']=str(source/'crash.txt')
+                if mode=='remote-timeout' and entry.get('regex','').startswith('^am instrument'):
+                    entry.pop('stdout_file',None);entry['hang']=True
+            script_path=temp/'script.json'; script_path.write_text(json.dumps(script))
+            portfile=temp/'port'; transcript=temp/'transcript.jsonl'; server_log=open(temp/'server.log','w')
+            server=subprocess.Popen([str(root/'target/debug/fake-adb'),'--script',str(script_path),'--port','0','--port-file',str(portfile),'--transcript',str(transcript),'--strict'],stdout=server_log,stderr=server_log)
+            try:
+                for _ in range(500):
+                    if portfile.exists(): break
+                    if server.poll() is not None: raise RuntimeError('fake startup failed')
+                    time.sleep(.01)
+                port=int(portfile.read_text()); assert port!=5037
+                vendor={'type':'Android','androidSdk':'./sdk','applicationApk':'./app-debug.apk','testApplicationApk':'./app-debug-androidTest.apk','autoGrantPermission':False,'mockLocation':False,'applicationPmClear':False,'testApplicationPmClear':False,'allureConfiguration':{'enabled':False},'screenRecordConfiguration':{'videoConfiguration':{'enabled':False},'screenshotConfiguration':{'enabled':False}},'adbServers':[{'host':'127.0.0.1','port':port}]}
+                if mode in ['remote','remote-timeout']: vendor['testParserConfiguration']={'type':'remote'}
+                config={'name':'runner-cli','outputDir':'./output','analyticsTracking':False,'bugsnagReporting':False,'uncompletedTestRetryQuota':0,'testOutputTimeoutMillis':100,'testBatchTimeoutMillis':1000,'filteringConfiguration':{'allowlist':[{'type':'fully-qualified-test-name','values':['com.example.MainActivityTest#testText']}]},'vendorConfiguration':vendor}
+                (inp/'Marathonfile').write_text(json.dumps(config))
+                env={'HOME':str(temp/'home'),'TMPDIR':str(temp/'tmp'),'PATH':'/usr/bin:/bin:/usr/sbin:/sbin','JAVA_HOME':java_home,'LANG':'en_US.UTF-8'}
+                result=subprocess.run([str(binary),'-m',str(inp/'Marathonfile')],cwd=inp,env=env,capture_output=True,text=True,timeout=40)
+            finally:
+                server.terminate(); server_rc=server.wait(timeout=10);server_log.close()
+            if server_rc:
+                rows=[json.loads(line) for line in transcript.read_text().splitlines()]
+                print([r for r in rows if r.get('type')=='warning'][:4])
+                print(result.stdout[-3000:]);print(result.stderr[-1000:])
+                raise RuntimeError((temp/'server.log').read_text()[:2000])
+            if (temp/'adb-argv').exists(): raise RuntimeError('adb shim invoked: '+(temp/'adb-argv').read_text())
+            rows=[json.loads(line) for line in transcript.read_text().splitlines()]
+            commands=[r['service'] for r in rows if r.get('type')=='request' and 'am instrument ' in r.get('service','')]
+            if mode=='remote-timeout': assert len(commands)==9, commands
+            def normalize(value):
+                if isinstance(value,dict): return {k:normalize(v) for k,v in value.items() if k not in ['startTime','endTime','testBatchId','safeSerialNumber$delegate','serialNumber','durationMillis','isTimeInfoAvailable','deviceSerial','timestamp','duration']}
+                if isinstance(value,list): return [normalize(v) for v in value]
+                if isinstance(value,str): return re.sub(r"(?<=@)[0-9a-f]+$", "IDENTITY", value) if value.startswith("[Lcom.") else value
+                return value
+            raw=inp/'output/test_result/raw.json'
+            semantic=normalize(json.loads(raw.read_text())) if raw.exists() else None
+            finals={stream:[line for line in text.splitlines() if line.startswith('Marathon execution ')] for stream,text in [('stdout',result.stdout),('stderr',result.stderr)]}
+            per_test=[normalize(json.loads(p.read_text())) for p in sorted((inp/'output/test_result').rglob('*.json')) if p.name!='raw.json']
+            outcome={'perTest':per_test,'exit':result.returncode,'instrumentation':commands,'final':finals,'results':semantic}
+            outcomes[implementation]=outcome
+            for suffix,text in [('stdout',result.stdout),('stderr',result.stderr)]:
+                text=redact_source_names(text.replace(str(inp),'@IN@').replace(str(port),'PORT'))
+                (expected/f'{mode}-{implementation}.{suffix}').write_text(text)
+            (expected/f'{mode}-{implementation}.json').write_text(json.dumps(outcome,indent=2)+'\n')
+            # Retain the transcript without ephemeral port numbers or temporary roots.
+            text=transcript.read_text().replace(str(inp),'@IN@').replace(str(port),'PORT')
+            (expected/f'{mode}-{implementation}-transcript.jsonl').write_text(text)
+    if outcomes['kotlin']!=outcomes['rust']:
+        print(mode+': DIFFERENT');print(json.dumps(outcomes,indent=2)[:10000]);raise SystemExit(1)
+    print(mode+': matched')

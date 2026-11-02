@@ -1,0 +1,250 @@
+{
+  "perTest": [
+    {
+      "test": {
+        "pkg": "com.example",
+        "clazz": "MainActivityTest",
+        "method": "testText",
+        "metaProperties": [
+          {
+            "name": "io.qameta.allure.kotlin.Epic",
+            "values": {
+              "value": "General"
+            }
+          },
+          {
+            "name": "io.qameta.allure.kotlin.Feature",
+            "values": {
+              "value": "Text on main screen"
+            }
+          },
+          {
+            "name": "io.qameta.allure.kotlin.Owner",
+            "values": {
+              "value": "user2"
+            }
+          },
+          {
+            "name": "io.qameta.allure.kotlin.Severity",
+            "values": {
+              "value": "CRITICAL"
+            }
+          },
+          {
+            "name": "io.qameta.allure.kotlin.Story",
+            "values": {
+              "value": "Slow"
+            }
+          },
+          {
+            "name": "kotlin.Metadata",
+            "values": {
+              "bv": [
+                {
+                  "value": 1
+                },
+                {
+                  "value": 0
+                },
+                {
+                  "value": 3
+                }
+              ],
+              "d1": [
+                {
+                  "value": "\ufffd\ufffd(\n\u0002\u0018\u0002\n\u0002\u0010\ufffd\ufffd\n\u0002\b\u0002\n\u0002\u0018\u0002\n\u0002\u0018\u0002\n\u0002\b\u0004\n\u0002\u0018\u0002\n\u0002\b\u0003\n\u0002\u0010\u0002\n\u0002\b\n\b\u0007\u0018\ufffd\ufffd2\u00020\u0001B\u0005\u00a2\u0006\u0002\u0010\u0002J\b\u0010\r\u001a\u00020\u000eH\u0007J\b\u0010\u000f\u001a\u00020\u000eH\u0007J\b\u0010\u0010\u001a\u00020\u000eH\u0007J\b\u0010\u0011\u001a\u00020\u000eH\u0007J\b\u0010\u0012\u001a\u00020\u000eH\u0007J\b\u0010\u0013\u001a\u00020\u000eH\u0007J\b\u0010\u0014\u001a\u00020\u000eH\u0007J\b\u0010\u0015\u001a\u00020\u000eH\u0007J\b\u0010\u0016\u001a\u00020\u000eH\u0007J\b\u0010\u0017\u001a\u00020\u000eH\u0007R!\u0010\u0003\u001a\u0010\u0012\f\u0012\n \u0006*\u0004\u0018\u00010\u00050\u00050\u00048G\u00a2\u0006\b\n\ufffd\ufffd\u001a\u0004\b\u0007\u0010\bR\u0011\u0010\t\u001a\u00020\n\u00a2\u0006\b\n\ufffd\ufffd\u001a\u0004\b\u000b\u0010\f\u00a8\u0006\u0018"
+                }
+              ],
+              "d2": [
+                {
+                  "value": "Lcom/example/MainActivityTest;"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "()V"
+                },
+                {
+                  "value": "rule"
+                },
+                {
+                  "value": "Landroidx/test/ext/junit/rules/ActivityScenarioRule;"
+                },
+                {
+                  "value": "Lcom/example/MainActivity;"
+                },
+                {
+                  "value": "kotlin.jvm.PlatformType"
+                },
+                {
+                  "value": "getRule"
+                },
+                {
+                  "value": "()Landroidx/test/ext/junit/rules/ActivityScenarioRule;"
+                },
+                {
+                  "value": "screen"
+                },
+                {
+                  "value": "Lcom/example/MainScreen;"
+                },
+                {
+                  "value": "getScreen"
+                },
+                {
+                  "value": "()Lcom/example/MainScreen;"
+                },
+                {
+                  "value": "testText"
+                },
+                {
+                  "value": ""
+                },
+                {
+                  "value": "testText1"
+                },
+                {
+                  "value": "testText2"
+                },
+                {
+                  "value": "testText3"
+                },
+                {
+                  "value": "testText4"
+                },
+                {
+                  "value": "testText5"
+                },
+                {
+                  "value": "testText6"
+                },
+                {
+                  "value": "testText7"
+                },
+                {
+                  "value": "testText8"
+                },
+                {
+                  "value": "testText9"
+                },
+                {
+                  "value": "app_debug"
+                }
+              ],
+              "k": 1,
+              "mv": [
+                {
+                  "value": 1
+                },
+                {
+                  "value": 4
+                },
+                {
+                  "value": 0
+                }
+              ]
+            }
+          },
+          {
+            "name": "org.junit.runner.RunWith",
+            "values": {
+              "value": "Lio/qameta/allure/android/runners/AllureAndroidJUnit4;"
+            }
+          },
+          {
+            "name": "org.junit.Test",
+            "values": {}
+          }
+        ]
+      },
+      "device": {
+        "operatingSystem": {
+          "version": "33"
+        },
+        "model": "Android SDK built for x86",
+        "manufacturer": "Google",
+        "networkState": "CONNECTED",
+        "deviceFeatures": [
+          "VIDEO",
+          "SCREENSHOT"
+        ],
+        "healthy": true
+      },
+      "status": "PASSED",
+      "attachments": []
+    }
+  ],
+  "exit": 0,
+  "instrumentation": [
+    "shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.MainActivityTest#testText com.example.test/androidx.test.runner.AndroidJUnitRunner"
+  ],
+  "final": {
+    "stdout": [
+      "Marathon execution finished"
+    ],
+    "stderr": []
+  },
+  "results": [
+    {
+      "package": "com.example",
+      "class": "MainActivityTest",
+      "method": "testText",
+      "metaProperties": [
+        {
+          "name": "io.qameta.allure.kotlin.Epic",
+          "values": {
+            "value": "General"
+          }
+        },
+        {
+          "name": "io.qameta.allure.kotlin.Feature",
+          "values": {
+            "value": "Text on main screen"
+          }
+        },
+        {
+          "name": "io.qameta.allure.kotlin.Owner",
+          "values": {
+            "value": "user2"
+          }
+        },
+        {
+          "name": "io.qameta.allure.kotlin.Severity",
+          "values": {
+            "value": "CRITICAL"
+          }
+        },
+        {
+          "name": "io.qameta.allure.kotlin.Story",
+          "values": {
+            "value": "Slow"
+          }
+        },
+        {
+          "name": "kotlin.Metadata",
+          "values": {
+            "bv": "[Lcom.linkedin.dex.parser.DecodedValue;@IDENTITY",
+            "d1": "[Lcom.linkedin.dex.parser.DecodedValue;@IDENTITY",
+            "d2": "[Lcom.linkedin.dex.parser.DecodedValue;@IDENTITY",
+            "k": "1",
+            "mv": "[Lcom.linkedin.dex.parser.DecodedValue;@IDENTITY"
+          }
+        },
+        {
+          "name": "org.junit.runner.RunWith",
+          "values": {
+            "value": "Lio/qameta/allure/android/runners/AllureAndroidJUnit4;"
+          }
+        },
+        {
+          "name": "org.junit.Test",
+          "values": {}
+        }
+      ],
+      "status": "PASSED",
+      "ignored": false,
+      "success": true
+    }
+  ]
+}

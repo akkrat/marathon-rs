@@ -1,0 +1,250 @@
+//! Port of core/src/main/kotlin/com/malinskiy/marathon/di/Modules.kt
+//! and cli/src/main/kotlin/com/malinskiy/marathon/cli/ApplicationView.kt (`marathonStartKoin` + `koin.get<Marathon>()`).
+//!
+//! The production `CliRunner`: one dedicated core executor per run. `construct` builds the run graph on it and reports
+//! construction errors (the uncaught path); `run` hands it the command and waits for `Marathon.run`'s Boolean.
+use crate::{
+    VendorFactories,
+    application::{CliRunner, Console, MarathonRun, VERSION, failure, render_throwable},
+    core_output::RunConsoleSink,
+};
+use jcompat::{file_manager::JavaPath, logging::MarathonLogging, writers::JavaString};
+use marathon_analytics::{AnalyticsClients, BackendClients};
+use marathon_config::{AnalyticsConfiguration, Configuration};
+use marathon_core::{
+    construction::{MetricsBackends, RunInputs, construct},
+    error::*,
+    executor::{CoreExecutor, SharedDeferred, hooks::RuntimeHooks},
+    logging::host_millis,
+    model::ExecutionCommand,
+    runtime::Deferred,
+};
+use std::{
+    io::Write,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    thread::JoinHandle,
+};
+
+/// The process facts a run needs beyond the configuration.
+pub struct ProductionRunner {
+    pub factories: Arc<VendorFactories>,
+    pub cwd: PathBuf,
+    pub environment: Vec<(JavaString, JavaString)>,
+    /// Test seams for the signal relay; `main` leaves them empty.
+    pub signal_hooks: marathon_core::marathon::SignalHooks,
+}
+
+/// Production vendor slots; vendors whose WPs have not landed fail construction.
+pub fn missing_vendors() -> VendorFactories {
+    fn missing(vendor: &'static str) -> Box<crate::VendorFactory> {
+        Box::new(move |_| {
+            Box::pin(async move {
+                Err(VendorError::Other(failure(
+                    "java.lang.UnsupportedOperationException",
+                    &format!("The {vendor} vendor is not supported by this build yet"),
+                )))
+            })
+        })
+    }
+    VendorFactories {
+        android: Box::new(|dependencies| Box::pin(marathon_android::services::create_services(dependencies))),
+        ios: Box::new(|dependencies| Box::pin(marathon_ios::ios_vendor::construct(dependencies))),
+        macos: Box::new(|dependencies| Box::pin(marathon_macos::construct(dependencies))),
+        stub: missing("stub"),
+        empty: missing("empty"),
+    }
+}
+
+/// P1 (D12 extension): the facts logged under `System Information:`, in this order.
+pub fn system_information(cwd: &std::path::Path) -> Vec<(JavaString, JavaString)> {
+    let os_version = std::process::Command::new("uname")
+        .arg("-r")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_else(|| "unknown".into());
+    let processors = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let home = std::env::var_os("HOME")
+        .map(|h| h.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    [
+        ("os.name", std::env::consts::OS.to_owned()),
+        ("os.version", os_version),
+        ("os.arch", std::env::consts::ARCH.to_owned()),
+        ("available.processors", processors.to_string()),
+        ("marathon.version", VERSION.to_owned()),
+        ("user.dir", cwd.to_string_lossy().into_owned()),
+        ("user.home", home),
+    ]
+    .into_iter()
+    .map(|(k, v)| (JavaString::from(k), JavaString::from(v)))
+    .collect()
+}
+
+fn zone_offset_millis(wall: i64) -> i64 {
+    use chrono::{Offset, TimeZone};
+    chrono::Local
+        .timestamp_millis_opt(wall)
+        .single()
+        .map_or(0, |time| i64::from(time.offset().fix().local_minus_utc()) * 1000)
+}
+
+struct Run {
+    command: Arc<SharedDeferred<ExecutionCommand>>,
+    thread: Option<JoinHandle<OperationResult<Option<bool>>>>,
+}
+
+impl CliRunner for ProductionRunner {
+    fn construct(
+        &self,
+        configuration: Arc<Configuration>,
+        logging: Arc<Mutex<MarathonLogging>>,
+        console: Arc<Console>,
+    ) -> Result<Box<dyn MarathonRun>, Failure> {
+        self.construct_with_hooks(
+            configuration,
+            logging,
+            console,
+            RuntimeHooks::live(),
+            Arc::new(host_millis),
+        )
+    }
+}
+
+impl ProductionRunner {
+    /// Paired CLI probes freeze wall/identity reads while retaining real vendor I/O
+    /// and scheduler time. The public binary always supplies live hooks.
+    pub fn construct_with_hooks(
+        &self,
+        configuration: Arc<Configuration>,
+        logging: Arc<Mutex<MarathonLogging>>,
+        console: Arc<Console>,
+        hooks: Arc<RuntimeHooks>,
+        wall: marathon_core::logging::WallSource,
+    ) -> Result<Box<dyn MarathonRun>, Failure> {
+        let factories = self.factories.clone();
+        let analytics = configuration.analytics_configuration.clone();
+        let debug = configuration.debug;
+        let barriers = hooks.barriers();
+        let live_output = hooks.is_live();
+        let inputs = RunInputs {
+            configuration,
+            logging: logging.clone(),
+            console: Arc::new(RunConsoleSink::new(console, logging, Box::new(zone_offset_millis))),
+            stderr: Arc::new(|f: &Failure| {
+                let _ = std::io::stderr().write_all(render_throwable(f).as_bytes());
+            }),
+            cwd: JavaPath::from_text(&self.cwd.to_string_lossy()),
+            environment: self.environment.clone(),
+            system_information: system_information(&self.cwd),
+            vendor: Box::new(move |dependencies| factories.construct(dependencies)),
+            metrics: Box::new(move |context, io| {
+                let clients = Arc::new(AnalyticsClients::new(context, io));
+                let backend = (!matches!(analytics, AnalyticsConfiguration::Disabled)).then(|| {
+                    Arc::new(BackendClients {
+                        clients: clients.clone(),
+                        config: analytics,
+                        debug,
+                    }) as Arc<dyn marathon_core::analytics::BackendFactory>
+                });
+                MetricsBackends {
+                    setup: clients,
+                    backend,
+                }
+            }),
+            analytics: None,
+            extra_reporters: Box::new(marathon_core::construction::standard_reporters),
+            hooks,
+            barriers,
+            timer: None,
+            wall,
+            exit: Some(Arc::new(|status| std::process::exit(status))),
+            signal_trigger: None,
+            signal_hooks: self.signal_hooks.clone(),
+            // Taped hooks mark a paired probe, whose stdout keeps the deterministic flush points.
+            live_output,
+        };
+        let command = SharedDeferred::<ExecutionCommand>::new();
+        let waiting = command.clone();
+        let (constructed, outcome) = std::sync::mpsc::channel::<Result<(), Failure>>();
+        let thread = std::thread::Builder::new()
+            .name("marathon-run".into())
+            .spawn(move || {
+                CoreExecutor::run(move |core| {
+                    Box::pin(async move {
+                        let marathon = match construct(core.clone(), inputs).await {
+                            Ok(marathon) => marathon,
+                            Err(error) => {
+                                let _ = constructed.send(Err(error));
+                                return Ok(None);
+                            }
+                        };
+                        let _ = constructed.send(Ok(()));
+                        let command = match waiting.wait().await {
+                            Ok(command) => (*command).clone(),
+                            Err(_) => return Ok(None),
+                        };
+                        marathon.run(command).await.map(Some)
+                    })
+                })
+            })
+            .map_err(|e| failure("java.lang.IllegalStateException", &e.to_string()))?;
+        let mut run = Run {
+            command,
+            thread: Some(thread),
+        };
+        match outcome.recv() {
+            Ok(Ok(())) => Ok(Box::new(run)),
+            Ok(Err(error)) => {
+                let _ = run.join();
+                Err(error)
+            }
+            Err(_) => Err(match run.join() {
+                Err(OperationError::Failed(f)) => f,
+                _ => failure(
+                    "java.lang.IllegalStateException",
+                    "the run thread stopped during construction",
+                ),
+            }),
+        }
+    }
+}
+
+impl Run {
+    fn join(&mut self) -> OperationResult<Option<bool>> {
+        match self.thread.take() {
+            Some(thread) => thread
+                .join()
+                .unwrap_or_else(|_| Err(failure("java.lang.IllegalStateException", "the run thread panicked").into())),
+            None => Ok(None),
+        }
+    }
+}
+
+impl MarathonRun for Run {
+    fn run(mut self: Box<Self>, command: ExecutionCommand) -> Result<bool, Failure> {
+        self.command.complete(Ok(command));
+        match self.join() {
+            Ok(Some(value)) => Ok(value),
+            Ok(None) => Err(failure(
+                "java.lang.IllegalStateException",
+                "the run ended without a result",
+            )),
+            Err(OperationError::Failed(f)) => Err(f),
+            Err(OperationError::Cancelled(reason)) => Err(reason.failure().clone()),
+        }
+    }
+}
+
+/// A constructed run that is never started releases its executor thread.
+impl Drop for Run {
+    fn drop(&mut self) {
+        if self.thread.is_some() {
+            self.command
+                .cancel(marathon_core::executor::shared::requested("run not started"));
+            let _ = self.join();
+        }
+    }
+}

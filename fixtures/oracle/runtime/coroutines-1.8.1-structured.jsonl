@@ -1,0 +1,8 @@
+{"case":"timeout:waits-children","value":"true"}
+{"case":"timeout:equal-delay","value":"true"}
+{"case":"delay:cancelled-zero","value":"true"}
+{"case":"job:callback-order","value":"1,3"}
+{"case":"job:first-failure","value":"first"}
+{"case":"timeout:zero-message","value":"Timed out immediately"}
+{"case":"delay:max-after-advance","value":"false"}
+{"case":"timeout:max-after-advance","value":"true"}

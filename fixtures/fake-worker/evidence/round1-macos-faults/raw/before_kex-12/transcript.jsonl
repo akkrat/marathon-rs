@@ -1,0 +1,4 @@
+{"channel":null,"connection":0,"detail":{"endpoint":"127.0.0.1:55734","host_key_fingerprint":"SHA256:3UILfGgZ4pGZQXDjTnI7Y3UnvmLl+2iD5g9GI7Agmeg","run":"before_kex-12","schema":1},"event":"ready","run":"before_kex-12","schema":1,"seq":0}
+{"channel":null,"connection":1,"detail":{},"event":"connection","run":"before_kex-12","schema":1,"seq":1}
+{"channel":null,"connection":1,"detail":{"message":"fixture disconnect 12","reason":12,"stage":"before_kex"},"event":"disconnect","run":"before_kex-12","schema":1,"seq":2}
+{"channel":null,"connection":0,"detail":{"files":[],"outcome":"completed"},"event":"cleanup","run":"before_kex-12","schema":1,"seq":3}

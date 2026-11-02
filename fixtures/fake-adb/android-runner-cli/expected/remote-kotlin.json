@@ -1,0 +1,59 @@
+{
+  "perTest": [
+    {
+      "test": {
+        "pkg": "com.example",
+        "clazz": "MainActivityTest",
+        "method": "testText",
+        "metaProperties": [
+          {
+            "name": "org.junit.Test",
+            "values": {}
+          }
+        ]
+      },
+      "device": {
+        "operatingSystem": {
+          "version": "33"
+        },
+        "model": "Android SDK built for x86",
+        "manufacturer": "Google",
+        "networkState": "CONNECTED",
+        "deviceFeatures": [
+          "VIDEO",
+          "SCREENSHOT"
+        ],
+        "healthy": true
+      },
+      "status": "PASSED",
+      "attachments": []
+    }
+  ],
+  "exit": 0,
+  "instrumentation": [
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.MainActivityTest#testText com.example.test/androidx.test.runner.AndroidJUnitRunner"
+  ],
+  "final": {
+    "stdout": [
+      "Marathon execution finished"
+    ],
+    "stderr": []
+  },
+  "results": [
+    {
+      "package": "com.example",
+      "class": "MainActivityTest",
+      "method": "testText",
+      "metaProperties": [
+        {
+          "name": "org.junit.Test",
+          "values": {}
+        }
+      ],
+      "status": "PASSED",
+      "ignored": false,
+      "success": true
+    }
+  ]
+}

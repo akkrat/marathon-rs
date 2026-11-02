@@ -1,0 +1,8 @@
+10:51:31.203 [main] ERROR c.m.m.a.c.r.rsync.RsyncFileBridge - send error: �
+line
+
+{"case":"send","value":false}
+10:51:31.326 [main] ERROR c.m.m.a.c.r.rsync.RsyncFileBridge - �
+line
+
+{"case":"receive","value":false}

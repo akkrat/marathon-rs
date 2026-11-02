@@ -1,0 +1,9 @@
+workers:
+  - transport:
+      type: ssh
+      addr: 127.0.0.1
+      port: ${FW_PORT}
+      checkReachability: false
+    devices:
+      - type: simulator
+        udid: AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE

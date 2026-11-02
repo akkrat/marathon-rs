@@ -1,0 +1,149 @@
+{
+  "contract": "6b1de21039958b638f7bff873d7423d40f46ca0d306f0ba98f39856b6a4306a7",
+  "entries": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "host-argv.jsonl",
+      "sha256": "f04d0374cf1aa871a86411d0f372c86bca4d8b0530183c65acad062a8f323ba9",
+      "size": 1354
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/parsed.yml",
+      "sha256": "0c493f3105bfeb9cfc2fe35db42172d0029657d8c93b25e6227b7878569db433",
+      "size": 303
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/sentinel",
+      "sha256": "99f4c36bd8c314f0d905711b55b0ae32b2192f8c15bb10d639422ea30987d7ca",
+      "size": 52
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "ca815299820a466b7dbf4280727bbda5e31b9bb04c5f9e4529e2e3b8affdd317",
+      "size": 270
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "ae70b94774a43032af60f7b1d8ae8264bf1b04e1b382633b0e4e5d129b397491",
+      "size": 148
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "5e30d106c1f767320f05737eba418aac59bc34434fd6d06dd73f89bef5fe21be",
+      "size": 2572
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "ab7d275a614edcd6ddad9d5a11cd62a6e99ae44089f5789903ff40077510dbd1",
+      "size": 249116
+    },
+    {
+      "kind": "directory",
+      "mode": 448,
+      "path": "worker"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/Info.plist",
+      "sha256": "cf21a26cfa1f5534661e3f98195f4b2f1dc2f8fb9b0f13ce6c9d932821be046d",
+      "size": 774
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/sample-appUnitTests",
+      "sha256": "18f3e75312115131060ce1d4cfc52e19355a96e15e3125cface3eeafca273be0",
+      "size": 161120
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "port": "59668",
+    "safe_serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59668",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/ios-parse/native/raw",
+    "serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE@fixture@127.0.0.1:59668"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "9999b508d1d1624558c2473f53b4097d27241452b35c29a9341a3f788b86b090",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hooks": {
+      "active": true,
+      "failures": [],
+      "unused": []
+    },
+    "native_sha": "bdb9bbfc2de48de08239ee506669bc391cd6064e",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/target/debug/examples/differential_cli",
+        "parse",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/ios-parse/native/raw/in/Marathonfile",
+        "-o",
+        "parsed"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "terminal_observation": {
+      "cli": 0,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "e47352f25cbc50333900d5d040a5544ff1224501",
+  "storage": "gzip@1"
+}

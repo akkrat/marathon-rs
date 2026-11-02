@@ -1,0 +1,2 @@
+{"id":"blocked-parent","error":{"class":"java.io.IOException","message":"Not a directory"}}
+{"id":"directory-target","error":{"class":"java.io.FileNotFoundException","message":"\u003cout\u003e/out/tests/myPool/marathon_junit_report.xml (Is a directory)"}}

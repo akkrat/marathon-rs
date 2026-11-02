@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+"""Run WP 3.9b against read-only reference installDist jars, compiling in /tmp.
+Usage: run <reference lib directory> <fresh output directory>
+"""
+import hashlib, json, os, pathlib, subprocess, sys, tempfile
+here = pathlib.Path(__file__).resolve().parent
+lib = pathlib.Path(sys.argv[1]).resolve()
+if len(sys.argv) != 3: sys.exit(__doc__)
+output = pathlib.Path(sys.argv[2]).resolve()
+if output.exists() and any(output.iterdir()): sys.exit('output directory must be empty')
+cache = pathlib.Path.home()/'.gradle/caches/modules-2/files-2.1'
+def jar(group, artifact, version):
+    return next((cache/group/artifact/version).glob('*/'+artifact+'-'+version+'.jar'))
+compiler = [jar('org.jetbrains.kotlin','kotlin-compiler-embeddable','1.9.24'),jar('org.jetbrains.kotlin','kotlin-stdlib','1.9.24'),jar('org.jetbrains.kotlin','kotlin-script-runtime','1.9.24'),jar('org.jetbrains.kotlin','kotlin-reflect','1.6.10'),jar('org.jetbrains.intellij.deps','trove4j','1.0.20200330'),jar('org.jetbrains','annotations','13.0')]
+java = pathlib.Path(os.environ.get('JAVA_HOME','/Applications/Android Studio.app/Contents/jbr/Contents/Home'))/'bin/java'
+cp = os.pathsep.join(str(p) for p in sorted(lib.glob('*.jar')))
+output.mkdir(parents=True,exist_ok=True)
+with tempfile.TemporaryDirectory(prefix='reporter-probes-oracle-', dir='/tmp') as tmp:
+    out = pathlib.Path(tmp)/'probes.jar'
+    subprocess.run([str(java),'-cp',os.pathsep.join(map(str,compiler)),'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-no-stdlib','-no-reflect','-jvm-target','17','-cp',cp,'-d',str(out),str(here/'ReporterProbes.kt')],check=True)
+    subprocess.run([str(java),'-Duser.language=en','-Duser.country=US','-cp',str(out)+os.pathsep+cp,'ReporterProbesKt',str(output.resolve()),tmp],check=True,stdout=subprocess.DEVNULL,cwd=tmp)
+(output/'jars.sha256').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(lib.glob('*.jar'))))
+
+# Preserve original bytes and typed inputs in a safe, complete file manifest.
+rows=[]
+for directory in sorted(p for p in output.iterdir() if p.is_dir() and not p.name.startswith('junit-error-')):
+    files={str(p.relative_to(directory)):list(p.read_bytes()) for p in sorted(directory.rglob('*')) if p.is_file() and p.name not in ('input.json','stdout','warnings.json','error.json')}
+    row={'id':directory.name,'files':files,'directories':sorted(str(p.relative_to(directory)) for p in directory.rglob('*') if p.is_dir())}
+    for name in ('input.json','warnings.json','error.json'):
+        if (directory/name).exists(): row[name[:-5]]=json.loads((directory/name).read_text())
+    if (directory/'stdout').exists():row['stdout']=list((directory/'stdout').read_bytes())
+    rows.append(row)
+(output/'probes.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=True,separators=(',',':'))+'\n' for r in rows))

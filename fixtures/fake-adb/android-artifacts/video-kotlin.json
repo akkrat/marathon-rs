@@ -1,0 +1,21 @@
+[
+  {
+    "case": "scenario:video:attachments",
+    "value": [
+      [
+        "screen-0",
+        "VIDEO",
+        "pkg.clazz#method-batch-0.mp4"
+      ]
+    ]
+  },
+  {
+    "case": "scenario:video:files",
+    "value": [
+      [
+        "video/pool/SERIAL/pkg.clazz#method-batch-0.mp4",
+        "1646"
+      ]
+    ]
+  }
+]

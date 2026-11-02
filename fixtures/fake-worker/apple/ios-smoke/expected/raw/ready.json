@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "endpoint": "127.0.0.1:52641",
+  "host_key_fingerprint": "SHA256:MwxRDelRgBihiO9Dw5ktG8OpDf5Uor6DwVlw6Y0fLXY",
+  "run": "ios-smoke"
+}

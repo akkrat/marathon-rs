@@ -1,0 +1,50 @@
+{"conn":1,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":1,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":1,"error":null,"flags":0,"mode":"777","mtime":67305985,"op":"SEND","path":"/sdcard/v1.apk","payload_sha256":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e","serial":"emulator-5554","size":614,"type":"sync"}
+{"conn":2,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":2,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":2,"exists":true,"op":"STAT","path":"/sdcard/v1.apk","serial":"emulator-5554","type":"sync"}
+{"conn":3,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":3,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":3,"entries":3,"op":"LIST","path":"/sdcard","serial":"emulator-5554","type":"sync"}
+{"conn":4,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":4,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":4,"exists":true,"op":"STAT","path":"/sdcard/v1.apk","serial":"emulator-5554","type":"sync"}
+{"conn":4,"error":null,"op":"RECV","path":"/sdcard/v1.apk","serial":"emulator-5554","size":614,"type":"sync"}
+{"conn":5,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":5,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":5,"error":null,"flags":0,"mode":"777","mtime":67305985,"op":"SND2","path":"/sdcard/v2.apk","payload_sha256":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e","serial":"emulator-5554","size":614,"type":"sync"}
+{"conn":6,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":6,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":6,"exists":true,"op":"LST2","path":"/sdcard/v2.apk","serial":"emulator-5554","type":"sync"}
+{"conn":7,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":7,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":7,"entries":4,"op":"LIS2","path":"/sdcard","serial":"emulator-5554","type":"sync"}
+{"conn":8,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":8,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":8,"exists":true,"op":"STAT","path":"/sdcard/v2.apk","serial":"emulator-5554","type":"sync"}
+{"conn":8,"error":null,"op":"RCV2","path":"/sdcard/v2.apk","serial":"emulator-5554","size":614,"type":"sync"}
+{"conn":9,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":9,"serial":"emulator-5554","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u0000614","type":"request"}
+{"command":"package install -r -S 614","conn":9,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[0]","serial":"emulator-5554","service":"abb_exec","stdin_bytes":614,"stdin_sha256":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e","type":"shell"}
+{"conn":10,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":10,"serial":"emulator-5554","service":"exec:cmd package install-create '-S1228' -r","type":"request"}
+{"command":"cmd package install-create '-S1228' -r","conn":10,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[1]","serial":"emulator-5554","service":"exec","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":11,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":11,"serial":"emulator-5554","service":"exec:cmd package install-write -S 614 S1 sample-fake.apk -","type":"request"}
+{"command":"cmd package install-write -S 614 S1 sample-fake.apk -","conn":11,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[2]","serial":"emulator-5554","service":"exec","stdin_bytes":614,"stdin_sha256":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e","type":"shell"}
+{"conn":12,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":12,"serial":"emulator-5554","service":"exec:cmd package install-write -S 614 S1 sample-fake.apk -","type":"request"}
+{"command":"cmd package install-write -S 614 S1 sample-fake.apk -","conn":12,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[2]","serial":"emulator-5554","service":"exec","stdin_bytes":614,"stdin_sha256":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e","type":"shell"}
+{"conn":13,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":13,"serial":"emulator-5554","service":"exec:cmd package install-commit S1","type":"request"}
+{"command":"cmd package install-commit S1","conn":13,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[3]","serial":"emulator-5554","service":"exec","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":14,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":14,"serial":"emulator-5554","service":"reverse:forward:tcp:1234;tcp:5678","type":"request"}
+{"conn":15,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":15,"serial":"emulator-5554","service":"reverse:killforward:tcp:1234","type":"request"}
+{"conn":16,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":16,"serial":"emulator-5554","service":"framebuffer:","type":"request"}
+{"conn":16,"serial":"emulator-5554","size":60,"type":"framebuffer"}
+{"conn":16,"serial":"emulator-5554","type":"framebuffer_ack","value":0}
+{"event":"server_stopped","type":"event"}

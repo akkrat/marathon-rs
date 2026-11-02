@@ -1,0 +1,53 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "scripted runBlocking readiness and result",
+  "source": "oracle replay seam",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test1",
+      "metaProperties": []
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "behaviour": "scripted"
+    }
+  ],
+  "events": [
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "serial-1"
+    },
+    {
+      "at": 2000,
+      "event": "prepare-done",
+      "device": "serial-1"
+    },
+    {
+      "at": 3000,
+      "event": "batch-result",
+      "device": "serial-1",
+      "results": [
+        {
+          "test": "test.SimpleTest#test1",
+          "status": "PASSED",
+          "start": 0,
+          "end": 1
+        }
+      ]
+    },
+    {
+      "at": 4000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "value": true
+  },
+  "entry": "run"
+}

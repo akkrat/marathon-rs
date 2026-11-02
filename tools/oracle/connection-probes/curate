@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Retain the worker run, including U4 failures, without disposable credentials."""
+import base64,gzip,hashlib,json,pathlib,shutil,sys
+source=pathlib.Path(sys.argv[1]).resolve();dest=pathlib.Path(sys.argv[2]);dest.mkdir(parents=True,exist_ok=False)
+def compress(path,data):
+ with path.open('wb') as out:
+  with gzip.GzipFile(filename='',fileobj=out,mode='wb',mtime=0) as stream:stream.write(data)
+for name in ['results.json','versions.json','argv.jsonl']:
+ shutil.copyfile(source/name,dest/name)
+for path in sorted(source.iterdir()):
+ if path.suffix in ['.stdout','.stderr']:shutil.copyfile(path,dest/path.name)
+for name in ['transcript.jsonl','server.stderr','readiness.json']:
+ path=source/'standard'/name
+ if path.suffix=='.jsonl':compress(dest/(name+'.gz'),path.read_bytes())
+ else:shutil.copyfile(path,dest/name)
+manifest={}
+for folder in ['source','root','back-key','back-password']:
+ for path in sorted((source/'standard'/folder).rglob('*')):
+  name=str(path.relative_to(source/'standard'))
+  if path.is_symlink():manifest[name]={'link':str(path.readlink())}
+  elif path.is_file():
+   data=path.read_bytes();manifest[name]={'mode':path.stat().st_mode&0o777,'sha256':hashlib.sha256(data).hexdigest(),'base64':base64.b64encode(data).decode()}
+compress(dest/'resulting-tree.json.gz',(json.dumps(manifest,sort_keys=True)+'\n').encode())

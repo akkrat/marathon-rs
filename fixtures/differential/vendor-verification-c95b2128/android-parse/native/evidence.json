@@ -1,0 +1,113 @@
+{
+  "contract": "70c58cf5b84212ea2df17664798a96c646352b633bcc8e6a29f4a93799c59c1f",
+  "entries": [
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/parsed.yml",
+      "sha256": "c0962ff49301103ef1883549195424bdc9f5ead2787ff2d4c36e5ee36d4a12c4",
+      "size": 2395
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/sentinel",
+      "sha256": "99f4c36bd8c314f0d905711b55b0ae32b2192f8c15bb10d639422ea30987d7ca",
+      "size": 52
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "caed150cf9668fee5fafb2112987b5b58dd0d65d9921a0ca3e6ad3c62c87a74a",
+      "size": 1454
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "c85b9fb85b791444ce7d0d70909675ecdbfaefcab6deacf21344c3cfd9d33dc6",
+      "size": 892
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "d5d902c4fbab85c6a297b1b3137a4f736a517aa3ea0452be84202882da738555",
+      "size": 42
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "port": "53094",
+    "safe_serial": "127.0.0.1-53094-emulator-5554",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/android-parse/native/raw",
+    "serial": "127.0.0.1:53094:emulator-5554"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hooks": {
+      "active": true,
+      "failures": [],
+      "unused": []
+    },
+    "native_sha": "9e1538c53560b64e018c257afc44474a0d27ed9d",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/target/debug/examples/differential_cli",
+        "parse",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/android-parse/native/raw/in/Marathonfile",
+        "-o",
+        "parsed"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+    "stdin_payloads": {
+      "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+      "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192"
+    },
+    "terminal_observation": {
+      "cli": 0,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "storage": "gzip@1"
+}

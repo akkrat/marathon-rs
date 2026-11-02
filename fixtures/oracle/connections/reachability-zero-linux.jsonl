@@ -1,0 +1,4 @@
+{"case":"127.0.0.1/0","value":true}
+{"case":"::1/0","value":true}
+{"case":"192.0.2.1/0","value":false}
+{"case":"2001:db8::1/0","value":false}

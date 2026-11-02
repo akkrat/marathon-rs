@@ -1,0 +1,26 @@
+[package]
+name = "marathon-android"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+jcompat = { path = "../jcompat" }
+marathon-config = { path = "../marathon-config" }
+marathon-core = { path = "../marathon-core" }
+marathon-adb = { path = "../marathon-adb" }
+marathon-dex = { path = "../marathon-dex" }
+
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "fs", "process", "macros"] }
+md5 = "=0.7.0"
+
+[dev-dependencies]
+marathon-adb = { path = "../marathon-adb", features = ["server"] }
+marathon-test-support = { path = "../marathon-test-support" }
+tempfile = "3"
+serde_json = "=1.0.154"
+gif = "=0.13.3"

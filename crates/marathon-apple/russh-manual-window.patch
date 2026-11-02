@@ -1,0 +1,234 @@
+diff --git a/src/client/encrypted.rs b/src/client/encrypted.rs
+index 09f697b..607bd4f 100644
+--- a/src/client/encrypted.rs
++++ b/src/client/encrypted.rs
+@@ -584,9 +584,12 @@ impl Session {
+                     return Ok(());
+                 }
+                 let target = self.common.config.window_size;
++                let manual = self.common.config.manual_window_adjust;
+                 #[allow(clippy::collapsible_if)]
+                 if let Some(ref mut enc) = self.common.encrypted {
+-                    if enc.adjust_window_size(channel_num, &data, target)? {
++                    if manual {
++                        enc.consume_window_size(channel_num, &data);
++                    } else if enc.adjust_window_size(channel_num, &data, target)? {
+                         let next_window =
+                             client.adjust_window(channel_num, self.target_window_size);
+                         if next_window > 0 {
+@@ -611,9 +614,12 @@ impl Session {
+                     return Ok(());
+                 }
+                 let target = self.common.config.window_size;
++                let manual = self.common.config.manual_window_adjust;
+                 #[allow(clippy::collapsible_if)]
+                 if let Some(ref mut enc) = self.common.encrypted {
+-                    if enc.adjust_window_size(channel_num, &data, target)? {
++                    if manual {
++                        enc.consume_window_size(channel_num, &data);
++                    } else if enc.adjust_window_size(channel_num, &data, target)? {
+                         let next_window =
+                             client.adjust_window(channel_num, self.target_window_size);
+                         if next_window > 0 {
+diff --git a/src/client/mod.rs b/src/client/mod.rs
+index 4e3fdbd..1d5b454 100644
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -232,6 +232,11 @@ pub enum Msg {
+     Close {
+         id: ChannelId,
+     },
++    /// Grow the receive window of a channel by `bytes` (see [`Config::manual_window_adjust`]).
++    WindowAdjust {
++        id: ChannelId,
++        bytes: u32,
++    },
+     Disconnect {
+         reason: Disconnect,
+         description: String,
+@@ -1055,6 +1060,16 @@ impl<H: Handler> Handle<H> {
+         Ok(())
+     }
+ 
++    /// Send `SSH_MSG_CHANNEL_WINDOW_ADJUST` for `bytes`. With
++    /// [`Config::manual_window_adjust`] this is the only way the receive window of a
++    /// channel grows again; the window should follow what the consumer has read.
++    pub async fn adjust_window(&self, id: ChannelId, bytes: u32) -> Result<(), Error> {
++        self.sender
++            .send(Msg::WindowAdjust { id, bytes })
++            .await
++            .map_err(|_| Error::SendError)
++    }
++
+     /// Send a keepalive package to the remote peer.
+     pub async fn send_keepalive(&self, want_reply: bool) -> Result<(), Error> {
+         self.sender
+@@ -1748,6 +1763,11 @@ impl Session {
+             }
+             Msg::Channel(id, ChannelMsg::Close) => self.close(id)?,
+             Msg::Rekey => self.initiate_rekey()?,
++            Msg::WindowAdjust { id, bytes } => {
++                if let Some(ref mut enc) = self.common.encrypted {
++                    enc.grow_window_size(id, bytes)?;
++                }
++            }
+             Msg::AwaitExtensionInfo {
+                 extension_name,
+                 reply_channel,
+@@ -2737,6 +2757,11 @@ pub struct Config {
+     pub gex: GexParams,
+     /// If active, invoke `set_nodelay(true)` on the ssh socket; disabled by default (i.e. Nagle's algorithm is active).
+     pub nodelay: bool,
++    /// If active, received data only shrinks the receive window; it grows only through
++    /// [`Handle::adjust_window`]. A consumer that reads its channel slowly then stalls only
++    /// its own channel, as long as the channel's messages are drained promptly. Disabled by
++    /// default (the window is refilled as soon as data arrives).
++    pub manual_window_adjust: bool,
+ }
+ 
+ impl Default for Config {
+@@ -2759,6 +2784,7 @@ impl Default for Config {
+             anonymous: false,
+             gex: Default::default(),
+             nodelay: false,
++            manual_window_adjust: false,
+         }
+     }
+ }
+diff --git a/src/client/test.rs b/src/client/test.rs
+index 5ecbb44..ae8ab4c 100644
+--- a/src/client/test.rs
++++ b/src/client/test.rs
+@@ -88,6 +88,9 @@ mod tests {
+             if data == b"close" {
+                 session.close(channel)?;
+             }
++            if data == b"flood" {
++                session.data(channel, vec![b'x'; 10_000])?;
++            }
+             Ok(())
+         }
+     }
+@@ -120,6 +123,13 @@ mod tests {
+ 
+     async fn authenticated_session<H: Handler + Send + 'static>(
+         handler: H,
++    ) -> crate::client::Handle<H> {
++        authenticated_session_with(Config::default(), handler).await
++    }
++
++    async fn authenticated_session_with<H: Handler + Send + 'static>(
++        client_config: Config,
++        handler: H,
+     ) -> crate::client::Handle<H> {
+         let client_key = PrivateKey::random(&mut rng(), ssh_key::Algorithm::Ed25519).unwrap();
+         let mut config = server::Config::default();
+@@ -141,7 +151,7 @@ mod tests {
+                 .await
+                 .unwrap();
+         });
+-        let mut session = connect(Arc::new(Config::default()), addr, handler)
++        let mut session = connect(Arc::new(client_config), addr, handler)
+             .await
+             .unwrap();
+         let auth_result = session
+@@ -170,6 +180,62 @@ mod tests {
+         assert!(!closed.take(id(8)));
+     }
+ 
++    /// Wait for the granted bytes before checking that the channel stays quiet for 300 ms.
++    async fn received_bytes(channel: &mut crate::Channel<crate::client::Msg>, expected: usize) -> usize {
++        let mut total = 0;
++        tokio::time::timeout(std::time::Duration::from_secs(30), async {
++            while total < expected {
++                match channel.wait().await {
++                    Some(crate::ChannelMsg::Data { data }) => total += data.len(),
++                    Some(_) => (),
++                    None => panic!("channel ended after {total} of {expected} bytes"),
++                }
++            }
++        })
++        .await
++        .expect("the granted bytes arrive within 30 s");
++        while let Ok(Some(message)) =
++            tokio::time::timeout(std::time::Duration::from_millis(300), channel.wait()).await
++        {
++            if let crate::ChannelMsg::Data { data } = message {
++                total += data.len();
++            }
++        }
++        total
++    }
++
++    #[tokio::test]
++    async fn test_manual_window_grows_only_on_request() {
++        let _ = env_logger::try_init();
++        let config = Config {
++            window_size: 4096,
++            manual_window_adjust: true,
++            ..Default::default()
++        };
++        let session = authenticated_session_with(config, Client {}).await;
++        let mut channel = session.channel_open_session().await.unwrap();
++        channel.exec(true, "flood").await.unwrap();
++        // The peer may send only the initial window; nothing refills it on receipt.
++        assert_eq!(received_bytes(&mut channel, 4096).await, 4096);
++        session.adjust_window(channel.id(), 1000).await.unwrap();
++        assert_eq!(received_bytes(&mut channel, 1000).await, 1000);
++        session.adjust_window(channel.id(), 10_000).await.unwrap();
++        assert_eq!(received_bytes(&mut channel, 10_000 - 5096).await, 10_000 - 5096);
++    }
++
++    #[tokio::test]
++    async fn test_automatic_window_is_the_default() {
++        let _ = env_logger::try_init();
++        let config = Config {
++            window_size: 4096,
++            ..Default::default()
++        };
++        let session = authenticated_session_with(config, Client {}).await;
++        let mut channel = session.channel_open_session().await.unwrap();
++        channel.exec(true, "flood").await.unwrap();
++        assert_eq!(received_bytes(&mut channel, 10_000).await, 10_000);
++    }
++
+     #[tokio::test]
+     async fn test_local_close_receives_the_peer_close() {
+         let _ = env_logger::try_init();
+diff --git a/src/session.rs b/src/session.rs
+index df11ef4..9dbc958 100644
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -335,6 +335,32 @@ impl Encrypted {
+         Ok(false)
+     }
+ 
++    /// Account for received data without refilling the window (manual window adjustment).
++    pub fn consume_window_size(&mut self, channel: ChannelId, data: &[u8]) {
++        if let Some(channel) = self.channels.get_mut(&channel) {
++            // Ignore extra data, as adjust_window_size does.
++            if data.len() as u32 <= channel.sender_window_size {
++                channel.sender_window_size -= data.len() as u32;
++            }
++        }
++    }
++
++    /// Send CHANNEL_WINDOW_ADJUST for `bytes`; a channel no longer open is skipped.
++    pub fn grow_window_size(&mut self, channel: ChannelId, bytes: u32) -> Result<(), crate::Error> {
++        if bytes == 0 {
++            return Ok(());
++        }
++        if let Some(channel) = self.channels.get_mut(&channel) {
++            push_packet!(self.write, {
++                self.write.push(msg::CHANNEL_WINDOW_ADJUST);
++                channel.recipient_channel.encode(&mut self.write)?;
++                bytes.encode(&mut self.write)?;
++            });
++            channel.sender_window_size = channel.sender_window_size.saturating_add(bytes);
++        }
++        Ok(())
++    }
++
+     fn flush_channel(
+         write: &mut Vec<u8>,
+         channel: &mut ChannelParams,

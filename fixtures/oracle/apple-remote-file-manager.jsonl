@@ -1,0 +1,208 @@
+{"kind":"paths","storage":"/s","paths":{"directory":"/s","root":"/s","shared":"/tmp/marathon/shared/","media":"/tmp/marathon/shared/mediaFiles/","xctestrun":"/s/marathon.xctestrun","xctest":"/tmp/marathon/shared/marathon.xctest","runner":"/tmp/marathon/shared/xctestRunner.app","parser":"/tmp/marathon/shared/libxctest-parser.dylib","app":"/tmp/marathon/shared/appUnderTest.app","log":"/s/device.log","pid":"/s/U.pid","xcresult":"/s/U.b/id/.xcresult","xctestrunName":"marathon.xctestrun","appName":"appUnderTest.app","runnerName":"xctestRunner.app","screenshot/png":"/s/Q.png","screenshot/tiff":"/s/Q.tiff","screenshot/bmp":"/s/Q.bmp","screenshot/jpeg":"/s/Q.jpeg","extra/x":"/tmp/marathon/shared/x","media/x":"/tmp/marathon/shared/mediaFiles/x","parent/x":"x","join/x":"/s/x///","extra/x/":"/tmp/marathon/shared/x","media/x/":"/tmp/marathon/shared/mediaFiles/x","parent/x/":"x","join/x/":"/s/x////","extra//abs/":"/abs/","media//abs/":"/abs/","parent//abs/":"/abs","join//abs/":"/s//abs////","extra/x//":"/tmp/marathon/shared/x/","media/x//":"/tmp/marathon/shared/mediaFiles/x/","parent/x//":"x/","join/x//":"/s/x/////","extra/":"/tmp/marathon/shared/","media/":"/tmp/marathon/shared/mediaFiles/","parent/":"","join/":"/s////","extra//":"/","media//":"/","parent//":"","join//":"/s/////"}}
+{"kind":"video","storage":"/s","pkg":[],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,115,47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s","pkg":[],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,115,47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,115,47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s","pkg":[160,9],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,115,47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s","pkg":[160,9],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,115,47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,115,47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[98,47,105,100],"video":[47,115,47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[113,57343],"video":[47,115,47,112,45,45,45,45,67,45,120,45,45,45,113,57343,46,109,112,52],"temp":[47,115,47,112,45,45,45,45,67,45,120,45,45,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"paths","storage":"/s/","paths":{"directory":"/s/","root":"/s/","shared":"/tmp/marathon/shared/","media":"/tmp/marathon/shared/mediaFiles/","xctestrun":"/s/marathon.xctestrun","xctest":"/tmp/marathon/shared/marathon.xctest","runner":"/tmp/marathon/shared/xctestRunner.app","parser":"/tmp/marathon/shared/libxctest-parser.dylib","app":"/tmp/marathon/shared/appUnderTest.app","log":"/s/device.log","pid":"/s//U.pid","xcresult":"/s/U.b/id/.xcresult","xctestrunName":"marathon.xctestrun","appName":"appUnderTest.app","runnerName":"xctestRunner.app","screenshot/png":"/s//Q.png","screenshot/tiff":"/s//Q.tiff","screenshot/bmp":"/s//Q.bmp","screenshot/jpeg":"/s//Q.jpeg","extra/x":"/tmp/marathon/shared/x","media/x":"/tmp/marathon/shared/mediaFiles/x","parent/x":"x","join/x":"/s/x///","extra/x/":"/tmp/marathon/shared/x","media/x/":"/tmp/marathon/shared/mediaFiles/x","parent/x/":"x","join/x/":"/s/x////","extra//abs/":"/abs/","media//abs/":"/abs/","parent//abs/":"/abs","join//abs/":"/s//abs////","extra/x//":"/tmp/marathon/shared/x/","media/x//":"/tmp/marathon/shared/mediaFiles/x/","parent/x//":"x/","join/x//":"/s/x/////","extra/":"/tmp/marathon/shared/","media/":"/tmp/marathon/shared/mediaFiles/","parent/":"","join/":"/s////","extra//":"/","media//":"/","parent//":"","join//":"/s/////"}}
+{"kind":"video","storage":"/s/","pkg":[],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,115,47,47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s/","pkg":[],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,115,47,47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,115,47,47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s/","pkg":[160,9],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,115,47,47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s/","pkg":[160,9],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,115,47,47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,115,47,47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s/","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[98,47,105,100],"video":[47,115,47,47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s/","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[113,57343],"video":[47,115,47,47,112,45,45,45,45,67,45,120,45,45,45,113,57343,46,109,112,52],"temp":[47,115,47,47,112,45,45,45,45,67,45,120,45,45,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"paths","storage":"/s//","paths":{"directory":"/s//","root":"/s//","shared":"/tmp/marathon/shared/","media":"/tmp/marathon/shared/mediaFiles/","xctestrun":"/s//marathon.xctestrun","xctest":"/tmp/marathon/shared/marathon.xctest","runner":"/tmp/marathon/shared/xctestRunner.app","parser":"/tmp/marathon/shared/libxctest-parser.dylib","app":"/tmp/marathon/shared/appUnderTest.app","log":"/s//device.log","pid":"/s///U.pid","xcresult":"/s//U.b/id/.xcresult","xctestrunName":"marathon.xctestrun","appName":"appUnderTest.app","runnerName":"xctestRunner.app","screenshot/png":"/s///Q.png","screenshot/tiff":"/s///Q.tiff","screenshot/bmp":"/s///Q.bmp","screenshot/jpeg":"/s///Q.jpeg","extra/x":"/tmp/marathon/shared/x","media/x":"/tmp/marathon/shared/mediaFiles/x","parent/x":"x","join/x":"/s//x///","extra/x/":"/tmp/marathon/shared/x","media/x/":"/tmp/marathon/shared/mediaFiles/x","parent/x/":"x","join/x/":"/s//x////","extra//abs/":"/abs/","media//abs/":"/abs/","parent//abs/":"/abs","join//abs/":"/s///abs////","extra/x//":"/tmp/marathon/shared/x/","media/x//":"/tmp/marathon/shared/mediaFiles/x/","parent/x//":"x/","join/x//":"/s//x/////","extra/":"/tmp/marathon/shared/","media/":"/tmp/marathon/shared/mediaFiles/","parent/":"","join/":"/s/////","extra//":"/","media//":"/","parent//":"","join//":"/s//////"}}
+{"kind":"video","storage":"/s//","pkg":[],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,115,47,47,47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,47,47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s//","pkg":[],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,115,47,47,47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,115,47,47,47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s//","pkg":[160,9],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,115,47,47,47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,47,47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s//","pkg":[160,9],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,115,47,47,47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,115,47,47,47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s//","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[98,47,105,100],"video":[47,115,47,47,47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,46,109,112,52],"temp":[47,115,47,47,47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"/s//","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[113,57343],"video":[47,115,47,47,47,112,45,45,45,45,67,45,120,45,45,45,113,57343,46,109,112,52],"temp":[47,115,47,47,47,112,45,45,45,45,67,45,120,45,45,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"paths","storage":"","paths":{"directory":"","root":"","shared":"/tmp/marathon/shared/","media":"/tmp/marathon/shared/mediaFiles/","xctestrun":"/marathon.xctestrun","xctest":"/tmp/marathon/shared/marathon.xctest","runner":"/tmp/marathon/shared/xctestRunner.app","parser":"/tmp/marathon/shared/libxctest-parser.dylib","app":"/tmp/marathon/shared/appUnderTest.app","log":"/device.log","pid":"/U.pid","xcresult":"/U.b/id/.xcresult","xctestrunName":"marathon.xctestrun","appName":"appUnderTest.app","runnerName":"xctestRunner.app","screenshot/png":"/Q.png","screenshot/tiff":"/Q.tiff","screenshot/bmp":"/Q.bmp","screenshot/jpeg":"/Q.jpeg","extra/x":"/tmp/marathon/shared/x","media/x":"/tmp/marathon/shared/mediaFiles/x","parent/x":"x","join/x":"/x///","extra/x/":"/tmp/marathon/shared/x","media/x/":"/tmp/marathon/shared/mediaFiles/x","parent/x/":"x","join/x/":"/x////","extra//abs/":"/abs/","media//abs/":"/abs/","parent//abs/":"/abs","join//abs/":"//abs////","extra/x//":"/tmp/marathon/shared/x/","media/x//":"/tmp/marathon/shared/mediaFiles/x/","parent/x//":"x/","join/x//":"/x/////","extra/":"/tmp/marathon/shared/","media/":"/tmp/marathon/shared/mediaFiles/","parent/":"","join/":"////","extra//":"/","media//":"/","parent//":"","join//":"/////"}}
+{"kind":"video","storage":"","pkg":[],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"","pkg":[],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"","pkg":[160,9],"clazz":[67],"method":[109],"batch":[98,47,105,100],"video":[47,67,45,109,45,98,47,105,100,46,109,112,52],"temp":[47,67,45,109,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"","pkg":[160,9],"clazz":[67],"method":[109],"batch":[113,57343],"video":[47,67,45,109,45,113,57343,46,109,112,52],"temp":[47,67,45,109,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[98,47,105,100],"video":[47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,46,109,112,52],"temp":[47,112,45,45,45,45,67,45,120,45,45,45,98,47,105,100,45,116,101,109,112,46,109,112,52]}
+{"kind":"video","storage":"","pkg":[112],"clazz":[233,55357,56832,47,67],"method":[120,55296,63],"batch":[113,57343],"video":[47,112,45,45,45,45,67,45,120,45,45,45,113,57343,46,109,112,52],"temp":[47,112,45,45,45,45,67,45,120,45,45,45,113,57343,45,116,101,109,112,46,109,112,52]}
+{"kind":"command","operation":"mkdir","mode":"null","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir-explicit","mode":"null","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"shared","mode":"null","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"media","mode":"null","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"remove","mode":"null","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"keep","mode":"null","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"path","mode":"null","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy","mode":"null","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy-no","mode":"null","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"move","mode":"null","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink","mode":"null","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink-no","mode":"null","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"exists","mode":"null","argv":[["test","-e","/p"]],"result":null,"thrown":null,"logs":[]}
+{"kind":"command","operation":"test","mode":"null","argv":[["test","-f","/p"]],"result":false,"thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir","mode":"success","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir-explicit","mode":"success","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"shared","mode":"success","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"media","mode":"success","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"remove","mode":"success","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"keep","mode":"success","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"path","mode":"success","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy","mode":"success","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy-no","mode":"success","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"move","mode":"success","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink","mode":"success","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink-no","mode":"success","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"exists","mode":"success","argv":[["test","-e","/p"]],"result":true,"thrown":null,"logs":[]}
+{"kind":"command","operation":"test","mode":"success","argv":[["test","-f","/p"]],"result":true,"thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir","mode":"blank","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir-explicit","mode":"blank","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"shared","mode":"blank","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"media","mode":"blank","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"remove","mode":"blank","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"keep","mode":"blank","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"path","mode":"blank","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy","mode":"blank","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy-no","mode":"blank","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"move","mode":"blank","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink","mode":"blank","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink-no","mode":"blank","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"exists","mode":"blank","argv":[["test","-e","/p"]],"result":true,"thrown":null,"logs":[]}
+{"kind":"command","operation":"test","mode":"blank","argv":[["test","-f","/p"]],"result":true,"thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir","mode":"stderr","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=mkdir -p /s, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"mkdir-explicit","mode":"stderr","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=mkdir -p /d/, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"shared","mode":"stderr","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=mkdir -p /tmp/marathon/shared/, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"media","mode":"stderr","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=mkdir -p /tmp/marathon/shared/mediaFiles/, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"remove","mode":"stderr","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=rm -rf /s, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"keep","mode":"stderr","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=find /s -mindepth 1 -maxdepth 1 ! -name a* ! -name  -exec rm -rf {} +, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"path","mode":"stderr","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=rm -rf /p, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"copy","mode":"stderr","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=cp -R /a /b, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"copy-no","mode":"stderr","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=cp -R /a /b, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"move","mode":"stderr","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=mv -f /a /b, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"symlink","mode":"stderr","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=ln -s /a /b, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"symlink-no","mode":"stderr","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"cmd=ln -s /a /b, stderr=problem","throwable":null}]}
+{"kind":"command","operation":"exists","mode":"stderr","argv":[["test","-e","/p"]],"result":true,"thrown":null,"logs":[]}
+{"kind":"command","operation":"test","mode":"stderr","argv":[["test","-f","/p"]],"result":true,"thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir","mode":"nonzero","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir-explicit","mode":"nonzero","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"shared","mode":"nonzero","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"media","mode":"nonzero","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"remove","mode":"nonzero","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"keep","mode":"nonzero","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"path","mode":"nonzero","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy","mode":"nonzero","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy-no","mode":"nonzero","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"move","mode":"nonzero","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink","mode":"nonzero","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink-no","mode":"nonzero","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"exists","mode":"nonzero","argv":[["test","-e","/p"]],"result":false,"thrown":null,"logs":[]}
+{"kind":"command","operation":"test","mode":"nonzero","argv":[["test","-f","/p"]],"result":false,"thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir","mode":"timeout","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir-explicit","mode":"timeout","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"shared","mode":"timeout","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"media","mode":"timeout","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"remove","mode":"timeout","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"keep","mode":"timeout","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"path","mode":"timeout","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy","mode":"timeout","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy-no","mode":"timeout","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"move","mode":"timeout","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink","mode":"timeout","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink-no","mode":"timeout","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"exists","mode":"timeout","argv":[["test","-e","/p"]],"result":null,"thrown":null,"logs":[]}
+{"kind":"command","operation":"test","mode":"timeout","argv":[["test","-f","/p"]],"result":false,"thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir","mode":"143","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir-explicit","mode":"143","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"shared","mode":"143","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"media","mode":"143","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"remove","mode":"143","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"keep","mode":"143","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"path","mode":"143","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy","mode":"143","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"copy-no","mode":"143","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"move","mode":"143","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink","mode":"143","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"symlink-no","mode":"143","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[]}
+{"kind":"command","operation":"exists","mode":"143","argv":[["test","-e","/p"]],"result":null,"thrown":null,"logs":[]}
+{"kind":"command","operation":"test","mode":"143","argv":[["test","-f","/p"]],"result":false,"thrown":null,"logs":[]}
+{"kind":"command","operation":"mkdir","mode":"io","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /s","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"mkdir-explicit","mode":"io","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /d/","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"shared","mode":"io","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /tmp/marathon/shared/","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"media","mode":"io","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /tmp/marathon/shared/mediaFiles/","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"remove","mode":"io","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Unable to remove directory /s","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"keep","mode":"io","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Unable to clean directory /s","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"path","mode":"io","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Unable to remove path /p","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"copy","mode":"io","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to copy remote directory /a to /b","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"copy-no","mode":"io","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to copy remote directory /a to /b","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"move","mode":"io","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to move remote file /a to /b","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"symlink","mode":"io","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to symlink remote directory /a to /b","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"symlink-no","mode":"io","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to symlink remote directory /a to /b","throwable":"java.io.IOException"}]}
+{"kind":"command","operation":"exists","mode":"io","argv":[["test","-e","/p"]],"result":null,"thrown":"java.io.IOException","logs":[]}
+{"kind":"command","operation":"test","mode":"io","argv":[["test","-f","/p"]],"result":null,"thrown":"java.io.IOException","logs":[]}
+{"kind":"command","operation":"mkdir","mode":"cancel","argv":[["mkdir","-p","/s"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /s","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"mkdir-explicit","mode":"cancel","argv":[["mkdir","-p","/d/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /d/","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"shared","mode":"cancel","argv":[["mkdir","-p","/tmp/marathon/shared/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /tmp/marathon/shared/","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"media","mode":"cancel","argv":[["mkdir","-p","/tmp/marathon/shared/mediaFiles/"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Could not create remote directory /tmp/marathon/shared/mediaFiles/","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"remove","mode":"cancel","argv":[["rm","-rf","/s"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Unable to remove directory /s","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"keep","mode":"cancel","argv":[["find","/s","-mindepth","1","-maxdepth","1","!","-name","a*","!","-name","","-exec","rm","-rf","{}","+"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Unable to clean directory /s","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"path","mode":"cancel","argv":[["rm","-rf","/p"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"Unable to remove path /p","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"copy","mode":"cancel","argv":[["rm","-R","/b"],["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to copy remote directory /a to /b","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"copy-no","mode":"cancel","argv":[["cp","-R","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to copy remote directory /a to /b","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"move","mode":"cancel","argv":[["mv","-f","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to move remote file /a to /b","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"symlink","mode":"cancel","argv":[["rm","-R","/b"],["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to symlink remote directory /a to /b","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"symlink-no","mode":"cancel","argv":[["ln","-s","/a","/b"]],"result":"unit","thrown":null,"logs":[{"logger":"com.malinskiy.marathon.apple.RemoteFileManager","level":"ERROR","message":"failed to symlink remote directory /a to /b","throwable":"java.util.concurrent.CancellationException"}]}
+{"kind":"command","operation":"exists","mode":"cancel","argv":[["test","-e","/p"]],"result":null,"thrown":"java.util.concurrent.CancellationException","logs":[]}
+{"kind":"command","operation":"test","mode":"cancel","argv":[["test","-f","/p"]],"result":null,"thrown":"java.util.concurrent.CancellationException","logs":[]}
+{"kind":"arch","sdk":"IPHONEOS","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"IPHONEOS","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"IPHONEOS","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"IPHONEOS","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"IPHONEOS","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"IPHONEOS","abi":"unknown","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"IPHONESIMULATOR","abi":"x86_64","udid":"U","arch":"x86_64"}
+{"kind":"arch","sdk":"IPHONESIMULATOR","abi":"x86_64","udid":"U-D","arch":"x86_64"}
+{"kind":"arch","sdk":"IPHONESIMULATOR","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"IPHONESIMULATOR","abi":"arm64","udid":"U-D","arch":"arm64"}
+{"kind":"arch","sdk":"IPHONESIMULATOR","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"IPHONESIMULATOR","abi":"unknown","udid":"U-D","arch":"arm64"}
+{"kind":"arch","sdk":"TV","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"TV","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"TV","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"TV","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"TV","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"TV","abi":"unknown","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"TV_SIMULATOR","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"TV_SIMULATOR","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"TV_SIMULATOR","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"TV_SIMULATOR","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"TV_SIMULATOR","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"TV_SIMULATOR","abi":"unknown","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"WATCH","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"WATCH","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"WATCH","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"WATCH","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"WATCH","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"WATCH","abi":"unknown","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"WATCH_SIMULATOR","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"WATCH_SIMULATOR","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"WATCH_SIMULATOR","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"WATCH_SIMULATOR","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"WATCH_SIMULATOR","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"WATCH_SIMULATOR","abi":"unknown","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"VISION","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"VISION","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"VISION","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"VISION","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"VISION","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"VISION","abi":"unknown","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"VISION_SIMULATOR","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"VISION_SIMULATOR","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"VISION_SIMULATOR","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"VISION_SIMULATOR","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"VISION_SIMULATOR","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"VISION_SIMULATOR","abi":"unknown","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"MACOS","abi":"x86_64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"MACOS","abi":"x86_64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"MACOS","abi":"arm64","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"MACOS","abi":"arm64","udid":"U-D","arch":"arm64e"}
+{"kind":"arch","sdk":"MACOS","abi":"unknown","udid":"U","arch":"arm64"}
+{"kind":"arch","sdk":"MACOS","abi":"unknown","udid":"U-D","arch":"arm64e"}

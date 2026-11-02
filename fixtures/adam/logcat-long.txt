@@ -1,0 +1,16 @@
+--------- beginning of main
+[ 08-18 16:39:11.760  2977: 2988 D/PhoneInterfaceManager ]
+iccPhonebookInterfaceManager.execute
+
+[ 08-18 16:39:11.761  1234: 1234 I/TestRunner ]
+started: testText(com.example.MainActivityTest)
+
+[ 08-18 16:39:11.779  1234: 1234 E/AndroidRuntime ]
+FATAL EXCEPTION: main
+java.lang.AssertionError: expected:<1> but was:<2>
+
+[ 08-18 16:39:11.790  1234: 1234 W/AndroidRuntime ]
+Ignoring duplicate failure
+
+[ 08-18 16:39:11.800  1234: 1234 I/TestRunner ]
+finished: testText(com.example.MainActivityTest)

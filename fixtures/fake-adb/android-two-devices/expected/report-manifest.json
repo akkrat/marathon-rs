@@ -1,0 +1,198 @@
+{
+  "exitCode": 1,
+  "timedOut": false,
+  "output": [
+    {
+      "path": "allure-results",
+      "kind": "dir"
+    },
+    {
+      "path": "allure-results/<uuid-1>-result.json",
+      "kind": "file"
+    },
+    {
+      "path": "allure-results/<uuid-2>-result.json",
+      "kind": "file"
+    },
+    {
+      "path": "allure-results/<uuid-3>-result.json",
+      "kind": "file"
+    },
+    {
+      "path": "allure-results/environment.xml",
+      "kind": "file"
+    },
+    {
+      "path": "bill",
+      "kind": "dir"
+    },
+    {
+      "path": "bill/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "bill/omni/127.0.0.1-@PORT@-device-1.json",
+      "kind": "file"
+    },
+    {
+      "path": "devices",
+      "kind": "dir"
+    },
+    {
+      "path": "devices/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "devices/omni/127.0.0.1-@PORT@-device-1.json",
+      "kind": "file"
+    },
+    {
+      "path": "devices/omni/127.0.0.1-@PORT@-device-2.json",
+      "kind": "file"
+    },
+    {
+      "path": "html",
+      "kind": "dir"
+    },
+    {
+      "path": "html/app.min.css",
+      "kind": "file"
+    },
+    {
+      "path": "html/app.min.js",
+      "kind": "file"
+    },
+    {
+      "path": "html/index.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/pools",
+      "kind": "dir"
+    },
+    {
+      "path": "html/pools/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "html/pools/omni.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1",
+      "kind": "dir"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1/com.example.ClassIgnoredTest.testAlwaysIgnored.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1/com.example.MainActivityAllureTest.testFailure.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1/com.example.MainActivityTest.testText.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1/logs",
+      "kind": "dir"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1/logs/com.example.ClassIgnoredTest.testAlwaysIgnored.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1/logs/com.example.MainActivityAllureTest.testFailure.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/pools/omni/127.0.0.1-@PORT@-device-1/logs/com.example.MainActivityTest.testText.html",
+      "kind": "file"
+    },
+    {
+      "path": "html/timeline",
+      "kind": "dir"
+    },
+    {
+      "path": "html/timeline/chart.css",
+      "kind": "file"
+    },
+    {
+      "path": "html/timeline/chart.js",
+      "kind": "file"
+    },
+    {
+      "path": "html/timeline/iframeResizer.contentWindow.min.js",
+      "kind": "file"
+    },
+    {
+      "path": "html/timeline/index.html",
+      "kind": "file"
+    },
+    {
+      "path": "logs",
+      "kind": "dir"
+    },
+    {
+      "path": "logs/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "logs/omni/127.0.0.1-@PORT@-device-1",
+      "kind": "dir"
+    },
+    {
+      "path": "screenshot",
+      "kind": "dir"
+    },
+    {
+      "path": "screenshot/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "screenshot/omni/127.0.0.1-@PORT@-device-1",
+      "kind": "dir"
+    },
+    {
+      "path": "test_result",
+      "kind": "dir"
+    },
+    {
+      "path": "test_result/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "test_result/omni/127.0.0.1-@PORT@-device-1",
+      "kind": "dir"
+    },
+    {
+      "path": "test_result/omni/127.0.0.1-@PORT@-device-1/com.example.ClassIgnoredTest#testAlwaysIgnored.json",
+      "kind": "file"
+    },
+    {
+      "path": "test_result/omni/127.0.0.1-@PORT@-device-1/com.example.MainActivityAllureTest#testFailure.json",
+      "kind": "file"
+    },
+    {
+      "path": "test_result/omni/127.0.0.1-@PORT@-device-1/com.example.MainActivityTest#testText.json",
+      "kind": "file"
+    },
+    {
+      "path": "test_result/raw.json",
+      "kind": "file"
+    },
+    {
+      "path": "tests",
+      "kind": "dir"
+    },
+    {
+      "path": "tests/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "tests/omni/marathon_junit_report.xml",
+      "kind": "file"
+    }
+  ]
+}

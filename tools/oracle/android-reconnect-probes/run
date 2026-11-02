@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""x1: a device that vanishes during prepare and reappears with the same serial, through the real Kotlin and Rust
+CLIs on strict loopback fake-adb servers (scripts from `generate`). Never invokes adb (a rejecting shim records it).
+
+    python3 tools/oracle/android-reconnect-probes/run [scenario ...] [--impl kotlin|rust] [--resummarize]
+
+Writes fixtures/fake-adb/android-reconnect/expected/<scenario>-<impl>.{json,stdout,stderr} and
+<scenario>-<impl>-transcript-<n>.jsonl (ports and temp paths masked; source build identifiers masked, see
+MARATHON_REDACTIONS), and prints the Kotlin/Rust comparison. Exit 1 when they differ.
+"""
+import json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
+root = pathlib.Path(__file__).resolve().parents[3]
+fixtures = root / 'fixtures/fake-adb/android-reconnect'
+expected = fixtures / 'expected'
+expected.mkdir(exist_ok=True)
+java_home = os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')
+kotlin = pathlib.Path(os.environ.get('MARATHON_KT', os.path.expanduser('~/src/marathon'))) / 'cli/build/install/marathon/bin/marathon'
+rust = root / 'target/debug/marathon'
+# Optional list of source build identifiers to mask in captured output (one per line); without it nothing is masked.
+redactions_path = pathlib.Path(os.environ.get('MARATHON_REDACTIONS', str(pathlib.Path.home() / '.config/marathon-rs/redactions.txt')))
+patterns = [re.compile(re.escape(l.strip()), re.IGNORECASE) for l in redactions_path.read_text().splitlines() if l.strip()] if redactions_path.is_file() else []
+SCENARIOS = {'same-server': ['same-server'], 'same-server-flaky': ['same-server-flaky'], 'cross-host': ['cross-host-a', 'cross-host-b'],
+             'cross-host-shadowed': ['cross-host-shadowed-a', 'cross-host-shadowed-b']}
+TIMEOUT = 170
+
+
+def redact(text):
+    for p in patterns:
+        text = p.sub('@SOURCE_NAME@', text)
+    return text
+
+
+def run_one(scenario, implementation, binary):
+    with tempfile.TemporaryDirectory(prefix='x1-reconnect-') as tmp:
+        temp = pathlib.Path(tmp)
+        inp = temp / 'in'; inp.mkdir(); (temp / 'home').mkdir(); (temp / 'tmp').mkdir()
+        for apk in ['app-debug.apk', 'app-debug-androidTest.apk']:
+            shutil.copyfile(root / 'fixtures/vendor-android/apk' / apk, inp / apk)
+        sdk = inp / 'sdk/platform-tools'; sdk.mkdir(parents=True)
+        shim = sdk / 'adb'
+        shim.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "' + str(temp / 'adb-argv') + '"\nexit 70\n'); shim.chmod(0o755)
+        servers, ports = [], []
+        try:
+            for index, name in enumerate(SCENARIOS[scenario]):
+                portfile = temp / f'port-{index}'
+                log = open(temp / f'server-{index}.log', 'w')
+                transcript = temp / f'transcript-{index}.jsonl'
+                p = subprocess.Popen([str(root / 'target/debug/fake-adb'), '--script', str(fixtures / 'script' / f'{name}.json'), '--port', '0',
+                                      '--port-file', str(portfile), '--transcript', str(transcript), '--strict'], stdout=log, stderr=log)
+                servers.append((p, log, transcript))
+                for _ in range(500):
+                    if portfile.exists() and portfile.read_text().strip(): break
+                    if p.poll() is not None: raise RuntimeError('fake-adb failed to start')
+                    time.sleep(.01)
+                ports.append(int(portfile.read_text()))
+            vendor = {'type': 'Android', 'androidSdk': './sdk', 'applicationApk': './app-debug.apk', 'testApplicationApk': './app-debug-androidTest.apk',
+                      'autoGrantPermission': False, 'mockLocation': False, 'applicationPmClear': False, 'testApplicationPmClear': False,
+                      'allureConfiguration': {'enabled': False},
+                      'screenRecordConfiguration': {'videoConfiguration': {'enabled': False}, 'screenshotConfiguration': {'enabled': False}},
+                      'testParserConfiguration': {'type': 'remote'},
+                      'adbServers': [{'host': '127.0.0.1', 'port': port} for port in ports]}
+            config = {'name': 'x1-reconnect', 'outputDir': './output', 'analyticsTracking': False, 'bugsnagReporting': False, 'debug': True,
+                      'vendorConfiguration': vendor}
+            (inp / 'Marathonfile').write_text(json.dumps(config))
+            env = {'HOME': str(temp / 'home'), 'TMPDIR': str(temp / 'tmp'), 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'JAVA_HOME': java_home, 'LANG': 'en_US.UTF-8'}
+            started = time.time()
+            result = subprocess.run([str(binary), '-m', str(inp / 'Marathonfile')], cwd=inp, env=env, capture_output=True, text=True, timeout=TIMEOUT)
+            seconds = time.time() - started
+        finally:
+            codes = []
+            for p, log, transcript in servers:
+                p.terminate(); codes.append(p.wait(timeout=10)); log.close()
+        if (temp / 'adb-argv').exists(): raise RuntimeError('adb shim invoked: ' + (temp / 'adb-argv').read_text())
+        masks = [(str(inp), '@IN@')] + [(str(port), f'PORT{i + 1}') for i, port in enumerate(ports)]
+
+        def mask(text):
+            for a, b in masks: text = text.replace(a, b)
+            return redact(text)
+        for i, (_, _, t) in enumerate(servers):
+            (expected / f'{scenario}-{implementation}-transcript-{i + 1}.jsonl').write_text(mask(t.read_text()))
+        (expected / f'{scenario}-{implementation}.log').write_text(filtered_log(mask(result.stdout + result.stderr)))
+        finals = [l for l in (result.stdout + result.stderr).splitlines() if l.startswith('Marathon execution ')]
+        return summarize(scenario, implementation, result.returncode, finals, round(seconds), codes)
+
+
+LOG = re.compile(r'^([DIWE]) \d\d:\d\d:\d\d\.\d+ \[[^\]]*\] <([^>]*)> (.*)$')
+KEEP = ('AdamDeviceProvider', 'Scheduler', 'DevicePoolActor', 'QueueActor', 'AndroidAppInstaller', 'AndroidDevice', 'D.')
+
+
+def filtered_log(text):
+    """The provider, scheduler, pool, installer and device-actor lines, without times or threads."""
+    out = []
+    for line in text.splitlines():
+        m = LOG.match(line)
+        if m and m[2].startswith(KEEP) and 'Installing' not in m[3] and 'Success' != m[3]:
+            out.append(f'{m[1]} <{m[2]}> {m[3]}')
+    return '\n'.join(out) + '\n'
+
+
+def summarize(scenario, implementation, exit_code, final_lines, seconds, fake_exit):
+    """Reads the stored (masked) transcripts and filtered log. `compare` is what the two CLIs must agree on; the
+    rest (which test ran where, seconds) varies with timing. The Rust test (reconnect_test.rs) computes `ranOn` and
+    `batchesRun` from its own transcripts the same way.
+
+    Phases per server transcript: `start` until the first disconnect event, `dropped` until the next connect, then
+    `back`. `ranOn[server/serial]` says whether that serial ran a test batch in `start` and in `back`."""
+    servers, phases, total = [], {}, 0
+    for index in range(len(SCENARIOS[scenario])):
+        rows = [json.loads(l) for l in (expected / f'{scenario}-{implementation}-transcript-{index + 1}.jsonl').read_text().splitlines()]
+        phase, batches = 'start', {}
+        for r in rows:
+            if r.get('type') == 'event' and r.get('event') == 'disconnect':
+                phase = 'dropped'
+            if r.get('type') == 'event' and r.get('event') == 'connect' and phase == 'dropped':
+                phase = 'back'
+            service = r.get('service') or ''
+            if r.get('type') == 'request' and 'am instrument ' in service and '-e log true' not in service and r.get('serial'):
+                test = re.search(r'-e class (\S+)', service)[1].split('.')[-1].split('#')[0]
+                batches.setdefault(r['serial'], []).append({'phase': phase, 'test': test})
+        servers.append({'batches': batches})
+        for serial, b in batches.items():
+            seen = {x['phase'] for x in b}
+            phases[f'server{index + 1}/{serial}'] = {'beforeDrop': 'start' in seen, 'afterReconnect': 'back' in seen}
+            total += len(b)
+    log = (expected / f'{scenario}-{implementation}.log').read_text().splitlines()
+    state_changes = [re.sub(r'^.*? (Device \S+ changed state to \w+)$', r'\1', l) for l in log if 'changed state to' in l]
+    return {'compare': {'exit': exit_code, 'stateChanges': state_changes, 'batchesRun': total, 'ranOn': phases, 'finalLines': final_lines},
+            'fakeExit': fake_exit, 'servers': servers, 'seconds': seconds}
+
+
+def main():
+    args = sys.argv[1:]
+    impls = ['kotlin', 'rust']
+    if '--impl' in args:
+        i = args.index('--impl'); impls = [args[i + 1]]; del args[i:i + 2]
+    resummarize = '--resummarize' in args
+    args = [a for a in args if a != '--resummarize']
+    scenarios = args or list(SCENARIOS)
+    failed = False
+    for scenario in scenarios:
+        outcomes = {}
+        for implementation in impls:
+            if resummarize:
+                old = json.loads((expected / f'{scenario}-{implementation}.json').read_text())
+                outcomes[implementation] = summarize(scenario, implementation, old['compare']['exit'], old['compare']['finalLines'], old['seconds'], old['fakeExit'])
+            else:
+                outcomes[implementation] = run_one(scenario, implementation, kotlin if implementation == 'kotlin' else rust)
+            (expected / f'{scenario}-{implementation}.json').write_text(json.dumps(outcomes[implementation], indent=1) + '\n')
+            print(scenario, implementation, 'exit', outcomes[implementation]['compare']['exit'], 'in', outcomes[implementation]['seconds'], 's', flush=True)
+        if len(outcomes) == 2:
+            same = outcomes['kotlin']['compare'] == outcomes['rust']['compare']
+            print(scenario + ': ' + ('matched' if same else 'DIFFERENT'))
+            failed |= not same
+        for implementation, outcome in outcomes.items():
+            # A strict fake exits non-zero when it recorded a warning (an unmatched command, a broken session).
+            if any(outcome['fakeExit']) or outcome['compare']['exit'] != 0:
+                print(f"{scenario} {implementation}: fake-adb exit {outcome['fakeExit']}, marathon exit {outcome['compare']['exit']}")
+                failed = True
+    sys.exit(1 if failed else 0)
+
+
+main()

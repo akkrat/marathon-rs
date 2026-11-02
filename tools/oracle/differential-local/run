@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Compile only the probe against this worktree's verified reference distribution."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+here = Path(__file__).resolve().parent
+lib = here.parent / 'build/marathon-src/cli/build/install/marathon/lib'
+cache = Path(os.environ.get('MRS_GRADLE_CACHE', str(Path.home() / '.gradle/caches/modules-2/files-2.1')))
+jdk = Path(os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home'))
+def jar(group, artifact, version):
+    return next((cache / group / artifact / version).glob('*/*.jar'))
+compiler = [jar('org.jetbrains.kotlin', a, v) for a, v in [
+    ('kotlin-compiler-embeddable', '1.9.24'), ('kotlin-stdlib', '1.9.24'),
+    ('kotlin-script-runtime', '1.9.24'), ('kotlin-reflect', '1.6.10')]]
+compiler += [jar('org.jetbrains.intellij.deps', 'trove4j', '1.0.20200330'), jar('org.jetbrains', 'annotations', '13.0')]
+jars = sorted(lib.glob('*.jar'))
+if not jars:
+    sys.exit('build the reference with tools/oracle/build.sh reference first')
+classpath = os.pathsep.join(map(str, jars))
+with tempfile.TemporaryDirectory(prefix='mrs71-local-classes-') as tmp:
+    subprocess.run([str(jdk / 'bin/java'), '-cp', os.pathsep.join(map(str, compiler)),
+                    'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-nowarn',
+                    '-jvm-target', '17', '-cp', classpath, '-d', tmp, str(here / 'Probe.kt')], check=True, timeout=90)
+    # File-bridge destinations inherit umask; match the native probe and JVM golden.
+    subprocess.run([str(jdk / 'bin/java'), '-cp', tmp + os.pathsep + classpath, 'ProbeKt', *sys.argv[1:]],
+                   check=True, timeout=15, umask=0o022)

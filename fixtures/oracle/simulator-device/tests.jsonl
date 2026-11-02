@@ -1,0 +1,105 @@
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"loses the device after consecutive batch failures()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"keeps the device after batches without progress by default()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"loses the device on the first device failure()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"batch failures without progress count as batches without progress()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"loses the device after consecutive batches in which no test passed or failed()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"completed batch resets the failure count()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"failed batch with passed tests resets the failure count()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"a batch in which a test passed or failed resets the count of batches without progress()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.device.BatchFailurePolicyTest","test":"keeps the device on batch failures()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"policies results traces and attachments match synchronous baseline for every outcome()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"bundle skipped by a failing earlier finalizer stays protected and is reported at finalization()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"healthy worker hands over its bundle while a stalled worker holds its share and waiting bundles stay protected()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"failed delivery does not fail a completed runner batch synchronously or through the queue()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"bundles registered around queue shutdown are kept and reported once()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"next real runner batch starts during blocked transfer while finalization awaits cleanup()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"same run device cleanup keeps an undelivered bundle until a later run()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"failed local finalization keeps the remote bundle and never replaces an existing destination()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"failed pulls keep remote bundles and are reported at finalization without poisoning following bundles()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"cancelled unstarted and rejected bundles are reported once with recovery details()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"pull that ignores cancellation is reported and kept at the shutdown deadline and not reported again()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"closed queue does not fail a completed runner batch()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest","test":"cancelled admission to a full queue keeps and reports the bundle()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceArtifactTest","test":"real device dispose leaves active artifact work alive and rejects subsequent batches()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceArtifactTest","test":"replacement device prepare cannot clear a pending bundle directory()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceArtifactTest","test":"replacement device prepare keeps a bundle whose delivery failed()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchFailureTest","test":"[1] Terminating since there is no system app.","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchFailureTest","test":"[2] Exiting because the workspace server has disconnected.","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchFailureTest","test":"a batch level failure keeps the simulator()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a dead system app takes the simulator out without a recovery()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a batch in which a test passed or failed keeps the simulator()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"batches in which no test finished take the simulator out of the pool()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a failed test run in which a test failed is progress()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"batches stopped by the idle timeout before any test finished take the simulator out of the pool()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a simulator lost while a test parsing session of it has not closed is taken out without a recovery()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"by default batches in which no test finished keep the simulator()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a disposed simulator is not lost()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a cancelled batch doesn't lose the simulator()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a wedged batch that keeps writing output ends at the batch timeout()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a device-level failure that a new setup can fix loses the simulator for its recovery()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a simulator whose xcodebuild session doesn't close is taken out without a recovery()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a dead system app takes the simulator out even if its run is cancelled before it ends()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceBatchTest","test":"a simulator waits for a batch only between its batches while it is in the pool()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceDisposeTest","test":"a concurrent dispose returns only after the disposal in progress has finished()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceDisposeTest","test":"disposal runs the onDispose lifecycle only after the running batch has finished()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceDisposeTest","test":"a cancelled batch that has not finished in time takes the simulator out of the run, and disposal still waits for it()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceDisposeTest","test":"disposal stops waiting for a batch that has not finished in time()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceSessionTest","test":"a batch cancelled while its xcodebuild session is open ends only after the session has closed()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceSessionTest","test":"disposal during the cancellation of a batch returns only after its xcodebuild session has closed()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceSessionTest","test":"a simulator starts no xcodebuild while its previous session has not been closed()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceSessionTest","test":"a kept simulator starts the next batch only after the xcodebuild session of the previous one has closed()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceSessionTest","test":"a simulator whose xcodebuild session has not closed in time is lost()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceXcodeVersionTest","test":"the test diagnostics argument of the user wins on Xcode 27()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceXcodeVersionTest","test":"Xcode 13.4.1|Build version 13F100","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceXcodeVersionTest","test":"Xcode 14.0|Build version 14A309","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceXcodeVersionTest","test":"Xcode 15.4|Build version 15F31d","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceXcodeVersionTest","test":"Xcode 16.4|Build version 16F6","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceXcodeVersionTest","test":"Xcode 26.6|Build version 17F113","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.AppleSimulatorDeviceXcodeVersionTest","test":"Xcode 27.0|Build version 27A266a","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.SimulatorClassifierEvidenceTest","test":"failuresBeforeRunner()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.SimulatorEvidenceTest","test":"quirks()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.SimulatorSetupEvidenceTest","test":"setupAndCommands()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"the xctestrun is pushed through the file bridge if writing it through the connection fails()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"with ssh debug logging the xctestrun is pushed through the file bridge()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a simulator whose state can't be read fails its boot at once without simctl boot()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a boot that fails once and then succeeds prepares the simulator()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a simulator that does not shut down after a failed boot is left as it is()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a boot that takes longer than the former 30 checks but finishes within bootWait prepares the simulator()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a late simulator prepared after the late join cut-off leaves the run before its first batch()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"the xctestrun of a local simulator is still pushed through the file bridge()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"provisioning and preparation log their timings without debug()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"the xctestrun of a simulator on an SSH worker is written through its connection()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a simulator whose simctl boot fails is taken out of its pool without waiting for bootWait()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a simulator that boots although simctl boot failed is waited for()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a boot that does not finish within bootWait is retried once and then takes the simulator out of its pool()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a symbol scan that does not finish fails parsing instead of losing its tests()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a symbol scan that can not open a session next to the other one runs after it()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a simulator that fails to boot is set up again by its provider, as often as a lost one()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"[1] 1","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"[2] 2","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"[3] 3","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"[4] 6","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"cancelling a preparation at the end of the run stops its boot wait at once()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"a symbol scan that fails for another reason is not repeated()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.StartupPhasesTest","test":"the symbol scans of test parsing run at the same time()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a failed inventory is not kept and the next simulator takes it again()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a slow inventory of one worker does not hold up other workers()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"worker facts are kept only after they were loaded completely()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"new profiles are planned from the shared inventory and set up from a lookup after creation()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"[1] local","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"[2] ssh","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a lookup after a simulator was created does not hold up other simulators of the worker()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"unavailable simulators are neither planned nor re-provisioned()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a timed-out probe is not shared()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a reconnect takes a new inventory and new worker facts()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"an inventory requested earlier never replaces a later one()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"workers with different credentials on one host share neither inventory nor facts()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a created simulator that cannot be looked up is deleted()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a simulator is validated against an inventory no older than the bound()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a failed simulator command looks the simulator up in a new inventory()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"[1] 1","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"[2] 4","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"[3] 8","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"[4] 16","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a lost connection invalidates what was loaded through it within one cycle()","passed":true}
+{"suite":"com.malinskiy.marathon.apple.ios.device.WorkerProvisioningContextTest","test":"a simulator deleted after the inventory was taken is not set up()","passed":true}

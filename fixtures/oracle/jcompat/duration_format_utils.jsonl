@@ -1,0 +1,34 @@
+{"table":"duration_format_utils","description":"commons-lang3 DurationFormatUtils.formatDuration(ms, \"H'H' mm'm' ss's'\") and StdoutReporter.formatDuration, which returns \"0s\" for ms <= 0.","schema":{"millis":"input","formatDuration":"{ok: string} or {error: {class, message}}","stdoutReporter":"StdoutReporter's wrapper result"},"rows":33,"jdk":"JetBrains s.r.o. 21.0.10+-117844308-b1163.108","generator":"tools/oracle/module (run tools/oracle/jcompat-tables or the corpus wrappers to regenerate)"}
+{"millis":0,"formatDuration":{"ok":"0H 00m 00s"},"stdoutReporter":"0s"}
+{"millis":1,"formatDuration":{"ok":"0H 00m 00s"},"stdoutReporter":"0H 00m 00s"}
+{"millis":499,"formatDuration":{"ok":"0H 00m 00s"},"stdoutReporter":"0H 00m 00s"}
+{"millis":500,"formatDuration":{"ok":"0H 00m 00s"},"stdoutReporter":"0H 00m 00s"}
+{"millis":999,"formatDuration":{"ok":"0H 00m 00s"},"stdoutReporter":"0H 00m 00s"}
+{"millis":1000,"formatDuration":{"ok":"0H 00m 01s"},"stdoutReporter":"0H 00m 01s"}
+{"millis":1001,"formatDuration":{"ok":"0H 00m 01s"},"stdoutReporter":"0H 00m 01s"}
+{"millis":1499,"formatDuration":{"ok":"0H 00m 01s"},"stdoutReporter":"0H 00m 01s"}
+{"millis":1500,"formatDuration":{"ok":"0H 00m 01s"},"stdoutReporter":"0H 00m 01s"}
+{"millis":1999,"formatDuration":{"ok":"0H 00m 01s"},"stdoutReporter":"0H 00m 01s"}
+{"millis":59000,"formatDuration":{"ok":"0H 00m 59s"},"stdoutReporter":"0H 00m 59s"}
+{"millis":59499,"formatDuration":{"ok":"0H 00m 59s"},"stdoutReporter":"0H 00m 59s"}
+{"millis":59500,"formatDuration":{"ok":"0H 00m 59s"},"stdoutReporter":"0H 00m 59s"}
+{"millis":59999,"formatDuration":{"ok":"0H 00m 59s"},"stdoutReporter":"0H 00m 59s"}
+{"millis":60000,"formatDuration":{"ok":"0H 01m 00s"},"stdoutReporter":"0H 01m 00s"}
+{"millis":61000,"formatDuration":{"ok":"0H 01m 01s"},"stdoutReporter":"0H 01m 01s"}
+{"millis":599999,"formatDuration":{"ok":"0H 09m 59s"},"stdoutReporter":"0H 09m 59s"}
+{"millis":3599999,"formatDuration":{"ok":"0H 59m 59s"},"stdoutReporter":"0H 59m 59s"}
+{"millis":3600000,"formatDuration":{"ok":"1H 00m 00s"},"stdoutReporter":"1H 00m 00s"}
+{"millis":3661000,"formatDuration":{"ok":"1H 01m 01s"},"stdoutReporter":"1H 01m 01s"}
+{"millis":35999999,"formatDuration":{"ok":"9H 59m 59s"},"stdoutReporter":"9H 59m 59s"}
+{"millis":36000000,"formatDuration":{"ok":"10H 00m 00s"},"stdoutReporter":"10H 00m 00s"}
+{"millis":86399999,"formatDuration":{"ok":"23H 59m 59s"},"stdoutReporter":"23H 59m 59s"}
+{"millis":86400000,"formatDuration":{"ok":"24H 00m 00s"},"stdoutReporter":"24H 00m 00s"}
+{"millis":90061001,"formatDuration":{"ok":"25H 01m 01s"},"stdoutReporter":"25H 01m 01s"}
+{"millis":359999999,"formatDuration":{"ok":"99H 59m 59s"},"stdoutReporter":"99H 59m 59s"}
+{"millis":360000000,"formatDuration":{"ok":"100H 00m 00s"},"stdoutReporter":"100H 00m 00s"}
+{"millis":1000000000,"formatDuration":{"ok":"277H 46m 40s"},"stdoutReporter":"277H 46m 40s"}
+{"millis":100000000000,"formatDuration":{"ok":"27777H 46m 40s"},"stdoutReporter":"27777H 46m 40s"}
+{"millis":9223372036854775807,"formatDuration":{"ok":"2562047788015H 12m 55s"},"stdoutReporter":"2562047788015H 12m 55s"}
+{"millis":-1,"formatDuration":{"error":{"class":"java.lang.IllegalArgumentException","message":"durationMillis must not be negative"}},"stdoutReporter":"0s"}
+{"millis":-1000,"formatDuration":{"error":{"class":"java.lang.IllegalArgumentException","message":"durationMillis must not be negative"}},"stdoutReporter":"0s"}
+{"millis":-9223372036854775808,"formatDuration":{"error":{"class":"java.lang.IllegalArgumentException","message":"durationMillis must not be negative"}},"stdoutReporter":"0s"}

@@ -1,0 +1,12 @@
+{
+  "format": "marathon-differential/verification@1",
+  "native_sha": "643a7c54743ccfae74281a3bb4b52cee8a4d66e5",
+  "records": {
+    "local/jvm-a": "d25710306f94952bdd62685ff3910e3d00d3ae2b68fede34cdd723d0de113d51",
+    "local/jvm-b": "304185c90d4d1520c16f49ea6b8ba050e91ad6e6625fcfcf03ebed061b05a47d",
+    "local/native": "615c939e32312cb962d47baed01b6bc55f7baebd4ba236d1698516ac00d5381e",
+    "parse/jvm-a": "2f70fb91d2f9648ed95bfc6d1d100324a6882cd36e7035351bace892beb48701",
+    "parse/jvm-b": "8939b95b0c22041cd89c6ec6a6d845b774ca2d2bf37df67992df808f2f1c1cf2",
+    "parse/native": "664e8e6cffe1837e757831c7176b1c9819a95c1feef27cd3521c99c0dbf2ccb7"
+  }
+}

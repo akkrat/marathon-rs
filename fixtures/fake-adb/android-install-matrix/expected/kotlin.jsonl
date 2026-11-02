@@ -1,0 +1,32 @@
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Android Debug Bridge /127.0.0.1:PORT: version 41"}
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Device emulator-5554 changed state to CONNECTED"}
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Device emulator-5556 changed state to CONNECTED"}
+{"case": "log:AndroidDevice", "value": "DEBUG Device 127.0.0.1:PORT:emulator-5554 booted!"}
+{"case": "log:AndroidDevice", "value": "DEBUG Device 127.0.0.1:PORT:emulator-5556 booted!"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Installing application output to 127.0.0.1:PORT:emulator-5554"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Uninstalling com.example from 127.0.0.1:PORT:emulator-5554"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Installing com.example, @ROOT@/fixtures/vendor-android/apk/app-debug.apk to 127.0.0.1:PORT:emulator-5554"}
+{"case": "log:AndroidDevice", "value": "DEBUG Transferred app-debug.apk to/from 127.0.0.1:PORT:emulator-5554. 26039.60 KB/s (2630923 bytes in 0.1010)"}
+{"case": "log:AndroidDevice", "value": "DEBUG /data/local/tmp/app-debug.apk synced in 16ms"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Installing instrumentation package to 127.0.0.1:PORT:emulator-5554"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Uninstalling com.example.test from 127.0.0.1:PORT:emulator-5554"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Installing com.example.test, @ROOT@/fixtures/vendor-android/apk/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554"}
+{"case": "log:AndroidDevice", "value": "DEBUG Transferred app-debug-androidTest.apk to/from 127.0.0.1:PORT:emulator-5554. 27996.09 KB/s (7167580 bytes in 0.2560)"}
+{"case": "log:AndroidDevice", "value": "DEBUG /data/local/tmp/app-debug-androidTest.apk synced in 17ms"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Prepare installation finished for 127.0.0.1:PORT:emulator-5554"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Installing application output to 127.0.0.1:PORT:emulator-5556"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Uninstalling com.example from 127.0.0.1:PORT:emulator-5556"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Installing com.example, @ROOT@/fixtures/vendor-android/apk/app-debug.apk to 127.0.0.1:PORT:emulator-5556"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Installing instrumentation package to 127.0.0.1:PORT:emulator-5556"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Uninstalling com.example.test from 127.0.0.1:PORT:emulator-5556"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "INFO Installing com.example.test, @ROOT@/fixtures/vendor-android/apk/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5556"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Success"}
+{"case": "log:AndroidAppInstaller", "value": "DEBUG Prepare installation finished for 127.0.0.1:PORT:emulator-5556"}
+{"case": "install-matrix", "value": "two prepared devices"}

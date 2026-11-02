@@ -1,0 +1,38 @@
+{
+  "format": "marathon-differential/contract@1",
+  "scenario": "local",
+  "roles": {
+    "sandbox": "path"
+  },
+  "paths": [
+    "tree",
+    "tree/empty",
+    "tree/source",
+    "tree/copy",
+    "tree/receive",
+    "tree/receive/source",
+    "observation.json"
+  ],
+  "normalization": {
+    "observation.json": {
+      "mode": "bytes",
+      "rules": [
+        {
+          "kind": "json-string",
+          "pointer": "/stdout/1",
+          "value": "{sandbox}"
+        }
+      ]
+    }
+  },
+  "outcome": {
+    "cli": 0,
+    "fake": null,
+    "harness": 0,
+    "watchdog": false,
+    "joined": true,
+    "unused": [],
+    "unmatched": []
+  },
+  "scope": "actual local executor results and complete file bridge tree"
+}

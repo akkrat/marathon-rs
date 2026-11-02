@@ -1,0 +1,42 @@
+{"schema":"filters-v1","source":"e47352f2","java":"21.0.10","allure":"2.29.0","normalization":"temporary root=<tmp>; DecodedNull suffix=<identity>; no stack frames"}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"7\"}]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":true,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"7\"}]}","env":{},"output":{"supplied":null,"selected":null,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"7\"}]}","env":{"AS_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":true,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"7\"}]}","env":{"ALLURE_TESTPLAN_PATH":"","AS_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":true,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"7\"}]}","env":{"ALLURE_TESTPLAN_PATH":"missing","AS_TESTPLAN_PATH":"plan.json"},"output":{"supplied":null,"selected":null,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"7\"}]}","env":{"ALLURE_TESTPLAN_PATH":" ","AS_TESTPLAN_PATH":"plan.json"},"output":{"supplied":null,"selected":null,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"7\"}]}","env":{"ALLURE_TESTPLAN_PATH":".","AS_TESTPLAN_PATH":"plan.json"},"output":{"supplied":null,"selected":null,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":\"pkg.Class.method\"}]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":true,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"selector\":\"7\"}]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":true,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":false,"logs":[]}}
+{"json":"{\"version\":\"1.0\"}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":{"error":{"class":"java.lang.NullPointerException","message":"Cannot invoke \"java.util.List.stream()\" because the return value of \"io.qameta.allure.testfilter.TestPlanV1_0.getTests()\" is null","cause":null}},"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":null}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":{"error":{"class":"java.lang.NullPointerException","message":"Cannot invoke \"java.util.List.stream()\" because the return value of \"io.qameta.allure.testfilter.TestPlanV1_0.getTests()\" is null","cause":null}},"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[null]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":{"error":{"class":"java.lang.NullPointerException","message":"Cannot invoke \"io.qameta.allure.testfilter.TestPlanV1_0$TestCase.getId()\" because \"test\" is null","cause":null}},"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":7,\"selector\":true}]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":true,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":[{\"id\":null,\"selector\":null,\"extra\":5}]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":false,"logs":[]}}
+{"json":"{\"version\":\"1.0\",\"tests\":{}}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":null,"selected":null,"logs":[{"logger":"io.qameta.allure.testfilter.FileTestPlanSupplier","level":"WARN","message":"could not read test plan file plan.json","cause":"io.qameta.allure.internal.shadowed.jackson.databind.exc.MismatchedInputException"}]}}
+{"json":"{\"version\":\"1\",\"tests\":[]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanUnknown","selected":null,"logs":[]}}
+{"json":"{\"version\":1.0,\"tests\":[]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanV1_0","selected":false,"logs":[]}}
+{"json":"{\"tests\":[]}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanUnknown","selected":null,"logs":[]}}
+{"json":"{}","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":"TestPlanUnknown","selected":null,"logs":[]}}
+{"json":"null","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":{"error":{"class":"java.lang.NullPointerException","message":null,"cause":null}},"selected":null,"logs":[]}}
+{"json":"[]","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":null,"selected":null,"logs":[{"logger":"io.qameta.allure.testfilter.FileTestPlanSupplier","level":"WARN","message":"could not read test plan file plan.json","cause":"io.qameta.allure.internal.shadowed.jackson.databind.exc.MismatchedInputException"}]}}
+{"json":"1","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":null,"selected":null,"logs":[{"logger":"io.qameta.allure.testfilter.FileTestPlanSupplier","level":"WARN","message":"could not read test plan file plan.json","cause":"io.qameta.allure.internal.shadowed.jackson.databind.exc.MismatchedInputException"}]}}
+{"json":"bad","env":{"ALLURE_TESTPLAN_PATH":"plan.json"},"output":{"supplied":null,"selected":null,"logs":[{"logger":"io.qameta.allure.testfilter.FileTestPlanSupplier","level":"WARN","message":"could not read test plan file plan.json","cause":"io.qameta.allure.internal.shadowed.jackson.core.JsonParseException"}]}}
+{"invalidPathLogs":[{"logger":"io.qameta.allure.testfilter.FileTestPlanSupplier","level":"WARN","message":"could not read test plan file bad\u0000path: invalid path","cause":null}]}
+{"wrapper":"absent","enabled":true,"empty":[],"filter":[["pkg","Class","one"],["pkg","Class","two"],["pkg","Class","three"],["pkg","Class","four"]],"filterNot":[],"calls":1}
+{"wrapper":"unknown","enabled":true,"empty":[],"filter":[["pkg","Class","one"],["pkg","Class","two"],["pkg","Class","three"],["pkg","Class","four"]],"filterNot":[],"calls":1}
+{"wrapper":"v1","enabled":true,"empty":[],"filter":[["pkg","Class","one"],["pkg","Class","two"],["pkg","Class","four"]],"filterNot":[["pkg","Class","three"]],"calls":1}
+{"wrapper":"absent","enabled":false,"empty":[],"filter":[["pkg","Class","one"],["pkg","Class","two"],["pkg","Class","three"],["pkg","Class","four"]],"filterNot":[],"calls":0}
+{"wrapper":"unknown","enabled":false,"empty":[],"filter":[["pkg","Class","one"],["pkg","Class","two"],["pkg","Class","three"],["pkg","Class","four"]],"filterNot":[],"calls":0}
+{"wrapper":"v1","enabled":false,"empty":[],"filter":[["pkg","Class","one"],["pkg","Class","two"],["pkg","Class","three"],["pkg","Class","four"]],"filterNot":[],"calls":0}
+{"compositionOp":"UNION","children":0,"filter":[],"calls":0}
+{"compositionOp":"UNION","children":1,"filter":[],"calls":1}
+{"compositionOp":"UNION","children":2,"filter":[],"calls":2}
+{"compositionOp":"INTERSECTION","children":0,"filter":[],"calls":0}
+{"compositionOp":"INTERSECTION","children":1,"filter":[],"calls":1}
+{"compositionOp":"INTERSECTION","children":2,"filter":[],"calls":2}
+{"compositionOp":"SUBTRACT","children":0,"filter":[],"calls":0}
+{"compositionOp":"SUBTRACT","children":1,"filter":[],"calls":0}
+{"compositionOp":"SUBTRACT","children":2,"filter":[],"calls":2}
+{"supplierRetry":[{"error":{"class":"java.lang.IllegalStateException","message":"retry","cause":null}},[]],"calls":2}

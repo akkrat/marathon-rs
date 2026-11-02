@@ -1,0 +1,18 @@
+{
+  "java": {
+    "binary_sha256": "0e421a58ef42cda4b6d43ba0cd4319c8a18825613d06ec825d8e7701db558141",
+    "output": "openjdk version \"21.0.10\" 2026-01-20\nOpenJDK Runtime Environment (build 21.0.10+-117844308-b1163.108)\nOpenJDK 64-Bit Server VM (build 21.0.10+-117844308-b1163.108, mixed mode)\n"
+  },
+  "rsync": {
+    "binary_sha256": "2b13fd251c65c4691931fa112e163af277929216853537865affc47ab927a2bb",
+    "output": "openrsync: protocol version 29\nrsync version 2.6.9 compatible\n"
+  },
+  "ssh": {
+    "binary_sha256": "c7f9f9779c1dd141b04889c6cb214859d0702687e7fde34511bb5fa7af8951f1",
+    "output": "OpenSSH_10.3p1, LibreSSL 3.3.6\n"
+  },
+  "sshpass": {
+    "binary_sha256": "303dcf47dcd54005dbfb17d830714a09aa722d8cac11ce4e855dde87a841f852",
+    "output": "sshpass 1.06\n(C) 2006-2011 Lingnu Open Source Consulting Ltd.\n(C) 2015-2016 Shachar Shemesh\nThis program is free software, and can be distributed under the terms of the GPL\nSee the COPYING file for more information.\n\nUsing \"assword\" as the default password prompt indicator.\n"
+  }
+}

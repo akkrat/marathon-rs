@@ -1,0 +1,3 @@
+{"environment": [], "selected": "None", "stdout": ""}
+{"environment": [["TEAMCITY_VERSION", "2026.1"]], "selected": "None", "stdout": ""}
+{"environment": [["UNRELATED", "TEAMCITY_VERSION"]], "selected": "Teamcity", "stdout": "##teamcity[buildStatus text='Marathon run: -1 %']\n"}

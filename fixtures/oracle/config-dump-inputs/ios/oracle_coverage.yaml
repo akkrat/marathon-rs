@@ -1,0 +1,8 @@
+name: coverage configuration
+outputDir: out
+isCodeCoverageEnabled: true
+vendorConfiguration:
+  type: iOS
+  bundle:
+    derivedDataDir: derivedDataDir
+    xctestrun: sample_1.yaml

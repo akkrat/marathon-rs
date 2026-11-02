@@ -1,0 +1,49 @@
+name: Apple world
+outputDir: report
+analyticsTracking: false
+bugsnagReporting: false
+debug: true
+uncompletedTestRetryQuota: 0
+screenRecordingPolicy: ON_ANY
+batchingStrategy:
+  type: fixed-size
+  size: 3
+  lastMileLength: 0
+retryStrategy:
+  type: no-retry
+vendorConfiguration:
+  type: iOS
+  bundle:
+    application: app.zip
+    testApplication: tests.zip
+    testType: xctest
+    extraApplications: [app/sample-app.app]
+  ssh:
+    authentication:
+      type: publicKey
+      username: fixture
+      key: ${FW_FIXTURE_KEY}
+    knownHostsPath: ${FW_KNOWN_HOSTS}
+    keepAliveInterval: PT0S
+  xcresult:
+    pullingPolicy: ALWAYS
+    remoteClean: true
+  testParserConfiguration:
+    type: nm
+  lifecycle:
+    shutdownUnused: false
+    onPrepare: []
+    onDispose: [SHUTDOWN]
+  screenRecordConfiguration:
+    preferableRecorderType: SCREENSHOT
+    videoConfiguration:
+      enabled: false
+      transcoding:
+        enabled: false
+        size: hd480
+    screenshotConfiguration:
+      enabled: false
+      type: png
+      width: 64
+      height: 96
+      delay: PT0.1S

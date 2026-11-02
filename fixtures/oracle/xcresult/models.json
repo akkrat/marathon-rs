@@ -1,0 +1,1251 @@
+{
+  "ActionAbstractTestSummary" : [ {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionDeviceRecord" : [ {
+    "name" : "name",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "isConcreteDevice",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  }, {
+    "name" : "operatingSystemVersion",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "operatingSystemVersionWithBuildNumber",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "nativeArchitecture",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "modelName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "modelCode",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "modelUTI",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "identifier",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "isWireless",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  }, {
+    "name" : "cpuKind",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "cpuCount",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "cpuSpeedInMHz",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "busSpeedInMHz",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "ramSizeInMegabytes",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "physicalCPUCoresPerPackage",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "logicalCPUCoresPerPackage",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "platformRecord",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionPlatformRecord",
+    "default" : false
+  } ],
+  "ActionPlatformRecord" : [ {
+    "name" : "identifier",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "userDescription",
+    "type" : "kotlin.String",
+    "default" : true
+  } ],
+  "ActionRecord" : [ {
+    "name" : "schemeCommandName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "schemeTaskName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "startedTime",
+    "type" : "java.util.Date",
+    "default" : false
+  }, {
+    "name" : "endedTime",
+    "type" : "java.util.Date",
+    "default" : false
+  }, {
+    "name" : "runDestination",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionRunDestinationRecord",
+    "default" : false
+  }, {
+    "name" : "buildResult",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionResult",
+    "default" : false
+  }, {
+    "name" : "actionResult",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionResult",
+    "default" : false
+  }, {
+    "name" : "testPlanName",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionResult" : [ {
+    "name" : "resultName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "status",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "metrics",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ResultMetrics",
+    "default" : false
+  }, {
+    "name" : "issues",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ResultIssueSummaries",
+    "default" : false
+  }, {
+    "name" : "coverage",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.CodeCoverageInfo",
+    "default" : false
+  }, {
+    "name" : "timelineRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "logRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "testsRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "diagnosticsRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "consoleLogRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  } ],
+  "ActionRunDestinationRecord" : [ {
+    "name" : "displayName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "targetArchitecture",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "targetDeviceRecord",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionDeviceRecord",
+    "default" : false
+  }, {
+    "name" : "localComputerRecord",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionDeviceRecord",
+    "default" : false
+  }, {
+    "name" : "targetSDKRecord",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionSDKRecord",
+    "default" : false
+  } ],
+  "ActionSDKRecord" : [ {
+    "name" : "name",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "identifier",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "operatingSystemVersion",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "isInternal",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  } ],
+  "ActionTestActivitySummary" : [ {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "activityType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "uuid",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "start",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "finish",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "attachments",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestAttachment>",
+    "default" : true
+  }, {
+    "name" : "subactivities",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestActivitySummary>",
+    "default" : true
+  }, {
+    "name" : "failureSummaryIDs",
+    "type" : "kotlin.collections.List<kotlin.String>",
+    "default" : true
+  }, {
+    "name" : "expectedFailureIDs",
+    "type" : "kotlin.collections.List<kotlin.String>",
+    "default" : true
+  } ],
+  "ActionTestAttachment" : [ {
+    "name" : "uniformTypeIdentifier",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "uuid",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "timestamp",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "userInfo",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SortedKeyValueArray?",
+    "default" : false
+  }, {
+    "name" : "lifetime",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "inActivityIdentifier",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "filename",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "payloadRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "payloadSize",
+    "type" : "kotlin.Int",
+    "default" : true
+  } ],
+  "ActionTestConfiguration" : [ {
+    "name" : "values",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SortedKeyValueArray",
+    "default" : false
+  } ],
+  "ActionTestExpectedFailure" : [ {
+    "name" : "uuid",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "failureReason",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "failureSummary",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestFailureSummary?",
+    "default" : false
+  }, {
+    "name" : "isTopLevelFailure",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  } ],
+  "ActionTestFailureSummary" : [ {
+    "name" : "message",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "fileName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "lineNumber",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "isPerformanceFailure",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  }, {
+    "name" : "uuid",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "issueType",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "detailedDescription",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "attachments",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestAttachment>",
+    "default" : true
+  }, {
+    "name" : "associatedError",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.TestAssociatedError?",
+    "default" : false
+  }, {
+    "name" : "sourceCodeContext",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SourceCodeContext?",
+    "default" : false
+  }, {
+    "name" : "timestamp",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "isTopLevelFailure",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  } ],
+  "ActionTestMetadata" : [ {
+    "name" : "testStatus",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "duration",
+    "type" : "kotlin.Double?",
+    "default" : false
+  }, {
+    "name" : "summaryRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "performanceMetricsCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "failureSummariesCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "activitySummariesCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "identifier",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "identifierURL",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionTestNoticeSummary" : [ {
+    "name" : "message",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "fileName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "lineNumber",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "timestamp",
+    "type" : "java.util.Date?",
+    "default" : false
+  } ],
+  "ActionTestPerformanceMetricSummary" : [ {
+    "name" : "displayName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "unitOfMeasurement",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "measurements",
+    "type" : "kotlin.collections.List<kotlin.Double>",
+    "default" : true
+  }, {
+    "name" : "identifier",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "baselineName",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "baselineAverage",
+    "type" : "kotlin.Double?",
+    "default" : false
+  }, {
+    "name" : "maxPercentRegression",
+    "type" : "kotlin.Double?",
+    "default" : false
+  }, {
+    "name" : "maxPercentRelativeStandardDeviation",
+    "type" : "kotlin.Double?",
+    "default" : false
+  }, {
+    "name" : "maxRegression",
+    "type" : "kotlin.Double?",
+    "default" : false
+  }, {
+    "name" : "maxStandardDeviation",
+    "type" : "kotlin.Double?",
+    "default" : false
+  }, {
+    "name" : "polarity",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionTestPlanRunSummaries" : [ {
+    "name" : "summaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestPlanRunSummary>",
+    "default" : true
+  } ],
+  "ActionTestPlanRunSummary" : [ {
+    "name" : "testableSummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestableSummary>",
+    "default" : true
+  }, {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionTestRepetitionPolicySummary" : [ {
+    "name" : "iteration",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "totalIterations",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "repetitionMode",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionTestSummary" : [ {
+    "name" : "testStatus",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "duration",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "performanceMetrics",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestPerformanceMetricSummary>",
+    "default" : true
+  }, {
+    "name" : "failureSummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestFailureSummary>",
+    "default" : true
+  }, {
+    "name" : "expectedFailures",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestExpectedFailure>",
+    "default" : true
+  }, {
+    "name" : "skipNoticeSummary",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestNoticeSummary?",
+    "default" : false
+  }, {
+    "name" : "activitySummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestActivitySummary>",
+    "default" : true
+  }, {
+    "name" : "repetitionPolicySummary",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestRepetitionPolicySummary?",
+    "default" : false
+  }, {
+    "name" : "configuration",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestConfiguration?",
+    "default" : false
+  }, {
+    "name" : "identifier",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "identifierURL",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionTestSummaryGroup" : [ {
+    "name" : "duration",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "subtests",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestSummaryIdentifiableObject>",
+    "default" : true
+  }, {
+    "name" : "identifier",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "identifierURL",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionTestSummaryIdentifiableObject" : [ {
+    "name" : "identifier",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "identifierURL",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionTestableSummary" : [ {
+    "name" : "identifierURL",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "projectRelativePath",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "targetName",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "testKind",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "tests",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestSummaryIdentifiableObject>",
+    "default" : true
+  }, {
+    "name" : "diagnosticsDirectoryName",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "failureSummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionTestFailureSummary>",
+    "default" : true
+  }, {
+    "name" : "testLanguage",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "testRegion",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "name",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "ActionsInvocationMetadata" : [ {
+    "name" : "creatingWorkspaceFilePath",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "uniqueIdentifier",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "schemeIdentifier",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.EntityIdentifier?",
+    "default" : false
+  } ],
+  "ActionsInvocationRecord" : [ {
+    "name" : "metadataRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "metrics",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ResultMetrics",
+    "default" : false
+  }, {
+    "name" : "issues",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ResultIssueSummaries",
+    "default" : false
+  }, {
+    "name" : "actions",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActionRecord>",
+    "default" : true
+  }, {
+    "name" : "archive",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ArchiveInfo?",
+    "default" : false
+  } ],
+  "ActivityLogAnalyzerControlFlowStep" : [ {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "startLocation",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "endLocation",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "edges",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogAnalyzerControlFlowStepEdge>",
+    "default" : true
+  }, {
+    "name" : "parentIndex",
+    "type" : "kotlin.Int",
+    "default" : true
+  } ],
+  "ActivityLogAnalyzerControlFlowStepEdge" : [ {
+    "name" : "startLocation",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "endLocation",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  } ],
+  "ActivityLogAnalyzerEventStep" : [ {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "description",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "callDepth",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "parentIndex",
+    "type" : "kotlin.Int",
+    "default" : true
+  } ],
+  "ActivityLogAnalyzerResultMessage" : [ {
+    "name" : "steps",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogAnalyzerStep>",
+    "default" : true
+  }, {
+    "name" : "resultType",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "keyEventIndex",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "type",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "shortTitle",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "category",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "annotations",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessageAnnotation>",
+    "default" : true
+  } ],
+  "ActivityLogAnalyzerStep" : [ {
+    "name" : "parentIndex",
+    "type" : "kotlin.Int",
+    "default" : true
+  } ],
+  "ActivityLogAnalyzerWarningMessage" : [ {
+    "name" : "type",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "shortTitle",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "category",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "annotations",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessageAnnotation>",
+    "default" : true
+  } ],
+  "ActivityLogCommandInvocationSection" : [ {
+    "name" : "commandDetails",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "emittedOutput",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "exitCode",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "domainType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "startTime",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "duration",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "result",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "subsections",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogSection>",
+    "default" : true
+  }, {
+    "name" : "messages",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessage>",
+    "default" : true
+  } ],
+  "ActivityLogMajorSection" : [ {
+    "name" : "subtitle",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "domainType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "startTime",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "duration",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "result",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "subsections",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogSection>",
+    "default" : true
+  }, {
+    "name" : "messages",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessage>",
+    "default" : true
+  } ],
+  "ActivityLogMessage" : [ {
+    "name" : "type",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "shortTitle",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "category",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "annotations",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessageAnnotation>",
+    "default" : true
+  } ],
+  "ActivityLogMessageAnnotation" : [ {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  } ],
+  "ActivityLogSection" : [ {
+    "name" : "domainType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "startTime",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "duration",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "result",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "subsections",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogSection>",
+    "default" : true
+  }, {
+    "name" : "messages",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessage>",
+    "default" : true
+  } ],
+  "ActivityLogTargetBuildSection" : [ {
+    "name" : "productType",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "subtitle",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "domainType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "startTime",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "duration",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "result",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "subsections",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogSection>",
+    "default" : true
+  }, {
+    "name" : "messages",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessage>",
+    "default" : true
+  } ],
+  "ActivityLogUnitTestSection" : [ {
+    "name" : "testName",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "suiteName",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "summary",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "emittedOutput",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "performanceTestOutput",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "testsPassedString",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "wasSkipped",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  }, {
+    "name" : "runnablePath",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "runnableUTI",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "domainType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "startTime",
+    "type" : "java.util.Date?",
+    "default" : false
+  }, {
+    "name" : "duration",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "result",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  }, {
+    "name" : "subsections",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogSection>",
+    "default" : true
+  }, {
+    "name" : "messages",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ActivityLogMessage>",
+    "default" : true
+  } ],
+  "ArchiveInfo" : [ {
+    "name" : "path",
+    "type" : "kotlin.String?",
+    "default" : false
+  } ],
+  "CodeCoverageInfo" : [ {
+    "name" : "hasCoverageData",
+    "type" : "kotlin.Boolean",
+    "default" : true
+  }, {
+    "name" : "reportRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  }, {
+    "name" : "archiveRef",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.Reference?",
+    "default" : false
+  } ],
+  "ConsoleLogItem" : [ {
+    "name" : "adaptorType",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "kind",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "timestamp",
+    "type" : "kotlin.Double",
+    "default" : true
+  }, {
+    "name" : "content",
+    "type" : "kotlin.String",
+    "default" : true
+  } ],
+  "ConsoleLogSection" : [ {
+    "name" : "title",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "items",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.ConsoleLogItem>",
+    "default" : true
+  } ],
+  "DocumentLocation" : [ {
+    "name" : "url",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "concreteTypeName",
+    "type" : "kotlin.String",
+    "default" : true
+  } ],
+  "EntityIdentifier" : [ {
+    "name" : "entityName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "containerName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "entityType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "sharedState",
+    "type" : "kotlin.String",
+    "default" : true
+  } ],
+  "IssueSummary" : [ {
+    "name" : "issueType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "message",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "producingTarget",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "documentLocationInCreatingWorkspace",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  } ],
+  "ObjectID" : [ {
+    "name" : "hash",
+    "type" : "kotlin.String",
+    "default" : true
+  } ],
+  "Reference" : [ {
+    "name" : "id",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "targetType",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.TypeDefinition?",
+    "default" : false
+  } ],
+  "ResultIssueSummaries" : [ {
+    "name" : "analyzerWarningSummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.IssueSummary>",
+    "default" : true
+  }, {
+    "name" : "errorSummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.IssueSummary>",
+    "default" : true
+  }, {
+    "name" : "testFailureSummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.TestFailureIssueSummary>",
+    "default" : true
+  }, {
+    "name" : "warningSummaries",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.IssueSummary>",
+    "default" : true
+  } ],
+  "ResultMetrics" : [ {
+    "name" : "analyzerWarningCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "errorCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "testsCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "testsFailedCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "testsSkippedCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  }, {
+    "name" : "warningCount",
+    "type" : "kotlin.Int",
+    "default" : true
+  } ],
+  "SortedKeyValueArray" : [ {
+    "name" : "storage",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SortedKeyValueArrayPair>",
+    "default" : true
+  } ],
+  "SortedKeyValueArrayPair" : [ {
+    "name" : "key",
+    "type" : "kotlin.String",
+    "default" : true
+  } ],
+  "SourceCodeContext" : [ {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SourceCodeLocation?",
+    "default" : false
+  }, {
+    "name" : "callStack",
+    "type" : "kotlin.collections.List<com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SourceCodeFrame>",
+    "default" : true
+  } ],
+  "SourceCodeFrame" : [ {
+    "name" : "addressString",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "symbolInfo",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SourceCodeSymbolInfo?",
+    "default" : false
+  } ],
+  "SourceCodeLocation" : [ {
+    "name" : "filePath",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "lineNumber",
+    "type" : "kotlin.Int?",
+    "default" : false
+  } ],
+  "SourceCodeSymbolInfo" : [ {
+    "name" : "imageName",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "symbolName",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "location",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SourceCodeLocation?",
+    "default" : false
+  } ],
+  "TestAssociatedError" : [ {
+    "name" : "domain",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "code",
+    "type" : "kotlin.Int?",
+    "default" : false
+  }, {
+    "name" : "userInfo",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.SortedKeyValueArray?",
+    "default" : false
+  } ],
+  "TestFailureIssueSummary" : [ {
+    "name" : "testCaseName",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "issueType",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "message",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "producingTarget",
+    "type" : "kotlin.String?",
+    "default" : false
+  }, {
+    "name" : "documentLocationInCreatingWorkspace",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.DocumentLocation?",
+    "default" : false
+  } ],
+  "TypeDefinition" : [ {
+    "name" : "name",
+    "type" : "kotlin.String",
+    "default" : true
+  }, {
+    "name" : "supertype",
+    "type" : "com.malinskiy.marathon.vendor.ios.xcrun.xcresulttool.TypeDefinition?",
+    "default" : false
+  } ]
+}

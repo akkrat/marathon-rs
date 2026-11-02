@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Rewrite an argv-rsync log: the scratch root becomes <root>, the recorder path <shim>.
+
+Every row is kept, including --version probes, and is re-serialized exactly as
+argv-rsync wrote it, so a fresh run normalizes to identical bytes."""
+import json,sys
+log,root,shim=sys.argv[1:4]
+for line in open(log):
+ row=json.loads(line)
+ row['argv']=['<shim>' if arg==shim else arg.replace(root,'<root>') for arg in row['argv']]
+ sys.stdout.write(json.dumps(row)+'\n')

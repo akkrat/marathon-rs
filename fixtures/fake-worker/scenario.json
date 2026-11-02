@@ -1,0 +1,12 @@
+{
+  "unmatched_status": 127,
+  "rules": [
+    {"name":"probe","matcher":{"exact":"probe"},"action":{"type":"output","chunks":[{"data":"hello\n"},{"data":"error\n","extended":1}],"status":7}},
+    {"name":"held","matcher":{"exact":"held"},"action":{"type":"output","hang":true}},
+    {"name":"echo-stdin","matcher":{"exact":"cat"},"action":{"type":"echo_stdin"}},
+    {"name":"ignored-term","matcher":{"exact":"ignore"},"action":{"type":"output","hang":true,"ignore_signals":["TERM"]}},
+    {"name":"reject","matcher":{"exact":"reject"},"action":{"type":"reject"}},
+    {"name":"background","matcher":{"prefix":"/usr/bin/fixture-background"},"action":{"type":"output","hang":true}},
+    {"name":"absolute-extension","matcher":{"exact":"/usr/libexec/PlistBuddy -c Print fixture"},"action":{"type":"output","chunks":[{"data":"fixture\n"}]}}
+  ]
+}

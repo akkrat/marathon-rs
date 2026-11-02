@@ -1,0 +1,7 @@
+name: "sample-app tests"
+outputDir: "./marathon"
+vendorConfiguration:
+  type: "iOS"
+  bundle:
+    application: "ipa/app.ipa"
+    testApplication: "ipa/testApp.ipa"

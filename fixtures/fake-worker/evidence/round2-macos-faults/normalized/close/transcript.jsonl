@@ -1,0 +1,14 @@
+{"channel":null,"connection":0,"detail":{"endpoint":"127.0.0.1:<port-6>","host_key_fingerprint":"<host-key>","run":"close","schema":1},"event":"ready","run":"close","schema":1,"seq":0}
+{"channel":null,"connection":1,"detail":{},"event":"connection","run":"close","schema":1,"seq":1}
+{"channel":null,"connection":1,"detail":{"accepted":true,"method":"password","user":"fixture"},"event":"auth","run":"close","schema":1,"seq":2}
+{"channel":2,"connection":1,"detail":{},"event":"session_open","run":"close","schema":1,"seq":3}
+{"channel":2,"connection":1,"detail":{"base64":"aGVsZA==","sha256":"c20dea4d876b5b8fb0a1814b43017030cea6d4ac30b2d9ae71b404d2faba49b5","size":4},"event":"exec","run":"close","schema":1,"seq":4}
+{"channel":2,"connection":1,"detail":{"handler":"held","warning":null},"event":"route","run":"close","schema":1,"seq":5}
+{"channel":2,"connection":1,"detail":{"signal":"TERM"},"event":"signal","run":"close","schema":1,"seq":6}
+{"channel":2,"connection":1,"detail":{"signal":"TERM"},"event":"exit_signal","run":"close","schema":1,"seq":7}
+{"channel":2,"connection":1,"detail":{},"event":"server_eof","run":"close","schema":1,"seq":8}
+{"channel":2,"connection":1,"detail":{"reply_withheld":true},"event":"client_close","run":"close","schema":1,"seq":9}
+{"channel":2,"connection":1,"detail":{"trigger":"command_completion"},"event":"close_withheld","run":"close","schema":1,"seq":10}
+{"channel":2,"connection":1,"detail":{"outcome":"completed"},"event":"channel_end","run":"close","schema":1,"seq":11}
+{"channel":null,"connection":1,"detail":{"error":null,"outcome":"completed"},"event":"connection_end","run":"close","schema":1,"seq":12}
+{"channel":null,"connection":0,"detail":{"files":[],"outcome":"completed"},"event":"cleanup","run":"close","schema":1,"seq":13}

@@ -1,0 +1,1270 @@
+//! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/executor/listeners/filesync/FileSyncTestRunListenerTest.kt,
+//! screenshot/ScreenCapturerTestRunListenerTest.kt and video/ScreenRecorderTestRunListenerTest.kt.
+mod support;
+use jcompat::file_manager::JavaPath;
+use marathon_adb::{
+    server::FakeAdbServer,
+    testrunner::{MetricMap, TestEvent as E, TestIdentifier},
+};
+use marathon_android::{
+    artifact_listeners::{adam_capture::*, file_sync::*, profiling::*, screenshot::*, video::*, *},
+    listeners::*,
+};
+use marathon_config::{ScreenRecordingPolicy, vendor::*};
+use marathon_core::runtime::Deferred;
+use marathon_core::{artifacts::AttachmentCollector, listener::*, model::*, vendor::*};
+use serde_json::{Value, json};
+use std::sync::Arc;
+use support::*;
+fn id() -> TestIdentifier {
+    TestIdentifier {
+        class_name: js("pkg.clazz"),
+        test_name: js("method"),
+    }
+}
+fn artifacts(device: &marathon_android::device::AndroidDevice) -> ArtifactContext {
+    ArtifactContext {
+        device: device.clone(),
+        pool: DevicePoolId { name: js("pool") },
+        batch: Arc::new(TestBatch {
+            tests: vec![test()],
+            id: js("batch"),
+        }),
+    }
+}
+fn start() -> E {
+    E::TestStarted { id: id() }
+}
+fn end() -> E {
+    E::TestEnded {
+        id: id(),
+        metrics: MetricMap::new(),
+    }
+}
+fn failed() -> E {
+    E::TestFailed {
+        id: id(),
+        stack_trace: js("trace"),
+    }
+}
+fn run_failed() -> E {
+    E::TestRunFailed { error: js("broken") }
+}
+fn collector(provider: Arc<dyn AttachmentProvider>) -> Arc<AttachmentCollector> {
+    checked(AttachmentCollector::new(&[provider]))
+}
+fn output(c: &mut marathon_config::Configuration) -> tempfile::TempDir {
+    let temp = checked(tempfile::tempdir());
+    c.output_dir = JavaPath::from_text(&temp.path().to_string_lossy());
+    temp
+}
+fn shell(script: &mut Value, command: &str, stdout: &str) {
+    script["shell"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"exact":command,"stdout":stdout}));
+}
+async fn until(mut ready: impl FnMut() -> bool) {
+    checked(
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !ready() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await,
+    );
+}
+async fn started(server: &FakeAdbServer, prefix: &str, count: usize) {
+    // The service request is recorded before dispatch; wait for the handler's command record.
+    let command_prefix = prefix.strip_prefix("shell:").unwrap_or(prefix);
+    until(|| {
+        commands(server)
+            .iter()
+            .filter(|s| s.starts_with(command_prefix))
+            .count()
+            >= count
+    })
+    .await;
+}
+fn info() -> marathon_dex::apk_parser::InstrumentationInfo {
+    marathon_dex::apk_parser::InstrumentationInfo {
+        application_package: js("com.example"),
+        instrumentation_package: js("com.example.test"),
+        test_runner_class: js("androidx.test.runner.AndroidJUnitRunner"),
+    }
+}
+mod file_sync_test_run_listener_test {
+    use super::*;
+    #[test]
+    fn test_default() {
+        for mode in [
+            AggregationMode::Device,
+            AggregationMode::Pool,
+            AggregationMode::DeviceAndPool,
+            AggregationMode::TestRun,
+        ] {
+            let mut c = configuration();
+            let temp = output(&mut c);
+            android(&mut c).file_sync_configuration.pull = vec![FileSyncEntry {
+                relative_path: js("screenshots"),
+                path_root: PathRoot::ExternalStorage,
+                aggregation_mode: mode,
+            }];
+            run(c, move |runtime, context| {
+                Box::pin(async move {
+                    let _temp = temp;
+                    let mut script = base_script(27, vec![]);
+                    for cmd in [
+                        "rm -r /sdcard/screenshots",
+                        "mkdir /sdcard/screenshots",
+                        "ls -l /sdcard/screenshots",
+                    ] {
+                        shell(&mut script, cmd, "");
+                    }
+                    let server = server(script).await;
+                    let device = device(&server, runtime);
+                    device.setup(context.clone()).await?;
+                    let a = artifacts(&device);
+                    let listener = FileSyncTestRunListener::new(a.clone());
+                    listener.before_test_run_in(None, context.clone()).await?;
+                    listener.after_test_run_in(context).await?;
+                    assert_eq!(
+                        commands(&server)[6..],
+                        [
+                            "rm -r /sdcard/screenshots",
+                            "mkdir /sdcard/screenshots",
+                            "ls -l /sdcard/screenshots"
+                        ]
+                    );
+                    let mut folder = _temp.path().join("device-files");
+                    if matches!(mode, AggregationMode::Pool | AggregationMode::DeviceAndPool) {
+                        folder = folder.join("pool");
+                    }
+                    if matches!(mode, AggregationMode::Device | AggregationMode::DeviceAndPool) {
+                        folder = folder.join(jcompat::file_manager::escape(&device.serial_number().to_string_lossy()));
+                    }
+                    assert!(folder.join("screenshots").is_dir());
+                    finish(server, device).await;
+                    Ok(())
+                })
+            });
+        }
+    }
+    #[test]
+    fn test_push() {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        let entries = [
+            ("fixture1", "cafebabe", PathRoot::LocalTmp, "/data/local/tmp"),
+            ("fixture2", "cafebabe1", PathRoot::LocalTmp, "/data/local/tmp"),
+            ("fixture3", "cafebabe2", PathRoot::ExternalStorage, "/sdcard"),
+        ];
+        for (name, content, root, _) in entries {
+            let p = temp.path().join(name);
+            checked(std::fs::write(&p, content));
+            android(&mut c).file_sync_configuration.push.push(FilePushEntry {
+                path: js(&p.to_string_lossy()),
+                path_root: root,
+            });
+        }
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                let _temp = temp;
+                let mut script = base_script(27, vec![]);
+                for (name, content, _, root) in entries {
+                    shell(
+                        &mut script,
+                        &format!("md5 {root}/{name}"),
+                        &format!("{:x}", md5::compute(content)),
+                    );
+                    shell(&mut script, &format!("rm -r {root}/{name}"), "");
+                }
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let listener = FileSyncTestRunListener::new(artifacts(&device));
+                listener.before_test_run_in(None, context.clone()).await?;
+                listener.after_test_run_in(context).await?;
+                assert_eq!(
+                    commands(&server)[6..],
+                    [
+                        "md5 /data/local/tmp/fixture1",
+                        "md5 /data/local/tmp/fixture2",
+                        "md5 /sdcard/fixture3",
+                        "rm -r /data/local/tmp/fixture1",
+                        "rm -r /data/local/tmp/fixture2",
+                        "rm -r /sdcard/fixture3"
+                    ]
+                );
+                for (name, content, _, root) in entries {
+                    assert_eq!(
+                        server
+                            .file("emulator-5554", &format!("{root}/{name}"))
+                            .unwrap()
+                            .content
+                            .unwrap(),
+                        content.as_bytes()
+                    );
+                }
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+    #[test]
+    fn test_pull() {
+        pull(false)
+    }
+    #[test]
+    fn test_pull_folder_with_empty_file() {
+        pull(true)
+    }
+    fn pull(empty: bool) {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        let entries = if empty {
+            vec![("fixture", PathRoot::ExternalStorage)]
+        } else {
+            vec![
+                ("fixture1", PathRoot::ExternalStorage),
+                ("fixture2", PathRoot::ExternalStorage),
+                ("fixture3", PathRoot::LocalTmp),
+                ("fixture4", PathRoot::AppData),
+            ]
+        };
+        for (name, root) in &entries {
+            android(&mut c).file_sync_configuration.pull.push(FileSyncEntry {
+                relative_path: js(name),
+                path_root: *root,
+                aggregation_mode: AggregationMode::DeviceAndPool,
+            });
+        }
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                let _temp = temp;
+                let mut script = base_script(27, vec![]);
+                let mut expected = vec![];
+                for (name, root) in &entries {
+                    let root = if *root == PathRoot::ExternalStorage {
+                        "/sdcard"
+                    } else {
+                        "/data/local/tmp"
+                    };
+                    for cmd in [format!("rm -r {root}/{name}"), format!("mkdir {root}/{name}")] {
+                        shell(&mut script, &cmd, "");
+                        expected.push(cmd);
+                    }
+                }
+                if !empty {
+                    for cmd in [
+                        "run-as com.example rm -R /data/data/com.example/fixture4",
+                        "run-as com.example mkdir /data/data/com.example/fixture4",
+                    ] {
+                        shell(&mut script, cmd, "");
+                        expected.push(cmd.into());
+                    }
+                }
+                for (name, root) in &entries {
+                    let root = if *root == PathRoot::ExternalStorage {
+                        "/sdcard"
+                    } else {
+                        "/data/local/tmp"
+                    };
+                    if *name == "fixture4" {
+                        let cmd = "mkdir -p /data/local/tmp/fixture4 && run-as com.example sh -c 'cd /data/data/com.example/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && run-as com.example rm -R /data/data/com.example/fixture4";
+                        shell(&mut script, cmd, "");
+                        expected.push(cmd.into());
+                    }
+                    let cmd = format!("ls -l {root}/{name}");
+                    shell(
+                        &mut script,
+                        &cmd,
+                        if empty {
+                            "-rw-rw---- 1 u0_a100 media_rw 0 2023-04-25 18:34 empty_file"
+                        } else {
+                            ""
+                        },
+                    );
+                    expected.push(cmd);
+                }
+                if empty {
+                    script["devices"][0]["files"] = json!([{"path":"/sdcard/fixture/empty_file","content":""}]);
+                }
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let listener = FileSyncTestRunListener::new(artifacts(&device));
+                listener.before_test_run_in(Some(&info()), context.clone()).await?;
+                listener.after_test_run_in(context).await?;
+                assert_eq!(commands(&server)[6..], expected);
+                if empty {
+                    let path = _temp
+                        .path()
+                        .join("device-files/pool")
+                        .join(jcompat::file_manager::escape(&device.serial_number().to_string_lossy()))
+                        .join("fixture/empty_file");
+                    assert_eq!(checked(tokio::fs::read(path).await), b"");
+                    assert!(server.transcript().iter().any(|r| r["type"] == "sync"));
+                }
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}
+mod screen_recorder_test_run_listener_test {
+    use super::*;
+    #[test]
+    fn test_default() {
+        record(27, false, false, true, false)
+    }
+    #[test]
+    fn test_chunked() {
+        record(27, true, false, true, false)
+    }
+    #[test]
+    fn test_assumption_failed() {
+        record(27, false, true, false, false)
+    }
+    #[test]
+    fn test_run_failed() {
+        record(27, false, false, false, true)
+    }
+    #[test]
+    fn api34_and_success_policy() {
+        record(34, false, false, true, false);
+        record(34, false, false, false, true);
+        record(27, false, false, false, false);
+    }
+    fn record(api: i32, chunked: bool, assumption: bool, fail: bool, run_failure: bool) {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                let _temp = temp;
+                let mut script = base_script(api, vec![]);
+                let paths: Vec<String> = (0..if chunked { 2 } else { 1 })
+                    .map(|i| {
+                        if api < 34 {
+                            format!("/sdcard/pkg.clazz-method-batch-{i}.mp4")
+                        } else {
+                            "/sdcard/pkg.clazz-method-batch.mp4".into()
+                        }
+                    })
+                    .collect();
+                script["devices"][0]["files"] = json!(
+                    paths
+                        .iter()
+                        .map(|p| json!({"path":p,"content":"video"}))
+                        .collect::<Vec<_>>()
+                );
+                for (i, p) in paths.iter().enumerate() {
+                    script["shell"].as_array_mut().unwrap().push(json!({"exact":format!("screenrecord --size 720x1280 --bit-rate 1000000 --time-limit 180 {p}"),"hang":!chunked||i==1}));
+                    shell(&mut script, &format!("rm {p}"), "");
+                }
+                shell(&mut script, "ps -A | grep screenrecord", "");
+                shell(&mut script, "echo quickhealthcheck", "quickhealthcheck");
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let listener = Arc::new(ScreenRecorderTestBatchListener::new(
+                    artifacts(&device),
+                    ScreenRecordingPolicy::OnFailure,
+                ));
+                let attachments = collector(listener.clone());
+                listener.on_event_in(&start(), context.clone()).await?;
+                started(&server, "shell:screenrecord", paths.len()).await;
+                if assumption {
+                    listener
+                        .on_event_in(
+                            &E::TestAssumptionFailed {
+                                id: id(),
+                                stack_trace: js("assumed"),
+                            },
+                            context.clone(),
+                        )
+                        .await?;
+                }
+                if fail {
+                    listener.on_event_in(&failed(), context.clone()).await?;
+                }
+                listener
+                    .on_event_in(&if run_failure { run_failed() } else { end() }, context.clone())
+                    .await?;
+                listener.cleanup_in(context).await?;
+                let values = attachments.get(&test()).unwrap_or_default();
+                assert_eq!(
+                    values.len(),
+                    if run_failure || (!fail && !assumption) {
+                        0
+                    } else {
+                        paths.len()
+                    }
+                );
+                for (i, a) in values.iter().enumerate() {
+                    assert_eq!(a.kind, AttachmentType::Video);
+                    assert_eq!(
+                        a.name,
+                        Some(js(&if api < 34 {
+                            format!("screen-{i}")
+                        } else {
+                            "screen".into()
+                        }))
+                    );
+                    assert_eq!(
+                        checked(tokio::fs::read(checked(a.file.to_file_path_buf())).await),
+                        b"video"
+                    );
+                }
+                let commands = commands(&server);
+                expect_setup(&commands);
+                let mut expected = paths
+                    .iter()
+                    .map(|p| format!("screenrecord --size 720x1280 --bit-rate 1000000 --time-limit 180 {p}"))
+                    .collect::<Vec<_>>();
+                if run_failure {
+                    expected.push("echo quickhealthcheck".into());
+                }
+                expected.push("ps -A | grep screenrecord".into());
+                expected.extend(paths.iter().map(|p| format!("rm {p}")));
+                assert_eq!(commands[6..], expected);
+                if run_failure {
+                    let local = artifacts(&device)
+                        .file(marathon_core::output::FileType::Video, None, None, Some(js("0")))
+                        .await?;
+                    assert_eq!(
+                        checked(tokio::fs::read(checked(local.to_file_path_buf())).await),
+                        b"video"
+                    );
+                }
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}
+mod screen_capturer_test_run_listener_test {
+    use super::*;
+    #[test]
+    fn test_default() {
+        capture(false, false, false)
+    }
+    #[test]
+    fn test_run_failed() {
+        capture(true, false, false)
+    }
+    #[test]
+    fn assumption_deletes_but_failure_attaches() {
+        capture(false, true, false);
+        capture(false, false, true);
+    }
+    fn capture(run_failure: bool, assumption: bool, failure: bool) {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        android(&mut c)
+            .screen_record_configuration
+            .screenshot_configuration
+            .delay_ms = 60000;
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                let _temp = temp;
+                let mut script = base_script(27, vec![]);
+                script["devices"][0]["framebuffer"] =
+                    json!({"version":1,"file":fixture("vendor-android/framebuffer/screencap_1.bin")});
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let policy = if assumption || failure {
+                    ScreenRecordingPolicy::OnFailure
+                } else {
+                    ScreenRecordingPolicy::OnAny
+                };
+                let listener = Arc::new(ScreenCapturerTestRunListener::new(artifacts(&device), policy));
+                let attachments = collector(listener.clone());
+                listener.on_event_in(&start(), context.clone()).await?;
+                until(|| listener.captures_taken() > 0).await;
+                if assumption {
+                    listener
+                        .on_event_in(
+                            &E::TestAssumptionFailed {
+                                id: id(),
+                                stack_trace: js("assumed"),
+                            },
+                            context.clone(),
+                        )
+                        .await?;
+                }
+                if failure {
+                    listener.on_event_in(&failed(), context.clone()).await?;
+                }
+                listener
+                    .on_event_in(&if run_failure { run_failed() } else { end() }, context.clone())
+                    .await?;
+                listener.cleanup_in(context).await?;
+                let values = attachments.get(&test()).unwrap_or_default();
+                assert_eq!(values.len(), usize::from(!run_failure && !assumption));
+                let t = test();
+                let path = artifacts(&device)
+                    .file(
+                        marathon_core::output::FileType::Screenshot,
+                        if run_failure { None } else { Some(&t) },
+                        None,
+                        None,
+                    )
+                    .await?;
+                if assumption {
+                    assert!(!checked(path.to_file_path_buf()).exists());
+                } else {
+                    let bytes = checked(tokio::fs::read(checked(path.to_file_path_buf())).await);
+                    assert_eq!(&bytes[..6], b"GIF89a");
+                    assert_eq!(bytes.last(), Some(&0x3b));
+                }
+                assert_eq!(
+                    request_services(&server)
+                        .iter()
+                        .filter(|s| s.as_str() == "framebuffer:")
+                        .count(),
+                    1
+                );
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}
+#[test]
+fn adam_extensions_and_missing_file_still_attach() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] = json!([{"path":"/sdcard/capture.jpg","content":"image"},{"path":"/sdcard/capture.png","content":"image"},{"path":"/sdcard/capture.webp","content":"image"},{"path":"/sdcard/capture.gif","content":"image"}]);
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = Arc::new(AdamScreenCaptureTestRunListener::new(artifacts(&device)));
+            let attachments = collector(listener.clone());
+            for extension in ["jpg", "jpeg", "png", "webp", "gif", "JPG", "unknown"] {
+                let mut metrics = MetricMap::new();
+                metrics.insert(js(METRIC), js(&format!("/sdcard/capture.{extension}")));
+                listener
+                    .on_event_in(&E::TestEnded { id: id(), metrics }, context.clone())
+                    .await?;
+            }
+            let values = attachments.get(&test()).unwrap();
+            assert_eq!(
+                values.iter().map(|a| a.kind).collect::<Vec<_>>(),
+                [
+                    AttachmentType::ScreenshotJpeg,
+                    AttachmentType::ScreenshotJpeg,
+                    AttachmentType::ScreenshotPng,
+                    AttachmentType::ScreenshotWebp,
+                    AttachmentType::ScreenshotGif
+                ]
+            );
+            assert!(values.iter().all(|a| a.name == Some(js("screen"))));
+            for (i, a) in values.iter().enumerate() {
+                let file = checked(a.file.to_file_path_buf());
+                if i == 1 {
+                    assert!(!file.exists());
+                } else {
+                    assert_eq!(checked(tokio::fs::read(&file).await), b"image");
+                }
+                assert_eq!(file.extension().unwrap(), if i == 2 { "png" } else { "jpg" });
+            }
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+#[test]
+fn adam_capture_with_relative_output_directory() {
+    let mut c = configuration();
+    let temp = checked(tempfile::tempdir_in("."));
+    let relative = std::path::Path::new(temp.path().file_name().unwrap());
+    assert!(relative.is_relative());
+    c.output_dir = JavaPath::from_text(&relative.to_string_lossy());
+    run(c, move |mut runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            // The shared harness assumes absolute output and passes an empty cwd.
+            let cwd = checked(std::env::current_dir());
+            let output = runtime.dependencies.configuration.output_dir.clone();
+            let files = marathon_core::artifacts::FileManagerOutput::new(
+                runtime.dependencies.io.clone(),
+                jcompat::file_manager::FileManager::new(
+                    4096,
+                    255,
+                    &jcompat::writers::JavaString(output.0.clone()).to_string_lossy(),
+                    &cwd.to_string_lossy(),
+                ),
+                output,
+                runtime.logger("FileManager"),
+                runtime.log.clone(),
+            );
+            Arc::get_mut(&mut runtime).unwrap().dependencies.files = Arc::new(files);
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] = json!([{"path":"/sdcard/capture.png","content":"image"}]);
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = Arc::new(AdamScreenCaptureTestRunListener::new(artifacts(&device)));
+            let attachments = collector(listener.clone());
+            let mut metrics = MetricMap::new();
+            metrics.insert(js(METRIC), js("/sdcard/capture.png"));
+            listener
+                .on_event_in(&E::TestEnded { id: id(), metrics }, context)
+                .await?;
+            let values = attachments.get(&test()).unwrap();
+            assert_eq!(values.len(), 1);
+            let path = checked(values[0].file.to_file_path_buf());
+            assert!(path.is_absolute());
+            assert!(path.starts_with(_temp.path()));
+            assert_eq!(checked(tokio::fs::read(path).await), b"image");
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn grep_pid_oracle() {
+    let rows = checked(std::fs::read_to_string(fixture("oracle/android-artifact-probes.jsonl")));
+    for line in rows.lines() {
+        let r: Value = checked(serde_json::from_str(line));
+        let input = match r["case"].as_str().unwrap_or("") {
+            "pid:normal" => Some("shell 123 1 screenrecord\n"),
+            "pid:grep-last" => Some("shell 123 1 screenrecord\nshell 456 1 grep screenrecord\n"),
+            "pid:bad" => Some("shell pid 1 screenrecord\n"),
+            "pid:empty" => Some(""),
+            "pid:tab" => Some("shell\t123 1 screenrecord\n"),
+            _ => None,
+        };
+        if let Some(input) = input {
+            assert_eq!(grep_pid(input), r["value"].as_str().unwrap());
+        }
+    }
+}
+
+async fn setup_bundle(device: &marathon_android::device::AndroidDevice) {
+    use marathon_android::{dex_test_parser::DexTestBundleFiles, models::AndroidTestBundle};
+    let bundle = Arc::new(AndroidTestBundle::new(
+        DexTestBundleFiles {
+            application: None,
+            test_application: JavaPath::from_text(
+                &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+            ),
+            extra_applications: vec![],
+            split_apks: vec![],
+        },
+        &JavaPath::from_text("/"),
+    ));
+    device.runtime().identifier.put(&test(), &bundle);
+}
+#[test]
+fn kotlin_first_scenarios() {
+    for mode in ["video", "video-timeout", "screenshot", "filesync-coverage", "perfetto"] {
+        scenario(mode);
+    }
+}
+fn scenario(mode: &'static str) {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    let pbtxt = temp.path().join("config.pbtxt");
+    checked(std::fs::write(
+        &pbtxt,
+        "pid: ${TRACING_TARGET_PID}, pkg: ${TRACING_TARGET_PACKAGE}",
+    ));
+    c.is_code_coverage_enabled = mode == "filesync-coverage";
+    let a = android(&mut c);
+    a.screen_record_configuration.screenshot_configuration.delay_ms = 60000;
+    a.profiling_configuration.pbtxt = Some(JavaPath::from_text(&pbtxt.to_string_lossy()));
+    a.profiling_configuration.enabled = true;
+    if mode == "filesync-coverage" {
+        a.file_sync_configuration.pull.push(FileSyncEntry {
+            relative_path: js("screenshots"),
+            path_root: PathRoot::ExternalStorage,
+            aggregation_mode: AggregationMode::Device,
+        });
+    }
+    if mode == "video-timeout" {
+        a.timeout_configuration.screenrecorder = jcompat::jtime::duration_of(0, 80_000_000).unwrap();
+    }
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let base = fixture("fake-adb/android-artifacts");
+            let script = checked(marathon_adb::server::Script::from_yaml(&checked(
+                tokio::fs::read_to_string(base.join(format!("{mode}.json"))).await,
+            )));
+            let mut server = checked(FakeAdbServer::start(checked(script.compile(&base)), Default::default()).await);
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            setup_bundle(&device).await;
+            let a = artifacts(&device);
+            let (listener, attachments, capturer): ScenarioListeners = match mode {
+                "video" | "video-timeout" => {
+                    let l = Arc::new(ScreenRecorderTestBatchListener::new(a, ScreenRecordingPolicy::OnAny));
+                    let c = collector(l.clone());
+                    (l, Some(c), None)
+                }
+                "screenshot" => {
+                    let l = Arc::new(ScreenCapturerTestRunListener::new(a, ScreenRecordingPolicy::OnAny));
+                    let c = collector(l.clone());
+                    (l.clone(), Some(c), Some(l))
+                }
+                "filesync-coverage" => (Arc::new(FileSyncTestRunListener::new(a)), None, None),
+                _ => {
+                    let l = Arc::new(ProfilingRunListener::new(a));
+                    let c = collector(l.clone());
+                    (l, Some(c), None)
+                }
+            };
+            listener.before_test_run_in(Some(&info()), context.clone()).await?;
+            listener
+                .on_event_in(&E::TestRunStartedEvent { test_count: 1 }, context.clone())
+                .await?;
+            if mode != "filesync-coverage" {
+                listener.on_event_in(&start(), context.clone()).await?;
+                match mode {
+                    "video" | "video-timeout" => {
+                        started(&server, "shell:screenrecord", if mode == "video" { 1 } else { 2 }).await
+                    }
+                    "screenshot" => until(|| capturer.as_ref().unwrap().captures_taken() > 0).await,
+                    _ => started(&server, "shell:echo 'pid:", 1).await,
+                }
+                listener.on_event_in(&end(), context.clone()).await?;
+            }
+            listener.after_test_run_in(context.clone()).await?;
+            listener.cleanup_in(context).await?;
+            let reference: Vec<Value> =
+                checked(tokio::fs::read_to_string(base.join(format!("{mode}-kotlin-transcript.jsonl"))).await)
+                    .lines()
+                    .map(|s| checked(serde_json::from_str(s)))
+                    .collect();
+            let services = |rows: Vec<Value>| {
+                rows.into_iter()
+                    .filter(|r| r["type"] == "request")
+                    .filter_map(|r| r["service"].as_str().map(str::to_owned))
+                    .filter(|s| !s.starts_with("host:transport:") && s != "shell:logcat -v long")
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(services(server.transcript()), services(reference), "{mode}");
+            if let Some(attachments) = attachments {
+                let values = attachments.get(&test()).unwrap_or_default();
+                let observed: Value = checked(serde_json::from_str(&checked(
+                    tokio::fs::read_to_string(base.join(format!("{mode}-kotlin.json"))).await,
+                )));
+                let expected = observed[0]["value"].as_array().unwrap();
+                assert_eq!(values.len(), expected.len());
+                for (a, e) in values.iter().zip(expected) {
+                    assert_eq!(a.name.as_ref().unwrap().to_string_lossy(), e[0].as_str().unwrap());
+                    let p = checked(a.file.to_file_path_buf());
+                    assert_eq!(p.file_name().unwrap().to_string_lossy(), e[2].as_str().unwrap());
+                    if mode.starts_with("video") {
+                        assert_eq!(
+                            checked(tokio::fs::read(p).await),
+                            checked(tokio::fs::read(base.join("sample.mp4")).await)
+                        );
+                    } else if mode == "screenshot" {
+                        compare_gif(
+                            &checked(tokio::fs::read(p).await),
+                            &checked(tokio::fs::read(base.join("screenshot-kotlin.gif")).await),
+                        );
+                    } else {
+                        assert_eq!(checked(tokio::fs::read(p).await), b"trace");
+                    }
+                }
+            }
+            checked(device.dispose().await);
+            assert_eq!(server.warnings(), 0);
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+fn compare_gif(actual: &[u8], expected: &[u8]) {
+    fn decode(bytes: &[u8]) -> (u16, u16, u16, Vec<u8>) {
+        let mut options = gif::DecodeOptions::new();
+        options.set_color_output(gif::ColorOutput::RGBA);
+        let mut reader = checked(options.read_info(bytes));
+        let dims = (reader.width(), reader.height());
+        let frame = checked(reader.read_next_frame()).unwrap();
+        let result = (dims.0, dims.1, frame.delay, frame.buffer.to_vec());
+        assert!(checked(reader.read_next_frame()).is_none());
+        result
+    }
+    let a = decode(actual);
+    let e = decode(expected);
+    assert_eq!((a.0, a.1, a.2), (e.0, e.1, e.2));
+    assert_eq!(a.3.len(), e.3.len());
+    let difference: u64 = a.3.iter().zip(&e.3).map(|(a, e)| a.abs_diff(*e) as u64).sum();
+    assert!(
+        difference / (a.3.len() as u64) < 12,
+        "GIF decoded channel mean difference too large"
+    );
+}
+#[test]
+fn profiling_setup_errors_are_batch_failures() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    android(&mut c).profiling_configuration.pbtxt = Some(JavaPath::from_text("/nonexistent/config.pbtxt"));
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let server = server(base_script(27, vec![])).await;
+            let device = device(&server, runtime);
+            let listener = ProfilingRunListener::new(artifacts(&device));
+            let error = listener.before_test_run_in(None, context.clone()).await.unwrap_err();
+            assert_eq!(error.failure().class, js("java.io.FileNotFoundException"));
+            assert_eq!(
+                error.failure().message,
+                Some(js("/nonexistent/config.pbtxt (No such file or directory)"))
+            );
+            let error = listener
+                .on_event_in(&E::TestRunStartedEvent { test_count: 1 }, context.clone())
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .failure()
+                    .message
+                    .as_ref()
+                    .unwrap()
+                    .to_string_lossy()
+                    .contains("can't locate test bundle")
+            );
+            let mut a = artifacts(&device);
+            a.batch = Arc::new(TestBatch {
+                tests: vec![],
+                id: js("batch"),
+            });
+            let listener = ProfilingRunListener::new(a);
+            assert_eq!(
+                listener
+                    .on_event_in(&E::TestRunStartedEvent { test_count: 0 }, context)
+                    .await
+                    .unwrap_err()
+                    .failure()
+                    .class,
+                js("java.util.NoSuchElementException")
+            );
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+#[test]
+fn profiling_run_failure_stops_and_joins_without_pull() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(27, vec![]);
+            script["shell"].as_array_mut().unwrap().push(json!({"exact":"echo 'null' | perfetto --txt -c - -o /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace","hang":true}));
+            shell(&mut script, "killall perfetto", "");
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = Arc::new(ProfilingRunListener::new(artifacts(&device)));
+            let attachments = collector(listener.clone());
+            listener.on_event_in(&run_failed(), context.clone()).await?;
+            assert!(commands(&server)[6..].is_empty());
+            listener.on_event_in(&start(), context.clone()).await?;
+            started(&server, "shell:echo 'null'", 1).await;
+            listener.on_event_in(&run_failed(), context.clone()).await?;
+            listener.on_event_in(&run_failed(), context.clone()).await?;
+            listener.cleanup_in(context).await?;
+            assert!(attachments.get(&test()).is_none());
+            assert_eq!(
+                commands(&server)[6..],
+                [
+                    "echo 'null' | perfetto --txt -c - -o /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace",
+                    "killall perfetto"
+                ]
+            );
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn factory_produces_all_attachments_before_results_complete() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    let pbtxt = temp.path().join("config.pbtxt");
+    checked(std::fs::write(&pbtxt, "pid: ${TRACING_TARGET_PID}"));
+    c.screen_recording_policy = ScreenRecordingPolicy::OnAny;
+    android(&mut c).profiling_configuration.enabled = true;
+    android(&mut c).profiling_configuration.pbtxt = Some(JavaPath::from_text(&pbtxt.to_string_lossy()));
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(33, vec![]);
+            script["devices"][0]["files"] = json!([{"path":"/sdcard/pkg.clazz-method-batch-0.mp4","content":"video"},{"path":"/sdcard/capture.png","content":"png"},{"path":"/data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace","content":"trace"}]);
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"prefix":"screenrecord ","hang":true}));
+            for (cmd, out) in [
+                ("pidof com.example", "42"),
+                (
+                    "echo 'pid: 42' | perfetto --txt -c - -o /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace",
+                    "",
+                ),
+                ("ps -A | grep screenrecord", ""),
+                ("rm /sdcard/pkg.clazz-method-batch-0.mp4", ""),
+                ("killall perfetto", ""),
+                (
+                    "rm -f /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace",
+                    "",
+                ),
+            ] {
+                shell(&mut script, cmd, out);
+            }
+            let server = server(script).await;
+            let device = device(&server, runtime.clone());
+            device.setup(context.clone()).await?;
+            setup_bundle(&device).await;
+            let deferred = marathon_core::executor::shared::SharedDeferred::new();
+            let a = artifacts(&device);
+            let listener = marathon_android::listener_factory::create(
+                &device,
+                &runtime.dependencies.configuration,
+                a.pool,
+                a.batch,
+                deferred.clone(),
+                &Default::default(),
+            )?;
+            listener.before_test_run_in(Some(&info()), context.clone()).await?;
+            listener
+                .on_event_in(&E::TestRunStartedEvent { test_count: 1 }, context.clone())
+                .await?;
+            listener.on_event_in(&start(), context.clone()).await?;
+            started(&server, "shell:screenrecord", 1).await;
+            started(&server, "shell:echo 'pid:", 1).await;
+            device.on_line(&js("log line")).await?;
+            let mut metrics = MetricMap::new();
+            metrics.insert(js(METRIC), js("/sdcard/capture.png"));
+            listener
+                .on_event_in(&E::TestEnded { id: id(), metrics }, context.clone())
+                .await?;
+            listener.after_test_run_in(context.clone()).await?;
+            listener.cleanup_in(context).await?;
+            let result = checked(deferred.wait().await);
+            let result = &result.finished[0];
+            assert_eq!(
+                result
+                    .attachments
+                    .iter()
+                    .map(|a| (a.kind, a.name.clone()))
+                    .collect::<Vec<_>>(),
+                [
+                    (AttachmentType::Video, Some(js("screen-0"))),
+                    (AttachmentType::Log, Some(js("logcat"))),
+                    (AttachmentType::ScreenshotPng, Some(js("screen"))),
+                    (AttachmentType::Profiling, Some(js("profiling")))
+                ]
+            );
+            assert_eq!(device.listener_counts(), (0, 0));
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+#[test]
+fn stop_uses_last_grep_line_and_five_kill_attempts() {
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut script = base_script(33, vec![]);
+            shell(
+                &mut script,
+                "ps -A | grep screenrecord",
+                "shell 123 1 screenrecord\nshell 456 1 grep screenrecord\n",
+            );
+            shell(&mut script, "kill -2 456", "");
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            stop_screen_record(&device, context).await?;
+            assert_eq!(
+                commands(&server)[6..],
+                ["ps -A | grep screenrecord", "kill -2 456"].repeat(5)
+            );
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+#[test]
+fn unhealthy_run_failure_joins_recording_without_pull() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(33, vec![]);
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"prefix":"screenrecord ","hang":true}));
+            shell(&mut script, "echo quickhealthcheck", "unhealthy");
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = Arc::new(ScreenRecorderTestBatchListener::new(
+                artifacts(&device),
+                ScreenRecordingPolicy::OnAny,
+            ));
+            let attachments = collector(listener.clone());
+            listener.on_event_in(&start(), context.clone()).await?;
+            started(&server, "shell:screenrecord", 1).await;
+            listener.on_event_in(&run_failed(), context.clone()).await?;
+            listener.on_event_in(&run_failed(), context.clone()).await?;
+            listener.cleanup_in(context).await?;
+            assert!(attachments.get(&test()).is_none());
+            assert_eq!(commands(&server).last().unwrap(), "echo quickhealthcheck");
+            assert!(!request_services(&server).contains(&"sync:".into()));
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+#[test]
+fn cancelled_and_dropped_execute_join_artifact_jobs() {
+    for drop_waiter in [false, true] {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        android(&mut c).application_pm_clear = false;
+        android(&mut c).test_application_pm_clear = false;
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                use marathon_android::{device::AndroidBatchExecutor, runner::AndroidRunnerExecutor};
+                let _temp = temp;
+                let mut script = base_script(33, vec![]);
+                script["shell"].as_array_mut().unwrap().extend([json!({"prefix":"screenrecord ","hang":true}),json!({"prefix":"am instrument ","stdout":"INSTRUMENTATION_STATUS: class=pkg.clazz\nINSTRUMENTATION_STATUS: test=method\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n","hang":true})]);
+                let server = server(script).await;
+                let device = device(&server, runtime.clone());
+                device.setup(context.clone()).await?;
+                setup_bundle(&device).await;
+                let signal = marathon_core::executor::Signal::new();
+                let context = VendorContext {
+                    cancellation: signal.clone(),
+                    ..context
+                };
+                let cleaned = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let executor = AndroidRunnerExecutor {
+                    slots: marathon_android::listener_factory::ListenerSlots {
+                        profiling: Some(Arc::new(CleanupWitness(cleaned.clone()))),
+                        ..Default::default()
+                    },
+                };
+                let a = artifacts(&device);
+                let mut future = executor.execute(
+                    &device,
+                    runtime.dependencies.configuration.clone(),
+                    a.pool,
+                    a.batch,
+                    marathon_core::executor::shared::SharedDeferred::new(),
+                    context,
+                );
+                tokio::select! {biased; _=&mut future=>panic!("execute ended early"), _=started(&server,"shell:screenrecord",1)=>{}}
+                if drop_waiter {
+                    drop(future);
+                } else {
+                    signal.cancel(marathon_core::executor::shared::requested("test cancellation"));
+                    assert!(future.await.is_err());
+                }
+                // Last cleanup callback runs only after recorder and instrumentation joins.
+                until(|| cleaned.load(std::sync::atomic::Ordering::Acquire)).await;
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}
+
+#[test]
+fn executor_preserves_execution_error_when_cleanup_fails() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    run(c, move |mut runtime, context| {
+        Box::pin(async move {
+            use marathon_android::{device::AndroidBatchExecutor, runner::AndroidRunnerExecutor};
+            let _temp = temp;
+            let errors = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let logged = errors.clone();
+            Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |_, _, _, error| {
+                if let Some(error) = error {
+                    logged.lock().unwrap().push(error.clone());
+                }
+            });
+            let server = server(base_script(27, vec![])).await;
+            let device = device(&server, runtime.clone());
+            device.setup(context.clone()).await?;
+            let executor = AndroidRunnerExecutor {
+                slots: marathon_android::listener_factory::ListenerSlots {
+                    recorder: Some(Arc::new(FailingCleanup)),
+                    ..Default::default()
+                },
+            };
+            let error = executor
+                .execute(
+                    &device,
+                    runtime.dependencies.configuration.clone(),
+                    artifacts(&device).pool,
+                    Arc::new(TestBatch {
+                        tests: vec![],
+                        id: js("batch"),
+                    }),
+                    marathon_core::executor::shared::SharedDeferred::new(),
+                    context,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.failure().message, Some(js("execution failure")));
+            assert!(
+                errors
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|e| e.message == Some(js("cleanup failure")))
+            );
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+
+struct FailingCleanup;
+impl marathon_android::listener_factory::AndroidListenerFactory for FailingCleanup {
+    fn create(
+        &self,
+        _: &marathon_android::device::AndroidDevice,
+        _: &marathon_config::Configuration,
+        _: &DevicePoolId,
+        _: &BatchRef,
+    ) -> marathon_core::error::VendorResult<marathon_android::listener_factory::InstalledListener> {
+        Ok(marathon_android::listener_factory::InstalledListener {
+            listener: Arc::new(Self),
+            attachments: None,
+        })
+    }
+}
+impl AndroidTestRunListener for FailingCleanup {
+    fn before_test_run_in<'a>(
+        &'a self,
+        _: Option<&'a marathon_dex::apk_parser::InstrumentationInfo>,
+        _: VendorContext,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        Box::pin(async {
+            Err(marathon_core::error::VendorError::Other(
+                marathon_core::error::Failure {
+                    class: js("ExecutionError"),
+                    message: Some(js("execution failure")),
+                    cause: None,
+                    stacktrace: None,
+                },
+            ))
+        })
+    }
+    fn cleanup_in(&self, _: VendorContext) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        Box::pin(async {
+            Err(marathon_core::error::VendorError::Other(
+                marathon_core::error::Failure {
+                    class: js("CleanupError"),
+                    message: Some(js("cleanup failure")),
+                    cause: None,
+                    stacktrace: None,
+                },
+            ))
+        })
+    }
+}
+
+struct CleanupWitness(Arc<std::sync::atomic::AtomicBool>);
+impl marathon_android::listener_factory::AndroidListenerFactory for CleanupWitness {
+    fn create(
+        &self,
+        _: &marathon_android::device::AndroidDevice,
+        _: &marathon_config::Configuration,
+        _: &DevicePoolId,
+        _: &BatchRef,
+    ) -> marathon_core::error::VendorResult<marathon_android::listener_factory::InstalledListener> {
+        Ok(marathon_android::listener_factory::InstalledListener {
+            listener: Arc::new(CleanupWitness(self.0.clone())),
+            attachments: None,
+        })
+    }
+}
+impl AndroidTestRunListener for CleanupWitness {
+    fn cleanup_in(&self, _: VendorContext) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        Box::pin(async move {
+            self.0.store(true, std::sync::atomic::Ordering::Release);
+            Ok(())
+        })
+    }
+}
+
+type ScenarioListeners = (
+    Arc<dyn AndroidTestRunListener>,
+    Option<Arc<AttachmentCollector>>,
+    Option<Arc<ScreenCapturerTestRunListener>>,
+);
+
+#[test]
+fn missing_and_timed_out_pulls_still_emit_video_capture_and_trace_attachments() {
+    for timeout in [false, true] {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        if timeout {
+            android(&mut c).timeout_configuration.pull_file = jcompat::jtime::Duration::ZERO;
+        }
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                let _temp = temp;
+                let mut script = base_script(33, vec![]);
+                for command in [
+                    "ps -A | grep screenrecord",
+                    "rm /sdcard/pkg.clazz-method-batch-0.mp4",
+                    "killall perfetto",
+                    "rm -f /data/misc/perfetto-traces/pkg.clazz-method-batch.perfetto-trace",
+                ] {
+                    shell(&mut script, command, "");
+                }
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let video = Arc::new(ScreenRecorderTestBatchListener::new(
+                    artifacts(&device),
+                    ScreenRecordingPolicy::OnAny,
+                ));
+                let capture = Arc::new(AdamScreenCaptureTestRunListener::new(artifacts(&device)));
+                let trace = Arc::new(ProfilingRunListener::new(artifacts(&device)));
+                let collected = checked(AttachmentCollector::new(&[
+                    video.clone(),
+                    capture.clone(),
+                    trace.clone(),
+                ]));
+                video.on_event_in(&end(), context.clone()).await?;
+                let mut metrics = MetricMap::new();
+                metrics.insert(js(METRIC), js("/missing.png"));
+                capture
+                    .on_event_in(&E::TestEnded { id: id(), metrics }, context.clone())
+                    .await?;
+                trace.on_event_in(&end(), context).await?;
+                let values = collected.get(&test()).unwrap();
+                assert_eq!(values.len(), 3);
+                assert!(values.iter().all(|a| !checked(a.file.to_file_path_buf()).exists()));
+                let sync = server.transcript().iter().filter(|r| r["type"] == "sync").count();
+                assert_eq!(sync, if timeout { 0 } else { 3 });
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
+}

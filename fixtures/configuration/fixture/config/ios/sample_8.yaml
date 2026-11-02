@@ -1,0 +1,13 @@
+name: "sample-app tests"
+outputDir: "./marathon"
+isCodeCoverageEnabled: false
+vendorConfiguration:
+  type: "iOS"
+  bundle:
+    derivedDataDir: "derivedDataDir"
+    xctestrun: "derivedDataDir/missing.xctestrun"
+  ssh:
+    authentication:
+      type: "publicKey"
+      username: "testuser"
+      key: "/home/testuser/.ssh/id_rsa"

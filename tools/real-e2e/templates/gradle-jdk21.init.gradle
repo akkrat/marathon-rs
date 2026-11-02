@@ -1,0 +1,16 @@
+// The frozen sample pins Gradle 8.4, whose embedded Kotlin (1.9.10) rejects a JDK 21 as a Kotlin JVM target
+// ("Unknown Kotlin JVM target: 21") while compiling buildSrc. Pin only buildSrc's targets to 17; the app module
+// sets its own 1.8 targets and is not touched. The sample files stay unmodified.
+allprojects {
+    if (rootProject.name == 'buildSrc') {
+        tasks.configureEach { t ->
+            if (t.class.name.contains('KotlinCompile') && t.hasProperty('kotlinOptions')) {
+                t.kotlinOptions.jvmTarget = '17'
+            }
+            if (t instanceof JavaCompile) {
+                t.sourceCompatibility = '17'
+                t.targetCompatibility = '17'
+            }
+        }
+    }
+}

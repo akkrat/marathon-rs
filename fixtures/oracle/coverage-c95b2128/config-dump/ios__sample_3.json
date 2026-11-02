@@ -1,0 +1,208 @@
+{
+  "stage": "logical",
+  "error": {
+    "class": "java.io.FileNotFoundException",
+    "message": "Private key not found at /home/testuser/.ssh/id_rsa",
+    "causes": []
+  },
+  "config": {
+    "analyticsConfiguration": {
+      "type": "disabled"
+    },
+    "analyticsTracking": true,
+    "batchingStrategy": {
+      "type": "isolate"
+    },
+    "bugsnagReporting": true,
+    "ciConfiguration": {
+      "type": "none"
+    },
+    "debug": true,
+    "deviceInitializationTimeoutMillis": 180000,
+    "excludeSerialRegexes": [],
+    "executionStrategy": {
+      "fast": true,
+      "mode": "ANY_SUCCESS"
+    },
+    "filteringConfiguration": {
+      "allowlist": [],
+      "blocklist": []
+    },
+    "flakinessStrategy": {
+      "type": "ignore"
+    },
+    "ignoreFailures": false,
+    "includeSerialRegexes": [],
+    "isCodeCoverageEnabled": false,
+    "name": "sample-app tests",
+    "outputConfiguration": {
+      "maxFilename": 255,
+      "maxPath": 0
+    },
+    "outputDir": "<FIXTURE_CONFIG>/ios/marathon",
+    "poolingStrategy": {
+      "type": "omni"
+    },
+    "retryStrategy": {
+      "type": "no-retry"
+    },
+    "screenRecordingPolicy": "ON_FAILURE",
+    "shardingStrategy": {
+      "type": "parallel"
+    },
+    "sortingStrategy": {
+      "type": "no-sorting"
+    },
+    "testBatchTimeoutMillis": 1800000,
+    "testOutputTimeoutMillis": 300000,
+    "uncompletedTestRetryQuota": 2147483647,
+    "vendorConfiguration": {
+      "bundle": {
+        "app": "<FIXTURE_CONFIG>/ios/derivedDataDir/sample.app",
+        "application": null,
+        "derivedDataDir": "<FIXTURE_CONFIG>/ios/derivedDataDir",
+        "extraApplications": null,
+        "testApp": null,
+        "testApplication": null,
+        "testType": "XCUITEST",
+        "xctest": "<FIXTURE_CONFIG>/ios/derivedDataDir/ui.xctest",
+        "xctestrun": null
+      },
+      "compactOutput": false,
+      "dataContainerClear": false,
+      "deviceLog": false,
+      "deviceProvider": {
+        "path": null,
+        "type": "static"
+      },
+      "devicesFile": "<FIXTURE_CONFIG>/ios/Marathondevices",
+      "hideRunnerOutput": false,
+      "lifecycleConfiguration": {
+        "onDispose": [],
+        "onPrepare": [],
+        "shutdownUnused": true
+      },
+      "maxBatchesWithoutProgress": 0,
+      "mediaFiles": null,
+      "permissions": {
+        "grant": [],
+        "lifecycle": "BEFORE_TEST_RUN"
+      },
+      "rsync": {
+        "remotePath": "/usr/bin/rsync"
+      },
+      "screenRecordConfiguration": {
+        "preferableRecorderType": null,
+        "screenshotConfiguration": {
+          "delay": "PT0.5S",
+          "display": "INTERNAL",
+          "enabled": true,
+          "height": 1280,
+          "mask": "BLACK",
+          "type": "JPEG",
+          "width": 720
+        },
+        "videoConfiguration": {
+          "codec": "H264",
+          "display": "INTERNAL",
+          "enabled": true,
+          "mask": "BLACK",
+          "transcoding": {
+            "binary": "/opt/homebrew/bin/ffmpeg",
+            "enabled": false,
+            "size": "hd720"
+          }
+        }
+      },
+      "signing": {
+        "testRunnerProvisioningProfile": null
+      },
+      "skipCopyingDerivedData": false,
+      "ssh": {
+        "authentication": {
+          "key": "/home/testuser/.ssh/id_rsa",
+          "type": "publicKey",
+          "username": "testuser"
+        },
+        "debug": true,
+        "keepAliveInterval": "PT15S",
+        "keepAliveMaxCount": 4,
+        "knownHostsPath": null,
+        "shareWorkerConnection": false
+      },
+      "testParserConfiguration": {
+        "testClassRegexes": [
+          "^((?!Abstract).)*Test[s]*$"
+        ],
+        "type": "nm"
+      },
+      "threadingConfiguration": {
+        "deviceProviderThreads": 8,
+        "deviceThreads": 2,
+        "provisioningConcurrency": 2
+      },
+      "timeoutConfiguration": {
+        "boot": "PT30S",
+        "bootWait": "PT3M",
+        "create": "PT30S",
+        "delete": "PT30S",
+        "erase": "PT30S",
+        "importMedia": "PT30S",
+        "install": "PT30S",
+        "reachability": "PT5S",
+        "screenshot": "PT10S",
+        "shell": "PT30S",
+        "shellIdle": "PT30S",
+        "shutdown": "PT30S",
+        "testDestination": "PT30S",
+        "uninstall": "PT30S",
+        "video": "PT5M",
+        "xcresulttool": "PT2M"
+      },
+      "type": "iOS",
+      "workerConnection": {
+        "attempts": 3,
+        "backoff": "PT10S",
+        "lateJoin": true,
+        "lateJoinCutoff": "PT10M",
+        "retryInterval": "PT1M"
+      },
+      "xcodebuildTestArgs": {},
+      "xcresult": {
+        "attachments": {
+          "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
+          "userAttachmentLifetime": "KEEP_ALWAYS"
+        },
+        "preferredScreenCaptureFormat": null,
+        "pull": null,
+        "pullingPolicy": "ALWAYS",
+        "queue": {
+          "capacity": 8,
+          "concurrency": 4,
+          "workerCapacity": null
+        },
+        "remoteClean": true
+      },
+      "xctestrunEnv": {
+        "appEnvs": {},
+        "testEnvs": {}
+      }
+    }
+  },
+  "fsEffects": [],
+  "golden": {
+    "input": "ios/sample_3.yaml",
+    "env": {
+      "ANDROID_HOME": "/android-sdk"
+    },
+    "now": "1970-01-12T13:46:40Z",
+    "host": {
+      "os": "Darwin",
+      "release": "27.0.0",
+      "arch": "arm64"
+    },
+    "normalisations": [
+      "macOS data volume: /System/Volumes/Data/ -> /"
+    ]
+  }
+}

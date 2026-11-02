@@ -1,0 +1,14 @@
+[
+  {
+    "delay_centiseconds": 10,
+    "disposal": 0,
+    "format": "gif",
+    "frames": 1,
+    "height": 96,
+    "loop": 0,
+    "path": "screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/sample-appUnitTests.SampleTests#testFailing-cabf2576-0904-42d0-b880-80adcaa9dc47.gif",
+    "sha256": "e60b6f8f04234e02250374887ca79ac0775b51f2c578b7fbd7eb887e30a0b495",
+    "size": 188,
+    "width": 64
+  }
+]

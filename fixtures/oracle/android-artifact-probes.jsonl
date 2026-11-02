@@ -1,0 +1,21 @@
+{"case":"pid:normal","value":"123"}
+{"case":"pid:grep-last","value":"456"}
+{"case":"pid:bad","value":""}
+{"case":"pid:empty","value":""}
+{"case":"pid:tab","value":"1"}
+{"case": "log:ScreenRecorder", "value": "DEBUG Stopping screen recorder"}
+{"case":"stop:grep-last","value":["ps -A | grep screenrecord","kill -2 456","ps -A | grep screenrecord","kill -2 456","ps -A | grep screenrecord","kill -2 456","ps -A | grep screenrecord","kill -2 456","ps -A | grep screenrecord","kill -2 456"]}
+{"case":"completed-handler","value":["joined","handler:true","next"]}
+{"case":"substitution:null","value":"pid\u003d${TRACING_TARGET_PID},pkg\u003dapp"}
+{"case":"substitution:42","value":"pid\u003d42,pkg\u003dapp"}
+{"case": "log:ScreenCapturerTestRunListener", "value": "WARN Unable to decode image format of screen capture /sdcard/a.JPG. The file will be available in the report directory, but will not be included as part of any visual report"}
+{"case":"adam:unknown-pulls","value":[]}
+{"case":"adam:logger","value":"ScreenCapturerTestRunListener"}
+{"case": "log:ScreenCapturerTestRunListener", "value": "DEBUG Starting recording for clazz.method"}
+{"case": "log:ScreenCapturerTestRunListener", "value": "DEBUG Finished recording for clazz.method"}
+{"case":"screenshot:assumption-file","value":false}
+{"case":"profiling:missing-pbtxt","value":["java.io.FileNotFoundException","/nonexistent/config.pbtxt (No such file or directory)"]}
+{"case":"profiling:run-failed","value":[]}
+{"case":"profiling:run-failed-job-active","value":true}
+{"case": "log:ProfilingRunListener", "value": "DEBUG perfetto process finished: null"}
+{"case":"profiling:overrides","value":[]}

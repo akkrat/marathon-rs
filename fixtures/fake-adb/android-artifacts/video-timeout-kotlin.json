@@ -1,0 +1,30 @@
+[
+  {
+    "case": "scenario:video-timeout:attachments",
+    "value": [
+      [
+        "screen-0",
+        "VIDEO",
+        "pkg.clazz#method-batch-0.mp4"
+      ],
+      [
+        "screen-1",
+        "VIDEO",
+        "pkg.clazz#method-batch-1.mp4"
+      ]
+    ]
+  },
+  {
+    "case": "scenario:video-timeout:files",
+    "value": [
+      [
+        "video/pool/SERIAL/pkg.clazz#method-batch-0.mp4",
+        "1646"
+      ],
+      [
+        "video/pool/SERIAL/pkg.clazz#method-batch-1.mp4",
+        "1646"
+      ]
+    ]
+  }
+]

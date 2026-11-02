@@ -1,0 +1,159 @@
+{"case":"parser-error:numtests","value":["java.lang.NumberFormatException","For input string: \"many\"",null]}
+{"case":"parser-error:malformed","value":["java.lang.StringIndexOutOfBoundsException","Range [0, -1) out of bounds for length 12",null]}
+{"case":"options:default","value":""}
+{"case":"options:all","value":" -e package com.example -e class com.example.TestClass -e func true -e unit true -e size medium -e perf true -e debug true -e log true -e emma true -e coverageFile /sdcard/codecov -e test test"}
+{"case":"options:lists-false-collision","value":" -e package p,q -e class C#m[0],C#space\\ name -e func false -e unit false -e size large -e perf false -e debug false -e log false -e emma false -e class override -e log false"}
+{"case":"request:default","value":"am instrument -w -r com.example.test/android.support.test.runner.AndroidJUnitRunner"}
+{"case":"request:all","value":"am instrument -w -r --no-hidden-api-checks --no-window-animation --no-isolated-storage --user 1000 --abi x86 -p /sdcard/profiling -f /sdcard/log com.example.test/com.example.test.AndroidTestRunner"}
+{"case":"args:emulator-5554:0","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:emulator-5554:1","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-5554"]]}
+{"case":"args:emulator-5554:2","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.CONSOLE_PORT","5554"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "]]}
+{"case":"args:emulator-5554:3","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-5554"],["com.malinskiy.adam.android.CONSOLE_PORT","5554"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 5554 + 3000 = 8554"}
+{"case":"args:emulator-5554:4","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.GRPC_PORT","8554"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 5554 + 3000 = 8554"}
+{"case":"args:emulator-5554:5","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-5554"],["com.malinskiy.adam.android.GRPC_PORT","8554"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 5554 + 3000 = 8554"}
+{"case":"args:emulator-5554:6","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.CONSOLE_PORT","5554"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "],["com.malinskiy.adam.android.GRPC_PORT","8554"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 5554 + 3000 = 8554"}
+{"case":"args:emulator-5554:7","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-5554"],["com.malinskiy.adam.android.CONSOLE_PORT","5554"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "],["com.malinskiy.adam.android.GRPC_PORT","8554"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case":"args:emulator- +42 :0","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:emulator- +42 :1","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator- +42 "]]}
+{"case":"args:emulator- +42 :2","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.CONSOLE_PORT","42"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "]]}
+{"case":"args:emulator- +42 :3","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator- +42 "],["com.malinskiy.adam.android.CONSOLE_PORT","42"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 42 + 3000 = 3042"}
+{"case":"args:emulator- +42 :4","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.GRPC_PORT","3042"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 42 + 3000 = 3042"}
+{"case":"args:emulator- +42 :5","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator- +42 "],["com.malinskiy.adam.android.GRPC_PORT","3042"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 42 + 3000 = 3042"}
+{"case":"args:emulator- +42 :6","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.CONSOLE_PORT","42"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "],["com.malinskiy.adam.android.GRPC_PORT","3042"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 42 + 3000 = 3042"}
+{"case":"args:emulator- +42 :7","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator- +42 "],["com.malinskiy.adam.android.CONSOLE_PORT","42"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "],["com.malinskiy.adam.android.GRPC_PORT","3042"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case":"args:emulator-2147483647:0","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:emulator-2147483647:1","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483647"]]}
+{"case":"args:emulator-2147483647:2","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.CONSOLE_PORT","2147483647"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "]]}
+{"case":"args:emulator-2147483647:3","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483647"],["com.malinskiy.adam.android.CONSOLE_PORT","2147483647"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 2147483647 + 3000 = -2147480649"}
+{"case":"args:emulator-2147483647:4","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.GRPC_PORT","-2147480649"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 2147483647 + 3000 = -2147480649"}
+{"case":"args:emulator-2147483647:5","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483647"],["com.malinskiy.adam.android.GRPC_PORT","-2147480649"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 2147483647 + 3000 = -2147480649"}
+{"case":"args:emulator-2147483647:6","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"],["com.malinskiy.adam.android.CONSOLE_PORT","2147483647"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "],["com.malinskiy.adam.android.GRPC_PORT","-2147480649"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Assuming gRPC port is console port 2147483647 + 3000 = -2147480649"}
+{"case":"args:emulator-2147483647:7","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483647"],["com.malinskiy.adam.android.CONSOLE_PORT","2147483647"],["com.malinskiy.adam.android.CONSOLE_HOST","10.0.2.2"],["com.malinskiy.adam.android.AUTH_TOKEN"," token "],["com.malinskiy.adam.android.GRPC_PORT","-2147480649"],["com.malinskiy.adam.android.GRPC_HOST","10.0.2.2"]]}
+{"case":"args:emulator-2147483648:0","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:emulator-2147483648:1","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483648"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case":"args:emulator-2147483648:2","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case":"args:emulator-2147483648:3","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483648"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case":"args:emulator-2147483648:4","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case":"args:emulator-2147483648:5","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483648"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case":"args:emulator-2147483648:6","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-2147483648"}
+{"case":"args:emulator-2147483648:7","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-2147483648"]]}
+{"case":"args:emulator-bad:0","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:emulator-bad:1","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-bad"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case":"args:emulator-bad:2","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case":"args:emulator-bad:3","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-bad"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case":"args:emulator-bad:4","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case":"args:emulator-bad:5","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-bad"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case":"args:emulator-bad:6","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case": "log:ArgumentsFactory", "value": "DEBUG Unable to parse emulator console port for serial emulator-bad"}
+{"case":"args:emulator-bad:7","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","12345"],["class","user"],["com.malinskiy.adam.android.ADB_HOST","10.0.2.2"],["com.malinskiy.adam.android.ADB_SERIAL","emulator-bad"]]}
+{"case":"args:physical:0","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:physical:1","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:physical:2","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:physical:3","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:physical:4","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:physical:5","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:physical:6","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device physical is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If physical is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:physical:7","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:127.0.0.1:5555:0","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:127.0.0.1:5555:1","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:127.0.0.1:5555:2","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:127.0.0.1:5555:3","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:127.0.0.1:5555:4","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:127.0.0.1:5555:5","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:127.0.0.1:5555:6","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator console port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case": "log:ArgumentsFactory", "value": "WARN Access to emulator gRPC port is requested, but device 127.0.0.1:PORT is not a local emulator"}
+{"case": "log:ArgumentsFactory", "value": "WARN If 127.0.0.1:PORT is an emulator, connect the adb server instead of `adb connect` for this to work"}
+{"case":"args:127.0.0.1:5555:7","value":[["coverage","true"],["com.malinskiy.adam.android.ADB_PORT","user"],["class","user"]]}
+{"case":"args:reverse","value":[["com.malinskiy.adam.android.ADB_PORT","24680"],["com.malinskiy.adam.android.ADB_HOST","localhost"],["com.malinskiy.adam.android.ADB_SERIAL","physical"]]}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [pkg.Clazz, pkg.Clazz#space\\ name]"}
+{"case":"request:batch","value":"am instrument -w -r --no-window-animation -e class pkg.Clazz,pkg.Clazz#space\\ name -e coverageFile /data/data/app/coverage/coverage-batch.ec -e coverage true test/Runner"}
+{"case":"results:N1","value":0}
+{"case":"listener:N2","value":[]}
+{"case":"runner:all-ignored","value":["before:null","start:ignored","ignored:ignored","end:ignored","ended:0","after"]}
+{"case":"runner:ignored-equality","value":["before:null","start:ignored","ignored:ignored","end:ignored","ended:0","after"]}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [p.C#m]"}
+{"case":"runner:suspended-hook-timeout","value":["before","before-cleanup","failed:Test got stuck. You can increase the timeout in settings if it\u0027s too strict","after"]}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [pkg.One#one, pkg.Two#two]"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Running am instrument -w -r --no-window-animation -e class pkg.One#one,pkg.Two#two test1/Runner"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Execution finished"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [pkg.One#one, pkg.Two#two]"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Running am instrument -w -r --no-window-animation -e class pkg.One#one,pkg.Two#two test2/Runner"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Execution finished"}
+{"case":"runner:multiple-services","value":["shell:am instrument -w -r --no-window-animation -e class pkg.One#one,pkg.Two#two test1/Runner","shell:am instrument -w -r --no-window-animation -e class pkg.One#one,pkg.Two#two test2/Runner"]}
+{"case":"runner:multiple-events","value":["start:ignored","ignored:ignored","end:ignored","before:test1","ended:0","after","start:ignored","ignored:ignored","end:ignored","before:test2","ended:0","after"]}
+{"case":"remote:N3","value":"finally"}
+{"case":"remote:N3-cancelled","value":true}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [p.C#m]"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Running am instrument -w -r --no-window-animation -e class p.C#m test/Runner"}
+{"case":"runner:after-precedence","value":"after"}
+{"case":"runner:after-events","value":["before:test","run:AdamTestRun:1","start:m","after"]}
+{"case":"runner:after-producer","value":"still-open"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [p.C#m]"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Running am instrument -w -r --no-window-animation -e class p.C#m test/Runner"}
+{"case": "log:com.malinskiy.adam.request.Request", "value": "WARN adb server rejected command 004Ashell:am instrument -w -r --no-window-animation -e class p.C#m test/Runner"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Execution finished"}
+{"case":"runner:handshake-eof-events","value":["before:test","after"]}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [p.C#m]"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Running am instrument -w -r --no-window-animation -e class p.C#m test/Runner"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Execution finished"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG tests = [p.C#m]"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Running am instrument -w -r --no-window-animation -e class p.C#m test/Runner"}
+{"case": "log:AndroidDeviceTestRunner", "value": "DEBUG Execution finished"}
+{"case":"runner:closed-client-events","value":["before:test","after"]}

@@ -1,0 +1,17 @@
+{
+  "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "source_files": {
+    "vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/CodeCoverageTargets.kt": "432be7e262c451df08a85994e071ee0dafa5da26f845609bd27ea758bff3484c",
+    "vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/MachO.kt": "9880db8b20bebfa1a95415135ef22b3fc600a2fd749be1743d10fcaefd2ee2e3",
+    "vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/xctestrun/CodeCoverageTargetsTest.kt": "a7b511e46c791a246adef15169848bae120e1f248cde177d4d16840e653bf6a3"
+  },
+  "recorder_sha256": "b622bbf90c1e9bdffc9989368d46db152df5d06c067065ccc6cd4d007eb22677",
+  "jdk": "openjdk version \"21.0.10\" 2026-01-20\nOpenJDK Runtime Environment (build 21.0.10+-117844308-b1163.108)\nOpenJDK 64-Bit Server VM (build 21.0.10+-117844308-b1163.108, mixed mode)",
+  "observation_overlay_sha256": "263b3aff5a842be40e35a50d8682dd631bc78ee47f3441b7020625e4177c86a8",
+  "tests": 17,
+  "original_assertions": "passed",
+  "observation_equivalence": "all original assertions and file/MachO snapshots identical",
+  "repeated_capture": "byte-identical",
+  "fixture_sha256": "b469aa7c755e930846b92004bf1f94143dae6cc5b2a6f689bf033059e87d6e27",
+  "extension_fixture_sha256": "428bb6984129f42127bb3df062259ae577143496e1a26d3e0a83adef32142604"
+}

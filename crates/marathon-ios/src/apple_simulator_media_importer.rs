@@ -1,0 +1,70 @@
+//! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorMediaImporter.kt
+
+use crate::apple_simulator_device::AppleSimulatorDevice;
+use marathon_apple::apple_device::AppleDevice;
+use marathon_core::{error::VendorResult, vendor::VendorContext};
+
+pub struct AppleSimulatorMediaImporter<'a> {
+    device: &'a AppleSimulatorDevice,
+    logger: jcompat::logging::Logger,
+}
+impl<'a> AppleSimulatorMediaImporter<'a> {
+    pub fn new(device: &'a AppleSimulatorDevice) -> Self {
+        let logging = &device.services().logging;
+        let _ = logging.logger("com.malinskiy.marathon.apple.AppleApplicationInstaller");
+        let logger = logging.logger("com.malinskiy.marathon.apple.ios.AppleSimulatorMediaImporter");
+        Self { device, logger }
+    }
+    pub async fn import_media(&self, context: &VendorContext) -> VendorResult<()> {
+        let services = self.device.services();
+        let Some(files) = services.vendor.media_files.as_ref().filter(|v| !v.is_empty()) else {
+            return Ok(());
+        };
+        let remote = self.device.remote_file_manager();
+        remote.create_remote_shared_media_directory(context).await?;
+        for file in files {
+            let local = file.to_file_path_buf().map_err(|e| {
+                marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
+                    "java.nio.file.InvalidPathException",
+                    e.to_string(),
+                ))
+            })?;
+            let dst = remote.remote_media_file(local.file_name().and_then(|s| s.to_str()).unwrap_or(""));
+            if !self.device.push_shared(&local, &dst, context).await? {
+                return Err(self
+                    .device
+                    .setup_failure(format!("Error transferring {dst} to {}", self.device.serial())));
+            }
+            for attempt in 0..3 {
+                if services.logging.enabled(&self.logger, jcompat::logging::Level::Debug) {
+                    (services.logging.sink)(
+                        &self.logger,
+                        jcompat::logging::Level::Debug,
+                        format!(
+                            "Importing media {} to {}",
+                            String::from_utf16_lossy(&file.0),
+                            self.device.serial()
+                        ),
+                        None,
+                    );
+                }
+                let outcome = self.device.import_media(&dst, context).await.and_then(|ok| {
+                    if ok {
+                        Ok(())
+                    } else {
+                        Err(self
+                            .device
+                            .setup_failure(format!("Error importing media {dst} to {}", self.device.serial())))
+                    }
+                });
+                match outcome {
+                    Ok(()) => break,
+                    Err(e @ marathon_core::error::VendorError::Cancelled(_)) => return Err(e),
+                    Err(e) if attempt == 2 => return Err(e),
+                    Err(_) => context.clock.delay(1_000, context.cancellation.clone()).await?,
+                }
+            }
+        }
+        Ok(())
+    }
+}

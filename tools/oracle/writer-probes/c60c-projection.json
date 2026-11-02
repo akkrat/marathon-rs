@@ -1,0 +1,25 @@
+{
+ "name":"sample-app tests", "outputDir":"<MARATHONFILE_DIR>/marathon",
+ "outputConfiguration":{"maxPath":1024,"maxFilename":255},
+ "analyticsConfiguration":{"type":"disabled"},"poolingStrategy":{"type":"omni"},
+ "shardingStrategy":{"type":"count","count":1},
+ "sortingStrategy":{"type":"success-rate","timeLimit":"2026-01-01T00:00:00Z","ascending":true},
+ "batchingStrategy":{"type":"fixed-size","size":5,"timeLimit":"2026-10-11T23:00:00Z","lastMileLength":0},
+ "flakinessStrategy":{"type":"ignore"},"retryStrategy":{"type":"fixed-quota","totalAllowedRetryQuota":100,"retryPerTestQuota":2},
+ "filteringConfiguration":{"allowlist":[{"type":"simple-class-name","regex":".*Test","enabled":true}],"blocklist":[]},
+ "ignoreFailures":false,"executionStrategy":{"mode":"ANY_SUCCESS","fast":false},"isCodeCoverageEnabled":false,
+ "uncompletedTestRetryQuota":3,"includeSerialRegexes":["emulator-.*"],"excludeSerialRegexes":[],
+ "testBatchTimeoutMillis":900000,"testOutputTimeoutMillis":60000,"debug":true,"screenRecordingPolicy":"ON_ANY",
+ "vendorConfiguration":{
+  "type":"Android","androidSdk":"/opt/android-sdk","applicationApk":"<MARATHONFILE_DIR>/app.apk","testApplicationApk":"<MARATHONFILE_DIR>/test.apk",
+  "autoGrantPermission":true,"instrumentationArgs":{"debug":"false"},"applicationPmClear":false,"testApplicationPmClear":false,
+  "adbInitTimeoutMillis":30000,"installOptions":"","serialStrategy":"AUTOMATIC",
+  "screenRecordConfiguration":{"videoConfiguration":{"enabled":true,"width":720,"height":1280,"bitrateMbps":1,"timeLimit":180,"timeLimitUnits":"SECONDS"},"screenshotConfiguration":{"enabled":true,"width":720,"height":1280,"delayMs":500}},
+  "waitForDevicesTimeoutMillis":15000,"allureConfiguration":{"enabled":false,"relativeResultsDirectory":"/files/allure-results","pathRoot":"APP_DATA"},
+  "timeoutConfiguration":{"shell":"PT20S","listFiles":"PT20S","pushFile":"PT1M","pushFolder":"PT1M","pullFile":"PT30S","uninstall":"PT20S","install":"PT1M","screenrecorder":"PT3M20S","screencapturer":"PT0.3S","socketIdleTimeout":"PT30S","portForward":"PT20S","boot":"PT30S"},
+  "fileSyncConfiguration":{"pull":[],"push":[]},"threadingConfiguration":{"bootWaitingThreads":4,"adbIoThreads":4,"installThreads":8},
+  "testParserConfiguration":{"type":"local"},"testAccessConfiguration":{"adb":false,"grpc":false,"console":false,"consoleToken":""},
+  "adbServers":[{"host":"127.0.0.1","port":5037}],"disableWindowAnimation":true,"profilingConfiguration":{"enabled":false,"urlTemplate":"https://cloud.marathonlabs.io/"},"mockLocation":false
+ },
+ "analyticsTracking":false,"bugsnagReporting":false,"deviceInitializationTimeoutMillis":120000,"ciConfiguration":{"type":"none"}
+}

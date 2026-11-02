@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "endpoint": "127.0.0.1:63979",
+  "host_key_fingerprint": "SHA256:/QYyNDBw9h1LPBcqme7/xqwQqulfLFEYi5+Tzp+n0bY",
+  "run": "ios-screenshot"
+}

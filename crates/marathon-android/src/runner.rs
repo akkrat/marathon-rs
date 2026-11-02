@@ -1,0 +1,502 @@
+//! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AndroidDeviceTestRunner.kt
+//! and adam/AdamAndroidDevice.kt:461-489 (the execute exception boundary).
+use crate::{
+    arguments::ArgumentsFactory,
+    device::{AndroidBatchExecutor, AndroidDevice},
+    listeners::*,
+    models::*,
+    support::*,
+};
+use jcompat::{
+    logging::Level,
+    writers::{JavaString, KotlinValue},
+};
+use marathon_adb::{
+    instrument_request::{InstrumentOptions, TestRunnerRequest},
+    testrunner::{MetricMap, TestEvent, TestIdentifier},
+};
+use marathon_config::{Configuration, vendor::PathRoot};
+use marathon_core::{error::*, executor::shared::requested, model::*, runtime::*, vendor::*};
+use marathon_dex::apk_parser::InstrumentationInfo;
+use std::sync::Arc;
+
+pub const ERROR_STUCK: &str = "Test got stuck. You can increase the timeout in settings if it's too strict";
+/// Device-scoped producer, independent of the execute job, as in adam. The owner
+/// explicitly cancels/joins it on every exit (approved P2), including a failing after hook.
+pub struct InstrumentationChannel {
+    receiver: tokio::sync::mpsc::Receiver<Vec<TestEvent>>,
+    task: Arc<dyn VendorTask>,
+}
+impl InstrumentationChannel {
+    pub fn start(device: &AndroidDevice, request: TestRunnerRequest) -> Self {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let owned = device.clone();
+        let task = device
+            .runtime()
+            .dependencies
+            .io
+            .spawn_cancellable(Box::new(move |signal| {
+                Box::pin(async move {
+                    let mut stream = marathon_adb::client::shell::compat::FallibleCompatShellStream::start(
+                        owned.client(),
+                        request,
+                        Some(owned.adb_serial()),
+                    );
+                    let result = async {
+                        loop {
+                            let chunk = cancellable(signal.clone(), async {
+                                stream.next().await.transpose().map_err(adb_error)
+                            })
+                            .await;
+                            if let Some(request) = stream.request_mut() {
+                                for warning in request.take_warnings() {
+                                    owned.log(Level::Warn, &warning.to_string(), None);
+                                }
+                            }
+                            match chunk? {
+                                Some(events) => {
+                                    cancellable(signal.clone(), async {
+                                        sender.send(events).await.map_err(|_| {
+                                            VendorError::Cancelled(requested("instrumentation channel closed"))
+                                        })
+                                    })
+                                    .await?
+                                }
+                                None => break,
+                            }
+                        }
+                        Ok(())
+                    }
+                    .await;
+                    stream.cancel();
+                    // Consumed produce failures do not invoke Kotlin's exception handler.
+                    result
+                })
+            }));
+        Self { receiver, task }
+    }
+    pub async fn receive(&mut self, context: &VendorContext) -> VendorResult<Option<Vec<TestEvent>>> {
+        // receiveCatching().getOrNull() discards the producer's close cause. Its
+        // failure remains on the independent task, never a fake empty success event.
+        cancellable(context.cancellation.clone(), async { Ok(self.receiver.recv().await) }).await
+    }
+    pub async fn cancel_and_join(&mut self) {
+        self.receiver.close();
+        self.task.cancel(requested("instrumentation channel closed"));
+        let _ = self.task.join().await;
+    }
+}
+pub struct AndroidDeviceTestRunner<'a> {
+    pub device: &'a AndroidDevice,
+}
+impl AndroidDeviceTestRunner<'_> {
+    pub fn prepare_request(
+        &self,
+        configuration: &Configuration,
+        info: &InstrumentationInfo,
+        batch: &TestBatch,
+    ) -> VendorResult<TestRunnerRequest> {
+        let c = android_configuration(configuration)?;
+        let tests: Vec<JavaString> = batch
+            .tests
+            .iter()
+            .map(|t| {
+                let mut name = t.to_class_name('.');
+                if t.method != "null".into() {
+                    name.push_str("#");
+                    name.append(t.method.clone());
+                }
+                let mut escaped = JavaString::default();
+                for u in name.0 {
+                    if u == 32 {
+                        escaped.0.push(92);
+                    }
+                    escaped.0.push(u);
+                }
+                escaped
+            })
+            .collect();
+        self.device.log_named(
+            "AndroidDeviceTestRunner",
+            Level::Debug,
+            &format!(
+                "tests = {}",
+                KotlinValue::List(tests.iter().cloned().map(KotlinValue::Text).collect())
+                    .render()
+                    .to_string_lossy()
+            ),
+            None,
+        );
+        let mut request = TestRunnerRequest::new(
+            info.instrumentation_package.clone(),
+            InstrumentOptions {
+                clazz: tests,
+                coverage_file: configuration.is_code_coverage_enabled.then(|| {
+                    format!(
+                        "/data/data/{}/coverage/coverage-{}.ec",
+                        info.application_package.to_string_lossy(),
+                        batch.id.to_string_lossy()
+                    )
+                    .as_str()
+                    .into()
+                }),
+                overrides: ArgumentsFactory { device: self.device }.generate(
+                    configuration.is_code_coverage_enabled,
+                    &c.instrumentation_args,
+                    &c.test_access_configuration,
+                ),
+                ..Default::default()
+            },
+            self.device.supported_features(),
+        );
+        request.runner_class = info.test_runner_class.clone();
+        request.no_window_animations = c.disable_window_animation;
+        Ok(request)
+    }
+    async fn notify_ignored(
+        &self,
+        tests: &[Test],
+        listener: &dyn AndroidTestRunListener,
+        context: &VendorContext,
+    ) -> VendorResult<()> {
+        for test in tests {
+            let id = TestIdentifier {
+                class_name: test.to_class_name('.'),
+                test_name: test.method.clone(),
+            };
+            listener
+                .on_event_in(&TestEvent::TestStarted { id: id.clone() }, context.clone())
+                .await?;
+            listener
+                .on_event_in(&TestEvent::TestIgnored { id: id.clone() }, context.clone())
+                .await?;
+            listener
+                .on_event_in(
+                    &TestEvent::TestEnded {
+                        id,
+                        metrics: MetricMap::new(),
+                    },
+                    context.clone(),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+    async fn clear_data(
+        &self,
+        c: &Configuration,
+        info: &InstrumentationInfo,
+        context: VendorContext,
+    ) -> VendorResult<()> {
+        let a = android_configuration(c)?;
+        for (clear, package) in [
+            (a.application_pm_clear, &info.application_package),
+            (a.test_application_pm_clear, &info.instrumentation_package),
+        ] {
+            if clear {
+                let result = self
+                    .device
+                    .clear_package(&package.to_string_lossy(), context.clone())
+                    .await?;
+                self.device.log_named(
+                    "AndroidDeviceTestRunner",
+                    Level::Debug,
+                    &format!(
+                        "Package {} cleared: {}",
+                        package.to_string_lossy(),
+                        trim(&result.output.to_string_lossy())
+                    ),
+                    None,
+                );
+            }
+        }
+        if self
+            .device
+            .runtime()
+            .file_sync
+            .pull
+            .iter()
+            .any(|p| p.path_root == PathRoot::ExternalStorage)
+        {
+            let permission = if self.device.version().is_greater_or_equal_than(30) {
+                Some("MANAGE_EXTERNAL_STORAGE")
+            } else if self.device.api_level() == 29 {
+                Some("LEGACY_STORAGE")
+            } else {
+                None
+            };
+            if let Some(permission) = permission {
+                let result = self
+                    .device
+                    .critical_execute_shell_command(
+                        &format!(
+                            "appops set --uid {} {permission} allow",
+                            info.application_package.to_string_lossy()
+                        ),
+                        "",
+                        context.clone(),
+                    )
+                    .await?;
+                self.device.log_named(
+                    "AndroidDeviceTestRunner",
+                    Level::Debug,
+                    &format!(
+                        "File pull requested. Granted {permission} to {}: {}",
+                        info.application_package.to_string_lossy(),
+                        trim(&result.output.to_string_lossy())
+                    ),
+                    None,
+                );
+            }
+        }
+        if c.is_code_coverage_enabled {
+            let package = info.application_package.to_string_lossy();
+            self.device
+                .safe_execute_shell_command(
+                    &format!("run-as {package} mkdir /data/data/{package}/coverage"),
+                    "",
+                    context,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+    pub async fn execute(
+        &self,
+        configuration: Arc<Configuration>,
+        raw: BatchRef,
+        listener: &dyn AndroidTestRunListener,
+        context: VendorContext,
+    ) -> VendorResult<()> {
+        let ignored: Vec<_> = raw.tests.iter().filter(|t| is_ignored(t)).cloned().collect();
+        let batch = TestBatch {
+            // Kotlin list subtraction uses Test equality, which excludes metadata.
+            tests: raw.tests.iter().filter(|t| !ignored.contains(t)).cloned().collect(),
+            id: raw.id.clone(),
+        };
+        if batch.tests.is_empty() {
+            listener.before_test_run_in(None, context.clone()).await?;
+            self.notify_ignored(&ignored, listener, &context).await?;
+            listener
+                .on_event_in(
+                    &TestEvent::TestRunEnded {
+                        elapsed_time_millis: 0,
+                        metrics: MetricMap::new(),
+                    },
+                    context.clone(),
+                )
+                .await?;
+            return listener.after_test_run_in(context).await;
+        }
+        let mut infos = vec![];
+        for test in &batch.tests {
+            let bundle = self.device.runtime().identifier.android_bundle(test)?;
+            let info = blocking(self.device.runtime().dependencies.io.as_ref(), move || {
+                bundle.instrumentation_info()
+            })
+            .await?;
+            if !infos.contains(&info) {
+                infos.push(info);
+            }
+        }
+        for info in infos {
+            // N35: each instrumentation receives the entire nonignored batch.
+            let request = self.prepare_request(&configuration, &info, &batch)?;
+            let mut channel = None;
+            let result = timed(&context, configuration.test_batch_timeout_millis, |signal| {
+                let channel = &mut channel;
+                let info = &info;
+                let ignored = &ignored;
+                let configuration = &configuration;
+                let child = VendorContext {
+                    cancellation: signal,
+                    ..context.clone()
+                };
+                Box::pin(async move {
+                    self.notify_ignored(ignored, listener, &child).await?;
+                    self.clear_data(configuration, info, child.clone()).await?;
+                    listener.before_test_run_in(Some(info), child.clone()).await?;
+                    self.device.log_named(
+                        "AndroidDeviceTestRunner",
+                        Level::Debug,
+                        &format!("Running {}", request.command().to_string_lossy()),
+                        None,
+                    );
+                    *channel = Some(InstrumentationChannel::start(self.device, request));
+                    if let Some(channel) = channel.as_mut() {
+                        loop {
+                            let update = timed(&child, configuration.test_output_timeout_millis, |signal| {
+                                let child = VendorContext {
+                                    cancellation: signal,
+                                    ..child.clone()
+                                };
+                                {
+                                    let receiver = &mut *channel;
+                                    Box::pin(async move { receiver.receive(&child).await })
+                                }
+                            })
+                            .await?;
+                            match update {
+                                None => {
+                                    listener
+                                        .on_event_in(
+                                            &TestEvent::TestRunFailed {
+                                                error: ERROR_STUCK.into(),
+                                            },
+                                            child.clone(),
+                                        )
+                                        .await?;
+                                    return Ok(());
+                                }
+                                Some(None) => break,
+                                Some(Some(events)) => {
+                                    for event in events {
+                                        listener.on_event_in(&event, child.clone()).await?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    self.device
+                        .log_named("AndroidDeviceTestRunner", Level::Debug, "Execution finished", None);
+                    Ok(())
+                })
+            })
+            .await;
+            let result = match result {
+                Ok(None) => {
+                    listener
+                        .on_event_in(
+                            &TestEvent::TestRunFailed {
+                                error: ERROR_STUCK.into(),
+                            },
+                            context.clone(),
+                        )
+                        .await
+                }
+                Ok(Some(())) => Ok(()),
+                Err(error) if is_io_exception(&error) => {
+                    let mut message = JavaString::from("adb error while running tests ");
+                    message.append(
+                        KotlinValue::List(
+                            batch
+                                .tests
+                                .iter()
+                                .map(|t| KotlinValue::Text(t.to_test_name('.', '#')))
+                                .collect(),
+                        )
+                        .render(),
+                    );
+                    self.device.log_named(
+                        "AndroidDeviceTestRunner",
+                        Level::Error,
+                        &message.to_string_lossy(),
+                        Some(error.failure()),
+                    );
+                    listener
+                        .on_event_in(&TestEvent::TestRunFailed { error: message }, context.clone())
+                        .await
+                }
+                Err(e) => Err(e),
+            };
+            let after = listener.after_test_run_in(context.clone()).await;
+            if let Some(channel) = &mut channel {
+                channel.cancel_and_join().await;
+            }
+            after?;
+            result?;
+        }
+        Ok(())
+    }
+}
+fn android_configuration(
+    configuration: &Configuration,
+) -> VendorResult<&marathon_config::vendor::AndroidConfiguration> {
+    match &configuration.vendor_configuration {
+        marathon_config::VendorConfiguration::Android(configuration) => Ok(configuration),
+        _ => Err(other("java.lang.ClassCastException", "Android configuration required")),
+    }
+}
+fn is_io_exception(error: &VendorError) -> bool {
+    [
+        "java.io.IOException",
+        "java.io.FileNotFoundException",
+        "java.io.EOFException",
+        "java.io.InterruptedIOException",
+        "java.net.SocketException",
+        "java.net.SocketTimeoutException",
+        "java.nio.file.NoSuchFileException",
+        "java.nio.file.AccessDeniedException",
+        "java.nio.file.FileAlreadyExistsException",
+        "java.nio.file.FileSystemException",
+        "io.netty.channel.ConnectTimeoutException",
+        "java.net.ConnectException",
+        "io.netty.channel.AbstractChannel$AnnotatedConnectException",
+        "io.netty.channel.StacklessClosedChannelException",
+    ]
+    .iter()
+    .any(|s| error.failure().class == (*s).into())
+        && !matches!(error, VendorError::Cancelled(_))
+}
+#[derive(Default)]
+pub struct AndroidRunnerExecutor {
+    pub slots: crate::listener_factory::ListenerSlots,
+}
+impl AndroidBatchExecutor for AndroidRunnerExecutor {
+    fn execute<'a>(
+        &'a self,
+        device: &'a AndroidDevice,
+        configuration: Arc<Configuration>,
+        pool: DevicePoolId,
+        batch: BatchRef,
+        result: Arc<dyn Deferred<TestBatchResults>>,
+        context: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            let listener =
+                crate::listener_factory::create(device, &configuration, pool, batch.clone(), result, &self.slots)
+                    .map_err(execution_error)?;
+            let owned = device.clone();
+            let (mut sender, receiver) = tokio::sync::oneshot::channel();
+            // The task retains the cleanup owner; closing the waiter cancels the body.
+            let task = device.runtime().dependencies.io.spawn(Box::pin(async move {
+                let dropped = marathon_core::executor::Signal::new();
+                let context = VendorContext {
+                    cancellation: Arc::new(crate::artifact_listeners::ChildSignal(
+                        dropped.clone(),
+                        context.cancellation,
+                    )),
+                    ..context
+                };
+                let runner = AndroidDeviceTestRunner { device: &owned };
+                let run = runner.execute(configuration, batch, &listener, context.clone());
+                tokio::pin!(run);
+                let outcome = tokio::select! {
+                    outcome = &mut run => outcome,
+                    _ = sender.closed() => { dropped.cancel(requested("execute waiter dropped")); run.await }
+                };
+                let cleanup = listener
+                    .cleanup_in(VendorContext {
+                        cancellation: marathon_core::executor::Signal::new(),
+                        ..context
+                    })
+                    .await;
+                if let Err(error) = &cleanup {
+                    owned.log_named(
+                        "AndroidDeviceTestRunner",
+                        Level::Error,
+                        "Artifact listener cleanup failed",
+                        Some(error.failure()),
+                    );
+                }
+                let _ = sender.send(outcome.and(cleanup));
+                Ok(())
+            }));
+            let outcome = receiver
+                .await
+                .map_err(|_| other("java.lang.IllegalStateException", "batch task ended without outcome"))?;
+            task.join().await?;
+            outcome.map_err(execution_error)
+        })
+    }
+}

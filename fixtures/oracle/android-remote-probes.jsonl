@@ -1,0 +1,16 @@
+{"case": "remote:success:tests", "value": [["com.example", "MainActivityTest", "testText", ["org.junit.Test"]]]}
+{"case": "remote:success:listeners", "value": 0}
+{"case": "remote:success:warnings", "value": []}
+{"case": "remote:success:commands", "value": ["shell,v2,raw:am instrument -w -r -e log true -e listener com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer -e other value com.example.test/androidx.test.runner.AndroidJUnitRunner"]}
+{"case": "remote:fallback:tests", "value": [["com.example", "MainActivityTest", "testText", ["org.junit.Test"]]]}
+{"case": "remote:fallback:listeners", "value": 1}
+{"case": "remote:fallback:warnings", "value": ["Previous parsing attempt failed for com.example.test\n                         file: APK\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       "]}
+{"case": "remote:fallback:commands", "value": ["shell,v2,raw:am instrument -w -r -e log true -e listener com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer -e other value com.example.test/androidx.test.runner.AndroidJUnitRunner", "shell,v2,raw:am instrument -w -r -e log true -e other value com.example.test/androidx.test.runner.AndroidJUnitRunner"]}
+{"case": "remote:timeout:error", "value": ["com.malinskiy.marathon.exceptions.TestParsingException", "Unable to parse test list using SERIAL", null]}
+{"case": "remote:timeout:listeners", "value": 3}
+{"case": "remote:timeout:warnings", "value": []}
+{"case": "remote:timeout:commands", "value": ["shell,v2,raw:am instrument -w -r -e log true -e listener com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer -e other value com.example.test/androidx.test.runner.AndroidJUnitRunner", "shell,v2,raw:am instrument -w -r -e log true -e listener com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer -e other value com.example.test/androidx.test.runner.AndroidJUnitRunner", "shell,v2,raw:am instrument -w -r -e log true -e listener com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer -e other value com.example.test/androidx.test.runner.AndroidJUnitRunner"]}
+{"case": "remote:cancel", "value": true}
+{"case": "remote:cancel:listeners", "value": 1}
+{"case": "remote:cancel:warnings", "value": []}
+{"case": "remote:cancel:commands", "value": ["shell,v2,raw:am instrument -w -r -e log true -e listener com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer -e other value com.example.test/androidx.test.runner.AndroidJUnitRunner"]}

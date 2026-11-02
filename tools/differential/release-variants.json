@@ -1,0 +1,11 @@
+{
+  "ios-smoke": {
+    "alternates": [
+      "fixtures/differential/vendors/ios-smoke/jvm-c95b2128-b"
+    ],
+    "paths": [
+      "reports/logs/omni/{safe_serial}/sample-appUnitTests.SampleTests#testFailing-00000000-0000-0000-0000-000000000001.log"
+    ],
+    "reason": "A20: finite complete JVM log-partition witnesses"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "perTest": [],
+  "exit": 1,
+  "instrumentation": [
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner",
+    "shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner"
+  ],
+  "final": {
+    "stdout": [],
+    "stderr": [
+      "Marathon execution failed"
+    ]
+  },
+  "results": []
+}

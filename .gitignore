@@ -1,0 +1,35 @@
+/target
+# spike build outputs
+/spikes/*/target
+/spikes/ssh-sshj/build
+**/*.rs.bk
+.DS_Store
+/.idea
+/.vscode
+# oracle build outputs and per-run sandboxes
+/tools/oracle/build
+/tools/oracle/runs
+/tmp
+# agent worktrees and local Claude state
+/.claude/
+
+/tools/fake-worker/build
+/tools/fake-worker/runs
+/vendor/russh/target
+/vendor/russh/Cargo.lock
+__pycache__/
+
+# Differential capture staging and retained failed runs
+/tools/differential/runs
+/fixtures/differential/**/.capture-*/
+
+/tools/oracle/build-*/
+# Private real-host configuration, raw evidence and disposable builds
+/tools/real-e2e/local.json
+/tools/real-e2e/runs/
+
+# Runner-overhead measurement sandboxes
+/tools/perf/runs/
+
+# Local agent instructions
+/CLAUDE.local.md

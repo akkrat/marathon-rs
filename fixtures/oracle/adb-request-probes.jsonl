@@ -1,0 +1,131 @@
+{"case":"jdk-srgb-profile-sha256","value":"87e382b9336e6a0417a4d860173109ab319a029cf2972e19833a3327c65bd7e4"}
+{"case":"create:","value":"30303145657865633a706d20696e7374616c6c2d63726561746520272d6727202d72"}
+{"case":"write:","value":"30303331657865633a706d20696e7374616c6c2d7772697465202d53203631342069642073616d706c652d66616b652e61706b202d"}
+{"case":"commit:","value":"30303139657865633a706d20696e7374616c6c2d636f6d6d6974206964"}
+{"case":"stream-validate:","value":"ValidationResponse(success=false, message=Supported features must include either of ABB_EXEC, CMD)"}
+{"case":"create:CMD","value":"30303237657865633a636d64207061636b61676520696e7374616c6c2d63726561746520272d6727202d72"}
+{"case":"write:CMD","value":"30303341657865633a636d64207061636b61676520696e7374616c6c2d7772697465202d53203631342069642073616d706c652d66616b652e61706b202d"}
+{"case":"commit:CMD","value":"30303232657865633a636d64207061636b61676520696e7374616c6c2d636f6d6d6974206964"}
+{"case":"stream-validate:CMD","value":"ValidationResponse(success=true, message=null)"}
+{"case":"stream:CMD","value":"30303334657865633a636d64207061636b61676520696e7374616c6c20272d2d7573657227202761275c27276227202d72202d5320363134"}
+{"case":"create:CMD,ABB_EXEC","value":"303032356162625f657865633a7061636b61676500696e7374616c6c2d637265617465002d67002d72"}
+{"case":"write:CMD,ABB_EXEC","value":"303033416162625f657865633a7061636b61676500696e7374616c6c2d7772697465002d53003631340069640073616d706c652d66616b652e61706b002d"}
+{"case":"commit:CMD,ABB_EXEC","value":"303032326162625f657865633a7061636b61676500696e7374616c6c2d636f6d6d6974006964"}
+{"case":"stream-validate:CMD,ABB_EXEC","value":"ValidationResponse(success=true, message=null)"}
+{"case":"stream:CMD,ABB_EXEC","value":"303032446162625f657865633a7061636b61676500696e7374616c6c002d2d7573657200612762002d72002d5300363134"}
+{"case":"create-response:Success [word-id]","value":"CreateSessionResponse(id=word-id, output=Success [word-id])"}
+{"case":"create-response:Failure","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to create multi-package session: Failure; cause=null"}
+{"case":"create-response:Success no brackets","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to create multi-package session; cause=null"}
+{"case":"create-response:Success []","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to create multi-package session; cause=null"}
+{"case":"commit-response:Success","value":"Success"}
+{"case":"write-payload:Success","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"write-response:Success","value":"Success"}
+{"case":"commit-response:Failure","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to finalize session id: Failure; cause=null"}
+{"case":"write-payload:Failure","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"write-response:Failure","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to write package <apk>: Failure; cause=null"}
+{"case":"commit-response:","value":""}
+{"case":"write-payload:","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"write-response:","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to write package <apk>: ; cause=null"}
+{"case":"stat2-wire","value":"4c5354322f78"}
+{"case":"stat2-n18","value":"FileEntryV2(error=0, dev=1, ino=0, mode=123, nlink=2, uid=0, gid=1000, size=1, atime=2020-05-09T16:38:51Z, mtime=2020-05-09T16:38:52Z, ctime=2020-05-09T16:38:53Z, name=null)"}
+{"case":"list2-wire","value":"4c4953322f78"}
+{"case":"list2-n18-unexpected-tag","value":"[FileEntryV2(error=0, dev=1, ino=0, mode=123, nlink=2, uid=0, gid=1000, size=1, atime=2020-05-09T16:38:51Z, mtime=2020-05-09T16:38:52Z, ctime=2020-05-09T16:38:53Z, name=a)]"}
+{"case":"push-send","value":"53454e442f782c353131"}
+{"case":"push-data","value":"44415441660200004c6f72656d20697073756d20646f6c6f722073697420616d65742c2061756469616d207072696e636970657320726570756469616e6461652065752070726f2c20696d7065747573206578706574656e64697320766f6c7570746174756d206561206d65692e204e6f206d65612070657274696e61782061646970697363696e672c2076657269206c6174696e65206164206d65692c206578206e616d20646f63747573206f7074696f6e20666162756c61732e20497573746f20696e74656c6c6567616d20646566696e6974696f6e656d2065612063756d2e2054652074616c652074656d706f72206d656e746974756d2065616d2c206d617a696d207574696e616d206f6d6e6573717565207365612065612c2068696e632070726f626174757320726570726568656e64756e7420656f73206e652e0a0a457420707269206c616f7265657420757262616e697461732c2065737420617420686172756d206f7074696f6e206d696e696d756d2e2056656c206e65206d6169657374617469732073656e74656e74696165207363726962656e7475722e2044756f2071756f64736920646f6c6f72656d206f6666696369697320616e2c2065737365206661737469646969206861732065612c2071756f206e6f20736f6c65742061657465726e6f20636f6e636c7564617475727175652e2043752076696d206d616c697320616c697175616d207363726970746f72656d2c20646963657265742061646d6f64756d2065612064756f2e2050657220616e206d656c696f72652066617374696469692c2074652065756d206576657274697475722064656c69636174697373696d692e"}
+{"case":"push-done","value":"444f4e4501020304"}
+{"case":"push-progress","value":"[1.0, 1.0]"}
+{"case":"pull-stat:false:0","value":"535441542f78"}
+{"case":"pull-recv:false:0","value":"524543562f78"}
+{"case":"pull-progress:false:0","value":"[]"}
+{"case":"pull-file:false:0","value":"absent"}
+{"case":"pull-stat:false:3","value":"535441542f78"}
+{"case":"pull-recv:false:3","value":"524543562f78"}
+{"case":"pull-progress:false:3","value":"[1.0]"}
+{"case":"pull-file:false:3","value":"616263"}
+{"case":"pull-stat:true:0","value":"535441542f78"}
+{"case":"pull-recv:true:0","value":"524356322f78"}
+{"case":"pull-flags:0","value":"5243563200000000"}
+{"case":"pull-progress:true:0","value":"[]"}
+{"case":"pull-file:true:0","value":"absent"}
+{"case":"pull-stat:true:3","value":"535441542f78"}
+{"case":"pull-recv:true:3","value":"524356322f78"}
+{"case":"pull-flags:3","value":"5243563200000000"}
+{"case":"pull-progress:true:3","value":"[1.0]"}
+{"case":"pull-file:true:3","value":"616263"}
+{"case":"reverse-wire:OKAY00041234","value":"726576657273653a666f72776172643a7463703a303b7463703a3432"}
+{"case":"reverse-response:OKAY00041234","value":"1234"}
+{"case":"reverse-wire:OKAY","value":"726576657273653a666f72776172643a7463703a303b7463703a3432"}
+{"case":"reverse-response:OKAY","value":"null"}
+{"case":"reverse-wire:OKAY0003bad","value":"726576657273653a666f72776172643a7463703a303b7463703a3432"}
+{"case":"reverse-response:OKAY0003bad","value":"null"}
+{"case":"reverse-wire:FAIL0003bad","value":"726576657273653a666f72776172643a7463703a303b7463703a3432"}
+{"case":"reverse-response:FAIL0003bad","value":"com.malinskiy.adam.exception.RequestRejectedException: Can't establish port forwarding: bad; cause=null"}
+{"case":"push-missing-construction","value":"java.io.FileNotFoundException: <tmp>/absent (No such file or directory); cause=java.nio.file.NoSuchFileException: <tmp>/absent"}
+{"case":"stat-path-utf16:1024","value":"ValidationResponse(success=true, message=null)"}
+{"case":"stat-path-utf16:1026","value":"ValidationResponse(success=false, message=Remote path should be less that 1024 bytes)"}
+{"case":"approved-p2-negative-data","value":"java.lang.IllegalArgumentException: newLimit < 0: (-1 < 0); cause=null"}
+{"case":"frame-unsupported","value":"com.malinskiy.adam.exception.UnsupportedImageProtocolException: Unsupported version 99; cause=null"}
+{"case":"split-command:create:0","value":"657865633a636d64207061636b61676520696e7374616c6c2d63726561746520272d5336313427202d72"}
+{"case":"split-result:create","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to create multi-package session: Failure create; cause=null"}
+{"case":"split-command:write:0","value":"657865633a636d64207061636b61676520696e7374616c6c2d63726561746520272d5336313427202d72"}
+{"case":"split-command:write:1","value":"657865633a636d64207061636b61676520696e7374616c6c2d7772697465202d53203631342053312073616d706c652d66616b652e61706b202d"}
+{"case":"split-payload:write","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"split-command:write:2","value":"657865633a636d64207061636b61676520696e7374616c6c2d6162616e646f6e205331"}
+{"case":"split-result:write","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to write package <apk>: Failure write; cause=null"}
+{"case":"split-command:commit:0","value":"657865633a636d64207061636b61676520696e7374616c6c2d63726561746520272d5336313427202d72"}
+{"case":"split-command:commit:1","value":"657865633a636d64207061636b61676520696e7374616c6c2d7772697465202d53203631342053312073616d706c652d66616b652e61706b202d"}
+{"case":"split-payload:commit","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"split-command:commit:2","value":"657865633a636d64207061636b61676520696e7374616c6c2d636f6d6d6974205331"}
+{"case":"split-command:commit:3","value":"657865633a636d64207061636b61676520696e7374616c6c2d6162616e646f6e205331"}
+{"case":"split-result:commit","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to finalize session S1: Failure commit; cause=null"}
+{"case":"split-command:abandon:0","value":"657865633a636d64207061636b61676520696e7374616c6c2d63726561746520272d5336313427202d72"}
+{"case":"split-command:abandon:1","value":"657865633a636d64207061636b61676520696e7374616c6c2d7772697465202d53203631342053312073616d706c652d66616b652e61706b202d"}
+{"case":"split-payload:abandon","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"split-command:abandon:2","value":"657865633a636d64207061636b61676520696e7374616c6c2d6162616e646f6e205331"}
+{"case":"split-result:abandon","value":"com.malinskiy.adam.exception.RequestRejectedException: Failed to write package <apk>: Failure write; cause=null"}
+{"case":"directory-command:false:0","value":"73796e633a"}
+{"case":"directory-stat:false","value":"535441542f64657374"}
+{"case":"directory-command:false:1","value":"7368656c6c3a6d6b646972202d7020272f64657374273b6563686f2078243f"}
+{"case":"directory-command:false:2","value":"7368656c6c3a6d6b64697220272f646573742f6e6573746564273b6563686f2078243f"}
+{"case":"directory-command:false:3","value":"73796e633a"}
+{"case":"directory-send:3","value":"53454e442f646573742f726f6f742e61706b2c353131"}
+{"case":"directory-data:3","value":"4441544103000000616263"}
+{"case":"directory-done:3","value":"444f4e4501020304"}
+{"case":"directory-command:false:4","value":"73796e633a"}
+{"case":"directory-send:4","value":"53454e442f646573742f6e65737465642f696e6e65722e61706b2c353131"}
+{"case":"directory-data:4","value":"4441544103000000646566"}
+{"case":"directory-done:4","value":"444f4e4501020304"}
+{"case":"directory-result:false","value":"true"}
+{"case":"directory-command:true:0","value":"73796e633a"}
+{"case":"directory-stat:true","value":"535441542f64657374"}
+{"case":"directory-command:true:1","value":"7368656c6c3a6d6b646972202d7020272f64657374273b6563686f2078243f"}
+{"case":"directory-command:true:2","value":"7368656c6c3a6d6b6469723b6563686f2078243f"}
+{"case":"directory-result:true","value":"true"}
+{"case":"frame-ack:screencap_1","value":"0"}
+{"case":"frame-argb-sha256:screencap_1","value":"3f4e07d0e8a5c102d484625d4ca67ca1a210fefedf772cf27ffe23f67148d5bd"}
+{"case":"frame-first:screencap_1","value":"[-7509894, -7509894, -7509894, -7509894, -7509894, -7509894, -7509894, -7509894]"}
+{"case":"frame-size:screencap_1","value":"1080x1920"}
+{"case":"frame-ack:screencap_2","value":"0"}
+{"case":"frame-argb-sha256:screencap_2","value":"97bd1ce73e89825279580fd95e93e1d083b266ddf1d8bc12ec0d4601958a0e68"}
+{"case":"frame-first:screencap_2","value":"[-16777216, -16777216, -16777216, -16777216, -16777216, -16777216, -16777216, -16777216]"}
+{"case":"frame-size:screencap_2","value":"1080x1920"}
+{"case":"frame-ack:screencap_1_unaligned","value":"0"}
+{"case":"frame-argb-sha256:screencap_1_unaligned","value":"3f4e07d0e8a5c102d484625d4ca67ca1a210fefedf772cf27ffe23f67148d5bd"}
+{"case":"frame-first:screencap_1_unaligned","value":"[-7509894, -7509894, -7509894, -7509894, -7509894, -7509894, -7509894, -7509894]"}
+{"case":"frame-size:screencap_1_unaligned","value":"1080x1920"}
+{"case":"frame-ack:screencap_3","value":"0"}
+{"case":"frame-argb-sha256:screencap_3","value":"9a1ea4993d4c54f5121ffc87ef9dc80a289c75c2bc3ad0e6b6441d074ecc74cb"}
+{"case":"frame-first:screencap_3","value":"[-8495762, -8101261, -7378308, -7312771, -7509893, -7509894, -7509894, -7510150]"}
+{"case":"frame-size:screencap_3","value":"1080x1920"}
+{"case":"pixel:2:0","value":"-2141551958"}
+{"case":"pixel:16:0","value":"-16769851"}
+{"case":"pixel:2:1","value":"-2141551958"}
+{"case":"pixel:16:1","value":"-16769851"}
+{"case":"pixel:2:2","value":"-2142403666"}
+{"case":"pixel:16:2","value":"-16769851"}
+{"case":"raw-pixel:2:0","value":"-2141551958"}
+{"case":"raw-pixel:16:0","value":"-65536"}
+{"case":"raw-pixel:2:1","value":"-2141551958"}
+{"case":"raw-pixel:16:1","value":"-65536"}
+{"case":"raw-pixel:2:2","value":"-2141551957"}
+{"case":"raw-pixel:16:2","value":"-65536"}

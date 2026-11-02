@@ -1,0 +1,3 @@
+{"case":"receive-after-timeout","value":false}
+{"case":"send-still-running-after-receive-timeout","value":true}
+{"case":"send-after-release","value":true}

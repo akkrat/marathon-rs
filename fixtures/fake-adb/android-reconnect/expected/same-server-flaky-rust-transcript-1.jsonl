@@ -1,0 +1,243 @@
+{"conn":1,"serial":null,"service":"host:version","type":"request"}
+{"conn":2,"serial":null,"service":"host:devices","type":"request"}
+{"conn":3,"serial":null,"service":"host:track-devices","type":"request"}
+{"conn":4,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":4,"serial":"emulator-5554","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":4,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":5,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":5,"serial":"emulator-5554","service":"shell:dumpsys input;echo x$?","type":"request"}
+{"command":"dumpsys input","conn":5,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[28]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":6,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":6,"serial":"emulator-5554","service":"shell:echo $EXTERNAL_STORAGE;echo x$?","type":"request"}
+{"command":"echo $EXTERNAL_STORAGE","conn":6,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[25]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":7,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":7,"serial":"emulator-5554","service":"shell:ls /system/bin/screenrecord;echo x$?","type":"request"}
+{"command":"ls /system/bin/screenrecord","conn":7,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[26]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":8,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":8,"serial":"emulator-5554","service":"shell:ls /system/bin/md5;echo x$?","type":"request"}
+{"command":"ls /system/bin/md5","conn":8,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[27]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":9,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":9,"serial":"emulator-5554","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":9,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":10,"serial":null,"service":"host-serial:emulator-5554:features","type":"request"}
+{"conn":11,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":11,"serial":"emulator-5554","service":"shell:logcat -v long","type":"request"}
+{"command":"logcat -v long","conn":11,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":true,"protocol":"raw","rule":"shell[1]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":12,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":12,"serial":"emulator-5554","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":12,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":13,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":13,"serial":"emulator-5554","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":13,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[31]","serial":"emulator-5554","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":14,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":14,"serial":"emulator-5554","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":14,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":15,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":15,"serial":"emulator-5554","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00007167580","type":"request"}
+{"command":"package install -r -S 7167580","conn":15,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[31]","serial":"emulator-5554","service":"abb_exec","stdin_bytes":7167580,"stdin_sha256":"d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841","type":"shell"}
+{"conn":16,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":16,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r -e log true com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":16,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[2]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":17,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":17,"serial":"emulator-5554","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":17,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":18,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":18,"serial":"emulator-5554","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":18,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[31]","serial":"emulator-5554","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":19,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":19,"serial":"emulator-5554","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":19,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":20,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":20,"serial":"emulator-5554","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00007167580","type":"request"}
+{"command":"package install -r -S 7167580","conn":20,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[31]","serial":"emulator-5554","service":"abb_exec","stdin_bytes":7167580,"stdin_sha256":"d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841","type":"shell"}
+{"conn":21,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":21,"serial":"emulator-5554","service":"shell:rm -r /sdcard;echo x$?","type":"request"}
+{"command":"rm -r /sdcard","conn":21,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[29]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":22,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":22,"serial":"emulator-5554","service":"shell:mkdir /sdcard;echo x$?","type":"request"}
+{"command":"mkdir /sdcard","conn":22,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[30]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":23,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":23,"serial":"emulator-5554","service":"shell:logcat -c;echo x$?","type":"request"}
+{"command":"logcat -c","conn":23,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[0]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":24,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":24,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T00#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T00#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":24,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[3]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"event":"connect","serial":"emulator-5556","transport_id":2,"type":"event"}
+{"conn":25,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":25,"serial":"emulator-5556","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":25,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":26,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":26,"serial":"emulator-5556","service":"shell:dumpsys input;echo x$?","type":"request"}
+{"command":"dumpsys input","conn":26,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[28]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":27,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":27,"serial":"emulator-5556","service":"shell:echo $EXTERNAL_STORAGE;echo x$?","type":"request"}
+{"command":"echo $EXTERNAL_STORAGE","conn":27,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[25]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":28,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":28,"serial":"emulator-5556","service":"shell:ls /system/bin/screenrecord;echo x$?","type":"request"}
+{"command":"ls /system/bin/screenrecord","conn":28,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[26]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":29,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":29,"serial":"emulator-5556","service":"shell:ls /system/bin/md5;echo x$?","type":"request"}
+{"command":"ls /system/bin/md5","conn":29,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[27]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":30,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":30,"serial":"emulator-5556","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":30,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":31,"serial":null,"service":"host-serial:emulator-5556:features","type":"request"}
+{"conn":32,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":32,"serial":"emulator-5556","service":"shell:logcat -v long","type":"request"}
+{"command":"logcat -v long","conn":32,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":true,"protocol":"raw","rule":"shell[1]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":33,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":33,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":33,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":34,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":34,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":34,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[0]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":35,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":35,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":35,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":36,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":36,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00007167580","type":"request"}
+{"command":"package install -r -S 7167580","conn":36,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[0]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":7167580,"stdin_sha256":"d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841","type":"shell"}
+{"conn":37,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":37,"serial":"emulator-5556","service":"shell:rm -r /sdcard;echo x$?","type":"request"}
+{"command":"rm -r /sdcard","conn":37,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[1]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":38,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":38,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T19#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T19#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":38,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[22]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"event":"disconnect","serial":"emulator-5556","type":"event"}
+{"conn":32,"event":"session_dropped","serial":"emulator-5556","type":"event"}
+{"conn":37,"event":"session_dropped","serial":"emulator-5556","type":"event"}
+{"conn":39,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":39,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T18#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T18#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":39,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[21]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"event":"connect","serial":"emulator-5556","transport_id":3,"type":"event"}
+{"conn":40,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":40,"serial":"emulator-5556","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":40,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":41,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":41,"serial":"emulator-5556","service":"shell:dumpsys input;echo x$?","type":"request"}
+{"command":"dumpsys input","conn":41,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[28]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":42,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":42,"serial":"emulator-5556","service":"shell:echo $EXTERNAL_STORAGE;echo x$?","type":"request"}
+{"command":"echo $EXTERNAL_STORAGE","conn":42,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[25]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":43,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":43,"serial":"emulator-5556","service":"shell:ls /system/bin/screenrecord;echo x$?","type":"request"}
+{"command":"ls /system/bin/screenrecord","conn":43,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[26]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":44,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":44,"serial":"emulator-5556","service":"shell:ls /system/bin/md5;echo x$?","type":"request"}
+{"command":"ls /system/bin/md5","conn":44,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[27]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":45,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":45,"serial":"emulator-5556","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":45,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":46,"serial":null,"service":"host-serial:emulator-5556:features","type":"request"}
+{"conn":47,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":47,"serial":"emulator-5556","service":"shell:logcat -v long","type":"request"}
+{"command":"logcat -v long","conn":47,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":true,"protocol":"raw","rule":"shell[1]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":48,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":48,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":48,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":49,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":49,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":49,"exit_code":1,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[2]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":50,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":50,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T17#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T17#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":50,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[20]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":51,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":51,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":51,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":52,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":52,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":52,"exit_code":1,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[2]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":53,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":53,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":53,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":54,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":54,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":54,"exit_code":1,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[2]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":55,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":55,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T16#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T16#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":55,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[19]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":56,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":56,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T15#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T15#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":56,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[18]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":57,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":57,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":57,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":58,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":58,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":58,"exit_code":1,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[2]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":59,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":59,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T14#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T14#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":59,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[17]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":60,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":60,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":60,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":61,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":61,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":61,"exit_code":1,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[2]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":62,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":62,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":62,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":63,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":63,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":63,"exit_code":1,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"devices[emulator-5556].shell[2]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":64,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":64,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T13#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T13#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":64,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[16]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":65,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":65,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T12#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T12#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":65,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[15]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":66,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":66,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":66,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":67,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":67,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00002630923","type":"request"}
+{"command":"package install -r -S 2630923","conn":67,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[31]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":68,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":68,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":68,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[24]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":69,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":69,"serial":"emulator-5556","service":"abb_exec:package\u0000install\u0000-r\u0000-S\u00007167580","type":"request"}
+{"command":"package install -r -S 7167580","conn":69,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[31]","serial":"emulator-5556","service":"abb_exec","stdin_bytes":7167580,"stdin_sha256":"d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841","type":"shell"}
+{"conn":70,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":70,"serial":"emulator-5556","service":"shell:rm -r /sdcard;echo x$?","type":"request"}
+{"command":"rm -r /sdcard","conn":70,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[29]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":71,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":71,"serial":"emulator-5556","service":"shell:mkdir /sdcard;echo x$?","type":"request"}
+{"command":"mkdir /sdcard","conn":71,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[30]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":72,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":73,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":72,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T11#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T11#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":72,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[14]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":73,"serial":"emulator-5556","service":"shell:logcat -c;echo x$?","type":"request"}
+{"command":"logcat -c","conn":73,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[0]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":74,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":74,"serial":"emulator-5556","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T10#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T10#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":74,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[13]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":75,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":76,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":75,"serial":"emulator-5556","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T09#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T09#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":75,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[12]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":76,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T08#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T08#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":76,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[11]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":77,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":78,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":77,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T07#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"conn":78,"serial":"emulator-5556","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T06#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T07#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":77,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[10]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T06#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":78,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[9]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":79,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":79,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T05#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"conn":80,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":80,"serial":"emulator-5556","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T04#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T05#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":79,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[8]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T04#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":80,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[7]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":81,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":82,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":81,"serial":"emulator-5556","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T02#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T02#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":81,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[5]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":82,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T03#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T03#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":82,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[6]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":83,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":83,"serial":"emulator-5554","service":"shell,v2,raw:am instrument -w -r --no-window-animation -e class com.example.T01#test com.example.test/androidx.test.runner.AndroidJUnitRunner","type":"request"}
+{"command":"am instrument -w -r --no-window-animation -e class com.example.T01#test com.example.test/androidx.test.runner.AndroidJUnitRunner","conn":83,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"v2","rule":"shell[4]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"event":"server_stopped","type":"event"}

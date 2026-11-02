@@ -1,0 +1,396 @@
+//! Port of core/src/test/kotlin/com/malinskiy/marathon/analytics/metrics/remote/graphite/GraphiteDataSourceTest.kt
+//! and analytics/metrics/remote/influx/InfluxDBDataSourceTest.kt.
+mod metrics_support;
+mod strategy_support;
+use jcompat::{
+    jtime::{Instant, parse_instant},
+    writers::JavaString,
+};
+use marathon_core::{
+    analytics::remote::{graphite::*, influx::*, influx2::*, *},
+    runtime::ServiceFuture,
+};
+use metrics_support::*;
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
+#[derive(Default)]
+struct Graphite {
+    lines: Vec<String>,
+    targets: Mutex<Vec<String>>,
+}
+impl GraphiteQuery for Graphite {
+    fn query<'a>(&'a self, target: &'a str, _: Instant) -> ServiceFuture<'a, Vec<String>> {
+        Box::pin(async move {
+            self.targets.lock().unwrap().push(target.into());
+            Ok(self.lines.clone())
+        })
+    }
+}
+struct Influx {
+    reply: QueryResult,
+    commands: Mutex<Vec<(JavaString, JavaString)>>,
+}
+impl InfluxQuery for Influx {
+    fn query<'a>(&'a self, c: &'a JavaString, d: &'a JavaString) -> ServiceFuture<'a, QueryResult> {
+        Box::pin(async move {
+            self.commands.lock().unwrap().push((c.clone(), d.clone()));
+            Ok(self.reply.clone())
+        })
+    }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+struct Flux;
+impl FluxQuery for Flux {
+    fn query<'a>(&'a self, _: &'a JavaString) -> ServiceFuture<'a, Vec<Record>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+fn graphite(value: &str) -> GraphiteDataSource {
+    GraphiteDataSource {
+        client: Arc::new(Graphite {
+            lines: vec![format!(
+                "com--example--SingleTest--method,1601884200,1602488400,31536000|{value}"
+            )],
+            ..Graphite::default()
+        }),
+        prefix: None,
+    }
+}
+fn limit() -> Instant {
+    parse_instant("2019-08-24T08:25:09.219Z").unwrap()
+}
+mod graphite_tests {
+    use super::*;
+    #[test]
+    fn should_return_actual_value_of_success_rate() {
+        run(async {
+            let rows = graphite("50").request_all_success_rates(limit()).await.unwrap();
+            assert_eq!(
+                rows,
+                vec![SuccessRate {
+                    test_name: "com.example.SingleTest.method".into(),
+                    mean: 0.5
+                }]
+            );
+        });
+    }
+    #[test]
+    fn should_return_actual_value_of_execution_time() {
+        run(async {
+            let rows = graphite("5000.0")
+                .request_all_execution_times(99.0, limit())
+                .await
+                .unwrap();
+            assert_eq!(
+                rows,
+                vec![ExecutionTime {
+                    test_name: "com.example.SingleTest.method".into(),
+                    percentile: 5000.0
+                }]
+            );
+        });
+    }
+}
+async fn influx_case(time: bool, policy: &str) {
+    let column = if time { "percentile" } else { "mean" };
+    let value = if time { 5000.0 } else { 0.5 };
+    let client = Arc::new(Influx {
+        reply: QueryResult {
+            error: None,
+            results: vec![StatementResult {
+                error: None,
+                series: vec![Series {
+                    name: "tests".into(),
+                    tags: BTreeMap::from([("testname".into(), "com.example.SingleTest.method".into())]),
+                    columns: vec!["time".into(), column.into()],
+                    values: vec![vec![
+                        Value::Text("2019-08-24T08:25:09.219Z".into()),
+                        Value::Number(value),
+                    ]],
+                }],
+            }],
+        },
+        commands: Mutex::default(),
+    });
+    let p = InfluxDBDataSource {
+        client: client.clone(),
+        database: "test".into(),
+        retention_policy: policy.into(),
+    };
+    if time {
+        assert_eq!(
+            p.request_all_execution_times(99.0, limit()).await.unwrap(),
+            vec![ExecutionTime {
+                test_name: "com.example.SingleTest.method".into(),
+                percentile: value
+            }]
+        );
+    } else {
+        assert_eq!(
+            p.request_all_success_rates(limit()).await.unwrap(),
+            vec![SuccessRate {
+                test_name: "com.example.SingleTest.method".into(),
+                mean: value
+            }]
+        );
+    }
+    let select = if time {
+        "PERCENTILE(\"duration\",99.0)"
+    } else {
+        "MEAN(\"success\")"
+    };
+    assert_eq!(*client.commands.lock().unwrap(),vec![(format!("SELECT {select}\nFROM \"{policy}\".\"tests\"\nWHERE time >= '2019-08-24T08:25:09.219Z'\nGROUP BY \"testname\"").into(),"test".into())]);
+}
+mod influx_tests {
+    use super::*;
+    #[test]
+    fn should_return_actual_value_of_success_rate() {
+        run(influx_case(false, "rpMarathon"));
+    }
+    #[test]
+    fn should_return_actual_value_of_execution_time() {
+        run(influx_case(true, "rpMarathon"));
+    }
+}
+#[test]
+fn should_return_actual_value_of_success_rate_with_custom_retention_policy() {
+    run(influx_case(false, "blah"));
+}
+#[test]
+fn should_return_actual_value_of_execution_time_with_custom_retention_policy() {
+    run(influx_case(true, "blah"));
+}
+
+#[test]
+fn query_and_graphite_parser_jvm_rows() {
+    for line in include_str!("../../../fixtures/oracle/metrics/queries.jsonl").lines() {
+        let row: serde_json::Value = serde_json::from_str(line).unwrap();
+        match row["backend"].as_str().unwrap() {
+            "influx" => {
+                let source = InfluxDBDataSource {
+                    client: Arc::new(Influx {
+                        reply: QueryResult::default(),
+                        commands: Mutex::default(),
+                    }),
+                    database: "db".into(),
+                    retention_policy: row["policy"].as_str().unwrap().into(),
+                };
+                let expected = row["command"].as_str().unwrap();
+                let p = expected
+                    .contains("PERCENTILE")
+                    .then(|| jcompat::jnum::parse_double(row["p"].as_str().unwrap()).unwrap());
+                assert_eq!(
+                    source
+                        .command(p, parse_instant(row["limit"].as_str().unwrap()).unwrap())
+                        .to_string_lossy(),
+                    expected
+                );
+                assert_eq!(source.database.to_string_lossy(), row["database"].as_str().unwrap());
+            }
+            "flux" => {
+                let source = InfluxDB2DataSource {
+                    client: Arc::new(Flux),
+                    bucket: row["bucket"].as_str().unwrap().into(),
+                };
+                let expected = row["command"].as_str().unwrap();
+                let p = expected
+                    .contains("quantile")
+                    .then(|| jcompat::jnum::parse_double(row["p"].as_str().unwrap()).unwrap());
+                assert_eq!(
+                    source
+                        .command(p, parse_instant(row["limit"].as_str().unwrap()).unwrap())
+                        .to_string_lossy(),
+                    expected
+                );
+            }
+            "graphite" => {
+                let source = GraphiteDataSource {
+                    client: Arc::new(Graphite::default()),
+                    prefix: row["prefix"].as_str().map(str::to_owned),
+                };
+                let time = row["time"].as_bool().unwrap();
+                assert_eq!(source.target(time.then_some(99.9)), row["target"].as_str().unwrap());
+                match parse_line(row["line"].as_str().unwrap()) {
+                    Ok((name, value)) => {
+                        let value = if time { value } else { value / 100.0 };
+                        assert_eq!(name.to_string_lossy(), row["name"].as_str().unwrap());
+                        let bits = if value.is_nan() {
+                            f64::NAN.to_bits()
+                        } else {
+                            value.to_bits()
+                        };
+                        assert_eq!(format!("{bits:016x}"), row["bits"].as_str().unwrap());
+                        assert!(row["error"].is_null());
+                    }
+                    Err(marathon_core::error::OperationError::Failed(error)) => {
+                        assert_eq!(row["error"], error.class.to_string_lossy());
+                        assert_eq!(row["errorMessage"], error.message.unwrap().to_string_lossy());
+                    }
+                    Err(error) => panic!("unexpected parser error: {error:?}"),
+                }
+            }
+            _ => panic!("unknown row"),
+        }
+    }
+}
+#[test]
+fn influx_mapping_drops_nulls_filters_series_and_rejects_errors() {
+    let mut series = Series {
+        name: "tests".into(),
+        tags: BTreeMap::from([("testname".into(), "t".into())]),
+        columns: vec!["mean".into()],
+        values: vec![vec![Value::Null], vec![Value::Number(0.5)]],
+    };
+    let query = |s: Series| QueryResult {
+        error: None,
+        results: vec![StatementResult {
+            error: None,
+            series: vec![s],
+        }],
+    };
+    assert_eq!(
+        map_result(query(series.clone()), "mean").unwrap(),
+        vec![("t".into(), 0.5)]
+    );
+    series.name = "other".into();
+    assert!(map_result(query(series.clone()), "mean").unwrap().is_empty());
+    series.name = "tests".into();
+    series.tags.clear();
+    assert!(map_result(query(series), "mean").unwrap().is_empty());
+    assert!(
+        map_result(
+            QueryResult {
+                error: Some("bad".into()),
+                results: vec![]
+            },
+            "mean"
+        )
+        .is_err()
+    );
+    assert!(
+        map_result(
+            QueryResult {
+                error: None,
+                results: vec![StatementResult {
+                    error: Some("bad".into()),
+                    series: vec![]
+                }]
+            },
+            "mean"
+        )
+        .is_err()
+    );
+    assert!(
+        map_records(vec![BTreeMap::from([
+            ("testname".into(), Value::Text("t".into())),
+            ("_value".into(), Value::Null)
+        ])])
+        .unwrap()
+        .is_empty()
+    );
+    assert!(
+        map_records(vec![BTreeMap::from([
+            ("testname".into(), Value::Text("t".into())),
+            ("_value".into(), Value::Text("bad".into()))
+        ])])
+        .is_err()
+    );
+}
+
+#[test]
+fn one_bad_graphite_datapoint_fails_the_whole_query_and_is_cached_for_the_run() {
+    run(async {
+        for bad in ["None", "50,None"] {
+            let h = Harness::new();
+            let client = Arc::new(Graphite {
+                lines: vec![
+                    "pkg0--clazz0--method0,1,2,3|50".into(),
+                    format!("pkg1--clazz1--method1,1,2,3|{bad}"),
+                ],
+                ..Graphite::default()
+            });
+            let source = GraphiteDataSource {
+                client: client.clone(),
+                prefix: None,
+            };
+            let p = h.provider(Arc::new(source), 300000, None);
+            let test = &strategy_support::generate_tests(1)[0];
+            use marathon_core::wiring::MetricsProvider;
+            for _ in 0..2 {
+                assert_eq!(p.success_rate(test, limit()).await.unwrap(), 0.0);
+                assert_eq!(p.execution_time(test, 80.0, limit()).await.unwrap(), 300000.0);
+            }
+            assert_eq!(client.targets.lock().unwrap().len(), 6);
+            assert_eq!(h.logs.take().iter().filter(|e| e.logger == "Timings").count(), 2);
+        }
+    });
+}
+
+#[test]
+fn influx_server_errors_match_jvm_logged_causes_after_retries() {
+    use marathon_core::wiring::MetricsProvider;
+    run(async {
+        for line in include_str!("../../../fixtures/oracle/metrics/influx-errors.jsonl").lines() {
+            let row: serde_json::Value = serde_json::from_str(line).unwrap();
+            let error = Some(row["error"].as_str().unwrap().into());
+            let reply = if row["statement"].as_bool().unwrap() {
+                QueryResult {
+                    error: None,
+                    results: vec![StatementResult { error, series: vec![] }],
+                }
+            } else {
+                QueryResult { error, results: vec![] }
+            };
+            let client = Arc::new(Influx {
+                reply,
+                commands: Mutex::default(),
+            });
+            let source = InfluxDBDataSource {
+                client: client.clone(),
+                database: "db".into(),
+                retention_policy: "rp".into(),
+            };
+            let h = Harness::new();
+            let provider = h.provider(Arc::new(source), 300000, None);
+            let test = &strategy_support::generate_tests(1)[0];
+            let value = if row["time"].as_bool().unwrap() {
+                provider
+                    .execution_time(test, 80.0, strategy_support::limit())
+                    .await
+                    .unwrap()
+            } else {
+                provider.success_rate(test, strategy_support::limit()).await.unwrap()
+            };
+            assert_eq!(format!("{:016x}", value.to_bits()), row["bits"]);
+            assert_eq!(
+                client.commands.lock().unwrap().len(),
+                row["calls"].as_u64().unwrap() as usize
+            );
+            let events = h.logs.take();
+            let causes: Vec<_> = events.iter().filter_map(|e| e.cause.as_ref().map(|cause|
+                serde_json::json!({"logger": e.logger, "level": e.level.as_str(),
+                    "class": cause.class.to_string_lossy(), "message": cause.message.as_ref().unwrap().to_string_lossy()})
+            )).collect();
+            assert_eq!(causes, *row["causes"].as_array().unwrap());
+            let logs: Vec<_> = events
+                .iter()
+                .map(|e| {
+                    let mut message = e.message.to_string_lossy();
+                    if e.logger == "Timings" {
+                        message.truncate(message.rfind(" in ").unwrap());
+                        message.push_str(" in <ms> ms");
+                    }
+                    serde_json::json!([e.logger, e.level.as_str(), message])
+                })
+                .collect();
+            assert_eq!(logs, *row["logs"].as_array().unwrap());
+        }
+    });
+}

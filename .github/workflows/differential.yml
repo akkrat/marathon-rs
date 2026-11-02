@@ -1,0 +1,55 @@
+name: Differential milestone evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Use full for vendor milestones; harness-first is explicitly reduced'
+        type: choice
+        options: [full, harness-first]
+        default: full
+  push:
+    tags: ['**']
+
+permissions:
+  contents: read
+
+jobs:
+  paired:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: macos-arm64
+            labels: '["self-hosted", "macOS", "ARM64"]'
+          - profile: linux-x86_64
+            labels: '["self-hosted", "Linux", "X64"]'
+    # Provisioned milestone runners need the pinned read-only Kotlin source and JBR.
+    runs-on: ${{ fromJSON((matrix.profile == 'macos-arm64' && vars.MARATHON_DIFFERENTIAL_MACOS_RUNNER) || (matrix.profile == 'linux-x86_64' && vars.MARATHON_DIFFERENTIAL_LINUX_RUNNER) || matrix.labels) }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Paired milestone suite
+        shell: bash
+        env:
+          SELECTION: ${{ inputs.profile || 'full' }}
+          HOST_PROFILE: ${{ matrix.profile }}
+          MARATHON_KT: ${{ vars.MARATHON_KOTLIN_SOURCE }}
+          JAVA_HOME: ${{ vars.MARATHON_ORACLE_JAVA_HOME }}
+        run: |
+          export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH
+          if [[ -z "$MARATHON_KT" ]]; then unset MARATHON_KT; fi
+          if [[ -z "$JAVA_HOME" ]]; then unset JAVA_HOME; fi
+          profile="$HOST_PROFILE"
+          if [[ "$SELECTION" == harness-first ]]; then profile=harness-first; fi
+          tools/differential/run all --profile "$profile" --output tools/differential/runs/milestone
+      - name: Retain successes, pending coverage and mismatches
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: differential-${{ matrix.profile }}
+          path: tools/differential/runs/milestone
+          if-no-files-found: error
+          retention-days: 30

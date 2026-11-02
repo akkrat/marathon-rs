@@ -1,0 +1,375 @@
+//! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDeviceBatchTest.kt
+mod simulator_support;
+mod support;
+use marathon_apple::{
+    apple_device::AppleDevice,
+    cmd::{cancelled, failure},
+    test::TestRequest,
+    xcodebuild_session::XcodebuildSession,
+};
+use marathon_core::{
+    error::VendorError,
+    executor::shared::{SharedDeferred, Signal},
+    runtime::Deferred,
+    vendor::{Device, VendorContext},
+};
+use simulator_support::*;
+use std::sync::{Arc, atomic::Ordering};
+#[tokio::test(start_paused = true)]
+async fn batches_in_which_no_test_finished_take_the_simulator_out_of_the_pool() -> TestResult {
+    let h = Harness::new(|v| v.max_batches_without_progress = 3)?;
+    let (d, _) = prepared(&h).await?;
+    assert!(run(&h, &d).await.0.is_ok());
+    assert_eq!(run(&h, &d).await.1.unwrap().uncompleted.len(), 2);
+    assert!(!d.lost());
+    assert!(matches!(run(&h, &d).await.0, Err(VendorError::DeviceLost(_))));
+    assert!(d.lost());
+    d.dispose().await.unwrap();
+    assert!(!d.lost());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn by_default_batches_in_which_no_test_finished_keep_the_simulator() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, _) = prepared(&h).await?;
+    for _ in 0..5 {
+        assert!(run(&h, &d).await.0.is_ok());
+    }
+    assert!(!d.lost());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_batch_in_which_a_test_passed_or_failed_keeps_the_simulator() -> TestResult {
+    let h = Harness::new(|v| v.max_batches_without_progress = 3)?;
+    let (d, s) = prepared(&h).await?;
+    for _ in 0..2 {
+        assert!(run(&h, &d).await.0.is_ok());
+    }
+    s.output(failed(1));
+    assert_eq!(run(&h, &d).await.1.unwrap().failed.len(), 1);
+    s.output(vec![]);
+    for _ in 0..2 {
+        assert!(run(&h, &d).await.0.is_ok());
+    }
+    s.output(passed(2));
+    assert_eq!(run(&h, &d).await.1.unwrap().finished.len(), 1);
+    s.output(vec![]);
+    for _ in 0..2 {
+        assert!(run(&h, &d).await.0.is_ok());
+    }
+    assert!(run(&h, &d).await.0.is_err());
+    assert!(d.lost());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_failed_test_run_in_which_a_test_failed_is_progress() -> TestResult {
+    let h = Harness::new(|v| v.max_batches_without_progress = 3)?;
+    let (d, s) = prepared(&h).await?;
+    for _ in 0..2 {
+        assert!(run(&h, &d).await.0.is_ok());
+    }
+    let mut lines = failed(1);
+    lines.push("Test runner exited".into());
+    s.output(lines);
+    let (r, results) = run(&h, &d).await;
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(results.unwrap().failed.len(), 1);
+    s.output(vec![]);
+    for _ in 0..2 {
+        assert!(run(&h, &d).await.0.is_ok());
+    }
+    assert!(!d.lost());
+    assert!(run(&h, &d).await.0.is_err());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn batches_stopped_by_the_idle_timeout_before_any_test_finished_take_the_simulator_out_of_the_pool() -> TestResult
+{
+    let h = Harness::new(|v| v.max_batches_without_progress = 3)?;
+    let (d, s) = prepared(&h).await?;
+    *s.plan.lock().unwrap() = OutputPlan {
+        lines: vec!["Test Case '-[Suite test1]' started.".into()],
+        failure: Some(failure("java.util.concurrent.TimeoutException", "idle timeout reached")),
+        ..Default::default()
+    };
+    for _ in 0..2 {
+        let e = run(&h, &d).await.0.unwrap_err();
+        assert_eq!(
+            e.failure().class.to_string_lossy(),
+            "java.util.concurrent.TimeoutException"
+        );
+        assert!(!d.lost());
+    }
+    let e = run(&h, &d).await.0.unwrap_err();
+    assert!(matches!(e, VendorError::DeviceLost(_)));
+    assert!(
+        e.failure()
+            .stack_trace()
+            .to_string_lossy()
+            .contains("Suppressed: java.util.concurrent.TimeoutException")
+    );
+    assert!(d.lost());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_batch_doesn_t_lose_the_simulator() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    s.plan.lock().unwrap().hang = true;
+    let signal = Signal::new();
+    let op = run_with(
+        &h,
+        &d,
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    tokio::pin!(op);
+    tokio::select! {r=&mut op=>panic!("{r:?}"),_=s.opened.wait()=>{}}
+    signal.cancel(cancelled("caller"));
+    let (r, _) = op.await;
+    assert!(matches!(r, Err(VendorError::Cancelled(_))));
+    assert!(!d.lost());
+    assert!(!d.retired());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_device_level_failure_that_a_new_setup_can_fix_loses_the_simulator_for_its_recovery() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    s.output(vec!["CoreSimulatorService connection became invalid".into()]);
+    assert!(matches!(run(&h, &d).await.0, Err(VendorError::DeviceLost(_))));
+    assert!(d.lost());
+    assert!(!d.retired());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_dead_system_app_takes_the_simulator_out_without_a_recovery() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    s.output(vec!["Terminating since there is no system app".into()]);
+    assert!(run(&h, &d).await.0.is_err());
+    assert!(!d.lost());
+    assert!(d.retired());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_dead_system_app_takes_the_simulator_out_even_if_its_run_is_cancelled_before_it_ends() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    let gate = SharedDeferred::new();
+    *s.plan.lock().unwrap() = OutputPlan {
+        lines: vec!["Terminating since there is no system app".into()],
+        close_gate: Some(gate.clone()),
+        ..Default::default()
+    };
+    let signal = Signal::new();
+    let op = run_with(
+        &h,
+        &d,
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    tokio::pin!(op);
+    tokio::select! {r=&mut op=>panic!("{r:?}"),_=s.closing.wait()=>{}}
+    assert!(d.retired());
+    signal.cancel(cancelled("caller"));
+    gate.complete(Ok(()));
+    assert!(op.await.0.is_err());
+    assert!(d.retired());
+    assert!(!d.lost());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_simulator_lost_while_a_test_parsing_session_of_it_has_not_closed_is_taken_out_without_a_recovery()
+-> TestResult {
+    use marathon_config::vendor::{GrantLifecycle, IosPermission};
+    let h = Harness::new(|v| {
+        v.permissions.lifecycle = GrantLifecycle::BeforeEachBatch;
+        v.permissions.grant = vec![IosPermission::Calendar];
+    })?;
+    let (d, s) = prepared(&h).await?;
+    let gate = SharedDeferred::new();
+    *s.plan.lock().unwrap() = OutputPlan {
+        lines: vec!["Test runner exited".into()],
+        close_gate: Some(gate.clone()),
+        ..Default::default()
+    };
+    let parsing = XcodebuildSession::new(h.services.runtime.clone(), h.services.logging.clone());
+    let events = d
+        .execute_test_request(
+            TestRequest::new("/tmp/marathon", "/tmp/marathon/parse.xctestrun", false),
+            parsing.clone(),
+            &h.services.context,
+        )
+        .await
+        .unwrap();
+    events.receive(&h.services.context).await.unwrap();
+    assert!(parsing.stop(support::duration(20), &h.services.context).await.is_some());
+    let boot = h.boot.clone();
+    *h.worker.before.lock().unwrap() = Arc::new(move |c| {
+        if c.get(2).is_some_and(|s| s == "privacy") {
+            return Box::pin(async {
+                Err(VendorError::Other(
+                    marathon_test_support::apple::fake_simulator_worker::connection_exception("channel open failed"),
+                ))
+            });
+        }
+        let a = boot.answer(&c);
+        Box::pin(async move { Ok(a) })
+    });
+    assert!(run(&h, &d).await.0.is_err());
+    assert!(d.retired());
+    assert!(!d.lost());
+    gate.complete(Ok(()));
+    parsing.join_producer().await.unwrap();
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_simulator_whose_xcodebuild_session_doesn_t_close_is_taken_out_without_a_recovery() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    let gate = SharedDeferred::new();
+    s.plan.lock().unwrap().close_gate = Some(gate.clone());
+    assert!(run(&h, &d).await.0.is_err());
+    assert!(d.retired());
+    assert!(!d.lost());
+    gate.complete(Ok(()));
+    assert!(
+        d.await_session_closed(support::duration(1000), &h.services.context)
+            .await
+            .unwrap()
+    );
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_simulator_waits_for_a_batch_only_between_its_batches_while_it_is_in_the_pool() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    assert!(d.waiting_since().is_none());
+    s.output(passed(1));
+    assert!(run(&h, &d).await.0.is_ok());
+    assert!(d.waiting_since().is_some());
+    s.plan.lock().unwrap().hang = true;
+    let signal = Signal::new();
+    let op = run_with(
+        &h,
+        &d,
+        VendorContext {
+            cancellation: signal.clone(),
+            ..h.services.context.clone()
+        },
+    );
+    tokio::pin!(op);
+    assert!(futures_util::poll!(op.as_mut()).is_pending());
+    assert!(d.waiting_since().is_none());
+    signal.cancel(cancelled("done"));
+    assert!(op.await.0.is_err());
+    assert!(d.waiting_since().is_some());
+    d.dispose().await.unwrap();
+    assert!(d.waiting_since().is_none());
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_disposed_simulator_is_not_lost() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    d.dispose().await.unwrap();
+    assert!(matches!(run(&h, &d).await.0, Err(VendorError::DeviceLost(_))));
+    assert!(!d.lost());
+    assert_eq!(s.count.load(Ordering::SeqCst), 0);
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test]
+async fn a_wedged_batch_that_keeps_writing_output_ends_at_the_batch_timeout() -> TestResult {
+    use marathon_apple::cmd::{CommandExecutor, CommandHost, CommandRequest, CommandSession};
+    use marathon_core::runtime::VendorFuture;
+    use std::sync::Mutex;
+    struct Worker {
+        fake: Arc<marathon_test_support::apple::FakeSimulatorWorker>,
+        process: marathon_apple::cmd::local::KotlinProcessCommandExecutor,
+        timeouts: Mutex<Vec<i64>>,
+    }
+    impl CommandExecutor for Worker {
+        fn host(&self) -> &CommandHost {
+            self.fake.host()
+        }
+        fn logger(&self) -> &jcompat::logging::Logger {
+            self.fake.logger()
+        }
+        fn connected(&self) -> bool {
+            self.fake.connected()
+        }
+        fn log_error(&self, text: String) {
+            self.fake.log_error(text)
+        }
+        fn close(&self) -> VendorFuture<'_, ()> {
+            self.process.close()
+        }
+        fn execute(&self, mut request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession> {
+            if request.command.get(2).is_some_and(|s| s == "test-without-building") {
+                self.timeouts.lock().unwrap().push(request.timeout.to_millis().unwrap());
+                request.workdir = None;
+                request.command = vec![
+                    "sh".into(),
+                    "-c".into(),
+                    "while true; do echo still running; sleep 0.05; done".into(),
+                ];
+                self.process.execute(request, context)
+            } else {
+                self.fake.execute(request, context)
+            }
+        }
+    }
+    let mut h = Harness::new(|_| {})?;
+    Arc::make_mut(&mut h.services.configuration).test_batch_timeout_millis = 1000;
+    Arc::make_mut(&mut h.services.configuration).test_output_timeout_millis = 600_000;
+    let logging = h.services.logging.clone();
+    let worker = Arc::new(Worker {
+        fake: h.worker.clone(),
+        process: marathon_apple::cmd::local::KotlinProcessCommandExecutor::new(
+            Arc::new(support::Runtime),
+            logging.registry.clone(),
+            move |logger, message| (logging.sink)(logger, jcompat::logging::Level::Error, message, None),
+            false,
+            128,
+        ),
+        timeouts: Mutex::default(),
+    });
+    let d = h
+        .device_on(
+            worker.clone(),
+            "a",
+            Arc::new(
+                marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                    marathon_config::devices::Transport::Local,
+                    h.clock.clone(),
+                ),
+            ),
+        )
+        .await?;
+    h.prepare(&d).await.unwrap();
+    let (r, result) = support::bounded(20, run(&h, &d)).await;
+    assert!(r.is_ok(), "{r:?}");
+    assert_eq!(result.unwrap().uncompleted.len(), 2);
+    assert_eq!(*worker.timeouts.lock().unwrap(), [1000]);
+    h.finish(&[d]).await;
+    worker.close().await.unwrap();
+    Ok(())
+}

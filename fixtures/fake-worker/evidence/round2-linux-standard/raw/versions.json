@@ -1,0 +1,18 @@
+{
+  "rsync": {
+    "output": "rsync  version 3.4.1  protocol version 32\nCopyright (C) 1996-2025 by Andrew Tridgell, Wayne Davison, and others.\nWeb site: https://rsync.samba.org/\nCapabilities:\n    64-bit files, 64-bit inums, 64-bit timestamps, 64-bit long ints,\n    socketpairs, symlinks, symtimes, hardlinks, hardlink-specials,\n    hardlink-symlinks, IPv6, atimes, batchfiles, inplace, append, ACLs,\n    xattrs, optional secluded-args, iconv, prealloc, stop-at, no crtimes\nOptimizations:\n    SIMD-roll, no asm-roll, openssl-crypto, no asm-MD5\nChecksum list:\n    xxh128 xxh3 xxh64 (xxhash) md5 md4 sha1 none\nCompress list:\n    zstd lz4 zlibx zlib none\nDaemon auth list:\n    sha512 sha256 sha1 md5 md4\n\nrsync comes with ABSOLUTELY NO WARRANTY.  This is free software, and you\nare welcome to redistribute it under certain conditions.  See the GNU\nGeneral Public Licence for details.\n",
+    "binary_sha256": "92faeb9388dc94801b6af10160f09f553dbdfe72952a90d11b686c2814b54831"
+  },
+  "ssh": {
+    "output": "OpenSSH_10.2p1 Ubuntu-2ubuntu3.8, OpenSSL 3.5.5 27 Jan 2026\n",
+    "binary_sha256": "af809334cc71603f0e27a53e2234e15bd3c36503b3af7d367d103d2db2ffc15f"
+  },
+  "sshpass": {
+    "output": "sshpass 1.10\n(C) 2006-2011 Lingnu Open Source Consulting Ltd.\n(C) 2015-2016, 2021-2022 Shachar Shemesh\nThis program is free software, and can be distributed under the terms of the GPL\nSee the COPYING file for more information.\n\nUsing \"assword\" as the default password prompt indicator.\n",
+    "binary_sha256": "76651951e37af6c5fd830500ef935f9eef86e765d29645912ffd3aa0236c3396"
+  },
+  "java": {
+    "output": "openjdk version \"21.0.12.1\" 2026-08-18\nOpenJDK Runtime Environment (build 21.0.12.1+1-1-26.04.4-Ubuntu)\nOpenJDK 64-Bit Server VM (build 21.0.12.1+1-1-26.04.4-Ubuntu, mixed mode, sharing)\n",
+    "binary_sha256": "af14efcaa70a4bfd214159034f6c13c93a1099d90315f57f711c01dcbfdd111c"
+  }
+}

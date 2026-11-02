@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""Run the WP 6.6a Android request, argument, listener and lifecycle probes with the reference JDK, the Kotlin 1.9.24 compiler from the Gradle cache
+and the jars of Kotlin marathon's built CLI distribution (adam 0.5.8, vert.x 4.4.6, netty 4.1.100,
+kotlinx-coroutines 1.8.1). The distribution is used read-only. Prints the JSONL rows of
+fixtures/oracle/android-runner-probes.jsonl."""
+import json
+import os
+import re
+from pathlib import Path
+import subprocess
+import tempfile
+
+cache = Path.home() / '.gradle/caches/modules-2/files-2.1'
+
+
+def jar(group, artifact, version):
+    return next((cache / group / artifact / version).glob('*/' + artifact + '-' + version + '.jar'))
+
+
+compiler = [jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-stdlib', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),
+            jar('org.jetbrains.intellij.deps', 'trove4j', '1.0.20200330'),
+            jar('org.jetbrains', 'annotations', '13.0')]
+lib = Path(os.environ.get('MARATHON_KT', os.path.expanduser('~/src/marathon'))) / 'cli/build/install/marathon/lib'
+runtime = sorted(lib.glob('*.jar'))
+java = str(Path(os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')) / 'bin/java')
+source = Path(__file__).with_name(os.environ.get('PROBE_SOURCE', 'AndroidRunnerProbe.kt'))
+with tempfile.TemporaryDirectory(prefix='android-runner-probes-') as tmp:
+    out = str(Path(tmp) / 'probe.jar')
+    subprocess.run([java, '-cp', os.pathsep.join(map(str, compiler)),
+                    'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-nowarn',
+                    '-cp', os.pathsep.join(map(str, runtime)), '-d', out, str(source)], check=True)
+    home = Path(tmp) / 'home'; home.mkdir()
+    temp = Path(tmp) / 'tmp'; temp.mkdir()
+    env = dict(os.environ, HOME=str(home), TMPDIR=str(temp), ANDROID_HOME=str(home / 'sdk'), ANDROID_SDK_ROOT=str(home / 'sdk'))
+    run = subprocess.run([java, '-Duser.home=' + str(home), '-Djava.io.tmpdir=' + str(temp), '-cp', os.pathsep.join([out] + list(map(str, runtime))), source.stem + 'Kt'],
+                         check=False, stdout=subprocess.PIPE, text=True, timeout=50, env=env)
+    # logback's default console appender shares stdout with the rows; its lines become rows too, without
+    # the timestamp and thread.
+    for line in run.stdout.splitlines():
+        log = re.match(r'^\S+ \[[^]]*\] (\w+)\s+(\S+) - (.*)$', line)
+        if log:
+            print(json.dumps({'case': 'log:' + log[2], 'value': log[1] + ' ' + re.sub(r'127.0.0.1:\d+', '127.0.0.1:PORT', log[3])}))
+        elif line.startswith('{'):
+            print(line)
+
+    if run.returncode: raise SystemExit(run.returncode)

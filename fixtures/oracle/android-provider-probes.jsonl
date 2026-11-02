@@ -1,0 +1,16 @@
+{"case":"version:1:REL","value":"1|null|1|1|false"}
+{"case":"version:18:Preview","value":"18|Preview|19|Preview|false"}
+{"case":"version:33:REL","value":"33|null|33|33|true"}
+{"case":"version:33:UpsideDownCake","value":"33|UpsideDownCake|34|UpsideDownCake|true"}
+{"case":"version:34:","value":"34|null|34|34|true"}
+{"case":"version:34: REL ","value":"34|null|34|34|true"}
+{"case":"logcat-chunk-lines","value":"hel|lo|"}
+{"case":"version:default","value":"1|null|1|1"}
+{"case":"address:127.0.0.1","value":"127.0.0.1"}
+{"case":"address:::1","value":"0:0:0:0:0:0:0:1"}
+{"case":"address:2001:db8::a:0:1","value":"2001:db8:0:0:0:a:0:1"}
+{"case":"address:::ffff:10.0.0.1","value":"10.0.0.1"}
+{"case":"address:localhost","value":"127.0.0.1"}
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Android Debug Bridge /127.0.0.1:PORT: version 41"}
+{"case": "log:AdamDeviceProvider", "value": "ERROR CoroutineContext closing due to unrecoverable error"}
+{"case":"track-eof","value":"completed=true|cancelled=true|subscriptions=1"}

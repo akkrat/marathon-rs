@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Runs a command of the oracle tools that tools/oracle/build.sh builds (see tools/oracle/README.md).
+set -euo pipefail
+ORACLE_DIR=$(cd "$(dirname "$0")" && pwd)
+export JAVA_HOME=${JAVA_HOME:-"/Applications/Android Studio.app/Contents/jbr/Contents/Home"}
+case "${ORACLE_SOURCE_SHA:-e47352f25cbc50333900d5d040a5544ff1224501}" in
+    e47352f25cbc50333900d5d040a5544ff1224501) BUILD="$ORACLE_DIR/build" ;;
+    c95b212882c7ba7b1ad91b7981916ed175f1530e) BUILD="$ORACLE_DIR/build-$ORACLE_SOURCE_SHA" ;;
+    *) echo "error: unsupported ORACLE_SOURCE_SHA" >&2; exit 2 ;;
+esac
+BIN="$BUILD/marathon-src/oracle-build/install/oracle/bin/oracle"
+if [[ ! -x "$BIN" ]]; then
+    echo "error: $BIN is missing; run tools/oracle/build.sh first" >&2
+    exit 1
+fi
+exec "$BIN" "$@"

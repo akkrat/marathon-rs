@@ -1,0 +1,65 @@
+22:50:56.094 [main] INFO  c.m.marathon.cli.ApplicationView - Starting marathon v0.10.1, CliConfiguration: MarathonRunCommandCliConfiguration(marathonfile=@IN@/Marathonfile, analyticsTracking=true, bugsnagReporting=true)
+22:50:56.094 [main] INFO  c.m.marathon.cli.ApplicationView - Checking @IN@/Marathonfile config
+22:50:56.096 [main] INFO  c.m.marathon.cli.ApplicationView - Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> System Information:
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> os.name: macos
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> os.version: 27.0.0
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> os.arch: aarch64
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> available.processors: 18
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> marathon.version: 0.10.1
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> user.dir: /private@IN@
+I 22:50:56.101 [marathon-vendor] <com.malinskiy.marathon.Marathon> user.home: /var/folders/hg/r4_4rjxj2pz895p_vx99jwhc0000gn/T/mrs66-cli-k924mypv/home
+D 22:50:56.101 [marathon-vendor] <AdamDeviceProvider> Android Debug Bridge /127.0.0.1:PORT: version 41
+I 22:50:56.102 [marathon-vendor] <Timings> Device provider initialized in 1 ms (+3 ms since start)
+D 22:50:56.102 [marathon-vendor] <AdamDeviceProvider> Device emulator-5554 changed state to CONNECTED
+D 22:50:56.103 [marathon-vendor] <AndroidDevice> Device 127.0.0.1:PORT:emulator-5554 booted!
+D 22:50:56.306 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Parsing bundle(s):
+- testPackage: com.example.test
+  targetPackage: com.example
+D 22:50:56.306 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:50:56.307 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:50:56.410 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:50:56.410 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:50:56.410 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:50:56.625 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:50:56.625 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+I 22:50:56.625 [marathon-vendor] <Timings> Parsed 1 tests in 320 ms on 127.0.0.1:PORT:emulator-5554, which took 203 ms to become available (+526 ms since start)
+D 22:50:56.625 [marathon-vendor] <com.malinskiy.marathon.Marathon> Parsing took 524 ms
+I 22:50:56.626 [marathon-vendor] <Timings> Prepared the shard of 1 tests and the analytics history it uses in 0 ms (+527 ms since start)
+D 22:50:56.626 [marathon-vendor] <com.malinskiy.marathon.Marathon> com.example.MainActivityTest#testText
+I 22:50:56.626 [marathon-vendor] <Timings> Scheduling 1 tests (+527 ms since start)
+D 22:50:56.626 [marathon-vendor] <Scheduler> device 127.0.0.1:PORT:emulator-5554 associated with poolId omni
+D 22:50:56.626 [marathon-vendor] <Scheduler> pool actor omni is being created
+D 22:50:56.626 [marathon-vendor] <DevicePoolActor[omni]> add device 127.0.0.1:PORT:emulator-5554
+D 22:50:56.626 [marathon-vendor] <D.0.0.1:PORT:emulator-5554]> initialize 127.0.0.1:PORT:emulator-5554
+D 22:50:56.627 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:50:56.627 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:50:56.705 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:50:56.705 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:50:56.706 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:50:56.918 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:50:56.918 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:50:56.919 [marathon-vendor] <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT:emulator-5554
+D 22:50:56.919 [marathon-vendor] <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT:emulator-5554
+D 22:50:56.919 [marathon-vendor] <D.0.0.1:PORT:emulator-5554]> executeBatch 127.0.0.1:PORT:emulator-5554
+D 22:50:56.919 [marathon-vendor] <AndroidDeviceTestRunner> tests = [com.example.MainActivityTest#testText]
+D 22:50:56.919 [marathon-vendor] <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.MainActivityTest#testText com.example.test/androidx.test.runner.AndroidJUnitRunner
+I 22:50:56.920 [marathon-vendor] <DebugTestRunListener> testRunStarted 127.0.0.1:PORT:emulator-5554
+I 22:50:56.920 [marathon-vendor] <DebugTestRunListener> testStarted 127.0.0.1:PORT:emulator-5554 test = TestIdentifier(className=com.example.MainActivityTest, testName=testText)
+I 22:50:56.920 [marathon-vendor] <DebugTestRunListener> testEnded 127.0.0.1:PORT:emulator-5554 test = TestIdentifier(className=com.example.MainActivityTest, testName=testText)
+I 22:50:56.920 [marathon-vendor] <DebugTestRunListener> testRunEnded elapsedTime 0
+D 22:50:56.920 [marathon-vendor] <AndroidDeviceTestRunner> Execution finished
+D 22:50:56.920 [marathon-vendor] <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT:emulator-5554
+00% | [omni]-[127.0.0.1:PORT:emulator-5554] com.example.MainActivityTest#testText passed
+D 22:50:56.921 [marathon-vendor] <DevicePoolActor[omni]> pool DevicePoolId(name=omni): onQueueTerminated
+D 22:50:56.921 [marathon-vendor] <DevicePoolActor[omni]> terminate pool DevicePoolId(name=omni)
+D 22:50:56.921 [marathon-vendor] <D.0.0.1:PORT:emulator-5554]> terminate 127.0.0.1:PORT:emulator-5554
+Allure environment data saved.
+Marathon run finished:
+Device pool omni:
+	1 passed, 0 failed, 0 ignored tests
+	Flakiness overhead: 0s
+	Raw: 1 passed, 0 failed, 0 ignored, 0 incomplete tests
+Total time: 0H 00m 00s
+
+Marathon execution finished

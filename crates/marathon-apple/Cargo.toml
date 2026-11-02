@@ -1,0 +1,48 @@
+[package]
+name = "marathon-apple"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+# `src/bin/` is the port of the Kotlin `apple.bin` package, not binary targets.
+autobins = false
+
+[lints]
+workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+jcompat = { path = "../jcompat" }
+marathon-config = { path = "../marathon-config" }
+marathon-core = { path = "../marathon-core" }
+# The prefix-separator guard and the temp-prefix oracle rely on 3.27.0 naming.
+tempfile = "=3.27.0"
+tokio = { version = "=1.53.2", features = ["process", "io-util", "sync", "rt", "macros", "net", "fs"] }
+nix = { version = "0.30", features = ["signal", "fs", "socket", "net", "poll"] }
+# Binary reading only; XML reading is plist::reader (the crate's XML reader drops
+# CDATA) and the byte-exact XML writer is our own (plist::writer, PLAN §4.2).
+plist = "=1.10.3"
+quick-xml = "=0.42.0"
+russh = "=0.64.1"
+log = "0.4"
+indexmap = "2"
+base64 = "0.22"
+hmac = "0.13"
+sha1 = "0.11"
+md5 = "0.8"
+serde = "=1.0.229"
+serde_json = { version = "=1.0.154", features = ["raw_value"] }
+
+[dev-dependencies]
+marathon-test-support = { path = "../marathon-test-support" }
+# Runs the test-support fakes (FakeCommandExecutor) in this crate's own tests.
+marathon-apple = { path = ".", features = ["test-support"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "test-util", "time"] }
+tempfile = "=3.27.0"
+sha2 = "=0.10.9"
+# Inflating individual entries of fixtures/bundles/{ios,macos}.zip in tests.
+flate2 = "=1.1.10"
+fake-worker = { path = "../../tools/fake-worker" }
+rand = "0.10"

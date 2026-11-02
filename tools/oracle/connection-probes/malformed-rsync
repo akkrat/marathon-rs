@@ -1,0 +1,3 @@
+#!/bin/sh
+printf '\355\240\200\rline' >&2
+exit 23

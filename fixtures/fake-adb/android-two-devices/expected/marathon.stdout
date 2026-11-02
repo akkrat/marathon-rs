@@ -1,0 +1,106 @@
+<time> [main] INFO  c.m.marathon.cli.ApplicationView - Starting marathon v0.10.1, CliConfiguration: MarathonRunCommandCliConfiguration(marathonfile=@RUN@/in/Marathonfile, analyticsTracking=true, bugsnagReporting=true)
+<time> [main] INFO  c.m.marathon.cli.ApplicationView - Checking @RUN@/in/Marathonfile config
+<time> [main] INFO  c.m.m.e.NoopExceptionsReporter - Noop exceptions reporter started
+I <time> [main] <com.malinskiy.marathon.Marathon> System Information:
+I <time> [main] <com.malinskiy.marathon.Marathon> java.specification.version: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.class.path: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.vendor: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vendor.url: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.specification.version: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> os.name: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.specification.vendor: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.version.date: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.home: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.compressedOopsMode: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.specification.vendor: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.specification.name: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.runtime.version: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> os.version: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.runtime.name: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.name: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vendor.url.bug: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.io.tmpdir: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.version: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> os.arch: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.specification.name: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.library.path: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.info: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vendor: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.vm.version: <value>
+I <time> [main] <com.malinskiy.marathon.Marathon> java.class.version: <value>
+D <time> [main] <AdamDeviceProvider> Android Debug Bridge /127.0.0.1:@PORT@: version 41
+I <time> [main] <Timings> Device provider initialized in <n> ms (+<n> ms since start)
+D <time> [DeviceMonitor-4] <AdamDeviceProvider> Device device-2 changed state to CONNECTED
+D <time> [DeviceMonitor-4] <AdamDeviceProvider> Device device-1 changed state to CONNECTED
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-1] <AndroidDevice> Device 127.0.0.1:@PORT@:device-2 booted!
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <AndroidDevice> Device 127.0.0.1:@PORT@:device-1 booted!
+I <time> [main] <Timings> Parsed 36 tests in <n> ms (+<n> ms since start)
+D <time> [main] <com.malinskiy.marathon.Marathon> Parsing took <n> ms
+I <time> [main] <Timings> Prepared the shard of 3 tests and the analytics history it uses in <n> ms (+<n> ms since start)
+D <time> [main] <com.malinskiy.marathon.Marathon> com.example.ClassIgnoredTest#testAlwaysIgnored, com.example.MainActivityAllureTest#testFailure, com.example.MainActivityTest#testText
+I <time> [main] <Timings> Scheduling 3 tests (+<n> ms since start)
+D <time> [main] <Scheduler> device 127.0.0.1:@PORT@:device-2 associated with poolId omni
+D <time> [main] <Scheduler> pool actor omni is being created
+D <time> [main] <Scheduler> device 127.0.0.1:@PORT@:device-1 associated with poolId omni
+D <time> [main] <DevicePoolActor[omni]> add device 127.0.0.1:@PORT@:device-2
+D <time> [main] <DevicePoolActor[omni]> add device 127.0.0.1:@PORT@:device-1
+D <time> [main] <D.0.0.1:@PORT@:device-2]> initialize 127.0.0.1:@PORT@:device-2
+D <time> [main] <D.0.0.1:@PORT@:device-1]> initialize 127.0.0.1:@PORT@:device-1
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-2] <AndroidAppInstaller> Installing application output to 127.0.0.1:@PORT@:device-2
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <AndroidAppInstaller> Installing application output to 127.0.0.1:@PORT@:device-1
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <AndroidAppInstaller> Installing com.example, @RUN@/in/app-debug.apk to 127.0.0.1:@PORT@:device-1
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-2] <AndroidAppInstaller> Installing com.example, @RUN@/in/app-debug.apk to 127.0.0.1:@PORT@:device-2
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <AndroidAppInstaller> Success
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-2] <AndroidAppInstaller> Success
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-2] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:@PORT@:device-2
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:@PORT@:device-1
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <AndroidAppInstaller> Installing com.example.test, @RUN@/in/app-debug-androidTest.apk to 127.0.0.1:@PORT@:device-1
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-1] <AndroidAppInstaller> Installing com.example.test, @RUN@/in/app-debug-androidTest.apk to 127.0.0.1:@PORT@:device-2
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-1] <AndroidAppInstaller> Success
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <AndroidAppInstaller> Success
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:@PORT@:device-1
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-2-1] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:@PORT@:device-2
+D <time> [main] <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:@PORT@:device-1
+D <time> [main] <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:@PORT@:device-1
+D <time> [main] <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:@PORT@:device-2
+D <time> [main] <QueueActor[DevicePoolId(name=omni)]> queue is empty but there are active batches present for 127.0.0.1:@PORT@:device-1
+D <time> [main] <D.0.0.1:@PORT@:device-1]> executeBatch 127.0.0.1:@PORT@:device-1
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <AndroidDeviceTestRunner> tests = [com.example.MainActivityTest#testText, com.example.MainActivityAllureTest#testFailure]
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <DebugTestRunListener> testStarted 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.ClassIgnoredTest, testName=testAlwaysIgnored)
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <DebugTestRunListener> testIgnored 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.ClassIgnoredTest, testName=testAlwaysIgnored)
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <DebugTestRunListener> testEnded 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.ClassIgnoredTest, testName=testAlwaysIgnored)
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.MainActivityTest#testText,com.example.MainActivityAllureTest#testFailure com.example.test/androidx.test.runner.AndroidJUnitRunner
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <DebugTestRunListener> testRunStarted 127.0.0.1:@PORT@:device-1
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <DebugTestRunListener> testStarted 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.MainActivityTest, testName=testText)
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <DebugTestRunListener> testEnded 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.MainActivityTest, testName=testText)
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <DebugTestRunListener> testStarted 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.MainActivityAllureTest, testName=testFailure)
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <DebugTestRunListener> testFailed 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.MainActivityAllureTest, testName=testFailure) trace = java.lang.AssertionError: expected:<1> but was:<2>
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:647)
+	at com.example.MainActivityAllureTest.testFailure(MainActivityAllureTest.kt:30)
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <DebugTestRunListener> testEnded 127.0.0.1:@PORT@:device-1 test = TestIdentifier(className=com.example.MainActivityAllureTest, testName=testFailure)
+I <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-1] <DebugTestRunListener> testRunEnded elapsedTime 1500
+D <time> [AndroidDevice - execution - 127.0.0.1:@PORT@:device-1-2] <AndroidDeviceTestRunner> Execution finished
+D <time> [main] <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:@PORT@:device-1
+00% | [omni]-[127.0.0.1:@PORT@:device-1] com.example.ClassIgnoredTest#testAlwaysIgnored ignored
+33% | [omni]-[127.0.0.1:@PORT@:device-1] com.example.MainActivityTest#testText passed
+D <time> [main] <QueueActor[DevicePoolId(name=omni)]> handle failed tests 127.0.0.1:@PORT@:device-1
+67% | [omni]-[127.0.0.1:@PORT@:device-1] com.example.MainActivityAllureTest#testFailure failed
+D <time> [main] <DevicePoolActor[omni]> pool DevicePoolId(name=omni): onQueueTerminated
+D <time> [main] <DevicePoolActor[omni]> terminate pool DevicePoolId(name=omni)
+D <time> [main] <D.0.0.1:@PORT@:device-2]> terminate 127.0.0.1:@PORT@:device-2
+D <time> [main] <D.0.0.1:@PORT@:device-1]> terminate 127.0.0.1:@PORT@:device-1
+Allure environment data saved.
+Marathon run finished:
+Device pool omni:
+	1 passed, 1 failed, 1 ignored tests
+	Failed tests:
+		com.example.MainActivityAllureTest#testFailure
+	Flakiness overhead: 0s
+	Raw: 1 passed, 1 failed, 1 ignored, 0 incomplete tests
+	Failed tests:
+		com.example.MainActivityAllureTest#testFailure failed 1 time(s)
+Total time: <duration>
+
+I <time> [main] <c.m.m.exceptions.NoopExceptionsReporter> Noop exceptions reporter finished

@@ -1,0 +1,306 @@
+//! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/XCTestParserTest.kt
+#[path = "support/parser.rs"]
+mod parser_support;
+#[path = "support/runner_device.rs"]
+mod runner_device;
+mod support;
+#[path = "support/test_root_device.rs"]
+mod test_root_device;
+use marathon_apple::{
+    apple_application_installer::AppleApplicationInstaller,
+    apple_test_bundle_identifier::AppleTestBundleIdentifier,
+    cmd::cancelled,
+    model::Sdk,
+    test::TestEvent,
+    xctest_parser::{XCTestParser, embedded_dylib},
+};
+use marathon_core::{
+    error::VendorError,
+    model::Test,
+    vendor::{Device, TestBundleIdentifier},
+};
+use runner_device::{Plan, RunnerDevice};
+use std::sync::Arc;
+use test_root_device::{Fake, TestResult, prepare, v};
+fn test() -> Test {
+    Test {
+        pkg: "Tests".into(),
+        clazz: "SampleTests".into(),
+        method: "testSample".into(),
+        meta_properties: vec![],
+    }
+}
+async fn parse(timeout: bool, cancel: bool) -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let c = parser_support::input(false, false);
+    prepare(tmp.path(), &c)?;
+    let inner = Fake::new(c.clone(), tmp.path());
+    let bundle = parser_support::bundle(&inner, &c).await?;
+    let logging = inner.logging.clone();
+    let device = RunnerDevice::new(inner, logging.clone());
+    *device.plan.lock().unwrap() = Plan {
+        events: vec![vec![
+            TestEvent::TestStarted { id: test() },
+            TestEvent::TestStarted { id: test() },
+            TestEvent::TestRunFailed {
+                message: "ignored".into(),
+                reason: marathon_apple::logparser::parser::DeviceFailureReason::Unknown,
+            },
+        ]],
+        wait_close: true,
+        output_failure: cancel.then(|| VendorError::Cancelled(cancelled("parse cancelled"))),
+        ..Default::default()
+    };
+    let config = Arc::new(parser_support::configuration(&c, tmp.path())?);
+    let identifier = Arc::new(AppleTestBundleIdentifier::default());
+    let runtime = Arc::new(support::Runtime);
+    let installer = AppleApplicationInstaller::new(&config, runtime.clone(), logging.clone());
+    let mut parser = XCTestParser::new(
+        config.clone(),
+        Arc::default(),
+        identifier.clone(),
+        installer,
+        runtime,
+        logging,
+    );
+    parser.session_close_timeout = support::duration(200);
+    let ctx = support::context();
+    let collect = parser.collect_tests(&device, bundle.clone(), &ctx);
+    tokio::pin!(collect);
+    tokio::select! {result=&mut collect=>panic!("returned before close {result:?}"),_=device.closing.notified()=>()};
+    if !timeout {
+        device.release.notify_one();
+    }
+    let tests = v(collect.await)?;
+    device.calls.lock().unwrap().push("parsed".into());
+    let calls = device.calls.lock().unwrap().clone();
+    let session = device.session.lock().unwrap().clone().unwrap();
+    let was_closed = session.closed();
+    let abandoned = session.abandoned();
+    v(device.dispose().await)?;
+    assert_eq!(tests.len(), 1);
+    assert_eq!(tests[0].method, test().method);
+    assert_eq!(
+        tests[0].pkg,
+        jcompat::writers::JavaString::from(bundle.test_bundle_id())
+    );
+    assert!(identifier.identify(&tests[0]).is_ok());
+    assert_eq!(was_closed, !timeout);
+    assert_eq!(abandoned, timeout);
+    assert!(session.closed());
+    assert_eq!(
+        calls,
+        if timeout {
+            vec!["add listener", "remove listener", "parsed"]
+        } else {
+            vec!["add listener", "closed", "remove listener", "parsed"]
+        }
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn parsing_ends_only_after_its_xcodebuild_session_has_closed() -> TestResult {
+    parse(false, false).await
+}
+#[tokio::test]
+async fn parsing_keeps_its_tests_when_its_xcodebuild_session_does_not_close_in_time() -> TestResult {
+    parse(true, false).await
+}
+#[tokio::test]
+async fn cancellation_is_swallowed_and_partial_tests_are_registered() -> TestResult {
+    parse(false, true).await
+}
+#[test]
+fn embedded_dylibs_match_upstream_digests() {
+    use sha2::{Digest, Sha256};
+    let provenance = include_str!("../resources/libxctest-parser/PROVENANCE.md");
+    for sdk in [
+        Sdk::IphoneSimulator,
+        Sdk::Macos,
+        Sdk::TvSimulator,
+        Sdk::WatchSimulator,
+        Sdk::VisionSimulator,
+    ] {
+        let digest = format!("{:x}", Sha256::digest(embedded_dylib(sdk).unwrap()));
+        assert!(provenance.contains(&format!("`{}`: `{digest}`", sdk.platform_name())));
+    }
+    for sdk in [Sdk::Iphoneos, Sdk::Tv, Sdk::Watch, Sdk::Vision] {
+        assert!(embedded_dylib(sdk).is_none());
+    }
+}
+#[tokio::test]
+async fn identifier_ignores_metadata_overwrites_and_preserves_identity() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let c = parser_support::input(false, false);
+    prepare(tmp.path(), &c)?;
+    let device = Fake::new(c.clone(), tmp.path());
+    let first = parser_support::bundle(&device, &c).await?;
+    let second = parser_support::bundle(&device, &c).await?;
+    let identifier = AppleTestBundleIdentifier::default();
+    let test = test();
+    assert!(identifier.identify(&test).is_err());
+    identifier.put(test.clone(), first.clone());
+    let before = v(identifier.identify(&test))?.unwrap();
+    identifier.put(test.clone(), second.clone());
+    let after = v(identifier.identify(&test))?.unwrap();
+    assert!(before != after);
+    assert!(Arc::ptr_eq(&v(identifier.bundle(&test))?, &second));
+    v(device.dispose().await)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn full_extract_pushes_embedded_bytes_cleans_temp_files_and_keeps_the_push_error_typo() -> TestResult {
+    use marathon_core::vendor::RemoteTestParser;
+    for succeeds in [true, false] {
+        let tmp = tempfile::tempdir()?;
+        let c = parser_support::input(false, false);
+        prepare(tmp.path(), &c)?;
+        let inner = Fake::new(c.clone(), tmp.path());
+        let logging = inner.logging.clone();
+        let mut raw = RunnerDevice::new(inner, logging.clone());
+        raw.dylib_push_succeeds = succeeds;
+        *raw.plan.lock().unwrap() = Plan {
+            events: vec![vec![TestEvent::TestStarted { id: test() }]],
+            ..Default::default()
+        };
+        let device = Arc::new(raw);
+        let registry = Arc::new(marathon_apple::apple_device_registry::AppleDeviceRegistry::default());
+        let id = registry.register(device.clone());
+        let config = Arc::new(parser_support::configuration(&c, tmp.path())?);
+        let runtime = Arc::new(support::Runtime);
+        let installer = AppleApplicationInstaller::new_owned((*config).clone(), runtime.clone(), logging.clone());
+        let parser = XCTestParser::new(config, registry, Arc::default(), installer, runtime, logging);
+        // This is the concrete type a vendor factory stores in VendorServices.
+        let parser: Arc<dyn RemoteTestParser> = Arc::new(parser);
+        let result = parser.extract(id, support::context()).await;
+        v(device.dispose().await)?;
+        if succeeds {
+            assert_eq!(v(result)?.len(), 1);
+            let bridge = device.inner.bridge.lock().unwrap();
+            assert!(
+                bridge
+                    .iter()
+                    .any(|(path, bytes)| path.ends_with("libxctest-parser.dylib")
+                        && bytes == embedded_dylib(Sdk::IphoneSimulator).unwrap())
+            );
+            let request = device.requests.lock().unwrap()[0].clone();
+            assert!(!request.coverage);
+            assert!(request.tests.is_none());
+            assert!(request.xcresult.is_none());
+            assert!(request.test_target_name.is_none());
+        } else {
+            let error = result.unwrap_err();
+            assert!(matches!(error, VendorError::TestParsing(_)));
+            let row = include_str!("../../../fixtures/oracle/test-runner/probes.jsonl")
+                .lines()
+                .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+                .find(|r| r["case"] == "xctest-push-false")
+                .unwrap();
+            assert_eq!(
+                error.failure().message.as_ref().unwrap().to_string_lossy(),
+                row["error"]["message"].as_str().unwrap()
+            );
+        }
+        let staged = device.staged.lock().unwrap().clone();
+        assert_eq!(staged.len(), if succeeds { 1 } else { 3 });
+        for path in staged.iter() {
+            assert!(tokio::fs::metadata(path).await.is_err());
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn empty_parse_returns_empty_and_warns_with_the_jvm_text() -> TestResult {
+    use marathon_apple::cmd::remote::ssh::sshj::config::SshLogging;
+    let tmp = tempfile::tempdir()?;
+    let c = parser_support::input(false, false);
+    prepare(tmp.path(), &c)?;
+    let inner = Fake::new(c.clone(), tmp.path());
+    let bundle = parser_support::bundle(&inner, &c).await?;
+    let logs = Arc::new(std::sync::Mutex::new(vec![]));
+    let captured = logs.clone();
+    let logging = SshLogging::new(
+        inner.logging.registry.clone(),
+        Arc::new(move |logger, level, message, _| {
+            if logger.name() == "XCTestParser" {
+                captured.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":message}));
+            }
+        }),
+    );
+    let device = RunnerDevice::new(inner, logging.clone());
+    let config = Arc::new(parser_support::configuration(&c, tmp.path())?);
+    let runtime = Arc::new(support::Runtime);
+    let installer = AppleApplicationInstaller::new_owned((*config).clone(), runtime.clone(), logging.clone());
+    let parser = XCTestParser::new(config, Arc::default(), Arc::default(), installer, runtime, logging);
+    let result = parser.collect_tests(&device, bundle, &support::context()).await;
+    v(device.dispose().await)?;
+    assert!(v(result)?.is_empty());
+    let row = include_str!("../../../fixtures/oracle/test-runner/probes.jsonl")
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|r| r["case"] == "xctest-empty")
+        .unwrap();
+    assert_eq!(serde_json::json!(*logs.lock().unwrap()), row["logs"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_times() -> TestResult {
+    use marathon_core::vendor::RemoteTestParser;
+    let tmp = tempfile::tempdir()?;
+    let mut input = parser_support::input(false, false);
+    input["sdk"] = "TV".into();
+    prepare(tmp.path(), &input)?;
+    let inner = Fake::new(input.clone(), tmp.path());
+    let logs = Arc::new(std::sync::Mutex::new(vec![]));
+    let captured = logs.clone();
+    let logging = marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
+        inner.logging.registry.clone(),
+        Arc::new(move |logger, level, message, cause| {
+            if logger.name() == "XCTestParser" {
+                captured.lock().unwrap().push((level, message, cause));
+            }
+        }),
+    );
+    let device = Arc::new(RunnerDevice::new(inner, logging.clone()));
+    let registry = Arc::new(marathon_apple::apple_device_registry::AppleDeviceRegistry::default());
+    let id = registry.register(device.clone());
+    let config = Arc::new(parser_support::configuration(&input, tmp.path())?);
+    let runtime = Arc::new(support::Runtime);
+    let installer = AppleApplicationInstaller::new_owned((*config).clone(), runtime.clone(), logging.clone());
+    let parser = XCTestParser::new(config, registry, Arc::default(), installer, runtime, logging);
+    let error = parser.extract(id, support::context()).await.unwrap_err();
+    v(device.dispose().await)?;
+    assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
+    assert_eq!(
+        error.failure().class.to_string_lossy(),
+        "com.malinskiy.marathon.exceptions.TestParsingException"
+    );
+    assert_eq!(
+        error.failure().message.as_ref().unwrap().to_string_lossy(),
+        "No libxctest-parser.dylib for platform AppleTVOS"
+    );
+    let logs = logs.lock().unwrap();
+    assert_eq!(logs.len(), 3);
+    for (level, message, cause) in logs.iter() {
+        assert_eq!(*level, jcompat::logging::Level::Debug);
+        assert_eq!(message, "Remote parsing failed. Retrying");
+        assert_eq!(cause.as_ref(), Some(error.failure()));
+    }
+    assert_eq!(
+        device
+            .inner
+            .bridge
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(path, _)| path.ends_with("marathon.xctestrun"))
+            .count(),
+        3
+    );
+    assert!(device.requests.lock().unwrap().is_empty());
+    assert!(device.staged.lock().unwrap().is_empty());
+    Ok(())
+}

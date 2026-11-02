@@ -1,0 +1,387 @@
+{
+  "_type" : {
+    "_name" : "ActionTestPlanRunSummaries"
+  },
+  "summaries" : {
+    "_type" : {
+      "_name" : "Array"
+    },
+    "_values" : [
+      {
+        "_type" : {
+          "_name" : "ActionTestPlanRunSummary",
+          "_supertype" : {
+            "_name" : "ActionAbstractTestSummary"
+          }
+        },
+        "name" : {
+          "_type" : {
+            "_name" : "String"
+          },
+          "_value" : "marathon"
+        },
+        "testableSummaries" : {
+          "_type" : {
+            "_name" : "Array"
+          },
+          "_values" : [
+            {
+              "_type" : {
+                "_name" : "ActionTestableSummary",
+                "_supertype" : {
+                  "_name" : "ActionAbstractTestSummary"
+                }
+              },
+              "diagnosticsDirectoryName" : {
+                "_type" : {
+                  "_name" : "String"
+                },
+                "_value" : ""
+              },
+              "failureSummaries" : {
+                "_type" : {
+                  "_name" : "Array"
+                }
+              },
+              "name" : {
+                "_type" : {
+                  "_name" : "String"
+                },
+                "_value" : "marathon"
+              },
+              "targetName" : {
+                "_type" : {
+                  "_name" : "String"
+                },
+                "_value" : "sample_appUITests"
+              },
+              "testKind" : {
+                "_type" : {
+                  "_name" : "String"
+                },
+                "_value" : "UI"
+              },
+              "tests" : {
+                "_type" : {
+                  "_name" : "Array"
+                },
+                "_values" : [
+                  {
+                    "_type" : {
+                      "_name" : "ActionTestSummaryGroup",
+                      "_supertype" : {
+                        "_name" : "ActionTestSummaryIdentifiableObject",
+                        "_supertype" : {
+                          "_name" : "ActionAbstractTestSummary"
+                        }
+                      }
+                    },
+                    "activitySummaries" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      }
+                    },
+                    "documentation" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      }
+                    },
+                    "duration" : {
+                      "_type" : {
+                        "_name" : "Double"
+                      },
+                      "_value" : "6.7079010009765625"
+                    },
+                    "expectedFailures" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      }
+                    },
+                    "failureSummaries" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      }
+                    },
+                    "identifier" : {
+                      "_type" : {
+                        "_name" : "String"
+                      },
+                      "_value" : "Selected tests"
+                    },
+                    "name" : {
+                      "_type" : {
+                        "_name" : "String"
+                      },
+                      "_value" : "Selected tests"
+                    },
+                    "subtests" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      },
+                      "_values" : [
+                        {
+                          "_type" : {
+                            "_name" : "ActionTestSummaryGroup",
+                            "_supertype" : {
+                              "_name" : "ActionTestSummaryIdentifiableObject",
+                              "_supertype" : {
+                                "_name" : "ActionAbstractTestSummary"
+                              }
+                            }
+                          },
+                          "activitySummaries" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            }
+                          },
+                          "documentation" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            }
+                          },
+                          "duration" : {
+                            "_type" : {
+                              "_name" : "Double"
+                            },
+                            "_value" : "6.7079010009765625"
+                          },
+                          "expectedFailures" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            }
+                          },
+                          "failureSummaries" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            }
+                          },
+                          "identifier" : {
+                            "_type" : {
+                              "_name" : "String"
+                            },
+                            "_value" : "marathon.xctest"
+                          },
+                          "name" : {
+                            "_type" : {
+                              "_name" : "String"
+                            },
+                            "_value" : "marathon.xctest"
+                          },
+                          "subtests" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            },
+                            "_values" : [
+                              {
+                                "_type" : {
+                                  "_name" : "ActionTestSummaryGroup",
+                                  "_supertype" : {
+                                    "_name" : "ActionTestSummaryIdentifiableObject",
+                                    "_supertype" : {
+                                      "_name" : "ActionAbstractTestSummary"
+                                    }
+                                  }
+                                },
+                                "activitySummaries" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  }
+                                },
+                                "documentation" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  }
+                                },
+                                "duration" : {
+                                  "_type" : {
+                                    "_name" : "Double"
+                                  },
+                                  "_value" : "6.7079010009765625"
+                                },
+                                "expectedFailures" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  }
+                                },
+                                "failureSummaries" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  }
+                                },
+                                "identifier" : {
+                                  "_type" : {
+                                    "_name" : "String"
+                                  },
+                                  "_value" : "FailingTests"
+                                },
+                                "name" : {
+                                  "_type" : {
+                                    "_name" : "String"
+                                  },
+                                  "_value" : "FailingTests"
+                                },
+                                "subtests" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  },
+                                  "_values" : [
+                                    {
+                                      "_type" : {
+                                        "_name" : "ActionTestMetadata",
+                                        "_supertype" : {
+                                          "_name" : "ActionTestSummaryIdentifiableObject",
+                                          "_supertype" : {
+                                            "_name" : "ActionAbstractTestSummary"
+                                          }
+                                        }
+                                      },
+                                      "activitySummariesCount" : {
+                                        "_type" : {
+                                          "_name" : "Int"
+                                        },
+                                        "_value" : "3"
+                                      },
+                                      "duration" : {
+                                        "_type" : {
+                                          "_name" : "Double"
+                                        },
+                                        "_value" : "6.7079010009765625"
+                                      },
+                                      "failureSummariesCount" : {
+                                        "_type" : {
+                                          "_name" : "Int"
+                                        },
+                                        "_value" : "1"
+                                      },
+                                      "identifier" : {
+                                        "_type" : {
+                                          "_name" : "String"
+                                        },
+                                        "_value" : "FailingTests\/testAlwaysFailing()"
+                                      },
+                                      "name" : {
+                                        "_type" : {
+                                          "_name" : "String"
+                                        },
+                                        "_value" : "testAlwaysFailing()"
+                                      },
+                                      "performanceMetricsCount" : {
+                                        "_type" : {
+                                          "_name" : "Int"
+                                        },
+                                        "_value" : "0"
+                                      },
+                                      "summaryRef" : {
+                                        "_type" : {
+                                          "_name" : "Reference"
+                                        },
+                                        "id" : {
+                                          "_type" : {
+                                            "_name" : "String"
+                                          },
+                                          "_value" : "0~6Q1n5P_CCZ6qNb_SIHlQqghLKnENL3oaNkw5CdJqoqhEdx8kDHGNLlhxC0fAGVCs3sTcPFRgErVuxD6znsjyyw=="
+                                        },
+                                        "targetType" : {
+                                          "_type" : {
+                                            "_name" : "TypeDefinition"
+                                          },
+                                          "name" : {
+                                            "_type" : {
+                                              "_name" : "String"
+                                            },
+                                            "_value" : "ActionTestSummary"
+                                          },
+                                          "supertype" : {
+                                            "_type" : {
+                                              "_name" : "TypeDefinition"
+                                            },
+                                            "name" : {
+                                              "_type" : {
+                                                "_name" : "String"
+                                              },
+                                              "_value" : "ActionTestSummaryIdentifiableObject"
+                                            },
+                                            "supertype" : {
+                                              "_type" : {
+                                                "_name" : "TypeDefinition"
+                                              },
+                                              "name" : {
+                                                "_type" : {
+                                                  "_name" : "String"
+                                                },
+                                                "_value" : "ActionAbstractTestSummary"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "testStatus" : {
+                                        "_type" : {
+                                          "_name" : "String"
+                                        },
+                                        "_value" : "Failure"
+                                      }
+                                    }
+                                  ]
+                                },
+                                "tags" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  }
+                                },
+                                "trackedIssues" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  }
+                                },
+                                "warningSummaries" : {
+                                  "_type" : {
+                                    "_name" : "Array"
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "tags" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            }
+                          },
+                          "trackedIssues" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            }
+                          },
+                          "warningSummaries" : {
+                            "_type" : {
+                              "_name" : "Array"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "tags" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      }
+                    },
+                    "trackedIssues" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      }
+                    },
+                    "warningSummaries" : {
+                      "_type" : {
+                        "_name" : "Array"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

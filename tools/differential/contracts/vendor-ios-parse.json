@@ -1,0 +1,40 @@
+{
+  "format": "marathon-differential/contract@1",
+  "jvm_config_identities": [],
+  "normalization": {},
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "paths": [
+    "reports",
+    "reports/parsed.yml",
+    "reports/sentinel",
+    "worker",
+    "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+    "worker/shared",
+    "worker/shared/marathon.xctest",
+    "worker/shared/marathon.xctest/Info.plist",
+    "worker/shared/marathon.xctest/sample-appUnitTests",
+    "stdout",
+    "stderr",
+    "transcript.jsonl",
+    "state.json",
+    "host-argv.jsonl"
+  ],
+  "roles": {
+    "port": "endpoint",
+    "safe_serial": "device",
+    "sandbox": "path",
+    "serial": "device"
+  },
+  "scenario": "vendor",
+  "transport": "ssh",
+  "uses_tapes": true,
+  "vendor": "ios-parse"
+}

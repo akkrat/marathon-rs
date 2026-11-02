@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Record Kotlin-first scenarios with fake-adb only. Never invokes the adb binary."""
+import json, os, pathlib, subprocess, tempfile, time
+root = pathlib.Path(__file__).resolve().parents[3]
+for name, mode in [('android-install-matrix', 'install'), ('android-provider-multi-server', 'provider')]:
+    scenario = root / 'fixtures/fake-adb' / name
+    expected = scenario / 'expected'
+    expected.mkdir(exist_ok=True)
+    scripts = sorted((scenario / 'script').glob('*.yaml'))
+    with tempfile.TemporaryDirectory(prefix='mrs65-') as tmp:
+        processes, ports = [], []
+        failures = []
+        try:
+            for index, script in enumerate(scripts):
+                portfile = pathlib.Path(tmp) / f'port-{index}'
+                out = open(pathlib.Path(tmp) / f'server-{index}.out', 'w')
+                transcript = pathlib.Path(tmp) / f'transcript-{index}.jsonl'
+                p = subprocess.Popen([str(root / 'target/debug/fake-adb'), '--script', str(script), '--port', '0', '--port-file', str(portfile), '--transcript', str(transcript), '--strict'], stdout=out, stderr=out)
+                processes.append((p, out, transcript))
+                for _ in range(250):
+                    if portfile.exists(): break
+                    if p.poll() is not None: raise RuntimeError('fake-adb failed')
+                    time.sleep(.02)
+                ports.append(portfile.read_text().strip())
+            env = dict(os.environ, PROBE_SOURCE='AndroidMatrixProbe.kt', PROBE_MODE=mode, PROBE_PORTS=','.join(ports), PROBE_FIXTURES=str(root/'fixtures/vendor-android/apk'))
+            result = subprocess.run(['python3', str(pathlib.Path(__file__).with_name('run'))], env=env, capture_output=True, text=True, timeout=35)
+            if result.returncode: raise RuntimeError(result.stderr[:3000])
+            rows = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+            for row in rows:
+                row['value'] = row['value'].replace(str(root), '@ROOT@')
+            (expected/'kotlin.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in rows))
+        finally:
+            for p, out, transcript in processes:
+                p.terminate()
+                rc = p.wait(timeout=10)
+                out.close()
+                if rc: failures.append(pathlib.Path(out.name).read_text()[:4000])
+            for i, (_, _, transcript) in enumerate(processes):
+                (expected/f'transcript-{i+1}.jsonl').write_bytes(transcript.read_bytes())
+        if failures: raise RuntimeError("\n".join(failures))
+        print(name + ': recorded')

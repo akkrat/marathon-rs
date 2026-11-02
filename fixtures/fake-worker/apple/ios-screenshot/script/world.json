@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "name": "ios-screenshot",
+  "platform": "ios",
+  "target": "sample_appUnitTests",
+  "tests": [
+    {
+      "class": "SampleTests",
+      "method": "testFailing",
+      "status": "failed"
+    }
+  ],
+  "media": "screenshot",
+  "expectations": [
+    {
+      "name": "xcode-version",
+      "matcher": {
+        "exact": "xcrun xcodebuild -version"
+      },
+      "min": 1,
+      "max": 1
+    },
+    {
+      "name": "batch",
+      "matcher": {
+        "prefix": "xcrun xcodebuild test-without-building "
+      },
+      "min": 1,
+      "max": 1
+    },
+    {
+      "name": "enrichment-root",
+      "matcher": {
+        "pattern": "xcrun xcresulttool get --legacy --format json --path *"
+      },
+      "min": 2,
+      "max": 2
+    },
+    {
+      "name": "boot",
+      "matcher": {
+        "exact": "xcrun simctl boot AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+      },
+      "min": 1,
+      "max": 1
+    },
+    {
+      "name": "shutdown",
+      "matcher": {
+        "exact": "xcrun simctl shutdown AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+      },
+      "min": 1,
+      "max": 1
+    },
+    {
+      "name": "screenshots",
+      "matcher": {
+        "prefix": "xcrun simctl io AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE screenshot "
+      },
+      "min": 2,
+      "max": 2
+    }
+  ]
+}

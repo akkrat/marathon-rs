@@ -1,0 +1,17 @@
+[
+  {
+    "format": "log",
+    "path": "device-logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63981/9bd4a7b6-4f79-4353-88ac-02db5580daec.9bd4a7b6-4f79-4353-88ac-02db5580daec",
+    "sha256": "3ae9da98f1d4e29f517fcdb94a31838f408d2f9950771a457d6f7368454bbfb7",
+    "size": 51
+  },
+  {
+    "codec": "h264",
+    "format": "mp4",
+    "height": 852,
+    "path": "video/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63981/sample-appUITests.FailingTests#testAlwaysFailing-9bd4a7b6-4f79-4353-88ac-02db5580daec.mp4",
+    "sha256": "c1bff12a15fe35f6f286419612e5dc535d7869a146b871719ded0a1a8574eef2",
+    "size": 3008,
+    "width": 568
+  }
+]

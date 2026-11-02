@@ -1,0 +1,271 @@
+{
+  "stage": "logical",
+  "error": {
+    "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+    "message": "Configuration is invalid: can't use complex sharding and complex flakiness strategy at the same time. See: https://github.com/MarathonLabs/marathon/issues/197",
+    "causes": []
+  },
+  "config": {
+    "analyticsConfiguration": {
+      "dbName": "marathon",
+      "defaults": {
+        "duration": "PT5M",
+        "observedDurationMinTests": null,
+        "successRate": 0.0
+      },
+      "password": "root",
+      "readOnly": false,
+      "retentionPolicyConfiguration": {
+        "duration": "90d",
+        "isDefault": false,
+        "name": "rpMarathonTest",
+        "replicationFactor": 5,
+        "shardDuration": "1h"
+      },
+      "type": "influxdb",
+      "url": "http://influx.svc.cluster.local:8086",
+      "user": "root"
+    },
+    "analyticsTracking": true,
+    "batchingStrategy": {
+      "durationMillis": null,
+      "lastMileLength": 0,
+      "percentile": null,
+      "size": 5,
+      "timeLimit": null,
+      "type": "fixed-size"
+    },
+    "bugsnagReporting": true,
+    "ciConfiguration": {
+      "type": "none"
+    },
+    "debug": true,
+    "deviceInitializationTimeoutMillis": 180000,
+    "excludeSerialRegexes": [
+      "emulator-5002"
+    ],
+    "executionStrategy": {
+      "fast": true,
+      "mode": "ANY_SUCCESS"
+    },
+    "filteringConfiguration": {
+      "allowlist": [
+        {
+          "enabled": true,
+          "file": null,
+          "regex": ".*",
+          "type": "simple-class-name",
+          "values": null
+        },
+        {
+          "enabled": true,
+          "file": null,
+          "regex": ".*",
+          "type": "fully-qualified-class-name",
+          "values": null
+        },
+        {
+          "enabled": true,
+          "file": null,
+          "regex": ".*",
+          "type": "method",
+          "values": null
+        },
+        {
+          "enabled": true,
+          "filters": [
+            {
+              "enabled": true,
+              "file": null,
+              "regex": ".*",
+              "subpackages": false,
+              "type": "package",
+              "values": null
+            },
+            {
+              "enabled": true,
+              "file": null,
+              "regex": ".*",
+              "type": "method",
+              "values": null
+            }
+          ],
+          "op": "UNION",
+          "type": "composition"
+        }
+      ],
+      "blocklist": [
+        {
+          "enabled": true,
+          "file": null,
+          "regex": ".*",
+          "subpackages": false,
+          "type": "package",
+          "values": null
+        },
+        {
+          "enabled": true,
+          "file": null,
+          "regex": ".*",
+          "type": "annotation",
+          "values": null
+        }
+      ]
+    },
+    "flakinessStrategy": {
+      "maxCount": 3,
+      "minSuccessRate": 0.7,
+      "timeLimit": "2015-03-14T09:26:53.590Z",
+      "type": "probability"
+    },
+    "ignoreFailures": false,
+    "includeSerialRegexes": [
+      "emulator-500[2,4]"
+    ],
+    "isCodeCoverageEnabled": false,
+    "name": "sample-app tests",
+    "outputConfiguration": {
+      "maxFilename": 255,
+      "maxPath": 0
+    },
+    "outputDir": "<FIXTURE_CONFIG>/marathon",
+    "poolingStrategy": {
+      "list": [
+        {
+          "type": "omni"
+        },
+        {
+          "type": "device-model"
+        },
+        {
+          "type": "os-version"
+        },
+        {
+          "type": "manufacturer"
+        },
+        {
+          "type": "abi"
+        }
+      ],
+      "type": "combo"
+    },
+    "retryStrategy": {
+      "retryPerTestQuota": 2,
+      "totalAllowedRetryQuota": 100,
+      "type": "fixed-quota"
+    },
+    "screenRecordingPolicy": "ON_FAILURE",
+    "shardingStrategy": {
+      "count": 5,
+      "type": "count"
+    },
+    "sortingStrategy": {
+      "ascending": false,
+      "timeLimit": "2015-03-14T09:26:53.590Z",
+      "type": "success-rate"
+    },
+    "testBatchTimeoutMillis": 20000,
+    "testOutputTimeoutMillis": 30000,
+    "uncompletedTestRetryQuota": 2147483647,
+    "vendorConfiguration": {
+      "adbInitTimeoutMillis": 30000,
+      "adbServers": [
+        {
+          "host": "127.0.0.1",
+          "port": 5037
+        }
+      ],
+      "allureConfiguration": {
+        "enabled": false,
+        "pathRoot": "APP_DATA",
+        "relativeResultsDirectory": "/files/allure-results"
+      },
+      "androidSdk": "/local/android",
+      "applicationOutput": "<FIXTURE_CONFIG>/kotlin-buildscript/build/outputs/apk/debug/kotlin-buildscript-debug.apk",
+      "applicationPmClear": true,
+      "autoGrantPermission": true,
+      "disableWindowAnimation": true,
+      "extraApplicationsOutput": null,
+      "fileSyncConfiguration": {
+        "pull": [],
+        "push": []
+      },
+      "installOptions": "-d",
+      "instrumentationArgs": {
+        "debug": "false"
+      },
+      "mockLocation": false,
+      "outputs": null,
+      "profilingConfiguration": {
+        "enabled": false,
+        "pbtxt": null,
+        "urlTemplate": "https://cloud.marathonlabs.io/"
+      },
+      "screenRecordConfiguration": {
+        "preferableRecorderType": "SCREENSHOT",
+        "screenshotConfiguration": {
+          "delayMs": 500,
+          "enabled": true,
+          "height": 1280,
+          "width": 720
+        },
+        "videoConfiguration": {
+          "bitrateMbps": 1,
+          "enabled": true,
+          "height": 1280,
+          "timeLimit": 180,
+          "timeLimitUnits": "SECONDS",
+          "width": 720
+        }
+      },
+      "serialStrategy": "AUTOMATIC",
+      "splitApks": null,
+      "testAccessConfiguration": {
+        "adb": false,
+        "console": false,
+        "consoleToken": "",
+        "grpc": false
+      },
+      "testApplicationOutput": "<FIXTURE_CONFIG>/kotlin-buildscript/build/outputs/apk/androidTest/debug/kotlin-buildscript-debug-androidTest.apk",
+      "testApplicationPmClear": true,
+      "testParserConfiguration": {
+        "type": "local"
+      },
+      "threadingConfiguration": {
+        "adbIoThreads": 4,
+        "bootWaitingThreads": 4,
+        "installThreads": 8
+      },
+      "timeoutConfiguration": {
+        "boot": "PT30S",
+        "install": "PT1M",
+        "listFiles": "PT20S",
+        "portForward": "PT20S",
+        "pullFile": "PT30S",
+        "pushFile": "PT1M",
+        "pushFolder": "PT1M",
+        "screencapturer": "PT0.3S",
+        "screenrecorder": "PT3M20S",
+        "shell": "PT20S",
+        "socketIdleTimeout": "PT30S",
+        "uninstall": "PT20S"
+      },
+      "type": "Android",
+      "waitForDevicesTimeoutMillis": 30000
+    }
+  },
+  "fsEffects": [],
+  "golden": {
+    "input": "sample_1_rp.yaml",
+    "env": {
+      "ANDROID_HOME": "/android-sdk"
+    },
+    "now": "1970-01-12T13:46:40Z",
+    "host": {
+      "os": "Darwin",
+      "release": "27.0.0",
+      "arch": "arm64"
+    },
+    "normalisations": []
+  }
+}

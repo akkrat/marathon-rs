@@ -1,0 +1,45 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "one healthy device execution of one test should pass",
+  "source": "core/src/test/kotlin/com/malinskiy/marathon/scenario/SuccessScenariosTest.kt",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test",
+      "metaProperties": [
+        {
+          "name": "someAnnotation",
+          "values": {
+            "value": "someValue"
+          }
+        }
+      ]
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "results": {
+        "test.SimpleTest#test": [
+          "PASSED"
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "serial-1"
+    },
+    {
+      "at": 20000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "rawJson": "../../../fixtures/core/output/raw/success_scenario_1.json"
+  }
+}

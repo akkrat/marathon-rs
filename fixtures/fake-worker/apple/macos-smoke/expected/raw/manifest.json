@@ -1,0 +1,34 @@
+{
+  "artifact_hashes": {
+    "host-argv.jsonl": "fb32958ecffbf44ac5e51109cac39e6a9399d5590f356061ff3a7b2cf9d8e06e",
+    "media.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+    "oracle-manifest.json": "f8f4ee3f24f3b08e1c6c366bbb917225c41e2892316fa939bca2450b020d5dba",
+    "pushed-xctestrun.json": "dd579bda19c4b026c8bd636d981b42e3ded87fe4aa57ab0351e2c974d017b070",
+    "report-manifest.json": "4f2ec4dfb4a59fd5a82a236a6778f76f3547420708196f5dae93845de83b5261",
+    "results.json": "8b7bbcac0032455d9761480eb1ce32b34ebf444e88407f58a5a9c1a257cb7fb8",
+    "semantic.json": "674e447e859824b83e626f8536806dccb052af53472ff8769851daef25f3954d",
+    "state.json": "83277cd02ed1308d3c61aa7e4c9a45b81e2950d29dea1fad662541e3ffde91ee",
+    "stderr": "9832f8edc47aaf6eae8bb13b42f51c1689fffa7697112ba2d7279a940b1667b1",
+    "stdout": "d0726179110f13a21f4730610e69b7d5f9f12ddc0256570306efb4a4f5269b85",
+    "transcript.jsonl": "9aae910d75268bf4445a2468614d2133c796e7702d55545002904bdd5fe73257"
+  },
+  "exit_code": 1,
+  "required_artifacts": [
+    "transcript.jsonl",
+    "state.json",
+    "host-argv.jsonl",
+    "stdout",
+    "stderr",
+    "results.json",
+    "report-manifest.json",
+    "pushed-xctestrun.json",
+    "media.json",
+    "semantic.json",
+    "oracle-manifest.json"
+  ],
+  "schema": 2,
+  "suite": "macos-smoke",
+  "terminal_outcome": "completed",
+  "timed_out": false,
+  "worker_exit": 0
+}

@@ -1,0 +1,302 @@
+[
+  {
+    "kind": "dir",
+    "path": "allure-results"
+  },
+  {
+    "kind": "file",
+    "path": "allure-results/30362d61-920f-4ac6-9630-73cea2bb8ed8-result.json",
+    "sha256": "cee4f3e5dd27dc5d411618f6cfa9fbff226df4ed5e61d88cccdae6085943a1d7",
+    "size": 930
+  },
+  {
+    "kind": "file",
+    "path": "allure-results/c1d6f6ea-66f0-4b97-9d80-35dbc81fd247-result.json",
+    "sha256": "080cb81f03d33f696e14e4d9df8870e6b5907b841d8d24409b727462bb827973",
+    "size": 929
+  },
+  {
+    "kind": "file",
+    "path": "allure-results/cb790b54-b442-4b97-a50c-f290444e71ed-result.json",
+    "sha256": "f4205ffe57c0498eec11ec36ba9bd5904cee5abd640a8d0ebc9aa2a3441c5e87",
+    "size": 1093
+  },
+  {
+    "kind": "file",
+    "path": "allure-results/environment.xml",
+    "sha256": "4a6c3936e8ec89724e6ea3c23c2e214400f822e443420b2e4a3b07cc8e707e1c",
+    "size": 4937
+  },
+  {
+    "kind": "dir",
+    "path": "bill"
+  },
+  {
+    "kind": "dir",
+    "path": "bill/omni"
+  },
+  {
+    "kind": "file",
+    "path": "bill/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779.json",
+    "sha256": "5745ee37855d33fb41663bb9674571c8ecee1561b581354aeb57c3adeeaa88bf",
+    "size": 418
+  },
+  {
+    "kind": "dir",
+    "path": "device-files"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/xcresult"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/xcresult/ad7e8f79-d312-440d-b290-5121f8373abd.xcresult"
+  },
+  {
+    "kind": "file",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/xcresult/ad7e8f79-d312-440d-b290-5121f8373abd.xcresult/SCRIPTED",
+    "sha256": "03c1a436daf6ccc9e0059390f945bab3724ea796fe41b8c04fd6ecf42856c1a9",
+    "size": 64
+  },
+  {
+    "kind": "file",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/xcresult/ad7e8f79-d312-440d-b290-5121f8373abd.xcresult/root.json",
+    "sha256": "1eb8e80717ef6a9b0a3ca36983be8ffac7997471a10d077797736dc82c4b1e19",
+    "size": 1083
+  },
+  {
+    "kind": "file",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/xcresult/ad7e8f79-d312-440d-b290-5121f8373abd.xcresult/tests-0.json",
+    "sha256": "d67c7f3377844ba8964e1496c6aac3954c4c1f2377a0998a687aff3f94e2eb96",
+    "size": 107
+  },
+  {
+    "kind": "dir",
+    "path": "devices"
+  },
+  {
+    "kind": "dir",
+    "path": "devices/omni"
+  },
+  {
+    "kind": "file",
+    "path": "devices/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779.json",
+    "sha256": "726c3f3f4c33b53f52b1daebcb06d8bd0e9468340d5ee39dbad17bc68003402d",
+    "size": 284
+  },
+  {
+    "kind": "dir",
+    "path": "html"
+  },
+  {
+    "kind": "file",
+    "path": "html/app.min.css",
+    "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+    "size": 20391
+  },
+  {
+    "kind": "file",
+    "path": "html/app.min.js",
+    "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+    "size": 327442
+  },
+  {
+    "kind": "file",
+    "path": "html/index.html",
+    "sha256": "f848cfa9fe15a4b2f9e112929e198452ac605e17982fe97e23b868fca87fa854",
+    "size": 1914
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools"
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779"
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests.testFail.html",
+    "sha256": "473e1e9d6bf33304cab010a5ad5d3f1329a8ad80c6dc9c404bb307f6bb13f917",
+    "size": 1415
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests.testPass.html",
+    "sha256": "c16aada030a88d3da4298776c1420e02d46ee3481151fcd3f9ac7c1e2bb4c40c",
+    "size": 1167
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests.testSkip.html",
+    "sha256": "7ddeab02ec5f8c3507198458c7d9e5a34bbcf5f86f62bc3611a85667ecc77fbc",
+    "size": 1168
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/logs"
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/logs/AppleWorldTests.SmokeTests.testFail.html",
+    "sha256": "7f78135ffe05cc27a4963c527c9d71dbf48e8899beadfe5cf8f88cf31247209e",
+    "size": 955
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/logs/AppleWorldTests.SmokeTests.testPass.html",
+    "sha256": "4c79832e5c3f0e9511bc608e98904dcc99063acd55b0c51c2bd19b54392f36e8",
+    "size": 955
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/logs/AppleWorldTests.SmokeTests.testSkip.html",
+    "sha256": "abc42c351e40d0a5bba9c83bbb0f164042f915a91f3bac9875c0030d154f9678",
+    "size": 955
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni.html",
+    "sha256": "b9ba1cc2874d65697c437e181ad34100bc68a5f8245e4c2486262a87df419ee2",
+    "size": 1704
+  },
+  {
+    "kind": "dir",
+    "path": "html/timeline"
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/chart.css",
+    "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+    "size": 1662
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/chart.js",
+    "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+    "size": 19868
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/iframeResizer.contentWindow.min.js",
+    "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+    "size": 13616
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/index.html",
+    "sha256": "105fe91930f1b062c7622f7105538583e4bf3a99ccf664d9b8ae694dbf7d10d9",
+    "size": 1819
+  },
+  {
+    "kind": "dir",
+    "path": "logs"
+  },
+  {
+    "kind": "dir",
+    "path": "logs/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779"
+  },
+  {
+    "kind": "file",
+    "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests#testFail-ad7e8f79-d312-440d-b290-5121f8373abd.log",
+    "sha256": "a0e734e23cc65d70153b753eda2296e6cf96e09a7d2a1acee19abcad00ee200f",
+    "size": 135
+  },
+  {
+    "kind": "file",
+    "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests#testPass-ad7e8f79-d312-440d-b290-5121f8373abd.log",
+    "sha256": "a8a7d718db32c5301373d6cedab7bd51f1f7d5fbda74b3cb7db34c5b1d90888b",
+    "size": 75
+  },
+  {
+    "kind": "file",
+    "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests#testSkip-ad7e8f79-d312-440d-b290-5121f8373abd.log",
+    "sha256": "a57866d9c2c6b2b9dad4279385bcc2495849c9134a46c394b5ee641dd6046875",
+    "size": 76
+  },
+  {
+    "kind": "file",
+    "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/ad7e8f79-d312-440d-b290-5121f8373abd.ad7e8f79-d312-440d-b290-5121f8373abd",
+    "sha256": "60486747b3f110366f3ae11909ad6e18e90eb0e51a3bf1cd63aec2d6f7995468",
+    "size": 28
+  },
+  {
+    "kind": "dir",
+    "path": "screenshot"
+  },
+  {
+    "kind": "dir",
+    "path": "screenshot/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779"
+  },
+  {
+    "kind": "dir",
+    "path": "test_result"
+  },
+  {
+    "kind": "dir",
+    "path": "test_result/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779"
+  },
+  {
+    "kind": "file",
+    "path": "test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests#testFail.json",
+    "sha256": "6ac07d8764035ca55152f3a21d930ecdbc9fcddc77077966b91cbd5ffb8f186a",
+    "size": 953
+  },
+  {
+    "kind": "file",
+    "path": "test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests#testPass.json",
+    "sha256": "b0544de999020f18e299a087d533d53c4d092c65440a7c7542a72add776f9196",
+    "size": 881
+  },
+  {
+    "kind": "file",
+    "path": "test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63779/AppleWorldTests.SmokeTests#testSkip.json",
+    "sha256": "491fe2fd9ccff1c0dbee1e1a712d718d811c010e9826f71b6901c39eee16cfda",
+    "size": 882
+  },
+  {
+    "kind": "file",
+    "path": "test_result/raw.json",
+    "sha256": "aeca1a486923ab7135fa76500439c6b8e5dfc4f046a4088d6eab62e15f333df9",
+    "size": 777
+  },
+  {
+    "kind": "dir",
+    "path": "tests"
+  },
+  {
+    "kind": "dir",
+    "path": "tests/omni"
+  },
+  {
+    "kind": "file",
+    "path": "tests/omni/marathon_junit_report.xml",
+    "sha256": "bf951e8bbecd68b90d224e857f4fc4153101ec6ed5fe20d2fa94d7db21a202a7",
+    "size": 793
+  }
+]

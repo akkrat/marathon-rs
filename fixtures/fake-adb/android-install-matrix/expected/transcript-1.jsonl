@@ -1,0 +1,120 @@
+{"conn":1,"serial":null,"service":"host:version","type":"request"}
+{"conn":2,"serial":null,"service":"host:devices","type":"request"}
+{"conn":3,"serial":null,"service":"host:track-devices","type":"request"}
+{"conn":4,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":5,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":5,"serial":"emulator-5554","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":5,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":4,"serial":"emulator-5556","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":4,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":6,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":7,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":6,"serial":"emulator-5554","service":"shell:dumpsys input;echo x$?","type":"request"}
+{"command":"dumpsys input","conn":6,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[0]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":7,"serial":"emulator-5556","service":"shell:dumpsys input;echo x$?","type":"request"}
+{"command":"dumpsys input","conn":7,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[0]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":8,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":9,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":8,"serial":"emulator-5556","service":"shell:echo $EXTERNAL_STORAGE;echo x$?","type":"request"}
+{"command":"echo $EXTERNAL_STORAGE","conn":8,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[1]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":9,"serial":"emulator-5554","service":"shell:echo $EXTERNAL_STORAGE;echo x$?","type":"request"}
+{"command":"echo $EXTERNAL_STORAGE","conn":9,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[1]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":11,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":10,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":10,"serial":"emulator-5554","service":"shell:ls /system/bin/screenrecord;echo x$?","type":"request"}
+{"command":"ls /system/bin/screenrecord","conn":10,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[2]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":11,"serial":"emulator-5556","service":"shell:ls /system/bin/screenrecord;echo x$?","type":"request"}
+{"command":"ls /system/bin/screenrecord","conn":11,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[2]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":12,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":13,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":12,"serial":"emulator-5554","service":"shell:ls /system/bin/md5;echo x$?","type":"request"}
+{"command":"ls /system/bin/md5","conn":12,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[3]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":13,"serial":"emulator-5556","service":"shell:ls /system/bin/md5;echo x$?","type":"request"}
+{"command":"ls /system/bin/md5","conn":13,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[3]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":14,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":15,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":14,"serial":"emulator-5556","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":14,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":15,"serial":"emulator-5554","service":"shell:getprop;echo x$?","type":"request"}
+{"command":"getprop","conn":15,"exit_code":0,"exit_code_trick":true,"handler":"builtin","hang":false,"protocol":"raw","rule":null,"serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":16,"serial":null,"service":"host-serial:emulator-5556:features","type":"request"}
+{"conn":17,"serial":null,"service":"host-serial:emulator-5554:features","type":"request"}
+{"conn":18,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":19,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":18,"serial":"emulator-5554","service":"shell:logcat -v long","type":"request"}
+{"command":"logcat -v long","conn":18,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":true,"protocol":"raw","rule":"shell[4]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":19,"serial":"emulator-5556","service":"shell:logcat -v long","type":"request"}
+{"command":"logcat -v long","conn":19,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":true,"protocol":"raw","rule":"shell[4]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":20,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":20,"serial":"emulator-5554","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":20,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[5]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":21,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":21,"serial":"emulator-5554","service":"shell:pm uninstall com.example;echo x$?","type":"request"}
+{"command":"pm uninstall com.example","conn":21,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[6]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":22,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":22,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":22,"error":null,"flags":0,"mode":"777","mtime":1200807786,"op":"SEND","path":"/data/local/tmp/app-debug.apk","payload_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","serial":"emulator-5554","size":2630923,"type":"sync"}
+{"conn":23,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":23,"serial":"emulator-5554","service":"shell:md5 /data/local/tmp/app-debug.apk;echo x$?","type":"request"}
+{"command":"md5 /data/local/tmp/app-debug.apk","conn":23,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[9]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":24,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":24,"serial":"emulator-5554","service":"shell:pm install -r -g -custom /data/local/tmp/app-debug.apk;echo x$?","type":"request"}
+{"command":"pm install -r -g -custom /data/local/tmp/app-debug.apk","conn":24,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[7]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":25,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":25,"serial":"emulator-5554","service":"shell:rm /data/local/tmp/app-debug.apk;echo x$?","type":"request"}
+{"command":"rm /data/local/tmp/app-debug.apk","conn":25,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[11]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":26,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":26,"serial":"emulator-5554","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":26,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[5]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":27,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":27,"serial":"emulator-5554","service":"shell:pm uninstall com.example.test;echo x$?","type":"request"}
+{"command":"pm uninstall com.example.test","conn":27,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[6]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":28,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":28,"serial":"emulator-5554","service":"sync:","type":"request"}
+{"conn":28,"error":null,"flags":0,"mode":"777","mtime":1200807786,"op":"SEND","path":"/data/local/tmp/app-debug-androidTest.apk","payload_sha256":"d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841","serial":"emulator-5554","size":7167580,"type":"sync"}
+{"conn":29,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":29,"serial":"emulator-5554","service":"shell:md5 /data/local/tmp/app-debug-androidTest.apk;echo x$?","type":"request"}
+{"command":"md5 /data/local/tmp/app-debug-androidTest.apk","conn":29,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[10]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":30,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":30,"serial":"emulator-5554","service":"shell:pm install -r -g -custom /data/local/tmp/app-debug-androidTest.apk;echo x$?","type":"request"}
+{"command":"pm install -r -g -custom /data/local/tmp/app-debug-androidTest.apk","conn":30,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[7]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":31,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":31,"serial":"emulator-5554","service":"shell:rm /data/local/tmp/app-debug-androidTest.apk;echo x$?","type":"request"}
+{"command":"rm /data/local/tmp/app-debug-androidTest.apk","conn":31,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[11]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":32,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":32,"serial":"emulator-5554","service":"shell:rm -r /sdcard;echo x$?","type":"request"}
+{"command":"rm -r /sdcard","conn":32,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[11]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":33,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":33,"serial":"emulator-5554","service":"shell:mkdir /sdcard;echo x$?","type":"request"}
+{"command":"mkdir /sdcard","conn":33,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[12]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":34,"serial":null,"service":"host:transport:emulator-5554","type":"request"}
+{"conn":34,"serial":"emulator-5554","service":"shell:logcat -c;echo x$?","type":"request"}
+{"command":"logcat -c","conn":34,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[13]","serial":"emulator-5554","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":35,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":35,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":35,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[5]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":36,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":36,"serial":"emulator-5556","service":"shell:pm uninstall com.example;echo x$?","type":"request"}
+{"command":"pm uninstall com.example","conn":36,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[6]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":37,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":37,"serial":"emulator-5556","service":"exec:cmd package install '-g' '-custom' -r -S 2630923","type":"request"}
+{"command":"cmd package install '-g' '-custom' -r -S 2630923","conn":37,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[8]","serial":"emulator-5556","service":"exec","stdin_bytes":2630923,"stdin_sha256":"c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192","type":"shell"}
+{"conn":38,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":38,"serial":"emulator-5556","service":"shell:pm list packages;echo x$?","type":"request"}
+{"command":"pm list packages","conn":38,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[5]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":39,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":39,"serial":"emulator-5556","service":"shell:pm uninstall com.example.test;echo x$?","type":"request"}
+{"command":"pm uninstall com.example.test","conn":39,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[6]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":40,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":40,"serial":"emulator-5556","service":"exec:cmd package install '-g' '-custom' -r -S 7167580","type":"request"}
+{"command":"cmd package install '-g' '-custom' -r -S 7167580","conn":40,"exit_code":0,"exit_code_trick":false,"handler":"script","hang":false,"protocol":"raw","rule":"shell[8]","serial":"emulator-5556","service":"exec","stdin_bytes":7167580,"stdin_sha256":"d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841","type":"shell"}
+{"conn":41,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":41,"serial":"emulator-5556","service":"shell:rm -r /sdcard;echo x$?","type":"request"}
+{"command":"rm -r /sdcard","conn":41,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[11]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":42,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":42,"serial":"emulator-5556","service":"shell:mkdir /sdcard;echo x$?","type":"request"}
+{"command":"mkdir /sdcard","conn":42,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[12]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"conn":43,"serial":null,"service":"host:transport:emulator-5556","type":"request"}
+{"conn":43,"serial":"emulator-5556","service":"shell:logcat -c;echo x$?","type":"request"}
+{"command":"logcat -c","conn":43,"exit_code":0,"exit_code_trick":true,"handler":"script","hang":false,"protocol":"raw","rule":"shell[13]","serial":"emulator-5556","service":"shell","stdin_bytes":null,"stdin_sha256":null,"type":"shell"}
+{"event":"server_stopped","type":"event"}

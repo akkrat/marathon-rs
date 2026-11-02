@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Run WP 3.1 coroutine probes using cached Kotlin 1.9.24."""
+import os
+import sys
+from pathlib import Path
+import subprocess
+import tempfile
+
+cache = Path.home() / '.gradle/caches/modules-2/files-2.1'
+def jar(group, artifact, version):
+    return next((cache / group / artifact / version).glob('*/' + artifact + '-' + version + '.jar'))
+
+stdlib = jar('org.jetbrains.kotlin', 'kotlin-stdlib', '1.9.24')
+compiler = [jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '1.9.24'), stdlib,
+            jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),
+            jar('org.jetbrains.intellij.deps', 'trove4j', '1.0.20200330'),
+            jar('org.jetbrains', 'annotations', '13.0')]
+core = jar('org.jetbrains.kotlinx', 'kotlinx-coroutines-core-jvm', '1.8.1')
+test = jar('org.jetbrains.kotlinx', 'kotlinx-coroutines-test-jvm', '1.8.1')
+java = str(Path(os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')) / 'bin/java')
+source = Path(__file__).with_name(sys.argv[1] if len(sys.argv) > 1 else 'RuntimeProbe.kt')
+with tempfile.TemporaryDirectory(prefix='runtime-probes-') as tmp:
+    out = str(Path(tmp) / 'operations.jar')
+    subprocess.run([java, '-cp', os.pathsep.join(map(str, compiler)),
+                    'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
+                    '-cp', os.pathsep.join(map(str, [stdlib, core, test])), '-d', out, str(source)], check=True)
+    subprocess.run([java, '-cp', os.pathsep.join(map(str, [out, stdlib, core, test])), source.stem + 'Kt'], check=True)

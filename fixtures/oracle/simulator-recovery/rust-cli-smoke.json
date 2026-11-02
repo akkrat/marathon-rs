@@ -1,0 +1,68 @@
+[
+  {
+    "vendor": "iOS",
+    "argv": [],
+    "exit": 0,
+    "defaultNm": true,
+    "batch": true,
+    "deviceLog": true,
+    "shutdown": true,
+    "unmatched": 0
+  },
+  {
+    "vendor": "iOS",
+    "argv": [
+      "parse",
+      "-o",
+      "parsed"
+    ],
+    "exit": 0,
+    "defaultNm": true,
+    "batch": false,
+    "deviceLog": false,
+    "shutdown": false,
+    "unmatched": 0
+  },
+  {
+    "vendor": "watchOS",
+    "argv": [
+      "parse",
+      "-o",
+      "parsed"
+    ],
+    "exit": 0,
+    "defaultNm": true,
+    "batch": false,
+    "deviceLog": false,
+    "shutdown": false,
+    "unmatched": 0
+  },
+  {
+    "vendor": "tvOS",
+    "argv": [
+      "parse",
+      "-o",
+      "parsed"
+    ],
+    "exit": 0,
+    "defaultNm": true,
+    "batch": false,
+    "deviceLog": false,
+    "shutdown": false,
+    "unmatched": 0
+  },
+  {
+    "vendor": "visionOS",
+    "argv": [
+      "parse",
+      "-o",
+      "parsed"
+    ],
+    "exit": 0,
+    "defaultNm": true,
+    "batch": false,
+    "deviceLog": false,
+    "shutdown": false,
+    "unmatched": 0
+  }
+]

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Records rsync4j's sshpass argv, then runs the real sshpass
+{ printf 'sshpass'; printf ' [%s]' "$@"; printf '\n'; } >> "${SPIKE_ARGV_LOG:?}"
+exec /opt/homebrew/bin/sshpass "$@"

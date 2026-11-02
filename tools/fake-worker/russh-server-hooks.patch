@@ -1,0 +1,155 @@
+--- a/src/server/mod.rs
++++ b/src/server/mod.rs
+@@ -215,6 +215,16 @@
+ pub trait Handler: Sized {
+     type Error: From<crate::Error> + Send;
+ 
++    /// Whether to send the automatic reply to a peer CLOSE. Harness fault seam;
++    /// returning false still delivers the close callback and releases channel state.
++    fn reply_to_channel_close(&mut self, _channel: ChannelId) -> impl Future<Output = bool> + Send { async { true } }
++
++    /// Observe an otherwise unsupported global request. Return None to withhold,
++    /// or a delay before replying with REQUEST_FAILURE (a valid keep-alive reply).
++    fn unknown_global_request(&mut self, _name: &str) -> impl Future<Output = Option<std::time::Duration>> + Send {
++        async { Some(std::time::Duration::ZERO) }
++    }
++
+     /// Check authentication using the "none" method.
+     ///
+     /// Russh makes sure rejection takes a constant [`Config::auth_rejection_time`],
+@@ -1027,9 +1037,13 @@
+ pub struct RunningSession<H: Handler> {
+     handle: Handle,
+     join: JoinHandle<Result<(), H::Error>>,
++    abort: futures::future::AbortHandle,
+ }
+ 
+ impl<H: Handler> RunningSession<H> {
++    /// Abort the owned transport task. Await this session afterwards to join it.
++    pub fn abort(&self) { self.abort.abort(); }
++
+     /// Returns a new handle for the session.
+     pub fn handle(&self) -> Handle {
+         self.handle.clone()
+@@ -1087,13 +1101,18 @@
+         channels: HashMap::new(),
+         open_global_requests: VecDeque::new(),
+         kex: SessionKexState::Idle,
++        delayed_failures: VecDeque::new(),
+     };
+ 
+     session.begin_rekey()?;
+ 
+-    let join = russh_util::runtime::spawn(session.run(stream, handler));
+-
+-    Ok(RunningSession { handle, join })
++    let (abort, registration) = futures::future::AbortHandle::new_pair();
++    let join = russh_util::runtime::spawn(async move {
++        futures::future::Abortable::new(session.run(stream, handler), registration)
++            .await.unwrap_or_else(|_| Err(crate::Error::Disconnect.into()))
++    });
++
++    Ok(RunningSession { handle, join, abort })
+ }
+ 
+ async fn read_ssh_id<R: AsyncRead + Unpin>(
+--- a/src/server/encrypted.rs
++++ b/src/server/encrypted.rs
+@@ -724,6 +724,7 @@
+             channels: std::collections::HashMap::new(),
+             open_global_requests: std::collections::VecDeque::new(),
+             kex: SessionKexState::Idle,
++            delayed_failures: VecDeque::new(),
+         }
+     }
+ 
+@@ -1287,7 +1288,11 @@
+                 }
+                 if let Some(ref mut enc) = self.common.encrypted {
+                     // Reply with CHANNEL_CLOSE per RFC 4254 Section 5.3.
+-                    enc.close(channel_num)?;
++                    if handler.reply_to_channel_close(channel_num).await {
++                        enc.close(channel_num)?;
++                    } else {
++                        enc.channels.remove(&channel_num);
++                    }
+                 }
+                 // Forward the close to the channel before removing it, so that
+                 // consumers waiting on `Channel::wait()` receive an explicit
+@@ -1758,7 +1763,18 @@
+                         Ok(())
+                     }
+                     _ => {
+-                        self.request_failure();
++                        let wants_reply = self.common.wants_reply;
++                        self.common.wants_reply = false;
++                        if let Some(delay) = handler.unknown_global_request(&req_type).await {
++                            if wants_reply {
++                                // Polled by the session loop, never a detached timer or a
++                                // blocking handler: output continues during delayed probes.
++                                if self.delayed_failures.len() >= 128 {
++                                    return Err(crate::Error::Disconnect.into());
++                                }
++                                self.delayed_failures.push_back(tokio::time::Instant::now() + delay);
++                            }
++                        }
+                         Ok(())
+                     }
+                 }
+--- a/src/server/session.rs
++++ b/src/server/session.rs
+@@ -29,6 +29,7 @@
+     pub(crate) channels: HashMap<ChannelId, ChannelRef>,
+     pub(crate) open_global_requests: VecDeque<GlobalRequestResponse>,
+     pub(crate) kex: SessionKexState<ServerKex>,
++    pub(crate) delayed_failures: VecDeque<tokio::time::Instant>,
+ }
+ 
+ #[derive(Debug)]
+@@ -767,6 +768,17 @@
+                     // The flush after the select sees the elapsed limit.
+                     debug!("rekey time limit reached");
+                 }
++                () = async {
++                    match self.delayed_failures.front() {
++                        Some(deadline) => tokio::time::sleep_until(*deadline).await,
++                        None => std::future::pending().await,
++                    }
++                } => {
++                    self.delayed_failures.pop_front();
++                    if let Some(enc) = self.common.encrypted.as_mut() {
++                        push_packet!(enc.write, enc.write.push(msg::REQUEST_FAILURE));
++                    }
++                }
+                 () = &mut keepalive_timer => {
+                     self.common.alive_timeouts = self.common.alive_timeouts.saturating_add(1);
+                     if self.common.config.keepalive_max != 0 && self.common.alive_timeouts > self.common.config.keepalive_max {
+@@ -1149,6 +1161,7 @@
+ 
+     /// Close a channel.
+     pub fn close(&mut self, channel: ChannelId) -> Result<(), Error> {
++        self.channels.remove(&channel);
+         if let Some(ref mut enc) = self.common.encrypted {
+             enc.close(channel)
+         } else {
+@@ -1672,7 +1685,19 @@
+             channels: HashMap::new(),
+             open_global_requests: VecDeque::new(),
+             kex: SessionKexState::Idle,
+-        }
++            delayed_failures: VecDeque::new(),
++        }
++    }
++
++    #[tokio::test]
++    async fn server_close_releases_channel_sender() {
++        let mut session = authenticated_session();
++        let id = ChannelId(7);
++        let (sender, mut receiver) = tokio::sync::mpsc::channel(4);
++        session.channels.insert(id, ChannelRef::new(sender));
++        session.close(id).unwrap();
++        assert!(!session.channels.contains_key(&id));
++        assert!(receiver.recv().await.is_none());
+     }
+ 
+     fn compressed_debug_payload(payload_len: usize) -> Vec<u8> {

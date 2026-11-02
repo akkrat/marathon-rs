@@ -1,0 +1,32 @@
+{
+  "argv": [
+    "/bin/sh",
+    "-c",
+    "printf '%s\\n' \"$MRS_VALUE\" \"$PWD\" \"$@\"; printf 'stderr\\n' >&2; exit 7",
+    "probe",
+    "\"'x'\"",
+    "'",
+    "\"",
+    "''",
+    "x'",
+    ""
+  ],
+  "connected": true,
+  "exit": 7,
+  "missing": false,
+  "receive": true,
+  "send": true,
+  "stderr": [
+    "stderr"
+  ],
+  "stdout": [
+    "literal 12345678-1234-1234-1234-123456789abc",
+    "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1/tools/differential/runs/committed-pairs/local/0/raw",
+    "x",
+    "'",
+    "\"",
+    "",
+    "x'",
+    ""
+  ]
+}

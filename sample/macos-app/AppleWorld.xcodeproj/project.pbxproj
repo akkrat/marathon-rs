@@ -1,0 +1,482 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1C96A85FE1D5BB0746595586 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 21B3F8934F9D3CA00200D61B /* main.m */; };
+		4E4F0439764B301CB28CE247 /* SmokeTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 16B1ECBD1DF3161974199592 /* SmokeTests.m */; };
+		F4F908AF47B34B28ED3297F9 /* SmokeUITests.m in Sources */ = {isa = PBXBuildFile; fileRef = 16B7640576D9C1B0846893F2 /* SmokeUITests.m */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1834347C8FBC28776091EC3A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7C739E65542AEA7144ACE602 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0864DE607222179AD687E2B0;
+			remoteInfo = AppleWorld;
+		};
+		E4CA91B7F23168C94DC88B3F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7C739E65542AEA7144ACE602 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0864DE607222179AD687E2B0;
+			remoteInfo = AppleWorld;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		116BBBB6516CE52578DE282C /* AppleWorld.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AppleWorld.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		16B1ECBD1DF3161974199592 /* SmokeTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SmokeTests.m; sourceTree = "<group>"; };
+		16B7640576D9C1B0846893F2 /* SmokeUITests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = SmokeUITests.m; sourceTree = "<group>"; };
+		21B3F8934F9D3CA00200D61B /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
+		37557E2F98880C61F5A18F82 /* AppleWorldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppleWorldTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F16C45808482580DDFA99111 /* AppleWorldUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppleWorldUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		08A7B09BC8537D5B627D6C10 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				16B7640576D9C1B0846893F2 /* SmokeUITests.m */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		391A06A71ACF19E905D24284 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				21B3F8934F9D3CA00200D61B /* main.m */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		AD09D37104BDDF7B144A2B1E = {
+			isa = PBXGroup;
+			children = (
+				391A06A71ACF19E905D24284 /* App */,
+				D3A9008B8182C4C8ADB4380E /* Tests */,
+				08A7B09BC8537D5B627D6C10 /* UITests */,
+				F92574628D31CF3EAC301FFD /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D3A9008B8182C4C8ADB4380E /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				16B1ECBD1DF3161974199592 /* SmokeTests.m */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		F92574628D31CF3EAC301FFD /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				116BBBB6516CE52578DE282C /* AppleWorld.app */,
+				37557E2F98880C61F5A18F82 /* AppleWorldTests.xctest */,
+				F16C45808482580DDFA99111 /* AppleWorldUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0864DE607222179AD687E2B0 /* AppleWorld */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7DB955A4045F8546E90241B8 /* Build configuration list for PBXNativeTarget "AppleWorld" */;
+			buildPhases = (
+				C44654E034767F46E2E0F4C3 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AppleWorld;
+			packageProductDependencies = (
+			);
+			productName = AppleWorld;
+			productReference = 116BBBB6516CE52578DE282C /* AppleWorld.app */;
+			productType = "com.apple.product-type.application";
+		};
+		51420E09FB25EEB970A9C889 /* AppleWorldUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6720615CAE9AED98C866E66D /* Build configuration list for PBXNativeTarget "AppleWorldUITests" */;
+			buildPhases = (
+				FFCC0FC797C760560A04C161 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6BCACE0D61CAD8E1F187AC35 /* PBXTargetDependency */,
+			);
+			name = AppleWorldUITests;
+			packageProductDependencies = (
+			);
+			productName = AppleWorldUITests;
+			productReference = F16C45808482580DDFA99111 /* AppleWorldUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		7DA8318ABE9DBF31FA1E1E7A /* AppleWorldTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 73E8EAB1E823658680AF1DDC /* Build configuration list for PBXNativeTarget "AppleWorldTests" */;
+			buildPhases = (
+				75ACACAC9D92D94118A48FDE /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A2C40104D79593393AEB02AD /* PBXTargetDependency */,
+			);
+			name = AppleWorldTests;
+			packageProductDependencies = (
+			);
+			productName = AppleWorldTests;
+			productReference = 37557E2F98880C61F5A18F82 /* AppleWorldTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7C739E65542AEA7144ACE602 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					51420E09FB25EEB970A9C889 = {
+						TestTargetID = 0864DE607222179AD687E2B0;
+					};
+				};
+			};
+			buildConfigurationList = 83DA99A267F7A283FF677074 /* Build configuration list for PBXProject "AppleWorld" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = AD09D37104BDDF7B144A2B1E;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F92574628D31CF3EAC301FFD /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0864DE607222179AD687E2B0 /* AppleWorld */,
+				7DA8318ABE9DBF31FA1E1E7A /* AppleWorldTests */,
+				51420E09FB25EEB970A9C889 /* AppleWorldUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		75ACACAC9D92D94118A48FDE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4E4F0439764B301CB28CE247 /* SmokeTests.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C44654E034767F46E2E0F4C3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1C96A85FE1D5BB0746595586 /* main.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFCC0FC797C760560A04C161 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F4F908AF47B34B28ED3297F9 /* SmokeUITests.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		6BCACE0D61CAD8E1F187AC35 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0864DE607222179AD687E2B0 /* AppleWorld */;
+			targetProxy = E4CA91B7F23168C94DC88B3F /* PBXContainerItemProxy */;
+		};
+		A2C40104D79593393AEB02AD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0864DE607222179AD687E2B0 /* AppleWorld */;
+			targetProxy = 1834347C8FBC28776091EC3A /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		03B78CD740C7E79B3CAE0EF4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		38DF67D26A65409A54F3E100 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.marathon.AppleWorld;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		50482E170D87E186A4812B20 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		621DE6B8BD505F2898684331 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.marathon.AppleWorldTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AppleWorld.app/Contents/MacOS/AppleWorld";
+			};
+			name = Release;
+		};
+		B63B58713563B8E0BA4366A3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.marathon.AppleWorldUITests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = AppleWorld;
+			};
+			name = Release;
+		};
+		C8B5206D455288405C58DDC7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.marathon.AppleWorldTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AppleWorld.app/Contents/MacOS/AppleWorld";
+			};
+			name = Debug;
+		};
+		CDA3D3F48E67EEBA734C26AE /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.marathon.AppleWorldUITests;
+				SDKROOT = macosx;
+				TEST_TARGET_NAME = AppleWorld;
+			};
+			name = Debug;
+		};
+		E20CDD60B64184812F2A4708 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = org.marathon.AppleWorld;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		6720615CAE9AED98C866E66D /* Build configuration list for PBXNativeTarget "AppleWorldUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CDA3D3F48E67EEBA734C26AE /* Debug */,
+				B63B58713563B8E0BA4366A3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		73E8EAB1E823658680AF1DDC /* Build configuration list for PBXNativeTarget "AppleWorldTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8B5206D455288405C58DDC7 /* Debug */,
+				621DE6B8BD505F2898684331 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7DB955A4045F8546E90241B8 /* Build configuration list for PBXNativeTarget "AppleWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E20CDD60B64184812F2A4708 /* Debug */,
+				38DF67D26A65409A54F3E100 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		83DA99A267F7A283FF677074 /* Build configuration list for PBXProject "AppleWorld" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				50482E170D87E186A4812B20 /* Debug */,
+				03B78CD740C7E79B3CAE0EF4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 7C739E65542AEA7144ACE602 /* Project object */;
+}

@@ -1,0 +1,28 @@
+{
+  "junit": {
+    "tests": 3,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 1
+  },
+  "tests": [
+    {
+      "test": "com.example.ClassIgnoredTest#testAlwaysIgnored",
+      "status": "IGNORED",
+      "device": "device-1",
+      "failure": null
+    },
+    {
+      "test": "com.example.MainActivityAllureTest#testFailure",
+      "status": "FAILURE",
+      "device": "device-1",
+      "failure": "java.lang.AssertionError: expected:<1> but was:<2>"
+    },
+    {
+      "test": "com.example.MainActivityTest#testText",
+      "status": "PASSED",
+      "device": "device-1",
+      "failure": null
+    }
+  ]
+}

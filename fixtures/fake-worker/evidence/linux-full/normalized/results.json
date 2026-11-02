@@ -1,0 +1,577 @@
+{
+  "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.43",
+  "results": [
+    {
+      "case": "openssh-key",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-streams",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-stdin",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-binary-stdin",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-master-ready",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-reuse-1",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-background",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-term",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-reuse-2",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-master-exit",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-reject-key",
+      "exit": 255,
+      "expected": 255,
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-standard-askpass",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "key-roundtrip",
+      "outcome": "completed"
+    },
+    {
+      "case": "password-roundtrip",
+      "outcome": "completed"
+    },
+    {
+      "case": "deletion",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-bytes",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-mode",
+      "outcome": "completed"
+    },
+    {
+      "case": "fallback-bytes",
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-auth-reject",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-00",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-01",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-02",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-03",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-04",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-05",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-06",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-07",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-08",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-09",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-10",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-11",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-12",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-13",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-14",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-15",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-16",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-17",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-18",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-19",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-reject",
+      "exit": 255,
+      "expected": 255,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-00",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-01",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-02",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-03",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-04",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-05",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-06",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-07",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-08",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-09",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-reject",
+      "exit": 255,
+      "expected": 255,
+      "outcome": "completed"
+    },
+    {
+      "case": "rsync-call-count",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-0",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-1",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-3",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-4",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-5",
+      "outcome": "completed"
+    },
+    {
+      "case": "debug-version-argv",
+      "outcome": "completed"
+    },
+    {
+      "case": "receive-directory-slashes",
+      "outcome": "completed"
+    },
+    {
+      "case": "shim-known-host-isolation",
+      "outcome": "completed"
+    },
+    {
+      "case": "all-three-shims",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-client-guards",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-command-count",
+      "outcome": "completed"
+    },
+    {
+      "case": "server-directions",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-term-on-reused-connection",
+      "outcome": "completed"
+    },
+    {
+      "case": "virtual-term-delivered",
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-cleanup",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "virtual-root-clean",
+      "outcome": "completed"
+    },
+    {
+      "case": "standard-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-keyboard",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-keyboard",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "keyboard-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "exec-rejection",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "reject-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "kex-failure",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "kex-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-delayed-healthy",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-delay-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-with-output",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15h",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "timeout-close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "known-hosts-unchanged",
+      "outcome": "completed"
+    }
+  ]
+}

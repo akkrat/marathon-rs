@@ -1,0 +1,305 @@
+{
+  "contract": "223d51d83162044c6cf0bccf5989bd57e27912e1f4edc666ec2c37dc07ba402e",
+  "entries": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "host-argv.jsonl",
+      "sha256": "ac29d3a52bf745674e8dac86164fec26dcfd222674fa7e78d24fce0133578bde",
+      "size": 6921
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/parsed.yml",
+      "sha256": "6981be12f99e6ce1efd085f6d82df14b2cbe14aec8c1de727da7a83794de0af8",
+      "size": 278
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/sentinel",
+      "sha256": "99f4c36bd8c314f0d905711b55b0ae32b2192f8c15bb10d639422ea30987d7ca",
+      "size": 52
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "bf84bb7f91fd6cef26199f196ee825156662bbee8e592217e47bf1d788095a10",
+      "size": 3465
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "ae70b94774a43032af60f7b1d8ae8264bf1b04e1b382633b0e4e5d129b397491",
+      "size": 148
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "11a512352429b24caf7cdb31b5c1a48a1e3e822f3533cad200b01f1b039dfb0b",
+      "size": 2004
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "324702619000d11d5508515110d9e1f8002a1ebf9b83eaa82282e680edf53315",
+      "size": 718635
+    },
+    {
+      "kind": "directory",
+      "mode": 448,
+      "path": "worker"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/.apple-world"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/.apple-world/session-0.finished",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/marathon.xctestrun",
+      "sha256": "fb10880ec0faf07b58ad7ed624bf6e833881419a1f2356ea38698c8248b623b1",
+      "size": 1688
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/Info.plist",
+      "sha256": "d37b6bbdd198ecc56f818cc554fc152339580b97575ac7b7d25945d25d7cf7ac",
+      "size": 1240
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS/AppleWorld",
+      "sha256": "72fce09ab49679445772fa20967f74ec426f114744e8198f3fd5ba198c010f3a",
+      "size": 37576
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS/AppleWorld.debug.dylib",
+      "sha256": "58e7a3fd76a8c343a63af389275c5df1e5a86e46100256d02a4669d12aeb2763",
+      "size": 33944
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS/__preview.dylib",
+      "sha256": "6370adca8612fe8dac047c6bba5423b9efaad1bf1bb5cc815229df0775aadd57",
+      "size": 16760
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/PkgInfo",
+      "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+      "size": 8
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/Info.plist",
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b",
+      "size": 1194
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/MacOS/AppleWorldTests",
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb",
+      "size": 52736
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents/Info.plist",
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b",
+      "size": 1194
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents/MacOS/AppleWorldTests",
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb",
+      "size": 52736
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/shared/libxctest-parser.dylib",
+      "sha256": "730015f8bcb9bd906837544c8be9aa904826d151e252cd3aeac9ed87270a9d3b",
+      "size": 206152
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/Contents/Info.plist",
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b",
+      "size": 1194
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/Contents/MacOS/AppleWorldTests",
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb",
+      "size": 52736
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "port": "59726",
+    "safe_serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59726",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-parse/native/raw",
+    "serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE@fixture@127.0.0.1:59726",
+    "temp_discovery": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-parse/native/raw/tmp/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEEcBxA2Ixctestrun",
+    "temp_parser": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-parse/native/raw/tmp/.tmpqDkxut"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "9999b508d1d1624558c2473f53b4097d27241452b35c29a9341a3f788b86b090",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hooks": {
+      "active": true,
+      "failures": [],
+      "unused": []
+    },
+    "native_sha": "bdb9bbfc2de48de08239ee506669bc391cd6064e",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/target/debug/examples/differential_cli",
+        "parse",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-parse/native/raw/in/Marathonfile",
+        "-o",
+        "parsed"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "terminal_observation": {
+      "cli": 0,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "e47352f25cbc50333900d5d040a5544ff1224501",
+  "storage": "gzip@1"
+}

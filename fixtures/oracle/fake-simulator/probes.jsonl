@@ -1,0 +1,12 @@
+{"command":["env"],"stdout":["HOME\u003d/Users/worker","USER\u003dworker"],"stderr":[],"exit_code":0}
+{"command":["uname","-m"],"stdout":["arm64"],"stderr":[],"exit_code":0}
+{"command":["xcrun","xcodebuild","-version"],"stdout":["Xcode 16.4","Build version 16F6"],"stderr":[],"exit_code":0}
+{"command":["/usr/sbin/system_profiler","any"],"stdout":["\u003cstring\u003espdisplays_metalfamily\u003c/string\u003e"],"stderr":[],"exit_code":0}
+{"command":["xcrun","simctl","list","--json"],"stdout":["{\"devicetypes\":[{\"name\":\"iPhone 15 Pro\",\"identifier\":\"com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro\"}],\"runtimes\":[{\"identifier\":\"com.apple.CoreSimulator.SimRuntime.iOS-18-6\",\"name\":\"iOS 18.6\",\"version\":\"18.6\"}],\"devices\":{\"com.apple.CoreSimulator.SimRuntime.iOS-18-6\":[{\"udid\":\"b2\",\"name\":\"b2\",\"state\":\"Shutdown\",\"isAvailable\":false,\"logPath\":\"/Users/worker/Library/Logs/CoreSimulator/b2\",\"deviceTypeIdentifier\":\"com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro\"},{\"udid\":\"b3\",\"name\":\"b3\",\"state\":\"Shutdown\",\"isAvailable\":true,\"logPath\":\"/Users/worker/Library/Logs/CoreSimulator/b3\",\"deviceTypeIdentifier\":\"com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro\"},{\"udid\":\"b1\",\"name\":\"b1\",\"state\":\"Shutdown\",\"isAvailable\":true,\"logPath\":\"/Users/worker/Library/Logs/CoreSimulator/b1\",\"deviceTypeIdentifier\":\"com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro\"}],\"custom-runtime\":[{\"udid\":\"custom\",\"name\":\"custom\",\"state\":\"Shutdown\",\"isAvailable\":true,\"logPath\":\"/Users/worker/Library/Logs/CoreSimulator/custom\",\"deviceTypeIdentifier\":\"custom-type\"}]}}"],"stderr":[],"exit_code":0}
+{"command":["xcrun","simctl","getenv","b1","HOME"],"stdout":["/Users/worker/Library/Developer/CoreSimulator/Devices/b1/data"],"stderr":[],"exit_code":0}
+{"command":["xcrun","simctl","getenv","b1","SIMULATOR_MODEL_IDENTIFIER"],"stdout":["model-b1"],"stderr":[],"exit_code":0}
+{"command":["xcrun","simctl","getenv","b1","SIMULATOR_RUNTIME_VERSION"],"stdout":["18.6"],"stderr":[],"exit_code":0}
+{"command":["xcrun","simctl","getenv","b1","OTHER"],"stdout":[],"stderr":[],"exit_code":1}
+{"command":["xcrun","simctl","getenv","missing","HOME"],"stdout":[],"stderr":["Invalid device: device"],"exit_code":148}
+{"command":["xcrun","simctl","delete","missing"],"stdout":[],"stderr":["Invalid device: missing"],"exit_code":148}
+{"command":["unsupported"],"stdout":[],"stderr":["unsupported command"],"exit_code":1}

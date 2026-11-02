@@ -1,0 +1,132 @@
+{"description":"WP 2.1 review round 1 JVM witnesses, Jackson 2.17.2"}
+{"target":"Accessors","input":"k: null","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"null"}}}
+{"target":"Accessors","input":"k: true","result":{"ok":{"boolean":true,"double":1.0,"int":1,"long":1,"text":"true"}}}
+{"target":"Accessors","input":"k: false","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"false"}}}
+{"target":"Accessors","input":"k: 0","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"0"}}}
+{"target":"Accessors","input":"k: 1","result":{"ok":{"boolean":true,"double":1.0,"int":1,"long":1,"text":"1"}}}
+{"target":"Accessors","input":"k: -7","result":{"ok":{"boolean":true,"double":-7.0,"int":-7,"long":-7,"text":"-7"}}}
+{"target":"Accessors","input":"k: 2147483648","result":{"ok":{"boolean":true,"double":2.147483648E9,"int":-2147483648,"long":2147483648,"text":"2147483648"}}}
+{"target":"Accessors","input":"k: 4294967296","result":{"ok":{"boolean":true,"double":4.294967296E9,"int":0,"long":4294967296,"text":"4294967296"}}}
+{"target":"Accessors","input":"k: 9223372036854775808","result":{"ok":{"boolean":true,"double":9.223372036854776E18,"int":0,"long":-9223372036854775808,"text":"9223372036854775808"}}}
+{"target":"Accessors","input":"k: 18446744073709551616","result":{"ok":{"boolean":true,"double":1.8446744073709552E19,"int":0,"long":0,"text":"18446744073709551616"}}}
+{"target":"Accessors","input":"k: 1.5","result":{"ok":{"boolean":false,"double":1.5,"int":1,"long":1,"text":"1.5"}}}
+{"target":"Accessors","input":"k: -2.5","result":{"ok":{"boolean":false,"double":-2.5,"int":-2,"long":-2,"text":"-2.5"}}}
+{"target":"Accessors","input":"k: 1e309","result":{"ok":{"boolean":false,"double":"Infinity","int":2147483647,"long":9223372036854775807,"text":"Infinity"}}}
+{"target":"Accessors","input":"k: ''","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":""}}}
+{"target":"Accessors","input":"k: '  '","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"  "}}}
+{"target":"Accessors","input":"k: abc","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"abc"}}}
+{"target":"Accessors","input":"k: '2.5'","result":{"ok":{"boolean":false,"double":2.5,"int":2,"long":2,"text":"2.5"}}}
+{"target":"Accessors","input":"k: '2147483648'","result":{"ok":{"boolean":false,"double":2.147483648E9,"int":0,"long":2147483648,"text":"2147483648"}}}
+{"target":"Accessors","input":"k: '9223372036854775808'","result":{"ok":{"boolean":false,"double":9.223372036854776E18,"int":0,"long":0,"text":"9223372036854775808"}}}
+{"target":"Accessors","input":"k: '1e309'","result":{"ok":{"boolean":false,"double":"Infinity","int":2147483647,"long":9223372036854775807,"text":"1e309"}}}
+{"target":"Accessors","input":"k: 'true'","result":{"ok":{"boolean":true,"double":0.0,"int":0,"long":0,"text":"true"}}}
+{"target":"Accessors","input":"k: 'TRUE'","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"TRUE"}}}
+{"target":"Accessors","input":"k: ' false '","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":" false "}}}
+{"target":"Accessors","input":"k: '١'","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"١"}}}
+{"target":"Accessors","input":"k: !!binary YWJj","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":"YWJj"}}}
+{"target":"Accessors","input":"k: []","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":""}}}
+{"target":"Accessors","input":"k: {}","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":""}}}
+{"target":"Accessors","input":"k: [1]","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":""}}}
+{"target":"Accessors","input":"k: {k: 2}","result":{"ok":{"boolean":false,"double":0.0,"int":0,"long":0,"text":""}}}
+{"target":"Lookup","input":"outer: {k: 7}\nk: 99","result":{"ok":{"find":"99","get":"99"}}}
+{"target":"Lookup","input":"outer: {k: 7}","result":{"ok":{"find":"7","get":null}}}
+{"target":"Lookup","input":"k: 1\nk: 2","result":{"ok":{"find":"2","get":"2"}}}
+{"target":"Lookup","input":"k: null","result":{"ok":{"find":"null","get":"null"}}}
+{"target":"Lookup","input":"[ {k: 7} ]","result":{"ok":{"find":"7","get":null}}}
+{"target":"Lookup","input":"abc","result":{"ok":{"find":null,"get":null}}}
+{"target":"Defaults","input":"{}","result":{"ok":{"nullable":9,"primitive":7,"reference":"default"}}}
+{"target":"Defaults","input":"primitive: null","result":{"ok":{"nullable":9,"primitive":0,"reference":"default"}}}
+{"target":"Defaults","input":"reference: null","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"target":"Defaults","input":"nullable: null","result":{"ok":{"nullable":null,"primitive":7,"reference":"default"}}}
+{"target":"Defaults","input":"primitive: '12'","result":{"ok":{"nullable":9,"primitive":12,"reference":"default"}}}
+{"target":"Defaults","input":"nullable: '12'","result":{"ok":{"nullable":12,"primitive":7,"reference":"default"}}}
+{"target":"Nested","input":"bean: null","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"target":"Nested","input":"bean: {}","result":{"ok":{"bean":{"k":"default"}}}}
+{"target":"VendorField","input":"vendorConfiguration: null","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"target":"ExecutionField","input":"executionStrategy: null","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"target":"Filtering","input":"allowlist: [null]","result":{"ok":{"allowlist":[null],"blocklist":[]}}}
+{"target":"Filtering","input":"allowlist: null","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"target":"Filtering","input":"allowlist: [{type: method, type: allure}]","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Filtering","input":"allowlist: [{type: allure, type: method}]","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Filtering","input":"allowlist: [{regex: abc, type: method, type: allure}]","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Filtering","input":"allowlist: [{type: null}]","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Filtering","input":"allowlist: [{type: []}]","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Filtering","input":"allowlist: [{type: {}}]","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Filtering","input":"allowlist: [abc]","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Vendor","input":"{type: stub, type: empty}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Vendor","input":"{type: empty, type: stub}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Vendor","input":"{type: null}","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Vendor","input":"{type: []}","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Vendor","input":"{type: {}}","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Vendor","input":"abc","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Vendor","input":"null","result":{"ok":null}}
+{"target":"Vendor","input":"{type: stub}","result":{"ok":{"type":"stub"}}}
+{"target":"Vendor","input":"{type: null, type: stub}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Vendor","input":"{type: [], type: stub}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Vendor","input":"{type: stub, type: null}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Vendor","input":"{type: stub, type: []}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Parser","input":"{type: local, type: remote}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Parser","input":"{type: remote, type: local}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Parser","input":"{type: null}","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Parser","input":"{type: []}","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Parser","input":"{type: {}}","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Parser","input":"abc","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidTypeIdException"]}}
+{"target":"Parser","input":"null","result":{"ok":null}}
+{"target":"Parser","input":"{type: local}","result":{"ok":{"type":"local"}}}
+{"target":"Parser","input":"{type: null, type: local}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Parser","input":"{type: [], type: local}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Parser","input":"{type: local, type: null}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Parser","input":"{type: local, type: []}","result":{"error":["com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"]}}
+{"target":"Regex","input":"k: null","result":{"ok":{"k":null}}}
+{"target":"Regex","input":"k: 17","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.IllegalStateException"]}}
+{"target":"Regex","input":"k: 1.5","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.IllegalStateException"]}}
+{"target":"Regex","input":"k: true","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.IllegalStateException"]}}
+{"target":"Regex","input":"k: false","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.IllegalStateException"]}}
+{"target":"Regex","input":"k: !!binary YWJj","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.IllegalStateException"]}}
+{"target":"Regex","input":"k: 'abc'","result":{"ok":{"k":"abc"}}}
+{"target":"Regex","input":"k: []","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.IllegalStateException"]}}
+{"target":"Regex","input":"k: {}","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.NullPointerException"]}}
+{"target":"P2File","input":"''","result":{"ok":null}}
+{"target":"P2File","input":"'  '","result":{"ok":null}}
+{"target":"P2File","input":"' relative/key '","result":{"ok":"relative/key"}}
+{"target":"P2File","input":"' /a/../b '","result":{"ok":"/a/../b"}}
+{"target":"P2File","input":"17","result":{"ok":"17"}}
+{"target":"P2File","input":"true","result":{"ok":"true"}}
+{"target":"P2File","input":"\"a\\u0000b\"","result":{"ok":"a\u0000b"}}
+{"target":"P2File","input":"null","result":{"ok":null}}
+{"target":"SerialStrategy","input":"bogus","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"SerialStrategy","input":"1","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"SerialStrategy","input":"true","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"SerialStrategy","input":"null","result":{"ok":null}}
+{"target":"SerialStrategy","input":"''","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"SerialStrategy","input":"[]","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"target":"SerialStrategy","input":"{}","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"target":"SerialStrategy","input":"automatic","result":{"ok":"AUTOMATIC"}}
+{"target":"AndroidRecorder","input":"bogus","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"AndroidRecorder","input":"1","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"AndroidRecorder","input":"true","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"AndroidRecorder","input":"null","result":{"ok":null}}
+{"target":"AndroidRecorder","input":"''","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"AndroidRecorder","input":"[]","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"target":"AndroidRecorder","input":"{}","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"target":"AndroidRecorder","input":"video","result":{"ok":"VIDEO"}}
+{"target":"IosRecorder","input":"bogus","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"IosRecorder","input":"1","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"IosRecorder","input":"true","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"IosRecorder","input":"null","result":{"ok":null}}
+{"target":"IosRecorder","input":"''","result":{"error":["com.fasterxml.jackson.databind.exc.ValueInstantiationException","java.lang.IllegalArgumentException"]}}
+{"target":"IosRecorder","input":"[]","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"target":"IosRecorder","input":"{}","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"target":"IosRecorder","input":"video","result":{"ok":"VIDEO"}}
+{"target":"Batching","input":"{type: fixed-size, size: true}","result":{"ok":{"durationMillis":null,"lastMileLength":0,"percentile":null,"size":1,"timeLimit":null,"type":"fixed-size"}}}
+{"target":"Batching","input":"{type: fixed-size, size: bad}","result":{"ok":{"durationMillis":null,"lastMileLength":0,"percentile":null,"size":0,"timeLimit":null,"type":"fixed-size"}}}
+{"target":"Batching","input":"{type: fixed-size, size: '2.5'}","result":{"ok":{"durationMillis":null,"lastMileLength":0,"percentile":null,"size":2,"timeLimit":null,"type":"fixed-size"}}}
+{"target":"Batching","input":"{type: fixed-size, size: {}}","result":{"ok":{"durationMillis":null,"lastMileLength":0,"percentile":null,"size":0,"timeLimit":null,"type":"fixed-size"}}}
+{"target":"Batching","input":"{type: fixed-size, size: 1, percentile: abc}","result":{"ok":{"durationMillis":null,"lastMileLength":0,"percentile":0.0,"size":1,"timeLimit":null,"type":"fixed-size"}}}
+{"target":"Batching","input":"{type: fixed-size, size: 1, percentile: zzz}","result":{"ok":{"durationMillis":null,"lastMileLength":0,"percentile":0.0,"size":1,"timeLimit":null,"type":"fixed-size"}}}
+{"target":"SubtypeTree","input":"{type: tree, k: x}","result":{"ok":{"properties":["k=x"],"type":"tree"}}}
+{"target":"SubtypeTree","input":"{k: x, type: tree}","result":{"ok":{"properties":["k=x"],"type":"tree"}}}
+{"target":"SubtypeTree","input":"{type: tree, type: later, k: x}","result":{"ok":{"properties":["type=later","k=x"],"type":"tree"}}}
+{"target":"SubtypeTree","input":"{type: null, type: tree, k: x}","result":{"ok":{"properties":["type=null","k=x"],"type":"tree"}}}
+{"target":"SubtypeTree","input":"{nested: {type: retained}, type: tree}","result":{"ok":{"properties":["nested="],"type":"tree"}}}
+{"target":"DeepFilters","input":"499","result":{"ok":499}}

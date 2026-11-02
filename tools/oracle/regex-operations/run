@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Run shared-syntax Kotlin Regex operation probes using cached Kotlin 1.9.24."""
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+
+cache = Path.home() / '.gradle/caches/modules-2/files-2.1'
+def jar(group, artifact, version):
+    return next((cache / group / artifact / version).glob('*/' + artifact + '-' + version + '.jar'))
+
+stdlib = jar('org.jetbrains.kotlin', 'kotlin-stdlib', '1.9.24')
+compiler = [jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '1.9.24'), stdlib,
+            jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),
+            jar('org.jetbrains.intellij.deps', 'trove4j', '1.0.20200330'),
+            jar('org.jetbrains', 'annotations', '13.0')]
+java = str(Path(os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')) / 'bin/java')
+with tempfile.TemporaryDirectory(prefix='regex-operations-') as tmp:
+    out = str(Path(tmp) / 'operations.jar')
+    subprocess.run([java, '-cp', os.pathsep.join(map(str, compiler)),
+                    'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect',
+                    '-cp', str(stdlib), '-d', out, str(Path(__file__).with_name('Operations.kt'))], check=True)
+    subprocess.run([java, '-cp', out + os.pathsep + str(stdlib), 'OperationsKt'], check=True)

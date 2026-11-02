@@ -1,0 +1,160 @@
+{
+  "stage": "ok",
+  "error": null,
+  "config": {
+    "analyticsConfiguration": {
+      "type": "disabled"
+    },
+    "analyticsTracking": true,
+    "batchingStrategy": {
+      "type": "isolate"
+    },
+    "bugsnagReporting": true,
+    "ciConfiguration": {
+      "type": "none"
+    },
+    "debug": true,
+    "deviceInitializationTimeoutMillis": 180000,
+    "excludeSerialRegexes": [],
+    "executionStrategy": {
+      "fast": true,
+      "mode": "ANY_SUCCESS"
+    },
+    "filteringConfiguration": {
+      "allowlist": [],
+      "blocklist": []
+    },
+    "flakinessStrategy": {
+      "type": "ignore"
+    },
+    "ignoreFailures": false,
+    "includeSerialRegexes": [],
+    "isCodeCoverageEnabled": false,
+    "name": "map key order",
+    "outputConfiguration": {
+      "maxFilename": 255,
+      "maxPath": 0
+    },
+    "outputDir": "<FIXTURE_CONFIG>/marathon",
+    "poolingStrategy": {
+      "type": "omni"
+    },
+    "retryStrategy": {
+      "type": "no-retry"
+    },
+    "screenRecordingPolicy": "ON_FAILURE",
+    "shardingStrategy": {
+      "type": "parallel"
+    },
+    "sortingStrategy": {
+      "type": "no-sorting"
+    },
+    "testBatchTimeoutMillis": 1800000,
+    "testOutputTimeoutMillis": 300000,
+    "uncompletedTestRetryQuota": 2147483647,
+    "vendorConfiguration": {
+      "adbInitTimeoutMillis": 30000,
+      "adbServers": [
+        {
+          "host": "127.0.0.1",
+          "port": 5037
+        }
+      ],
+      "allureConfiguration": {
+        "enabled": false,
+        "pathRoot": "APP_DATA",
+        "relativeResultsDirectory": "/files/allure-results"
+      },
+      "androidSdk": "/opt/android-sdk",
+      "applicationOutput": null,
+      "applicationPmClear": false,
+      "autoGrantPermission": false,
+      "disableWindowAnimation": true,
+      "extraApplicationsOutput": null,
+      "fileSyncConfiguration": {
+        "pull": [],
+        "push": []
+      },
+      "installOptions": "",
+      "instrumentationArgs": {
+        "Z": "U+005A",
+        "a": "U+0061",
+        "é": "U+00E9",
+        "😀": "U+1F600",
+        "ｚ": "fullwidth z, U+FF5A"
+      },
+      "mockLocation": false,
+      "outputs": null,
+      "profilingConfiguration": {
+        "enabled": false,
+        "pbtxt": null,
+        "urlTemplate": "https://cloud.marathonlabs.io/"
+      },
+      "screenRecordConfiguration": {
+        "preferableRecorderType": null,
+        "screenshotConfiguration": {
+          "delayMs": 500,
+          "enabled": true,
+          "height": 1280,
+          "width": 720
+        },
+        "videoConfiguration": {
+          "bitrateMbps": 1,
+          "enabled": true,
+          "height": 1280,
+          "timeLimit": 180,
+          "timeLimitUnits": "SECONDS",
+          "width": 720
+        }
+      },
+      "serialStrategy": "AUTOMATIC",
+      "splitApks": null,
+      "testAccessConfiguration": {
+        "adb": false,
+        "console": false,
+        "consoleToken": "",
+        "grpc": false
+      },
+      "testApplicationOutput": null,
+      "testApplicationPmClear": false,
+      "testParserConfiguration": {
+        "type": "local"
+      },
+      "threadingConfiguration": {
+        "adbIoThreads": 4,
+        "bootWaitingThreads": 4,
+        "installThreads": 8
+      },
+      "timeoutConfiguration": {
+        "boot": "PT30S",
+        "install": "PT1M",
+        "listFiles": "PT20S",
+        "portForward": "PT20S",
+        "pullFile": "PT30S",
+        "pushFile": "PT1M",
+        "pushFolder": "PT1M",
+        "screencapturer": "PT0.3S",
+        "screenrecorder": "PT3M20S",
+        "shell": "PT20S",
+        "socketIdleTimeout": "PT30S",
+        "uninstall": "PT20S"
+      },
+      "type": "Android",
+      "waitForDevicesTimeoutMillis": 30000
+    }
+  },
+  "fsEffects": [],
+  "golden": {
+    "input": "oracle_map_keys.yaml",
+    "env": {
+      "ANDROID_HOME": "/android-sdk"
+    },
+    "now": "1970-01-12T13:46:40Z",
+    "host": {
+      "os": "Darwin",
+      "release": "27.0.0",
+      "arch": "arm64"
+    },
+    "normalisations": []
+  }
+}

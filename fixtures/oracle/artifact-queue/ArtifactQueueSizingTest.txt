@@ -1,0 +1,19 @@
+Artifact queue sizing harness: 18 workers x 4 simulators, 40 s batches, 1.1 s pulls
+defaults      8/ 4/ 2 TOGETHER stalled=0: wait max 19800 ms (healthy  19800 ms), p95  7700 ms, 640 of 720 waited (598 for run capacity), peak outstanding  8, per worker  2, on stalled worker 0, peak transfers  4
+defaults      8/ 4/ 2 TOGETHER stalled=1: wait max 432200 ms (healthy  24200 ms), p95 11000 ms, 624 of 720 waited (580 for run capacity), peak outstanding  8, per worker  2, on stalled worker 2, peak transfers  4
+defaults      8/ 4/ 2 TOGETHER stalled=3: wait max 432300 ms (healthy  63800 ms), p95 37400 ms, 459 of 720 waited (444 for run capacity), peak outstanding  8, per worker  2, on stalled worker 2, peak transfers  4
+defaults      8/ 4/ 2 SPREAD   stalled=0: wait max   950 ms (healthy    950 ms), p95     0 ms, 360 of 720 waited (  0 for run capacity), peak outstanding  5, per worker  2, on stalled worker 0, peak transfers  3
+defaults      8/ 4/ 2 SPREAD   stalled=1: wait max 430950 ms (healthy    950 ms), p95   266 ms, 344 of 720 waited (  0 for run capacity), peak outstanding  7, per worker  2, on stalled worker 2, peak transfers  4
+defaults      8/ 4/ 2 SPREAD   stalled=3: wait max 430950 ms (healthy  39217 ms), p95 26000 ms, 457 of 720 waited (440 for run capacity), peak outstanding  8, per worker  2, on stalled worker 2, peak transfers  4
+large farm   72/ 8/ 4 TOGETHER stalled=0: wait max     0 ms (healthy      0 ms), p95     0 ms,   0 of 720 waited (  0 for run capacity), peak outstanding 72, per worker  4, on stalled worker 0, peak transfers  8
+large farm   72/ 8/ 4 TOGETHER stalled=1: wait max 394400 ms (healthy      0 ms), p95     0 ms,   4 of 720 waited (  0 for run capacity), peak outstanding 72, per worker  4, on stalled worker 4, peak transfers  8
+large farm   72/ 8/ 4 TOGETHER stalled=3: wait max 394400 ms (healthy      0 ms), p95     0 ms,  12 of 720 waited (  0 for run capacity), peak outstanding 72, per worker  4, on stalled worker 4, peak transfers  8
+large farm   72/ 8/ 4 SPREAD   stalled=0: wait max     0 ms (healthy      0 ms), p95     0 ms,   0 of 720 waited (  0 for run capacity), peak outstanding  6, per worker  3, on stalled worker 0, peak transfers  3
+large farm   72/ 8/ 4 SPREAD   stalled=1: wait max 393150 ms (healthy      0 ms), p95     0 ms,   4 of 720 waited (  0 for run capacity), peak outstanding 10, per worker  4, on stalled worker 4, peak transfers  4
+large farm   72/ 8/ 4 SPREAD   stalled=3: wait max 393150 ms (healthy      0 ms), p95     0 ms,  12 of 720 waited (  0 for run capacity), peak outstanding 18, per worker  4, on stalled worker 4, peak transfers  6
+global-first 72/ 8/72 TOGETHER stalled=0: wait max     0 ms (healthy      0 ms), p95     0 ms,   0 of 720 waited (  0 for run capacity), peak outstanding 72, per worker  4, on stalled worker 0, peak transfers  8
+global-first 72/ 8/72 TOGETHER stalled=1: wait max  1100 ms (healthy   1100 ms), p95  1100 ms, 180 of 720 waited (180 for run capacity), peak outstanding 72, per worker 40, on stalled worker 40, peak transfers  8
+global-first 72/ 8/72 TOGETHER stalled=3: wait max 233300 ms (healthy 233300 ms), p95 231100 ms, 192 of 720 waited (192 for run capacity), peak outstanding 72, per worker 24, on stalled worker 24, peak transfers  8
+global-first 72/ 8/72 SPREAD   stalled=0: wait max     0 ms (healthy      0 ms), p95     0 ms,   0 of 720 waited (  0 for run capacity), peak outstanding  6, per worker  3, on stalled worker 0, peak transfers  3
+global-first 72/ 8/72 SPREAD   stalled=1: wait max     0 ms (healthy      0 ms), p95     0 ms,   0 of 720 waited (  0 for run capacity), peak outstanding 46, per worker 40, on stalled worker 40, peak transfers  4
+global-first 72/ 8/72 SPREAD   stalled=3: wait max 226100 ms (healthy 226100 ms), p95 217700 ms,  72 of 720 waited ( 72 for run capacity), peak outstanding 72, per worker 24, on stalled worker 24, peak transfers  8

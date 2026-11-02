@@ -1,0 +1,923 @@
+//! Port of adam 0.5.8 `adam/src/main/kotlin/com/malinskiy/adam/request/testrunner/transform/InstrumentationResponseTransformer.kt`
+//! (which declares package `com.malinskiy.adam.request.transform`), over the
+//! `ProgressiveResponseTransformer<List<TestEvent>?>` shape of
+//! `.../request/transform/ProgressiveResponseTransformer.kt`.
+//! adam portions: Copyright (C) 2021 Anton Malinskiy; Apache-2.0.
+//!
+//! `process` returns the throw-equivalent error where Kotlin lets a Java
+//! exception escape (a non-numeric `numtests`, substring failures on
+//! malformed atoms); it never panics on input.
+
+use crate::testrunner::{MetricMap, Status, TestEvent, TestIdentifier, TokenType};
+use jcompat::{jnum, jstring, writers::JavaString};
+
+/// Where Kotlin's `process` throws out of the transformer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstrumentationError {
+    /// `parameters["numtests"]?.toInt()` — `NumberFormatException`, not `toIntOrNull`.
+    InvalidNumTests(JavaString),
+    /// `StringIndexOutOfBoundsException`: a status/result code line with no
+    /// value character at all, or a parameter piece with no `=` (adam's
+    /// `toMap` indexes `substring(0, -1)` then; see WP 6.3 findings).
+    MalformedAtom(JavaString),
+}
+impl std::fmt::Display for InstrumentationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidNumTests(v) => write!(f, "invalid numtests value: {}", display(v)),
+            Self::MalformedAtom(v) => write!(f, "malformed instrumentation atom: {}", display(v)),
+        }
+    }
+}
+impl std::error::Error for InstrumentationError {}
+
+/// A non-fatal parser warning, drained via
+/// [`InstrumentationResponseTransformer::take_warnings`]. The transformer is
+/// a pure parser with no logger sink; 6.6a formats these (see `Display`) and
+/// routes them to the marathon log at WARN.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstrumentationWarning {
+    /// P2: an unknown `INSTRUMENTATION_STATUS_CODE` (raw, trimmed code text
+    /// as it appeared, which need not be numeric); the atom was ignored.
+    UnknownStatusCode(JavaString),
+}
+
+impl InstrumentationWarning {
+    /// The raw status-code text of an unknown-status-code warning.
+    pub fn code(&self) -> &JavaString {
+        match self {
+            Self::UnknownStatusCode(code) => code,
+        }
+    }
+}
+
+impl std::fmt::Display for InstrumentationWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownStatusCode(code) => {
+                write!(
+                    f,
+                    "unknown INSTRUMENTATION_STATUS_CODE: {}, atom ignored",
+                    display(code)
+                )
+            }
+        }
+    }
+}
+
+fn display(text: &JavaString) -> String {
+    String::from_utf8_lossy(&text.to_utf8_bytes()).into_owned()
+}
+
+const KNOWN_KEYS: [&str; 9] = [
+    "test", "class", "stack", "numtests", "Error", "shortMsg", "stream", "current", "id",
+];
+
+/// Stateful chunk parser for `am instrument -r` output. Feed shell chunks to
+/// `process`, then call `transform` once when the stream ends.
+#[derive(Clone, Debug, Default)]
+pub struct InstrumentationResponseTransformer {
+    buffer: JavaString,
+    start_reported: bool,
+    finish_reported: bool,
+    tests_expected: i32,
+    tests_executed: i32,
+    test_metrics: MetricMap,
+    warnings: Vec<InstrumentationWarning>,
+}
+
+impl InstrumentationResponseTransformer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Kotlin `buffer` is public; nothing in marathon reads it.
+    pub fn buffer(&self) -> &JavaString {
+        &self.buffer
+    }
+
+    /// Drain the warnings accumulated since the last call (P2 unknown status
+    /// codes). Warnings survive an `Err` return from `process` for atoms
+    /// parsed before the failing one.
+    pub fn take_warnings(&mut self) -> Vec<InstrumentationWarning> {
+        std::mem::take(&mut self.warnings)
+    }
+
+    pub fn process(&mut self, bytes: &[u8]) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
+        // Java String(bytes, UTF_8) also decodes each chunk independently,
+        // so a multi-byte character split across chunks is lost in both.
+        // The malformed-input replacement itself differs, though: Java's
+        // decoder and from_utf8_lossy can emit a different number of U+FFFD
+        // replacement characters for the same invalid byte sequence.
+        // Matching Java's count is an approved non-goal (WP 6.3 findings,
+        // R1-sol-3); per-chunk lossy decoding stays.
+        self.buffer.push_str(&String::from_utf8_lossy(bytes));
+
+        let mut result: Option<Vec<TestEvent>> = None;
+        while let Some(atom) = self.find_atom() {
+            if let Some(events) = self.parse(&atom)? {
+                result.get_or_insert_with(Vec::new).extend(events);
+            }
+        }
+        Ok(result)
+    }
+
+    fn find_atom(&mut self) -> Option<Vec<JavaString>> {
+        let units = &self.buffer.0;
+        let token_position = [
+            find_slice(units, TokenType::InstrumentationStatusCode.name()),
+            find_slice(units, TokenType::InstrumentationCode.name()),
+        ]
+        .into_iter()
+        .flatten()
+        .min()?;
+
+        let next_line_break = units[token_position..]
+            .iter()
+            .position(|&c| c == 0x0A || c == 0x0D)
+            .map(|offset| token_position + offset)?;
+
+        let atom = jstring::lines(&JavaString(units[..next_line_break].to_vec()));
+        self.buffer.0.drain(..next_line_break + 1);
+        Some(atom)
+    }
+
+    pub fn transform(&mut self) -> Option<Vec<TestEvent>> {
+        if self.finish_reported {
+            return None;
+        }
+        // P3 (approved deviation): Kotlin leaves finishReported unset in both
+        // failure branches, so a second transform() re-emits (and re-prepends
+        // "No test results\n"). Here a repeated finish reports nothing.
+        self.finish_reported = true;
+        if !self.start_reported {
+            let mut units: Vec<u16> = "No test results\n".encode_utf16().collect();
+            units.extend_from_slice(&self.buffer.0);
+            Some(vec![TestEvent::TestRunFailed {
+                error: JavaString(jstring::trim(&units).to_vec()),
+            }])
+        } else if self.tests_expected > self.tests_executed {
+            Some(vec![TestEvent::TestRunFailed {
+                error: JavaString::from(format!(
+                    "Test run failed to complete. Expected {} tests, executed {}",
+                    self.tests_expected, self.tests_executed
+                )),
+            }])
+        } else {
+            Some(vec![TestEvent::TestRunEnded {
+                elapsed_time_millis: 0,
+                metrics: MetricMap::new(),
+            }])
+        }
+    }
+
+    fn parse(&mut self, atom: &[JavaString]) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
+        let last = &atom[atom.len() - 1];
+        if starts_with(&last.0, TokenType::InstrumentationStatusCode.name()) {
+            self.parse_status_code(last, &atom[..atom.len() - 1])
+        } else if starts_with(&last.0, TokenType::InstrumentationCode.name()) {
+            self.parse_instrumentation_code(last, atom)
+        } else {
+            // INSTRUMENTATION_FAILED and anything else: dropped, no events.
+            Ok(None)
+        }
+    }
+
+    fn parse_status_code(
+        &mut self,
+        last: &JavaString,
+        atom: &[JavaString],
+    ) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
+        let value_units = last
+            .0
+            .get(TokenType::InstrumentationStatusCode.name().len() + 1..)
+            .ok_or_else(|| InstrumentationError::MalformedAtom(last.clone()))?;
+        let code = to_int_or_null(value_units);
+        let status = Status::value_of(code);
+        let parameters = to_map(atom, "INSTRUMENTATION_STATUS: ")?;
+
+        let mut events: Vec<TestEvent> = Vec::new();
+        if !self.start_reported {
+            if let Some(numtests) = parameters.get_str("numtests") {
+                let tests =
+                    to_int_exact(&numtests.0).ok_or_else(|| InstrumentationError::InvalidNumTests(numtests.clone()))?;
+                events.push(TestEvent::TestRunStartedEvent { test_count: tests });
+                self.tests_expected = tests;
+            }
+            self.start_reported = true;
+        }
+
+        match status {
+            Status::Success => {
+                if let Some(id) = test_id(&parameters) {
+                    events.push(TestEvent::TestEnded {
+                        id,
+                        metrics: std::mem::take(&mut self.test_metrics),
+                    });
+                }
+                self.tests_executed += 1;
+            }
+            Status::Start => {
+                if let Some(id) = test_id(&parameters) {
+                    events.push(TestEvent::TestStarted { id });
+                }
+            }
+            Status::InProgress => {
+                for (key, value) in parameters.entries() {
+                    if !is_known_key(key) {
+                        self.test_metrics.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+            Status::Error | Status::Failure => {
+                if let Some(stack) = parameters.get_str("stack") {
+                    let stack = stack.clone();
+                    match test_id(&parameters) {
+                        Some(id) => {
+                            events.push(TestEvent::TestFailed {
+                                id: id.clone(),
+                                stack_trace: stack,
+                            });
+                            events.push(TestEvent::TestEnded {
+                                id,
+                                metrics: std::mem::take(&mut self.test_metrics),
+                            });
+                        }
+                        None => events.push(TestEvent::TestRunFailing {
+                            error: parameters
+                                .get_str("stream")
+                                .cloned()
+                                .unwrap_or_else(|| JavaString::from("Unexpected failure during execution")),
+                            stack_trace: stack,
+                        }),
+                    }
+                }
+                self.tests_executed += 1;
+            }
+            Status::Ignored => {
+                if let Some(id) = test_id(&parameters) {
+                    events.push(TestEvent::TestIgnored { id: id.clone() });
+                    events.push(TestEvent::TestEnded {
+                        id,
+                        metrics: std::mem::take(&mut self.test_metrics),
+                    });
+                }
+                self.tests_executed += 1;
+            }
+            Status::AssumptionFailure => {
+                if let (Some(id), Some(stack)) = (test_id(&parameters), parameters.get_str("stack")) {
+                    let stack = stack.clone();
+                    events.push(TestEvent::TestAssumptionFailed {
+                        id: id.clone(),
+                        stack_trace: stack,
+                    });
+                    events.push(TestEvent::TestEnded {
+                        id,
+                        metrics: std::mem::take(&mut self.test_metrics),
+                    });
+                }
+                self.tests_executed += 1;
+            }
+            Status::Unknown => {
+                // P2 (approved deviation): adam has Status.UNKNOWN -> TODO(),
+                // which kills the run. Ignore the atom instead, counting
+                // nothing, and queue a warning for the caller to log at WARN
+                // (6.6a owns logging; see take_warnings).
+                self.warnings.push(InstrumentationWarning::UnknownStatusCode(JavaString(
+                    jstring::trim(value_units).to_vec(),
+                )));
+            }
+        }
+
+        Ok((!events.is_empty()).then_some(events))
+    }
+
+    fn parse_instrumentation_code(
+        &mut self,
+        last: &JavaString,
+        atom: &[JavaString],
+    ) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
+        let value_units = last
+            .0
+            .get(TokenType::InstrumentationCode.name().len() + 1..)
+            .ok_or_else(|| InstrumentationError::MalformedAtom(last.clone()))?;
+        let code = to_int_or_null(value_units);
+        // Session result code -1 is Status.ERROR by value and means success.
+        if Status::value_of(code) == Status::Error {
+            let lines: Vec<JavaString> = atom.iter().filter(|line| *line != last).cloned().collect();
+            let parameters = to_map(&lines, "INSTRUMENTATION_RESULT:")?;
+            let mut time = 0i64;
+            if let Some(stream) = parameters.get_str("stream") {
+                for line in jstring::lines(stream) {
+                    if starts_with(&line.0, "Time: ") {
+                        time = parse_time(&line.0[6..]);
+                    }
+                }
+            }
+            let metrics: MetricMap = parameters
+                .entries()
+                .iter()
+                .filter(|(key, _)| !is_known_key(key))
+                .cloned()
+                .collect();
+            self.finish_reported = true;
+            Ok(Some(vec![TestEvent::TestRunEnded {
+                elapsed_time_millis: time,
+                metrics,
+            }]))
+        } else {
+            self.finish_reported = true;
+            let mut short_message: Option<JavaString> = None;
+            let mut time = 0i64;
+            for line in atom {
+                if starts_with(&line.0, "INSTRUMENTATION_RESULT: shortMsg=") {
+                    short_message = Some(JavaString(line.0[33..].to_vec()));
+                } else if starts_with(&line.0, "Time: ") {
+                    time = parse_time(&line.0[6..]);
+                }
+            }
+            Ok(Some(vec![
+                TestEvent::TestRunFailed {
+                    error: short_message.unwrap_or_else(|| {
+                        JavaString::from(format!(
+                            "Unexpected INSTRUMENTATION_CODE: {}",
+                            code.map_or_else(|| "null".to_owned(), |c| c.to_string())
+                        ))
+                    }),
+                },
+                TestEvent::TestRunEnded {
+                    elapsed_time_millis: time,
+                    metrics: MetricMap::new(),
+                },
+            ]))
+        }
+    }
+}
+
+fn test_id(parameters: &MetricMap) -> Option<TestIdentifier> {
+    Some(TestIdentifier {
+        class_name: parameters.get_str("class")?.clone(),
+        test_name: parameters.get_str("test")?.clone(),
+    })
+}
+
+fn is_known_key(key: &JavaString) -> bool {
+    KNOWN_KEYS
+        .iter()
+        .any(|known| key.0.len() == known.len() && key.0.iter().zip(known.bytes()).all(|(&u, b)| u == u16::from(b)))
+}
+
+/// Kotlin `substring(6).toDoubleOrNull()?.times(1000)?.toLong() ?: 0`. The
+/// double-to-long conversion truncates toward zero, saturates, and maps NaN
+/// to 0, exactly like Rust's `as` (reference JBR oracle, WP 6.3 findings).
+fn parse_time(units: &[u16]) -> i64 {
+    String::from_utf16(units)
+        .ok()
+        .and_then(|s| jnum::parse_double(&s))
+        .map_or(0, |seconds| (seconds * 1000.0) as i64)
+}
+
+/// Kotlin `toInt()` (`Integer.parseInt`) over UTF-16 units: no trimming,
+/// so ` 1` fails where `toIntOrNull` on a trimmed value would accept it.
+fn to_int_exact(units: &[u16]) -> Option<i32> {
+    String::from_utf16(units).ok().and_then(|s| jnum::parse_int(&s))
+}
+
+/// Kotlin `trim()` then `toIntOrNull()` over UTF-16 units.
+fn to_int_or_null(units: &[u16]) -> Option<i32> {
+    String::from_utf16(jstring::trim(units))
+        .ok()
+        .and_then(|s| jnum::parse_int(&s))
+}
+
+fn starts_with(units: &[u16], prefix: &str) -> bool {
+    units.len() >= prefix.len() && units.iter().zip(prefix.bytes()).all(|(&u, b)| u == u16::from(b))
+}
+
+fn find_slice(units: &[u16], needle: &str) -> Option<usize> {
+    units
+        .windows(needle.len())
+        .position(|window| window.iter().zip(needle.bytes()).all(|(&u, b)| u == u16::from(b)))
+}
+
+/// adam's `List<String>.toMap`: non-empty lines rejoined, split on the
+/// delimiter, each piece split at its first `=`; pieces with nothing after
+/// the `=` are dropped. A piece with no `=` at all makes Kotlin compute
+/// `substring(0, -1)` and throw (empty pieces are dropped first).
+fn to_map(lines: &[JavaString], delimiter: &str) -> Result<MetricMap, InstrumentationError> {
+    let delim: Vec<u16> = delimiter.encode_utf16().collect();
+    let mut joined: Vec<u16> = Vec::new();
+    for line in lines.iter().filter(|line| !line.0.is_empty()) {
+        if !joined.is_empty() {
+            joined.push(0x0A);
+        }
+        joined.extend_from_slice(&line.0);
+    }
+    let mut map = MetricMap::new();
+    for piece in split_units(&joined, &delim) {
+        let trimmed = jstring::trim(piece);
+        let Some(equal) = trimmed.iter().position(|&c| c == u16::from(b'=')) else {
+            if trimmed.is_empty() {
+                continue;
+            }
+            return Err(InstrumentationError::MalformedAtom(JavaString(trimmed.to_vec())));
+        };
+        if equal + 1 >= trimmed.len() {
+            continue;
+        }
+        map.insert(
+            JavaString(trimmed[..equal].to_vec()),
+            JavaString(trimmed[equal + 1..].to_vec()),
+        );
+    }
+    Ok(map)
+}
+
+/// Kotlin `split(String)` on UTF-16 units: literal delimiter, all pieces kept.
+fn split_units<'a>(units: &'a [u16], delimiter: &[u16]) -> Vec<&'a [u16]> {
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i + delimiter.len() <= units.len() {
+        if &units[i..i + delimiter.len()] == delimiter {
+            pieces.push(&units[start..i]);
+            i += delimiter.len();
+            start = i;
+        } else {
+            i += 1;
+        }
+    }
+    pieces.push(&units[start..]);
+    pieces
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jcompat::writers::KotlinValue;
+
+    // Port of adam 0.5.8 InstrumentationResponseTransformerTest: the Kotlin
+    // tests compare event data-class toString() lines against .expected
+    // files, so events are rendered with jcompat's KotlinValue (PLAN §6.2).
+
+    fn text(value: &JavaString) -> KotlinValue {
+        KotlinValue::Text(value.clone())
+    }
+    fn number(value: &str) -> KotlinValue {
+        KotlinValue::Text(value.into())
+    }
+    fn data_class(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
+        KotlinValue::DataClass {
+            name: name.into(),
+            fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }
+    }
+    fn id_value(id: &TestIdentifier) -> KotlinValue {
+        data_class(
+            "TestIdentifier",
+            vec![("className", text(&id.class_name)), ("testName", text(&id.test_name))],
+        )
+    }
+    fn metrics_value(metrics: &MetricMap) -> KotlinValue {
+        KotlinValue::Map(metrics.entries().iter().map(|(k, v)| (text(k), text(v))).collect())
+    }
+    fn event_value(event: &TestEvent) -> KotlinValue {
+        match event {
+            TestEvent::TestRunStartedEvent { test_count } => data_class(
+                "TestRunStartedEvent",
+                vec![("testCount", number(&test_count.to_string()))],
+            ),
+            TestEvent::TestStarted { id } => data_class("TestStarted", vec![("id", id_value(id))]),
+            TestEvent::TestFailed { id, stack_trace } => data_class(
+                "TestFailed",
+                vec![("id", id_value(id)), ("stackTrace", text(stack_trace))],
+            ),
+            TestEvent::TestAssumptionFailed { id, stack_trace } => data_class(
+                "TestAssumptionFailed",
+                vec![("id", id_value(id)), ("stackTrace", text(stack_trace))],
+            ),
+            TestEvent::TestIgnored { id } => data_class("TestIgnored", vec![("id", id_value(id))]),
+            TestEvent::TestEnded { id, metrics } => data_class(
+                "TestEnded",
+                vec![("id", id_value(id)), ("metrics", metrics_value(metrics))],
+            ),
+            TestEvent::TestRunFailed { error } => data_class("TestRunFailed", vec![("error", text(error))]),
+            TestEvent::TestRunFailing { error, stack_trace } => data_class(
+                "TestRunFailing",
+                vec![("error", text(error)), ("stackTrace", text(stack_trace))],
+            ),
+            TestEvent::TestRunStopped { elapsed_time_millis } => data_class(
+                "TestRunStopped",
+                vec![("elapsedTimeMillis", number(&elapsed_time_millis.to_string()))],
+            ),
+            TestEvent::TestRunEnded {
+                elapsed_time_millis,
+                metrics,
+            } => data_class(
+                "TestRunEnded",
+                vec![
+                    ("elapsedTimeMillis", number(&elapsed_time_millis.to_string())),
+                    ("metrics", metrics_value(metrics)),
+                ],
+            ),
+        }
+    }
+
+    fn rendered(events: &[TestEvent]) -> String {
+        events
+            .iter()
+            .map(|e| event_value(e).render().as_utf8().expect("rendered event"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn feed_line_by_line(
+        transformer: &mut InstrumentationResponseTransformer,
+        input: &str,
+        ending: &str,
+    ) -> Vec<TestEvent> {
+        let mut events = Vec::new();
+        for line in input.lines() {
+            let bytes = format!("{line}{ending}").into_bytes();
+            if let Some(e) = transformer.process(&bytes).expect("process") {
+                events.extend(e);
+            }
+        }
+        if let Some(e) = transformer.transform() {
+            events.extend(e);
+        }
+        events
+    }
+
+    fn feed_single_block(transformer: &mut InstrumentationResponseTransformer, input: &str) -> Vec<TestEvent> {
+        let mut events = Vec::new();
+        if let Some(e) = transformer.process(input.as_bytes()).expect("process") {
+            events.extend(e);
+        }
+        if let Some(e) = transformer.transform() {
+            events.extend(e);
+        }
+        events
+    }
+
+    /// Kotlin readText().trimEnd(): these fixture files end in ASCII newlines.
+    fn expected(text: &str) -> &str {
+        text.trim_end()
+    }
+
+    const LOG_1_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_1.input");
+    const LOG_1_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_1.expected");
+    const LOG_2_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_2.input");
+    const LOG_2_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_2.expected");
+    const LOG_3_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_3.input");
+    const LOG_3_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_3.expected");
+    const LOG_4_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_4.input");
+    const LOG_4_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_4.expected");
+    const LOG_5_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_5.input");
+    const LOG_5_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_5.expected");
+    const LOG_6_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_6.input");
+    const LOG_6_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_6.expected");
+    const LOG_7_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_7.input");
+    const LOG_7_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_7.expected");
+    const LOG_8_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_8.input");
+    const LOG_8_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_8.expected");
+    const LOG_9_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_9.input");
+    const LOG_9_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_9.expected");
+    const LOG_10_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_10.input");
+    const LOG_10_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_10.expected");
+    const LOG_11_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_11.input");
+    const LOG_11_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_11.expected");
+    const LOG_12_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_12.input");
+    const LOG_12_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_12.expected");
+    const LOG_13_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_13.input");
+    const LOG_13_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_13.expected");
+
+    #[test]
+    fn test_single_failure() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_line_by_line(&mut t, LOG_3_INPUT, "\n");
+        assert_eq!(rendered(&events), expected(LOG_3_EXPECTED));
+    }
+
+    #[test]
+    fn test_complex1() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_line_by_line(&mut t, LOG_2_INPUT, "\n");
+        assert_eq!(rendered(&events), expected(LOG_2_EXPECTED));
+    }
+
+    #[test]
+    fn test_complex2() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_line_by_line(&mut t, LOG_1_INPUT, "\n");
+        assert_eq!(rendered(&events), expected(LOG_1_EXPECTED));
+    }
+
+    #[test]
+    fn test_no_results_reported() {
+        let mut t = InstrumentationResponseTransformer::new();
+        assert_eq!(
+            t.transform(),
+            Some(vec![TestEvent::TestRunFailed {
+                error: "No test results".into()
+            }])
+        );
+    }
+
+    #[test]
+    fn test_incomplete_tests() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_line_by_line(&mut t, LOG_4_INPUT, "\n");
+        assert_eq!(rendered(&events), expected(LOG_4_EXPECTED));
+    }
+
+    #[test]
+    fn test_incomplete_tests2() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_line_by_line(&mut t, LOG_5_INPUT, "\n");
+        assert_eq!(rendered(&events), expected(LOG_5_EXPECTED));
+    }
+
+    #[test]
+    fn test_other_failure() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_line_by_line(&mut t, LOG_6_INPUT, "\n");
+        assert_eq!(rendered(&events), expected(LOG_6_EXPECTED));
+    }
+
+    #[test]
+    fn test_buffer_framing() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let mut events = Vec::new();
+        for line in LOG_6_INPUT.lines() {
+            let char_count = line.chars().count();
+            let cut_char = 7 * char_count / 8;
+            let cut = line.char_indices().nth(cut_char).map_or(line.len(), |(i, _)| i);
+            for part in [&line[..cut], &format!("{}\n", &line[cut..])] {
+                if let Some(e) = t.process(part.as_bytes()).expect("process") {
+                    events.extend(e);
+                }
+            }
+        }
+        if let Some(e) = t.transform() {
+            events.extend(e);
+        }
+        assert_eq!(rendered(&events), expected(LOG_6_EXPECTED));
+    }
+
+    #[test]
+    fn test_windows_line_ending() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_line_by_line(&mut t, LOG_3_INPUT, "\r\n");
+        assert_eq!(rendered(&events), expected(LOG_3_EXPECTED));
+    }
+
+    #[test]
+    fn test_single_block() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, LOG_7_INPUT);
+        assert_eq!(rendered(&events), expected(LOG_7_EXPECTED));
+    }
+
+    #[test]
+    fn test_failure_handling() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, LOG_8_INPUT);
+        assert_eq!(rendered(&events), expected(LOG_8_EXPECTED));
+    }
+
+    #[test]
+    fn test_metrics() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, LOG_9_INPUT);
+        assert_eq!(rendered(&events), expected(LOG_9_EXPECTED));
+    }
+
+    #[test]
+    fn test_run_metrics() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, LOG_10_INPUT);
+        assert_eq!(rendered(&events), expected(LOG_10_EXPECTED));
+    }
+
+    #[test]
+    fn test_single_test_metric() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, LOG_11_INPUT);
+        assert_eq!(rendered(&events), expected(LOG_11_EXPECTED));
+    }
+
+    #[test]
+    fn test_single_ignored_test() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, LOG_12_INPUT);
+        assert_eq!(rendered(&events), expected(LOG_12_EXPECTED));
+    }
+
+    #[test]
+    fn missing_listener_test() {
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, LOG_13_INPUT);
+        assert_eq!(rendered(&events), expected(LOG_13_EXPECTED));
+    }
+
+    // New tests (not adam ports): rules the brief pins beyond the fixtures.
+
+    #[test]
+    fn byte_at_a_time_feeding_matches_block_feeding() {
+        // Same stream the Kotlin line harness feeds: readLines() drops the
+        // terminators and each line is re-fed with '\n' appended, including
+        // after the final line (log_1.input has no trailing newline, and an
+        // atom only frames at a line break).
+        let stream: String = LOG_1_INPUT.lines().map(|line| format!("{line}\n")).collect();
+        let mut t = InstrumentationResponseTransformer::new();
+        let mut events = Vec::new();
+        for byte in stream.as_bytes() {
+            if let Some(e) = t.process(std::slice::from_ref(byte)).expect("process") {
+                events.extend(e);
+            }
+        }
+        if let Some(e) = t.transform() {
+            events.extend(e);
+        }
+        assert_eq!(rendered(&events), expected(LOG_1_EXPECTED));
+    }
+
+    #[test]
+    fn unknown_status_code_is_ignored_and_counts_nothing() {
+        // P2: adam crashes with TODO() here; the port drops the atom.
+        let input = "INSTRUMENTATION_STATUS: numtests=1\n\
+                     INSTRUMENTATION_STATUS: test=a\n\
+                     INSTRUMENTATION_STATUS: class=C\n\
+                     INSTRUMENTATION_STATUS_CODE: 7\n\
+                     INSTRUMENTATION_STATUS: test=a\n\
+                     INSTRUMENTATION_STATUS: class=C\n\
+                     INSTRUMENTATION_STATUS_CODE: 0\n";
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, input);
+        assert_eq!(
+            events,
+            vec![
+                TestEvent::TestRunStartedEvent { test_count: 1 },
+                TestEvent::TestEnded {
+                    id: TestIdentifier {
+                        class_name: "C".into(),
+                        test_name: "a".into()
+                    },
+                    metrics: MetricMap::new(),
+                },
+                TestEvent::TestRunEnded {
+                    elapsed_time_millis: 0,
+                    metrics: MetricMap::new()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_status_code_warning_is_drained_through_the_public_api() {
+        // R1 (review round 1): no stderr side channel; 6.6a drains warnings
+        // and routes Display's exact text to the marathon log at WARN.
+        let mut t = InstrumentationResponseTransformer::new();
+        let started = t
+            .process(b"INSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n")
+            .expect("process");
+        assert_eq!(started, Some(vec![TestEvent::TestRunStartedEvent { test_count: 1 }]));
+        assert_eq!(t.take_warnings(), Vec::new());
+
+        // A lone unknown atom keeps the null (None) event semantics, even
+        // when the raw code is not numeric.
+        assert_eq!(
+            t.process(b"INSTRUMENTATION_STATUS_CODE: bogus\n").expect("process"),
+            None
+        );
+        let warnings = t.take_warnings();
+        assert_eq!(
+            warnings,
+            vec![InstrumentationWarning::UnknownStatusCode("bogus".into())]
+        );
+        assert_eq!(warnings[0].code(), &JavaString::from("bogus"));
+        assert_eq!(
+            warnings[0].to_string(),
+            "unknown INSTRUMENTATION_STATUS_CODE: bogus, atom ignored"
+        );
+        assert_eq!(t.take_warnings(), Vec::new(), "draining empties the queue");
+
+        // Several unknown atoms in one chunk queue in order.
+        assert_eq!(
+            t.process(b"INSTRUMENTATION_STATUS_CODE: 7\nINSTRUMENTATION_STATUS_CODE: 8\n")
+                .expect("process"),
+            None
+        );
+        assert_eq!(
+            t.take_warnings(),
+            vec![
+                InstrumentationWarning::UnknownStatusCode("7".into()),
+                InstrumentationWarning::UnknownStatusCode("8".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn non_numeric_numtests_is_an_error_not_a_panic() {
+        // Kotlin reads numtests with toInt(): the throw escapes process().
+        let mut t = InstrumentationResponseTransformer::new();
+        let input = b"INSTRUMENTATION_STATUS: numtests=many\nINSTRUMENTATION_STATUS_CODE: 1\n";
+        assert_eq!(
+            t.process(input),
+            Err(InstrumentationError::InvalidNumTests("many".into()))
+        );
+    }
+
+    #[test]
+    fn numtests_with_a_leading_space_is_an_error_not_a_panic() {
+        // R1-sol-2: Kotlin `toInt()` does not trim, so `numtests= 1` throws
+        // NumberFormatException; the trimmed `toIntOrNull` path accepted it.
+        let mut t = InstrumentationResponseTransformer::new();
+        let input = b"INSTRUMENTATION_STATUS: numtests= 1\nINSTRUMENTATION_STATUS_CODE: 1\n";
+        assert_eq!(
+            t.process(input),
+            Err(InstrumentationError::InvalidNumTests(" 1".into()))
+        );
+    }
+
+    #[test]
+    fn parameter_piece_without_equals_is_an_error_not_a_panic() {
+        // Garbage before the first INSTRUMENTATION_STATUS piece reaches
+        // adam's substring(0, -1) (WP 6.3 findings, incidental adam bug).
+        let mut t = InstrumentationResponseTransformer::new();
+        let input = b"garbage line\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n";
+        assert_eq!(
+            t.process(input),
+            Err(InstrumentationError::MalformedAtom("garbage line".into()))
+        );
+    }
+
+    #[test]
+    fn repeated_transform_after_failure_reports_nothing() {
+        // P3: Kotlin re-emits (re-prepending "No test results\n") on a second call.
+        let mut t = InstrumentationResponseTransformer::new();
+        assert!(t.transform().is_some());
+        assert_eq!(t.transform(), None);
+    }
+
+    #[test]
+    fn time_is_seconds_times_1000_truncated() {
+        // Reference JBR: (long)(parseDouble(t) * 1000) — 0.0004s becomes 0ms.
+        let input = "INSTRUMENTATION_RESULT: stream=\nTime: 0.0004\nINSTRUMENTATION_CODE: -1\n";
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, input);
+        assert_eq!(
+            events,
+            vec![TestEvent::TestRunEnded {
+                elapsed_time_millis: 0,
+                metrics: MetricMap::new()
+            }]
+        );
+    }
+
+    #[test]
+    fn fake_adb_instrumentation_stream_produces_the_kotlin_run_events() {
+        // The WP 0.5 fake-adb stream: one pass, one failure, Time: 1.5.
+        const FIXTURE: &str = include_str!("../../../fixtures/fake-adb/android-two-devices/script/instrumentation.txt");
+        let mut t = InstrumentationResponseTransformer::new();
+        let events = feed_single_block(&mut t, FIXTURE);
+        let stack = "java.lang.AssertionError: expected:<1> but was:<2>\n\
+                     \tat org.junit.Assert.fail(Assert.java:89)\n\
+                     \tat org.junit.Assert.failNotEquals(Assert.java:835)\n\
+                     \tat org.junit.Assert.assertEquals(Assert.java:647)\n\
+                     \tat com.example.MainActivityAllureTest.testFailure(MainActivityAllureTest.kt:30)";
+        let pass_id = TestIdentifier {
+            class_name: "com.example.MainActivityTest".into(),
+            test_name: "testText".into(),
+        };
+        let fail_id = TestIdentifier {
+            class_name: "com.example.MainActivityAllureTest".into(),
+            test_name: "testFailure".into(),
+        };
+        assert_eq!(
+            events,
+            vec![
+                TestEvent::TestRunStartedEvent { test_count: 2 },
+                TestEvent::TestStarted { id: pass_id.clone() },
+                TestEvent::TestEnded {
+                    id: pass_id,
+                    metrics: MetricMap::new()
+                },
+                TestEvent::TestStarted { id: fail_id.clone() },
+                TestEvent::TestFailed {
+                    id: fail_id.clone(),
+                    stack_trace: stack.into()
+                },
+                TestEvent::TestEnded {
+                    id: fail_id,
+                    metrics: MetricMap::new()
+                },
+                TestEvent::TestRunEnded {
+                    elapsed_time_millis: 1500,
+                    metrics: MetricMap::new()
+                },
+            ]
+        );
+    }
+}

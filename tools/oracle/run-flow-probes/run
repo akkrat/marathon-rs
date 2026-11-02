@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Run the WP 3.10 run-flow probes against the reference installDist (tools/oracle/build.sh reference).
+
+Usage: tools/oracle/run-flow-probes/run [OUT_DIR]   (default fixtures/oracle/run-flow)
+Compiles RunFlowProbes.kt with the cached Kotlin 1.9.24 compiler against the distribution's lib/ jars, runs every case in
+a fresh JVM (logger levels are per-process state) and writes probes.jsonl and parse-command.jsonl. The signal rows run
+`signal <debug>`, wait for `PROBE ready`, send SIGINT or SIGTERM and record the exit status and the PROBE lines.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+repo = here.parents[2]
+lib = here.parent / 'build/marathon-src/cli/build/install/marathon/lib'
+if not lib.is_dir():
+    sys.exit(f'no reference distribution at {lib}; run tools/oracle/build.sh reference')
+cache = Path.home() / '.gradle/caches/modules-2/files-2.1'
+
+
+def jar(group, artifact, version):
+    return next((cache / group / artifact / version).glob('*/' + artifact + '-' + version + '.jar'))
+
+
+compiler = [jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-stdlib', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),
+            jar('org.jetbrains.intellij.deps', 'trove4j', '1.0.20200330'),
+            jar('org.jetbrains', 'annotations', '13.0')]
+classpath = sorted(str(p) for p in lib.glob('*.jar'))
+java = str(Path(os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')) / 'bin/java')
+version = subprocess.run([java, '-version'], capture_output=True, text=True, check=True).stderr
+if '21.0.10' not in version:
+    sys.exit('run-flow probes require JBR 21.0.10')
+
+CASES = ['wipe-run', 'wipe-parse-named', 'parse-unnamed-debug-false', 'parse-unnamed-debug-true', 'parse-empty-name',
+         'no-tests-runasync', 'filtered-empty-parse', 'run-no-tests-ignore-false', 'run-no-tests-ignore-true',
+         'run-no-devices-ignore-false', 'run-no-devices-ignore-true', 'run-no-devices-debug-false', 'run-filtered-empty',
+         'run-parse', 'finish-fail-analytics', 'finish-fail-terminate', 'finish-fail-tracker', 'finish-fail-usage',
+         'exceptional-finish-fail', 'remote-retry', 'remote-timeout', 'koin-missing-parser',
+         'koin-missing-log-configurator', 'koin-missing-bundle-identifier']
+PARSE = ['parse-command-zero', 'parse-command-one', 'parse-command-several', 'parse-command-several-flaky']
+
+
+def header(schema):
+    return {'schema': schema, 'source': 'tools/oracle/run-flow-probes/RunFlowProbes.kt', 'build': 'reference e47352f2 + 0001',
+            'jdk': '21.0.10 (JBR)'}
+
+
+def main():
+    out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else repo / 'fixtures/oracle/run-flow'
+    with tempfile.TemporaryDirectory(prefix='run-flow-probes-') as tmp:
+        probes = str(Path(tmp) / 'probes.jar')
+        if subprocess.run([java, '-cp', os.pathsep.join(map(str, compiler)), 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
+                           '-no-stdlib', '-no-reflect', '-nowarn', '-jvm-target', '11', '-cp', os.pathsep.join(classpath),
+                           '-d', probes, str(here / 'RunFlowProbes.kt')]).returncode:
+            sys.exit('compilation failed')
+        cp = os.pathsep.join([probes] + classpath)
+
+        def case(name):
+            work = Path(tempfile.mkdtemp(dir=tmp, prefix=name + '-'))
+            proc = subprocess.run([java, '-cp', cp, 'oracle.runflow.RunFlowProbesKt', name, str(work)],
+                                  capture_output=True, text=True, timeout=120)
+            rows = [l[4:] for l in proc.stdout.splitlines() if l.startswith('ROW ')]
+            if proc.returncode or len(rows) != 1:
+                sys.exit(f'{name}: exit {proc.returncode}\n{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}')
+            return json.loads(rows[0])
+
+        probe_rows = [header('run-flow/probes@1')] + [case(n) for n in CASES]
+        for number, name in [(signal.SIGINT, 'SIGINT'), (signal.SIGTERM, 'SIGTERM')]:
+            for debug in ['false', 'true']:
+                proc = subprocess.Popen([java, '-cp', cp, 'oracle.runflow.RunFlowProbesKt', 'signal', debug],
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                lines = []
+                for line in proc.stdout:
+                    if line.startswith('PROBE '):
+                        lines.append(line.strip()[6:])
+                        if lines[-1] == 'ready':
+                            time.sleep(0.5)
+                            proc.send_signal(number)
+                            break
+                rest, _ = proc.communicate(timeout=60)
+                lines += [l[6:] for l in rest.splitlines() if l.startswith('PROBE ')]
+                probe_rows.append({'case': f'signal-{name}-debug-{debug}', 'exitStatus': proc.returncode, 'probe': lines})
+        parse_rows = [header('run-flow/parse-command@1')]
+        for name in PARSE:
+            row = case(name)
+            parse_rows.append({'case': name.removeprefix('parse-command-'), 'content': row['content']})
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for file, rows in [('probes.jsonl', probe_rows), ('parse-command.jsonl', parse_rows)]:
+        (out_dir / file).write_text(''.join(json.dumps(r, ensure_ascii=False, separators=(',', ':')) + '\n' for r in rows))
+
+
+if __name__ == '__main__':
+    main()

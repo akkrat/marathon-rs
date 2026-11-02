@@ -1,0 +1,16 @@
+{"op":"startup","name":"ROOT","level":"DEBUG"}
+{"op":"startup","name":"io.netty.channel.Channel","level":"ERROR"}
+{"op":"startup","name":"io.vertx.core.Vertx","level":"ERROR"}
+{"op":"lookup","name":"early","level":"DEBUG"}
+{"op":"configured","name":"early","level":"DEBUG"}
+{"op":"lookup","name":"early","level":"ERROR"}
+{"op":"explicit","name":"early","level":"TRACE"}
+{"op":"lookup","name":"early","level":"ERROR"}
+{"op":"lookup","name":"early","level":"DEBUG"}
+{"op":"apple","name":"TimelineSummaryProvider","level":"ERROR"}
+{"op":"apple","name":"net.schmizz.sshj.DefaultConfig","level":"ERROR"}
+{"op":"apple","name":"net.schmizz.sshj.common.KeyType","level":"ERROR"}
+{"op":"apple","name":"net.schmizz.sshj.common.ECDSAVariationsAdapter","level":"ERROR"}
+{"op":"apple","name":"net.schmizz.sshj.transport.kex.Curve25519SHA256","level":"ERROR"}
+{"op":"apple","name":"net.schmizz.sshj.transport.random.BouncyCastleRandom","level":"ERROR"}
+{"op":"lookup","name":"TimelineSummaryProvider","level":"DEBUG"}

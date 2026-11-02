@@ -1,0 +1,7 @@
+{"case":"jdk-srgb-profile-sha256","value":"87e382b9336e6a0417a4d860173109ab319a029cf2972e19833a3327c65bd7e4"}
+{"case":"fake-pull:/sdcard/v1.apk","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"fake-pull:/sdcard/v2.apk","value":"58387bd5bd7d3daa13d68c4e4fad31551c7beb385ed28a47a78b1fd55c30737e"}
+{"case":"fake-stream","value":"StreamingPackageInstallResult(output=Success, success=true)"}
+{"case":"fake-split","value":"Success [S1]\u000aSuccess\u000aSuccess\u000a\u000a"}
+{"case":"fake-reverse","value":"null"}
+{"case":"fake-frame-pixel","value":"-2142403666"}

@@ -1,0 +1,1 @@
+{"test":"java.lang.IllegalArgumentException: NaN is not a valid double value as per JSON specification. To override this behavior, use GsonBuilder.serializeSpecialFloatingPointValues() method."}

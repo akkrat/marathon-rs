@@ -1,0 +1,13 @@
+{"test": "generated test runner loads the shared xctest without a copy in its PlugIns", "passed": true}
+{"test": "installation does not push the distributed test runner application", "passed": true}
+{"test": "installation does not push the distributed xctest and app under test", "passed": true}
+{"test": "installation does not push the xctest into the distributed app for XCTest", "passed": true}
+{"test": "installation fails with the missing app under test", "passed": true}
+{"test": "installation fails with the missing test runner application", "passed": true}
+{"test": "installation fails with the missing test runner executable", "passed": true}
+{"test": "installation fails with the missing xctest", "passed": true}
+{"test": "installation fails with the xctest missing from the app for XCTest", "passed": true}
+{"test": "installation pushes the test runner application without the flag", "passed": true}
+{"test": "installation pushes the xctest and app under test without the flag", "passed": true}
+{"test": "installation pushes the xctest into the app without the flag for XCTest", "passed": true}
+{"test": "reused test runner application keeps its xctest in PlugIns", "passed": true}

@@ -1,0 +1,6 @@
+SLF4J(I): Connected with provider of type [ch.qos.logback.classic.spi.LogbackServiceProvider]
+18:50:34.021 ERROR [sshj-KeepAliveRunner-/127.0.0.1:54770-1792770630993] TransportImpl - Dying because - Did not receive any keep-alive response for 2 seconds
+net.schmizz.sshj.connection.ConnectionException: Did not receive any keep-alive response for 2 seconds
+	at net.schmizz.keepalive.KeepAliveRunner.checkMaxReached(KeepAliveRunner.java:64)
+	at net.schmizz.keepalive.KeepAliveRunner.doKeepAlive(KeepAliveRunner.java:56)
+	at net.schmizz.keepalive.KeepAlive.run(KeepAlive.java:73)

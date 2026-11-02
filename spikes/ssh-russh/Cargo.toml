@@ -1,0 +1,17 @@
+[package]
+name = "ssh-russh-spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "WP 0.3a spike: a minimal russh executor and fake-worker server, measured against sshj"
+
+# Standalone: the root workspace excludes spikes/.
+[workspace]
+
+[dependencies]
+russh = "=0.64.1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+base64 = "0.22"

@@ -1,0 +1,6 @@
+{
+  "endpoint": "127.0.0.1:<port-4>",
+  "host_key_fingerprint": "<host-key>",
+  "run": "before_kex-12",
+  "schema": 1
+}

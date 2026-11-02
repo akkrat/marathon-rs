@@ -1,0 +1,20 @@
+[package]
+name = "java-regex-spike"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-2.0-only"
+publish = false
+description = "WP 0.3c: three candidate backends for JavaRegex, run against fixtures/oracle/regex-corpus.jsonl"
+
+# A standalone package: the root workspace excludes spikes/.
+[workspace]
+
+[dependencies]
+java_regex = "=0.1.0"
+fancy-regex = "=0.19.2"
+pcre2 = "=0.2.11"
+serde_json = "=1.0.145"
+serde = "=1.0.229"
+
+[build-dependencies]
+flate2 = "=1.1.5"

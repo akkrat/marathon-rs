@@ -1,0 +1,21 @@
+[
+  {
+    "case": "scenario:perfetto:attachments",
+    "value": [
+      [
+        "profiling",
+        "PROFILING",
+        "pkg.clazz#method-batch.profile"
+      ]
+    ]
+  },
+  {
+    "case": "scenario:perfetto:files",
+    "value": [
+      [
+        "profiling/pool/SERIAL/pkg.clazz#method-batch.profile",
+        "5"
+      ]
+    ]
+  }
+]

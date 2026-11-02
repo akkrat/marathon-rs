@@ -1,0 +1,23 @@
+{
+  "stage": "parse",
+  "error": {
+    "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+    "message": "xctestrun <FIXTURE_CONFIG>/ios/derivedDataDir/missing.xctestrun is not a file",
+    "causes": []
+  },
+  "config": null,
+  "fsEffects": [],
+  "golden": {
+    "input": "ios/sample_9.yaml",
+    "env": {
+      "ANDROID_HOME": "/android-sdk"
+    },
+    "now": "1970-01-12T13:46:40Z",
+    "host": {
+      "os": "Darwin",
+      "release": "27.0.0",
+      "arch": "arm64"
+    },
+    "normalisations": []
+  }
+}

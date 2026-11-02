@@ -1,0 +1,180 @@
+D <AdamDeviceProvider> Android Debug Bridge /127.0.0.1:PORT1: version 41
+D <AdamDeviceProvider> Android Debug Bridge /127.0.0.1:PORT2: version 41
+D <AdamDeviceProvider> Device emulator-5556 changed state to CONNECTED
+D <AndroidDevice> Device 127.0.0.1:PORT1:emulator-5556 booted!
+D <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT1:emulator-5556
+D <Scheduler> device 127.0.0.1:PORT1:emulator-5556 associated with poolId omni
+D <Scheduler> pool actor omni is being created
+D <DevicePoolActor[omni]> add device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> initialize 127.0.0.1:PORT1:emulator-5556
+D <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT1:emulator-5556
+D <AdamDeviceProvider> Device emulator-5556 changed state to CONNECTED
+D <AndroidDevice> Device 127.0.0.1:PORT2:emulator-5556 booted!
+D <Scheduler> device 127.0.0.1:PORT2:emulator-5556 associated with poolId omni
+D <DevicePoolActor[omni]> add device 127.0.0.1:PORT2:emulator-5556
+D <D.0.0.1:PORT2:emulator-5556]> initialize 127.0.0.1:PORT2:emulator-5556
+D <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT2:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT2:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT2:emulator-5556
+D <D.0.0.1:PORT2:emulator-5556]> executeBatch 127.0.0.1:PORT2:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T00#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T00#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT2:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT2:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT2:emulator-5556
+D <D.0.0.1:PORT2:emulator-5556]> executeBatch 127.0.0.1:PORT2:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T19#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T19#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <D.0.0.1:PORT1:emulator-5556]> device 127.0.0.1:PORT1:emulator-5556 initialization failed. Retrying
+D <Scheduler> device 127.0.0.1:PORT2:emulator-5556 disconnected
+D <DevicePoolActor[omni]> remove device 127.0.0.1:PORT2:emulator-5556
+D <AdamDeviceProvider> Device emulator-5556 changed state to DISCONNECTED
+D <DevicePoolActor[omni]> devices.size = 1
+D <D.0.0.1:PORT2:emulator-5556]> Returning batch cb0adfe1-b407-47a3-aac0-619bb1538b7a. Reason: Device 127.0.0.1:PORT2:emulator-5556 terminated
+D <D.0.0.1:PORT2:emulator-5556]> terminate 127.0.0.1:PORT2:emulator-5556
+D <DevicePoolActor[omni]> pool DevicePoolId(name=omni): device 127.0.0.1:PORT2:emulator-5556 returned test batch
+D <QueueActor[DevicePoolId(name=omni)]> onReturnBatch 127.0.0.1:PORT2:emulator-5556. reason=Device 127.0.0.1:PORT2:emulator-5556 terminated
+W <D.0.0.1:PORT2:emulator-5556]> Device execution has been cancelled
+D <DevicePoolActor[omni]> pool DevicePoolId(name=omni): device 127.0.0.1:PORT2:emulator-5556 terminated. devices.size = 1
+D <AdamDeviceProvider> Device emulator-5556 changed state to CONNECTED
+D <AndroidDevice> Device 127.0.0.1:PORT1:emulator-5556 booted!
+D <Scheduler> device 127.0.0.1:PORT1:emulator-5556 associated with poolId omni
+W <DevicePoolActor[omni]> device 127.0.0.1:PORT1:emulator-5556 already present in pool omni
+D <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T18#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T18#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T19#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T19#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T17#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T17#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T16#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T16#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T15#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T15#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T14#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T14#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T13#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T13#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T12#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T12#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T11#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T11#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T10#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T10#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T09#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T09#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T08#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T08#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T07#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T07#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T06#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T06#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T05#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T05#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T04#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T04#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T03#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T03#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T02#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T02#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> request next batch for device 127.0.0.1:PORT1:emulator-5556
+D <QueueActor[DevicePoolId(name=omni)]> sending next batch for device 127.0.0.1:PORT1:emulator-5556
+D <D.0.0.1:PORT1:emulator-5556]> executeBatch 127.0.0.1:PORT1:emulator-5556
+D <AndroidDeviceTestRunner> tests = [com.example.T01#test]
+D <AndroidDeviceTestRunner> Running am instrument -w -r --no-window-animation -e class com.example.T01#test com.example.test/androidx.test.runner.AndroidJUnitRunner
+D <AndroidDeviceTestRunner> Execution finished
+D <QueueActor[DevicePoolId(name=omni)]> handle test results 127.0.0.1:PORT1:emulator-5556
+D <DevicePoolActor[omni]> pool DevicePoolId(name=omni): onQueueTerminated
+D <DevicePoolActor[omni]> terminate pool DevicePoolId(name=omni)
+D <D.0.0.1:PORT1:emulator-5556]> terminate 127.0.0.1:PORT1:emulator-5556

@@ -1,0 +1,3 @@
+[env]
+# Build the bundled PCRE2 10.46, never a system library found through pkg-config.
+PCRE2_SYS_STATIC = "1"

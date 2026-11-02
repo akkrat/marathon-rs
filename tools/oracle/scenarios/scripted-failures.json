@@ -1,0 +1,63 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "scripted preparation failure and batch failure",
+  "source": "oracle replay seam",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test1",
+      "metaProperties": []
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "behaviour": "scripted"
+    },
+    {
+      "serial": "serial-2",
+      "behaviour": "scripted"
+    }
+  ],
+  "events": [
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "serial-1"
+    },
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "serial-2"
+    },
+    {
+      "at": 2000,
+      "event": "prepare-failed",
+      "device": "serial-1",
+      "message": "scripted prepare failure"
+    },
+    {
+      "at": 2000,
+      "event": "prepare-done",
+      "device": "serial-2"
+    },
+    {
+      "at": 3000,
+      "event": "batch-failed",
+      "device": "serial-2",
+      "exception": "TestBatchExecutionException",
+      "message": "scripted batch failure",
+      "reportEmptyResultsFirst": true
+    },
+    {
+      "at": 5000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "value": false
+  },
+  "entry": "run"
+}

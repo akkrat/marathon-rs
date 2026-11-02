@@ -1,0 +1,3 @@
+{"case":"timeout_close","value":{"first":"failed:[{\"class\":\"ConnectionException\",\"message\":\"Timeout expired: 30000 MILLISECONDS\",\"reason\":\"UNKNOWN\"},{\"class\":\"TimeoutException\",\"message\":\"Timeout expired: 30000 MILLISECONDS\"}]","second":31032}}
+{"case":"later_join","value":{"first":"still_waiting","second":60004}}
+{"case":"completion","value":"completed"}

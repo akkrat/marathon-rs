@@ -1,0 +1,8 @@
+{"case":"bridge-auth-alias","value":true}
+{"case":"executor-auth-distinct","value":true}
+{"case":"second-bridge-send","value":true}
+{"case":"same-path-after-byte-change","value":1}
+{"case":"null-existence","value":1}
+{"case":"missing-destination","value":2}
+{"case":"write-bytes","value":true}
+{"case":"write-mode","value":"rw-------"}

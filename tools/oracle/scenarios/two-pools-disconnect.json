@@ -1,0 +1,80 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "two devices in separate pools disconnecting one after another should terminate the run",
+  "source": "core/src/test/kotlin/com/malinskiy/marathon/scenario/TwoPoolsDisconnectScenariosTest.kt",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test1",
+      "metaProperties": []
+    },
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test2",
+      "metaProperties": []
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "results": {
+        "test.SimpleTest#test1": [
+          "PASSED"
+        ],
+        "test.SimpleTest#test2": [
+          "PASSED"
+        ]
+      },
+      "model": "modelA"
+    },
+    {
+      "serial": "serial-2",
+      "results": {
+        "test.SimpleTest#test1": [
+          "PASSED"
+        ],
+        "test.SimpleTest#test2": [
+          "PASSED"
+        ]
+      },
+      "model": "modelZ",
+      "prepareTimeMillis": 600000
+    }
+  ],
+  "events": [
+    {
+      "at": 0,
+      "event": "connect",
+      "device": "serial-1"
+    },
+    {
+      "at": 100,
+      "event": "connect",
+      "device": "serial-2"
+    },
+    {
+      "at": 2100,
+      "event": "disconnect",
+      "device": "serial-1"
+    },
+    {
+      "at": 4100,
+      "event": "disconnect",
+      "device": "serial-2"
+    },
+    {
+      "at": 30000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true
+  },
+  "configuration": {
+    "poolingStrategy": {
+      "type": "device-model"
+    }
+  }
+}

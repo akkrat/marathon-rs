@@ -1,0 +1,7 @@
+{
+  "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "tests": 9,
+  "repeat": "byte-identical",
+  "probe_sha256": "57a75064a204a7704f38464debc0158329560bc06d0d91c88e67520f7473412a",
+  "fixture_sha256": "b065eff69ed7b060258bbee1c4a6bbfcab4238ea35369cdd9928ef7619b05dd8"
+}

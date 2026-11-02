@@ -1,0 +1,18 @@
+{
+  "source": "e47352f25cbc50333900d5d040a5544ff1224501",
+  "comparison": "byte-identical re-execution",
+  "files": {
+    "tests.jsonl": {
+      "path": "fixtures/oracle/pool/tests.jsonl",
+      "rows": 31,
+      "sha256": "0165b7eebb7a9ce0d790fa604c9a42dafeaca260961c0ca4adb9ae450e882745",
+      "matchesCommitted": true
+    },
+    "scheduler.jsonl": {
+      "path": "fixtures/oracle/pool/scheduler.jsonl",
+      "rows": 19,
+      "sha256": "00b3f002999f3b5b8a8f8caf16ebe19813cf273217ae429e74291336cf0147f8",
+      "matchesCommitted": true
+    }
+  }
+}

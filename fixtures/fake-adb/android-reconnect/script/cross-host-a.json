@@ -1,0 +1,200 @@
+{
+ "server": {
+  "strict": true
+ },
+ "devices": [
+  {
+   "serial": "emulator-5556",
+   "connected": false,
+   "features": [
+    "shell_v2",
+    "cmd",
+    "abb_exec",
+    "sendrecv_v2"
+   ],
+   "getprop": {
+    "sys.boot_completed": "1",
+    "ro.product.cpu.abi": "x86",
+    "ro.build.version.sdk": "33",
+    "ro.build.version.codename": "REL",
+    "ro.product.model": "Android SDK built for x86",
+    "ro.product.manufacturer": "Google",
+    "ro.boot.serialno": "EMULATOR30X6X5X0"
+   },
+   "shell": [
+    {
+     "prefix": "rm ",
+     "times": 1,
+     "delay_ms": 3600000,
+     "stdout": ""
+    }
+   ]
+  }
+ ],
+ "shell": [
+  {
+   "exact": "logcat -c",
+   "stdout": ""
+  },
+  {
+   "exact": "logcat -v long",
+   "hang": true
+  },
+  {
+   "regex": "^am instrument.* -e log true",
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T00\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T00\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T01\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T01\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T02\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T02\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T03\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T03\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T04\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T04\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T05\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T05\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T06\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T06\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T07\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T07\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T08\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T08\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T09\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T09\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T10\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T10\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T11\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T11\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T12\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T12\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T13\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T13\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T14\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T14\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T15\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T15\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T16\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T16\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T17\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T17\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T18\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T18\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_STATUS: class=com.example.T19\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T19\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T00#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T00\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T00\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T01#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T01\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T01\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T02#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T02\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T02\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T03#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T03\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T03\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T04#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T04\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T04\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T05#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T05\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T05\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T06#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T06\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T06\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T07#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T07\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T07\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T08#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T08\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T08\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T09#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T09\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T09\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T10#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T10\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T10\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T11#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T11\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T11\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T12#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T12\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T12\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T13#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T13\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T13\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T14#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T14\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T14\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T15#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T15\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T15\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T16#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T16\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T16\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T17#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T17\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T17\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T18#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T18\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T18\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "regex": "^am instrument .* -e class com\\.example\\.T19#test ",
+   "delay_ms": 4000,
+   "stdout": "INSTRUMENTATION_STATUS: class=com.example.T19\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4=[16Lorg.junit.Test()]\nINSTRUMENTATION_STATUS_CODE: 2\nINSTRUMENTATION_STATUS: class=com.example.T19\nINSTRUMENTATION_STATUS: test=test\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+  },
+  {
+   "prefix": "cmd package install",
+   "service": "exec",
+   "stdout": "Success\n"
+  },
+  {
+   "exact": "pm list packages",
+   "stdout": ""
+  },
+  {
+   "exact": "echo $EXTERNAL_STORAGE",
+   "stdout": "/sdcard\n"
+  },
+  {
+   "exact": "ls /system/bin/screenrecord",
+   "stdout": "/system/bin/screenrecord\n"
+  },
+  {
+   "exact": "ls /system/bin/md5",
+   "stdout": "/system/bin/md5\n"
+  },
+  {
+   "exact": "dumpsys input",
+   "stdout": "SurfaceOrientation: 0\n"
+  },
+  {
+   "prefix": "rm ",
+   "stdout": ""
+  },
+  {
+   "prefix": "mkdir ",
+   "stdout": ""
+  },
+  {
+   "prefix": "package install",
+   "service": "abb_exec",
+   "stdout": "Success\n"
+  }
+ ],
+ "events": [
+  {
+   "at_ms": 2000,
+   "connect": "emulator-5556"
+  },
+  {
+   "at_ms": 8000,
+   "disconnect": "emulator-5556"
+  },
+  {
+   "at_ms": 12000,
+   "connect": "emulator-5556"
+  }
+ ]
+}

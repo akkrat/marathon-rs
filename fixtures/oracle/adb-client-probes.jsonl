@@ -1,0 +1,29 @@
+{"case":"v2-exit-255","value":"-1"}
+{"case":"v2-exit-128","value":"-128"}
+{"case": "log:com.malinskiy.adam.request.Request", "value": "WARN adb server rejected command 000Chost:version"}
+{"case":"handshake-eof","value":"com.malinskiy.adam.exception.RequestRejectedException: "}
+{"case":"track-devices-first","value":"serial=DEVICE"}
+{"case":"track-devices-eof","value":"com.malinskiy.adam.exception.RequestRejectedException: Unexpected string length: "}
+{"case":"devices-line-without-tab","value":"java.lang.IndexOutOfBoundsException: Index: 1, Size: 1"}
+{"case":"idle-1ms-delay-200","value":"output=late\u000a exit=0 after>=0.2s"}
+{"case":"idle-1ms-delay-1500","value":"com.malinskiy.adam.exception.RequestRejectedException: No exit code delimiter found in  after>=1.0s"}
+{"case":"v1-split-utf8","value":"a\ufffd|\ufffdb"}
+{"case":"oversized-header","value":"1001Fs"}
+{"case":"oversized-length","value":"65556"}
+{"case":"close-track-devices","value":"com.malinskiy.adam.exception.RequestRejectedException: Unexpected string length: "}
+{"case":"close-v1-stream","value":"java.lang.IllegalStateException: Unknown deployment"}
+{"case":"close-new-request","value":"io.vertx.core.impl.NoStackTraceThrowable: Vert.x closed"}
+{"case":"close-new-request-is-Exception","value":"false"}
+{"case":"connect-refused","value":"io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: /127.0.0.1:<port>"}
+{"case":"connect-refused-is-ConnectException","value":"true"}
+{"case":"connect-refused-cause","value":"java.net.ConnectException: Connection refused"}
+{"case":"connect-refused-named","value":"io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: localhost/127.0.0.1:<port>"}
+{"case":"v2-partial-packet","value":"16384"}
+{"case":"v2-partial-packet-rest","value":"16384,exit=0"}
+{"case":"idle-blocked-write","value":"io.netty.channel.StacklessClosedChannelException: null"}
+{"case":"close-peer-eof","value":"-1"}
+{"case":"close-before-first-request","value":"41"}
+{"case":"compat-close-cancelled-first","value":"null"}
+{"case":"compat-close-cancelled-second","value":"7"}
+{"case":"connect-refused-ipv6","value":"io.netty.channel.AbstractChannel$AnnotatedConnectException: Connection refused: /[0:0:0:0:0:0:0:1]:<port>"}
+{"case":"inet-socket-address","value":"/127.0.0.1:5037 | /[0:0:0:0:0:0:0:1]:5037 | /[2001:db8:0:0:0:a:0:1]:5037 | /[fe80:0:0:0:0:0:0:1]:5037 | /10.0.0.1:5037 | /[0:0:0:0:0:0:0:0]:5037 | adb.example/[0:0:0:0:0:0:0:1]:5037 | adb.example/10.0.0.2:5037"}

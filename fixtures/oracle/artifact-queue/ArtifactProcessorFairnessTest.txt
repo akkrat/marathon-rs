@@ -1,0 +1,17 @@
+Artifact queue harness: capacity 8, 4 transfers, 4 simulators per worker, 12 batches each
+workers= 1 balanced workerCapacity=2: run   760 s, admission wait mean    0 s, max on healthy workers   17 s, device idle     25 s, peak depth per worker 2, peak outstanding 2, transfer occupancy  15%
+workers= 1 balanced workerCapacity=8: run   760 s, admission wait mean    0 s, max on healthy workers    0 s, device idle      0 s, peak depth per worker 4, peak outstanding 4, transfer occupancy  15%
+workers= 1 skewed   workerCapacity=2: run  5820 s, admission wait mean  389 s, max on healthy workers    0 s, device idle  18714 s, peak depth per worker 2, peak outstanding 2, transfer occupancy  24%
+workers= 1 skewed   workerCapacity=8: run  5820 s, admission wait mean  329 s, max on healthy workers    0 s, device idle  15834 s, peak depth per worker 8, peak outstanding 8, transfer occupancy  24%
+workers= 4 balanced workerCapacity=2: run   772 s, admission wait mean    0 s, max on healthy workers   17 s, device idle    100 s, peak depth per worker 2, peak outstanding 8, transfer occupancy  62%
+workers= 4 balanced workerCapacity=8: run   784 s, admission wait mean    0 s, max on healthy workers   19 s, device idle     90 s, peak depth per worker 4, peak outstanding 8, transfer occupancy  61%
+workers= 4 skewed   workerCapacity=2: run  5820 s, admission wait mean   97 s, max on healthy workers   17 s, device idle  18789 s, peak depth per worker 2, peak outstanding 8, transfer occupancy  30%
+workers= 4 skewed   workerCapacity=8: run  5820 s, admission wait mean  352 s, max on healthy workers  420 s, device idle  67620 s, peak depth per worker 8, peak outstanding 8, transfer occupancy  30%
+workers=16 balanced workerCapacity=2: run  1998 s, admission wait mean   94 s, max on healthy workers  107 s, device idle  72896 s, peak depth per worker 2, peak outstanding 8, transfer occupancy  96%
+workers=16 balanced workerCapacity=8: run  2010 s, admission wait mean   95 s, max on healthy workers  108 s, device idle  73196 s, peak depth per worker 4, peak outstanding 8, transfer occupancy  95%
+workers=16 skewed   workerCapacity=2: run  5838 s, admission wait mean  148 s, max on healthy workers  142 s, device idle 114396 s, peak depth per worker 2, peak outstanding 8, transfer occupancy  55%
+workers=16 skewed   workerCapacity=8: run  5820 s, admission wait mean  369 s, max on healthy workers  420 s, device idle 283924 s, peak depth per worker 8, peak outstanding 8, transfer occupancy  55%
+workers=32 balanced workerCapacity=2: run  3918 s, admission wait mean  243 s, max on healthy workers  267 s, device idle 374368 s, peak depth per worker 2, peak outstanding 8, transfer occupancy  98%
+workers=32 balanced workerCapacity=8: run  3980 s, admission wait mean  248 s, max on healthy workers  266 s, device idle 382136 s, peak depth per worker 4, peak outstanding 8, transfer occupancy  96%
+workers=32 skewed   workerCapacity=2: run  5934 s, admission wait mean  332 s, max on healthy workers  357 s, device idle 510470 s, peak depth per worker 2, peak outstanding 8, transfer occupancy  86%
+workers=32 skewed   workerCapacity=8: run  5930 s, admission wait mean  408 s, max on healthy workers  507 s, device idle 627042 s, peak depth per worker 6, peak outstanding 8, transfer occupancy  87%

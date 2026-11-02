@@ -1,0 +1,45 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "one healthy device and invalid marathon config should fail",
+  "source": "core/src/test/kotlin/com/malinskiy/marathon/scenario/InvalidConfigScenariosTest.kt",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test1",
+      "metaProperties": []
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "results": {
+        "test.SimpleTest#test1": [
+          "PASSED"
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "at": 20000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "exception": "ConfigurationException"
+  },
+  "configuration": {
+    "shardingStrategy": {
+      "type": "count",
+      "count": 2
+    },
+    "flakinessStrategy": {
+      "type": "probability",
+      "minSuccessRate": 0.2,
+      "maxCount": 2,
+      "timeLimit": "2020-01-01T00:00:00Z"
+    }
+  }
+}

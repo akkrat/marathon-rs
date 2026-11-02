@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "endpoint": "127.0.0.1:63980",
+  "host_key_fingerprint": "SHA256:OXy6Lyo/Z8GWDbQEh3bFW6Dasu+fgsAyOgIL0YfzaZk",
+  "run": "macos-smoke"
+}

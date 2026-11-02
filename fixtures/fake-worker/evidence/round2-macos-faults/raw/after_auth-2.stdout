@@ -1,0 +1,2 @@
+{"case":"post_auth","value":[{"class":"IllegalStateException","message":"Not connected"}]}
+{"case":"completion","value":"completed"}

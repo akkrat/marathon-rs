@@ -1,0 +1,56 @@
+12:05:00,677 |-INFO in ch.qos.logback.classic.LoggerContext[default] - This is logback-classic version 1.5.8
+12:05:00,678 |-INFO in ch.qos.logback.classic.util.ContextInitializer@660acfb - No custom configurators were discovered as a service.
+12:05:00,678 |-INFO in ch.qos.logback.classic.util.ContextInitializer@660acfb - Trying to configure with ch.qos.logback.classic.joran.SerializedModelConfigurator
+12:05:00,678 |-INFO in ch.qos.logback.classic.util.ContextInitializer@660acfb - Constructed configurator of type class ch.qos.logback.classic.joran.SerializedModelConfigurator
+12:05:00,680 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.scmo]
+12:05:00,681 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.scmo]
+12:05:00,684 |-INFO in ch.qos.logback.classic.util.ContextInitializer@660acfb - ch.qos.logback.classic.joran.SerializedModelConfigurator.configure() call lasted 3 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
+12:05:00,684 |-INFO in ch.qos.logback.classic.util.ContextInitializer@660acfb - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
+12:05:00,684 |-INFO in ch.qos.logback.classic.util.ContextInitializer@660acfb - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
+12:05:00,684 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.xml]
+12:05:00,686 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback.xml] at [jar:file:/private/tmp/mrs-rev-2.2-r2-claude/oracle/build/marathon-src/oracle-build/install/oracle/lib/cli-0.10.1-SNAPSHOT.jar!/logback.xml]
+12:05:00,686 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@5d908d47 - Resource [logback.xml] occurs multiple times on the classpath.
+12:05:00,686 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@5d908d47 - Resource [logback.xml] occurs at [jar:file:/private/tmp/mrs-rev-2.2-r2-claude/oracle/build/marathon-src/oracle-build/install/oracle/lib/vendor-test.jar!/logback.xml]
+12:05:00,686 |-WARN in ch.qos.logback.classic.util.DefaultJoranConfigurator@5d908d47 - Resource [logback.xml] occurs at [jar:file:/private/tmp/mrs-rev-2.2-r2-claude/oracle/build/marathon-src/oracle-build/install/oracle/lib/cli-0.10.1-SNAPSHOT.jar!/logback.xml]
+12:05:00,687 |-INFO in ch.qos.logback.core.joran.spi.ConfigurationWatchList@5efa40fe - URL [jar:file:/private/tmp/mrs-rev-2.2-r2-claude/oracle/build/marathon-src/oracle-build/install/oracle/lib/cli-0.10.1-SNAPSHOT.jar!/logback.xml] is not of type file
+12:05:00,718 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [STDOUT]
+12:05:00,718 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+12:05:00,720 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+12:05:00,734 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to DEBUG
+12:05:00,734 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [STDOUT] to Logger[ROOT]
+12:05:00,734 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.netty] to ERROR
+12:05:00,734 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.vertx] to ERROR
+12:05:00,734 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@1f9f6368 - End of configuration.
+12:05:00,734 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@1c9b0314 - Registering current configuration as safe fallback point
+12:05:00,734 |-INFO in ch.qos.logback.classic.util.ContextInitializer@660acfb - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 50 milliseconds. ExecutionStatus=DO_NOT_INVOKE_NEXT_IF_ANY
+
+probe: empty-allure
+Allure environment data saved.
+probe: environment
+Allure environment data saved.
+probe: environment-missing
+Allure environment data saved.
+probe: allure-write-failure
+12:05:01.057 [main] ERROR c.m.m.d.screenshot.ScreenCapturer - Timeout. Exiting
+java.util.concurrent.TimeoutException: source
+	at ReporterProbesKt$main$1$script$1.getScreenshot(ReporterProbes.kt:120)
+	at com.malinskiy.marathon.device.screenshot.ScreenCapturer.getScreenshot(ScreenCapturer.kt:73)
+	at com.malinskiy.marathon.device.screenshot.ScreenCapturer.start(ScreenCapturer.kt:46)
+	at ReporterProbesKt$main$1.invokeSuspend(ReporterProbes.kt:124)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:104)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:277)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:48)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at ReporterProbesKt.main(ReporterProbes.kt:37)
+probe: environment-case-0
+probe: environment-case-1
+Allure environment data saved.
+probe: environment-case-2
+Allure environment data saved.
+probe: environment-case-3
+probe: environment-case-4
+probe: environment-cases-end

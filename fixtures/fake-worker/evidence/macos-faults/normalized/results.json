@@ -1,0 +1,195 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "results": [
+    {
+      "case": "exec-rejection",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "reject-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "kex-failure",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "kex-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-delayed-healthy",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-delay-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-with-output",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15h",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "timeout-close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "known-hosts-unchanged",
+      "outcome": "completed"
+    }
+  ]
+}

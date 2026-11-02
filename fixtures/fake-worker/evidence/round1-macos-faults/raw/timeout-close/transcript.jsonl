@@ -1,0 +1,11 @@
+{"channel":null,"connection":0,"detail":{"endpoint":"127.0.0.1:55896","host_key_fingerprint":"SHA256:3UILfGgZ4pGZQXDjTnI7Y3UnvmLl+2iD5g9GI7Agmeg","run":"timeout-close","schema":1},"event":"ready","run":"timeout-close","schema":1,"seq":0}
+{"channel":null,"connection":1,"detail":{},"event":"connection","run":"timeout-close","schema":1,"seq":1}
+{"channel":null,"connection":1,"detail":{"accepted":true,"method":"password","user":"fixture"},"event":"auth","run":"timeout-close","schema":1,"seq":2}
+{"channel":2,"connection":1,"detail":{},"event":"session_open","run":"timeout-close","schema":1,"seq":3}
+{"channel":2,"connection":1,"detail":{"base64":"aGVsZA==","sha256":"c20dea4d876b5b8fb0a1814b43017030cea6d4ac30b2d9ae71b404d2faba49b5","size":4},"event":"exec","run":"timeout-close","schema":1,"seq":4}
+{"channel":2,"connection":1,"detail":{"handler":"held","warning":null},"event":"route","run":"timeout-close","schema":1,"seq":5}
+{"channel":2,"connection":1,"detail":{"signal":"TERM"},"event":"signal","run":"timeout-close","schema":1,"seq":6}
+{"channel":2,"connection":1,"detail":{"reply_withheld":true},"event":"client_close","run":"timeout-close","schema":1,"seq":7}
+{"channel":2,"connection":1,"detail":{"outcome":"completed"},"event":"channel_end","run":"timeout-close","schema":1,"seq":8}
+{"channel":null,"connection":1,"detail":{"error":null,"outcome":"completed"},"event":"connection_end","run":"timeout-close","schema":1,"seq":9}
+{"channel":null,"connection":0,"detail":{"files":[],"outcome":"completed"},"event":"cleanup","run":"timeout-close","schema":1,"seq":10}

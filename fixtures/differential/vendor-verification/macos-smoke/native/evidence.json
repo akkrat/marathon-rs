@@ -1,0 +1,656 @@
+{
+  "contract": "4844bd5789f929e7aac143947c6fc1058073741d45eb097ce162962cbf78ac1e",
+  "entries": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "host-argv.jsonl",
+      "sha256": "87f90315504e509f8be45dc3943748b5ce12de7835fef2941b54636f8f0c07e4",
+      "size": 9960
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/allure-results"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000001-result.json",
+      "sha256": "37e3b321ede707f97fcf9fab39485139a2f9e0d75f3b5aa2846f46036e0a4cbb",
+      "size": 925
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000002-result.json",
+      "sha256": "8eb9788962650ff0ceb82561ba81988803b8ae306a1b92b4ab07beb3a93dc6b4",
+      "size": 926
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000003-result.json",
+      "sha256": "2639d4c06f8b04b11028a4b20204aaac618dc71eed78cb49484c0f7826e6d94c",
+      "size": 1089
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/environment.xml",
+      "sha256": "b8945f1276705fc31720f994027a149d0b0105c0e8bde4d728bb79a312178387",
+      "size": 4905
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/bill/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338.json",
+      "sha256": "5208ecb22adb34c60c0f05de4441522d82a9d1c16006cfadbdad021e041a5d0a",
+      "size": 314
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/xcresult"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/xcresult/00000000-0000-0000-0000-000000000001.xcresult"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/xcresult/00000000-0000-0000-0000-000000000001.xcresult/SCRIPTED",
+      "sha256": "03c1a436daf6ccc9e0059390f945bab3724ea796fe41b8c04fd6ecf42856c1a9",
+      "size": 64
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/xcresult/00000000-0000-0000-0000-000000000001.xcresult/root.json",
+      "sha256": "1eb8e80717ef6a9b0a3ca36983be8ffac7997471a10d077797736dc82c4b1e19",
+      "size": 1083
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/xcresult/00000000-0000-0000-0000-000000000001.xcresult/tests-0.json",
+      "sha256": "5989ea48c035fa1947cf3a204340e5b9b8a09e9e903814ed8549b09293ea33bf",
+      "size": 366
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/devices/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338.json",
+      "sha256": "3c6bb5cb7f11604238fbf0d39b1173da5be0d0e9b8c118b4f836163e2010038b",
+      "size": 225
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.css",
+      "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+      "size": 20391
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.js",
+      "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+      "size": 327442
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/index.html",
+      "sha256": "16a93562364581e4d4029c0decc3c8af581c5a9335e1fe04e36fa6a11312ff35",
+      "size": 1913
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni.html",
+      "sha256": "75ac33795981933eb30b20c69382a247558764f1383500c00d30694010c6ee14",
+      "size": 1703
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests.testFail.html",
+      "sha256": "5da041fac2c28542cd74f65abf9f63ac517bcbf0d6c6bcee9fe7e342bf7e52cf",
+      "size": 1414
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests.testPass.html",
+      "sha256": "6897856ff2a3770140c31fa8f6d1171e2a69dafa44d5a15e62ea27151897a9e2",
+      "size": 1166
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests.testSkip.html",
+      "sha256": "f728b7a5ddf6948fd3c4d725893e8fd7e712ba14be1152c6206fbbc5ceb0e695",
+      "size": 1167
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/logs"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/logs/AppleWorldTests.SmokeTests.testFail.html",
+      "sha256": "24dca45d7579a393d9a39f61babb554e3fdbaa4fc6da0227eee209f90c8532c6",
+      "size": 954
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/logs/AppleWorldTests.SmokeTests.testPass.html",
+      "sha256": "faa54bde89dc16500621b9114dc9c3c5f6357627da9b2f9422761d1e055c8725",
+      "size": 954
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/logs/AppleWorldTests.SmokeTests.testSkip.html",
+      "sha256": "bd2f146ef77ea817956c5e773c271405563fee5f7a8c386bbadf845260b3053e",
+      "size": 954
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/timeline"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.css",
+      "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+      "size": 1662
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.js",
+      "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+      "size": 19868
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/iframeResizer.contentWindow.min.js",
+      "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+      "size": 13616
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/index.html",
+      "sha256": "565fd204e7c80776d1406c236aae8d7cb55fdd10c691732770d4b25a86703a85",
+      "size": 1815
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/00000000-0000-0000-0000-000000000001.00000000-0000-0000-0000-000000000001",
+      "sha256": "60486747b3f110366f3ae11909ad6e18e90eb0e51a3bf1cd63aec2d6f7995468",
+      "size": 28
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests#testFail-00000000-0000-0000-0000-000000000001.log",
+      "sha256": "f1552061e15a7303a5dacdcb721980b90fe35b6897a265bb247aa879ca06195a",
+      "size": 75
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests#testPass-00000000-0000-0000-0000-000000000001.log",
+      "sha256": "a8a7d718db32c5301373d6cedab7bd51f1f7d5fbda74b3cb7db34c5b1d90888b",
+      "size": 75
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests#testSkip-00000000-0000-0000-0000-000000000001.log",
+      "sha256": "a57866d9c2c6b2b9dad4279385bcc2495849c9134a46c394b5ee641dd6046875",
+      "size": 76
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests#testFail.json",
+      "sha256": "2f7c07e429355b369c75bf82fa45a5d7d3fedc80d2bf26fd3a826649d6e96541",
+      "size": 890
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests#testPass.json",
+      "sha256": "02fa8d11bbc670e5206fb9b3f6f39d36bbd544fbbb3633efb55993b937206f02",
+      "size": 818
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338/AppleWorldTests.SmokeTests#testSkip.json",
+      "sha256": "c7a1fe84e212910c4613d3020d0c7b51b5bba444b79718f578bf4c20616ae6f0",
+      "size": 819
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/raw.json",
+      "sha256": "6bd0a408ee3c2c84da2ca4eed87f8cb1c5e64750682fa313655e8dbf09ef2c35",
+      "size": 777
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/tests/omni/marathon_junit_report.xml",
+      "sha256": "f6264c837e4797b12c7e745773cd70d9feece56915f120bae294f464dd1e6b7d",
+      "size": 787
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "c57e3b13d65bd8858f2b2d82c8feab523370b1a197fc4bc37bd232a9cc6a1a2d",
+      "size": 6917
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "b32ee6af006688386de18b5a4fbab1840aed855bce57cf7242d11467f9fdf579",
+      "size": 174
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "78a9c86b813966b0222ce58c4c48d6c89957b3f5e8253b6332cb7ab7f120941f",
+      "size": 4138
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "e0f3af250024ff5213def20b2d7be3917529dd3647fd34886a60fd19aee2a081",
+      "size": 826227
+    },
+    {
+      "kind": "directory",
+      "mode": 448,
+      "path": "worker"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/.apple-world"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/.apple-world/session-0.finished",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/.apple-world/session-1.finished",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/marathon.xctestrun",
+      "sha256": "128392605ff2681c417c28b965c2a02d16c12e00ddeae5a05a353828fb28a1e7",
+      "size": 1644
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/Info.plist",
+      "sha256": "d37b6bbdd198ecc56f818cc554fc152339580b97575ac7b7d25945d25d7cf7ac",
+      "size": 1240
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS/AppleWorld",
+      "sha256": "72fce09ab49679445772fa20967f74ec426f114744e8198f3fd5ba198c010f3a",
+      "size": 37576
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS/AppleWorld.debug.dylib",
+      "sha256": "58e7a3fd76a8c343a63af389275c5df1e5a86e46100256d02a4669d12aeb2763",
+      "size": 33944
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/MacOS/__preview.dylib",
+      "sha256": "6370adca8612fe8dac047c6bba5423b9efaad1bf1bb5cc815229df0775aadd57",
+      "size": 16760
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/PkgInfo",
+      "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+      "size": 8
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/Info.plist",
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b",
+      "size": 1194
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/MacOS/AppleWorldTests",
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb",
+      "size": 52736
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents/Info.plist",
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b",
+      "size": 1194
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/PlugIns/AppleWorldTests.xctest/Contents/MacOS/AppleWorldTests",
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb",
+      "size": 52736
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/shared/libxctest-parser.dylib",
+      "sha256": "730015f8bcb9bd906837544c8be9aa904826d151e252cd3aeac9ed87270a9d3b",
+      "size": 206152
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest/Contents"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/Contents/Info.plist",
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b",
+      "size": 1194
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest/Contents/MacOS"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/Contents/MacOS/AppleWorldTests",
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb",
+      "size": 52736
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "port": "59338",
+    "safe_serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-59338",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-smoke/native/raw",
+    "serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE@fixture@127.0.0.1:59338",
+    "temp_discovery": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-smoke/native/raw/tmp/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEEsXuqb6xctestrun",
+    "temp_execution": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-smoke/native/raw/tmp/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEExyi4cBxctestrun",
+    "temp_parser": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-smoke/native/raw/tmp/.tmpqzXBEk"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 1,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "9999b508d1d1624558c2473f53b4097d27241452b35c29a9341a3f788b86b090",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hooks": {
+      "active": true,
+      "failures": [],
+      "unused": []
+    },
+    "native_sha": "bdb9bbfc2de48de08239ee506669bc391cd6064e",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/target/debug/examples/differential_cli",
+        "run",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1b/tools/differential/runs/seal-1/macos-smoke/native/raw/in/Marathonfile"
+      ],
+      "exit": 1,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "terminal_observation": {
+      "cli": 1,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "e47352f25cbc50333900d5d040a5544ff1224501",
+  "storage": "gzip@1"
+}

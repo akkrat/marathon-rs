@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Record the exact host argv without running a remote transfer."""
+import json,os,sys
+with open(os.environ['MRS43_ARGV'],'a') as output:
+ output.write(json.dumps({'argv':sys.argv[1:]})+'\n')
+if '--version' in sys.argv:print('fixture rsync version\nsecond line')

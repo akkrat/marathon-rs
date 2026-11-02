@@ -1,0 +1,34 @@
+name: Apple world
+outputDir: report
+analyticsTracking: false
+bugsnagReporting: false
+debug: true
+uncompletedTestRetryQuota: 0
+screenRecordingPolicy: ON_ANY
+batchingStrategy:
+  type: fixed-size
+  size: 3
+  lastMileLength: 0
+retryStrategy:
+  type: no-retry
+vendorConfiguration:
+  type: macOS
+  bundle:
+    application: app.zip
+    testApplication: tests.zip
+    testType: xctest
+  ssh:
+    authentication:
+      type: publicKey
+      username: fixture
+      key: ${FW_FIXTURE_KEY}
+    knownHostsPath: ${FW_KNOWN_HOSTS}
+    keepAliveInterval: PT0S
+  xcresult:
+    pullingPolicy: ALWAYS
+    remoteClean: true
+  testParserConfiguration:
+    type: xctest
+  permissions:
+    grant:
+      org.marathon.AppleWorld: [accessibility]

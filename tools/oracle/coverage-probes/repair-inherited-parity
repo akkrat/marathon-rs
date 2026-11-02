@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""U94: restore ten already-implemented baseline ports through the canonical generator."""
+import importlib.util, pathlib, re, subprocess, sys
+ROOT=pathlib.Path(__file__).resolve().parents[3]
+spec=importlib.util.spec_from_file_location('parity',ROOT/'scripts/parity_matrix.py')
+p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
+rows=p.generate(pathlib.Path(sys.argv[1]),p.read_existing())
+mapping={
+    'AppleTargetTest':('crates/marathon-config/tests/devices.rs','test_fq_ids'),
+    'StaticTest':('crates/marathon-config/tests/devices.rs','test_sample1'),
+    'AppleMacosProviderTest':('crates/marathon-macos/tests/provider.rs',None),
+    'MacosDeviceBatchTest':('crates/marathon-macos/tests/batch.rs',None),
+    'MacosTestRootTest':('crates/marathon-macos/tests/test_root.rs',None),
+}
+count=0
+for values in rows:
+    row=dict(zip(p.COLUMNS,values))
+    if row['status']!='pending' or row['test_class'] not in mapping: continue
+    path,name=mapping[row['test_class']]
+    name=name or re.sub(r'[^A-Za-z0-9]+','_',row['test_name']).strip('_').lower()
+    assert re.search(r'fn\s+'+re.escape(name)+r'\s*\(', (ROOT/path).read_text()), name
+    commit=subprocess.check_output(['git','log','-1','--format=%H','--',path],cwd=ROOT,text=True).strip()
+    values[7:]=['ported',path+'::'+name,commit]
+    count+=1
+assert count==10,count
+p.OUT.write_text(p.render(rows))
+print('U94: restored ten inherited port rows; no implementation or ownership changed')

@@ -1,0 +1,201 @@
+{"table":"logback","description":"logback-classic 1.5.8 PatternLayout with marathon's three patterns (cli/src/main/resources/logback.xml; AndroidLogConfigurator; AppleLogConfigurator compact and normal) over synthetic events, with the JVM default time zone set to UTC; and TargetLengthBasedClassNameAbbreviator, which %logger{N} uses. %highlight writes ANSI escapes; the vendor appenders go through jansi, which may strip them when stdout is not a terminal (not covered).","schema":{"op":"layout | abbreviate","pattern":"layout: the pattern","event":"layout: {level, logger, thread, timeMillis, message, args, throwable: null | {class, message, frames, cause}}","logger":"abbreviate: the logger name","length":"abbreviate: N of %logger{N}","output":"the layout's output, or the abbreviation"},"rows":200,"jdk":"JetBrains s.r.o. 21.0.10+-117844308-b1163.108","generator":"tools/oracle/module (run tools/oracle/jcompat-tables or the corpus wrappers to regenerate)"}
+{"op":"layout","pattern":"%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n","event":{"level":"INFO","logger":"com.malinskiy.marathon.cli.ApplicationView","thread":"main","timeMillis":0,"message":"Starting marathon v0.10.1","args":null,"throwable":null},"output":"00:00:00.000 [main] INFO  c.m.marathon.cli.ApplicationView - Starting marathon v0.10.1\n"}
+{"op":"layout","pattern":"%highlight(%.-1level %d{HH:mm:ss.SSS} [%thread] <%logger{40}> %msg%n)","event":{"level":"INFO","logger":"com.malinskiy.marathon.cli.ApplicationView","thread":"main","timeMillis":0,"message":"Starting marathon v0.10.1","args":null,"throwable":null},"output":"\u001b[34mI 00:00:00.000 [main] <c.malinskiy.marathon.cli.ApplicationView> Starting marathon v0.10.1\n\u001b[0;39m"}
+{"op":"layout","pattern":"%highlight(%.-1level [%thread] <%logger{48}> %msg%n)","event":{"level":"INFO","logger":"com.malinskiy.marathon.cli.ApplicationView","thread":"main","timeMillis":0,"message":"Starting marathon v0.10.1","args":null,"throwable":null},"output":"\u001b[34mI [main] <com.malinskiy.marathon.cli.ApplicationView> Starting marathon v0.10.1\n\u001b[0;39m"}
+{"op":"layout","pattern":"%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n","event":{"level":"DEBUG","logger":"com.malinskiy.marathon.execution.queue.QueueActor","thread":"DefaultDispatcher-worker-1","timeMillis":1760270400123,"message":"Queue {} with {} tests","args":["omni","3"],"throwable":null},"output":"12:00:00.123 [DefaultDispatcher-worker-1] DEBUG c.m.m.execution.queue.QueueActor - Queue omni with 3 tests\n"}
+{"op":"layout","pattern":"%highlight(%.-1level %d{HH:mm:ss.SSS} [%thread] <%logger{40}> %msg%n)","event":{"level":"DEBUG","logger":"com.malinskiy.marathon.execution.queue.QueueActor","thread":"DefaultDispatcher-worker-1","timeMillis":1760270400123,"message":"Queue {} with {} tests","args":["omni","3"],"throwable":null},"output":"\u001b[39mD 12:00:00.123 [DefaultDispatcher-worker-1] <c.m.marathon.execution.queue.QueueActor> Queue omni with 3 tests\n\u001b[0;39m"}
+{"op":"layout","pattern":"%highlight(%.-1level [%thread] <%logger{48}> %msg%n)","event":{"level":"DEBUG","logger":"com.malinskiy.marathon.execution.queue.QueueActor","thread":"DefaultDispatcher-worker-1","timeMillis":1760270400123,"message":"Queue {} with {} tests","args":["omni","3"],"throwable":null},"output":"\u001b[39mD [DefaultDispatcher-worker-1] <c.malinskiy.marathon.execution.queue.QueueActor> Queue omni with 3 tests\n\u001b[0;39m"}
+{"op":"layout","pattern":"%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n","event":{"level":"WARN","logger":"FileManager","thread":"pool-1-thread-2 @coroutine#5","timeMillis":86399999,"message":"warning ü","args":null,"throwable":null},"output":"23:59:59.999 [pool-1-thread-2 @coroutine#5] WARN  FileManager - warning ü\n"}
+{"op":"layout","pattern":"%highlight(%.-1level %d{HH:mm:ss.SSS} [%thread] <%logger{40}> %msg%n)","event":{"level":"WARN","logger":"FileManager","thread":"pool-1-thread-2 @coroutine#5","timeMillis":86399999,"message":"warning ü","args":null,"throwable":null},"output":"\u001b[31mW 23:59:59.999 [pool-1-thread-2 @coroutine#5] <FileManager> warning ü\n\u001b[0;39m"}
+{"op":"layout","pattern":"%highlight(%.-1level [%thread] <%logger{48}> %msg%n)","event":{"level":"WARN","logger":"FileManager","thread":"pool-1-thread-2 @coroutine#5","timeMillis":86399999,"message":"warning ü","args":null,"throwable":null},"output":"\u001b[31mW [pool-1-thread-2 @coroutine#5] <FileManager> warning ü\n\u001b[0;39m"}
+{"op":"layout","pattern":"%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n","event":{"level":"ERROR","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","thread":"main","timeMillis":1700000000000,"message":"failed","args":null,"throwable":{"class":"java.lang.IllegalStateException","message":"boom","frames":["com.example.Foo.bar(Foo.kt:12)","com.example.Main.main(Main.kt:3)"],"cause":{"class":"java.lang.RuntimeException","message":"cause","frames":["com.example.Baz.qux(Baz.kt:7)"],"cause":null}}},"output":"22:13:20.000 [main] ERROR c.m.m.a.ios.AppleSimulatorProvider - failed\njava.lang.IllegalStateException: boom\n\tat com.example.Foo.bar(Foo.kt:12)\n\tat com.example.Main.main(Main.kt:3)\nCaused by: java.lang.RuntimeException: cause\n\tat com.example.Baz.qux(Baz.kt:7)\n"}
+{"op":"layout","pattern":"%highlight(%.-1level %d{HH:mm:ss.SSS} [%thread] <%logger{40}> %msg%n)","event":{"level":"ERROR","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","thread":"main","timeMillis":1700000000000,"message":"failed","args":null,"throwable":{"class":"java.lang.IllegalStateException","message":"boom","frames":["com.example.Foo.bar(Foo.kt:12)","com.example.Main.main(Main.kt:3)"],"cause":{"class":"java.lang.RuntimeException","message":"cause","frames":["com.example.Baz.qux(Baz.kt:7)"],"cause":null}}},"output":"\u001b[1;31mE 22:13:20.000 [main] <c.m.m.apple.ios.AppleSimulatorProvider> failed\n\u001b[0;39mjava.lang.IllegalStateException: boom\n\tat com.example.Foo.bar(Foo.kt:12)\n\tat com.example.Main.main(Main.kt:3)\nCaused by: java.lang.RuntimeException: cause\n\tat com.example.Baz.qux(Baz.kt:7)\n"}
+{"op":"layout","pattern":"%highlight(%.-1level [%thread] <%logger{48}> %msg%n)","event":{"level":"ERROR","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","thread":"main","timeMillis":1700000000000,"message":"failed","args":null,"throwable":{"class":"java.lang.IllegalStateException","message":"boom","frames":["com.example.Foo.bar(Foo.kt:12)","com.example.Main.main(Main.kt:3)"],"cause":{"class":"java.lang.RuntimeException","message":"cause","frames":["com.example.Baz.qux(Baz.kt:7)"],"cause":null}}},"output":"\u001b[1;31mE [main] <c.m.marathon.apple.ios.AppleSimulatorProvider> failed\n\u001b[0;39mjava.lang.IllegalStateException: boom\n\tat com.example.Foo.bar(Foo.kt:12)\n\tat com.example.Main.main(Main.kt:3)\nCaused by: java.lang.RuntimeException: cause\n\tat com.example.Baz.qux(Baz.kt:7)\n"}
+{"op":"layout","pattern":"%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n","event":{"level":"TRACE","logger":"a.b.c.D","thread":"t","timeMillis":1,"message":"trace {} {}","args":[null,"1.5"],"throwable":null},"output":"00:00:00.001 [t] TRACE a.b.c.D - trace null 1.5\n"}
+{"op":"layout","pattern":"%highlight(%.-1level %d{HH:mm:ss.SSS} [%thread] <%logger{40}> %msg%n)","event":{"level":"TRACE","logger":"a.b.c.D","thread":"t","timeMillis":1,"message":"trace {} {}","args":[null,"1.5"],"throwable":null},"output":"\u001b[39mT 00:00:00.001 [t] <a.b.c.D> trace null 1.5\n\u001b[0;39m"}
+{"op":"layout","pattern":"%highlight(%.-1level [%thread] <%logger{48}> %msg%n)","event":{"level":"TRACE","logger":"a.b.c.D","thread":"t","timeMillis":1,"message":"trace {} {}","args":[null,"1.5"],"throwable":null},"output":"\u001b[39mT [t] <a.b.c.D> trace null 1.5\n\u001b[0;39m"}
+{"op":"layout","pattern":"%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n","event":{"level":"INFO","logger":"ROOT","thread":"main","timeMillis":999,"message":"multi\nline","args":null,"throwable":null},"output":"00:00:00.999 [main] INFO  ROOT - multi\nline\n"}
+{"op":"layout","pattern":"%highlight(%.-1level %d{HH:mm:ss.SSS} [%thread] <%logger{40}> %msg%n)","event":{"level":"INFO","logger":"ROOT","thread":"main","timeMillis":999,"message":"multi\nline","args":null,"throwable":null},"output":"\u001b[34mI 00:00:00.999 [main] <ROOT> multi\nline\n\u001b[0;39m"}
+{"op":"layout","pattern":"%highlight(%.-1level [%thread] <%logger{48}> %msg%n)","event":{"level":"INFO","logger":"ROOT","thread":"main","timeMillis":999,"message":"multi\nline","args":null,"throwable":null},"output":"\u001b[34mI [main] <ROOT> multi\nline\n\u001b[0;39m"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":0,"output":"ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":1,"output":"c.m.m.c.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":5,"output":"c.m.m.c.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":10,"output":"c.m.m.c.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":15,"output":"c.m.m.c.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":16,"output":"c.m.m.c.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":20,"output":"c.m.m.c.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":25,"output":"c.m.m.cli.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":30,"output":"c.m.m.cli.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":36,"output":"c.m.marathon.cli.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":40,"output":"c.malinskiy.marathon.cli.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":48,"output":"com.malinskiy.marathon.cli.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.cli.ApplicationView","length":100,"output":"com.malinskiy.marathon.cli.ApplicationView"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":0,"output":"QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":1,"output":"c.m.m.e.q.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":5,"output":"c.m.m.e.q.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":10,"output":"c.m.m.e.q.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":15,"output":"c.m.m.e.q.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":16,"output":"c.m.m.e.q.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":20,"output":"c.m.m.e.q.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":25,"output":"c.m.m.e.queue.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":30,"output":"c.m.m.e.queue.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":36,"output":"c.m.m.execution.queue.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":40,"output":"c.m.marathon.execution.queue.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":48,"output":"c.malinskiy.marathon.execution.queue.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.execution.queue.QueueActor","length":100,"output":"com.malinskiy.marathon.execution.queue.QueueActor"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":0,"output":"AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":1,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":5,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":10,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":15,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":16,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":20,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":25,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":30,"output":"c.m.m.a.i.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":36,"output":"c.m.m.a.ios.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":40,"output":"c.m.m.apple.ios.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":48,"output":"c.m.marathon.apple.ios.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider","length":100,"output":"com.malinskiy.marathon.apple.ios.AppleSimulatorProvider"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":0,"output":"AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":1,"output":"c.m.m.a.a.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":5,"output":"c.m.m.a.a.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":10,"output":"c.m.m.a.a.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":15,"output":"c.m.m.a.a.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":16,"output":"c.m.m.a.a.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":20,"output":"c.m.m.a.a.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":25,"output":"c.m.m.a.a.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":30,"output":"c.m.m.a.adam.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":36,"output":"c.m.m.android.adam.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":40,"output":"c.m.m.android.adam.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":48,"output":"c.m.marathon.android.adam.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.android.adam.AdamAndroidDevice","length":100,"output":"com.malinskiy.marathon.android.adam.AdamAndroidDevice"}
+{"op":"abbreviate","logger":"FileManager","length":0,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":1,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":5,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":10,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":15,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":16,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":20,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":25,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":30,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":36,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":40,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":48,"output":"FileManager"}
+{"op":"abbreviate","logger":"FileManager","length":100,"output":"FileManager"}
+{"op":"abbreviate","logger":"a.b.c","length":0,"output":"c"}
+{"op":"abbreviate","logger":"a.b.c","length":1,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":5,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":10,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":15,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":16,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":20,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":25,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":30,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":36,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":40,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":48,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c","length":100,"output":"a.b.c"}
+{"op":"abbreviate","logger":"a.b.c.D","length":0,"output":"D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":1,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":5,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":10,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":15,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":16,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":20,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":25,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":30,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":36,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":40,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":48,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"a.b.c.D","length":100,"output":"a.b.c.D"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":0,"output":"Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":1,"output":"c.e.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":5,"output":"c.e.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":10,"output":"c.e.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":15,"output":"c.e.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":16,"output":"c.e.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":20,"output":"c.e.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":25,"output":"com.example.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":30,"output":"com.example.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":36,"output":"com.example.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":40,"output":"com.example.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":48,"output":"com.example.Outer$Inner"}
+{"op":"abbreviate","logger":"com.example.Outer$Inner","length":100,"output":"com.example.Outer$Inner"}
+{"op":"abbreviate","logger":"com..double.Dot","length":0,"output":"Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":1,"output":"c..d.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":5,"output":"c..d.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":10,"output":"c..d.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":15,"output":"c..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":16,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":20,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":25,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":30,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":36,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":40,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":48,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":"com..double.Dot","length":100,"output":"com..double.Dot"}
+{"op":"abbreviate","logger":".leading","length":0,"output":"leading"}
+{"op":"abbreviate","logger":".leading","length":1,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":5,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":10,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":15,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":16,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":20,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":25,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":30,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":36,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":40,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":48,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":100,"output":".leading"}
+{"op":"abbreviate","logger":"trailing.","length":0,"output":""}
+{"op":"abbreviate","logger":"trailing.","length":1,"output":"t."}
+{"op":"abbreviate","logger":"trailing.","length":5,"output":"t."}
+{"op":"abbreviate","logger":"trailing.","length":10,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":15,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":16,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":20,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":25,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":30,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":36,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":40,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":48,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":100,"output":"trailing."}
+{"op":"abbreviate","logger":"ROOT","length":0,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":1,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":5,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":10,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":15,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":16,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":20,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":25,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":30,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":36,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":40,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":48,"output":"ROOT"}
+{"op":"abbreviate","logger":"ROOT","length":100,"output":"ROOT"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":0,"output":"TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":1,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":5,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":10,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":15,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":16,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":20,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":25,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":30,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":36,"output":"c.m.m.a.l.p.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":40,"output":"c.m.m.a.l.parser.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":48,"output":"c.m.m.a.logparser.parser.TestRunProgressParser"}
+{"op":"abbreviate","logger":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser","length":100,"output":"com.malinskiy.marathon.apple.logparser.parser.TestRunProgressParser"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":0,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":1,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":5,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":10,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":15,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":16,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":20,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":25,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":30,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":36,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":40,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":48,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"op":"abbreviate","logger":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","length":100,"output":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}

@@ -1,0 +1,13 @@
+Adds the oracle subproject (marathon-rs tools/oracle/module) to the build. Adds settings entries only; no marathon behaviour
+changes. The clone lives at tools/oracle/build/marathon-src, so the module is two directories up.
+
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -18,3 +18,7 @@
+ include("report:execution-timeline")
+ include("cli")
+ include(":analytics:usage")
++
++// marathon-rs oracle tools, never shipped
++include(":oracle")
++project(":oracle").projectDir = file("../../module")

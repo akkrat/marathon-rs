@@ -1,0 +1,39 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "one healthy device execution of the parse command should pass",
+  "source": "core/src/test/kotlin/com/malinskiy/marathon/scenario/SuccessParseScenarioTest.kt",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test",
+      "metaProperties": []
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "results": {
+        "test.SimpleTest#test": [
+          "PASSED"
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "at": 20000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "files": {
+      "parse_result.yml": "---\ntests:\n- pkg: \"test\"\n  clazz: \"SimpleTest\"\n  method: \"test\"\n  metaProperties: []"
+    }
+  },
+  "command": {
+    "type": "parse",
+    "outputFileName": "parse_result"
+  }
+}

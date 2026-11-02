@@ -1,0 +1,88 @@
+name: CI and native releases
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+    # Variables may contain a JSON label array, e.g. ["self-hosted", "macOS", "ARM64"].
+    runs-on: ${{ fromJSON((matrix.target == 'aarch64-apple-darwin' && vars.MARATHON_MACOS_RUNNER) || (matrix.target == 'x86_64-unknown-linux-gnu' && vars.MARATHON_LINUX_RUNNER) || format('["{0}"]', matrix.runner)) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prerequisites
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential pkg-config python3 unzip binutils openssh-client rsync sshpass file
+          else
+            brew install rsync sshpass
+          fi
+          rustup toolchain install
+      - name: Workspace gate
+        run: scripts/check.sh
+      - name: Version cache and runtime environment checks
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 -I scripts/release/check_versions.py "$TARGET"
+      - name: Native archive and extracted smoke
+        shell: bash
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [[ "$REF_TYPE" == tag ]]; then
+            export GIT_TAG_NAME="$REF_NAME"
+          else
+            unset GIT_TAG_NAME
+          fi
+          python3 -I scripts/release/release.py build --target "$TARGET" --output "dist/$TARGET"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: test-build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    # One promotion at a time; a failed draft is retained and blocks silent reruns.
+    concurrency:
+      group: marathon-release-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: dist
+      - name: Publish tested assets, then mark latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 -I scripts/release/release.py publish --artifacts dist

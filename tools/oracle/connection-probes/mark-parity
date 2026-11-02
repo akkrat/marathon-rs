@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""Regenerate the 35 WP 4.3 rows after verifying each named Rust test exists."""
+import importlib.util, pathlib, re, sys
+repo=pathlib.Path(__file__).resolve().parents[3]
+spec=importlib.util.spec_from_file_location('parity',repo/'scripts/parity_matrix.py')
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+existing=module.read_existing()
+files={'SharedTransfersTest':'shared_transfers','WriteFileTest':'write_file','ConnectionFactoryTest':'connection_factory'}
+count=0
+for row in existing.values():
+ if row['wp']!='4.3':continue
+ name=re.sub(r'([a-z])([A-Z])',r'\1_\2',row['test_name'])
+ name=re.sub(r'[^A-Za-z0-9]+','_',name).strip('_').lower()
+ path='crates/marathon-apple/tests/'+files[row['test_class']]+'.rs'
+ assert re.search(r'fn\s+'+re.escape(name)+r'\s*\(', (repo/path).read_text()),name
+ row.update(status='ported',rust_test=path+'::'+name,commit=sys.argv[1]);count+=1
+assert count==35,count
+rows=module.generate(pathlib.Path('~/src/marathon').expanduser(),existing)
+module.OUT.write_bytes(module.render(rows).encode())
+print('regenerated 35 ported rows')

@@ -1,0 +1,6 @@
+{"channel":null,"connection":0,"detail":{"endpoint":"127.0.0.1:<port-2>","host_key_fingerprint":"<host-key>","run":"after_auth-2","schema":1},"event":"ready","run":"after_auth-2","schema":1,"seq":0}
+{"channel":null,"connection":1,"detail":{},"event":"connection","run":"after_auth-2","schema":1,"seq":1}
+{"channel":null,"connection":1,"detail":{"accepted":true,"method":"password","user":"fixture"},"event":"auth","run":"after_auth-2","schema":1,"seq":2}
+{"channel":null,"connection":1,"detail":{"message":"fixture disconnect 2","reason":2,"stage":"after_auth"},"event":"disconnect","run":"after_auth-2","schema":1,"seq":3}
+{"channel":null,"connection":1,"detail":{"error":null,"outcome":"completed"},"event":"connection_end","run":"after_auth-2","schema":1,"seq":4}
+{"channel":null,"connection":0,"detail":{"files":[],"outcome":"completed"},"event":"cleanup","run":"after_auth-2","schema":1,"seq":5}

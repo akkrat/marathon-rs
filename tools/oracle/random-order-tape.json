@@ -1,0 +1,46 @@
+{
+  "format": "marathon-replay/tape@1",
+  "clocks": {
+    "wall": {
+      "mode": "scheduler",
+      "start": "2020-01-01T00:00:00Z"
+    },
+    "monotonic": {
+      "mode": "scheduler",
+      "startNanos": 0
+    },
+    "scheduler": {
+      "mode": "virtual"
+    }
+  },
+  "ids": {
+    "core.TestBatch.id": {
+      "pattern": "00000000-0000-0000-0000-%012d"
+    },
+    "core.AllureReporter.uuid": {
+      "pattern": "10000000-0000-0000-0000-%012d"
+    },
+    "test.ConfigurationFactory.outputDir": {
+      "values": [
+        "scenario"
+      ]
+    },
+    "config.Configuration.identities": {
+      "pattern": "%08x"
+    },
+    "core.RawJsonReporter.identities": {
+      "pattern": "%08x",
+      "start": 8192
+    }
+  },
+  "draws": {
+    "core.RandomOrderSortingStrategy.key": [
+      17
+    ]
+  },
+  "reads": {
+    "core.BillingReporter.defaultStart": [
+      1577836800000
+    ]
+  }
+}

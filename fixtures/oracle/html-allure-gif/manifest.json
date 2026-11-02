@@ -1,0 +1,380 @@
+[
+  {
+    "path": "allure-empty",
+    "kind": "directory"
+  },
+  {
+    "path": "allure-empty/environment.xml",
+    "kind": "file",
+    "sha256": "9949b03d06c1649971c883dd084a9fb5d2af4aece609fdbd9373950fc1750d33"
+  },
+  {
+    "path": "artifact # name.bin",
+    "kind": "file",
+    "sha256": "ed7002b439e9ac845f22357d822bac1444730fbdb6016d3ec9432297b9ec9f73"
+  },
+  {
+    "path": "html",
+    "kind": "directory"
+  },
+  {
+    "path": "html/app.min.css",
+    "kind": "file",
+    "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33"
+  },
+  {
+    "path": "html/app.min.js",
+    "kind": "file",
+    "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9"
+  },
+  {
+    "path": "html/index.html",
+    "kind": "file",
+    "sha256": "4f893d7cc0433d419c7ea330dfedece31e882480ec2f2d5c395324c4ad19a67c"
+  },
+  {
+    "path": "html/pools",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/pool",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/pool/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/logs",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/logs/pkg.Clazz.overwrite.html",
+    "kind": "file",
+    "sha256": "46453598334bcc83dd106dd0d5988ec5d7b050191e691a5b4cf3c3bd6c440053"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/logs/pkg.Clazz.test0.html",
+    "kind": "file",
+    "sha256": "47863ac7d20e41eedd1db48528338f7306f14a7c4fe492347d1903ea07985a63"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/logs/pkg.Clazz.test1.html",
+    "kind": "file",
+    "sha256": "6185d6293bfe4a05257f4da46f5d502d5f90361641603e99a940944bb0b2fff7"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/logs/pkg.Clazz.test2.html",
+    "kind": "file",
+    "sha256": "df6f41b898e468c6079f5767d8fff9dedb2ca17b3b66662cff50cfce53f6baa4"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/logs/pkg.Clazz.test4.html",
+    "kind": "file",
+    "sha256": "53fdc542f188664e2638addf113750a8fcbf77f7bf0a76b4675603bc5388dcc2"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/pkg.Clazz.overwrite.html",
+    "kind": "file",
+    "sha256": "1772b08219b4124dfd9000c58cfa152e82a667a781312060739b982d71ef61ce"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/pkg.Clazz.test0.html",
+    "kind": "file",
+    "sha256": "64b06fb1fc805e916a877c0a49d592ac7df6beb644062bfe2dc6d2010621a335"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/pkg.Clazz.test1.html",
+    "kind": "file",
+    "sha256": "1cae8c562ebc90e4b905134298215ea6f43ef87bb350ec6cd690c49878175643"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/pkg.Clazz.test2.html",
+    "kind": "file",
+    "sha256": "8eaeaf6a692d02b3b3491b9595110bbcddcba15eb7a56099a7641a5c43324b78"
+  },
+  {
+    "path": "html/pools/pool/serial-#1/pkg.Clazz.test4.html",
+    "kind": "file",
+    "sha256": "937176a5ad1dee184a3f6eb0f376064a15e144ec876f8e14cb83dd40c468e342"
+  },
+  {
+    "path": "html/pools/pool two",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/pool two/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/pool two/serial-#1/logs",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/pool two/serial-#1/logs/other.Clazz.test1.html",
+    "kind": "file",
+    "sha256": "063d56b845c4e21db0b42a3dad3075ca8d43a89623ae86111addb187a7135060"
+  },
+  {
+    "path": "html/pools/pool two/serial-#1/logs/pkg.Clazz.negative.html",
+    "kind": "file",
+    "sha256": "573da36ee1e01e3333b33f895a4001d94a9043b7e4ca379f38216ad1df069778"
+  },
+  {
+    "path": "html/pools/pool two/serial-#1/other.Clazz.test1.html",
+    "kind": "file",
+    "sha256": "4bc232d6ebf0eac3de6d8be28bc91246e98a08763249b9771f8da0e6f7909f62"
+  },
+  {
+    "path": "html/pools/pool two/serial-#1/pkg.Clazz.negative.html",
+    "kind": "file",
+    "sha256": "c462a9aadd677c746cb51564e034f54fb03c08dc11c05a91d04b488e76a00170"
+  },
+  {
+    "path": "html/pools/pool two.html",
+    "kind": "file",
+    "sha256": "b095a0ef61c56d06143fd2f38f3e5d10029279650a1d7dfdfd668c46d36cceba"
+  },
+  {
+    "path": "html/pools/pool.html",
+    "kind": "file",
+    "sha256": "765b99c95e93926c2d46ca91dc256399d7b4993dcf819d7571f4f3390426e971"
+  },
+  {
+    "path": "html/pools/raw #& pool",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/raw #& pool/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/raw #& pool/serial-#1/logs",
+    "kind": "directory"
+  },
+  {
+    "path": "html/pools/raw #& pool/serial-#1/logs/pkg.Clazz.raw.html",
+    "kind": "file",
+    "sha256": "c6a5b90f717538cd08300f26dec44a760feecc1d9edaa219f504e221733344f3"
+  },
+  {
+    "path": "html/pools/raw #& pool/serial-#1/pkg.Clazz.raw.html",
+    "kind": "file",
+    "sha256": "1e8a9609b11ca5fbff36b1b1667bcd4e5547e0c9dd25ade356328a6e138c5010"
+  },
+  {
+    "path": "html/pools/raw #& pool.html",
+    "kind": "file",
+    "sha256": "2d4d4a42b4010681dcc17e5109f6d914380150d5b6d2265fa24603c2f457836e"
+  },
+  {
+    "path": "html/timeline",
+    "kind": "directory"
+  },
+  {
+    "path": "html/timeline/chart.css",
+    "kind": "file",
+    "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e"
+  },
+  {
+    "path": "html/timeline/chart.js",
+    "kind": "file",
+    "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba"
+  },
+  {
+    "path": "html/timeline/iframeResizer.contentWindow.min.js",
+    "kind": "file",
+    "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2"
+  },
+  {
+    "path": "html/timeline/index.html",
+    "kind": "file",
+    "sha256": "ceab4799c9043853b4087b213ba093f004b973f207b358543e23ccc1dcba346b"
+  },
+  {
+    "path": "logs",
+    "kind": "directory"
+  },
+  {
+    "path": "logs/pool",
+    "kind": "directory"
+  },
+  {
+    "path": "logs/pool/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "logs/pool/serial-#1/pkg.Clazz#artifacts1-batch.log",
+    "kind": "file",
+    "sha256": "f2852cfba5a7b5a47011bc2d2b75e332ab7bc640413f6f0430d2b7ebd50d71a0"
+  },
+  {
+    "path": "logs/pool/serial-#1/pkg.Clazz#artifacts3-batch.log",
+    "kind": "file",
+    "sha256": "f2852cfba5a7b5a47011bc2d2b75e332ab7bc640413f6f0430d2b7ebd50d71a0"
+  },
+  {
+    "path": "logs/pool/serial-#1/pkg.Clazz#artifacts5-batch.log",
+    "kind": "file",
+    "sha256": "f2852cfba5a7b5a47011bc2d2b75e332ab7bc640413f6f0430d2b7ebd50d71a0"
+  },
+  {
+    "path": "logs/pool/serial-#1/pkg.Clazz#artifacts7-batch.log",
+    "kind": "file",
+    "sha256": "f2852cfba5a7b5a47011bc2d2b75e332ab7bc640413f6f0430d2b7ebd50d71a0"
+  },
+  {
+    "path": "logs/pool two",
+    "kind": "directory"
+  },
+  {
+    "path": "logs/pool two/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "logs/raw #& pool",
+    "kind": "directory"
+  },
+  {
+    "path": "logs/raw #& pool/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "screenshot",
+    "kind": "directory"
+  },
+  {
+    "path": "screenshot/pool",
+    "kind": "directory"
+  },
+  {
+    "path": "screenshot/pool/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#artifacts1-batch.gif",
+    "kind": "file",
+    "sha256": "4441146b0fe1d5c6845af126ba5ce6003ea77d6b4cb04d14114f86a925c5dbca"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#artifacts3-batch.gif",
+    "kind": "file",
+    "sha256": "4441146b0fe1d5c6845af126ba5ce6003ea77d6b4cb04d14114f86a925c5dbca"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#artifacts5-batch.gif",
+    "kind": "file",
+    "sha256": "4441146b0fe1d5c6845af126ba5ce6003ea77d6b4cb04d14114f86a925c5dbca"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#artifacts7-batch.gif",
+    "kind": "file",
+    "sha256": "4441146b0fe1d5c6845af126ba5ce6003ea77d6b4cb04d14114f86a925c5dbca"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#cancel-capture-batch.gif",
+    "kind": "file",
+    "sha256": "41b805ea7ac014e23556e98bb374702a08344268f92489a02f0880849394a1e4"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#cancel-delay-batch.gif",
+    "kind": "file",
+    "sha256": "04097aa68bdd0e1dd9dc9f3ad76badbdfc31200c88f6a551fb937fe049b12a52"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-0-2-2-batch.gif",
+    "kind": "file",
+    "sha256": "2d521792ffac54f504bf43e95399ab248c030c76a840533b674dda4734d4ea67"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-0-2-3-batch.gif",
+    "kind": "file",
+    "sha256": "c505d1c8a4de5073040b08bc37123e0954545366e7bd0e29380c68bb97b382c4"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-0-3-2-batch.gif",
+    "kind": "file",
+    "sha256": "55ff766f8d157e07b14918be0f54c9f44f037449ae278a331e9f8a325766ab60"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-1-2-2-batch.gif",
+    "kind": "file",
+    "sha256": "bde2637bd29dfef778106b7b2329c9e7d2bf4b90e225f3e3f21148e801457627"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-1-2-3-batch.gif",
+    "kind": "file",
+    "sha256": "de8b87725cbf1e9f81dc39579949ff435b534e716b9f269f60cac864b533cd9b"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-1-3-2-batch.gif",
+    "kind": "file",
+    "sha256": "4c3f07a1d45e194358104f04880af0767b126f0b3079bcc8fe508dcb5f9eac9a"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-2-2-2-batch.gif",
+    "kind": "file",
+    "sha256": "75988ad498aec67b0eda7b4f659fac25ab73e46792a83f05f0d55a13ab7e12c5"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-2-2-3-batch.gif",
+    "kind": "file",
+    "sha256": "26d324d92ff67e7b025004c32fe02d00d076e4933158a7f9cad687e41726d477"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-2-3-2-batch.gif",
+    "kind": "file",
+    "sha256": "2d1969718f73035a24002bcfcb30ad0a8ca48fa3a4043091731e7b66381d01f0"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-3-2-2-batch.gif",
+    "kind": "file",
+    "sha256": "e19c2463983ef49053d579ae576fbe661bf888f2470079c3f8c32ce1404f7cc4"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-3-2-3-batch.gif",
+    "kind": "file",
+    "sha256": "930f2c6029587f1d215a8485c6f4fde3c1e88ed6c9410f99d29ad0f99824b508"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#capture-3-3-2-batch.gif",
+    "kind": "file",
+    "sha256": "c5c0e97be5043e52662f1afe378274eea1eafeec254d92635dd84751219ac5a8"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#errors-batch.gif",
+    "kind": "file",
+    "sha256": "bee9002c2ebc64350f563d0fbde11fb04c5216fae64a51e001e5c50583cd41d4"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#reuse0-batch.gif",
+    "kind": "file",
+    "sha256": "bee9002c2ebc64350f563d0fbde11fb04c5216fae64a51e001e5c50583cd41d4"
+  },
+  {
+    "path": "screenshot/pool/serial-#1/pkg.Clazz#reuse1-batch.gif",
+    "kind": "file",
+    "sha256": "9124cb25eca6405870b438aa2499d087213acdf871517ee7e937bcc02e63b7ad"
+  },
+  {
+    "path": "screenshot/pool two",
+    "kind": "directory"
+  },
+  {
+    "path": "screenshot/pool two/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "screenshot/raw #& pool",
+    "kind": "directory"
+  },
+  {
+    "path": "screenshot/raw #& pool/serial-#1",
+    "kind": "directory"
+  },
+  {
+    "path": "zero",
+    "kind": "file",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

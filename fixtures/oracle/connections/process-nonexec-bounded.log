@@ -1,0 +1,3 @@
+SLF4J(I): Connected with provider of type [ch.qos.logback.classic.spi.LogbackServiceProvider]
+WARNING: sshpass binary not installed? Was looking for '/usr/bin/sshpass'. You can use environment variable RSYNC4J_SSHPASS to point to the binary.
+Oracle JVM exceeded its post-method process-errors deadline; reader-thread leak retained as failed cleanup evidence.

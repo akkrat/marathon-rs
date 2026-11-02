@@ -1,0 +1,9 @@
+SLF4J(I): Connected with provider of type [ch.qos.logback.classic.spi.LogbackServiceProvider]
+11:53:14.911 ERROR [sshj-Reader-/127.0.0.1:<port-8>-1792770794811] TransportImpl - Dying because - fixture disconnect 12
+net.schmizz.sshj.transport.TransportException: fixture disconnect 12
+	at net.schmizz.sshj.transport.TransportImpl.gotDisconnect(TransportImpl.java:548)
+	at net.schmizz.sshj.transport.TransportImpl.handle(TransportImpl.java:500)
+	at net.schmizz.sshj.transport.Decoder.decode(Decoder.java:113)
+	at net.schmizz.sshj.transport.Decoder.received(Decoder.java:200)
+	at net.schmizz.sshj.transport.Reader.run(Reader.java:60)
+11:53:14.914 ERROR [main] Promise - <<chan#0 / chanreq for exec>> woke to: net.schmizz.sshj.connection.ConnectionException: fixture disconnect 12

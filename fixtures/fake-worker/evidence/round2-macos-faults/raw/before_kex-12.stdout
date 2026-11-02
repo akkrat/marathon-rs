@@ -1,0 +1,2 @@
+{"case":"connect_fault","value":[{"class":"TransportException","message":"fixture disconnect 12","reason":"TOO_MANY_CONNECTIONS"}]}
+{"case":"completion","value":"completed"}

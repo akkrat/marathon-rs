@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Regenerate exactly the four WP 4.5b rows after verifying their Rust tests. Usage: mark-parity <test-commit>"""
+import importlib.util
+import os
+import pathlib
+import re
+import sys
+
+repo = pathlib.Path(__file__).resolve().parents[3]
+spec = importlib.util.spec_from_file_location('parity', repo / 'scripts/parity_matrix.py')
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+existing = module.read_existing()
+path = 'crates/marathon-apple/tests/test_root_factory.rs'
+source = (repo / path).read_text()
+count = 0
+for row in existing.values():
+    if row['wp'] != '4.5b':
+        continue
+    assert row['test_class'] == 'StartupPhasesTest'
+    name = re.sub(r'[^A-Za-z0-9]+', '_', row['test_name']).strip('_').lower()
+    assert re.search(r'fn\s+' + re.escape(name) + r'\s*\(', source), name
+    row.update(status='ported', rust_test=path + '::' + name, commit=sys.argv[1])
+    count += 1
+assert count == 4, count
+rows = module.generate(pathlib.Path(os.environ.get('MARATHON_KT', os.path.expanduser('~/src/marathon'))), existing)
+module.OUT.write_bytes(module.render(rows).encode())
+print('regenerated four ported rows')

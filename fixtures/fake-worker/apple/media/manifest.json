@@ -1,0 +1,38 @@
+[
+  {
+    "path": "recording.mp4",
+    "size": 1721,
+    "sha256": "deda901b8e54d43eead98ad765e628b91eb6fd53a554fa338089f15be3783215",
+    "metadata": {
+      "codec_name": "h264",
+      "width": 64,
+      "height": 96,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "5/1",
+      "duration": "1.000000"
+    }
+  },
+  {
+    "path": "transcoded.mp4",
+    "size": 3008,
+    "sha256": "c1bff12a15fe35f6f286419612e5dc535d7869a146b871719ded0a1a8574eef2",
+    "metadata": {
+      "codec_name": "h264",
+      "width": 568,
+      "height": 852,
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "5/1",
+      "duration": "1.000000"
+    }
+  },
+  {
+    "path": "screenshot.png",
+    "size": 210,
+    "sha256": "d2c673cc269cdc50c80d2a553125da1e5e821b0089b3f0f714404e77ce4b127e",
+    "metadata": {
+      "format": "png",
+      "width": 64,
+      "height": 96
+    }
+  }
+]

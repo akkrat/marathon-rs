@@ -1,0 +1,274 @@
+--- a/src/client/encrypted.rs
++++ b/src/client/encrypted.rs
+@@ -506,8 +506,17 @@
+                 let channel_num = map_err!(ChannelId::decode(&mut r))?;
+                 map_err!(ensure_end(&r))?;
+                 if !self.common.is_established_channel(channel_num) {
++                    // The answer to a CLOSE we sent: deliver it like a peer-initiated close
++                    if self.locally_closed.take(channel_num) {
++                        if let Some(chan) = self.channels.remove(&channel_num) {
++                            let _ = chan.send(ChannelMsg::Close).await;
++                        }
++                        return client.channel_close(channel_num, self).await;
++                    }
+                     return Ok(());
+                 }
++                // Both sides closed at once while our CLOSE was still queued behind pending data
++                self.locally_closed.take(channel_num);
+                 if let Some(ref mut enc) = self.common.encrypted {
+                     // The CHANNEL_CLOSE message must be sent to the server at this point or the session
+                     // will not be released.
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -101,6 +101,26 @@
+     inbound_channel_receiver: Receiver<Msg>,
+     open_global_requests: VecDeque<GlobalRequestResponse>,
+     server_sig_algs: Option<Vec<Algorithm>>,
++    locally_closed: LocallyClosed,
++}
++
++/// Channels this side sent CHANNEL_CLOSE for, still waiting for the peer's CHANNEL_CLOSE.
++///
++/// Sending CLOSE releases the channel's parameters, so the peer's answering CLOSE no longer finds an established
++/// channel. Without this record the answer was dropped and `Channel::wait()` never returned after a local close.
++#[derive(Debug, Default)]
++pub(crate) struct LocallyClosed(std::collections::HashSet<ChannelId>);
++
++impl LocallyClosed {
++    pub(crate) fn mark(&mut self, channel: ChannelId) {
++        self.0.insert(channel);
++    }
++
++    /// Whether `channel` was closed locally and its CLOSE not yet answered; the record is consumed, so a second CLOSE
++    /// for the same channel is not taken for an answer
++    pub(crate) fn take(&mut self, channel: ChannelId) -> bool {
++        self.0.remove(&channel)
++    }
+ }
+ 
+ impl Drop for Session {
+@@ -1288,6 +1308,7 @@
+             pending_len: 0,
+             open_global_requests: VecDeque::new(),
+             server_sig_algs: None,
++            locally_closed: LocallyClosed::default(),
+         }
+     }
+ 
+@@ -2138,6 +2159,57 @@
+         (session, sender, reply_receiver)
+     }
+ 
++    struct CloseCounter(usize);
++
++    impl Handler for CloseCounter {
++        type Error = crate::Error;
++
++        async fn channel_close(&mut self, _: ChannelId, _: &mut Session) -> Result<(), Self::Error> {
++            self.0 += 1;
++            Ok(())
++        }
++    }
++
++    #[tokio::test]
++    async fn close_packets_preserve_pending_open_and_ignore_duplicates() {
++        let (mut session, _sender, _replies) = keyboard_interactive_session();
++        session.common.encrypted.as_mut().unwrap().state = EncryptedState::Authenticated;
++        let id = ChannelId(7);
++        let (sender, mut receiver) = channel(4);
++        session.channels.insert(id, ChannelRef::new(sender));
++        session.common.encrypted.as_mut().unwrap().channels.insert(id, crate::ChannelParams {
++            recipient_channel: 42,
++            sender_channel: id,
++            recipient_window_size: 1024,
++            sender_window_size: 1024,
++            recipient_maximum_packet_size: 1024,
++            sender_maximum_packet_size: 1024,
++            confirmed: false,
++            wants_reply: false,
++            pending_data: Default::default(),
++            pending_eof: false,
++            pending_close: false,
++        });
++        let mut handler = CloseCounter(0);
++        let mut packet = vec![msg::CHANNEL_CLOSE];
++        id.encode(&mut packet).unwrap();
++        session.process_packet(&mut handler, &packet).await.unwrap();
++        assert!(session.channels.contains_key(&id));
++        assert!(session.common.encrypted.as_ref().unwrap().channels.contains_key(&id));
++        assert!(receiver.try_recv().is_err());
++        assert_eq!(handler.0, 0);
++
++        session.common.encrypted.as_mut().unwrap().channels.get_mut(&id).unwrap().confirmed = true;
++        session.close(id).unwrap();
++        session.process_packet(&mut handler, &packet).await.unwrap();
++        assert!(matches!(receiver.recv().await, Some(ChannelMsg::Close)));
++        assert_eq!(handler.0, 1);
++        assert!(!session.channels.contains_key(&id));
++        session.process_packet(&mut handler, &packet).await.unwrap();
++        assert!(receiver.recv().await.is_none());
++        assert_eq!(handler.0, 1);
++    }
++
+     const HOSTKEYS_SESSION_ID: &[u8] = b"hostkeys-session-id";
+ 
+     /// An authenticated session with one outstanding `hostkeys-prove-00` request.
+--- a/src/client/session.rs
++++ b/src/client/session.rs
+@@ -539,6 +539,10 @@
+ 
+     pub fn close(&mut self, channel: ChannelId) -> Result<(), crate::Error> {
+         if let Some(ref mut enc) = self.common.encrypted {
++            // Only an established channel gets a CLOSE on the wire, and so an answer to wait for
++            if enc.channels.get(&channel).is_some_and(|c| c.confirmed) {
++                self.locally_closed.mark(channel);
++            }
+             enc.close(channel)
+         } else {
+             unreachable!()
+--- a/src/client/test.rs
++++ b/src/client/test.rs
+@@ -77,6 +77,143 @@
+         ) -> Result<bool, Self::Error> {
+             Ok(true)
+         }
++
++        async fn exec_request(
++            &mut self,
++            channel: ChannelId,
++            data: &[u8],
++            session: &mut Session,
++        ) -> Result<(), Self::Error> {
++            session.channel_success(channel)?;
++            if data == b"close" {
++                session.close(channel)?;
++            }
++            Ok(())
++        }
++    }
++
++    /// Counts `Handler::channel_close` calls
++    struct ClosingClient {
++        closes: Arc<std::sync::atomic::AtomicUsize>,
++    }
++
++    impl Handler for ClosingClient {
++        type Error = Error;
++
++        async fn check_server_key(
++            &mut self,
++            _: &PublicKeyOrCertificate,
++        ) -> Result<bool, Self::Error> {
++            Ok(true)
++        }
++
++        async fn channel_close(
++            &mut self,
++            _: ChannelId,
++            _: &mut crate::client::Session,
++        ) -> Result<(), Self::Error> {
++            self.closes
++                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++            Ok(())
++        }
++    }
++
++    async fn authenticated_session<H: Handler + Send + 'static>(
++        handler: H,
++    ) -> crate::client::Handle<H> {
++        let client_key = PrivateKey::random(&mut rng(), ssh_key::Algorithm::Ed25519).unwrap();
++        let mut config = server::Config::default();
++        config.inactivity_timeout = None;
++        config
++            .keys
++            .push(PrivateKey::random(&mut rng(), ssh_key::Algorithm::Ed25519).unwrap());
++        let config = Arc::new(config);
++        let mut server = TestServer {
++            clients: Arc::new(Mutex::new(HashMap::new())),
++            id: 0,
++        };
++        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let addr = socket.local_addr().unwrap();
++        tokio::spawn(async move {
++            let (socket, _) = socket.accept().await.unwrap();
++            let server_handler = server.new_client(None);
++            server::run_stream(config, socket, server_handler)
++                .await
++                .unwrap();
++        });
++        let mut session = connect(Arc::new(Config::default()), addr, handler)
++            .await
++            .unwrap();
++        let auth_result = session
++            .authenticate_publickey(
++                "user",
++                PrivateKeyWithHashAlg::new(Arc::new(client_key), None),
++            )
++            .await
++            .unwrap();
++        assert!(auth_result.success());
++        session
++    }
++
++    #[test]
++    fn test_locally_closed_record_is_consumed_once() {
++        fn id(number: u32) -> ChannelId {
++            use ssh_encoding::Decode;
++            ChannelId::decode(&mut &number.to_be_bytes()[..]).unwrap()
++        }
++        let mut closed = crate::client::LocallyClosed::default();
++        closed.mark(id(7));
++        assert!(closed.take(id(7)));
++        // A duplicate CLOSE from the peer is not taken for a second answer
++        assert!(!closed.take(id(7)));
++        // Nor is a CLOSE for a channel this side never closed, such as one still waiting for its open confirmation
++        assert!(!closed.take(id(8)));
++    }
++
++    #[tokio::test]
++    async fn test_local_close_receives_the_peer_close() {
++        let _ = env_logger::try_init();
++        let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let session = authenticated_session(ClosingClient {
++            closes: closes.clone(),
++        })
++        .await;
++        let mut channel = session.channel_open_session().await.unwrap();
++        channel.close().await.unwrap();
++        let message = tokio::time::timeout(std::time::Duration::from_secs(5), channel.wait())
++            .await
++            .expect("the peer's CLOSE reaches the channel");
++        assert!(matches!(message, Some(crate::ChannelMsg::Close)));
++        assert!(
++            tokio::time::timeout(std::time::Duration::from_secs(5), channel.wait())
++                .await
++                .unwrap()
++                .is_none()
++        );
++        assert_eq!(closes.load(std::sync::atomic::Ordering::SeqCst), 1);
++    }
++
++    #[tokio::test]
++    async fn test_peer_close_still_reaches_the_channel_once() {
++        let _ = env_logger::try_init();
++        let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let session = authenticated_session(ClosingClient {
++            closes: closes.clone(),
++        })
++        .await;
++        let mut channel = session.channel_open_session().await.unwrap();
++        channel.exec(true, "close").await.unwrap();
++        let mut saw_close = false;
++        while let Ok(Some(message)) =
++            tokio::time::timeout(std::time::Duration::from_secs(5), channel.wait()).await
++        {
++            saw_close |= matches!(message, crate::ChannelMsg::Close);
++        }
++        assert!(saw_close);
++        // The client answers the peer's CLOSE; that answer must not be recorded as a local close
++        channel.close().await.ok();
++        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
++        assert_eq!(closes.load(std::sync::atomic::Ordering::SeqCst), 1);
+     }
+ 
+     struct Client {}

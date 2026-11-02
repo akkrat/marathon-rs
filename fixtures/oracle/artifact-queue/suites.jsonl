@@ -1,0 +1,5 @@
+{"name": "com.malinskiy.marathon.apple.ArtifactEvidenceTest", "tests": "1", "failures": "0", "errors": "0"}
+{"name": "com.malinskiy.marathon.apple.ArtifactProcessorFairnessTest", "tests": "11", "failures": "0", "errors": "0"}
+{"name": "com.malinskiy.marathon.apple.ArtifactProcessorTest", "tests": "12", "failures": "0", "errors": "0"}
+{"name": "com.malinskiy.marathon.apple.ArtifactQueueSizingTest", "tests": "3", "failures": "0", "errors": "0"}
+{"name": "com.malinskiy.marathon.apple.listener.ResultBundleRunListenerTest", "tests": "13", "failures": "0", "errors": "0"}

@@ -1,0 +1,108 @@
+22:51:20.825 [main] INFO  c.m.marathon.cli.ApplicationView - Starting marathon v0.10.1, CliConfiguration: MarathonRunCommandCliConfiguration(marathonfile=@IN@/Marathonfile, analyticsTracking=true, bugsnagReporting=true)
+22:51:20.825 [main] INFO  c.m.marathon.cli.ApplicationView - Checking @IN@/Marathonfile config
+22:51:20.827 [main] INFO  c.m.marathon.cli.ApplicationView - Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored
+I 22:51:20.829 [marathon-vendor] <com.malinskiy.marathon.Marathon> System Information:
+I 22:51:20.830 [marathon-vendor] <com.malinskiy.marathon.Marathon> os.name: macos
+I 22:51:20.830 [marathon-vendor] <com.malinskiy.marathon.Marathon> os.version: 27.0.0
+I 22:51:20.830 [marathon-vendor] <com.malinskiy.marathon.Marathon> os.arch: aarch64
+I 22:51:20.830 [marathon-vendor] <com.malinskiy.marathon.Marathon> available.processors: 18
+I 22:51:20.830 [marathon-vendor] <com.malinskiy.marathon.Marathon> marathon.version: 0.10.1
+I 22:51:20.830 [marathon-vendor] <com.malinskiy.marathon.Marathon> user.dir: /private@IN@
+I 22:51:20.830 [marathon-vendor] <com.malinskiy.marathon.Marathon> user.home: /var/folders/hg/r4_4rjxj2pz895p_vx99jwhc0000gn/T/mrs66-cli-nqmcya5x/home
+D 22:51:20.830 [marathon-vendor] <AdamDeviceProvider> Android Debug Bridge /127.0.0.1:PORT: version 41
+I 22:51:20.831 [marathon-vendor] <Timings> Device provider initialized in 1 ms (+2 ms since start)
+D 22:51:20.831 [marathon-vendor] <AdamDeviceProvider> Device emulator-5554 changed state to CONNECTED
+D 22:51:20.832 [marathon-vendor] <AndroidDevice> Device 127.0.0.1:PORT:emulator-5554 booted!
+D 22:51:21.037 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Parsing bundle(s):
+- testPackage: com.example.test
+  targetPackage: com.example
+D 22:51:21.037 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:21.038 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:21.145 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:21.145 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:21.145 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:21.358 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:21.358 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:21.461 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:21.461 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:21.462 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:21.552 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:21.552 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:21.552 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:21.764 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:21.764 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:21.867 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:21.867 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:21.867 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:21.960 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:21.960 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:21.960 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:22.172 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:22.172 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:22.275 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:22.275 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Parsing bundle(s):
+- testPackage: com.example.test
+  targetPackage: com.example
+D 22:51:22.275 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:22.276 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:22.368 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:22.368 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:22.369 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:22.581 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:22.581 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:22.684 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:22.684 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:22.685 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:22.778 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:22.778 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:22.778 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:22.991 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:22.991 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:23.094 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:23.094 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:23.095 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:23.189 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:23.189 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:23.189 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:23.410 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:23.410 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:23.514 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:23.514 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Parsing bundle(s):
+- testPackage: com.example.test
+  targetPackage: com.example
+D 22:51:23.514 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:23.514 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:23.596 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:23.596 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:23.596 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:23.810 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:23.810 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:23.913 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:23.913 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:23.914 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:24.008 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:24.008 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:24.008 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:24.223 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:24.223 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:24.327 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+D 22:51:24.327 [marathon-vendor] <AndroidAppInstaller> Installing application output to 127.0.0.1:PORT:emulator-5554
+I 22:51:24.327 [marathon-vendor] <AndroidAppInstaller> Installing com.example, /private@IN@/app-debug.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:24.419 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:24.419 [marathon-vendor] <AndroidAppInstaller> Installing instrumentation package to 127.0.0.1:PORT:emulator-5554
+I 22:51:24.419 [marathon-vendor] <AndroidAppInstaller> Installing com.example.test, /private@IN@/app-debug-androidTest.apk to 127.0.0.1:PORT:emulator-5554
+D 22:51:24.632 [marathon-vendor] <AndroidAppInstaller> Success
+D 22:51:24.632 [marathon-vendor] <AndroidAppInstaller> Prepare installation finished for 127.0.0.1:PORT:emulator-5554
+D 22:51:24.735 [marathon-vendor] <c.m.m.a.adam.AmInstrumentTestParser> Remote parsing failed. Retrying
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554
+Allure environment data saved.
+E 22:51:24.738 [marathon-vendor] <com.malinskiy.marathon.Marathon> kotlin.Unit
+com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test list using 127.0.0.1:PORT:emulator-5554

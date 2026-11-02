@@ -1,0 +1,21 @@
+{
+  "profile": "local-27",
+  "worker_id": "SET_PRIVATE_STABLE_HOST_ID",
+  "worker_home": "SET_PRIVATE_WORKER_HOME",
+  "worker_python": "SET_ABSOLUTE_PYTHON",
+  "worker_checkout": "SET_ABSOLUTE_CHECKOUT",
+  "kotlin_source": "SET_READ_ONLY_SOURCE",
+  "jvm": "SET_REFERENCE_DISTRIBUTION_BIN_MARATHON",
+  "jvm_reference": "SET_REFERENCE_RECORD_FROM_RUN_REFERENCE_OR_OMIT_FOR_FROZEN",
+  "native": "SET_NATIVE_BIN_MARATHON",
+  "java_home": "SET_JBR_21_0_10",
+  "sdk": "SET_ANDROID_SDK_IF_ANDROID",
+  "runtime": "SET_INSTALLED_IOS_RUNTIME_ID",
+  "device_type": "SET_INSTALLED_SIMULATOR_DEVICE_TYPE",
+  "ssh": {"host": "127.0.0.1", "port": 0, "user": "SET_PRIVATE_ACCOUNT", "key": "SET_PRIVATE_KEY_PATH", "known_hosts": "SET_PRIVATE_KNOWN_HOSTS_PATH"},
+  "adb_port": 0,
+  "emulator_port": 0,
+  "image": "SET_INSTALLED_X86_64_API_34_OR_NEWER_IMAGE",
+  "environment": {},
+  "watchdog_seconds": 1800
+}

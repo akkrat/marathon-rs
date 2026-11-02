@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Records the argv that rsync's --rsh produces, then runs the real ssh. UserKnownHostsFile=/dev/null is added after
+# recording: with StrictHostKeyChecking no, the real ssh would otherwise write the test servers into ~/.ssh/known_hosts.
+{ printf 'ssh'; printf ' [%s]' "$@"; printf '\n'; } >> "${SPIKE_ARGV_LOG:?}"
+exec /usr/bin/ssh -o UserKnownHostsFile=/dev/null "$@"

@@ -1,0 +1,1 @@
+WARNING: sshpass binary not installed? Was looking for '/usr/bin/sshpass'. You can use environment variable RSYNC4J_SSHPASS to point to the binary.

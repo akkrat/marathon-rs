@@ -1,0 +1,17 @@
+--- a/src/server/encrypted.rs
++++ b/src/server/encrypted.rs
+@@ -1758,7 +1758,13 @@
+                         Ok(())
+                     }
+                     _ => {
+-                        self.request_failure();
++                        // Spike measurement only (WP 0.3a T25): a peer that keeps a channel busy but never answers
++                        // keep-alive requests
++                        if !(req_type.starts_with("keepalive")
++                            && std::env::var_os("RUSSH_SPIKE_WITHHOLD_KEEPALIVE_REPLIES").is_some())
++                        {
++                            self.request_failure();
++                        }
+                         Ok(())
+                     }
+                 }

@@ -1,0 +1,391 @@
+{
+  "contract": "1a70ce2e9da2937f23dbf472d0a5904cd4a853bf9a433609dfba69a3b045acea",
+  "entries": [
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/allure-results"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000001-result.json",
+      "sha256": "02998be9eae8491109002f4cc78e6b43c95251a16d43e81925a3d6e47c6af063",
+      "size": 592
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000002-result.json",
+      "sha256": "6c3b3b71b7b846ce5ac06118ea710e38c0c94a56e170563a4de2341fa25b5a17",
+      "size": 712
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000003-result.json",
+      "sha256": "f7d623a62c3a398af4ef0e7c4f6d96ed5534ed98ebdffb507ad746973c60906d",
+      "size": 1157
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/environment.xml",
+      "sha256": "55646b64c6bc0343c38d904e4fefcb68b0829f7ea36493420f21cf4fc9e64c4a",
+      "size": 5039
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/bill/omni/127.0.0.1-53051-emulator-5554.json",
+      "sha256": "23e875b14a0d04b60ec23507b238a1c6e84ae1888c482299ff2e51a4801b681f",
+      "size": 296
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/devices/omni/127.0.0.1-53051-emulator-5554.json",
+      "sha256": "3af16363482ebc83edf00220fb1fa3d21afef10dd1d506b1b05244cfcc6312cf",
+      "size": 207
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/devices/omni/127.0.0.1-53051-emulator-5556.json",
+      "sha256": "a4e29f035c793a7fcd6fc01d4c3b9bc3dd8fea8b07cb7623807ba52328ead037",
+      "size": 207
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.css",
+      "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+      "size": 20391
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.js",
+      "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+      "size": 327442
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/index.html",
+      "sha256": "528f86a1a2aef262872c2beb32ccd7a9010e53d1f8b779417f7255da5935a89c",
+      "size": 1947
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni.html",
+      "sha256": "e2fd7b8ed1a19c38f428efa97469dc5916716e457377868f7de060c2406ae949",
+      "size": 1736
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554/com.example.ClassIgnoredTest.testAlwaysIgnored.html",
+      "sha256": "7d4947fe0839fd1dc0b12cfa7b1502849d36504c8fc4751f46a3f4255fbe5ffa",
+      "size": 1006
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554/com.example.MainActivityAllureTest.testFailure.html",
+      "sha256": "d8d970776b43d367fc68c3bcdd927f2907f9754b9d7d7ab42937f274344b492c",
+      "size": 1830
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554/com.example.MainActivityTest.testText.html",
+      "sha256": "2c90272829aa28da616c0c4ab067df82ceef527b2ad07bdaf45b9003b4b6e30b",
+      "size": 978
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554/logs"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554/logs/com.example.ClassIgnoredTest.testAlwaysIgnored.html",
+      "sha256": "8ec27ff1968e38e9a4595a2af19b4555d8bb0bb1242bd8b5693355df6bfbf16f",
+      "size": 782
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554/logs/com.example.MainActivityAllureTest.testFailure.html",
+      "sha256": "100b594936861c08369bb8f2df668adb0a54ff898994e5e550253ae23aa31d36",
+      "size": 776
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/127.0.0.1-53051-emulator-5554/logs/com.example.MainActivityTest.testText.html",
+      "sha256": "a7aca262d13d17a3afa6f5f45e9bc8277a36a67660b39d093f6078253459e523",
+      "size": 764
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/timeline"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.css",
+      "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+      "size": 1662
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.js",
+      "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+      "size": 19868
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/iframeResizer.contentWindow.min.js",
+      "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+      "size": 13616
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/index.html",
+      "sha256": "8df220ae141d875053437655b67a5c01ed02f03938dd1e929f007d3c51f6331a",
+      "size": 2237
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni/127.0.0.1-53051-emulator-5554"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni/127.0.0.1-53051-emulator-5554"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni/127.0.0.1-53051-emulator-5554"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/127.0.0.1-53051-emulator-5554/com.example.ClassIgnoredTest#testAlwaysIgnored.json",
+      "sha256": "bacb303951a8d470f4caa97779181aab00b44f02fc0e17a497e98cd11d71d726",
+      "size": 1740
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/127.0.0.1-53051-emulator-5554/com.example.MainActivityAllureTest#testFailure.json",
+      "sha256": "283caea5d8ff79521e79fff074a8fb095a896f5bd11b402c97574b7ec3436134",
+      "size": 3474
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/127.0.0.1-53051-emulator-5554/com.example.MainActivityTest#testText.json",
+      "sha256": "f696b10d704130316d69f7ff861cc9c25a3afc517dd60d6223d7f7bd526a8f8c",
+      "size": 2721
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/raw.json",
+      "sha256": "92e664b2b50f66f6513b647bd4a683839dda1a12fb98cb185da30541f4c610ec",
+      "size": 2615
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/tests/omni/marathon_junit_report.xml",
+      "sha256": "0c8bd1613ec824a14d6edeb98cbe7633d08fd22ac6e42e8ab8962cee7b2d453f",
+      "size": 1033
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "e888a98df55ce671ef44cd36bb5d7ae1cfff177f2a354068c7de7e1322bb615c",
+      "size": 3071
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "762004b7a363bfd649bf104aca519d5ec6acf244bc5586b6d2ded2c8afec237e",
+      "size": 97
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "436c7c9561b7a1c507d6118e38b750628351e34f003dcf94eeb1a469a3aca3e2",
+      "size": 2134
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "59897fbd3cfda44157f5cbb0a57a0ed1230496413d578caab91de566ffe9f292",
+      "size": 31851
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "idle_safe_serial": "127.0.0.1-53051-emulator-5556",
+    "idle_serial": "127.0.0.1:53051:emulator-5556",
+    "port": "53051",
+    "safe_serial": "127.0.0.1-53051-emulator-5554",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/android-ignore/native/raw",
+    "serial": "127.0.0.1:53051:emulator-5554"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hooks": {
+      "active": true,
+      "failures": [],
+      "unused": []
+    },
+    "native_sha": "9e1538c53560b64e018c257afc44474a0d27ed9d",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/target/debug/examples/differential_cli",
+        "run",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/android-ignore/native/raw/in/Marathonfile"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+    "stdin_payloads": {
+      "fixtures/vendor-android/apk/app-debug-androidTest.apk": "d33a6233d2671599e01dd6cb30bc3aaa0ea23efce0e850cecf55e477a2467841",
+      "fixtures/vendor-android/apk/app-debug.apk": "c896617053366d7fa3d4df6b1c049241252700aebb900206895a2c3a65919192"
+    },
+    "terminal_observation": {
+      "cli": 0,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "storage": "gzip@1"
+}

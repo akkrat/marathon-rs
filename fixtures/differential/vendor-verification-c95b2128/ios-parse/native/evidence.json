@@ -1,0 +1,150 @@
+{
+  "contract": "6b1de21039958b638f7bff873d7423d40f46ca0d306f0ba98f39856b6a4306a7",
+  "entries": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "host-argv.jsonl",
+      "sha256": "fce62fbf0b4bc4ae7c1c39dac96feff8c26c0569c283fc29a73fcf93666498d7",
+      "size": 1381
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/parsed.yml",
+      "sha256": "0c493f3105bfeb9cfc2fe35db42172d0029657d8c93b25e6227b7878569db433",
+      "size": 303
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/sentinel",
+      "sha256": "99f4c36bd8c314f0d905711b55b0ae32b2192f8c15bb10d639422ea30987d7ca",
+      "size": 52
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "ca815299820a466b7dbf4280727bbda5e31b9bb04c5f9e4529e2e3b8affdd317",
+      "size": 270
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "ae70b94774a43032af60f7b1d8ae8264bf1b04e1b382633b0e4e5d129b397491",
+      "size": 148
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "57e7b75cf30d08443f32abd3c16ed82d2ae4972ad0514c95b846fb17db5ab371",
+      "size": 2608
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "6b40af33ba7b1c391e4cabbec3e3a826578bd756e2eaa067fc1c32bae8659973",
+      "size": 248540
+    },
+    {
+      "kind": "directory",
+      "mode": 448,
+      "path": "worker"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/Info.plist",
+      "sha256": "cf21a26cfa1f5534661e3f98195f4b2f1dc2f8fb9b0f13ce6c9d932821be046d",
+      "size": 774
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/sample-appUnitTests",
+      "sha256": "18f3e75312115131060ce1d4cfc52e19355a96e15e3125cface3eeafca273be0",
+      "size": 161120
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "port": "52902",
+    "safe_serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-52902",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/ios-parse/native/raw",
+    "serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE@fixture@127.0.0.1:52902"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hooks": {
+      "active": true,
+      "failures": [],
+      "unused": []
+    },
+    "native_sha": "9e1538c53560b64e018c257afc44474a0d27ed9d",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/target/debug/examples/differential_cli",
+        "parse",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/ios-parse/native/raw/in/Marathonfile",
+        "-o",
+        "parsed"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+    "terminal_observation": {
+      "cli": 0,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "storage": "gzip@1"
+}

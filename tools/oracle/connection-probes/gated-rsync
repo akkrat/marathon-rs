@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""An argv-only process for the actual wrapper's concurrency and deadline probes."""
+import json,os,pathlib,sys,time
+root=pathlib.Path(os.environ['MRS43_GATE_ROOT'])
+args=sys.argv[1:]
+label=next((s.split(':',1)[1].split('/')[-1] for s in args if s.startswith('127.0.0.1:')),'version')
+fd=os.open(root/'events.jsonl',os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
+def event(kind):os.write(fd,(json.dumps({'label':label,'event':kind})+'\n').encode())
+event('enter')
+(root/(label+'.entered')).touch()
+while not (root/'release').exists(): time.sleep(.005)
+event('exit')

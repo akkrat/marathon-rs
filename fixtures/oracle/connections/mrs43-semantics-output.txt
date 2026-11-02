@@ -1,0 +1,13 @@
+{"case":"bridge-auth-alias","value":true}
+{"case":"executor-auth-distinct","value":true}
+{"case":"second-bridge-send","value":true}
+23:55:51.021 [main] DEBUG c.m.m.apple.device.ConnectionFactory - Disposing of command executor for local
+23:55:51.023 [main] DEBUG c.m.m.apple.device.ConnectionFactory - Disposing of command executor for local
+23:55:51.026 [main] DEBUG c.m.m.apple.cmd.SharedTransfers - /tmp/mrs43-semantics/source is already transferred to worker:22:/dst
+{"case":"same-path-after-byte-change","value":1}
+23:55:51.027 [main] WARN  c.m.m.apple.cmd.SharedTransfers - Unable to check worker:22:/dst, reusing the previous transfer of /tmp/mrs43-semantics/source
+23:55:51.027 [main] DEBUG c.m.m.apple.cmd.SharedTransfers - /tmp/mrs43-semantics/source is already transferred to worker:22:/dst
+{"case":"null-existence","value":1}
+{"case":"missing-destination","value":2}
+{"case":"write-bytes","value":true}
+{"case":"write-mode","value":"rw-------"}

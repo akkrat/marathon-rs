@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Records rsync4j's argv, then runs the system rsync (openrsync on macOS)
+{ printf 'rsync'; printf ' [%s]' "$@"; printf '\n'; } >> "${SPIKE_ARGV_LOG:?}"
+exec /usr/bin/rsync "$@"

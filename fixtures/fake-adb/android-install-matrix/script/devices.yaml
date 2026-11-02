@@ -1,0 +1,94 @@
+{
+  "server": {
+    "strict": true
+  },
+  "devices": [
+    {
+      "serial": "emulator-5554",
+      "features": [],
+      "getprop": {
+        "sys.boot_completed": "1",
+        "ro.product.cpu.abi": "x86",
+        "ro.build.version.sdk": "27",
+        "ro.build.version.codename": "REL",
+        "ro.product.model": "Android SDK built for x86",
+        "ro.product.manufacturer": "Google",
+        "ro.boot.serialno": "EMULATOR30X6X5X0"
+      }
+    },
+    {
+      "serial": "emulator-5556",
+      "features": [
+        "cmd"
+      ],
+      "getprop": {
+        "sys.boot_completed": "1",
+        "ro.product.cpu.abi": "x86",
+        "ro.build.version.sdk": "27",
+        "ro.build.version.codename": "REL",
+        "ro.product.model": "Android SDK built for x86",
+        "ro.product.manufacturer": "Google",
+        "ro.boot.serialno": "EMULATOR30X6X5X0"
+      }
+    }
+  ],
+  "shell": [
+    {
+      "exact": "dumpsys input",
+      "stdout": "SurfaceOrientation: 0\n"
+    },
+    {
+      "exact": "echo $EXTERNAL_STORAGE",
+      "stdout": "/sdcard\n"
+    },
+    {
+      "exact": "ls /system/bin/screenrecord",
+      "stdout": "/system/bin/screenrecord"
+    },
+    {
+      "exact": "ls /system/bin/md5",
+      "stdout": "/system/bin/md5"
+    },
+    {
+      "exact": "logcat -v long",
+      "hang": true
+    },
+    {
+      "exact": "pm list packages",
+      "stdout": "package:com.example\npackage:com.example.test\n"
+    },
+    {
+      "prefix": "pm uninstall ",
+      "stdout": "Success"
+    },
+    {
+      "prefix": "pm install -r -g -custom ",
+      "stdout": "Success"
+    },
+    {
+      "prefix": "cmd package install '-g' '-custom' -r -S",
+      "service": "exec",
+      "stdout": "Success"
+    },
+    {
+      "exact": "md5 /data/local/tmp/app-debug.apk",
+      "stdout": "122fc3b5d69b262db9b84dfc00e8f1d4"
+    },
+    {
+      "exact": "md5 /data/local/tmp/app-debug-androidTest.apk",
+      "stdout": "8d103498247b3711817a9f18624dede7"
+    },
+    {
+      "prefix": "rm ",
+      "stdout": ""
+    },
+    {
+      "prefix": "mkdir ",
+      "stdout": ""
+    },
+    {
+      "exact": "logcat -c",
+      "stdout": ""
+    }
+  ]
+}

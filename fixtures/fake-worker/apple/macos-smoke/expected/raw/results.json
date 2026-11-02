@@ -1,0 +1,47 @@
+[
+  {
+    "attachments": [
+      {
+        "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testFail-e1589579-0f69-4037-94c2-54733f07292a.log",
+        "sha256": "a0e734e23cc65d70153b753eda2296e6cf96e09a7d2a1acee19abcad00ee200f",
+        "type": "LOG"
+      }
+    ],
+    "class": "SmokeTests",
+    "device": "worker-1",
+    "failure": "scripted enriched failure\nfile:///fixture/SmokeTests:1",
+    "method": "testFail",
+    "package": "AppleWorldTests",
+    "status": "FAILURE"
+  },
+  {
+    "attachments": [
+      {
+        "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testPass-e1589579-0f69-4037-94c2-54733f07292a.log",
+        "sha256": "a8a7d718db32c5301373d6cedab7bd51f1f7d5fbda74b3cb7db34c5b1d90888b",
+        "type": "LOG"
+      }
+    ],
+    "class": "SmokeTests",
+    "device": "worker-1",
+    "failure": null,
+    "method": "testPass",
+    "package": "AppleWorldTests",
+    "status": "PASSED"
+  },
+  {
+    "attachments": [
+      {
+        "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testSkip-e1589579-0f69-4037-94c2-54733f07292a.log",
+        "sha256": "c474897c679f859e0129dd5a2ea388aa1dd210cb96c059d7a93c8bf57c96f320",
+        "type": "LOG"
+      }
+    ],
+    "class": "SmokeTests",
+    "device": "worker-1",
+    "failure": null,
+    "method": "testSkip",
+    "package": "AppleWorldTests",
+    "status": "IGNORED"
+  }
+]

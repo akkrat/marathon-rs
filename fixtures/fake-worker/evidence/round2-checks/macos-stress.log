@@ -1,0 +1,13 @@
+25/300 complete; 54.3s
+50/300 complete; 108.2s
+75/300 complete; 161.7s
+100/300 complete; 215.5s
+125/300 complete; 268.3s
+150/300 complete; 321.3s
+175/300 complete; 374.2s
+200/300 complete; 428.0s
+225/300 complete; 480.9s
+250/300 complete; 534.2s
+275/300 complete; 587.4s
+300/300 complete; 640.7s
+PASS: 300 full contract + deterministic-regression iterations

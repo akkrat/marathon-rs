@@ -1,0 +1,210 @@
+{
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "results": [
+    {
+      "case": "exec-rejection",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.432
+    },
+    {
+      "case": "reject-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.371
+    },
+    {
+      "case": "before_kex-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.372
+    },
+    {
+      "case": "before_kex-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.383
+    },
+    {
+      "case": "before_kex-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.759
+    },
+    {
+      "case": "after_auth-classification-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.699
+    },
+    {
+      "case": "after_auth-classification-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.717
+    },
+    {
+      "case": "after_auth-classification-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.385
+    },
+    {
+      "case": "during_exec-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.443
+    },
+    {
+      "case": "during_exec-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.444
+    },
+    {
+      "case": "during_exec-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "kex-failure",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 0.373
+    },
+    {
+      "case": "kex-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-delayed-healthy",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 12.771
+    },
+    {
+      "case": "keepalive-delay-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-with-output",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 3.452
+    },
+    {
+      "case": "keepalive-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 30.523
+    },
+    {
+      "case": "close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15h",
+      "outcome": "completed",
+      "exit": 0,
+      "expected": 0,
+      "seconds": 91.451
+    },
+    {
+      "case": "timeout-close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "known-hosts-unchanged",
+      "outcome": "completed"
+    }
+  ]
+}

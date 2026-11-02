@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# See tools/oracle/README.md.
+exec "$(dirname "$0")/oracle" config-dump "$@"

@@ -1,0 +1,6 @@
+---
+tests:
+- pkg: "test"
+  clazz: "SimpleTest"
+  method: "test"
+  metaProperties: []

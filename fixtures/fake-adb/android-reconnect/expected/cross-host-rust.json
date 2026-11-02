@@ -1,0 +1,124 @@
+{
+ "compare": {
+  "exit": 0,
+  "stateChanges": [
+   "Device emulator-5556 changed state to CONNECTED",
+   "Device emulator-5556 changed state to CONNECTED",
+   "Device emulator-5556 changed state to DISCONNECTED",
+   "Device emulator-5556 changed state to CONNECTED"
+  ],
+  "batchesRun": 20,
+  "ranOn": {
+   "server1/emulator-5556": {
+    "beforeDrop": false,
+    "afterReconnect": true
+   },
+   "server2/emulator-5556": {
+    "beforeDrop": true,
+    "afterReconnect": false
+   }
+  },
+  "finalLines": [
+   "Marathon execution finished"
+  ]
+ },
+ "fakeExit": [
+  0,
+  0
+ ],
+ "servers": [
+  {
+   "batches": {
+    "emulator-5556": [
+     {
+      "phase": "back",
+      "test": "T17"
+     },
+     {
+      "phase": "back",
+      "test": "T15"
+     },
+     {
+      "phase": "back",
+      "test": "T13"
+     },
+     {
+      "phase": "back",
+      "test": "T11"
+     },
+     {
+      "phase": "back",
+      "test": "T09"
+     },
+     {
+      "phase": "back",
+      "test": "T07"
+     },
+     {
+      "phase": "back",
+      "test": "T05"
+     },
+     {
+      "phase": "back",
+      "test": "T03"
+     },
+     {
+      "phase": "back",
+      "test": "T01"
+     }
+    ]
+   }
+  },
+  {
+   "batches": {
+    "emulator-5556": [
+     {
+      "phase": "start",
+      "test": "T00"
+     },
+     {
+      "phase": "start",
+      "test": "T19"
+     },
+     {
+      "phase": "start",
+      "test": "T18"
+     },
+     {
+      "phase": "start",
+      "test": "T16"
+     },
+     {
+      "phase": "start",
+      "test": "T14"
+     },
+     {
+      "phase": "start",
+      "test": "T12"
+     },
+     {
+      "phase": "start",
+      "test": "T10"
+     },
+     {
+      "phase": "start",
+      "test": "T08"
+     },
+     {
+      "phase": "start",
+      "test": "T06"
+     },
+     {
+      "phase": "start",
+      "test": "T04"
+     },
+     {
+      "phase": "start",
+      "test": "T02"
+     }
+    ]
+   }
+  }
+ ],
+ "seconds": 48
+}

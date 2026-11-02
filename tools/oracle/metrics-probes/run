@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Run the WP 3.4a metrics probes against the reference installDist (tools/oracle/build.sh reference).
+
+Usage: tools/oracle/metrics-probes/run [OUT_DIR]   (default fixtures/oracle/metrics)
+Compiles MetricsProbes.kt with the cached Kotlin 1.9.24 compiler against the distribution's lib/ jars.
+"""
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+repo = here.parents[2]
+lib = here.parent / 'build/marathon-src/cli/build/install/marathon/lib'
+if not lib.is_dir():
+    sys.exit(f'no reference distribution at {lib}; run tools/oracle/build.sh reference')
+cache = Path.home() / '.gradle/caches/modules-2/files-2.1'
+def jar(group, artifact, version):
+    return next((cache / group / artifact / version).glob('*/' + artifact + '-' + version + '.jar'))
+
+compiler = [jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-stdlib', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '1.9.24'),
+            jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),
+            jar('org.jetbrains.intellij.deps', 'trove4j', '1.0.20200330'),
+            jar('org.jetbrains', 'annotations', '13.0')]
+classpath = sorted(str(p) for p in lib.glob('*.jar'))
+java = str(Path(os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')) / 'bin/java')
+out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else repo / 'fixtures/oracle/metrics'
+with tempfile.TemporaryDirectory(prefix='metrics-probes-') as tmp:
+    out = str(Path(tmp) / 'probes.jar')
+    def run(args, **kw):
+        if subprocess.run(args, **kw).returncode:
+            sys.exit(f'failed: {args[-1]}')
+    run([java, '-cp', os.pathsep.join(map(str, compiler)),
+                    'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler', '-no-stdlib', '-no-reflect', '-nowarn',
+                    '-Xfriend-paths=' + str(next(lib.glob('core-*.jar'))), '-cp', os.pathsep.join(classpath), '-d', out, str(here / 'MetricsProbes.kt')])
+    # PoolProgressAccumulator prints progress lines to stdout; the rows go to files.
+    run([java, '-cp', os.pathsep.join([out] + classpath), 'MetricsProbesKt', str(out_dir)], stdout=subprocess.DEVNULL)

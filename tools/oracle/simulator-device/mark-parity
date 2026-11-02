@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Regenerate WP 5.2 parity rows from checkpoint commits and verified test names."""
+import importlib.util, os, pathlib, re, subprocess, sys
+repo=pathlib.Path(__file__).resolve().parents[3]
+spec=importlib.util.spec_from_file_location('parity',repo/'scripts/parity_matrix.py')
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+commit=subprocess.check_output(['git','rev-parse',sys.argv[1]],cwd=repo,text=True).strip()
+stage=sys.argv[2] if len(sys.argv)>2 else 'B'
+suites={'BatchFailurePolicyTest':('marathon-apple','batch_failure_policy'),'StartupPhasesTest':('marathon-ios','simulator_prepare'),'WorkerProvisioningContextTest':('marathon-ios','simulator_context'),'AppleSimulatorDeviceArtifactTest':('marathon-ios','simulator_artifacts'),'AppleSimulatorDeviceBatchTest':('marathon-ios','simulator_batch'),'AppleSimulatorDeviceBatchFailureTest':('marathon-ios','simulator_batch_failure'),'AppleSimulatorDeviceSessionTest':('marathon-ios','simulator_session'),'AppleSimulatorDeviceDisposeTest':('marathon-ios','simulator_dispose'),'AppleSimulatorDeviceXcodeVersionTest':('marathon-ios','simulator_xcode_version'),'ResultBundleRunListenerTest':('marathon-ios','simulator_result_bundle')}
+def snake(s):
+    s=re.sub(r'([A-Z]+)([A-Z][a-z])',r'\1_\2',s)
+    s=re.sub(r'([a-z0-9])([A-Z])',r'\1_\2',s)
+    return re.sub(r'[^a-zA-Z0-9]+','_',s).strip('_').lower()
+existing=m.read_existing();count=0
+for row in existing.values():
+    if row['wp']!='5.2': continue
+    if stage=='A' and (row['test_class'] not in ['BatchFailurePolicyTest','StartupPhasesTest','WorkerProvisioningContextTest','AppleSimulatorDeviceArtifactTest'] or row['test_name'].startswith('real device dispose')): continue
+    crate,suite=suites[row['test_class']];path=f'crates/{crate}/tests/{suite}.rs';name=snake(row['test_name'])
+    assert re.search(r'fn\s+'+re.escape(name)+r'\s*\(', (repo/path).read_text()),name
+    row.update(status='ported',rust_test=path+'::'+name,commit=commit);count+=1
+assert count==(29 if stage=='A' else 69),count
+rows=m.generate(pathlib.Path(os.environ.get('MARATHON_KT',os.path.expanduser('~/src/marathon'))),existing)
+m.OUT.write_text(m.render(rows));print(f'regenerated {count} ported / 0 n/a rows')

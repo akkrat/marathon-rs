@@ -1,0 +1,320 @@
+{
+  "expected_cases": [
+    "after_auth-11",
+    "after_auth-11-server-exit",
+    "after_auth-12",
+    "after_auth-12-server-exit",
+    "after_auth-2",
+    "after_auth-2-server-exit",
+    "after_auth-classification-11",
+    "after_auth-classification-12",
+    "after_auth-classification-2",
+    "before_kex-11",
+    "before_kex-11-server-exit",
+    "before_kex-12",
+    "before_kex-12-server-exit",
+    "before_kex-2",
+    "before_kex-2-server-exit",
+    "before_kex-wire-reason-11",
+    "before_kex-wire-reason-12",
+    "before_kex-wire-reason-2",
+    "close-server-exit",
+    "during_exec-11",
+    "during_exec-11-server-exit",
+    "during_exec-12",
+    "during_exec-12-server-exit",
+    "during_exec-2",
+    "during_exec-2-server-exit",
+    "during_exec-wire-reason-11",
+    "during_exec-wire-reason-12",
+    "during_exec-wire-reason-2",
+    "exec-rejection",
+    "keepalive-delay-server-exit",
+    "keepalive-delayed-healthy",
+    "keepalive-server-exit",
+    "keepalive-with-output",
+    "kex-failure",
+    "kex-server-exit",
+    "known-hosts-unchanged",
+    "reject-server-exit",
+    "t15",
+    "t15h",
+    "timeout-close-server-exit"
+  ],
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "platform_id": "darwin",
+  "required_artifacts": [
+    "after_auth-11.stderr",
+    "after_auth-11.stdout",
+    "after_auth-11/readiness.json",
+    "after_auth-11/server.stderr",
+    "after_auth-11/transcript.jsonl",
+    "after_auth-12.stderr",
+    "after_auth-12.stdout",
+    "after_auth-12/readiness.json",
+    "after_auth-12/server.stderr",
+    "after_auth-12/transcript.jsonl",
+    "after_auth-2.stderr",
+    "after_auth-2.stdout",
+    "after_auth-2/readiness.json",
+    "after_auth-2/server.stderr",
+    "after_auth-2/transcript.jsonl",
+    "before_kex-11.stderr",
+    "before_kex-11.stdout",
+    "before_kex-11/readiness.json",
+    "before_kex-11/server.stderr",
+    "before_kex-11/transcript.jsonl",
+    "before_kex-12.stderr",
+    "before_kex-12.stdout",
+    "before_kex-12/readiness.json",
+    "before_kex-12/server.stderr",
+    "before_kex-12/transcript.jsonl",
+    "before_kex-2.stderr",
+    "before_kex-2.stdout",
+    "before_kex-2/readiness.json",
+    "before_kex-2/server.stderr",
+    "before_kex-2/transcript.jsonl",
+    "close/readiness.json",
+    "close/server.stderr",
+    "close/transcript.jsonl",
+    "during_exec-11.stderr",
+    "during_exec-11.stdout",
+    "during_exec-11/readiness.json",
+    "during_exec-11/server.stderr",
+    "during_exec-11/transcript.jsonl",
+    "during_exec-12.stderr",
+    "during_exec-12.stdout",
+    "during_exec-12/readiness.json",
+    "during_exec-12/server.stderr",
+    "during_exec-12/transcript.jsonl",
+    "during_exec-2.stderr",
+    "during_exec-2.stdout",
+    "during_exec-2/readiness.json",
+    "during_exec-2/server.stderr",
+    "during_exec-2/transcript.jsonl",
+    "exec-rejection.stderr",
+    "exec-rejection.stdout",
+    "keepalive-delay/readiness.json",
+    "keepalive-delay/server.stderr",
+    "keepalive-delay/transcript.jsonl",
+    "keepalive-delayed-healthy.stderr",
+    "keepalive-delayed-healthy.stdout",
+    "keepalive-with-output.stderr",
+    "keepalive-with-output.stdout",
+    "keepalive/readiness.json",
+    "keepalive/server.stderr",
+    "keepalive/transcript.jsonl",
+    "kex-failure.stderr",
+    "kex-failure.stdout",
+    "kex/readiness.json",
+    "kex/server.stderr",
+    "kex/transcript.jsonl",
+    "reject/readiness.json",
+    "reject/server.stderr",
+    "reject/transcript.jsonl",
+    "results.json",
+    "t15.stderr",
+    "t15.stdout",
+    "t15h.stderr",
+    "t15h.stdout",
+    "timeout-close/readiness.json",
+    "timeout-close/server.stderr",
+    "timeout-close/transcript.jsonl",
+    "versions.json"
+  ],
+  "results": [
+    {
+      "case": "exec-rejection",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "reject-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "before_kex-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-classification-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "after_auth-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-12",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-12-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-2-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-wire-reason-11",
+      "outcome": "completed"
+    },
+    {
+      "case": "during_exec-11-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "kex-failure",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "kex-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-delayed-healthy",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-delay-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-with-output",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "keepalive-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "t15h",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "timeout-close-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "known-hosts-unchanged",
+      "outcome": "completed"
+    }
+  ],
+  "schema": 2,
+  "suite": "faults",
+  "terminal_outcome": "completed"
+}

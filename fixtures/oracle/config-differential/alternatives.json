@@ -1,0 +1,214 @@
+{
+  "validation-m-filter-null-value": {
+    "approval": "D9 / WP 2.2 S4 and WP 2.4 findings",
+    "patches": [
+      {
+        "path": [
+          "config",
+          "filteringConfiguration",
+          "allowlist",
+          0,
+          "values"
+        ],
+        "jvm": [
+          "a",
+          null,
+          "b"
+        ],
+        "rust": [
+          "a",
+          "b"
+        ]
+      }
+    ]
+  },
+  "d9-filter-null": {
+    "approval": "D9 / WP 2.2 S4 and WP 2.4 findings",
+    "patches": [
+      {
+        "path": [
+          "config",
+          "filteringConfiguration",
+          "allowlist",
+          0,
+          "values"
+        ],
+        "jvm": [
+          "a",
+          null,
+          "b"
+        ],
+        "rust": [
+          "a",
+          "b"
+        ]
+      }
+    ]
+  },
+  "mutation-d39e7542255f-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "mutation-599ae1f43b10-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "mutation-9004cf4dd768-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "mutation-6fe52125ab52-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "mutation-bb4c4a03f9b0-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "mutation-d2807b3acbe5-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "mutation-d33f6392735b-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "d9-list-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "d9-map-null": {
+    "approval": "D9: reject null collection/map elements at bind",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: D9: null element in collection"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "d6-regex": {
+    "approval": "D6: unsupported lookahead rejected at load, naming field and pattern",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.JsonMappingException: invalid regex in includeSerialRegexes.[0]: pattern \"(?=a)a\": regex parse error:\n    (?=a)a\n    ^^^\nerror: look-around, including look-ahead and look-behind, is not supported",
+          "java.util.regex.PatternSyntaxException: invalid regex in includeSerialRegexes.[0]: pattern \"(?=a)a\": regex parse error:\n    (?=a)a\n    ^^^\nerror: look-around, including look-ahead and look-behind, is not supported"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  },
+  "r1-p2-null-type-id": {
+    "approval": "P2: R1-sol-3, orchestrator fix-round-1 decision 3; pinned by review round 2 (R1-claude-4)",
+    "document": {
+      "stage": "parse",
+      "error": {
+        "class": "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        "message": "Error parsing config file <RUN>/config/Marathonfile",
+        "causes": [
+          "com.fasterxml.jackson.databind.exc.MismatchedInputException: expected a wrapper-array type id"
+        ]
+      },
+      "config": null,
+      "fsEffects": []
+    }
+  }
+}

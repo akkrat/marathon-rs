@@ -1,0 +1,22 @@
+[
+  {
+    "attachments": [
+      {
+        "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/sample-appUnitTests.SampleTests#testFailing-cabf2576-0904-42d0-b880-80adcaa9dc47.log",
+        "sha256": "439220c2e6eb2c93a22f54a27da86483fa43c3a05c0ed8aa3158f75777696821",
+        "type": "LOG"
+      },
+      {
+        "path": "screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/sample-appUnitTests.SampleTests#testFailing-cabf2576-0904-42d0-b880-80adcaa9dc47.gif",
+        "sha256": "e60b6f8f04234e02250374887ca79ac0775b51f2c578b7fbd7eb887e30a0b495",
+        "type": "SCREENSHOT_GIF"
+      }
+    ],
+    "class": "SampleTests",
+    "device": "worker-1",
+    "failure": "scripted enriched failure\nfile:///fixture/SmokeTests:1",
+    "method": "testFailing",
+    "package": "sample_appUnitTests",
+    "status": "FAILURE"
+  }
+]

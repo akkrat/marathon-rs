@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "source_commit": "e47352f25cbc50333900d5d040a5544ff1224501",
+  "xcode": "27.1",
+  "xcode_build": "27A9275",
+  "ios_sdk": "27.1",
+  "ios_sdk_build": "24A94232",
+  "macos_sdk": "27.0",
+  "host_macos": "27.0.1",
+  "host_arch": "arm64",
+  "xcodegen": "2.46.0",
+  "rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "rsync": "/usr/bin/rsync; openrsync protocol29; rsync2.6.9 compatible",
+  "ssh": "OpenSSH_10.3p1, LibreSSL 3.3.6",
+  "jdk": "JBR21.0.10+-117844308-b1163.108",
+  "archives": [
+    {
+      "path": "ios.zip",
+      "size": 189111,
+      "sha256": "43dc4568e3bfe32c03d46bc6db1e25b5459f97b37cbdc23fb2c84f1bcae70992"
+    },
+    {
+      "path": "macos.zip",
+      "size": 28724,
+      "sha256": "e35a8e566d2c3a350b861c30b70aea9cfebc1a8cfbc8ee71dd2452038bd5430d"
+    }
+  ]
+}

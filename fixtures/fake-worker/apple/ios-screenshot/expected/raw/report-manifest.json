@@ -1,0 +1,242 @@
+[
+  {
+    "kind": "dir",
+    "path": "allure-results"
+  },
+  {
+    "kind": "file",
+    "path": "allure-results/5cd9d149-2d94-4144-ad69-8f0a095062eb-result.json",
+    "sha256": "80e78e29f5b6ad04d27b00fc7a4aaa7e51e6c72207451a5b56a26e7e2a69698e",
+    "size": 1477
+  },
+  {
+    "kind": "file",
+    "path": "allure-results/environment.xml",
+    "sha256": "9953d0c131fce65381983a7619484f378abc07989bcabaa3d3940843eafe1857",
+    "size": 5755
+  },
+  {
+    "kind": "dir",
+    "path": "bill"
+  },
+  {
+    "kind": "dir",
+    "path": "bill/omni"
+  },
+  {
+    "kind": "file",
+    "path": "bill/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979.json",
+    "sha256": "7ee91357d2205e4c0b0299c5241beeb0367cda52644bfd2ae0b2992fdc43c939",
+    "size": 438
+  },
+  {
+    "kind": "dir",
+    "path": "device-files"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/xcresult"
+  },
+  {
+    "kind": "dir",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/xcresult/cabf2576-0904-42d0-b880-80adcaa9dc47.xcresult"
+  },
+  {
+    "kind": "file",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/xcresult/cabf2576-0904-42d0-b880-80adcaa9dc47.xcresult/SCRIPTED",
+    "sha256": "03c1a436daf6ccc9e0059390f945bab3724ea796fe41b8c04fd6ecf42856c1a9",
+    "size": 64
+  },
+  {
+    "kind": "file",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/xcresult/cabf2576-0904-42d0-b880-80adcaa9dc47.xcresult/root.json",
+    "sha256": "035aa77b1ff62c488e5d9d677a88d9c1a1cf047e94dc3ef6b8c1e5ff11be0206",
+    "size": 1087
+  },
+  {
+    "kind": "file",
+    "path": "device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/xcresult/cabf2576-0904-42d0-b880-80adcaa9dc47.xcresult/tests-0.json",
+    "sha256": "979225cfb6dfb6d1b51f30d3449b1ea93081c766bb825f16420bca08d4357cfb",
+    "size": 219
+  },
+  {
+    "kind": "dir",
+    "path": "devices"
+  },
+  {
+    "kind": "dir",
+    "path": "devices/omni"
+  },
+  {
+    "kind": "file",
+    "path": "devices/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979.json",
+    "sha256": "bd9308858d45d1e9d28cd693642cfa10c229372fafb3a348b60b41c1b67ae862",
+    "size": 304
+  },
+  {
+    "kind": "dir",
+    "path": "html"
+  },
+  {
+    "kind": "file",
+    "path": "html/app.min.css",
+    "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+    "size": 20391
+  },
+  {
+    "kind": "file",
+    "path": "html/app.min.js",
+    "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+    "size": 327442
+  },
+  {
+    "kind": "file",
+    "path": "html/index.html",
+    "sha256": "ebfbd490b3988ca829593e113b8998441360292a08d9edfc263be83987f10ba8",
+    "size": 1361
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools"
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979"
+  },
+  {
+    "kind": "dir",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/logs"
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/logs/sample-appUnitTests.SampleTests.testFailing.html",
+    "sha256": "93eb434ba9a2126329ef1b9296a670b7806c803b3b0eb0518fefa70e1cf1aa71",
+    "size": 974
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/sample-appUnitTests.SampleTests.testFailing.html",
+    "sha256": "9f82e8dda03838b22cbe859a7f6c8916cd0222b393eddd654ec1481cf19c8460",
+    "size": 1620
+  },
+  {
+    "kind": "file",
+    "path": "html/pools/omni.html",
+    "sha256": "a7700a95f729ebbdb8cbd4068e1cf1afec7a0525018335aef056dabca6af1794",
+    "size": 1151
+  },
+  {
+    "kind": "dir",
+    "path": "html/timeline"
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/chart.css",
+    "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+    "size": 1662
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/chart.js",
+    "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+    "size": 19868
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/iframeResizer.contentWindow.min.js",
+    "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+    "size": 13616
+  },
+  {
+    "kind": "file",
+    "path": "html/timeline/index.html",
+    "sha256": "202c13deb2d833d3da9c48e93cc21446e2e3fee51bf5971b3c42ea878182ffab",
+    "size": 1540
+  },
+  {
+    "kind": "dir",
+    "path": "logs"
+  },
+  {
+    "kind": "dir",
+    "path": "logs/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979"
+  },
+  {
+    "kind": "file",
+    "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/sample-appUnitTests.SampleTests#testFailing-cabf2576-0904-42d0-b880-80adcaa9dc47.log",
+    "sha256": "439220c2e6eb2c93a22f54a27da86483fa43c3a05c0ed8aa3158f75777696821",
+    "size": 111
+  },
+  {
+    "kind": "dir",
+    "path": "screenshot"
+  },
+  {
+    "kind": "dir",
+    "path": "screenshot/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979"
+  },
+  {
+    "kind": "file",
+    "path": "screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/sample-appUnitTests.SampleTests#testFailing-cabf2576-0904-42d0-b880-80adcaa9dc47.gif",
+    "sha256": "e60b6f8f04234e02250374887ca79ac0775b51f2c578b7fbd7eb887e30a0b495",
+    "size": 188
+  },
+  {
+    "kind": "dir",
+    "path": "test_result"
+  },
+  {
+    "kind": "dir",
+    "path": "test_result/omni"
+  },
+  {
+    "kind": "dir",
+    "path": "test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979"
+  },
+  {
+    "kind": "file",
+    "path": "test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63979/sample-appUnitTests.SampleTests#testFailing.json",
+    "sha256": "996f5a4b9da642a0a84ae4d8930e51c1be241b490e84ab8be3c3a9ead55064af",
+    "size": 1340
+  },
+  {
+    "kind": "file",
+    "path": "test_result/raw.json",
+    "sha256": "5d2e02fca337b8b14c3379e1176c6bed7a57e66d0d613738c1340844176f1df2",
+    "size": 270
+  },
+  {
+    "kind": "dir",
+    "path": "tests"
+  },
+  {
+    "kind": "dir",
+    "path": "tests/omni"
+  },
+  {
+    "kind": "file",
+    "path": "tests/omni/marathon_junit_report.xml",
+    "sha256": "76cd9ab816343f3ef4a7de71d6f724f2b84c25b9c00a7682b6f4f8a767f3494a",
+    "size": 606
+  }
+]

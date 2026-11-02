@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""Regenerate the 21 WP 4.8 rows from its test commit; never hand-edit CSVs."""
+import importlib.util, os, pathlib, re, subprocess, sys
+repo=pathlib.Path(__file__).resolve().parents[3]
+spec=importlib.util.spec_from_file_location('parity',repo/'scripts/parity_matrix.py')
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+commit=subprocess.check_output(['git','rev-parse',sys.argv[1]],cwd=repo,text=True).strip()
+existing=module.read_existing();count=0
+for row in existing.values():
+    if row['wp']!='4.8':continue
+    path='crates/marathon-apple/tests/'+{'AppleDeviceTestRunnerTest':'apple_device_test_runner','XCTestParserTest':'xctest_parser','StartupPhasesTest':'nm_test_parser','SkipCopyingDerivedDataTest':'nm_test_parser'}[row['test_class']]+'.rs'
+    name=re.sub(r'[^A-Za-z0-9]+','_',row['test_name']).strip('_').lower()
+    assert re.search(r'fn\s+'+re.escape(name)+r'\s*\(', (repo/path).read_text()),name
+    row.update(status='ported',rust_test=path+'::'+name,commit=commit);count+=1
+assert count==21,count
+rows=module.generate(pathlib.Path(os.environ.get('MARATHON_KT',os.path.expanduser('~/src/marathon'))),existing)
+module.OUT.write_bytes(module.render(rows).encode());print('regenerated 21 ported / 0 n/a rows')

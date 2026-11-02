@@ -1,0 +1,5 @@
+# Preserve raw client/transcript bytes across checkout settings.
+evidence/**/raw/** -text whitespace=cr-at-eol
+
+# Normalized streams are opaque bytes too; only JSON fields are transformed.
+evidence/**/normalized/** -text whitespace=cr-at-eol

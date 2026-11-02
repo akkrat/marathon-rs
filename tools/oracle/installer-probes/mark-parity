@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Regenerate WP 4.10b rows from its test commit; no hand-edited CSVs."""
+import importlib.util, os, pathlib, re, subprocess, sys
+repo=pathlib.Path(__file__).resolve().parents[3]
+spec=importlib.util.spec_from_file_location('parity',repo/'scripts/parity_matrix.py')
+module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+commit=subprocess.check_output(["git","rev-parse",sys.argv[1]],cwd=repo,text=True).strip()
+existing=module.read_existing()
+path='crates/marathon-apple/tests/skip_copying_derived_data.rs'
+source=(repo/path).read_text()
+ported=0;removed=0
+for row in existing.values():
+    if row['test_class']=='SkipCopyingDerivedDataTest' and not row['test_name'].startswith('parsing '):
+        name=re.sub(r'[^A-Za-z0-9]+','_',row['test_name']).strip('_').lower()
+        assert re.search(r'fn\s+'+re.escape(name)+r'\s*\(',source),name
+        row.update(status='ported',rust_test=path+'::'+name,commit=commit);ported+=1
+    if row['test_class']=='DerivedDataManagerTest':
+        assert row['kind']=='commented'
+        row.update(status='n/a',rust_test='tests a class removed before e47352f2; WP 4.10b decision 4, both reviewers agreed',commit=commit);removed+=1
+assert (ported,removed)==(13,2),(ported,removed)
+rows=module.generate(pathlib.Path(os.environ.get('MARATHON_KT',os.path.expanduser('~/src/marathon'))),existing)
+module.OUT.write_bytes(module.render(rows).encode())
+print('regenerated 13 ported / 2 n/a rows; 5 parsing rows assigned to 4.8')

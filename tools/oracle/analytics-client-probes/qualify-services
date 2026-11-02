@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Explicit Phase 7 qualification. Requires a local Docker/colima runtime.
+set -euo pipefail
+cd "$(dirname "$0")/../../.."
+export PATH=/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH
+prefix="mrs-analytics-qualify-$$"
+cleanup() { docker rm -f "$prefix-v1" "$prefix-v2" "$prefix-graphite" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+# These are disposable, local containers with dummy credentials.
+docker run -d --name "$prefix-v1" -p 127.0.0.1::8086 influxdb:1.8.10 >/dev/null
+docker run -d --name "$prefix-v2" -p 127.0.0.1::8086 \
+  -e DOCKER_INFLUXDB_INIT_MODE=setup -e DOCKER_INFLUXDB_INIT_USERNAME=qualify \
+  -e DOCKER_INFLUXDB_INIT_PASSWORD=qualification-password -e DOCKER_INFLUXDB_INIT_ORG=org \
+  -e DOCKER_INFLUXDB_INIT_BUCKET=bucket -e DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=dummy-token \
+  influxdb:2.7.12 >/dev/null
+docker run -d --name "$prefix-graphite" -p 127.0.0.1::80 -p 127.0.0.1::2003 graphiteapp/graphite-statsd:1.1.7-6 >/dev/null
+export MRS_INFLUX1_URL="http://$(docker port "$prefix-v1" 8086/tcp)"
+export MRS_INFLUX2_URL="http://$(docker port "$prefix-v2" 8086/tcp)"
+export MRS_GRAPHITE_HTTP_URL="http://$(docker port "$prefix-graphite" 80/tcp)"
+export MRS_GRAPHITE_HOST=127.0.0.1
+carbon_address=$(docker port "$prefix-graphite" 2003/tcp)
+export MRS_GRAPHITE_PORT="${carbon_address##*:}"
+python3 - <<'PY'
+import os, time, urllib.request
+for name in ['MRS_INFLUX1_URL','MRS_INFLUX2_URL','MRS_GRAPHITE_HTTP_URL']:
+    deadline=time.monotonic()+120
+    while True:
+        try:
+            urllib.request.urlopen(os.environ[name]+('/ping' if name=='MRS_INFLUX1_URL' else '/health' if name=='MRS_INFLUX2_URL' else '/'),timeout=2).close()
+            break
+        except Exception:
+            if time.monotonic()>deadline: raise
+            time.sleep(.25)
+PY
+# Record image IDs/digests as release evidence when this command is actually run.
+docker inspect --format '{{.Image}}' "$prefix-v1" "$prefix-v2" "$prefix-graphite"
+cargo test -p marathon-analytics --test clients --test history --test lifecycle
+cargo run -p marathon-analytics --example qualify_services

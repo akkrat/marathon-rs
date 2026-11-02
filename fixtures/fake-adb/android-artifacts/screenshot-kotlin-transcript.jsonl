@@ -1,0 +1,27 @@
+{"type":"request","conn":1,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":1,"serial":"emulator-5554","service":"shell:getprop;echo x$?"}
+{"type":"shell","conn":1,"serial":"emulator-5554","service":"shell","protocol":"raw","command":"getprop","exit_code_trick":true,"stdin_bytes":null,"handler":"builtin","rule":null,"exit_code":0,"hang":false,"stdin_sha256":null}
+{"type":"request","conn":2,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":2,"serial":"emulator-5554","service":"shell:dumpsys input;echo x$?"}
+{"type":"shell","conn":2,"serial":"emulator-5554","service":"shell","protocol":"raw","command":"dumpsys input","exit_code_trick":true,"stdin_bytes":null,"handler":"script","rule":"shell[0]","exit_code":0,"hang":false,"stdin_sha256":null}
+{"type":"request","conn":3,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":3,"serial":"emulator-5554","service":"shell:echo $EXTERNAL_STORAGE;echo x$?"}
+{"type":"shell","conn":3,"serial":"emulator-5554","service":"shell","protocol":"raw","command":"echo $EXTERNAL_STORAGE","exit_code_trick":true,"stdin_bytes":null,"handler":"script","rule":"shell[1]","exit_code":0,"hang":false,"stdin_sha256":null}
+{"type":"request","conn":4,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":4,"serial":"emulator-5554","service":"shell:ls /system/bin/screenrecord;echo x$?"}
+{"type":"shell","conn":4,"serial":"emulator-5554","service":"shell","protocol":"raw","command":"ls /system/bin/screenrecord","exit_code_trick":true,"stdin_bytes":null,"handler":"script","rule":"shell[2]","exit_code":0,"hang":false,"stdin_sha256":null}
+{"type":"request","conn":5,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":5,"serial":"emulator-5554","service":"shell:ls /system/bin/md5;echo x$?"}
+{"type":"shell","conn":5,"serial":"emulator-5554","service":"shell","protocol":"raw","command":"ls /system/bin/md5","exit_code_trick":true,"stdin_bytes":null,"handler":"script","rule":"shell[3]","exit_code":0,"hang":false,"stdin_sha256":null}
+{"type":"request","conn":6,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":6,"serial":"emulator-5554","service":"shell:getprop;echo x$?"}
+{"type":"shell","conn":6,"serial":"emulator-5554","service":"shell","protocol":"raw","command":"getprop","exit_code_trick":true,"stdin_bytes":null,"handler":"builtin","rule":null,"exit_code":0,"hang":false,"stdin_sha256":null}
+{"type":"request","conn":7,"serial":null,"service":"host-serial:emulator-5554:features"}
+{"type":"request","conn":8,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":8,"serial":"emulator-5554","service":"shell:logcat -v long"}
+{"type":"shell","conn":8,"serial":"emulator-5554","service":"shell","protocol":"raw","command":"logcat -v long","exit_code_trick":false,"stdin_bytes":null,"handler":"script","rule":"shell[4]","exit_code":0,"hang":true,"stdin_sha256":null}
+{"type":"request","conn":9,"serial":null,"service":"host:transport:emulator-5554"}
+{"type":"request","conn":9,"serial":"emulator-5554","service":"framebuffer:"}
+{"type":"framebuffer","conn":9,"serial":"emulator-5554","size":8294452}
+{"type":"framebuffer_ack","conn":9,"serial":"emulator-5554","value":0}
+{"type":"event","event":"server_stopped"}

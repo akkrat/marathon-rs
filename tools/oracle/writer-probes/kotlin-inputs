@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Compile updated oracle Kotlin inputs against an existing reference distribution.
+Usage: kotlin-inputs <reference oracle lib directory> <output directory>
+All generated classes stay in a temporary directory; reference jars are read-only.
+"""
+import os, pathlib, subprocess, sys, tempfile
+root=pathlib.Path(__file__).resolve().parents[3]
+lib=pathlib.Path(sys.argv[1]).resolve()
+cache=pathlib.Path.home()/'.gradle/caches/modules-2/files-2.1'
+def jar(group,artifact,version):return next((cache/group/artifact/version).glob('*/'+artifact+'-'+version+'.jar'))
+compiler=[jar('org.jetbrains.kotlin','kotlin-compiler-embeddable','1.9.24'),jar('org.jetbrains.kotlin','kotlin-stdlib','1.9.24'),jar('org.jetbrains.kotlin','kotlin-script-runtime','1.9.24'),jar('org.jetbrains.kotlin','kotlin-reflect','1.6.10'),jar('org.jetbrains.intellij.deps','trove4j','1.0.20200330'),jar('org.jetbrains','annotations','13.0')]
+jdk=pathlib.Path(os.environ.get('JAVA_HOME','/Applications/Android Studio.app/Contents/jbr/Contents/Home'))
+cp=os.pathsep.join(map(str,lib.glob('*.jar')))
+module=root/'tools/oracle/module/src/main/kotlin/oracle'
+with tempfile.TemporaryDirectory(prefix='kotlin-writer-oracle-') as tmp:
+    out=pathlib.Path(tmp)/'writers.jar'
+    subprocess.run([str(jdk/'bin/java'),'-cp',os.pathsep.join(map(str,compiler)),'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler','-no-stdlib','-no-reflect','-jvm-target','17','-cp',cp,'-d',str(out),str(module/'JcompatTables2.kt'),str(module/'KotlinWriterInput.kt'),str(module/'Json.kt'),str(root/'tools/oracle/writer-probes/KotlinInputsMain.kt')],check=True)
+    subprocess.run([str(jdk/'bin/java'),'-cp',str(out)+os.pathsep+cp,'KotlinInputsMainKt',str(pathlib.Path(sys.argv[2]).resolve())],check=True)

@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""Generate writer_edges.jsonl with pinned cached JVM libraries (no reference edits)."""
+import os, pathlib, subprocess, sys, tempfile
+root = pathlib.Path(__file__).resolve().parent
+cache = pathlib.Path.home()/'.gradle/caches/modules-2/files-2.1'
+libs = [('com.google.code.gson','gson','2.11.0'),('com.fasterxml.jackson.core','jackson-core','2.17.2'),('com.fasterxml.jackson.core','jackson-databind','2.17.2'),('com.fasterxml.jackson.core','jackson-annotations','2.17.2'),('com.fasterxml.jackson.dataformat','jackson-dataformat-yaml','2.17.2'),('org.yaml','snakeyaml','2.2')]
+jars = [next((cache/g/a/v).glob('*/'+a+'-'+v+'.jar')) for g,a,v in libs]
+jdk = pathlib.Path(os.environ.get('JAVA_HOME','/Applications/Android Studio.app/Contents/jbr/Contents/Home'))
+with tempfile.TemporaryDirectory(prefix='writer-oracle-') as tmp:
+    cp = os.pathsep.join(map(str,jars))
+    subprocess.run([str(jdk/'bin/javac'),'-cp',cp,'-d',tmp,str(root/'Writers.java')],check=True)
+    subprocess.run([str(jdk/'bin/java'),'-cp',tmp+os.pathsep+cp,'Writers',*sys.argv[1:]],check=True)

@@ -1,0 +1,2 @@
+{"case":"keepalive","value":{"ms":3045,"error":[{"class":"ConnectionException","message":"Did not receive any keep-alive response for 2 seconds","reason":"CONNECTION_LOST"}]}}
+{"case":"completion","value":"completed"}

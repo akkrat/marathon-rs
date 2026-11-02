@@ -1,0 +1,508 @@
+kotlin_file,lines,wp,note
+analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/Event.kt,22,n/a,D1: usage analytics are not sent; flags and config keys stay (2.5)
+analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/EmptyTracker.kt,9,n/a,D1: usage analytics are not sent; flags and config keys stay (2.5)
+analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/GrafanaCloud.kt,82,n/a,D1: usage analytics are not sent; flags and config keys stay (2.5)
+analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/Metric.kt,13,n/a,D1: usage analytics are not sent; flags and config keys stay (2.5)
+analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/UsageTracker.kt,9,n/a,D1: usage analytics are not sent; flags and config keys stay (2.5)
+buildSrc/src/main/kotlin/Deployment.kt,183,n/a,Gradle build logic; replaced by Cargo and the 7.3 packaging
+buildSrc/src/main/kotlin/ProjectExtensions.kt,42,n/a,Gradle build logic; replaced by Cargo and the 7.3 packaging
+buildSrc/src/main/kotlin/Versions.kt,118,n/a,Gradle build logic; replaced by Cargo and the 7.3 packaging
+buildSrc/src/main/kotlin/com/malinskiy/marathon/buildsystem/Xcresulttool.kt,74,4.6,xcresulttool codegen generator: ported as a checked-in Rust codegen
+buildSrc/src/main/kotlin/com/malinskiy/marathon/buildsystem/XcresulttoolSourceCreator.kt,174,4.6,xcresulttool codegen generator: ported as a checked-in Rust codegen
+buildSrc/src/main/kotlin/com/malinskiy/marathon/buildsystem/xcresulttool/Property.kt,56,4.6,xcresulttool codegen generator: ported as a checked-in Rust codegen
+buildSrc/src/main/kotlin/com/malinskiy/marathon/buildsystem/xcresulttool/Schema.kt,10,4.6,xcresulttool codegen generator: ported as a checked-in Rust codegen
+buildSrc/src/main/kotlin/com/malinskiy/marathon/buildsystem/xcresulttool/Type.kt,8,4.6,xcresulttool codegen generator: ported as a checked-in Rust codegen
+buildSrc/src/main/kotlin/com/malinskiy/marathon/buildsystem/xcresulttool/TypeDefinition.kt,9,4.6,xcresulttool codegen generator: ported as a checked-in Rust codegen
+buildSrc/src/main/kotlin/com/malinskiy/marathon/buildsystem/xcresulttool/Version.kt,8,4.6,xcresulttool codegen generator: ported as a checked-in Rust codegen
+cli/src/main/kotlin/com/malinskiy/marathon/cli/ApplicationView.kt,103,2.5,
+cli/src/main/kotlin/com/malinskiy/marathon/cli/MarathonStartConfiguration.kt,31,2.5,
+cli/src/main/kotlin/com/malinskiy/marathon/cli/args/CliCommands.kt,106,2.5,
+cli/src/main/kotlin/com/malinskiy/marathon/cli/args/CliConfigurations.kt,19,2.5,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/AnalyticsConfiguration.kt,81,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/CIConfiguration.kt,20,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/Configuration.kt,213,2.2,toMap() goes to 2.4
+configuration/src/main/kotlin/com/malinskiy/marathon/config/ConfigurationValidator.kt,5,2.4,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/FilteringConfiguration.kt,372,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/LogicalConfigurationValidator.kt,90,2.4,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/OutputConfiguration.kt,13,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/ScreenRecordingPolicy.kt,15,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/analytics/Defaults.kt,17,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/environment/EnvironmentConfiguration.kt,5,2.3a,ANDROID_HOME / ANDROID_SDK_ROOT lookup
+configuration/src/main/kotlin/com/malinskiy/marathon/config/environment/EnvironmentReader.kt,6,2.3a,ANDROID_HOME / ANDROID_SDK_ROOT lookup
+configuration/src/main/kotlin/com/malinskiy/marathon/config/environment/SystemEnvironmentReader.kt,14,2.3a,ANDROID_HOME / ANDROID_SDK_ROOT lookup
+configuration/src/main/kotlin/com/malinskiy/marathon/config/exceptions/ConfigurationException.kt,7,2.4,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt,219,2.1,"Jackson binding, SerializeModule, File/Regex/time deserializers"
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/MutableConfigurationFactory.kt,40,n/a,P7 approved: no callers at e47352f2; reviewer agreement pending WP 2.1
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/time/InstantTimeProvider.kt,7,2.1,"Jackson binding, SerializeModule, File/Regex/time deserializers"
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/time/InstantTimeProviderImpl.kt,7,2.1,"Jackson binding, SerializeModule, File/Regex/time deserializers"
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/ExecutionTimeSortingStrategyConfigurationDeserializer.kt,47,2.2,per-field timeLimit
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/FileDeserializer.kt,18,2.1,"Jackson binding, SerializeModule, File/Regex/time deserializers"
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/FileListProvider.kt,13,n/a,P7 approved: no callers at e47352f2; reviewer agreement pending WP 2.1
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/FixedSizeBatchingStrategyConfigurationDeserializer.kt,57,2.2,per-field timeLimit
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/GraphiteConfigurationDeserializer.kt,33,2.2,lenient analytics deserializers
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/InfluxDbConfigurationDeserializer.kt,38,2.2,lenient analytics deserializers
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/ProbabilityBasedFlakinessStrategyConfigurationDeserializer.kt,50,2.2,per-field timeLimit
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/RegexSerializer.kt,11,2.4,"leaf serialization and round-trip tests, WP 2.1 orchestrator decision"
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/RetentionPolicyConfigurationDeserializer.kt,39,2.2,lenient analytics deserializers
+configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/SerializeModule.kt,43,2.1,"Jackson binding, SerializeModule, File/Regex/time deserializers"
+configuration/src/main/kotlin/com/malinskiy/marathon/config/strategy/BatchingStrategyConfiguration.kt,30,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/strategy/ExecutionStrategyConfiguration.kt,31,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/strategy/FlakinessStrategyConfiguration.kt,24,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/strategy/PoolingStrategyConfiguration.kt,26,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/strategy/RetryStrategyConfiguration.kt,23,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/strategy/ShardingStrategyConfiguration.kt,19,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/strategy/SortingStrategyConfiguration.kt,33,2.2,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/VendorConfiguration.kt,241,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/AdbEndpoint.kt,6,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/AllureConfiguration.kt,17,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/AndroidTestBundleConfiguration.kt,11,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/FileSyncConfiguration.kt,35,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/ProfilingConfiguration.kt,10,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/ScreenRecordConfiguration.kt,25,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/ScreenshotConfiguration.kt,10,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/SerialStrategy.kt,22,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/TestAccessConfiguration.kt,10,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/TestParserConfiguration.kt,20,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/ThreadingConfiguration.kt,7,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/TimeoutConfiguration.kt,18,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/android/VideoConfiguration.kt,16,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/AppleTestBundleConfiguration.kt,165,2.3b,bundle validation and extraction
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/DeviceProvider.kt,26,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/RsyncConfiguration.kt,7,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/SshConfiguration.kt,63,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/TestParserConfiguration.kt,32,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/TestType.kt,9,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ThreadingConfiguration.kt,19,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/TimeoutConfiguration.kt,47,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/Display.kt,8,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/LifecycleConfiguration.kt,28,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/Mask.kt,8,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/PermissionsConfiguration.kt,50,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/ScreenRecordConfiguration.kt,26,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/ScreenshotConfiguration.kt,38,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/SigningConfiguration.kt,12,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/VideoConfiguration.kt,49,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/WorkerConnectionConfiguration.kt,60,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/XcresultConfiguration.kt,93,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/ios/XctestrunEnvConfiguration.kt,8,2.3a,
+configuration/src/main/kotlin/com/malinskiy/marathon/config/vendor/apple/macos/PermissionsConfiguration.kt,13,2.3a,
+core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt,265,3.10,"run flow, onFinish, core Timings lines"
+core/src/main/kotlin/com/malinskiy/marathon/ShutdownHook.kt,40,3.10,
+core/src/main/kotlin/com/malinskiy/marathon/Vendor.kt,16,0.6,
+core/src/main/kotlin/com/malinskiy/marathon/actor/Actor.kt,60,3.1,
+core/src/main/kotlin/com/malinskiy/marathon/actor/StateMachine.kt,263,3.1,
+core/src/main/kotlin/com/malinskiy/marathon/actor/extensions.kt,11,3.1,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/MappingTracker.kt,35,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/TrackerFactory.kt,105,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/Analytics.kt,3,3.4a,"MetricsProviderImpl, coverage, NoOp"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/AnalyticsFactory.kt,10,3.4a,"MetricsProviderImpl, coverage, NoOp"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/ExecutionTimeCoverage.kt,25,3.4a,"MetricsProviderImpl, coverage, NoOp"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProvider.kt,22,3.4a,"MetricsProviderImpl, coverage, NoOp"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderFactory.kt,59,3.4a,"MetricsProviderImpl, coverage, NoOp"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt,201,3.4a,"MetricsProviderImpl, coverage, NoOp"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/NoOpMetricsProvider.kt,35,3.4a,"MetricsProviderImpl, coverage, NoOp"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/graphite/BasicGraphiteClient.kt,80,3.4b,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/graphite/GraphiteTracker.kt,54,3.4b,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx/InfluxDbProvider.kt,54,3.4b,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx/InfluxDbTracker.kt,47,3.4b,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx2/InfluxDb2Provider.kt,69,3.4b,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx2/InfluxDb2Tracker.kt,67,3.4b,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx2/Influxdb2Exception.kt,3,3.4b,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/pub/Track.kt,53,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/pub/Tracker.kt,22,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/DelegatingTrackerInternal.kt,7,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/ExecutionReport.kt,133,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/ExecutionReportGenerator.kt,35,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/PoolSummary.kt,22,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/Summary.kt,3,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/TrackerInternal.kt,9,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/TrackerInternalAdapter.kt,25,3.9a,"Track, MappingTracker, TrackerFactory, ExecutionReportGenerator"
+core/src/main/kotlin/com/malinskiy/marathon/analytics/metrics/remote/RemoteDataSource.kt,19,3.4a,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/metrics/remote/graphite/GraphiteDataSource.kt,59,3.4a,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/metrics/remote/graphite/QueryableGraphiteClient.kt,36,3.4b,HTTP query transport; WP 3.4a decision 2
+core/src/main/kotlin/com/malinskiy/marathon/analytics/metrics/remote/influx/InfluxDBDataSource.kt,77,3.4a,
+core/src/main/kotlin/com/malinskiy/marathon/analytics/metrics/remote/influx2/InfluxDB2DataSource.kt,71,3.4a,
+core/src/main/kotlin/com/malinskiy/marathon/config/AppType.kt,6,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/config/ExecuteMode.kt,6,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/config/ExecutionCommands.kt,10,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/coroutines/ThreadPoolDispatcher.kt,13,3.1,
+core/src/main/kotlin/com/malinskiy/marathon/device/Device.kt,61,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/DeviceFeature.kt,19,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/DeviceInfo.kt,25,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/DevicePool.kt,6,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/DevicePoolId.kt,3,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/DeviceProvider.kt,20,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/NetworkState.kt,6,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/OperatingSystem.kt,6,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/device/file/FileTransferExtensions.kt,65,3.9a,transfer timing/logging; interfaces frozen in 0.6
+core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/GifSequenceWriter.kt,216,3.9c,"ScreenCapturer, GifSequenceWriter"
+core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/Rotation.kt,20,3.9c,"ScreenCapturer, GifSequenceWriter"
+core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/ScreenCapturer.kt,123,3.9c,"ScreenCapturer, GifSequenceWriter"
+core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/Screenshottable.kt,13,3.9c,"ScreenCapturer, GifSequenceWriter"
+core/src/main/kotlin/com/malinskiy/marathon/di/Modules.kt,69,3.10,explicit construction instead of Koin
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/BugsnagExceptionsReporter.kt,52,n/a,D1: bugsnag is not sent
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/DeviceLostException.kt,8,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/DeviceSetupException.kt,6,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/ExceptionsReporter.kt,8,n/a,D1: bugsnag is not sent
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/ExceptionsReporterFactory.kt,12,n/a,D1: bugsnag is not sent
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/IncompatibleDeviceException.kt,11,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/NoDevicesException.kt,6,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/NoTestCasesFoundException.kt,3,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/NoopExceptionsReporter.kt,16,n/a,D1: bugsnag is not sent
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/TestBatchExecutionException.kt,5,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/TestParsingException.kt,3,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/exceptions/TransferException.kt,7,0.6,VendorError taxonomy
+core/src/main/kotlin/com/malinskiy/marathon/execution/Attachment.kt,26,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/DevicePoolActor.kt,312,3.8,
+core/src/main/kotlin/com/malinskiy/marathon/execution/DevicePoolMessage.kt,31,3.6,messages DeviceActor sends to the pool; 3.8 consumes them
+core/src/main/kotlin/com/malinskiy/marathon/execution/Retry.kt,41,3.1,async withRetry; withRetrySync belongs to 4.2 (P4)
+core/src/main/kotlin/com/malinskiy/marathon/execution/Scheduler.kt,142,3.8,
+core/src/main/kotlin/com/malinskiy/marathon/execution/TestBatchResults.kt,10,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/TestParser.kt,19,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/TestResult.kt,38,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/TestShard.kt,5,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/TestStatus.kt,19,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/bundle/TestBundle.kt,8,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/bundle/TestBundleIdentifier.kt,16,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/execution/command/parse/MarathonTestParseCommand.kt,62,3.10,parse command; YAML output via 3.9b
+core/src/main/kotlin/com/malinskiy/marathon/execution/command/parse/ParseCommandResult.kt,8,3.10,parse command; YAML output via 3.9b
+core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceAction.kt,12,3.6,DeviceActor and its FSM
+core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceActor.kt,227,3.6,DeviceActor and its FSM
+core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceEvent.kt,14,3.6,DeviceActor and its FSM
+core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceState.kt,19,3.6,DeviceActor and its FSM
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/AllureTestFilter.kt,55,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/AnnotationDataFilter.kt,56,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/AnnotationFilter.kt,26,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/CompositionFilter.kt,72,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/FilterValuesFileReader.kt,23,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/FragmentationFilter.kt,50,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/FullyQualifiedClassnameFilter.kt,15,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/FullyQualifiedTestnameFilter.kt,15,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/SimpleClassnameFilter.kt,13,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/SimpleTestnameFilter.kt,16,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/SingleValueTestFilter.kt,60,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/TestFilter.kt,8,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/TestMethodFilter.kt,13,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/filter/TestPackageFilter.kt,25,3.3,
+core/src/main/kotlin/com/malinskiy/marathon/execution/listener/CompositeLineListener.kt,11,3.9a,"LineListener, LogListener, TestRunListener"
+core/src/main/kotlin/com/malinskiy/marathon/execution/listener/LineListener.kt,7,3.9a,"LineListener, LogListener, TestRunListener"
+core/src/main/kotlin/com/malinskiy/marathon/execution/listener/LogListener.kt,56,3.9a,"LineListener, LogListener, TestRunListener"
+core/src/main/kotlin/com/malinskiy/marathon/execution/listener/TestRunListener.kt,16,3.9a,"LineListener, LogListener, TestRunListener"
+core/src/main/kotlin/com/malinskiy/marathon/execution/progress/PoolProgressAccumulator.kt,448,3.5,
+core/src/main/kotlin/com/malinskiy/marathon/execution/progress/ProgressReporter.kt,25,n/a,WP 3.5 P1 approved: no constructor/call site at e47352f2; reviewer agreement pending
+core/src/main/kotlin/com/malinskiy/marathon/execution/queue/QueueActor.kt,373,3.7,"QueueActor, retry placement on another worker"
+core/src/main/kotlin/com/malinskiy/marathon/execution/queue/TestAction.kt,9,3.2,the retry strategy interface returns it; 3.7 consumes it
+core/src/main/kotlin/com/malinskiy/marathon/execution/queue/TestEvent.kt,28,3.5,progress FSM declarations; 3.7 consumes them
+core/src/main/kotlin/com/malinskiy/marathon/execution/queue/TestState.kt,36,3.5,progress FSM declarations; 3.7 consumes them
+core/src/main/kotlin/com/malinskiy/marathon/execution/result/TemporalTestResult.kt,17,3.5,
+core/src/main/kotlin/com/malinskiy/marathon/execution/result/TestRunResultsAccumulator.kt,200,3.5,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/BatchingStrategy.kt,11,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/FlakinessStrategy.kt,11,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/PoolingStrategy.kt,8,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/RetryStrategy.kt,15,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/ShardingStrategy.kt,8,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/SortingStrategy.kt,8,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/batching/ClassNameBatchingStrategy.kt,36,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/batching/FixedSizeBatchingStrategy.kt,77,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/batching/IsolateBatchingStrategy.kt,28,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/flakiness/IgnoreFlakinessStrategy.kt,25,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/flakiness/ProbabilityBasedFlakinessStrategy.kt,69,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/pooling/OmniPoolingStrategy.kt,23,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/pooling/parameterized/AbiPoolingStrategy.kt,23,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/pooling/parameterized/ComboPoolingStrategy.kt,38,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/pooling/parameterized/ManufacturerPoolingStrategy.kt,23,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/pooling/parameterized/ModelPoolingStrategy.kt,23,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/pooling/parameterized/OperatingSystemVersionPoolingStrategy.kt,23,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/retry/NoRetryStrategy.kt,32,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/retry/fixedquota/FixedQuotaRetryStrategy.kt,51,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/retry/fixedquota/PoolTestFailureAccumulator.kt,51,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/retry/fixedquota/RetryWatchdog.kt,47,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sharding/CountShardingStrategy.kt,33,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sharding/ParallelShardingStrategy.kt,28,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/ExecutionTimeSortingStrategy.kt,46,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/NoSortingStrategy.kt,26,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/RandomOrderSortingStrategy.kt,16,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/SuccessRateSortingStrategy.kt,38,3.2,
+core/src/main/kotlin/com/malinskiy/marathon/extension/ConfigurationExtensions.kt,111,3.2,strategy factories; its toTestFilter part is 3.3's
+core/src/main/kotlin/com/malinskiy/marathon/extension/FileExtensions.kt,9,3.9c,relativePathTo; called only by the HTML/Allure reporters (WP 3.10 decision 5)
+core/src/main/kotlin/com/malinskiy/marathon/extension/StringExtensions.kt,26,1.7,escape()
+core/src/main/kotlin/com/malinskiy/marathon/extension/Timeout.kt,10,3.10,strategy/factory extensions
+core/src/main/kotlin/com/malinskiy/marathon/integrations/ci/CI.kt,5,3.5,
+core/src/main/kotlin/com/malinskiy/marathon/integrations/ci/CIIntegrationFactory.kt,18,3.5,
+core/src/main/kotlin/com/malinskiy/marathon/integrations/ci/None.kt,5,3.5,
+core/src/main/kotlin/com/malinskiy/marathon/integrations/ci/Teamcity.kt,9,3.5,WP 3.5 P1 approved: private setKeyValue is n/a (dead helper); reviewer agreement pending
+core/src/main/kotlin/com/malinskiy/marathon/io/FileManager.kt,162,1.7,FileManager rules (3.9a uses them)
+core/src/main/kotlin/com/malinskiy/marathon/io/FileType.kt,19,1.7,FileManager rules (3.9a uses them)
+core/src/main/kotlin/com/malinskiy/marathon/io/FolderType.kt,6,1.7,FileManager rules (3.9a uses them)
+core/src/main/kotlin/com/malinskiy/marathon/json/FileSerializer.kt,14,1.7,FileManager rules (3.9a uses them)
+core/src/main/kotlin/com/malinskiy/marathon/log/KLoggerDebug.kt,138,1.6,
+core/src/main/kotlin/com/malinskiy/marathon/log/MarathonLogConfigurator.kt,5,1.6,
+core/src/main/kotlin/com/malinskiy/marathon/log/MarathonLogging.kt,54,1.6,
+core/src/main/kotlin/com/malinskiy/marathon/log/TimingLog.kt,27,1.6,
+core/src/main/kotlin/com/malinskiy/marathon/report/Reporter.kt,7,3.9a,ExecutionReportGenerator needs it; 3.9b implements it
+core/src/main/kotlin/com/malinskiy/marathon/report/allure/AllureReporter.kt,198,3.9c,
+core/src/main/kotlin/com/malinskiy/marathon/report/attachment/AttachmentCollector.kt,26,3.9a,
+core/src/main/kotlin/com/malinskiy/marathon/report/attachment/AttachmentProvider.kt,12,3.9a,
+core/src/main/kotlin/com/malinskiy/marathon/report/attachment/AttachmentProviderDelegate.kt,16,3.9a,
+core/src/main/kotlin/com/malinskiy/marathon/report/bill/BillingReporter.kt,80,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/device/DeviceInfoJsonReporter.kt,20,3.9b,concrete JSON reporters; model contracts frozen in 0.6
+core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt,289,3.9c,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/JUnitReporter.kt,114,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/Error.kt,11,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/Failure.kt,11,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/JUnitReport.kt,20,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/Property.kt,6,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/Rerun.kt,9,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/Skipped.kt,9,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/StackTraceElement.kt,6,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/TestCase.kt,35,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/model/TestSuite.kt,43,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/serialize/JUnitReportSerializer.kt,166,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/junit/serialize/XmlExtensions.kt,27,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/logs/LogProducer.kt,8,3.9a,
+core/src/main/kotlin/com/malinskiy/marathon/report/logs/LogWriter.kt,27,3.9a,
+core/src/main/kotlin/com/malinskiy/marathon/report/raw/RawJsonReporter.kt,62,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/stdout/StdoutReporter.kt,56,3.9b,
+core/src/main/kotlin/com/malinskiy/marathon/report/test/TestJsonReporter.kt,19,3.9b,concrete JSON reporters; model contracts frozen in 0.6
+core/src/main/kotlin/com/malinskiy/marathon/report/timeline/TimelineReporter.kt,42,3.9c,
+core/src/main/kotlin/com/malinskiy/marathon/report/timeline/TimelineSummaryProvider.kt,125,3.9c,
+core/src/main/kotlin/com/malinskiy/marathon/test/MetaProperty.kt,3,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/test/Test.kt,51,0.6,model types and traits; the name helpers (toClassName and friends) are 3.2's
+core/src/main/kotlin/com/malinskiy/marathon/test/TestBatch.kt,5,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/time/SystemTimer.kt,21,0.6,model types and traits
+core/src/main/kotlin/com/malinskiy/marathon/time/Timer.kt,10,0.6,model types and traits
+report/execution-timeline/src/main/kotlin/com/malinskiy/marathon/report/timeline/Data.kt,10,3.9c,HTML and timeline models; assets embedded
+report/execution-timeline/src/main/kotlin/com/malinskiy/marathon/report/timeline/ExecutionStats.kt,6,3.9c,HTML and timeline models; assets embedded
+report/execution-timeline/src/main/kotlin/com/malinskiy/marathon/report/timeline/Measure.kt,10,3.9c,HTML and timeline models; assets embedded
+report/execution-timeline/src/main/kotlin/com/malinskiy/marathon/report/timeline/MetricType.kt,11,3.9c,HTML and timeline models; assets embedded
+report/execution-timeline/src/main/kotlin/com/malinskiy/marathon/report/timeline/TimelineExecutionResult.kt,9,3.9c,HTML and timeline models; assets embedded
+report/html-report/src/main/kotlin/com/malinskiy/marathon/report/HtmlDevice.kt,10,3.9c,HTML and timeline models; assets embedded
+report/html-report/src/main/kotlin/com/malinskiy/marathon/report/HtmlFullTest.kt,21,3.9c,HTML and timeline models; assets embedded
+report/html-report/src/main/kotlin/com/malinskiy/marathon/report/HtmlIndex.kt,16,3.9c,HTML and timeline models; assets embedded
+report/html-report/src/main/kotlin/com/malinskiy/marathon/report/HtmlPoolSummary.kt,13,3.9c,HTML and timeline models; assets embedded
+report/html-report/src/main/kotlin/com/malinskiy/marathon/report/HtmlShortTest.kt,14,3.9c,HTML and timeline models; assets embedded
+report/html-report/src/main/kotlin/com/malinskiy/marathon/report/HtmlTestLogDetails.kt,11,3.9c,HTML and timeline models; assets embedded
+report/html-report/src/main/kotlin/com/malinskiy/marathon/report/Status.kt,12,3.9c,HTML and timeline models; assets embedded
+sample/android-app/app/src/main/java/com/example/MainActivity.kt,11,n/a,"sample apps and their build logic; used as E2E fixtures, not ported"
+sample/android-app/buildSrc/src/main/kotlin/Versions.kt,45,n/a,"sample apps and their build logic; used as E2E fixtures, not ported"
+sample/android-app/ui-tests/src/main/kotlin/com/example/ui_tests/ExampleInstrumentedTest.kt,31,n/a,"sample apps and their build logic; used as E2E fixtures, not ported"
+sample/android-cucumber-app/buildSrc/src/main/kotlin/Versions.kt,30,n/a,"sample apps and their build logic; used as E2E fixtures, not ported"
+sample/android-library/buildSrc/src/main/kotlin/Versions.kt,22,n/a,"sample apps and their build logic; used as E2E fixtures, not ported"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidAppInstaller.kt,130,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidDevice.kt,71,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidTestBundleIdentifier.kt,21,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidVendor.kt,15,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/ApkParser.kt,106,6.4,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/BaseAndroidDevice.kt,365,6.5,setup; createExecutionListeners L236-301 belongs to 6.6a and prepareRecorderListener L303-335 to 6.6b
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/DexTestParser.kt,67,6.4,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/InstrumentationInfo.kt,7,6.4,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/RecorderTypeSelector.kt,37,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/RemoteFileManager.kt,68,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamAndroidDevice.kt,549,6.5,AdamAndroidDevice and helpers; execute body belongs to 6.6a
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt,219,6.5,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AmInstrumentTestParser.kt,216,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AndroidDeviceTestRunner.kt,220,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/DeviceStateTracker.kt,80,6.5,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/LogcatManager.kt,49,6.5,AdamAndroidDevice and helpers; execute body belongs to 6.6a
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/di/Modules.kt,31,6.5,factory; remote-parser slot belongs to 6.6a
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/event/TestAnnotationParser.kt,114,6.3,TestAnnotationParser
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/execution/ArgumentsFactory.kt,89,6.6a,"ArgumentsFactory, test-runner contract"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/extension/ShellCommandResult.kt,7,6.5,AdamAndroidDevice and helpers; execute body belongs to 6.6a
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/log/Log.kt,83,6.3,logcat -v long parser
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/log/LogCatHeader.kt,67,6.3,logcat -v long parser
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/log/LogCatMessage.kt,30,6.3,logcat -v long parser
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/log/LogcatAccumulatingListener.kt,42,6.3,logcat -v long parser
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/log/LogcatMessageParser.kt,146,6.3,logcat -v long parser
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/configuration/AndroidLogConfigurator.kt,38,1.6,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/exception/AdbStartException.kt,3,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/exception/CommandRejectedException.kt,7,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/exception/DeviceNotSupportedException.kt,6,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/exception/InstallException.kt,6,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/exception/InvalidSerialConfiguration.kt,6,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/AccumulatingResultTestRunListener.kt,45,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/AndroidTestRunListener.kt,30,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/CompositeTestRunListener.kt,54,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/DebugTestRunListener.kt,50,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/NoOpTestRunListener.kt,25,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/TestResultsListener.kt,126,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/TestRunListenerAdapter.kt,23,6.6a,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/filesync/FileSyncTestRunListener.kt,165,6.6b,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/profiling/ProfilingRunListener.kt,150,6.6b,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt,81,6.6b,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/ScreenCapturerTestRunListener.kt,112,6.6b,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorder.kt,97,6.6b,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorderTestBatchListener.kt,227,6.6b,
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/extension/ConfigurationExtensions.kt,67,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/extension/Test.kt,11,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/logcat/LogcatListener.kt,9,6.3,interfaces the 6.3 accumulating listener implements
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/logcat/LogcatProducer.kt,6,6.3,interfaces the 6.3 accumulating listener implements
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/model/AndroidTestBundle.kt,23,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/model/AndroidTestStatus.kt,24,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/model/ShellCommandResult.kt,3,6.5,"device, installer, models, exceptions"
+vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/model/TestIdentifier.kt,16,6.5,"device, installer, models, exceptions"
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleApplicationInstaller.kt,141,4.10b,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDevice.kt,86,4.10a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunner.kt,133,4.8,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleLogConfigurator.kt,60,1.6,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleTestBundleIdentifier.kt,21,4.8,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/ArtifactProcessor.kt,456,4.9,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/DistributedDerivedData.kt,46,4.10b,requireDistributed (:11-20) ported in 4.5b; requireDistributedTestBundle ported in 4.10b (orchestrator decision 2026-10-25)
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/NmTestParser.kt,142,4.8,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/RemoteFileManager.kt,223,4.10a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XCTestParser.kt,133,4.8,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XcodebuildSession.kt,114,4.8,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XcodebuildStderrLog.kt,24,1.6,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/AppleBinaryEnvironment.kt,42,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/chmod/Chmod.kt,19,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/codesign/Codesign.kt,65,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/csrutil/Csrutil.kt,35,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/getconf/Getconf.kt,20,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/ioreg/Ioreg.kt,28,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/lipo/Lipo.kt,38,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/nm/Nm.kt,95,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/plistbuddy/PlistBuddy.kt,26,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/sqlite3/Sqlite3.kt,34,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/swvers/SwVers.kt,21,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/systemprofiler/SystemProfiler.kt,21,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcodeselect/Xcodeselect.kt,46,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/Xcrun.kt,49,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/Simctl.kt,30,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/SimctlService.kt,42,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/model/SimctlDevice.kt,33,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/model/SimctlDeviceList.kt,48,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/model/SimctlDeviceType.kt,20,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/model/SimctlListDevicesOutput.kt,11,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/model/SimctlRuntime.kt,13,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/ApplicationService.kt,51,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/DeviceService.kt,43,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/IoService.kt,51,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/MediaService.kt,19,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/PrivacyService.kt,52,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/SimulatorService.kt,156,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/SpawnService.kt,23,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/xcodebuild/Xcodebuild.kt,97,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/xcresulttool/AppleJsonTypeAdapterFactory.kt,97,4.6,legacy _value/_values unwrapping
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/xcresulttool/Xcresulttool.kt,119,4.4,command wrapper; needs the 4.6 schema types
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/BaseCommand.kt,83,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandException.kt,6,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandExecutor.kt,106,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandHost.kt,8,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandResult.kt,19,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandSession.kt,16,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandSessionOutput.kt,34,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/FileBridge.kt,8,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/LineBuffer.kt,66,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/SharedTransfers.kt,64,4.3,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/WriteFile.kt,42,4.3,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/JvmFileBridge.kt,23,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/KotlinProcessCommand.kt,34,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/KotlinProcessCommandExecutor.kt,93,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/KotlinProcessHost.kt,6,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/rsync/RsyncFileBridge.kt,183,4.3,P1 approved: unused hostnameLocksMap and isDescendantOf omitted; live bridge ported
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/rsync/RsyncTarget.kt,6,4.3,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/scp/ScpFileBridge.kt,38,n/a,dead code: never referenced
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandExecutor.kt,135,4.2,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandExecutorFactory.kt,91,4.2,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandHost.kt,22,4.2,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandSession.kt,42,4.2,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/auth/SshAuthentication.kt,29,4.2,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/config/PerformanceDefaultConfig.kt,63,4.2,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/configuration/AppleTarget.kt,71,2.3b,Marathondevices targets and transports: P2 types and binding; runtime use in 4.10a/5.x
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/configuration/Marathondevices.kt,12,2.3b,Marathondevices targets and transports: P2 types and binding; runtime use in 4.10a/5.x
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/configuration/Transport.kt,33,2.3b,Marathondevices targets and transports: P2 types and binding; runtime use in 4.10a/5.x
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/device/BatchFailurePolicy.kt,71,5.2,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/device/ConnectionCounter.kt,30,n/a,"WP 4.3 P1 approved: no callers at e47352f2; orchestrator decision 2026-10-25, agreed by both review-round-1 reviewers"
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/device/ConnectionFactory.kt,291,4.3,"ConnectionFactory, ConnectionFailures; ConnectionCounter is n/a under P1"
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/device/ConnectionFailures.kt,40,4.3,"ConnectionFactory, ConnectionFailures; ConnectionCounter is n/a under P1"
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/ConfigurationExtensions.kt,62,2.3a,accessors over the Apple vendor config types
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/Duration.kt,10,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/PollBackoff.kt,25,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/Reader.kt,102,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/StringExtensions.kt,3,4.1,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/AccumulatingTestResultListener.kt,48,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/AppleTestRunListener.kt,16,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ArtifactFinderListener.kt,28,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/CompositeTestRunListener.kt,46,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/DebugTestRunListener.kt,45,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListener.kt,125,4.9,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/TestResultsListener.kt,172,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/TestRunListenerAdapter.kt,34,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/TestEventProducer.kt,7,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/XctestEventProducer.kt,21,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/DebugLogPrinter.kt,18,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/DeviceFailureException.kt,18,4.3,exception type the 4.3 transient-failure classifier needs; 4.7 reuses it
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/DeviceFailureParser.kt,32,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/DiagnosticLogsPathFinder.kt,5,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/SessionResultsPathFinder.kt,5,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/TestRunProgressParser.kt,194,4.7,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/model/AppleOperatingSystemVersion.kt,27,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/model/AppleTestBundle.kt,171,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/model/Arch.kt,10,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/model/OS.kt,7,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/model/Platform.kt,6,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/model/Sdk.kt,44,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/model/XcodeVersion.kt,39,4.4,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/Delegates.kt,143,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/PropertyList.kt,55,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/BundleInfo.kt,12,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Categorization.kt,23,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Help.kt,21,n/a,P3 (WP 4.5a): unreachable from BundleInfo and constructed nowhere at e47352f2; both WP 4.5a reviewers agreed (review round 1)
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Identification.kt,31,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Launch.kt,16,n/a,P3 (WP 4.5a): unreachable from BundleInfo and constructed nowhere at e47352f2; both WP 4.5a reviewers agreed (review round 1)
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/LaunchConditions.kt,13,n/a,P3 (WP 4.5a): unreachable from BundleInfo and constructed nowhere at e47352f2; both WP 4.5a reviewers agreed (review round 1)
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Localization.kt,30,n/a,P3 (WP 4.5a): unreachable from BundleInfo and constructed nowhere at e47352f2; both WP 4.5a reviewers agreed (review round 1)
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Naming.kt,25,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/OperatingSystemVersion.kt,42,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Undocumented.kt,20,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/bundle/Version.kt,57,n/a,P3 (WP 4.5a): unreachable from BundleInfo and constructed nowhere at e47352f2; both WP 4.5a reviewers agreed (review round 1)
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/sshj/PatchedSSHClient.kt,20,4.2,PatchedSSHClient
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/test/TestEvent.kt,14,4.7,TestEvent
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/test/TestRequest.kt,18,4.4,xcodebuild test filter (WP 4.4 decision 2)
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/CodeCoverageTargets.kt,174,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/MachO.kt,118,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/TestRootFactory.kt,473,4.5b,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v0/TestTarget.kt,176,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v0/Xctestrun.kt,181,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v1/Xctestrun.kt,29,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v2/CodeCoverageBuildableInfo.kt,99,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v2/Metadata.kt,17,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v2/TestConfiguration.kt,25,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v2/TestPlan.kt,24,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v2/TestTarget.kt,289,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/v2/Xctestrun.kt,328,4.5a,
+vendor/vendor-apple/base/src/main/kotlin/sshj/connection/channel/direct/PatchedExecChannel.kt,54,4.2,PatchedExecChannel behaviours
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorApplicationInstaller.kt,22,5.2,"device, installer, media importer, models"
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt,1209,5.2,"device, installer, media importer, models"
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorMediaImporter.kt,33,5.2,"device, installer, media importer, models"
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/IosVendor.kt,72,5.5a,vendor construction; dynamic frame reader
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/RecorderTypeSelector.kt,37,5.3,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt,927,5.5a,split with 5.5b; the dynamic frame decoder function is 2.3b
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/Detached.kt,25,5.5b,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/DeviceTracker.kt,141,5.4,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/PendingWorker.kt,39,5.5b,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/ProvisioningPlan.kt,16,5.4,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorFactory.kt,106,5.4,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorProvisioner.kt,229,5.4,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/WorkerProvisioningContext.kt,139,5.4,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/extensions/ByteBuffer.kt,15,n/a,JDK 8 ByteBuffer shim; nothing to port
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/extensions/FileExtensions.kt,134,n/a,WP 5.2 P1 approved: unused resolveSibling copy; no caller at e47352f2
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/DataContainerClearListener.kt,25,5.3,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/log/DeviceLogListener.kt,79,5.3,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/screenshot/ScreenCapturerTestRunListener.kt,94,5.3,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt,249,5.3,
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/model/Simulator.kt,20,5.2,State ported; Profile has no constructor caller (approved P1)
+vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/model/Udid.kt,3,n/a,WP 5.2 P1 approved: UDID stays a plain Rust String
+vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt,237,5.6,
+vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosApplicationInstaller.kt,24,5.6,
+vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt,518,5.6,
+vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosVendor.kt,71,5.6,
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/MarathonFactoryExtensions.kt,13,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/Mocks.kt,11,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubDevice.kt,87,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubDeviceProvider.kt,38,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubExecutionResults.kt,4,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubTestBundle.kt,5,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubTestBundleIdentifier.kt,19,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/assert/FileExtensions.kt,16,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/ConfigurationFactory.kt,80,3.10,StubVendor / StubDevice in marathon-test-support
+vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/MarathonFactory.kt,77,3.10,StubVendor / StubDevice in marathon-test-support

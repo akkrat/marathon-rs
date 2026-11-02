@@ -1,0 +1,2308 @@
+[ {
+  "id" : "a-stub",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "stub"
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "b-flakiness-parallel-ok",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "probability",
+      "minSuccessRate" : 0.7,
+      "maxCount" : 3,
+      "timeLimit" : "1970-01-12T14:46:40Z"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "b-ios-tvos-ok",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "iOS",
+      "bundle" : {
+        "derivedDataDir" : "$DIR/derivedDataDir"
+      },
+      "deviceProvider" : {
+        "type" : "static"
+      },
+      "devices" : "$DIR/Marathondevices",
+      "ssh" : {
+        "keepAliveInterval" : "PT15S",
+        "keepAliveMaxCount" : 4,
+        "debug" : false,
+        "shareWorkerConnection" : false
+      },
+      "workerConnection" : {
+        "attempts" : 3,
+        "backoff" : "PT10S",
+        "retryInterval" : "PT1M",
+        "lateJoin" : true,
+        "lateJoinCutoff" : "PT10M"
+      },
+      "xcresult" : {
+        "pullingPolicy" : "ALWAYS",
+        "remoteClean" : true,
+        "attachments" : {
+          "systemAttachmentLifetime" : "DELETE_ON_SUCCESS",
+          "userAttachmentLifetime" : "KEEP_ALWAYS"
+        },
+        "queue" : {
+          "capacity" : 8,
+          "concurrency" : 4
+        }
+      },
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "codec" : "h264",
+          "display" : "internal",
+          "mask" : "black",
+          "transcoding" : {
+            "enabled" : false,
+            "ffmpegPath" : "/opt/homebrew/bin/ffmpeg",
+            "size" : "hd720"
+          }
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "type" : "jpeg",
+          "display" : "internal",
+          "mask" : "black",
+          "delay" : "PT0.5S",
+          "width" : 720,
+          "height" : 1280
+        }
+      },
+      "xctestrunEnv" : {
+        "app" : { },
+        "test" : { }
+      },
+      "lifecycle" : {
+        "shutdownUnused" : true,
+        "onPrepare" : [ ],
+        "onDispose" : [ ]
+      },
+      "permissions" : {
+        "grant" : [ ],
+        "lifecycle" : "BEFORE_TEST_RUN"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT30S",
+        "shellIdle" : "PT30S",
+        "reachability" : "PT5S",
+        "screenshot" : "PT10S",
+        "video" : "PT5M",
+        "erase" : "PT30S",
+        "shutdown" : "PT30S",
+        "delete" : "PT30S",
+        "create" : "PT30S",
+        "boot" : "PT30S",
+        "install" : "PT30S",
+        "uninstall" : "PT30S",
+        "importMedia" : "PT30S",
+        "testDestination" : "PT30S",
+        "xcresulttool" : "PT2M",
+        "bootWait" : "PT3M"
+      },
+      "threadingConfiguration" : {
+        "deviceProviderThreads" : 8,
+        "deviceThreads" : 2,
+        "provisioningConcurrency" : 2
+      },
+      "hideRunnerOutput" : false,
+      "compactOutput" : false,
+      "rsync" : {
+        "remotePath" : "/usr/bin/rsync"
+      },
+      "xcodebuildTestArgs" : { },
+      "dataContainerClear" : false,
+      "testParserConfiguration" : {
+        "type" : "nm",
+        "testClassRegexes" : [ "^((?!Abstract).)*Test[s]*$" ]
+      },
+      "deviceLog" : false,
+      "signing" : { },
+      "skipCopyingDerivedData" : false,
+      "maxBatchesWithoutProgress" : 0
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "b-macos-f6-no-bundle",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "macOS",
+      "deviceProvider" : {
+        "type" : "static"
+      },
+      "devices" : "$DIR/Marathondevices",
+      "ssh" : {
+        "keepAliveInterval" : "PT15S",
+        "keepAliveMaxCount" : 4,
+        "debug" : false,
+        "shareWorkerConnection" : false
+      },
+      "xcresult" : {
+        "pullingPolicy" : "ALWAYS",
+        "remoteClean" : true,
+        "attachments" : {
+          "systemAttachmentLifetime" : "DELETE_ON_SUCCESS",
+          "userAttachmentLifetime" : "KEEP_ALWAYS"
+        },
+        "queue" : {
+          "capacity" : 8,
+          "concurrency" : 4
+        }
+      },
+      "xctestrunEnv" : {
+        "app" : { },
+        "test" : { }
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT30S",
+        "shellIdle" : "PT30S",
+        "reachability" : "PT5S",
+        "screenshot" : "PT10S",
+        "video" : "PT5M",
+        "erase" : "PT30S",
+        "shutdown" : "PT30S",
+        "delete" : "PT30S",
+        "create" : "PT30S",
+        "boot" : "PT30S",
+        "install" : "PT30S",
+        "uninstall" : "PT30S",
+        "importMedia" : "PT30S",
+        "testDestination" : "PT30S",
+        "xcresulttool" : "PT2M",
+        "bootWait" : "PT3M"
+      },
+      "threadingConfiguration" : {
+        "deviceProviderThreads" : 8,
+        "deviceThreads" : 2,
+        "provisioningConcurrency" : 2
+      },
+      "hideRunnerOutput" : false,
+      "compactOutput" : false,
+      "rsync" : {
+        "remotePath" : "/usr/bin/rsync"
+      },
+      "xcodebuildTestArgs" : { },
+      "testParserConfiguration" : {
+        "type" : "nm",
+        "testClassRegexes" : [ "^((?!Abstract).)*Test[s]*$" ]
+      },
+      "permissions" : {
+        "grant" : { }
+      }
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-influxdb2",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "influxdb2",
+      "url" : "http://influx2",
+      "token" : "secret",
+      "organization" : "o",
+      "bucket" : "b",
+      "retentionPolicyConfiguration" : {
+        "everySeconds" : 3600,
+        "shardGroupDurationSeconds" : 60
+      },
+      "defaults" : {
+        "successRate" : 0.25,
+        "duration" : "PT40S",
+        "observedDurationMinTests" : 3
+      },
+      "readOnly" : false
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-graphite",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "graphite",
+      "host" : "g",
+      "port" : 2003,
+      "prefix" : "pre",
+      "defaults" : {
+        "successRate" : 0.0,
+        "duration" : "PT5M"
+      },
+      "readOnly" : false
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-influxdb-rp",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "influxdb",
+      "url" : "http://influx",
+      "user" : "u",
+      "password" : "p",
+      "dbName" : "d",
+      "retentionPolicyConfiguration" : {
+        "name" : "rp",
+        "duration" : "90d",
+        "shardDuration" : "1h",
+        "replicationFactor" : 5,
+        "isDefault" : false
+      },
+      "defaults" : {
+        "successRate" : 0.0,
+        "duration" : "PT5M"
+      },
+      "readOnly" : false
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-filters",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ {
+        "type" : "simple-class-name",
+        "regex" : "Foo.*",
+        "enabled" : true
+      }, {
+        "type" : "simple-test-name",
+        "values" : [ "a", "b" ],
+        "enabled" : false
+      }, {
+        "type" : "fully-qualified-class-name",
+        "file" : "$DIR/filterfile",
+        "enabled" : true
+      }, {
+        "type" : "fully-qualified-test-name",
+        "regex" : "x",
+        "enabled" : true
+      }, {
+        "type" : "package",
+        "values" : [ "com.example" ],
+        "subpackages" : true,
+        "enabled" : true
+      }, {
+        "type" : "annotationData",
+        "nameRegex" : "n",
+        "valueRegex" : "v",
+        "enabled" : true
+      }, {
+        "type" : "fragmentation",
+        "index" : 0,
+        "count" : 2,
+        "enabled" : true
+      }, {
+        "type" : "allure",
+        "enabled" : true
+      } ],
+      "blocklist" : [ {
+        "type" : "composition",
+        "filters" : [ {
+          "type" : "method",
+          "regex" : "m",
+          "enabled" : true
+        }, {
+          "type" : "annotation",
+          "values" : [ "A" ],
+          "enabled" : true
+        } ],
+        "op" : "SUBTRACT",
+        "enabled" : true
+      } ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-strategies",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 100,
+      "maxFilename" : 50
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "combo",
+      "list" : [ {
+        "type" : "omni"
+      }, {
+        "type" : "abi"
+      }, {
+        "type" : "manufacturer"
+      }, {
+        "type" : "device-model"
+      }, {
+        "type" : "os-version"
+      } ]
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "execution-time",
+      "percentile" : 90.5,
+      "timeLimit" : "1970-01-12T12:46:40Z"
+    },
+    "batchingStrategy" : {
+      "type" : "fixed-size",
+      "size" : 5,
+      "durationMillis" : 100000,
+      "percentile" : 80.0,
+      "timeLimit" : "1970-01-12T12:46:40Z",
+      "lastMileLength" : 10
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "fixed-quota",
+      "totalAllowedRetryQuota" : 100,
+      "retryPerTestQuota" : 2
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 5,
+    "includeSerialRegexes" : [ "emulator-500[2,4]", "x" ],
+    "excludeSerialRegexes" : [ "y" ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_ANY",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : false,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "teamcity"
+    }
+  }
+}, {
+  "id" : "m-strategies-singletons",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "random-order"
+    },
+    "batchingStrategy" : {
+      "type" : "class-name"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "auto"
+    }
+  }
+}, {
+  "id" : "m-sorting-success-rate",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "device-model"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "success-rate",
+      "timeLimit" : "2015-03-14T09:26:53.590Z",
+      "ascending" : true
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/android-sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "autoGrantPermission" : false,
+      "instrumentationArgs" : { },
+      "applicationPmClear" : false,
+      "testApplicationPmClear" : false,
+      "adbInitTimeoutMillis" : 30000,
+      "installOptions" : "",
+      "serialStrategy" : "AUTOMATIC",
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 180,
+          "timeLimitUnits" : "SECONDS"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 500
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 30000,
+      "allureConfiguration" : {
+        "enabled" : false,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "APP_DATA"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT20S",
+        "listFiles" : "PT20S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT20S",
+        "install" : "PT1M",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT20S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ ],
+        "push" : [ ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 8
+      },
+      "testParserConfiguration" : {
+        "type" : "local"
+      },
+      "testAccessConfiguration" : {
+        "adb" : false,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : ""
+      },
+      "adbServers" : [ {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : true,
+      "profilingConfiguration" : {
+        "enabled" : false,
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : false
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-android-full",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "Android",
+      "androidSdk" : "/sdk",
+      "applicationApk" : "$DIR/app.apk",
+      "testApplicationApk" : "$DIR/app.apk",
+      "splitApks" : [ "$DIR/app.apk" ],
+      "extraApplicationsApk" : [ "$DIR/app.apk" ],
+      "outputs" : [ {
+        "application" : "$DIR/app.apk",
+        "testApplication" : "$DIR/app.apk",
+        "extraApplications" : [ "$DIR/app.apk" ],
+        "splitApks" : [ "$DIR/app.apk" ]
+      } ],
+      "autoGrantPermission" : true,
+      "instrumentationArgs" : {
+        "debug" : "false",
+        "b" : "1"
+      },
+      "applicationPmClear" : true,
+      "testApplicationPmClear" : true,
+      "adbInitTimeoutMillis" : 1000,
+      "installOptions" : "-d",
+      "serialStrategy" : "HOSTNAME",
+      "screenRecordConfiguration" : {
+        "preferableRecorderType" : "SCREENSHOT",
+        "videoConfiguration" : {
+          "enabled" : false,
+          "width" : 720,
+          "height" : 1280,
+          "bitrateMbps" : 1,
+          "timeLimit" : 3,
+          "timeLimitUnits" : "MINUTES"
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "width" : 720,
+          "height" : 1280,
+          "delayMs" : 100
+        }
+      },
+      "waitForDevicesTimeoutMillis" : 5000,
+      "allureConfiguration" : {
+        "enabled" : true,
+        "relativeResultsDirectory" : "/files/allure-results",
+        "pathRoot" : "EXTERNAL_STORAGE"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT30S",
+        "listFiles" : "PT30S",
+        "pushFile" : "PT1M",
+        "pushFolder" : "PT1M",
+        "pullFile" : "PT30S",
+        "uninstall" : "PT30S",
+        "install" : "PT36H30M5S",
+        "screenrecorder" : "PT3M20S",
+        "screencapturer" : "PT0.3S",
+        "socketIdleTimeout" : "PT30S",
+        "portForward" : "PT30S",
+        "boot" : "PT30S"
+      },
+      "fileSyncConfiguration" : {
+        "pull" : [ {
+          "relativePath" : "a",
+          "pathRoot" : "EXTERNAL_STORAGE",
+          "aggregationMode" : "TEST_RUN"
+        } ],
+        "push" : [ {
+          "path" : "b",
+          "pathRoot" : "LOCAL_TMP"
+        } ]
+      },
+      "threadingConfiguration" : {
+        "bootWaitingThreads" : 4,
+        "adbIoThreads" : 4,
+        "installThreads" : 2
+      },
+      "testParserConfiguration" : {
+        "type" : "remote",
+        "instrumentationArgs" : {
+          "listener" : "x"
+        }
+      },
+      "testAccessConfiguration" : {
+        "adb" : true,
+        "grpc" : false,
+        "console" : false,
+        "consoleToken" : "tok"
+      },
+      "adbServers" : [ {
+        "host" : "h",
+        "port" : 1
+      }, {
+        "host" : "127.0.0.1",
+        "port" : 5037
+      } ],
+      "disableWindowAnimation" : false,
+      "profilingConfiguration" : {
+        "enabled" : true,
+        "pbtxt" : "$DIR/app.apk",
+        "urlTemplate" : "https://cloud.marathonlabs.io/"
+      },
+      "mockLocation" : true
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-ios-full",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "iOS",
+      "bundle" : {
+        "derivedDataDir" : "$DIR/derivedDataDir",
+        "testType" : "xctest"
+      },
+      "deviceProvider" : {
+        "type" : "dynamic",
+        "host" : "h",
+        "port" : 1
+      },
+      "devices" : "$DIR/Testdevices",
+      "ssh" : {
+        "authentication" : {
+          "type" : "password",
+          "username" : "u",
+          "password" : "secret"
+        },
+        "knownHostsPath" : "$DIR/known_hosts",
+        "keepAliveInterval" : "PT1M",
+        "keepAliveMaxCount" : 4,
+        "debug" : false,
+        "shareWorkerConnection" : true
+      },
+      "workerConnection" : {
+        "attempts" : 5,
+        "backoff" : "PT10S",
+        "retryInterval" : "PT1M",
+        "lateJoin" : false,
+        "lateJoinCutoff" : "PT10M"
+      },
+      "xcresult" : {
+        "pull" : false,
+        "pullingPolicy" : "NEVER",
+        "remoteClean" : true,
+        "attachments" : {
+          "systemAttachmentLifetime" : "KEEP_NEVER",
+          "userAttachmentLifetime" : "KEEP_ALWAYS"
+        },
+        "preferredScreenCaptureFormat" : "SCREEN_RECORDING",
+        "queue" : {
+          "capacity" : 8,
+          "concurrency" : 4,
+          "workerCapacity" : 3
+        }
+      },
+      "screenRecordConfiguration" : {
+        "preferableRecorderType" : "VIDEO",
+        "videoConfiguration" : {
+          "enabled" : true,
+          "codec" : "hevc",
+          "display" : "external",
+          "mask" : "ignored",
+          "transcoding" : {
+            "enabled" : true,
+            "ffmpegPath" : "/opt/homebrew/bin/ffmpeg",
+            "size" : "hd1080"
+          }
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "type" : "png",
+          "display" : "internal",
+          "mask" : "black",
+          "delay" : "PT1S",
+          "width" : 720,
+          "height" : 1280
+        }
+      },
+      "xctestrunEnv" : {
+        "app" : {
+          "A" : "1"
+        },
+        "test" : {
+          "B" : "2"
+        }
+      },
+      "lifecycle" : {
+        "shutdownUnused" : false,
+        "onPrepare" : [ "ERASE" ],
+        "onDispose" : [ "TERMINATE" ]
+      },
+      "permissions" : {
+        "grant" : [ "user-tracking" ],
+        "lifecycle" : "BEFORE_EACH_BATCH"
+      },
+      "importMedia" : [ "$DIR/derivedDataDir/sample.app/empty" ],
+      "timeoutConfiguration" : {
+        "shell" : "PT10S",
+        "shellIdle" : "PT30S",
+        "reachability" : "PT5S",
+        "screenshot" : "PT10S",
+        "video" : "PT5M",
+        "erase" : "PT10S",
+        "shutdown" : "PT10S",
+        "delete" : "PT10S",
+        "create" : "PT30S",
+        "boot" : "PT5M",
+        "install" : "PT10S",
+        "uninstall" : "PT10S",
+        "importMedia" : "PT10S",
+        "testDestination" : "PT30S",
+        "xcresulttool" : "PT2M",
+        "bootWait" : "PT5M"
+      },
+      "threadingConfiguration" : {
+        "deviceProviderThreads" : 8,
+        "deviceThreads" : 3,
+        "provisioningConcurrency" : 2
+      },
+      "hideRunnerOutput" : true,
+      "compactOutput" : true,
+      "rsync" : {
+        "remotePath" : "/r"
+      },
+      "xcodebuildTestArgs" : {
+        "-a" : "b"
+      },
+      "dataContainerClear" : true,
+      "testParserConfiguration" : {
+        "type" : "xctest"
+      },
+      "deviceLog" : true,
+      "signing" : {
+        "testRunnerProvisioningProfile" : "prof"
+      },
+      "skipCopyingDerivedData" : true,
+      "maxBatchesWithoutProgress" : 2
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-ios-nm-explicit",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "iOS",
+      "bundle" : {
+        "derivedDataDir" : "$DIR/derivedDataDir"
+      },
+      "deviceProvider" : {
+        "type" : "static",
+        "path" : "$DIR/devs"
+      },
+      "devices" : "$DIR/Marathondevices",
+      "ssh" : {
+        "keepAliveInterval" : "PT15S",
+        "keepAliveMaxCount" : 4,
+        "debug" : false,
+        "shareWorkerConnection" : false
+      },
+      "workerConnection" : {
+        "attempts" : 3,
+        "backoff" : "PT10S",
+        "retryInterval" : "PT1M",
+        "lateJoin" : true,
+        "lateJoinCutoff" : "PT10M"
+      },
+      "xcresult" : {
+        "pullingPolicy" : "ALWAYS",
+        "remoteClean" : true,
+        "attachments" : {
+          "systemAttachmentLifetime" : "DELETE_ON_SUCCESS",
+          "userAttachmentLifetime" : "KEEP_ALWAYS"
+        },
+        "queue" : {
+          "capacity" : 8,
+          "concurrency" : 4
+        }
+      },
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "codec" : "h264",
+          "display" : "internal",
+          "mask" : "black",
+          "transcoding" : {
+            "enabled" : false,
+            "ffmpegPath" : "/opt/homebrew/bin/ffmpeg",
+            "size" : "hd720"
+          }
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "type" : "jpeg",
+          "display" : "internal",
+          "mask" : "black",
+          "delay" : "PT0.5S",
+          "width" : 720,
+          "height" : 1280
+        }
+      },
+      "xctestrunEnv" : {
+        "app" : { },
+        "test" : { }
+      },
+      "lifecycle" : {
+        "shutdownUnused" : true,
+        "onPrepare" : [ ],
+        "onDispose" : [ ]
+      },
+      "permissions" : {
+        "grant" : [ ],
+        "lifecycle" : "BEFORE_TEST_RUN"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT30S",
+        "shellIdle" : "PT30S",
+        "reachability" : "PT5S",
+        "screenshot" : "PT10S",
+        "video" : "PT5M",
+        "erase" : "PT30S",
+        "shutdown" : "PT30S",
+        "delete" : "PT30S",
+        "create" : "PT30S",
+        "boot" : "PT30S",
+        "install" : "PT30S",
+        "uninstall" : "PT30S",
+        "importMedia" : "PT30S",
+        "testDestination" : "PT30S",
+        "xcresulttool" : "PT2M",
+        "bootWait" : "PT3M"
+      },
+      "threadingConfiguration" : {
+        "deviceProviderThreads" : 8,
+        "deviceThreads" : 2,
+        "provisioningConcurrency" : 2
+      },
+      "hideRunnerOutput" : false,
+      "compactOutput" : false,
+      "rsync" : {
+        "remotePath" : "/usr/bin/rsync"
+      },
+      "xcodebuildTestArgs" : { },
+      "dataContainerClear" : false,
+      "testParserConfiguration" : {
+        "type" : "nm",
+        "testClassRegexes" : [ "Foo", "Bar" ]
+      },
+      "deviceLog" : false,
+      "signing" : { },
+      "skipCopyingDerivedData" : false,
+      "maxBatchesWithoutProgress" : 0
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-macos-full",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "macOS",
+      "bundle" : {
+        "derivedDataDir" : "$DIR/derivedDataDir"
+      },
+      "deviceProvider" : {
+        "type" : "static"
+      },
+      "devices" : "$DIR/Marathondevices",
+      "ssh" : {
+        "authentication" : {
+          "type" : "publicKey",
+          "username" : "u",
+          "key" : "$DIR/known_hosts"
+        },
+        "keepAliveInterval" : "PT15S",
+        "keepAliveMaxCount" : 4,
+        "debug" : false,
+        "shareWorkerConnection" : false
+      },
+      "xcresult" : {
+        "pull" : true,
+        "pullingPolicy" : "ALWAYS",
+        "remoteClean" : false,
+        "attachments" : {
+          "systemAttachmentLifetime" : "DELETE_ON_SUCCESS",
+          "userAttachmentLifetime" : "KEEP_ALWAYS"
+        },
+        "queue" : {
+          "capacity" : 8,
+          "concurrency" : 4
+        }
+      },
+      "xctestrunEnv" : {
+        "app" : { },
+        "test" : { }
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT5M",
+        "shellIdle" : "PT30S",
+        "reachability" : "PT5S",
+        "screenshot" : "PT10S",
+        "video" : "PT5M",
+        "erase" : "PT5M",
+        "shutdown" : "PT5M",
+        "delete" : "PT5M",
+        "create" : "PT30S",
+        "boot" : "PT5M",
+        "install" : "PT5M",
+        "uninstall" : "PT5M",
+        "importMedia" : "PT5M",
+        "testDestination" : "PT30S",
+        "xcresulttool" : "PT5M",
+        "bootWait" : "PT5M"
+      },
+      "threadingConfiguration" : {
+        "deviceProviderThreads" : 8,
+        "deviceThreads" : 2,
+        "provisioningConcurrency" : 2
+      },
+      "hideRunnerOutput" : false,
+      "compactOutput" : false,
+      "rsync" : {
+        "remotePath" : "/r"
+      },
+      "xcodebuildTestArgs" : { },
+      "testParserConfiguration" : {
+        "type" : "nm",
+        "testClassRegexes" : [ "^((?!Abstract).)*Test[s]*$" ]
+      },
+      "permissions" : {
+        "grant" : {
+          "com.example" : [ "developer-tool" ]
+        }
+      }
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+}, {
+  "id" : "m-explicit-null-queue-worker-capacity",
+  "source" : "fixtures/oracle/config-validation-corpus.jsonl",
+  "value" : {
+    "name" : "t",
+    "outputDir" : "$DIR/out",
+    "outputConfiguration" : {
+      "maxPath" : 0,
+      "maxFilename" : 255
+    },
+    "analyticsConfiguration" : {
+      "type" : "disabled"
+    },
+    "poolingStrategy" : {
+      "type" : "omni"
+    },
+    "shardingStrategy" : {
+      "type" : "parallel"
+    },
+    "sortingStrategy" : {
+      "type" : "no-sorting"
+    },
+    "batchingStrategy" : {
+      "type" : "isolate"
+    },
+    "flakinessStrategy" : {
+      "type" : "ignore"
+    },
+    "retryStrategy" : {
+      "type" : "no-retry"
+    },
+    "filteringConfiguration" : {
+      "allowlist" : [ ],
+      "blocklist" : [ ]
+    },
+    "ignoreFailures" : false,
+    "executionStrategy" : {
+      "mode" : "ANY_SUCCESS",
+      "fast" : true
+    },
+    "isCodeCoverageEnabled" : false,
+    "uncompletedTestRetryQuota" : 2147483647,
+    "includeSerialRegexes" : [ ],
+    "excludeSerialRegexes" : [ ],
+    "testBatchTimeoutMillis" : 1800000,
+    "testOutputTimeoutMillis" : 300000,
+    "debug" : true,
+    "screenRecordingPolicy" : "ON_FAILURE",
+    "vendorConfiguration" : {
+      "type" : "iOS",
+      "bundle" : {
+        "derivedDataDir" : "$DIR/derivedDataDir"
+      },
+      "deviceProvider" : {
+        "type" : "static"
+      },
+      "devices" : "$DIR/Marathondevices",
+      "ssh" : {
+        "keepAliveInterval" : "PT15S",
+        "keepAliveMaxCount" : 4,
+        "debug" : false,
+        "shareWorkerConnection" : false
+      },
+      "workerConnection" : {
+        "attempts" : 3,
+        "backoff" : "PT10S",
+        "retryInterval" : "PT1M",
+        "lateJoin" : true,
+        "lateJoinCutoff" : "PT10M"
+      },
+      "xcresult" : {
+        "pullingPolicy" : "ALWAYS",
+        "remoteClean" : true,
+        "attachments" : {
+          "systemAttachmentLifetime" : "DELETE_ON_SUCCESS",
+          "userAttachmentLifetime" : "KEEP_ALWAYS"
+        },
+        "queue" : {
+          "capacity" : 8,
+          "concurrency" : 4
+        }
+      },
+      "screenRecordConfiguration" : {
+        "videoConfiguration" : {
+          "enabled" : true,
+          "codec" : "h264",
+          "display" : "internal",
+          "mask" : "black",
+          "transcoding" : {
+            "enabled" : false,
+            "ffmpegPath" : "/opt/homebrew/bin/ffmpeg",
+            "size" : "hd720"
+          }
+        },
+        "screenshotConfiguration" : {
+          "enabled" : true,
+          "type" : "jpeg",
+          "display" : "internal",
+          "mask" : "black",
+          "delay" : "PT0.5S",
+          "width" : 720,
+          "height" : 1280
+        }
+      },
+      "xctestrunEnv" : {
+        "app" : { },
+        "test" : { }
+      },
+      "lifecycle" : {
+        "shutdownUnused" : true,
+        "onPrepare" : [ ],
+        "onDispose" : [ ]
+      },
+      "permissions" : {
+        "grant" : [ ],
+        "lifecycle" : "BEFORE_TEST_RUN"
+      },
+      "timeoutConfiguration" : {
+        "shell" : "PT30S",
+        "shellIdle" : "PT30S",
+        "reachability" : "PT5S",
+        "screenshot" : "PT10S",
+        "video" : "PT5M",
+        "erase" : "PT30S",
+        "shutdown" : "PT30S",
+        "delete" : "PT30S",
+        "create" : "PT30S",
+        "boot" : "PT30S",
+        "install" : "PT30S",
+        "uninstall" : "PT30S",
+        "importMedia" : "PT30S",
+        "testDestination" : "PT30S",
+        "xcresulttool" : "PT2M",
+        "bootWait" : "PT3M"
+      },
+      "threadingConfiguration" : {
+        "deviceProviderThreads" : 8,
+        "deviceThreads" : 2,
+        "provisioningConcurrency" : 2
+      },
+      "hideRunnerOutput" : false,
+      "compactOutput" : false,
+      "rsync" : {
+        "remotePath" : "/usr/bin/rsync"
+      },
+      "xcodebuildTestArgs" : { },
+      "dataContainerClear" : false,
+      "testParserConfiguration" : {
+        "type" : "nm",
+        "testClassRegexes" : [ "^((?!Abstract).)*Test[s]*$" ]
+      },
+      "deviceLog" : false,
+      "signing" : { },
+      "skipCopyingDerivedData" : false,
+      "maxBatchesWithoutProgress" : 0
+    },
+    "analyticsTracking" : true,
+    "bugsnagReporting" : true,
+    "deviceInitializationTimeoutMillis" : 180000,
+    "ciConfiguration" : {
+      "type" : "none"
+    }
+  }
+} ]

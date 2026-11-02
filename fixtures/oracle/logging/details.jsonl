@@ -1,0 +1,117 @@
+{"op":"abbreviate","logger":"","length":0,"output":""}
+{"op":"abbreviate","logger":"","length":1,"output":""}
+{"op":"abbreviate","logger":"","length":2,"output":""}
+{"op":"abbreviate","logger":"","length":5,"output":""}
+{"op":"abbreviate","logger":"","length":10,"output":""}
+{"op":"abbreviate","logger":"","length":36,"output":""}
+{"op":"abbreviate","logger":"","length":40,"output":""}
+{"op":"abbreviate","logger":"","length":48,"output":""}
+{"op":"abbreviate","logger":"a..bc.LongName","length":0,"output":"LongName"}
+{"op":"abbreviate","logger":"a..bc.LongName","length":1,"output":"a..b.LongName"}
+{"op":"abbreviate","logger":"a..bc.LongName","length":2,"output":"a..b.LongName"}
+{"op":"abbreviate","logger":"a..bc.LongName","length":5,"output":"a..b.LongName"}
+{"op":"abbreviate","logger":"a..bc.LongName","length":10,"output":"a..b.LongName"}
+{"op":"abbreviate","logger":"a..bc.LongName","length":36,"output":"a..bc.LongName"}
+{"op":"abbreviate","logger":"a..bc.LongName","length":40,"output":"a..bc.LongName"}
+{"op":"abbreviate","logger":"a..bc.LongName","length":48,"output":"a..bc.LongName"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":0,"output":"Foo"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":1,"output":"c.?.Foo"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":2,"output":"c.?.Foo"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":5,"output":"c.?.Foo"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":10,"output":"c.?.Foo"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":36,"output":"com.😀name.Foo"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":40,"output":"com.😀name.Foo"}
+{"op":"abbreviate","logger":"com.😀name.Foo","length":48,"output":"com.😀name.Foo"}
+{"op":"abbreviate","logger":"éé.package.Class","length":0,"output":"Class"}
+{"op":"abbreviate","logger":"éé.package.Class","length":1,"output":"é.p.Class"}
+{"op":"abbreviate","logger":"éé.package.Class","length":2,"output":"é.p.Class"}
+{"op":"abbreviate","logger":"éé.package.Class","length":5,"output":"é.p.Class"}
+{"op":"abbreviate","logger":"éé.package.Class","length":10,"output":"é.p.Class"}
+{"op":"abbreviate","logger":"éé.package.Class","length":36,"output":"éé.package.Class"}
+{"op":"abbreviate","logger":"éé.package.Class","length":40,"output":"éé.package.Class"}
+{"op":"abbreviate","logger":"éé.package.Class","length":48,"output":"éé.package.Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":0,"output":"Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":1,"output":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":2,"output":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":5,"output":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":10,"output":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":36,"output":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":40,"output":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class"}
+{"op":"abbreviate","logger":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class","length":48,"output":"a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.Class"}
+{"op":"abbreviate","logger":"trailing.","length":0,"output":""}
+{"op":"abbreviate","logger":"trailing.","length":1,"output":"t."}
+{"op":"abbreviate","logger":"trailing.","length":2,"output":"t."}
+{"op":"abbreviate","logger":"trailing.","length":5,"output":"t."}
+{"op":"abbreviate","logger":"trailing.","length":10,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":36,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":40,"output":"trailing."}
+{"op":"abbreviate","logger":"trailing.","length":48,"output":"trailing."}
+{"op":"abbreviate","logger":".leading","length":0,"output":"leading"}
+{"op":"abbreviate","logger":".leading","length":1,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":2,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":5,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":10,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":36,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":40,"output":".leading"}
+{"op":"abbreviate","logger":".leading","length":48,"output":".leading"}
+{"op":"message","pattern":"{} {}","arguments":[],"output":"{} {}"}
+{"op":"message","pattern":"{} {}","arguments":["one"],"output":"one {}"}
+{"op":"message","pattern":"{} {}","arguments":["one","two","three"],"output":"one two"}
+{"op":"message","pattern":"\\{} {}","arguments":[],"output":"\\{} {}"}
+{"op":"message","pattern":"\\{} {}","arguments":["one"],"output":"{} one"}
+{"op":"message","pattern":"\\{} {}","arguments":["one","two","three"],"output":"{} one"}
+{"op":"message","pattern":"\\\\{} {}","arguments":[],"output":"\\\\{} {}"}
+{"op":"message","pattern":"\\\\{} {}","arguments":["one"],"output":"\\one {}"}
+{"op":"message","pattern":"\\\\{} {}","arguments":["one","two","three"],"output":"\\one two"}
+{"op":"message","pattern":"\\\\\\{} {}","arguments":[],"output":"\\\\\\{} {}"}
+{"op":"message","pattern":"\\\\\\{} {}","arguments":["one"],"output":"\\\\one {}"}
+{"op":"message","pattern":"\\\\\\{} {}","arguments":["one","two","three"],"output":"\\\\one two"}
+{"op":"message","pattern":"no args","arguments":[],"output":"no args"}
+{"op":"message","pattern":"no args","arguments":["one"],"output":"no args"}
+{"op":"message","pattern":"no args","arguments":["one","two","three"],"output":"no args"}
+{"op":"message","pattern":"{}","arguments":[],"output":"{}"}
+{"op":"message","pattern":"{}","arguments":["one"],"output":"one"}
+{"op":"message","pattern":"{}","arguments":["one","two","three"],"output":"one"}
+{"op":"message","pattern":"{} {} {}","arguments":[],"output":"{} {} {}"}
+{"op":"message","pattern":"{} {} {}","arguments":["one"],"output":"one {} {}"}
+{"op":"message","pattern":"{} {} {}","arguments":["one","two","three"],"output":"one two three"}
+{"op":"ansi","input":"before\u001b[Cafter","output":"before after"}
+{"op":"ansi","input":"before\u001b[2Cafter","output":"before  after"}
+{"op":"ansi","input":"before\u001b[;Cafter","output":"before after"}
+{"op":"ansi","input":"before\u001b[0Cafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[Eafter","output":"before\nafter"}
+{"op":"ansi","input":"before\u001b[2;3Eafter","output":"before\n\nafter"}
+{"op":"ansi","input":"before\u001b[;Eafter","output":"before\nafter"}
+{"op":"ansi","input":"before\u001b[Gafter","output":"before\u001b[Gafter"}
+{"op":"ansi","input":"before\u001b[;Gafter","output":"before\u001b[;Gafter"}
+{"op":"ansi","input":"before\u001b[?25Gafter","output":"before\u001b[?25Gafter"}
+{"op":"ansi","input":"before\u001b[=1Gafter","output":"before\u001b[=1Gafter"}
+{"op":"ansi","input":"before\u001b[5Gafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[05Gafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[5;6Gafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[2147483647Gafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[31mred\u001b[0mafter","output":"beforeredafter"}
+{"op":"ansi","input":"before\u001b[2Jafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[1;2Hafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[?25lafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[?1049hafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[zafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[12zafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b]0;title\u0007after","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b]2;title\u001b\\after","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b]8;;url\u001b\\link\u001b]8;;\u001b\\after","output":"beforelinkafter"}
+{"op":"ansi","input":"before\u001b7after","output":"before\u001b7after"}
+{"op":"ansi","input":"before\u001b8after","output":"before\u001b8after"}
+{"op":"ansi","input":"before\u001b(0after","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b(Bafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001bXafter","output":"before\u001bXafter"}
+{"op":"ansi","input":"before\u001b[after","output":"beforefter"}
+{"op":"ansi","input":"before\u001bafter","output":"before\u001bafter"}
+{"op":"ansi","input":"before\u001b[brokenafter","output":"beforerokenafter"}
+{"op":"ansi","input":"before\u001b[11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111mafter","output":"before\u001b[11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111mafter"}
+{"op":"ansi","input":"before\u001b[38;2;255;100;50mafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[3Kafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[10Aafter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[safter","output":"beforeafter"}
+{"op":"ansi","input":"before\u001b[uafter","output":"beforeafter"}
+{"op":"throwable","throwable":{"class":"java.lang.IllegalStateException","message":"outer","frames":["example.Outer.run(Outer.kt:10)","example.Main.main(Main.kt:3)"],"cause":{"class":"java.lang.RuntimeException","message":"middle","frames":["example.Middle.run(Middle.kt:9)","example.Main.main(Main.kt:3)"],"cause":{"class":"java.lang.IllegalArgumentException","message":"inner","frames":["example.Inner.run(Inner.kt:8)","example.Main.main(Main.kt:3)"],"cause":null}}},"output":"java.lang.IllegalStateException: outer\n\tat example.Outer.run(Outer.kt:10)\n\tat example.Main.main(Main.kt:3)\nCaused by: java.lang.RuntimeException: middle\n\tat example.Middle.run(Middle.kt:9)\n\t... 1 common frames omitted\nCaused by: java.lang.IllegalArgumentException: inner\n\tat example.Inner.run(Inner.kt:8)\n\t... 1 common frames omitted\n"}

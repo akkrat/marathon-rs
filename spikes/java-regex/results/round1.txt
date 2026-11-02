@@ -1,0 +1,363 @@
+java_regex FAIL unicode-classes-009 matches "\\p{IsAlphabetic}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: IsAlphabetic")
+java_regex FAIL unicode-classes-016 matches "\\p{Space}"
+    input[9] "\u{b}": expected true, got false
+java_regex FAIL unicode-classes-030 matches "\\p{IsWhite_Space}"
+    input[9] "\u{b}": expected true, got false
+    input[12] "\u{a0}": expected true, got false
+    input[13] "\u{2007}": expected true, got false
+    input[14] "\u{3000}": expected true, got false
+    input[32] "\u{85}": expected true, got false
+java_regex FAIL flags-013 matches "(?U)(?i)ж"
+    input[8] "Ж": expected true, got false
+java_regex FAIL flags-174 findAll "(?U)(?i)k"
+    input[9] "K": expected [{"groups":["K"],"range":[0,1]}], got []
+java_regex FAIL flags-175 findAll "(?U:(?i)k)"
+    input[9] "K": expected [{"groups":["K"],"range":[0,1]}], got []
+java_regex APPROVED advanced-022: empty-match UTF-16 midpoint
+java_regex APPROVED advanced-025: empty-match UTF-16 midpoint
+java_regex APPROVED advanced-027: empty-match UTF-16 midpoint
+java_regex FAIL advanced-034 findAll "\\N{LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 3")
+java_regex FAIL advanced-038 findAll "\\p{javaJavaIdentifierStart}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: javaJavaIdentifierStart")
+java_regex FAIL advanced-039 findAll "a\\b{g}b"
+    Java compiles it; the backend does not: Syntax("\\b{g} grapheme cluster boundary is not supported")
+java_regex FAIL advanced-041 findAll "(?c)a"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex PROVEN adversarial-008: oracle aborted; mandatory-final-literal proof returns false
+java_regex FAIL invalid-024 find "\\x{110000}"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL invalid-027 find "\\i"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-018 matches "[a&&]"
+    Java compiles it; the backend does not: Syntax("Empty intersection operand")
+java_regex FAIL round1-019 matches "[&&a]"
+    input[1] "a": expected true, got false
+java_regex FAIL round1-023 matches "[\\Qabc\\E-z]"
+    input[4] "d": expected true, got false
+    input[12] "x": expected true, got false
+java_regex FAIL round1-026 matches "(?x)a{2, 3}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 9")
+java_regex FAIL round1-027 matches "(?x)a* ?"
+    Java compiles it; the backend does not: Syntax("Dangling meta character '?'")
+java_regex FAIL round1-030 matches "(?i--i)a"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-051 findAll "(?U)\\b"
+    input[0] "\u{301}": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}], got [{"groups":[""],"range":[1,1]}]
+    input[3] "\u{200c}\u{301}": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}], got []
+    input[6] "Ᲊ": expected [], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}]
+java_regex FAIL round1-052 findAll "(?U)\\B"
+    input[0] "\u{301}": expected [], got [{"groups":[""],"range":[0,0]}]
+    input[3] "\u{200c}\u{301}": expected [{"groups":[""],"range":[1,1]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}]
+    input[5] "😀": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}]
+    input[6] "Ᲊ": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}], got []
+java_regex FAIL round1-053 findAll "\\b"
+    input[2] "é\u{301}": expected [{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}], got []
+    input[4] "_\u{301}": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}]
+java_regex FAIL round1-054 findAll "\\B"
+    input[2] "é\u{301}": expected [{"groups":[""],"range":[0,0]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}]
+    input[4] "_\u{301}": expected [{"groups":[""],"range":[2,2]}], got [{"groups":[""],"range":[1,1]}]
+    input[5] "😀": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}]
+java_regex FAIL round1-081 matches "\\p{sc=Adlm}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: sc=Adlm")
+java_regex FAIL round1-082 matches "\\p{InHighSurrogates}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: InHighSurrogates")
+java_regex FAIL round1-083 matches "\\p{L}"
+    input[4] "Ᲊ": expected false, got true
+    input[5] "ᲊ": expected false, got true
+java_regex FAIL round1-084 matches "(?iu)\\u1c89"
+    input[5] "ᲊ": expected false, got true
+java_regex FAIL round1-086 matches "\\b{2}"
+    Java compiles it; the backend does not: Syntax("\\b{g} grapheme cluster boundary is not supported")
+java_regex FAIL round1-088 matches "\\N"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-097 matches "(?x)( ?i)a"
+    Java compiles it; the backend does not: Syntax("Dangling meta character '?'")
+java_regex FAIL round1-098 matches "(?x)(?i :a)"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-099 matches "(?x)[a- z]"
+    Java compiles it; the backend does not: Syntax("Invalid range: a- ")
+java_regex FAIL round1-102 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+java_regex FAIL round1-105 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",a"]
+java_regex FAIL round1-106 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+java_regex FAIL round1-107 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+java_regex FAIL round1-110 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,",""], got ["","a",",a"]
+java_regex FAIL round1-111 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+java_regex FAIL round1-112 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+java_regex FAIL round1-115 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","a"]
+java_regex FAIL round1-116 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+java_regex FAIL round1-124 matches "(?c)é"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-135 matches "(?x)(? i)a"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-136 matches "(?x)(?< a >a)"
+    Java compiles it; the backend does not: Syntax("Empty group name")
+java_regex FAIL round1-138 matches "(?--i)a"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-139 matches "(?i--m)a"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-143 matches "\\b{2}a"
+    Java compiles it; the backend does not: Syntax("\\b{g} grapheme cluster boundary is not supported")
+java_regex FAIL round1-148 matches "\\p{InBasic-Latin}"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-150 matches "(?u)(?-U)(?i)k"
+    input[5] "K": expected false, got true
+java_regex FAIL round1-151 matches "[\\Q\\E]"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-153 matches "\\p{sc=Deva}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: sc=Deva")
+java_regex FAIL round1-154 matches "\\p{Lu}"
+    input[0] "Ᲊ": expected false, got true
+java_regex FAIL round1-155 matches "\\p{Cn}"
+    input[0] "Ᲊ": expected true, got false
+    input[1] "ᲊ": expected true, got false
+java_regex FAIL round1-156 matches "(?iu)Ɤ"
+    input[5] "ɤ": expected false, got true
+java_regex FAIL round1-157 matches "(?iu)Ᲊ"
+    input[1] "ᲊ": expected false, got true
+java_regex FAIL round1-158 matches "(?U)\\w"
+    input[0] "Ᲊ": expected false, got true
+    input[1] "ᲊ": expected false, got true
+    input[6] "\u{200c}": expected true, got false
+java_regex FAIL round1-159 matches "\\p{javaJavaIdentifierStart}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: javaJavaIdentifierStart")
+java_regex FAIL round1-160 matches "\\P{javaJavaIdentifierPart}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: javaJavaIdentifierPart")
+java_regex FAIL round1-161 matches "\\p{javaUnicodeIdentifierStart}"
+    input[0] "Ᲊ": expected false, got true
+    input[1] "ᲊ": expected false, got true
+java_regex FAIL round1-162 matches "\\p{javaUnicodeIdentifierPart}"
+    input[0] "Ᲊ": expected false, got true
+    input[1] "ᲊ": expected false, got true
+    input[6] "\u{200c}": expected true, got false
+java_regex FAIL round1-163 replace "\\G"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,a", got "-a-,-a-"
+java_regex FAIL round1-164 replace "\\G|a"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,--", got "-a-,-a-"
+java_regex FAIL round1-165 replace "\\G,|(?=a)"
+    input[1] "a,a": expected "-a,-a", got "-a--a"
+java_regex FAIL round1-167 matches "(?!(a|aa)+$).*"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected true, got false
+java_regex FAIL round1-168 matches "(?x)\\x 4 1"
+    Java compiles it; the backend does not: Syntax("Invalid hex escape")
+java_regex FAIL round1-169 matches "(?x)\\x{ 4 1 }"
+    Java compiles it; the backend does not: Syntax("Invalid hex escape:  4 1 ")
+java_regex FAIL round1-170 matches "(?x)\\u 0 0 4 1"
+    Java compiles it; the backend does not: Syntax("Invalid unicode escape: ")
+java_regex FAIL round1-171 matches "(?x)\\0 1 0 1"
+    Java compiles it; the backend does not: Syntax("Illegal octal escape sequence near index 6")
+java_regex FAIL round1-172 matches "(?x)\\c A"
+    input[10] "\u{1}": expected true, got false
+java_regex FAIL round1-173 matches "(?x)\\p {Lu}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round1-176 matches "(?x)(?< name >a)\\k < name >"
+    Java compiles it; the backend does not: Syntax("Empty group name")
+java_regex FAIL round1-177 matches "(?x)\\b {g }"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round1-179 matches "(?x)[a & &b]"
+    input[2] "a": expected false, got true
+    input[3] "b": expected false, got true
+    input[9] "&": expected false, got true
+java_regex FAIL round1-180 matches "(?x)\\u D 8 0 0 \\u D C 0 0"
+    Java compiles it; the backend does not: Syntax("Invalid unicode escape: ")
+java_regex FAIL round1-181 matches "(?x)\\N {LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round1-183 matches "(?x)[a- #comment\nz]"
+    Java compiles it; the backend does not: Syntax("Invalid range: a- ")
+java_regex FAIL round1-184 matches "(?x)(? #comment\n i)a"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-185 matches "(?x)a{2,#comment\n3}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 9")
+java_regex FAIL round1-188 matches "(?:(a)|b)*(?=)"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"… (1100000 bytes): expected {"error":{"class":"java.lang.StackOverflowError","message":null}}, got false
+java_regex FAIL round1-189 matches "(?=)(a)*"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (12820797) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex: slowest row adversarial-002 (801 ms)
+java_regex: aborted row adversarial-008: "proven" in 411 ms
+java_regex: aborted row round1-188: "fail" in 7 ms
+fancy-regex REJECTED unicode-classes-025 "\\X": \X: extended grapheme cluster matching is not supported by the Rust regex backend
+fancy-regex REJECTED advanced-014 "(?<=a+)b": (?<=a+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED advanced-015 "(?<=a{1,3})b": (?<=a{1,3}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex APPROVED advanced-022: empty-match UTF-16 midpoint
+fancy-regex APPROVED advanced-025: empty-match UTF-16 midpoint
+fancy-regex APPROVED advanced-027: empty-match UTF-16 midpoint
+fancy-regex REJECTED advanced-034 "\\N{LATIN SMALL LETTER A}": \N{LATIN SMALL LETTER A}: Unicode character names are not supported by the Rust regex backend
+fancy-regex REJECTED advanced-037 "(?i)(a)\\1": \1: case-insensitive backreferences fold differently in the Rust regex backend
+fancy-regex REJECTED advanced-039 "a\\b{g}b": \b{g}: grapheme cluster boundaries are not supported by the Rust regex backend
+fancy-regex REJECTED advanced-040 "\\uD800": \uD800: a lone surrogate cannot occur in Rust strings
+fancy-regex PROVEN adversarial-008: oracle aborted; mandatory-final-literal proof returns false
+fancy-regex REJECTED invalid-015 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED invalid-028 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-003 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-004 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-005 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-006 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-007 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-008 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-009 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-010 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-011 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-012 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-013 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-014 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-085 "\\x{d800}": \x{d800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-096 "ab(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-125 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-126 ".*(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-144 "\\x{D800}": \x{D800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-145 "\\uDC00": \uDC00: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-147 "[\\x{D800}]": \x{D800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-177 "(?x)\\b {g }": \b {g }: grapheme cluster boundaries are not supported by the Rust regex backend
+fancy-regex REJECTED round1-181 "(?x)\\N {LATIN SMALL LETTER A}": \N {LATIN SMALL LETTER A}: Unicode character names are not supported by the Rust regex backend
+fancy-regex REJECTED round1-190 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex: slowest row ascii-classes-010 (45 ms)
+fancy-regex: aborted row adversarial-008: "proven" in 7 ms
+fancy-regex: aborted row round1-188: "pass" in 20 ms
+pcre2 REJECTED unicode-classes-025 "\\X": \X: extended grapheme cluster matching is not supported by the Rust regex backend
+pcre2 REJECTED advanced-014 "(?<=a+)b": (?<=a+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED advanced-015 "(?<=a{1,3})b": (?<=a{1,3}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 APPROVED advanced-022: empty-match UTF-16 midpoint
+pcre2 APPROVED advanced-025: empty-match UTF-16 midpoint
+pcre2 APPROVED advanced-027: empty-match UTF-16 midpoint
+pcre2 REJECTED advanced-034 "\\N{LATIN SMALL LETTER A}": \N{LATIN SMALL LETTER A}: Unicode character names are not supported by the Rust regex backend
+pcre2 REJECTED advanced-037 "(?i)(a)\\1": \1: case-insensitive backreferences fold differently in the Rust regex backend
+pcre2 REJECTED advanced-039 "a\\b{g}b": \b{g}: grapheme cluster boundaries are not supported by the Rust regex backend
+pcre2 REJECTED advanced-040 "\\uD800": \uD800: a lone surrogate cannot occur in Rust strings
+pcre2 LIMIT adversarial-001 "(a+)+$"
+    input[3] "aaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-002 "(a|a?)+$"
+    input[3] "aaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-004 "(a|aa)+$"
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-005 "^(([a-z])+.)+[A-Z]([a-z])+$"
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-008 "(.*a){12}"
+    input[3] "aaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-009 "^(\\w+\\s?)*$"
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-012 "^(a?){25}a{25}$"
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 REJECTED invalid-015 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED invalid-028 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-003 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-004 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-005 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-006 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-007 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-008 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-009 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-010 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-011 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-012 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-013 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-014 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 FAIL round1-052 findAll "(?U)\\B"
+    input[5] "😀": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}]
+pcre2 FAIL round1-054 findAll "\\B"
+    input[5] "😀": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}]
+pcre2 REJECTED round1-085 "\\x{d800}": \x{d800}: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round1-096 "ab(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 FAIL round1-102 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+pcre2 FAIL round1-105 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",a"]
+pcre2 FAIL round1-106 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+pcre2 FAIL round1-107 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+pcre2 FAIL round1-110 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,",""], got ["","a",",a"]
+pcre2 FAIL round1-111 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+pcre2 FAIL round1-112 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+pcre2 FAIL round1-115 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","a"]
+pcre2 FAIL round1-116 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+pcre2 REJECTED round1-125 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-126 ".*(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-144 "\\x{D800}": \x{D800}: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round1-145 "\\uDC00": \uDC00: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round1-147 "[\\x{D800}]": \x{D800}: a lone surrogate cannot occur in Rust strings
+pcre2 FAIL round1-163 replace "\\G"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,a", got "-a-,-a-"
+pcre2 FAIL round1-164 replace "\\G|a"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,--", got "-a-,-a-"
+pcre2 FAIL round1-165 replace "\\G,|(?=a)"
+    input[1] "a,a": expected "-a,-a", got "-a--a"
+pcre2 LIMIT round1-166 "(?:(?=)(a?){22}a{22}|a{22})"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaa": expected true, got {"aborted":true}
+pcre2 LIMIT round1-167 "(?!(a|aa)+$).*"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected true, got {"aborted":true}
+pcre2 REJECTED round1-177 "(?x)\\b {g }": \b {g }: grapheme cluster boundaries are not supported by the Rust regex backend
+pcre2 REJECTED round1-181 "(?x)\\N {LATIN SMALL LETTER A}": \N {LATIN SMALL LETTER A}: Unicode character names are not supported by the Rust regex backend
+pcre2 LIMIT round1-189 "(?=)(a)*"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"… (1100000 bytes): expected true, got {"aborted":true}
+pcre2 REJECTED round1-190 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2: slowest row adversarial-012 (229 ms)
+pcre2: aborted row adversarial-008: "limit" in 67 ms
+pcre2: aborted row round1-188: "pass" in 15 ms
+
+| Family | java_regex | fancy-regex | pcre2 |
+|---|---|---|---|
+| ascii-classes | 13/13 | 13/13 | 13/13 |
+| unicode-classes | 27/30 +3 fail | 29/30 +1 D6 | 29/30 +1 D6 |
+| flags | 175/178 +3 fail | 178/178 | 178/178 |
+| flag-scope | 18/18 | 18/18 | 18/18 |
+| anchors | 30/30 | 30/30 | 30/30 |
+| dot | 9/9 | 9/9 | 9/9 |
+| quoting | 10/10 | 10/10 | 10/10 |
+| advanced | 34/41 +4 fail +3 approved | 32/41 +3 approved +6 D6 | 32/41 +3 approved +6 D6 |
+| hardcoded | 24/24 | 24/24 | 24/24 |
+| split | 4/4 | 4/4 | 4/4 |
+| user-realistic | 9/9 | 9/9 | 9/9 |
+| adversarial | 11/12 +1 proven | 11/12 +1 proven | 5/12 +7 limit |
+| invalid | 28/30 +2 fail | 28/30 +2 D6 | 28/30 +2 D6 |
+| round1 | 123/190 +67 fail | 168/190 +22 D6 | 151/190 +3 limit +14 fail +22 D6 |
+| **all** | **515/598 +79 fail +1 proven +3 approved** | **563/598 +1 proven +3 approved +31 D6** | **540/598 +10 limit +14 fail +3 approved +31 D6** |

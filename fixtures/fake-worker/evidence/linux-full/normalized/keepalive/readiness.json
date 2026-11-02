@@ -1,0 +1,6 @@
+{
+  "endpoint": "127.0.0.1:<port-10>",
+  "host_key_fingerprint": "<host-key>",
+  "run": "keepalive",
+  "schema": 1
+}

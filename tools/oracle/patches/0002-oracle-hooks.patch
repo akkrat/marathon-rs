@@ -1,0 +1,1017 @@
+diff --git a/analytics/usage/build.gradle.kts b/analytics/usage/build.gradle.kts
+index 259404c0..ea6fbdb0 100644
+--- a/analytics/usage/build.gradle.kts
++++ b/analytics/usage/build.gradle.kts
+@@ -10,6 +10,7 @@ setupKotlinCompiler()
+ setupTestTask()
+ 
+ dependencies {
++    implementation(project(":oracle-hooks"))
+     implementation(Libraries.okhttp)
+     implementation(Libraries.kotlinStdLib)
+     testRuntimeOnly(TestLibraries.jupiterEngine)
+diff --git a/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/GrafanaCloud.kt b/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/GrafanaCloud.kt
+index 5988e557..4c2f8ae3 100644
+--- a/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/GrafanaCloud.kt
++++ b/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/GrafanaCloud.kt
+@@ -23,7 +23,7 @@ class GrafanaCloud : UsageTracker {
+         tags["version"] = version
+         tags["releaseMode"] = releaseMode
+         tags["vendor"] = vendor
+-        tags["id"] = UUID.randomUUID().toString()
++        tags["id"] = oracle.hooks.OracleHooks.uuid("usage.GrafanaCloud.id")
+     }
+ 
+     private fun sendEvents(events: Collection<Event>) {
+diff --git a/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/Metric.kt b/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/Metric.kt
+index 78da4a95..e3a64a57 100644
+--- a/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/Metric.kt
++++ b/analytics/usage/src/main/kotlin/com/malinskiy/marathon/usageanalytics/tracker/Metric.kt
+@@ -3,7 +3,7 @@ package com.malinskiy.marathon.usageanalytics.tracker
+ data class Metric(
+     val name: String,
+     val value: Number,
+-    val time: Long = System.currentTimeMillis() / 1000,
++    val time: Long = oracle.hooks.OracleHooks.currentTimeMillis("usage.Metric.time") / 1000,
+     val interval: Int = 1,
+     val tags: Map<String, String> = emptyMap(),
+ ) {
+diff --git a/cli/src/main/resources/logback.xml b/cli/src/main/resources/logback.xml
+index a39a779f..6eeeacd1 100644
+--- a/cli/src/main/resources/logback.xml
++++ b/cli/src/main/resources/logback.xml
+@@ -1,6 +1,6 @@
+ <configuration>
+   <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+-    <encoder>
++    <encoder class="oracle.hooks.HookPatternLayoutEncoder">
+       <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+     </encoder>
+   </appender>
+diff --git a/configuration/build.gradle.kts b/configuration/build.gradle.kts
+index 4be21501..787c9c0d 100644
+--- a/configuration/build.gradle.kts
++++ b/configuration/build.gradle.kts
+@@ -6,6 +6,7 @@ plugins {
+ }
+ 
+ dependencies {
++    api(project(":oracle-hooks"))
+     api(Libraries.jacksonDatabind)
+     api(Libraries.jacksonAnnotations)
+     api(Libraries.jacksonKotlin)
+diff --git a/configuration/src/main/kotlin/com/malinskiy/marathon/config/Configuration.kt b/configuration/src/main/kotlin/com/malinskiy/marathon/config/Configuration.kt
+index 2bcb21dc..d4fe4c5c 100644
+--- a/configuration/src/main/kotlin/com/malinskiy/marathon/config/Configuration.kt
++++ b/configuration/src/main/kotlin/com/malinskiy/marathon/config/Configuration.kt
+@@ -56,27 +56,27 @@ data class Configuration private constructor(
+         mapOf<String, String>(
+             "name" to name,
+             "outputDir" to outputDir.absolutePath,
+-            "outputConfiguration" to outputConfiguration.toString(),
+-            "analyticsConfiguration" to analyticsConfiguration.toString(),
+-            "pooling" to poolingStrategy.toString(),
+-            "sharding" to shardingStrategy.toString(),
+-            "sorting" to sortingStrategy.toString(),
+-            "batching" to batchingStrategy.toString(),
+-            "flakiness" to flakinessStrategy.toString(),
+-            "retry" to retryStrategy.toString(),
+-            "filtering" to filteringConfiguration.toString(),
+-            "ignoreFailures" to ignoreFailures.toString(),
+-            "isCodeCoverageEnabled" to isCodeCoverageEnabled.toString(),
+-            "executionStrategy" to executionStrategy.toString(),
+-            "includeSerialRegexes" to includeSerialRegexes.toString(),
+-            "excludeSerialRegexes" to excludeSerialRegexes.toString(),
+-            "testBatchTimeoutMillis" to testBatchTimeoutMillis.toString(),
+-            "testOutputTimeoutMillis" to testOutputTimeoutMillis.toString(),
+-            "debug" to debug.toString(),
+-            "screenRecordingPolicy" to screenRecordingPolicy.toString(),
+-            "vendorConfiguration" to vendorConfiguration.toString(),
+-            "deviceInitializationTimeoutMillis" to deviceInitializationTimeoutMillis.toString(),
+-            "ciConfiguration" to ciConfiguration.toString(),
++            "outputConfiguration" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", outputConfiguration),
++            "analyticsConfiguration" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", analyticsConfiguration),
++            "pooling" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", poolingStrategy),
++            "sharding" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", shardingStrategy),
++            "sorting" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", sortingStrategy),
++            "batching" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", batchingStrategy),
++            "flakiness" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", flakinessStrategy),
++            "retry" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", retryStrategy),
++            "filtering" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", filteringConfiguration),
++            "ignoreFailures" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", ignoreFailures),
++            "isCodeCoverageEnabled" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", isCodeCoverageEnabled),
++            "executionStrategy" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", executionStrategy),
++            "includeSerialRegexes" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", includeSerialRegexes),
++            "excludeSerialRegexes" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", excludeSerialRegexes),
++            "testBatchTimeoutMillis" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", testBatchTimeoutMillis),
++            "testOutputTimeoutMillis" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", testOutputTimeoutMillis),
++            "debug" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", debug),
++            "screenRecordingPolicy" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", screenRecordingPolicy),
++            "vendorConfiguration" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", vendorConfiguration),
++            "deviceInitializationTimeoutMillis" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", deviceInitializationTimeoutMillis),
++            "ciConfiguration" to oracle.hooks.OracleHooks.identities("config.Configuration.identities", ciConfiguration),
+         )
+ 
+     override fun equals(other: Any?): Boolean {
+diff --git a/configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/time/InstantTimeProviderImpl.kt b/configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/time/InstantTimeProviderImpl.kt
+index 0e41d977..12a3484d 100644
+--- a/configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/time/InstantTimeProviderImpl.kt
++++ b/configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/time/InstantTimeProviderImpl.kt
+@@ -3,5 +3,5 @@ package com.malinskiy.marathon.config.serialization.time
+ import java.time.Instant
+ 
+ class InstantTimeProviderImpl : InstantTimeProvider {
+-    override fun referenceTime(): Instant = Instant.now()
++    override fun referenceTime(): Instant = oracle.hooks.OracleHooks.instant("config.InstantTimeProviderImpl.referenceTime")
+ }
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt b/core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt
+index 98cacfd9..34e7330f 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt
+@@ -68,7 +68,7 @@ class Marathon(
+         logConfigurator.configure()
+     }
+ 
+-    fun run(executionCommand: ExecutionCommand = MarathonRunCommand): Boolean = runBlocking {
++    fun run(executionCommand: ExecutionCommand = MarathonRunCommand): Boolean = oracle.hooks.OracleHooks.runBlocking("core.Marathon.run") {
+         try {
+             supervisorScope {
+                 val child = async {
+@@ -104,7 +104,7 @@ class Marathon(
+ 
+     suspend fun runAsync(executionCommand: ExecutionCommand = MarathonRunCommand): Boolean {
+         var parsedAllTests: List<Test> = emptyList()
+-        measureTimeMillis {
++        oracle.hooks.measureTimeMillis("core.Marathon.runAsync.parsing") {
+             configureLogging()
+ 
+             logSystemInformation()
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/actor/Actor.kt b/core/src/main/kotlin/com/malinskiy/marathon/actor/Actor.kt
+index 712ea4e9..a593e710 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/actor/Actor.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/actor/Actor.kt
+@@ -26,14 +26,14 @@ abstract class Actor<in T>(
+     private val actorJob = Job(parent)
+ 
+     @ObsoleteCoroutinesApi
+-    private val delegate = actor<T>(
++    private val delegate = oracle.hooks.OracleHooks.mailbox("core.Actor.mailbox", javaClass.simpleName, actor<T>(
+         capacity = Channel.UNLIMITED,
+         context = coroutineContext
+     ) {
+         for (msg in channel) {
+             receive(msg)
+         }
+-    }
++    })
+ 
+     @ExperimentalCoroutinesApi
+     override val isClosedForSend: Boolean
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/analytics/MappingTracker.kt b/core/src/main/kotlin/com/malinskiy/marathon/analytics/MappingTracker.kt
+index 1844ccf4..8144666c 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/analytics/MappingTracker.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/analytics/MappingTracker.kt
+@@ -14,11 +14,11 @@ import java.time.Instant
+ 
+ class MappingTracker(private val trackerInternal: TrackerInternal) : Tracker {
+     override fun deviceConnected(poolId: DevicePoolId, device: DeviceInfo) {
+-        trackerInternal.track(DeviceConnectedEvent(Instant.now(), poolId, device))
++        trackerInternal.track(DeviceConnectedEvent(oracle.hooks.OracleHooks.instant("core.MappingTracker.deviceConnected"), poolId, device))
+     }
+ 
+     override fun deviceDisconnected(poolId: DevicePoolId, device: DeviceInfo) {
+-        trackerInternal.track(DeviceDisconnectedEvent(Instant.now(), poolId, device))
++        trackerInternal.track(DeviceDisconnectedEvent(oracle.hooks.OracleHooks.instant("core.MappingTracker.deviceDisconnected"), poolId, device))
+     }
+ 
+     override fun deviceProviderInit(serialNumber: String, startTime: Instant, finishTime: Instant) {
+@@ -30,6 +30,6 @@ class MappingTracker(private val trackerInternal: TrackerInternal) : Tracker {
+     }
+ 
+     override fun test(poolId: DevicePoolId, device: DeviceInfo, testResult: TestResult, final: Boolean) {
+-        trackerInternal.track(TestEvent(Instant.now(), poolId, device, testResult, final))
++        trackerInternal.track(TestEvent(oracle.hooks.OracleHooks.instant("core.MappingTracker.test"), poolId, device, testResult, final))
+     }
+ }
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt b/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
+index 829e185c..4715619d 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
+@@ -53,13 +53,13 @@ class MetricsProviderImpl(
+         val key = MeasurementKey(limit = limit)
+ 
+         if (!successRateMeasurements.containsKey(key)) {
+-            val started = System.nanoTime()
++            val started = oracle.hooks.OracleHooks.nanoTime("core.MetricsProviderImpl.successRate")
+             successRateMeasurements[key] = runCatching {
+                 fetchSuccessRateData(limit)
+             }.onFailure {
+                 logger.warn(it) { "Cannot fetch success rate from database" }
+             }.also { result ->
+-                TimingLog.info { "Success rate history query (since $limit) ${result.describe()} in ${(System.nanoTime() - started) / 1_000_000} ms" }
++                TimingLog.info { "Success rate history query (since $limit) ${result.describe()} in ${(oracle.hooks.OracleHooks.nanoTime("core.MetricsProviderImpl.successRate") - started) / 1_000_000} ms" }
+             }.fold({ list ->
+                        MeasurementValues(list.associateBy({ it.testName }, { it.mean }))
+                    }, {
+@@ -103,7 +103,7 @@ class MetricsProviderImpl(
+ 
+     private fun executionTimes(percentile: Double, limit: Instant): MeasurementValues {
+         return executionTimeMeasurements.getOrPut(MeasurementKey(percentile, limit)) {
+-            val started = System.nanoTime()
++            val started = oracle.hooks.OracleHooks.nanoTime("core.MetricsProviderImpl.executionTimes")
+             runCatching {
+                 fetchExecutionTime(percentile, limit)
+             }.onFailure {
+@@ -111,7 +111,7 @@ class MetricsProviderImpl(
+             }.also { result ->
+                 TimingLog.info {
+                     "Execution time history query (percentile $percentile since $limit) ${result.describe()} in " +
+-                        "${(System.nanoTime() - started) / 1_000_000} ms"
++                        "${(oracle.hooks.OracleHooks.nanoTime("core.MetricsProviderImpl.executionTimes") - started) / 1_000_000} ms"
+                 }
+             }.fold({ list ->
+                        logger.debug { list }
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/graphite/BasicGraphiteClient.kt b/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/graphite/BasicGraphiteClient.kt
+index 26db68a6..5d6b119b 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/graphite/BasicGraphiteClient.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/analytics/external/graphite/BasicGraphiteClient.kt
+@@ -17,7 +17,7 @@ import java.time.Instant
+ data class GraphiteMetric(
+     val metricName: String,
+     val metricValue: String,
+-    val timestamp: Long = Instant.now().toEpochMilli()
++    val timestamp: Long = oracle.hooks.OracleHooks.instant("core.BasicGraphiteClient.timestamp").toEpochMilli()
+ )
+ 
+ interface GraphiteClient {
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/pub/Track.kt b/core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/pub/Track.kt
+index 75c3383a..9497a8ab 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/pub/Track.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/pub/Track.kt
+@@ -36,17 +36,17 @@ class Track : Tracker {
+     }
+ 
+     suspend fun trackDevicePreparing(device: Device, block: suspend () -> Unit) {
+-        val start = Instant.now()
++        val start = oracle.hooks.OracleHooks.instant("core.Track.trackDevicePreparing")
+         block.invoke()
+-        val finish = Instant.now()
++        val finish = oracle.hooks.OracleHooks.instant("core.Track.trackDevicePreparing")
+ 
+         devicePreparing(device.serialNumber, start, finish)
+     }
+ 
+     suspend fun trackProviderDevicePreparing(device: Device, block: suspend () -> Unit) {
+-        val start = Instant.now()
++        val start = oracle.hooks.OracleHooks.instant("core.Track.trackProviderDevicePreparing")
+         block.invoke()
+-        val finish = Instant.now()
++        val finish = oracle.hooks.OracleHooks.instant("core.Track.trackProviderDevicePreparing")
+ 
+         deviceProviderInit(device.serialNumber, start, finish)
+     }
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/device/file/FileTransferExtensions.kt b/core/src/main/kotlin/com/malinskiy/marathon/device/file/FileTransferExtensions.kt
+index 98b3382c..7227e524 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/device/file/FileTransferExtensions.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/device/file/FileTransferExtensions.kt
+@@ -6,11 +6,11 @@ import kotlin.system.measureTimeMillis
+ 
+ inline fun <T : Any> Device.measureFileTransfer(file: File, block: () -> T): T {
+     var result: T
+-    val start = System.currentTimeMillis()
++    val start = oracle.hooks.OracleHooks.currentTimeMillis("core.FileTransferExtensions.measureFileTransfer")
+     try {
+         result = block()
+     } finally {
+-        val time = System.currentTimeMillis() - start
++        val time = oracle.hooks.OracleHooks.currentTimeMillis("core.FileTransferExtensions.measureFileTransfer") - start
+         if(file.exists()) {
+             val fileSize = file.length()
+             val timeInSeconds = time.toDouble() / 1000
+@@ -31,7 +31,7 @@ inline fun <T : Any> Device.measureFileTransfer(file: File, block: () -> T): T {
+ 
+ inline fun <T : Any> Device.measureFolderTransfer(file: File, block: () -> T): T {
+     var result: T
+-    measureTimeMillis {
++    oracle.hooks.measureTimeMillis("core.FileTransferExtensions.measureFolderTransfer") {
+         result = block()
+     }.let { time ->
+         if(file.exists() && file.isDirectory) {
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/ScreenCapturer.kt b/core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/ScreenCapturer.kt
+index 8f82c300..cf5501ea 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/ScreenCapturer.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/ScreenCapturer.kt
+@@ -42,7 +42,7 @@ class ScreenCapturer(
+             writer = GifSequenceWriter(outputStream, BufferedImage.TYPE_INT_ARGB, delayMillis, true)
+             var targetRotation = detectCurrentDeviceOrientation()
+             while (coroutineContext.isActive) {
+-                val capturingTimeMillis = measureTimeMillis {
++                val capturingTimeMillis = oracle.hooks.measureTimeMillis("core.ScreenCapturer.capture") {
+                     getScreenshot(targetRotation)?.let {
+                         writer.writeToSequence(it)
+                         capturesTaken++
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/di/Modules.kt b/core/src/main/kotlin/com/malinskiy/marathon/di/Modules.kt
+index a863a367..9bc14344 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/di/Modules.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/di/Modules.kt
+@@ -45,7 +45,7 @@ val coreModule = module {
+             .registerTypeAdapter(File::class.java, FileSerializer())
+             .create()
+     }
+-    single<Clock> { Clock.systemDefaultZone() }
++    single<Clock> { oracle.hooks.OracleHooks.clock("core.di.Clock", Clock.systemDefaultZone()) }
+     single<Timer> { SystemTimer(get()) }
+     single {
+         val configuration = get<Configuration>()
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/execution/Scheduler.kt b/core/src/main/kotlin/com/malinskiy/marathon/execution/Scheduler.kt
+index 7c96c986..97ac58f3 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/execution/Scheduler.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/execution/Scheduler.kt
+@@ -73,7 +73,7 @@ class Scheduler(
+ 
+     private fun subscribeOnDevices(job: Job): Job {
+         return launch {
+-            for (msg in deviceProvider.subscribe()) {
++            for (msg in oracle.hooks.OracleHooks.mailbox("core.Scheduler.deviceEvents", "Scheduler.deviceEvents", deviceProvider.subscribe())) {
+                 when (msg) {
+                     is DeviceProvider.DeviceEvent.DeviceConnected -> {
+                         onDeviceConnected(msg, job, coroutineContext)
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceActor.kt b/core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceActor.kt
+index 3287c124..baef2f72 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceActor.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/execution/device/DeviceActor.kt
+@@ -167,7 +167,7 @@ class DeviceActor(
+                 withRetry(30, 10000) {
+                     if (isActive) {
+                         try {
+-                            device.prepare(configuration)
++                            oracle.hooks.OracleHooks.event("core.DeviceActor.prepare", device.serialNumber) { device.prepare(configuration) }
+                         } catch (e: CancellationException) {
+                             throw e
+                         } catch (e: Exception) {
+@@ -188,7 +188,9 @@ class DeviceActor(
+         logger.debug { "executeBatch ${device.serialNumber}" }
+         executeJob = async {
+             try {
+-                device.execute(configuration, devicePoolId, batch, result)
++                oracle.hooks.OracleHooks.event("core.DeviceActor.execute", device.serialNumber) {
++                    device.execute(configuration, devicePoolId, batch, result)
++                }
+                 state.transition(DeviceEvent.Complete)
+             } catch (e: CancellationException) {
+                 logger.warn(e) { "Device execution has been cancelled" }
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/execution/result/TemporalTestResult.kt b/core/src/main/kotlin/com/malinskiy/marathon/execution/result/TemporalTestResult.kt
+index 52b58f3a..6f264d15 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/execution/result/TemporalTestResult.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/execution/result/TemporalTestResult.kt
+@@ -4,7 +4,7 @@ import com.malinskiy.marathon.execution.TestStatus
+ 
+ data class TemporalTestResult(
+     var status: TestStatus = TestStatus.INCOMPLETE,
+-    var startTime: Long = System.currentTimeMillis(),
++    var startTime: Long = oracle.hooks.OracleHooks.currentTimeMillis("core.TemporalTestResult.startTime"),
+     var endTime: Long = 0,
+     var stackTrace: String? = null,
+     var metrics: Map<String, String>? = null
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/RandomOrderSortingStrategy.kt b/core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/RandomOrderSortingStrategy.kt
+index 78976795..dd8078fd 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/RandomOrderSortingStrategy.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/RandomOrderSortingStrategy.kt
+@@ -10,7 +10,7 @@ class RandomOrderSortingStrategy : SortingStrategy {
+ 
+     override fun process(metricsProvider: MetricsProvider): Comparator<Test> {
+         return Comparator.comparingInt {
+-            cache.computeIfAbsent(it) { Random.nextInt() }
++            cache.computeIfAbsent(it) { oracle.hooks.OracleHooks.nextInt("core.RandomOrderSortingStrategy.key") }
+         }
+     }
+ }
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/report/allure/AllureReporter.kt b/core/src/main/kotlin/com/malinskiy/marathon/report/allure/AllureReporter.kt
+index 8d56e542..4bfe220a 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/report/allure/AllureReporter.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/report/allure/AllureReporter.kt
+@@ -51,7 +51,7 @@ class AllureReporter(val configuration: Configuration, private val outputDirecto
+ 
+     override fun generate(executionReport: ExecutionReport) {
+         executionReport.testEvents.forEach { testEvent ->
+-            val uuid = UUID.randomUUID().toString()
++            val uuid = oracle.hooks.OracleHooks.uuid("core.AllureReporter.uuid")
+             val allureResults = createTestResult(uuid, testEvent.device, testEvent.testResult)
+             lifecycle.scheduleTestCase(uuid, allureResults)
+             lifecycle.writeTestCase(uuid)
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/report/bill/BillingReporter.kt b/core/src/main/kotlin/com/malinskiy/marathon/report/bill/BillingReporter.kt
+index f2aebf63..24cd7007 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/report/bill/BillingReporter.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/report/bill/BillingReporter.kt
+@@ -18,7 +18,7 @@ internal class BillingReporter(
+     private val gson: Gson,
+     private val usageTracker: UsageTracker,
+ ) : Reporter {
+-    private val defaultStart = Instant.now()
++    private val defaultStart = oracle.hooks.OracleHooks.instant("core.BillingReporter.defaultStart")
+     private val logger = MarathonLogging.logger {}
+     override fun generate(executionReport: ExecutionReport) {
+         val starts = mutableMapOf<String, Instant>()
+@@ -63,7 +63,7 @@ internal class BillingReporter(
+         usageTracker.trackEvent(Event.Devices(bills.size))
+         val result = executionReport.summary.pools.map { it.failed.isEmpty() }.reduceOrNull { acc, b -> acc && b } ?: true
+         val flakiness = executionReport.summary.pools.sumOf { (it.rawDurationMillis - it.durationMillis) / 1000 }
+-        val durationSeconds = ((Instant.now().toEpochMilli() - defaultStart.toEpochMilli()) / 1000)
++        val durationSeconds = ((oracle.hooks.OracleHooks.instant("core.BillingReporter.generate").toEpochMilli() - defaultStart.toEpochMilli()) / 1000)
+         usageTracker.trackEvent(Event.Executed(seconds = bills.sumOf { it.duration } / 1000,
+                                                success = result,
+                                                flakinessSeconds = flakiness,
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt b/core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt
+index 8c6f50fb..ad2d6e87 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt
+@@ -52,7 +52,7 @@ class HtmlSummaryReporter(
+ 
+         val htmlIndexJson = gson.toJson(summary.toHtmlIndex())
+ 
+-        val formattedDate = SimpleDateFormat("HH:mm:ss z, MMM d yyyy").apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
++        val formattedDate = SimpleDateFormat("HH:mm:ss z, MMM d yyyy").apply { timeZone = TimeZone.getTimeZone("UTC") }.format(oracle.hooks.OracleHooks.date("core.HtmlSummaryReporter.date"))
+ 
+         val outputDir = fileManager.createFolder(FolderType.HTML)
+ 
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/report/raw/RawJsonReporter.kt b/core/src/main/kotlin/com/malinskiy/marathon/report/raw/RawJsonReporter.kt
+index 66df01f5..2922d226 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/report/raw/RawJsonReporter.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/report/raw/RawJsonReporter.kt
+@@ -16,7 +16,7 @@ class RawJsonReporter(
+         val testResults = executionReport.testEvents.map {
+             val metaPropertiesList = it.testResult.test.metaProperties.map { metaProp ->
+                 val valuesAsStringMap = metaProp.values.mapValues { (_, value) ->
+-                    value?.toString() ?: ""
++                    oracle.hooks.OracleHooks.identities("core.RawJsonReporter.identities", value)
+                 }
+                 StringMetaProperty(
+                     name = metaProp.name,
+diff --git a/core/src/main/kotlin/com/malinskiy/marathon/test/TestBatch.kt b/core/src/main/kotlin/com/malinskiy/marathon/test/TestBatch.kt
+index b71dd669..326410cf 100644
+--- a/core/src/main/kotlin/com/malinskiy/marathon/test/TestBatch.kt
++++ b/core/src/main/kotlin/com/malinskiy/marathon/test/TestBatch.kt
+@@ -2,4 +2,4 @@ package com.malinskiy.marathon.test
+ 
+ import java.util.*
+ 
+-data class TestBatch(val tests: List<Test>, val id: String = UUID.randomUUID().toString())
++data class TestBatch(val tests: List<Test>, val id: String = oracle.hooks.OracleHooks.uuid("core.TestBatch.id"))
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index 703433d7..e9c27529 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -1,3 +1,7 @@
++// marathon-rs OracleHooks (WP 0.2b), in the patched build only
++include(":oracle-hooks")
++project(":oracle-hooks").projectDir = file("../../hooks")
++
+ pluginManagement {
+     repositories {
+         maven { url = uri("$rootDir/build/repository") }
+diff --git a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/BaseAndroidDevice.kt b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/BaseAndroidDevice.kt
+index 60f3bbcc..2bcbdc05 100644
+--- a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/BaseAndroidDevice.kt
++++ b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/BaseAndroidDevice.kt
+@@ -167,7 +167,7 @@ abstract class BaseAndroidDevice(
+                     ?: serialNumber.takeIf { it.isNotEmpty() }
+                     ?: serialProp.takeIf { it.isNotEmpty() }
+                     ?: hostName.takeIf { it.isNotEmpty() }
+-                    ?: UUID.randomUUID().toString()
++                    ?: oracle.hooks.OracleHooks.uuid("android.BaseAndroidDevice.detectRealSerialNumber")
+             }
+             SerialStrategy.MARATHON_PROPERTY -> marathonSerialProp
+             SerialStrategy.BOOT_PROPERTY -> serialProp
+@@ -201,7 +201,7 @@ abstract class BaseAndroidDevice(
+         remotePath: String
+     ) {
+         if (md5.isNotEmpty() && md5cmd.isNotEmpty()) {
+-            val syncTimeMillis = measureTimeMillis {
++            val syncTimeMillis = oracle.hooks.measureTimeMillis("android.BaseAndroidDevice.waitForRemoteFile") {
+                 do {
+                     val remoteMd5 = safeExecuteShellCommand("$md5cmd $remotePath")?.output ?: ""
+                     delay(10)
+diff --git a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt
+index 16b245e1..1302c4ee 100644
+--- a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt
++++ b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt
+@@ -154,8 +154,10 @@ class AdamDeviceProvider(
+                                     )
+                                 track.trackProviderDevicePreparing(device) {
+                                     val job = launch(setupSupervisor) {
+-                                        device.setup()
+-                                        channel.send(DeviceProvider.DeviceEvent.DeviceConnected(device))
++                                        oracle.hooks.OracleHooks.event("android.AdamDeviceProvider.connected", serial) {
++                                            device.setup()
++                                            channel.send(DeviceProvider.DeviceEvent.DeviceConnected(device))
++                                        }
+                                     }
+                                     devices[serial] = ProvidedDevice(device, job)
+                                 }
+@@ -188,7 +190,7 @@ class AdamDeviceProvider(
+             delay(200)
+             availableDevices = devices.filter { it.value.setupJob.isCompleted && !it.value.setupJob.isCancelled }
+         }
+-        return availableDevices.values.random().device
++        return oracle.hooks.OracleHooks.pick("android.AdamDeviceProvider.borrow", availableDevices.values) { it.device.serialNumber }.device
+     }
+ 
+     private suspend fun printAdbServerVersion(client: AndroidDebugBridgeClient) {
+diff --git a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/configuration/AndroidLogConfigurator.kt b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/configuration/AndroidLogConfigurator.kt
+index f5a45cbd..a46612fb 100644
+--- a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/configuration/AndroidLogConfigurator.kt
++++ b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/configuration/AndroidLogConfigurator.kt
+@@ -13,7 +13,7 @@ class AndroidLogConfigurator : MarathonLogConfigurator {
+     override fun configure() {
+         val loggerContext = LoggerFactory.getILoggerFactory() as? LoggerContext ?: return
+ 
+-        val layout = PatternLayout()
++        val layout = oracle.hooks.HookPatternLayout()
+         layout.pattern = "%highlight(%.-1level %d{HH:mm:ss.SSS} [%thread] <%logger{40}> %msg%n)"
+         layout.context = loggerContext
+         layout.start();
+diff --git a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/profiling/ProfilingRunListener.kt b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/profiling/ProfilingRunListener.kt
+index f9b62959..ee226b3a 100644
+--- a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/profiling/ProfilingRunListener.kt
++++ b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/profiling/ProfilingRunListener.kt
+@@ -115,7 +115,7 @@ class ProfilingRunListener(
+             val test = test.toTest()
+             val remoteFile = device.fileManager.remoteProfilingForTest(test, testBatch.id)
+             val localFile = fileManager.createFile(FileType.TRACING, pool, device.toDeviceInfo(), test, testBatch.id)
+-            val millis = measureTimeMillis {
++            val millis = oracle.hooks.measureTimeMillis("android.ProfilingRunListener.pullTracing") {
+                 device.safePullFile(remoteFile, localFile.toString())
+             }
+             logger.trace { "Pulling finished in ${millis}ms $remoteFile " }
+@@ -138,11 +138,11 @@ class ProfilingRunListener(
+ 
+     private suspend fun stop() {
+         logger.debug { "Stopping perfetto" }
+-        val stop = measureTimeMillis {
++        val stop = oracle.hooks.measureTimeMillis("android.ProfilingRunListener.stop") {
+             device.safeExecuteShellCommand("killall perfetto")
+         }
+         logger.debug { "Stopped perfetto: ${stop}ms" }
+-        val join = measureTimeMillis {
++        val join = oracle.hooks.measureTimeMillis("android.ProfilingRunListener.join") {
+             job?.join()
+         }
+         logger.debug { "Joining perfetto: ${join}ms" }
+diff --git a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt
+index 7af73c34..38c8f569 100644
+--- a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt
++++ b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt
+@@ -62,7 +62,7 @@ class AdamScreenCaptureTestRunListener(
+                     device.toDeviceInfo(),
+                     test.toTest(),
+                     testBatchId = testBatchId,
+-                    id = UUID.randomUUID().toString()
++                    id = oracle.hooks.OracleHooks.uuid("android.AdamScreenCaptureTestRunListener.testEnded")
+                 )
+                 device.safePullFile(path, localFile.absolutePath)
+                 logger.debug { "Received screen capture file $path" }
+diff --git a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorder.kt b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorder.kt
+index 7faeb8b1..bfe85d17 100644
+--- a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorder.kt
++++ b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorder.kt
+@@ -24,7 +24,7 @@ internal class ScreenRecorder(
+     }
+ 
+     private suspend fun startRecordingTestVideo(remoteFilePath: String) {
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("android.ScreenRecorder.startRecordingTestVideo") {
+             device.safeStartScreenRecorder(
+                 remoteFilePath = remoteFilePath,
+                 options = videoConfiguration
+diff --git a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorderTestBatchListener.kt b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorderTestBatchListener.kt
+index eb4248f0..7534aa3d 100644
+--- a/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorderTestBatchListener.kt
++++ b/vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorderTestBatchListener.kt
+@@ -119,11 +119,11 @@ class ScreenRecorderTestBatchListener(
+ 
+     private suspend fun stop() {
+         cancelNewInvocations()
+-        val stop = measureTimeMillis {
++        val stop = oracle.hooks.measureTimeMillis("android.ScreenRecorderTestBatchListener.stop") {
+             screenRecorder.stopScreenRecord()
+         }
+         logger.trace { "stop ${stop}ms" }
+-        val join = measureTimeMillis {
++        val join = oracle.hooks.measureTimeMillis("android.ScreenRecorderTestBatchListener.join") {
+             logger.trace { "cancel" }
+             supervisorJob?.cancelAndJoin()
+         }
+@@ -176,7 +176,7 @@ class ScreenRecorderTestBatchListener(
+     }
+ 
+     private suspend fun pullTestVideoFile(remoteFilePath: String, localVideoFile: File, test: Test) {
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("android.ScreenRecorderTestBatchListener.pullTestVideoFile") {
+             device.safePullFile(remoteFilePath, localVideoFile.toString())
+         }
+         logger.trace { "Pulling finished in ${millis}ms $remoteFilePath " }
+@@ -191,7 +191,7 @@ class ScreenRecorderTestBatchListener(
+              * List is ordered so the same chunked order is valid for batch videos
+              */
+             val localVideoFile = fileManager.createFile(FileType.VIDEO, pool, device.toDeviceInfo(), testBatchId = testBatchId, chunk = index.toString())
+-            val millis = measureTimeMillis {
++            val millis = oracle.hooks.measureTimeMillis("android.ScreenRecorderTestBatchListener.pullLastBatchVideo") {
+                 device.safePullFile(remoteChunkPath, localVideoFile.toString())
+             }
+             logger.trace { "Pulling finished in ${millis}ms $remoteChunkPath " }
+@@ -213,7 +213,7 @@ class ScreenRecorderTestBatchListener(
+     }
+ 
+     private suspend fun removeRemoteVideoFile(remoteFilePath: String) {
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("android.ScreenRecorderTestBatchListener.removeRemoteVideoFile") {
+             device.fileManager.removeRemotePath(remoteFilePath)
+         }
+         logger.trace { "Removed file in ${millis}ms $remoteFilePath" }
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunner.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunner.kt
+index a907e49c..bf32f9ca 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunner.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunner.kt
+@@ -99,10 +99,10 @@ class AppleDeviceTestRunner(
+      * [sessionCloseTimeout], or failed to close, is lost instead of taking another batch. A cancelled run does not keep its device anyway
+      */
+     private suspend fun closeSession(session: XcodebuildSession, runFailure: Throwable?) {
+-        val startedAt = System.nanoTime()
++        val startedAt = oracle.hooks.OracleHooks.nanoTime("apple.AppleDeviceTestRunner.closeSession")
+         val failure = session.stop(sessionCloseTimeout)
+         if (failure == null) {
+-            logger.debug { "xcodebuild session on ${device.serialNumber} closed in ${(System.nanoTime() - startedAt) / 1_000_000} ms" }
++            logger.debug { "xcodebuild session on ${device.serialNumber} closed in ${(oracle.hooks.OracleHooks.nanoTime("apple.AppleDeviceTestRunner.closeSession") - startedAt) / 1_000_000} ms" }
+             return
+         }
+         val notClosed = IllegalStateException("xcodebuild session on ${device.serialNumber} has not been closed", failure)
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleLogConfigurator.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleLogConfigurator.kt
+index 5539e32e..bf67de65 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleLogConfigurator.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleLogConfigurator.kt
+@@ -19,7 +19,7 @@ class AppleLogConfigurator(private val compactOutput: Boolean) : MarathonLogConf
+     override fun configure() {
+         val loggerContext = LoggerFactory.getILoggerFactory() as LoggerContext
+ 
+-        val layout = PatternLayout()
++        val layout = oracle.hooks.HookPatternLayout()
+         layout.pattern = if (compactOutput) {
+             "%highlight(%.-1level [%thread] <%logger{48}> %msg%n)"
+         } else {
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/ArtifactProcessor.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/ArtifactProcessor.kt
+index 61be77d0..03b6f0bd 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/ArtifactProcessor.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/ArtifactProcessor.kt
+@@ -32,12 +32,12 @@ class ArtifactProcessor(
+     context: CoroutineContext = Dispatchers.IO,
+     private val maxConcurrent: Int = XcresultQueueConfiguration.DEFAULT_CONCURRENCY,
+     private val workerCapacity: Int = XcresultQueueConfiguration.defaultWorkerCapacity(capacity, maxConcurrent),
+-    private val clock: () -> Long = System::nanoTime,
++    private val clock: () -> Long = { oracle.hooks.OracleHooks.nanoTime("apple.ArtifactProcessor.clock") },
+ ) {
+     constructor(
+         configuration: XcresultQueueConfiguration,
+         context: CoroutineContext = Dispatchers.IO,
+-        clock: () -> Long = System::nanoTime,
++        clock: () -> Long = { oracle.hooks.OracleHooks.nanoTime("apple.ArtifactProcessor.clock") },
+     ) : this(configuration.capacity, context, configuration.concurrency, configuration.effectiveWorkerCapacity(), clock)
+ 
+     init {
+@@ -294,7 +294,7 @@ class ArtifactProcessor(
+     }
+ 
+     suspend fun await(owner: String) {
+-        measureTimeMillis {
++        oracle.hooks.measureTimeMillis("apple.ArtifactProcessor.await") {
+             val finished = synchronized(lock) { pending[owner]?.done }
+             finished?.await()
+         }.let { logger.debug { "Artifact barrier for $owner took $it ms" } }
+@@ -356,7 +356,7 @@ class ArtifactProcessor(
+             done to waiting.onEach { it.state = Admission.REJECTED }.toList().also { waiting.clear() }
+         }
+         rejected.forEach { it.decided.complete(Unit) }
+-        measureTimeMillis {
++        oracle.hooks.measureTimeMillis("apple.ArtifactProcessor.closeAndJoin") {
+             if (withTimeoutOrNull(timeoutMillis) { finished.await(); true } != true) {
+                 val abandoned = synchronized(lock) { pending.map { "${it.key}: ${it.value.count} bundles" } }
+                 logger.warn { "Artifact drain timed out; cancelling pending work and retaining remote bundles: $abandoned" }
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XCTestParser.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XCTestParser.kt
+index 944d510c..a7ec07c8 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XCTestParser.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XCTestParser.kt
+@@ -59,7 +59,7 @@ class XCTestParser<T: AppleDevice>(
+ 
+         val platform = device.sdk.platformName
+         val dylib = javaClass.getResourceAsStream("/libxctest-parser/$platform/libxctest-parser.dylib")
+-        val tempFile = kotlin.io.path.createTempFile().apply {
++        val tempFile = oracle.hooks.OracleHooks.createTempFile("apple.XCTestParser.parseTests").apply {
+             outputStream().use {
+                 dylib.copyTo(it)
+             }
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/KotlinProcessCommandExecutor.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/KotlinProcessCommandExecutor.kt
+index e5e5a29f..5ba9688a 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/KotlinProcessCommandExecutor.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/local/KotlinProcessCommandExecutor.kt
+@@ -66,7 +66,7 @@ class KotlinProcessCommandExecutor(
+             }
+         }
+ 
+-        val lastOutputTimeMillis = AtomicLong(System.currentTimeMillis())
++        val lastOutputTimeMillis = AtomicLong(oracle.hooks.OracleHooks.currentTimeMillis("apple.KotlinProcessCommandExecutor.currentTimeMillis"))
+         val stdout = produceLinesManually(job, process.inputStream, lastOutputTimeMillis, idleTimeout, charset, channelCapacity) { process.isAlive && !exitCode.isCompleted }
+         val stderr = produceLinesManually(job, process.errorStream, lastOutputTimeMillis, idleTimeout, charset, channelCapacity) { process.isAlive && !exitCode.isCompleted }
+ 
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandExecutor.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandExecutor.kt
+index 0ef0c1f9..6686bfb7 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandExecutor.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/ssh/sshj/SshjCommandExecutor.kt
+@@ -47,7 +47,7 @@ class SshjCommandExecutor(
+         val session = client.startSession()
+         val cmd = session.exec(shellCommand(command))
+ 
+-        val lastOutputTimeMillis = AtomicLong(System.currentTimeMillis())
++        val lastOutputTimeMillis = AtomicLong(oracle.hooks.OracleHooks.currentTimeMillis("apple.SshjCommandExecutor.currentTimeMillis"))
+         val stdout = produceLinesManually(job, cmd.inputStream, lastOutputTimeMillis, idleTimeout, charset, channelCapacity) { cmd.isOpen && !cmd.isEOF }
+         val stderr = produceLinesManually(job, cmd.errorStream, lastOutputTimeMillis, idleTimeout, charset, channelCapacity) { cmd.isOpen && !cmd.isEOF }
+         val exitCode: Deferred<Int?> = async(job) {
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/Reader.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/Reader.kt
+index 740d36ca..fbfc5c41 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/Reader.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/Reader.kt
+@@ -43,7 +43,7 @@ fun CoroutineScope.produceLinesManually(
+     idleTimeout: Duration,
+     charset: Charset,
+     channelCapacity: Int,
+-    currentTimeMillis: () -> Long = System::currentTimeMillis,
++    currentTimeMillis: () -> Long = { oracle.hooks.OracleHooks.currentTimeMillis("apple.Reader.currentTimeMillis") },
+     canRead: () -> Boolean,
+ ): ReceiveChannel<String> {
+     return produce(capacity = channelCapacity, context = job) {
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListener.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListener.kt
+index d24a35c0..8d952b0f 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListener.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListener.kt
+@@ -73,7 +73,7 @@ class ResultBundleRunListener(
+             artifactProcessor?.release(device.serialNumber, remotePath)
+         }
+         if (xcresultConfiguration.remoteClean) {
+-            measureTimeMillis {
++            oracle.hooks.measureTimeMillis("apple.ResultBundleRunListener.processBundle") {
+                 device.remoteFileManager.removeRemotePath(remotePath)
+             }.let { logger.debug { "xcresult cleanup for batch ${batch.id} took $it ms" } }
+         }
+@@ -85,13 +85,13 @@ class ResultBundleRunListener(
+      */
+     private suspend fun deliver(remotePath: String): Boolean {
+         val failure = try {
+-            val started = System.nanoTime()
++            val started = oracle.hooks.OracleHooks.nanoTime("apple.ResultBundleRunListener.deliver")
+             val localPath = File(fileManager.createFolder(FolderType.DEVICE_FILES, poolId, device = device.toDeviceInfo()), "xcresult")
+                 .apply { mkdirs() }
+             val pulledCopy = File(localPath, remotePath.substringAfterLast(RemoteFileManager.FILE_SEPARATOR))
+             localCopy = pulledCopy
+             val pulled = device.pullFolder(remotePath, localPath)
+-            logger.debug { "xcresult pull for batch ${batch.id} took ${(System.nanoTime() - started) / 1_000_000} ms" }
++            logger.debug { "xcresult pull for batch ${batch.id} took ${(oracle.hooks.OracleHooks.nanoTime("apple.ResultBundleRunListener.deliver") - started) / 1_000_000} ms" }
+             if (pulled) {
+                 // Never replaces an existing destination; File.renameTo would replace an empty directory.
+                 Files.move(pulledCopy.toPath(), File(localPath, "${batch.id}.xcresult").toPath())
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/TestResultsListener.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/TestResultsListener.kt
+index fcca85c8..a2451291 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/TestResultsListener.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/TestResultsListener.kt
+@@ -84,7 +84,7 @@ class TestResultsListener(
+     }
+ 
+     private suspend fun enhanceResults() {
+-        measureTimeMillis {
++        oracle.hooks.measureTimeMillis("apple.TestResultsListener.enhanceResults") {
+             val remoteXcresult = remoteFileManager.remoteXcresultFile(testBatch)
+             val actionsInvocationRecord =
+                 xcresulttool.get(ActionsInvocationRecord::class.java, remoteXcresult, xcodeVersion, ResultBundleFormat.JSON)
+diff --git a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/TestRootFactory.kt b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/TestRootFactory.kt
+index ceab9f0a..bb5c1448 100644
+--- a/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/TestRootFactory.kt
++++ b/vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/xctestrun/TestRootFactory.kt
+@@ -46,7 +46,7 @@ class TestRootFactory(
+             TestType.LOGIC_TEST -> TODO()
+         }
+ 
+-        val tempXctestrunfile = createTempFile(device.udid, "xctestrun").toFile()
++        val tempXctestrunfile = oracle.hooks.OracleHooks.createTempFile("apple.TestRootFactory.generate", device.udid, "xctestrun").toFile()
+         try {
+             xctestrun.saveAsXML(tempXctestrunfile)
+             val remoteXctestrun = remoteFileManager.remoteXctestrunFile()
+diff --git a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
+index 7a9a450b..b8ce3ba6 100644
+--- a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
++++ b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
+@@ -435,7 +435,7 @@ class AppleSimulatorDevice(
+         try {
+             job = async(coroutineContext + CoroutineName("execute $serialNumber"), start = CoroutineStart.LAZY) {
+                 previousBatchFinishedAt?.let {
+-                    logger.debug { "Device $serialNumber idle gap before batch ${testBatch.id}: ${(System.nanoTime() - it) / 1_000_000} ms" }
++                    logger.debug { "Device $serialNumber idle gap before batch ${testBatch.id}: ${(oracle.hooks.OracleHooks.nanoTime("ios.AppleSimulatorDevice.nanoTime") - it) / 1_000_000} ms" }
+                 }
+                 supervisorScope {
+                     var executionLineListeners = setOf<LineListener>()
+@@ -506,7 +506,7 @@ class AppleSimulatorDevice(
+             if (results == null) throw TestBatchExecutionException(e.message ?: e.reason.toString())
+             logger.warn(e) { "Test batch ${testBatch.id} failed on $serialNumber, keeping the device" }
+         } finally {
+-            previousBatchFinishedAt = System.nanoTime()
++            previousBatchFinishedAt = oracle.hooks.OracleHooks.nanoTime("ios.AppleSimulatorDevice.nanoTime")
+         }
+     }
+ 
+@@ -808,7 +808,7 @@ class AppleSimulatorDevice(
+             Type.BMP -> ".bmp"
+             Type.JPEG -> ".jpeg"
+         }
+-        val tempFile = kotlin.io.path.createTempFile(suffix = extension).toFile()
++        val tempFile = oracle.hooks.OracleHooks.createTempFile("ios.AppleSimulatorDevice.getScreenshot", suffix = extension).toFile()
+         try {
+             if (getScreenshot(timeout, tempFile)) {
+                 return ImageIO.read(tempFile)
+@@ -857,9 +857,9 @@ class AppleSimulatorDevice(
+      */
+     private suspend fun bootForPreparation() {
+         for (attempt in 1..BOOT_ATTEMPTS) {
+-            val started = System.nanoTime()
++            val started = oracle.hooks.OracleHooks.nanoTime("ios.AppleSimulatorDevice.bootForPreparation")
+             val failure = bootFailure() ?: return
+-            val reason = "$failure after ${(System.nanoTime() - started) / 1_000_000} ms, attempt $attempt of $BOOT_ATTEMPTS"
++            val reason = "$failure after ${(oracle.hooks.OracleHooks.nanoTime("ios.AppleSimulatorDevice.bootForPreparation") - started) / 1_000_000} ms, attempt $attempt of $BOOT_ATTEMPTS"
+             logger.warn { "Simulator $udid on worker ${commandExecutor.host.id} failed to boot: $reason" }
+             shutdownAfterFailedBoot()
+             if (attempt == BOOT_ATTEMPTS) throw BootFailure("it failed to boot: $reason")
+@@ -877,7 +877,7 @@ class AppleSimulatorDevice(
+      * @return why the simulator hasn't booted, or null if it has
+      */
+     private suspend fun bootFailure(): String? {
+-        val deadline = System.nanoTime() + vendorConfiguration.timeoutConfiguration.bootWait.toNanos()
++        val deadline = oracle.hooks.OracleHooks.nanoTime("ios.AppleSimulatorDevice.nanoTime") + vendorConfiguration.timeoutConfiguration.bootWait.toNanos()
+         when (val state = state()) {
+             Simulator.State.BOOTED -> return null
+             Simulator.State.CREATING, Simulator.State.BOOTING -> Unit
+@@ -902,7 +902,7 @@ class AppleSimulatorDevice(
+                 logger.debug { "Device $udid booted!" }
+                 return null
+             }
+-            val left = deadline - System.nanoTime()
++            val left = deadline - oracle.hooks.OracleHooks.nanoTime("ios.AppleSimulatorDevice.nanoTime")
+             if (left <= 0) break
+             delay(minOf(bootPollInterval.toMillis(), (left + 999_999) / 1_000_000))
+             logger.debug { "Device $udid is still booting..." }
+diff --git a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt
+index 2e1d6da0..046a116a 100644
+--- a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt
++++ b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt
+@@ -446,7 +446,7 @@ class AppleSimulatorProvider(
+         while (devices.isEmpty()) {
+             delay(200)
+         }
+-        return devices.values.random()
++        return oracle.hooks.OracleHooks.pick("ios.AppleSimulatorProvider.borrow", devices.values) { it.serialNumber }
+     }
+ 
+     private suspend fun initializeForTransport(targets: List<AppleTarget>, transport: Transport) {
+@@ -644,7 +644,7 @@ class AppleSimulatorProvider(
+         // Once it applies it stays, also when a waiting simulator gets a retried batch later
+         lateJoinClosed?.let { return it }
+         val cutoff = workerConnection.lateJoinCutoff
+-        val now = System.nanoTime()
++        val now = oracle.hooks.OracleHooks.nanoTime("ios.AppleSimulatorProvider.nanoTime")
+         val reason = if (!cutoff.isZero && timer.elapsedTimeMillis > cutoff.toMillis()) {
+             "the run started more than ${cutoff.seconds} s ago"
+         } else {
+diff --git a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorProvisioner.kt b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorProvisioner.kt
+index 223c3b11..6c9ec33f 100644
+--- a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorProvisioner.kt
++++ b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorProvisioner.kt
+@@ -175,7 +175,7 @@ internal class SimulatorProvisioner(
+             // The command is still bounded by timeoutConfiguration.create (30 seconds by default).
+             withContext(NonCancellable) {
+                 udid = bin.xcrun.simctl.simulator.create(
+-                    "${profile.newNamePrefix}-${UUID.randomUUID()}", profile.fullyQualifiedDeviceTypeId, profile.fullyQualifiedRuntimeId
++                    "${profile.newNamePrefix}-${oracle.hooks.OracleHooks.uuid("ios.SimulatorProvisioner.create")}", profile.fullyQualifiedDeviceTypeId, profile.fullyQualifiedRuntimeId
+                 )
+             }
+             currentCoroutineContext().ensureActive()
+diff --git a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/WorkerProvisioningContext.kt b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/WorkerProvisioningContext.kt
+index 5c9ab38f..f75bc263 100644
+--- a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/WorkerProvisioningContext.kt
++++ b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/WorkerProvisioningContext.kt
+@@ -31,7 +31,7 @@ class WorkerProvisioningContext internal constructor(
+     private val maxInventoryAge: Duration,
+     private val clock: () -> Long,
+ ) {
+-    constructor(transport: Transport) : this(transport, MAX_INVENTORY_AGE, System::nanoTime)
++    constructor(transport: Transport) : this(transport, MAX_INVENTORY_AGE, { oracle.hooks.OracleHooks.nanoTime("ios.WorkerProvisioningContext.nanoTime") })
+ 
+     private val inventoryLoad = Mutex()
+     private val factsLoad = Mutex()
+diff --git a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/log/DeviceLogListener.kt b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/log/DeviceLogListener.kt
+index f66c9791..a503f9ad 100644
+--- a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/log/DeviceLogListener.kt
++++ b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/log/DeviceLogListener.kt
+@@ -71,7 +71,7 @@ class DeviceLogListener(
+         val localLogFile =
+             device.fileManager.createFile(FileType.DEVICE_LOG, pool, device.toDeviceInfo(), test = null, testBatchId = testBatch.id)
+         val remoteFilePath = device.remoteFileManager.remoteLog()
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("ios.DeviceLogListener.pullLogfile") {
+             device.pullFile(remoteFilePath, localLogFile)
+         }
+         logger.debug { "Pulling finished in ${millis}ms $remoteFilePath " }
+diff --git a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
+index ba5f63b0..dc5ecf9a 100644
+--- a/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
++++ b/vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
+@@ -167,7 +167,7 @@ class ScreenRecordingListener(
+     private suspend fun transcode(src: String, tempFile: String, size: Size) {
+         remoteFileManager.move(src, tempFile)
+ 
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("ios.ScreenRecordingListener.transcode") {
+             val optional = when (videoConfiguration.codec) {
+                 Codec.H264 -> "-movflags +faststart"
+                 Codec.HEVC -> ""
+@@ -189,7 +189,7 @@ class ScreenRecordingListener(
+     private suspend fun pullTestVideo(test: Test) {
+         val localVideoFile = fileManager.createFile(FileType.VIDEO, pool, device.toDeviceInfo(), test, testBatchId)
+         val remoteFilePath = remoteFileManager.remoteVideoForTest(test, testBatchId)
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("ios.ScreenRecordingListener.pullTestVideo") {
+             device.pullFile(remoteFilePath, localVideoFile)
+         }
+         logger.debug { "Pulling finished in ${millis}ms $remoteFilePath" }
+@@ -198,14 +198,14 @@ class ScreenRecordingListener(
+ 
+     private suspend fun pullLastBatchVideo(remoteFilePath: String) {
+         val localVideoFile = fileManager.createFile(FileType.VIDEO, pool, device.toDeviceInfo(), testBatchId = testBatchId)
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("ios.ScreenRecordingListener.pullLastBatchVideo") {
+             device.pullFile(remoteFilePath, localVideoFile)
+         }
+         logger.debug { "Pulling finished in ${millis}ms $remoteFilePath" }
+     }
+ 
+     private suspend fun removeRemoteVideo(remoteFilePath: String) {
+-        val millis = measureTimeMillis {
++        val millis = oracle.hooks.measureTimeMillis("ios.ScreenRecordingListener.removeRemoteVideo") {
+             remoteFileManager.removeRemotePath(remoteFilePath)
+         }
+         logger.debug { "Removed file in ${millis}ms $remoteFilePath" }
+diff --git a/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt b/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt
+index b0e86735..fc07f634 100644
+--- a/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt
++++ b/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt
+@@ -119,7 +119,7 @@ class AppleMacosProvider(
+         while (devices.isEmpty()) {
+             delay(200)
+         }
+-        return devices.values.random()
++        return oracle.hooks.OracleHooks.pick("macos.AppleMacosProvider.borrow", devices.values) { it.serialNumber }
+     }
+ 
+     private suspend fun initializeForTransport(transport: Transport) {
+diff --git a/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt b/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt
+index a852b2a0..d08834c0 100644
+--- a/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt
++++ b/vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt
+@@ -507,7 +507,7 @@ class MacosDevice(
+             throw IncompatibleDeviceException("Modifying permissions is supported to macOS 10+")
+         }
+ 
+-        val epoch = System.currentTimeMillis() / 1000
++        val epoch = oracle.hooks.OracleHooks.currentTimeMillis("macos.MacosDevice.grant") / 1000
+         permission.forEach {
+             val query =
+                 "replace into access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) values (\"${it.value}\",\"${client}\",0,2,1,1,\"UNUSED\",0,$epoch);"
+diff --git a/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/ConfigurationFactory.kt b/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/ConfigurationFactory.kt
+index 1aa210b5..d185ca55 100644
+--- a/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/ConfigurationFactory.kt
++++ b/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/ConfigurationFactory.kt
+@@ -21,7 +21,7 @@ import java.nio.file.Files
+ 
+ class ConfigurationFactory(val testParser: LocalTestParser, val deviceProvider: StubDeviceProvider) {
+     var name = "DEFAULT_TEST_CONFIG"
+-    var outputDir = Files.createTempDirectory("test-run").toFile()
++    var outputDir = oracle.hooks.OracleHooks.createTempDirectory("test.ConfigurationFactory.outputDir", "test-run").toFile()
+     var vendorConfiguration = VendorConfiguration.StubVendorConfiguration
+     var debug = true
+     var batchingStrategy: BatchingStrategyConfiguration = BatchingStrategyConfiguration.IsolateBatchingStrategyConfiguration
+diff --git a/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/MarathonFactory.kt b/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/MarathonFactory.kt
+index cd39b768..b9825a93 100644
+--- a/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/MarathonFactory.kt
++++ b/vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/factory/MarathonFactory.kt
+@@ -48,7 +48,7 @@ class MarathonFactory {
+                 .registerTypeAdapter(File::class.java, FileSerializer())
+                 .create()
+             }
+-            single<Clock> { Clock.systemDefaultZone() }
++            single<Clock> { oracle.hooks.OracleHooks.clock("test.MarathonFactory.clock", Clock.systemDefaultZone()) }
+             single { timer ?: SystemTimer(get()) }
+             single {
+                 val configuration = get<Configuration>()

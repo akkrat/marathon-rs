@@ -1,0 +1,1006 @@
+{
+  "requested_iterations": 100,
+  "results": [
+    {
+      "iteration": 1,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 1,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 2,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 2,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 3,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 3,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 4,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 4,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 5,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 5,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 6,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 6,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 7,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 7,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 8,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 8,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 9,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 9,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 10,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 10,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 11,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 11,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 12,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 12,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 13,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 13,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 14,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 14,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 15,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 15,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 16,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 16,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 17,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 17,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 18,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 18,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 19,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 19,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 20,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 20,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 21,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 21,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 22,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 22,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 23,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 23,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 24,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 24,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 25,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 25,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 26,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 26,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 27,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 27,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 28,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 28,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 29,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 29,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 30,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 30,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 31,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 31,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 32,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 32,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 33,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 33,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 34,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 34,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 35,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 35,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 36,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 36,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 37,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 37,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 38,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 38,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 39,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 39,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 40,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 40,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 41,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 41,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 42,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 42,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 43,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 43,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 44,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 44,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 45,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 45,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 46,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 46,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 47,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 47,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 48,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 48,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 49,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 49,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 50,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 50,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 51,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 51,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 52,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 52,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 53,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 53,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 54,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 54,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 55,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 55,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 56,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 56,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 57,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 57,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 58,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 58,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 59,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 59,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 60,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 60,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 61,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 61,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 62,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 62,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 63,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 63,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 64,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 64,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 65,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 65,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 66,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 66,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 67,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 67,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 68,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 68,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 69,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 69,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 70,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 70,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 71,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 71,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 72,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 72,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 73,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 73,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 74,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 74,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 75,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 75,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 76,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 76,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 77,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 77,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 78,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 78,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 79,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 79,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 80,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 80,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 81,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 81,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 82,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 82,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 83,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 83,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 84,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 84,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 85,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 85,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 86,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 86,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 87,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 87,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 88,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 88,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 89,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 89,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 90,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 90,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 91,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 91,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 92,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 92,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 93,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 93,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 94,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 94,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 95,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 95,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 96,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 96,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 97,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 97,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 98,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 98,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 99,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 99,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    },
+    {
+      "iteration": 100,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/fake_worker-d182516433cbdadd",
+      "exit": 0
+    },
+    {
+      "iteration": 100,
+      "binary": "/home/runner/marathon-ci/wp-0.4a-astra/target/debug/deps/contracts-a1648df6e425d020",
+      "exit": 0
+    }
+  ],
+  "seconds": 234.01
+}

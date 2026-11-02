@@ -1,0 +1,491 @@
+{"pattern": "(?<!(a))\\1", "op": "find", "inputs": ["abab", "acac", "aba"]}
+{"pattern": "(?<!(a))\\1", "op": "findAll", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(a))", "op": "findAll", "inputs": ["ab", "aab", "abab", "acac", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(ab|cd))b", "op": "findAll", "inputs": ["abab"]}
+{"pattern": "(?<!(ab|cd))", "op": "findAll", "inputs": ["abab", "cdb", "cdcd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(a|b)(c|d))\\2", "op": "find", "inputs": ["acac", "bdbd"]}
+{"pattern": "(?<!(a|b)(c|d))\\2", "op": "findAll", "inputs": ["acac", "bdbd"]}
+{"pattern": "(?<!(a|b)(c|d))", "op": "findAll", "inputs": ["acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00"]}
+{"pattern": "(?<!(a{2}))", "op": "findAll", "inputs": ["aab", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00"]}
+{"pattern": "(?<=((a|b){2}))b", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))b", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))b", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))\\1", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))\\1", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))\\1", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))\\2", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))\\2", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))\\2", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=((a|b){2}))", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))b", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))b", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))b", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))\\1", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))\\1", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))\\1", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))\\2", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))\\2", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))\\2", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))", "op": "matches", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))", "op": "find", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((a|b){2}))", "op": "findAll", "inputs": ["", "a", "aa", "ab", "aab", "abab", "cdb", "cdcd", "acac", "bdbd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!((?>ab|cd)))b", "op": "findAll", "inputs": ["abab"]}
+{"pattern": "(?<!((?>ab|cd)))", "op": "findAll", "inputs": ["abab", "cdb", "cdcd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(a(?=(b))))\\1", "op": "find", "inputs": ["abab"]}
+{"pattern": "(?<!(a(?=(b))))\\1", "op": "findAll", "inputs": ["abab"]}
+{"pattern": "(?<!(a(?=(b))))", "op": "findAll", "inputs": ["ab", "aab", "abab", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(a(?<=(a))))\\1", "op": "find", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(a(?<=(a))))\\1", "op": "findAll", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(a(?<=(a))))\\2", "op": "find", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(a(?<=(a))))\\2", "op": "findAll", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(a(?<=(a))))", "op": "findAll", "inputs": ["ab", "aab", "abab", "acac", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(\ud83d\ude00|a))\\1", "op": "find", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(\ud83d\ude00|a))\\1", "op": "findAll", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(\ud83d\ude00|a))", "op": "findAll", "inputs": ["ab", "aab", "abab", "acac", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(\ud83d\ude00|\ud801\udc00))", "op": "findAll", "inputs": ["\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00"]}
+{"pattern": "(?<=(.{2}))", "op": "find", "inputs": ["\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00"]}
+{"pattern": "(?<=(.{2}))", "op": "findAll", "inputs": ["\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00"]}
+{"pattern": "(?<!(.{2}))", "op": "findAll", "inputs": ["\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<=(a{0}))\\1", "op": "findAll", "inputs": ["\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00"]}
+{"pattern": "(?<=(a{0}))", "op": "findAll", "inputs": ["\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00"]}
+{"pattern": "(?<!(a$|b$))", "op": "findAll", "inputs": ["\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(a(?=b)|c(?=d)))b", "op": "find", "inputs": ["cdb"]}
+{"pattern": "(?<!(a(?=b)|c(?=d)))b", "op": "findAll", "inputs": ["cdb"]}
+{"pattern": "(?<!(a(?=b)|c(?=d)))\\1", "op": "find", "inputs": ["abab", "cdcd"]}
+{"pattern": "(?<!(a(?=b)|c(?=d)))\\1", "op": "findAll", "inputs": ["abab", "cdcd"]}
+{"pattern": "(?<!(a(?=b)|c(?=d)))", "op": "findAll", "inputs": ["ab", "aab", "abab", "cdb", "cdcd", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "(?<!(?=(a))a)\\1", "op": "find", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(?=(a))a)\\1", "op": "findAll", "inputs": ["abab", "acac"]}
+{"pattern": "(?<!(?=(a))a)", "op": "findAll", "inputs": ["ab", "aab", "abab", "acac", "\ud83d\ude00b", "\ud801\udc00b", "\ud83d\ude00\ud83d\ude00", "a\ud83d\ude00", "ab\n"]}
+{"pattern": "\\G|.", "op": "replace", "inputs": ["\ud83d\ude00a", "ab\ud83d\ude00b", "\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a"], "replacement": "-"}
+{"pattern": "\\G|.", "op": "split", "inputs": ["\ud83d\ude00a", "ab\ud83d\ude00b", "\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a"], "limit": 0}
+{"pattern": "(?!((a|aa)+)$).*", "op": "find", "inputs": ["a", "a\n"]}
+{"pattern": "(?!((a|aa)+)$).*", "op": "findAll", "inputs": ["a", "a\n"]}
+{"pattern": "(?!(a|aa)+$).*", "op": "find", "inputs": ["a", "a\n"]}
+{"pattern": "(?!(a|aa)+$).*", "op": "findAll", "inputs": ["a", "a\n"]}
+{"pattern": "(?!a*$).*", "op": "find", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "(?!a*$).*", "op": "findAll", "inputs": ["\r\n", "\r\r\n"]}
+{"pattern": "(?!(a*)$).*", "op": "find", "inputs": ["\r\n"]}
+{"pattern": "(?!(a*)$).*", "op": "findAll", "inputs": ["\r\n", "\r\r\n"]}
+{"pattern": "(?!(a)$).*", "op": "find", "inputs": ["a", "a\n"]}
+{"pattern": "(?!(a)$).*", "op": "findAll", "inputs": ["a", "a\n"]}
+{"pattern": "(?!(a|b)$).*", "op": "find", "inputs": ["a", "a\n"]}
+{"pattern": "(?!(a|b)$).*", "op": "findAll", "inputs": ["a", "a\n"]}
+{"pattern": "\\R{0,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{0,1}\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{0,1}\\n", "op": "findAll", "inputs": ["\r\n", "\r\r\n"]}
+{"pattern": "(?:\\R){1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1}\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1}\\n", "op": "findAll", "inputs": ["\r\n", "\r\r\n"]}
+{"pattern": "\\X(", "op": "matches", "inputs": ["", "a", "aa"]}
+{"pattern": "\\X(", "op": "find", "inputs": ["", "a", "aa"]}
+{"pattern": "\\X(", "op": "findAll", "inputs": ["", "a", "aa"]}
+{"pattern": "\\N{LATIN SMALL LETTER A}(", "op": "matches", "inputs": ["", "a", "aa"]}
+{"pattern": "\\N{LATIN SMALL LETTER A}(", "op": "find", "inputs": ["", "a", "aa"]}
+{"pattern": "\\N{LATIN SMALL LETTER A}(", "op": "findAll", "inputs": ["", "a", "aa"]}
+{"pattern": "(?<=a+)(", "op": "matches", "inputs": ["", "a", "aa"]}
+{"pattern": "(?<=a+)(", "op": "find", "inputs": ["", "a", "aa"]}
+{"pattern": "(?<=a+)(", "op": "findAll", "inputs": ["", "a", "aa"]}
+{"pattern": ".*?(?<!(a))\\1.*", "op": "matches", "inputs": ["aba", "abab"]}
+{"pattern": ".*?(?<!(a))\\1.*", "op": "find", "inputs": ["aba", "abab"]}
+{"pattern": ".*(?<!(a))\\1.*", "op": "matches", "inputs": ["ab", "aba", "abab", "aab", "abb"]}
+{"pattern": ".*(?<!(a))\\1.*", "op": "find", "inputs": ["ab", "aba", "abab", "aab", "abb", "a\n"]}
+{"pattern": "(?<=(a|b){2})b", "op": "matches", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n", "b", "\r\nb"]}
+{"pattern": "(?<=(a|b){2})b", "op": "find", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n", "b", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){2})b", "op": "matches", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n", "a\ud83d\ude00", "\ud83d\ude00b", "b", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){2})b", "op": "find", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n", "a\ud83d\ude00", "\ud83d\ude00b", "b", "\r\nb"]}
+{"pattern": "(?<=((?:ab|cd){2}))e", "op": "matches", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n"]}
+{"pattern": "(?<=((?:ab|cd){2}))e", "op": "find", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n"]}
+{"pattern": "(?<=(a?){0})b", "op": "matches", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n", "b", "\r\nb"]}
+{"pattern": "(?<=(a?){0})b", "op": "find", "inputs": ["", "ab", "aba", "abab", "aab", "abb", "\r\n", "\r\r\n", "\n", "a\n", "b", "\r\nb"]}
+{"pattern": "\\r(?!a*$)\\n", "op": "matches", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "\\r(?!a*$)\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "\\r(?!a*\\Z)\\n", "op": "matches", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "\\r(?!a*\\Z)\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "(?!a*$)\\n", "op": "find", "inputs": ["\r\n", "\r\r\n"]}
+{"pattern": "(?!a*\\Z).*", "op": "find", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "\\R?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R?\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1}\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1,1}\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{0,1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{0,1}?\\n", "op": "find", "inputs": ["\r\n", "\r\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))", "op": "matches", "inputs": ["a"]}
+{"pattern": "((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))", "op": "matches", "inputs": ["a"]}
+{"pattern": "(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))", "op": "matches", "inputs": ["a"]}
+{"pattern": "((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))", "op": "matches", "inputs": ["a"]}
+{"pattern": "((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\B", "op": "split", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"], "limit": 0}
+{"pattern": "\\B", "op": "replace", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"], "replacement": "-"}
+{"pattern": "(?U)\\B", "op": "split", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"], "limit": 0}
+{"pattern": "(?U)\\B", "op": "replace", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"], "replacement": "-"}
+{"pattern": "(?:\\B)", "op": "findAll", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"]}
+{"pattern": "(?:\\B)", "op": "split", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"], "limit": 0}
+{"pattern": "(?:\\B)", "op": "replace", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"], "replacement": "-"}
+{"pattern": "(?:\\B)", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00"]}
+{"pattern": ".(?<=..)", "op": "find", "inputs": ["a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "a\ud801\udc00"]}
+{"pattern": ".(?<=..)", "op": "findAll", "inputs": ["a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "a\ud801\udc00"]}
+{"pattern": ".(?<=..)", "op": "split", "inputs": ["a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "a\ud801\udc00"], "limit": 0}
+{"pattern": ".(?<=..)", "op": "replace", "inputs": ["a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "a\ud801\udc00"], "replacement": "-"}
+{"pattern": "\\G|.", "op": "findAll", "inputs": ["\ud83d\ude00", "\ud83d\ude00a", "a\ud83d\ude00", "\ud83d\ude00\ud83d\ude00", "\ud801\udc00", "\ud801\udc00a", "a\ud801\udc00"]}
+{"pattern": "a.(?<=..)", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "a.(?<=..)", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": ".*(?<=..)", "op": "matches", "inputs": ["a\ud83d\ude00"]}
+{"pattern": ".*(?<=..)", "op": "find", "inputs": ["a\ud83d\ude00"]}
+{"pattern": "(?:){2}", "op": "matches", "inputs": ["", "\r\n", "a"]}
+{"pattern": "(?:){2}", "op": "find", "inputs": ["", "\r\n", "a"]}
+{"pattern": "\\N{LATIN SMALL LETTER A}", "op": "matches", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "\\N{LATIN SMALL LETTER A}", "op": "find", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "(?i)\\N{LATIN SMALL LETTER A}", "op": "matches", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "(?i)\\N{LATIN SMALL LETTER A}", "op": "find", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "(?iu)\\N{DESERET CAPITAL LETTER LONG I}", "op": "matches", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "(?iu)\\N{DESERET CAPITAL LETTER LONG I}", "op": "find", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "[\\N{LATIN SMALL LETTER A}-\\N{LATIN SMALL LETTER Z}]", "op": "matches", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "[\\N{LATIN SMALL LETTER A}-\\N{LATIN SMALL LETTER Z}]", "op": "find", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "\\N{HIGH SURROGATES D800}", "op": "matches", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "\\N{HIGH SURROGATES D800}", "op": "find", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "(?x)\\N {LATIN SMALL LETTER A}", "op": "matches", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "(?x)\\N {LATIN SMALL LETTER A}", "op": "find", "inputs": ["a", "A", "z", "\ud83d\ude00", "\ud801\udc00", "\ud801\udc28", ""]}
+{"pattern": "\\X[", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\X\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\X)", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\b{g}(", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\b{g}[", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\b{g}\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\b{g})", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=a+)[", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=a+)\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=a+))", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?!(a))(", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?!(a))[", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?!(a))\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?!(a)))", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=.)(", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=.)[", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=.)\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=.))", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?i)(a)\\1(", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?i)(a)\\1[", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?i)(a)\\1\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?i)(a)\\1)", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\uD800(", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\uD800[", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\uD800\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\uD800)", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\N{LATIN SMALL LETTER A}[", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\N{LATIN SMALL LETTER A}\\p{Bogus}", "op": "matches", "inputs": ["a"]}
+{"pattern": "\\N{LATIN SMALL LETTER A})", "op": "matches", "inputs": ["a"]}
+{"pattern": "(((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))", "op": "matches", "inputs": ["a"]}
+{"pattern": "((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((a))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))", "op": "matches", "inputs": ["a"]}
+{"pattern": "(?<=(?:a|b){0})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b)?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b)?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b)??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b)??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b)?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b)?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|b){0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b)?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b)?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b)??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b)??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b)?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b)?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a|b){0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){2})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){2})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?)?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?)?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?)??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?)??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?)?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?)?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(a?){0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){2})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){2})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?)?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?)?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?)??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?)??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?)?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?)?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a?){0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){2})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){2})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a)?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a)?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a)??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a)??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a)?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a)?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a){0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){2})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){2})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|)?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|)?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|)??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|)??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|)?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|)?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:a|){0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{2})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{2})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=\\R{0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){2})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){2})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){2}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){2}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R)?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R)?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R)??)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R)??)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R)?+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R)?+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0,1})b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0,1})b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0,1}?)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0,1}?)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0,1}+)b", "op": "matches", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "(?<=(?:\\R){0,1}+)b", "op": "find", "inputs": ["", "b", "ab", "abb", "aab", "\r\nb"]}
+{"pattern": "\\R\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R??\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R??\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R?+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R?+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{0,1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{0,1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1}?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1,2}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "\\R{1,2}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)??\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)??\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)?+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R)?+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){0,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){0,1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){0,1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){0,1}?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){0,1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){0,1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1}?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1,1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1,2}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:\\R){1,2}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)??\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)??\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)?+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R)?+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){0,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){0,1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){0,1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){0,1}?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){0,1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){0,1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1}?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1,1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1,2}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(\\R){1,2}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))??\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))??\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))?+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R))?+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){0,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){0,1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){0,1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){0,1}?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){0,1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){0,1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1}?\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1}?\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1}+\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1}+\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1,1}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1,1}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1,2}\\n", "op": "matches", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:\\R)){1,2}\\n", "op": "find", "inputs": ["\r\n", "\n", "\n\n", "\r\n\n"]}
+{"pattern": "(?:(?:)){2}", "op": "matches", "inputs": ["", "a"]}
+{"pattern": "(?:(?:)){2}", "op": "find", "inputs": ["", "a"]}
+{"pattern": "(?:|){2}", "op": "matches", "inputs": ["", "a"]}
+{"pattern": "(?:|){2}", "op": "find", "inputs": ["", "a"]}
+{"pattern": "(){2}", "op": "matches", "inputs": ["", "a"]}
+{"pattern": "(){2}", "op": "find", "inputs": ["", "a"]}
+{"pattern": "(){2}\\1", "op": "matches", "inputs": ["", "a"]}
+{"pattern": "(){2}\\1", "op": "find", "inputs": ["", "a"]}
+{"pattern": "(()){2}", "op": "matches", "inputs": ["", "a"]}
+{"pattern": "(()){2}", "op": "find", "inputs": ["", "a"]}
+{"pattern": "a.(?<=[\\s\\S]{2})", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "a.(?<=[\\s\\S]{2})", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?U)a.(?<=\\w{2})", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?U)a.(?<=\\w{2})", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "a.(?<=a\ud83d\ude00)", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "a.(?<=a\ud83d\ude00)", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=\\p{IsDeseret})", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=\\p{IsDeseret})", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=[\\p{L}&&[a-z]])b", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=[\\p{L}&&[a-z]])b", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=[^a&&[b]])c", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=[^a&&[b]])c", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=[\\u0000-\\uFFFF]{2})", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?<=[\\u0000-\\uFFFF]{2})", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?!(?:a)$).*", "op": "matches", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?!(?:a)$).*", "op": "find", "inputs": ["a\ud83d\ude00", "a\ud801\udc00", "ab", "bc", "\ud801\udc00b"]}
+{"pattern": "(?!a*$).*", "op": "matches", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "(?!a*\\Z).*", "op": "matches", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "(?!(?:a|aa)+$).*", "op": "matches", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "(?!(?:a|aa)+$).*", "op": "find", "inputs": ["\r\n", "\ra\n", "\na\n", "a\r\n", "aa\n", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"]}
+{"pattern": "(a?){0}+", "op": "find", "inputs": ["", "b", "ab"]}
+{"pattern": "(a?){0}+", "op": "findAll", "inputs": ["", "b", "ab"]}
+{"pattern": "(a?){0}+(b)", "op": "find", "inputs": ["", "b", "ab"]}
+{"pattern": "(a?){0}+(b)", "op": "findAll", "inputs": ["", "b", "ab"]}
+{"pattern": "(?<=(a?){0}+)b", "op": "find", "inputs": ["", "b", "ab"]}
+{"pattern": "(?<=(a?){0}+)b", "op": "findAll", "inputs": ["", "b", "ab"]}
+{"pattern": "(?<=\\R{0})b", "op": "find", "inputs": ["", "b", "ab"]}
+{"pattern": "(?<=\\R{0})b", "op": "findAll", "inputs": ["", "b", "ab"]}

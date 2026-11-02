@@ -1,0 +1,54 @@
+{
+  "contract": "9ba8c012ed40144573211fd8739db23187f6ef885332981a421ef61e56c65d43",
+  "entries": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "observation.json",
+      "sha256": "898d6d06928e2854afae95dd085a3b244e368a08dd74994effa533481cc501d7",
+      "size": 153
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/parse_result.yml",
+      "sha256": "14cdf7fd529343b6370df2f04c09e6c49f5a0ea141736418f669048bb67e48f4",
+      "size": 85
+    }
+  ],
+  "format": "marathon-differential/evidence@1",
+  "identities": {},
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": null,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "bb0b9af0f657ed05b1f39b15b1aeb96349dc575defda2afa104db01c58fc6a20",
+    "native_sha": "643a7c54743ccfae74281a3bb4b52cee8a4d66e5",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1/target/debug/examples/differential_probe",
+        "parse",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1/tools/differential/runs/committed-pairs/parse/2/raw"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "stderr_base64": "",
+    "stdout_base64": ""
+  },
+  "source": "e47352f25cbc50333900d5d040a5544ff1224501"
+}

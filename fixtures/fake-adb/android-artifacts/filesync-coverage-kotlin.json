@@ -1,0 +1,15 @@
+[
+  {
+    "case": "scenario:filesync-coverage:attachments",
+    "value": []
+  },
+  {
+    "case": "scenario:filesync-coverage:files",
+    "value": [
+      [
+        "device-files/pool/coverage/coverage-batch.ec",
+        "8"
+      ]
+    ]
+  }
+]

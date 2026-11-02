@@ -1,0 +1,764 @@
+{
+  "expected_cases": [
+    "all-three-shims",
+    "askpass-attempt-00",
+    "askpass-attempt-01",
+    "askpass-attempt-02",
+    "askpass-attempt-03",
+    "askpass-attempt-04",
+    "askpass-attempt-05",
+    "askpass-attempt-06",
+    "askpass-attempt-07",
+    "askpass-attempt-08",
+    "askpass-attempt-09",
+    "askpass-reject",
+    "containment-link-results",
+    "containment-rsync-results",
+    "containment-sentinel-unchanged",
+    "containment-server-exit",
+    "containment-upload",
+    "containment-uploaded-links",
+    "copy-basename-link",
+    "copy-directory-link",
+    "copy-file-link",
+    "debug-version-argv",
+    "deletion",
+    "exact-rsync-argv-0",
+    "exact-rsync-argv-1",
+    "exact-rsync-argv-2",
+    "exact-rsync-argv-3",
+    "exact-rsync-argv-4",
+    "exact-rsync-argv-5",
+    "fallback-bytes",
+    "find-removes-links",
+    "find-through-link",
+    "key-roundtrip",
+    "keyboard-server-exit",
+    "known-hosts-unchanged",
+    "kotlin-auth-reject",
+    "kotlin-cleanup",
+    "kotlin-keyboard",
+    "kotlin-standard-askpass",
+    "link-through-link",
+    "move-basename-link",
+    "move-through-link",
+    "move-trailing-link",
+    "openrsync-generated-server-argv",
+    "openssh-background",
+    "openssh-binary-stdin",
+    "openssh-key",
+    "openssh-keyboard",
+    "openssh-master-exit",
+    "openssh-master-ready",
+    "openssh-reject-key",
+    "openssh-reuse-1",
+    "openssh-reuse-2",
+    "openssh-stdin",
+    "openssh-streams",
+    "openssh-term",
+    "openssh-term-on-reused-connection",
+    "outside-sentinel-unchanged",
+    "password-roundtrip",
+    "receive-directory-slashes",
+    "remove-through-link",
+    "remove-trailing-link",
+    "remove-tree-links",
+    "rsync-call-count",
+    "rsync-link-operand",
+    "rsync-replaces-descendant-links",
+    "server-directions",
+    "shim-known-host-isolation",
+    "sshpass-attempt-00",
+    "sshpass-attempt-01",
+    "sshpass-attempt-02",
+    "sshpass-attempt-03",
+    "sshpass-attempt-04",
+    "sshpass-attempt-05",
+    "sshpass-attempt-06",
+    "sshpass-attempt-07",
+    "sshpass-attempt-08",
+    "sshpass-attempt-09",
+    "sshpass-attempt-10",
+    "sshpass-attempt-11",
+    "sshpass-attempt-12",
+    "sshpass-attempt-13",
+    "sshpass-attempt-14",
+    "sshpass-attempt-15",
+    "sshpass-attempt-16",
+    "sshpass-attempt-17",
+    "sshpass-attempt-18",
+    "sshpass-attempt-19",
+    "sshpass-reject",
+    "standard-server-exit",
+    "virtual-root-clean",
+    "virtual-term-delivered",
+    "writefile-bytes",
+    "writefile-client-guards",
+    "writefile-command-count",
+    "writefile-mode",
+    "writefile-replaces-link",
+    "writefile-temporary-link"
+  ],
+  "platform": "macOS-27.0.1-arm64-arm-64bit",
+  "platform_id": "darwin",
+  "required_artifacts": [
+    "argv.jsonl",
+    "askpass-attempt-00.stderr",
+    "askpass-attempt-00.stdout",
+    "askpass-attempt-01.stderr",
+    "askpass-attempt-01.stdout",
+    "askpass-attempt-02.stderr",
+    "askpass-attempt-02.stdout",
+    "askpass-attempt-03.stderr",
+    "askpass-attempt-03.stdout",
+    "askpass-attempt-04.stderr",
+    "askpass-attempt-04.stdout",
+    "askpass-attempt-05.stderr",
+    "askpass-attempt-05.stdout",
+    "askpass-attempt-06.stderr",
+    "askpass-attempt-06.stdout",
+    "askpass-attempt-07.stderr",
+    "askpass-attempt-07.stdout",
+    "askpass-attempt-08.stderr",
+    "askpass-attempt-08.stdout",
+    "askpass-attempt-09.stderr",
+    "askpass-attempt-09.stdout",
+    "askpass-reject.stderr",
+    "askpass-reject.stdout",
+    "containment-upload.stderr",
+    "containment-upload.stdout",
+    "containment/readiness.json",
+    "containment/server.stderr",
+    "containment/transcript.jsonl",
+    "copy-basename-link.stderr",
+    "copy-basename-link.stdout",
+    "copy-directory-link.stderr",
+    "copy-directory-link.stdout",
+    "copy-file-link.stderr",
+    "copy-file-link.stdout",
+    "find-removes-links.stderr",
+    "find-removes-links.stdout",
+    "find-through-link.stderr",
+    "find-through-link.stdout",
+    "keyboard/readiness.json",
+    "keyboard/server.stderr",
+    "keyboard/transcript.jsonl",
+    "kotlin-auth-reject.stderr",
+    "kotlin-auth-reject.stdout",
+    "kotlin-cleanup.stderr",
+    "kotlin-cleanup.stdout",
+    "kotlin-keyboard.stderr",
+    "kotlin-keyboard.stdout",
+    "kotlin-standard-askpass.stderr",
+    "kotlin-standard-askpass.stdout",
+    "link-through-link.stderr",
+    "link-through-link.stdout",
+    "move-basename-link.stderr",
+    "move-basename-link.stdout",
+    "move-through-link.stderr",
+    "move-through-link.stdout",
+    "move-trailing-link.stderr",
+    "move-trailing-link.stdout",
+    "openssh-background.stderr",
+    "openssh-background.stdout",
+    "openssh-key.stderr",
+    "openssh-key.stdout",
+    "openssh-keyboard.stderr",
+    "openssh-keyboard.stdout",
+    "openssh-master-exit.stderr",
+    "openssh-master-exit.stdout",
+    "openssh-reject-key.stderr",
+    "openssh-reject-key.stdout",
+    "openssh-reuse-1.stderr",
+    "openssh-reuse-1.stdout",
+    "openssh-reuse-2.stderr",
+    "openssh-reuse-2.stdout",
+    "openssh-stdin.stderr",
+    "openssh-stdin.stdout",
+    "openssh-term.stderr",
+    "openssh-term.stdout",
+    "remove-through-link.stderr",
+    "remove-through-link.stdout",
+    "remove-trailing-link.stderr",
+    "remove-trailing-link.stdout",
+    "remove-tree-links.stderr",
+    "remove-tree-links.stdout",
+    "results.json",
+    "rsync-link-operand.stderr",
+    "rsync-link-operand.stdout",
+    "rsync-replaces-descendant-links.stderr",
+    "rsync-replaces-descendant-links.stdout",
+    "sshpass-attempt-00.stderr",
+    "sshpass-attempt-00.stdout",
+    "sshpass-attempt-01.stderr",
+    "sshpass-attempt-01.stdout",
+    "sshpass-attempt-02.stderr",
+    "sshpass-attempt-02.stdout",
+    "sshpass-attempt-03.stderr",
+    "sshpass-attempt-03.stdout",
+    "sshpass-attempt-04.stderr",
+    "sshpass-attempt-04.stdout",
+    "sshpass-attempt-05.stderr",
+    "sshpass-attempt-05.stdout",
+    "sshpass-attempt-06.stderr",
+    "sshpass-attempt-06.stdout",
+    "sshpass-attempt-07.stderr",
+    "sshpass-attempt-07.stdout",
+    "sshpass-attempt-08.stderr",
+    "sshpass-attempt-08.stdout",
+    "sshpass-attempt-09.stderr",
+    "sshpass-attempt-09.stdout",
+    "sshpass-attempt-10.stderr",
+    "sshpass-attempt-10.stdout",
+    "sshpass-attempt-11.stderr",
+    "sshpass-attempt-11.stdout",
+    "sshpass-attempt-12.stderr",
+    "sshpass-attempt-12.stdout",
+    "sshpass-attempt-13.stderr",
+    "sshpass-attempt-13.stdout",
+    "sshpass-attempt-14.stderr",
+    "sshpass-attempt-14.stdout",
+    "sshpass-attempt-15.stderr",
+    "sshpass-attempt-15.stdout",
+    "sshpass-attempt-16.stderr",
+    "sshpass-attempt-16.stdout",
+    "sshpass-attempt-17.stderr",
+    "sshpass-attempt-17.stdout",
+    "sshpass-attempt-18.stderr",
+    "sshpass-attempt-18.stdout",
+    "sshpass-attempt-19.stderr",
+    "sshpass-attempt-19.stdout",
+    "sshpass-reject.stderr",
+    "sshpass-reject.stdout",
+    "standard/master.stderr",
+    "standard/readiness.json",
+    "standard/server.stderr",
+    "standard/transcript.jsonl",
+    "versions.json",
+    "writefile-replaces-link.stderr",
+    "writefile-replaces-link.stdout",
+    "writefile-temporary-link.stderr",
+    "writefile-temporary-link.stdout"
+  ],
+  "results": [
+    {
+      "case": "openssh-key",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-streams",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-stdin",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-binary-stdin",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-master-ready",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-reuse-1",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-background",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-term",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-reuse-2",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-master-exit",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-reject-key",
+      "exit": 255,
+      "expected": 255,
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-standard-askpass",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "key-roundtrip",
+      "outcome": "completed"
+    },
+    {
+      "case": "password-roundtrip",
+      "outcome": "completed"
+    },
+    {
+      "case": "deletion",
+      "outcome": "completed"
+    },
+    {
+      "case": "outside-sentinel-unchanged",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-bytes",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-mode",
+      "outcome": "completed"
+    },
+    {
+      "case": "fallback-bytes",
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-auth-reject",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-00",
+      "exit": 255,
+      "expected": 7,
+      "outcome": "failed"
+    },
+    {
+      "case": "sshpass-attempt-01",
+      "exit": 255,
+      "expected": 7,
+      "outcome": "failed"
+    },
+    {
+      "case": "sshpass-attempt-02",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-03",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-04",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-05",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-06",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-07",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-08",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-09",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-10",
+      "exit": 255,
+      "expected": 7,
+      "outcome": "failed"
+    },
+    {
+      "case": "sshpass-attempt-11",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-12",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-13",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-14",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-15",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-16",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-17",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-18",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "sshpass-attempt-19",
+      "exit": 255,
+      "expected": 7,
+      "outcome": "failed"
+    },
+    {
+      "case": "sshpass-reject",
+      "exit": 255,
+      "expected": 255,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-00",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-01",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-02",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-03",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-04",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-05",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-06",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-07",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-08",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-attempt-09",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "askpass-reject",
+      "exit": 255,
+      "expected": 255,
+      "outcome": "completed"
+    },
+    {
+      "case": "rsync-call-count",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-0",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-1",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-2",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-3",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-4",
+      "outcome": "completed"
+    },
+    {
+      "case": "exact-rsync-argv-5",
+      "outcome": "completed"
+    },
+    {
+      "case": "debug-version-argv",
+      "outcome": "completed"
+    },
+    {
+      "case": "receive-directory-slashes",
+      "outcome": "completed"
+    },
+    {
+      "case": "shim-known-host-isolation",
+      "outcome": "completed"
+    },
+    {
+      "case": "all-three-shims",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-client-guards",
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-command-count",
+      "outcome": "completed"
+    },
+    {
+      "case": "server-directions",
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-term-on-reused-connection",
+      "outcome": "completed"
+    },
+    {
+      "case": "virtual-term-delivered",
+      "outcome": "completed"
+    },
+    {
+      "case": "openrsync-generated-server-argv",
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-cleanup",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "virtual-root-clean",
+      "outcome": "completed"
+    },
+    {
+      "case": "standard-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "kotlin-keyboard",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "openssh-keyboard",
+      "exit": 7,
+      "expected": 7,
+      "outcome": "completed"
+    },
+    {
+      "case": "keyboard-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "containment-upload",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "containment-uploaded-links",
+      "outcome": "completed"
+    },
+    {
+      "case": "copy-file-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "copy-directory-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "copy-basename-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "move-basename-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "move-through-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "remove-through-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "link-through-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "find-through-link",
+      "exit": 2,
+      "expected": 2,
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-temporary-link",
+      "exit": 1,
+      "expected": 1,
+      "outcome": "completed"
+    },
+    {
+      "case": "writefile-replaces-link",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "remove-trailing-link",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "move-trailing-link",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "remove-tree-links",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "find-removes-links",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "rsync-replaces-descendant-links",
+      "exit": 0,
+      "expected": 0,
+      "outcome": "completed"
+    },
+    {
+      "case": "rsync-link-operand",
+      "exit": 255,
+      "expected": 255,
+      "outcome": "completed"
+    },
+    {
+      "case": "containment-sentinel-unchanged",
+      "outcome": "completed"
+    },
+    {
+      "case": "containment-link-results",
+      "outcome": "completed"
+    },
+    {
+      "case": "containment-rsync-results",
+      "outcome": "completed"
+    },
+    {
+      "case": "containment-server-exit",
+      "outcome": "completed"
+    },
+    {
+      "case": "known-hosts-unchanged",
+      "outcome": "completed"
+    }
+  ],
+  "schema": 2,
+  "suite": "standard",
+  "terminal_outcome": "failed"
+}

@@ -1,0 +1,143 @@
+{
+  "artifact_content": [
+    {
+      "name": "SCRIPTED",
+      "sha256": "03c1a436daf6ccc9e0059390f945bab3724ea796fe41b8c04fd6ecf42856c1a9",
+      "size": 64
+    },
+    {
+      "name": "app.min.css",
+      "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+      "size": 20391
+    },
+    {
+      "name": "app.min.js",
+      "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+      "size": 327442
+    },
+    {
+      "name": "chart.css",
+      "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+      "size": 1662
+    },
+    {
+      "name": "chart.js",
+      "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+      "size": 19868
+    },
+    {
+      "name": "iframeResizer.contentWindow.min.js",
+      "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+      "size": 13616
+    },
+    {
+      "name": "root.json",
+      "sha256": "1eb8e80717ef6a9b0a3ca36983be8ffac7997471a10d077797736dc82c4b1e19",
+      "size": 1083
+    },
+    {
+      "name": "tests-0.json",
+      "sha256": "5989ea48c035fa1947cf3a204340e5b9b8a09e9e903814ed8549b09293ea33bf",
+      "size": 366
+    }
+  ],
+  "command_counts": {
+    "architecture": 1,
+    "chmod": 2,
+    "csrutil": 2,
+    "environment": 1,
+    "fs-mkdir": 10,
+    "fs-rm-rf": 2,
+    "fs-test-e": 3,
+    "hardware": 1,
+    "ioreg-manufacturer": 1,
+    "ioreg-model": 1,
+    "os-version": 1,
+    "rsync-receive": 1,
+    "rsync-send": 6,
+    "tcc-system": 2,
+    "tcc-user": 2,
+    "xcode-discovery-macos": 1,
+    "xcode-test-macos": 1,
+    "xcode-version": 1,
+    "xcresult-id": 1,
+    "xcresult-root": 1
+  },
+  "devices": {
+    "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE": {
+      "available": true,
+      "installed": [],
+      "keyboard": true,
+      "state": "Shutdown"
+    }
+  },
+  "junit": {
+    "errors": 0,
+    "failures": 1,
+    "skipped": 1,
+    "tests": 3
+  },
+  "media": [],
+  "report_families": {
+    "allure-results": 4,
+    "bill": 1,
+    "device-files": 3,
+    "devices": 1,
+    "html": 14,
+    "logs": 3,
+    "test_result": 4,
+    "tests": 1
+  },
+  "sessions": [
+    {
+      "discovery": true,
+      "selected": [],
+      "state": "finished"
+    },
+    {
+      "discovery": false,
+      "selected": [
+        "AppleWorldTests/SmokeTests/testFail",
+        "AppleWorldTests/SmokeTests/testPass",
+        "AppleWorldTests/SmokeTests/testSkip"
+      ],
+      "state": "finished"
+    }
+  ],
+  "tcc_writes": 4,
+  "tests": [
+    {
+      "attachment_types": [
+        "LOG"
+      ],
+      "class": "SmokeTests",
+      "device": "worker-1",
+      "failure": "scripted enriched failure\nfile:///fixture/SmokeTests:1",
+      "method": "testFail",
+      "package": "AppleWorldTests",
+      "status": "FAILURE"
+    },
+    {
+      "attachment_types": [
+        "LOG"
+      ],
+      "class": "SmokeTests",
+      "device": "worker-1",
+      "failure": null,
+      "method": "testPass",
+      "package": "AppleWorldTests",
+      "status": "PASSED"
+    },
+    {
+      "attachment_types": [
+        "LOG"
+      ],
+      "class": "SmokeTests",
+      "device": "worker-1",
+      "failure": null,
+      "method": "testSkip",
+      "package": "AppleWorldTests",
+      "status": "IGNORED"
+    }
+  ]
+}

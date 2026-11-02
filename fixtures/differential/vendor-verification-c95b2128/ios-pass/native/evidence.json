@@ -1,0 +1,740 @@
+{
+  "contract": "1a32999a377f8a02063671a29ec42d3d85140e4ec8289b8de82d2ca9bdc4af50",
+  "entries": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "host-argv.jsonl",
+      "sha256": "c5df1f2b0508c1e6044968ea45121e9c5f4439969d92633c88487a7e402ac080",
+      "size": 7168
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/allure-results"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/10000000-0000-0000-0000-000000000001-result.json",
+      "sha256": "bc5a4cb3800f807c8069454ab07d26a3e8be20076d075322735f7a02a2d1d4a9",
+      "size": 967
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/allure-results/environment.xml",
+      "sha256": "d5d110c5b57f2c692f5b2c2493359e618640719d94ca3d6257d140a00e0bcdf5",
+      "size": 6032
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/bill/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/bill/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129.json",
+      "sha256": "6fc2cdc4d1f264ebdedd9dfad971008c14a9a032ffe078a4275209103367d115",
+      "size": 334
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/xcresult"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/xcresult/00000000-0000-0000-0000-000000000001.xcresult"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/xcresult/00000000-0000-0000-0000-000000000001.xcresult/SCRIPTED",
+      "sha256": "03c1a436daf6ccc9e0059390f945bab3724ea796fe41b8c04fd6ecf42856c1a9",
+      "size": 64
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/xcresult/00000000-0000-0000-0000-000000000001.xcresult/root.json",
+      "sha256": "b63adc78911172d0341392b83f0e564b63e744d716aa7f227e362b51074adcc9",
+      "size": 895
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "reports/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/xcresult/00000000-0000-0000-0000-000000000001.xcresult/tests-0.json",
+      "sha256": "1459d274bccda1b58a751db823061e1042fd7c034fa4ef6fd8e7ecb96009ec1c",
+      "size": 219
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/devices/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/devices/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129.json",
+      "sha256": "42ff7fdb1db482e3a0f07b149693f304954daa7e34b433b63475f5f189467924",
+      "size": 245
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.css",
+      "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33",
+      "size": 20391
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/app.min.js",
+      "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9",
+      "size": 327442
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/index.html",
+      "sha256": "d50a9348100992ed6ecc109be9e82ee308964391239beaa0ce3db0fe460de2c2",
+      "size": 1348
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni.html",
+      "sha256": "bc4b591246c42f0da12ec9bc38bc7696c2dae82320deb91d7546e49b64e78754",
+      "size": 1146
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/logs"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/logs/sample-appUnitTests.SampleTests.testPassing.html",
+      "sha256": "b78496bdb23926e4afd797532489194951053af5927c45e543cef5aa9c574528",
+      "size": 973
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/sample-appUnitTests.SampleTests.testPassing.html",
+      "sha256": "9ecd97da39ea75f2cd5ffe33bea0e0ba4e9a40de858ff47fd0ed89deb39fe17f",
+      "size": 1196
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/html/timeline"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.css",
+      "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e",
+      "size": 1662
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/chart.js",
+      "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba",
+      "size": 19868
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/iframeResizer.contentWindow.min.js",
+      "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2",
+      "size": 13616
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/html/timeline/index.html",
+      "sha256": "576fa8fbd71668870f0c143b18ca84b5e1073cea4db6d702436a8d3ec3fbdd72",
+      "size": 1531
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/00000000-0000-0000-0000-000000000001.00000000-0000-0000-0000-000000000001",
+      "sha256": "60486747b3f110366f3ae11909ad6e18e90eb0e51a3bf1cd63aec2d6f7995468",
+      "size": 28
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/sample-appUnitTests.SampleTests#testPassing-00000000-0000-0000-0000-000000000001.log",
+      "sha256": "49e9c225a4107574e361d435e2c001e3a7aa43ccd1b3edacaa48721294c66633",
+      "size": 83
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129/sample-appUnitTests.SampleTests#testPassing.json",
+      "sha256": "ac75d0453da11edf8bccef4f7cb9fd046c596a77b751fb041a86a128cf6fc707",
+      "size": 860
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/test_result/raw.json",
+      "sha256": "88f6a8ba3f75d002312c4291ec42359c5b018def79a1bebe8d83b2fc13221466",
+      "size": 266
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "reports/tests/omni"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "reports/tests/omni/marathon_junit_report.xml",
+      "sha256": "377f5558662f7207e36a062255abe8fb598b4a723c1f661adc0c49893cf11461",
+      "size": 517
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "state.json",
+      "sha256": "7df2d1fa0b8a25890b9c916e55d6fbf0e7029e068aa58c84e90f6f14a45cea01",
+      "size": 3190
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stderr",
+      "sha256": "ae70b94774a43032af60f7b1d8ae8264bf1b04e1b382633b0e4e5d129b397491",
+      "size": 148
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "stdout",
+      "sha256": "0ea098da4d6321fa9df23ad543bd401340a174da2cefaf84677d89e040261746",
+      "size": 4986
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "transcript.jsonl",
+      "sha256": "1c3478000e8b446facde40790c2912df343283dc56709b029d803b001dd6bb1c",
+      "size": 1755321
+    },
+    {
+      "kind": "directory",
+      "mode": 448,
+      "path": "worker"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/.apple-world"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/.apple-world/session-0.finished",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+    },
+    {
+      "kind": "file",
+      "mode": 384,
+      "path": "worker/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/marathon.xctestrun",
+      "sha256": "47f002b7c7838dc948a22d0272829b607d5d10f3047eb9b29e0b0df6643a6103",
+      "size": 1692
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Base.lproj"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/LaunchScreen.storyboardc"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/LaunchScreen.storyboardc/01J-lp-oVM-view-Ze5-6b-2t3.nib",
+      "sha256": "980ce6698d6a12b3d1ab05f76679f5f9250334e164d77525894f67f945169659",
+      "size": 1201
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/LaunchScreen.storyboardc/Info.plist",
+      "sha256": "1f255d5cc53b531e3f29a9406a8df49a958e2bf9443d3e20bd8374f707f7d5c8",
+      "size": 258
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/LaunchScreen.storyboardc/UIViewController-01J-lp-oVM.nib",
+      "sha256": "54f3637f671feba5f19e82ec4f4a7fb448bb3cfc0fb180f089aa571fc8f053e2",
+      "size": 924
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc/7ox-Dw-FT2-view-b2c-Uo-fOB.nib",
+      "sha256": "7ef64bf5699fc53cae43de41be4c9657101543d9bbdd59dafe90509063d8ddb7",
+      "size": 2391
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc/BYZ-38-t0r-view-8bC-Xf-vdC.nib",
+      "sha256": "b4c283d8932a2a86405aa4bc440726afb5f577b2a528f947492b90a28413e57c",
+      "size": 4526
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc/Info.plist",
+      "sha256": "5c233054b15b79dfbfc2195c8f26a73565a43a7bc8f37d038a992f05b244e67a",
+      "size": 411
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc/UINavigationController-56p-VW-Fs0.nib",
+      "sha256": "43f358dc16f1215f1bb946fe1f52bf9ee88a0a373a0912c1912c56f2c2b28b85",
+      "size": 2319
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc/UIViewController-BYZ-38-t0r.nib",
+      "sha256": "4cb26c0a7c65c11400b2d48d1283893e880ec04c260a0cdb696227262fe8a9fb",
+      "size": 1466
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc/UIViewController-fJi-Vl-h77.nib",
+      "sha256": "bcda9689aa044684342523907b20804d10e66bf0adde3f06bee917d7e9d0496d",
+      "size": 860
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Base.lproj/Main.storyboardc/fJi-Vl-h77-view-ws3-eo-fxB.nib",
+      "sha256": "28854dff4310dc4c1804319a36ad46dc652142340084ccaf8aa7ee33dcf93011",
+      "size": 2379
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/Info.plist",
+      "sha256": "b48d8bcdbc01cd9aaea6b159d132d071e0149b7759cd2a655280c94a82314148",
+      "size": 1164
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/PkgInfo",
+      "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+      "size": 8
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/PlugIns/sample-appUnitTests.xctest"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/PlugIns/sample-appUnitTests.xctest/Info.plist",
+      "sha256": "cf21a26cfa1f5534661e3f98195f4b2f1dc2f8fb9b0f13ce6c9d932821be046d",
+      "size": 774
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/PlugIns/sample-appUnitTests.xctest/sample-appUnitTests",
+      "sha256": "18f3e75312115131060ce1d4cfc52e19355a96e15e3125cface3eeafca273be0",
+      "size": 161120
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/__preview.dylib",
+      "sha256": "23a1e9e17c891a401eac4c24a798d5526fc09f6dfddab940819346d512d4478e",
+      "size": 33144
+    },
+    {
+      "kind": "file",
+      "mode": 493,
+      "path": "worker/shared/appUnderTest.app/sample-app",
+      "sha256": "0d0b537416a0897199576fdeb21b5374efaab90302b7fd2204fe3590130a4dc9",
+      "size": 72984
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/appUnderTest.app/sample-app.debug.dylib",
+      "sha256": "23391671e4c2b30c37d098d380c673b36eedaacdedf82bdd9e0f9cd74d8bd60e",
+      "size": 207144
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/marathon.xctest"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/Info.plist",
+      "sha256": "cf21a26cfa1f5534661e3f98195f4b2f1dc2f8fb9b0f13ce6c9d932821be046d",
+      "size": 774
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/marathon.xctest/sample-appUnitTests",
+      "sha256": "18f3e75312115131060ce1d4cfc52e19355a96e15e3125cface3eeafca273be0",
+      "size": 161120
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/sample-app.app"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/sample-app.app/Base.lproj"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/sample-app.app/Base.lproj/LaunchScreen.storyboardc"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/LaunchScreen.storyboardc/01J-lp-oVM-view-Ze5-6b-2t3.nib",
+      "sha256": "980ce6698d6a12b3d1ab05f76679f5f9250334e164d77525894f67f945169659",
+      "size": 1201
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/LaunchScreen.storyboardc/Info.plist",
+      "sha256": "1f255d5cc53b531e3f29a9406a8df49a958e2bf9443d3e20bd8374f707f7d5c8",
+      "size": 258
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/LaunchScreen.storyboardc/UIViewController-01J-lp-oVM.nib",
+      "sha256": "54f3637f671feba5f19e82ec4f4a7fb448bb3cfc0fb180f089aa571fc8f053e2",
+      "size": 924
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc/7ox-Dw-FT2-view-b2c-Uo-fOB.nib",
+      "sha256": "7ef64bf5699fc53cae43de41be4c9657101543d9bbdd59dafe90509063d8ddb7",
+      "size": 2391
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc/BYZ-38-t0r-view-8bC-Xf-vdC.nib",
+      "sha256": "b4c283d8932a2a86405aa4bc440726afb5f577b2a528f947492b90a28413e57c",
+      "size": 4526
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc/Info.plist",
+      "sha256": "5c233054b15b79dfbfc2195c8f26a73565a43a7bc8f37d038a992f05b244e67a",
+      "size": 411
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc/UINavigationController-56p-VW-Fs0.nib",
+      "sha256": "43f358dc16f1215f1bb946fe1f52bf9ee88a0a373a0912c1912c56f2c2b28b85",
+      "size": 2319
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc/UIViewController-BYZ-38-t0r.nib",
+      "sha256": "4cb26c0a7c65c11400b2d48d1283893e880ec04c260a0cdb696227262fe8a9fb",
+      "size": 1466
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc/UIViewController-fJi-Vl-h77.nib",
+      "sha256": "bcda9689aa044684342523907b20804d10e66bf0adde3f06bee917d7e9d0496d",
+      "size": 860
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Base.lproj/Main.storyboardc/fJi-Vl-h77-view-ws3-eo-fxB.nib",
+      "sha256": "28854dff4310dc4c1804319a36ad46dc652142340084ccaf8aa7ee33dcf93011",
+      "size": 2379
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/Info.plist",
+      "sha256": "b48d8bcdbc01cd9aaea6b159d132d071e0149b7759cd2a655280c94a82314148",
+      "size": 1164
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/PkgInfo",
+      "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0",
+      "size": 8
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/sample-app.app/PlugIns"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "worker/shared/sample-app.app/PlugIns/sample-appUnitTests.xctest"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/PlugIns/sample-appUnitTests.xctest/Info.plist",
+      "sha256": "cf21a26cfa1f5534661e3f98195f4b2f1dc2f8fb9b0f13ce6c9d932821be046d",
+      "size": 774
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/PlugIns/sample-appUnitTests.xctest/sample-appUnitTests",
+      "sha256": "18f3e75312115131060ce1d4cfc52e19355a96e15e3125cface3eeafca273be0",
+      "size": 161120
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/__preview.dylib",
+      "sha256": "23a1e9e17c891a401eac4c24a798d5526fc09f6dfddab940819346d512d4478e",
+      "size": 33144
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/sample-app",
+      "sha256": "0d0b537416a0897199576fdeb21b5374efaab90302b7fd2204fe3590130a4dc9",
+      "size": 72984
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "worker/shared/sample-app.app/sample-app.debug.dylib",
+      "sha256": "23391671e4c2b30c37d098d380c673b36eedaacdedf82bdd9e0f9cd74d8bd60e",
+      "size": 207144
+    }
+  ],
+  "format": "marathon-differential/evidence@2",
+  "identities": {
+    "port": "53129",
+    "safe_serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-53129",
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/ios-pass/native/raw",
+    "serial": "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE@fixture@127.0.0.1:53129"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "2a91b01520735836e08103d699d64d41f6db0d80d92e18ec4dca10be42d19316",
+    "fake_process": {
+      "exit": 0,
+      "joined": true,
+      "watchdog": false
+    },
+    "hooks": {
+      "active": true,
+      "failures": [],
+      "unused": []
+    },
+    "native_sha": "9e1538c53560b64e018c257afc44474a0d27ed9d",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/target/debug/examples/differential_cli",
+        "run",
+        "-m",
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.5/tools/differential/runs/release-c95b2128/ios-pass/native/raw/in/Marathonfile"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+    "terminal_observation": {
+      "cli": 0,
+      "fake": 0,
+      "harness": 0,
+      "joined": true,
+      "unmatched": [],
+      "unused": [],
+      "watchdog": false
+    }
+  },
+  "source": "c95b212882c7ba7b1ad91b7981916ed175f1530e",
+  "storage": "gzip@1"
+}

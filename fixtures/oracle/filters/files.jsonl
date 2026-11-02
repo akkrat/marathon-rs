@@ -1,0 +1,14 @@
+{"schema":"filters-v1","source":"e47352f2","java":"21.0.10","allure":"2.29.0","normalization":"temporary root=<tmp>; DecodedNull suffix=<identity>; no stack frames"}
+{"bytes":[32,35,99,111,109,109,101,110,116,10,67,108,97,115,115,35,109,101,116,104,111,100,10,120,35,108,105,116,101,114,97,108,10,120,32,35,99,111,109,109,101,110,116,10,10,120,9,120,35,108,105,116,101,114,97,108,10],"values":["Class#method","x#literal","x","x\tx#literal"]}
+{"bytes":[239,187,191,67,108,97,115,115,13,67,108,97,115,115,10,79,116,104,101,114,13,10,67,108,97,115,115,10],"values":["﻿Class","Class","Other","Class"]}
+{"bytes":[120,194,160,35,108,105,116,101,114,97,108,10,194,160,28,10],"values":["x #literal"]}
+{"bytes":[120,32,35,99,111,109,109,101,110,116,226,128,168,97,102,116,101,114,10,121,32,35,99,111,109,109,101,110,116,226,128,168,10,122,32,35,99,111,109,109,101,110,116,194,133],"values":["x #comment\u2028after","y","z"]}
+{"bytes":[9,10,226,128,135,35,99,111,109,109,101,110,116,10],"values":[]}
+{"bytes":[237,160,128,10,240,128,128,128],"values":["�","����"]}
+{"cache":[{"step":"empty","result":[],"logs":[]},{"step":"missing","result":[],"logs":[{"logger":"FilterValuesFileReader","level":"ERROR","message":"Filtering configuration file <tmp>/values does not exist. Applying empty list.","cause":null}]},{"step":"created","result":[["pkg","Class","one"],["pkg.sub","Other","two"],["","Class","one"],[" \t","Class","three"],["pkg2","Class","one"],["pkg","Class","one"]],"logs":[]}]}
+{"retryError":{"error":{"class":"java.io.FileNotFoundException","message":"<tmp>/values (Is a directory)","cause":null}}}
+{"retrySuccess":[["pkg","Class","one"],["","Class","one"],[" \t","Class","three"],["pkg2","Class","one"],["pkg","Class","one"]]}
+{"disabled":[["pkg","Class","one"],["pkg.sub","Other","two"],["","Class","one"],[" \t","Class","three"],["pkg2","Class","one"],["pkg","Class","one"]],"logs":[]}
+{"explicitEmpty":[],"logs":[]}
+{"mutationBefore":[["pkg","Class","one"],["","Class","one"],[" \t","Class","three"],["pkg2","Class","one"],["pkg","Class","one"]],"mutationAfter":[["pkg.sub","Other","two"]]}
+{"invalidPath":"bad\u0000path","values":[],"logs":[{"logger":"FilterValuesFileReader","level":"ERROR","message":"Filtering configuration file <tmp>/bad\u0000path does not exist. Applying empty list.","cause":null}]}

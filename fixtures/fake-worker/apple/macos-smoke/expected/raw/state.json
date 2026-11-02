@@ -1,0 +1,58 @@
+{
+  "calls": {
+    "batch": 2,
+    "enrichment-root": 2,
+    "xcode-version": 1
+  },
+  "deferred": [],
+  "devices": {
+    "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE": {
+      "available": true,
+      "installed": [],
+      "keyboard": true,
+      "state": "Shutdown"
+    }
+  },
+  "permissions": [
+    [
+      "/Library/Application Support/com.apple.TCC/TCC.db",
+      "replace into access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) values (\"kTCCServiceAccessibility\",\"org.marathon.AppleWorld\",0,2,1,1,\"UNUSED\",0,1792794469);"
+    ],
+    [
+      "/Users/worker/Library/Application Support/com.apple.TCC/TCC.db",
+      "replace into access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) values (\"kTCCServiceAccessibility\",\"org.marathon.AppleWorld\",0,2,1,1,\"UNUSED\",0,1792794469);"
+    ],
+    [
+      "/Library/Application Support/com.apple.TCC/TCC.db",
+      "replace into access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) values (\"kTCCServiceAccessibility\",\"org.marathon.AppleWorld\",0,2,1,1,\"UNUSED\",0,1792794470);"
+    ],
+    [
+      "/Users/worker/Library/Application Support/com.apple.TCC/TCC.db",
+      "replace into access (service,client,client_type,auth_value,auth_reason,auth_version,indirect_object_identifier,flags,last_modified) values (\"kTCCServiceAccessibility\",\"org.marathon.AppleWorld\",0,2,1,1,\"UNUSED\",0,1792794470);"
+    ]
+  ],
+  "sessions": [
+    {
+      "destination": "platform=OS X,id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+      "discovery": true,
+      "plist_base64": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+X194Y3Rlc3RydW5fbWV0YWRhdGFfXzwva2V5PgoJPGRpY3Q+CgkJPGtleT5Gb3JtYXRWZXJzaW9uPC9rZXk+CgkJPGludGVnZXI+MjwvaW50ZWdlcj4KCTwvZGljdD4KCTxrZXk+VGVzdENvbmZpZ3VyYXRpb25zPC9rZXk+Cgk8YXJyYXk+CgkJPGRpY3Q+CgkJCTxrZXk+TmFtZTwva2V5PgoJCQk8c3RyaW5nPm1hcmF0aG9uPC9zdHJpbmc+CgkJCTxrZXk+VGVzdFRhcmdldHM8L2tleT4KCQkJPGFycmF5PgoJCQkJPGRpY3Q+CgkJCQkJPGtleT5UZXN0QnVuZGxlUGF0aDwva2V5PgoJCQkJCTxzdHJpbmc+L3RtcC9tYXJhdGhvbi9zaGFyZWQvYXBwVW5kZXJUZXN0LmFwcC9QbHVnSW5zL0FwcGxlV29ybGRUZXN0cy54Y3Rlc3Q8L3N0cmluZz4KCQkJCQk8a2V5PlRlc3RIb3N0UGF0aDwva2V5PgoJCQkJCTxzdHJpbmc+L3RtcC9tYXJhdGhvbi9zaGFyZWQvYXBwVW5kZXJUZXN0LmFwcDwvc3RyaW5nPgoJCQkJCTxrZXk+VGVzdGluZ0Vudmlyb25tZW50VmFyaWFibGVzPC9rZXk+CgkJCQkJPGRpY3Q+CgkJCQkJCTxrZXk+RFlMRF9GUkFNRVdPUktfUEFUSDwva2V5PgoJCQkJCQk8c3RyaW5nPl9fVEVTVFJPT1RfXzpfX1BMQVRGT1JNU19fL01hY09TWC5wbGF0Zm9ybS9EZXZlbG9wZXIvTGlicmFyeS9GcmFtZXdvcmtzOl9fUExBVEZPUk1TX18vTWFjT1NYLnBsYXRmb3JtL0RldmVsb3Blci9MaWJyYXJ5L1ByaXZhdGVGcmFtZXdvcmtzPC9zdHJpbmc+CgkJCQkJCTxrZXk+RFlMRF9JTlNFUlRfTElCUkFSSUVTPC9rZXk+CgkJCQkJCTxzdHJpbmc+L3RtcC9tYXJhdGhvbi9zaGFyZWQvbGlieGN0ZXN0LXBhcnNlci5keWxpYjpfX1BMQVRGT1JNU19fL01hY09TWC5wbGF0Zm9ybS9EZXZlbG9wZXIvdXNyL2xpYi9saWJYQ1Rlc3RCdW5kbGVJbmplY3QuZHlsaWI8L3N0cmluZz4KCQkJCQkJPGtleT5EWUxEX0xJQlJBUllfUEFUSDwva2V5PgoJCQkJCQk8c3RyaW5nPl9fVEVTVFJPT1RfXzpfX1BMQVRGT1JNU19fL01hY09TWC5wbGF0Zm9ybS9EZXZlbG9wZXIvdXNyL2xpYjwvc3RyaW5nPgoJCQkJCQk8a2V5PlhDSW5qZWN0QnVuZGxlSW50bzwva2V5PgoJCQkJCQk8c3RyaW5nPl9fVEVTVEhPU1RfXy9hcHBVbmRlclRlc3QuYXBwPC9zdHJpbmc+CgkJCQkJPC9kaWN0PgoJCQkJCTxrZXk+Qmx1ZXByaW50TmFtZTwva2V5PgoJCQkJCTxzdHJpbmc+QXBwbGVXb3JsZFRlc3RzPC9zdHJpbmc+CgkJCQkJPGtleT5Qcm9kdWN0TW9kdWxlTmFtZTwva2V5PgoJCQkJCTxzdHJpbmc+QXBwbGVXb3JsZFRlc3RzPC9zdHJpbmc+CgkJCQkJPGtleT5TeXN0ZW1BdHRhY2htZW50TGlmZXRpbWU8L2tleT4KCQkJCQk8c3RyaW5nPmRlbGV0ZU9uU3VjY2Vzczwvc3RyaW5nPgoJCQkJCTxrZXk+VXNlckF0dGFjaG1lbnRMaWZldGltZTwva2V5PgoJCQkJCTxzdHJpbmc+a2VlcEFsd2F5czwvc3RyaW5nPgoJCQkJCTxrZXk+SXNBcHBIb3N0ZWRUZXN0QnVuZGxlPC9rZXk+CgkJCQkJPHRydWUvPgoJCQkJPC9kaWN0PgoJCQk8L2FycmF5PgoJCTwvZGljdD4KCTwvYXJyYXk+CjwvZGljdD4KPC9wbGlzdD4=",
+      "result": null,
+      "selected": [],
+      "state": "finished",
+      "xctestrun": "/tmp/marathon/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/marathon.xctestrun"
+    },
+    {
+      "destination": "platform=OS X,id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE",
+      "discovery": false,
+      "plist_base64": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPCFET0NUWVBFIHBsaXN0IFBVQkxJQyAiLS8vQXBwbGUvL0RURCBQTElTVCAxLjAvL0VOIiAiaHR0cDovL3d3dy5hcHBsZS5jb20vRFREcy9Qcm9wZXJ0eUxpc3QtMS4wLmR0ZCI+CjxwbGlzdCB2ZXJzaW9uPSIxLjAiPgo8ZGljdD4KCTxrZXk+X194Y3Rlc3RydW5fbWV0YWRhdGFfXzwva2V5PgoJPGRpY3Q+CgkJPGtleT5Gb3JtYXRWZXJzaW9uPC9rZXk+CgkJPGludGVnZXI+MjwvaW50ZWdlcj4KCTwvZGljdD4KCTxrZXk+VGVzdENvbmZpZ3VyYXRpb25zPC9rZXk+Cgk8YXJyYXk+CgkJPGRpY3Q+CgkJCTxrZXk+TmFtZTwva2V5PgoJCQk8c3RyaW5nPm1hcmF0aG9uPC9zdHJpbmc+CgkJCTxrZXk+VGVzdFRhcmdldHM8L2tleT4KCQkJPGFycmF5PgoJCQkJPGRpY3Q+CgkJCQkJPGtleT5UZXN0QnVuZGxlUGF0aDwva2V5PgoJCQkJCTxzdHJpbmc+L3RtcC9tYXJhdGhvbi9zaGFyZWQvYXBwVW5kZXJUZXN0LmFwcC9QbHVnSW5zL0FwcGxlV29ybGRUZXN0cy54Y3Rlc3Q8L3N0cmluZz4KCQkJCQk8a2V5PlRlc3RIb3N0UGF0aDwva2V5PgoJCQkJCTxzdHJpbmc+L3RtcC9tYXJhdGhvbi9zaGFyZWQvYXBwVW5kZXJUZXN0LmFwcDwvc3RyaW5nPgoJCQkJCTxrZXk+VGVzdGluZ0Vudmlyb25tZW50VmFyaWFibGVzPC9rZXk+CgkJCQkJPGRpY3Q+CgkJCQkJCTxrZXk+RFlMRF9GUkFNRVdPUktfUEFUSDwva2V5PgoJCQkJCQk8c3RyaW5nPl9fVEVTVFJPT1RfXzpfX1BMQVRGT1JNU19fL01hY09TWC5wbGF0Zm9ybS9EZXZlbG9wZXIvTGlicmFyeS9GcmFtZXdvcmtzOl9fUExBVEZPUk1TX18vTWFjT1NYLnBsYXRmb3JtL0RldmVsb3Blci9MaWJyYXJ5L1ByaXZhdGVGcmFtZXdvcmtzPC9zdHJpbmc+CgkJCQkJCTxrZXk+RFlMRF9JTlNFUlRfTElCUkFSSUVTPC9rZXk+CgkJCQkJCTxzdHJpbmc+X19QTEFURk9STVNfXy9NYWNPU1gucGxhdGZvcm0vRGV2ZWxvcGVyL3Vzci9saWIvbGliWENUZXN0QnVuZGxlSW5qZWN0LmR5bGliPC9zdHJpbmc+CgkJCQkJCTxrZXk+RFlMRF9MSUJSQVJZX1BBVEg8L2tleT4KCQkJCQkJPHN0cmluZz5fX1RFU1RST09UX186X19QTEFURk9STVNfXy9NYWNPU1gucGxhdGZvcm0vRGV2ZWxvcGVyL3Vzci9saWI8L3N0cmluZz4KCQkJCQkJPGtleT5YQ0luamVjdEJ1bmRsZUludG88L2tleT4KCQkJCQkJPHN0cmluZz5fX1RFU1RIT1NUX18vYXBwVW5kZXJUZXN0LmFwcDwvc3RyaW5nPgoJCQkJCTwvZGljdD4KCQkJCQk8a2V5PkJsdWVwcmludE5hbWU8L2tleT4KCQkJCQk8c3RyaW5nPkFwcGxlV29ybGRUZXN0czwvc3RyaW5nPgoJCQkJCTxrZXk+UHJvZHVjdE1vZHVsZU5hbWU8L2tleT4KCQkJCQk8c3RyaW5nPkFwcGxlV29ybGRUZXN0czwvc3RyaW5nPgoJCQkJCTxrZXk+U3lzdGVtQXR0YWNobWVudExpZmV0aW1lPC9rZXk+CgkJCQkJPHN0cmluZz5kZWxldGVPblN1Y2Nlc3M8L3N0cmluZz4KCQkJCQk8a2V5PlVzZXJBdHRhY2htZW50TGlmZXRpbWU8L2tleT4KCQkJCQk8c3RyaW5nPmtlZXBBbHdheXM8L3N0cmluZz4KCQkJCQk8a2V5PklzQXBwSG9zdGVkVGVzdEJ1bmRsZTwva2V5PgoJCQkJCTx0cnVlLz4KCQkJCTwvZGljdD4KCQkJPC9hcnJheT4KCQk8L2RpY3Q+Cgk8L2FycmF5Pgo8L2RpY3Q+CjwvcGxpc3Q+",
+      "result": "/tmp/marathon/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.e1589579-0f69-4037-94c2-54733f07292a.xcresult",
+      "selected": [
+        "AppleWorldTests/SmokeTests/testPass",
+        "AppleWorldTests/SmokeTests/testSkip",
+        "AppleWorldTests/SmokeTests/testFail"
+      ],
+      "state": "finished",
+      "xctestrun": "/tmp/marathon/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE/marathon.xctestrun"
+    }
+  ]
+}

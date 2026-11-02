@@ -1,0 +1,9 @@
+SLF4J(I): Connected with provider of type [ch.qos.logback.classic.spi.LogbackServiceProvider]
+18:50:13.913 ERROR [sshj-Reader-/127.0.0.1:54744-1792770613906] TransportImpl - Dying because - fixture disconnect 11
+net.schmizz.sshj.transport.TransportException: fixture disconnect 11
+	at net.schmizz.sshj.transport.TransportImpl.gotDisconnect(TransportImpl.java:548)
+	at net.schmizz.sshj.transport.TransportImpl.handle(TransportImpl.java:500)
+	at net.schmizz.sshj.transport.Decoder.decode(Decoder.java:113)
+	at net.schmizz.sshj.transport.Decoder.received(Decoder.java:200)
+	at net.schmizz.sshj.transport.Reader.run(Reader.java:60)
+18:50:13.914 ERROR [main] Promise - <<kex done>> woke to: net.schmizz.sshj.transport.TransportException: [BY_APPLICATION] fixture disconnect 11

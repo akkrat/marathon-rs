@@ -1,0 +1,31 @@
+name: "fake-adb android-two-devices"
+outputDir: "./output"
+analyticsTracking: false
+bugsnagReporting: false
+filteringConfiguration:
+  allowlist:
+    - type: "fully-qualified-test-name"
+      values:
+        - "com.example.MainActivityTest#testText"
+        - "com.example.MainActivityAllureTest#testFailure"
+        - "com.example.ClassIgnoredTest#testAlwaysIgnored"
+batchingStrategy:
+  type: "fixed-size"
+  size: 10
+vendorConfiguration:
+  type: "Android"
+  androidSdk: "./android-sdk"
+  applicationApk: "./app-debug.apk"
+  testApplicationApk: "./app-debug-androidTest.apk"
+  autoGrantPermission: false
+  applicationPmClear: false
+  testApplicationPmClear: false
+  waitForDevicesTimeoutMillis: 15000
+  adbServers:
+    - host: "127.0.0.1"
+      port: ${FAKE_ADB_PORT}
+  screenRecordConfiguration:
+    videoConfiguration:
+      enabled: false
+    screenshotConfiguration:
+      enabled: false

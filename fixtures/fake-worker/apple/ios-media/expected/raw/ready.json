@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "endpoint": "127.0.0.1:63981",
+  "host_key_fingerprint": "SHA256:4DsiqHQ0XmL0XCxmdtcaBiNbp0b0amE/4c/GsGZJoDc",
+  "run": "ios-media"
+}

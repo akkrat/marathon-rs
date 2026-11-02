@@ -1,0 +1,46 @@
+{"case":"test:DeviceTrackerTest:testSimulatorProfileScaling","value":{"passed":true}}
+{"case":"test:DeviceTrackerTest:testWorkerSimple","value":{"passed":true}}
+{"case":"test:SimulatorFactoryTest:cancelled setup disposes the partially initialized device and propagates cancellation","value":{"passed":true}}
+{"case":"test:SimulatorFactoryTest:failed setup disposes the partially initialized device without closing its executor","value":{"passed":true}}
+{"case":"test:SimulatorFactoryTest:invalid simulator does not directly close the shared executor","value":{"passed":true}}
+{"case":"test:SimulatorProvisionerTest:cancellation after setup releases the unregistered device","value":{"passed":true,"peak":1,"created":0,"registered":[],"released":1}}
+{"case":"test:SimulatorProvisionerTest:cancellation cleans active profiles and does not start queued work","value":{"passed":true,"peak":2,"created":2,"registered":["a@worker-1:22","b@worker-1:22"],"released":2}}
+{"case":"test:SimulatorProvisionerTest:cancellation during simulator creation retains the UDID for cleanup","value":{"passed":true,"peak":0,"created":0,"registered":[],"released":0}}
+{"case":"test:SimulatorProvisionerTest:concurrent provisioning calls on one worker share the limit","value":{"passed":true,"peak":2,"created":0,"registered":["a@worker-1:22","b@worker-1:22","c@worker-1:22","d@worker-1:22"],"released":0}}
+{"case":"test:SimulatorProvisionerTest:different transport settings for the same host share the worker limit","value":{"passed":true,"peak":2,"created":0,"registered":["a@worker-1:22","b@worker-1:22","c@worker-1:22","d@worker-1:22"],"released":0}}
+{"case":"test:SimulatorProvisionerTest:existing simulators and new profiles share the worker limit","value":{"passed":true,"peak":2,"created":2,"registered":["a@worker-1:22","b@worker-1:22","new-1@worker-1:22","new-2@worker-1:22"],"released":0}}
+{"case":"test:SimulatorProvisionerTest:existing simulators overlap and register exactly once after setup","value":{"passed":true,"peak":2,"created":0,"registered":["existing-1@worker-1:22","existing-2@worker-1:22","existing-3@worker-1:22","existing-4@worker-1:22"],"released":0}}
+{"case":"test:SimulatorProvisionerTest:failed new simulator is deleted while healthy profiles finish","value":{"passed":true,"peak":2,"created":3,"registered":["new-2@worker-1:22","new-3@worker-1:22"],"released":1}}
+{"case":"test:SimulatorProvisionerTest:fake cold startup and reprovisioning timing for one two and four simulators:1","value":{"passed":true,"invocation":1,"peak":1,"created":1,"registered":[],"released":0}}
+{"case":"test:SimulatorProvisionerTest:fake cold startup and reprovisioning timing for one two and four simulators:2","value":{"passed":true,"invocation":2,"peak":2,"created":2,"registered":[],"released":0}}
+{"case":"test:SimulatorProvisionerTest:fake cold startup and reprovisioning timing for one two and four simulators:4","value":{"passed":true,"invocation":4,"peak":2,"created":4,"registered":[],"released":0}}
+{"case":"test:SimulatorProvisionerTest:new profiles overlap and are bounded","value":{"passed":true,"peak":2,"created":4,"registered":["new-1@worker-1:22","new-2@worker-1:22","new-3@worker-1:22","new-4@worker-1:22"],"released":0}}
+{"case":"test:SimulatorProvisionerTest:new simulator is deleted if no connection can be acquired","value":{"passed":true,"peak":0,"created":1,"registered":[],"released":0}}
+{"case":"test:SimulatorProvisionerTest:one failed setup releases only its reference and healthy siblings finish","value":{"passed":true,"peak":2,"created":0,"registered":["healthy@worker-1:22","other@worker-1:22"],"released":1}}
+{"case":"test:SimulatorProvisionerTest:setup cancellation propagates instead of being treated as a setup failure","value":{"passed":true,"peak":1,"created":0,"registered":[],"released":2}}
+{"case":"test:SimulatorProvisionerTest:workers retain independent concurrency budgets","value":{"passed":true,"peak":4,"created":0,"registered":["a@worker-1:22","b@worker-1:22","a@worker-2:22","b@worker-2:22"],"released":0}}
+{"case":"ttl:9999999999","value":"old"}
+{"case":"ttl:10000000000","value":"old"}
+{"case":"ttl:10000000001","value":"new"}
+{"case":"wrapping-age","value":"wrapped"}
+{"case":"same-disconnected","value":"old"}
+{"case":"replacement-disconnected","value":"new"}
+{"case":"throwing-old-getter","value":"after-throw"}
+{"case":"facts-unshareable-partial-complete","value":3}
+{"case":"fresh-cycles-facts","value":2}
+{"case":"refresh-earlier-own-output","value":"old"}
+{"case":"refresh-publication","value":"new"}
+{"case":"refresh-later-failure","value":"older-success"}
+{"case":"request-start-age","value":"fresh"}
+{"case":"timing-read-order","value":"Worker local: connected in 2 ms, planned 4 simulators in 3 ms, provisioned them in 5 ms (+25 ms since start)"}
+{"case":"cleanup-order","value":["create:new-1","acquire","setup:new-1","release","delete:new-1","create:new-2","acquire","setup:new-2","register:new-2@worker:22"]}
+{"case":"cleanup-failures","value":[{"created":true,"unreachable":false}]}
+{"case":"factory-suppressed","value":{"original":"setup","suppressed":["dispose"]}}
+{"case":"factory-timing-read-order","value":"Simulator udid@local set up in 10 ms (+30 ms since start)"}
+{"case":"planner-reuse-order","value":{"reused":["reuse-first","reuse-second"],"created":1}}
+{"case":"planner-log-order","value":["WARN","ERROR"]}
+{"case":"planner-shutdown","value":["start:a","end:a","start:b","end:b"]}
+{"case":"tracker-first-transport","value":true}
+{"case":"tracker-retained-high-water","value":0}
+{"case":"S3-approved-divergence:host-physical","value":{"updates":1}}
+{"case":"S3-approved-divergence:profile-physical","value":{"error":"java.lang.ClassCastException"}}

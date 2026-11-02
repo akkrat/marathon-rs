@@ -1,0 +1,2 @@
+{"case":"exec_fault","value":[{"class":"ConnectionException","message":"fixture disconnect 11","reason":"UNKNOWN"},{"class":"TransportException","message":"fixture disconnect 11","reason":"BY_APPLICATION"}]}
+{"case":"completion","value":"completed"}

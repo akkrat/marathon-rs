@@ -1,0 +1,2 @@
+SLF4J(I): Connected with provider of type [ch.qos.logback.classic.spi.LogbackServiceProvider]
+11:53:10.344 ERROR [main] Promise - <<chan#0 / chanreq for exec>> woke to: net.schmizz.sshj.connection.ConnectionException: Request failed

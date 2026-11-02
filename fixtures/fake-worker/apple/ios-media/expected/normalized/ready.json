@@ -1,0 +1,6 @@
+{
+  "endpoint": "127.0.0.1:@PORT@",
+  "host_key_fingerprint": "@HOST_KEY@",
+  "run": "ios-media",
+  "schema": 1
+}

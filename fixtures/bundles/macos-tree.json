@@ -1,0 +1,86 @@
+[
+  {
+    "path": "AppleWorld.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 1240,
+    "sha256": "d37b6bbdd198ecc56f818cc554fc152339580b97575ac7b7d25945d25d7cf7ac"
+  },
+  {
+    "path": "AppleWorld.app/Contents/MacOS/AppleWorld",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 37576,
+    "sha256": "72fce09ab49679445772fa20967f74ec426f114744e8198f3fd5ba198c010f3a"
+  },
+  {
+    "path": "AppleWorld.app/Contents/MacOS/AppleWorld.debug.dylib",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 33944,
+    "sha256": "58e7a3fd76a8c343a63af389275c5df1e5a86e46100256d02a4669d12aeb2763"
+  },
+  {
+    "path": "AppleWorld.app/Contents/MacOS/__preview.dylib",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 16760,
+    "sha256": "6370adca8612fe8dac047c6bba5423b9efaad1bf1bb5cc815229df0775aadd57"
+  },
+  {
+    "path": "AppleWorld.app/Contents/PkgInfo",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 8,
+    "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0"
+  },
+  {
+    "path": "AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 1194,
+    "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b"
+  },
+  {
+    "path": "AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/MacOS/AppleWorldTests",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 52736,
+    "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb"
+  },
+  {
+    "path": "AppleWorldUITests-Runner.app/Contents/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 7930,
+    "sha256": "a22c11c88f3123bcf38824053050eae654a13cf9998399fa294b06824a0a8a42"
+  },
+  {
+    "path": "AppleWorldUITests-Runner.app/Contents/MacOS/AppleWorldUITests-Runner",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 91232,
+    "sha256": "296ef07acc97f5d6ab8cd1959ded72bbb9e5a130030787ff68294152f45253a3"
+  },
+  {
+    "path": "AppleWorldUITests-Runner.app/Contents/PkgInfo",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 8,
+    "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0"
+  },
+  {
+    "path": "AppleWorldUITests-Runner.app/Contents/PlugIns/AppleWorldUITests.xctest/Contents/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 1240,
+    "sha256": "fcabec1053a53a90ab91d65d472733286b5dcdecf1f9afd6795a5f9752426ddb"
+  },
+  {
+    "path": "AppleWorldUITests-Runner.app/Contents/PlugIns/AppleWorldUITests.xctest/Contents/MacOS/AppleWorldUITests",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 51312,
+    "sha256": "faf7187da960dd3eaa63172c960c329e2c4720a0967d64b013551ee7fe46e84d"
+  }
+]

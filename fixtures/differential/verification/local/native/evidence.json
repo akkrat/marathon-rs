@@ -1,0 +1,80 @@
+{
+  "contract": "2ed582337fe4f5d544c3eff5fce1c2995e026b6fda432d1b1977253d69af769d",
+  "entries": [
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "observation.json",
+      "sha256": "694161824ad4780c11bc5333b85687ca9e5fd5b5f2f61ee83c3daf29eba08a26",
+      "size": 582
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "tree"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "tree/copy",
+      "sha256": "a95803d91f2a2eb57d42e2a799bb0d42e2acc37c22aa9d433a4173e5db794f28",
+      "size": 4
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "tree/empty"
+    },
+    {
+      "kind": "directory",
+      "mode": 493,
+      "path": "tree/receive"
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "tree/receive/source",
+      "sha256": "a95803d91f2a2eb57d42e2a799bb0d42e2acc37c22aa9d433a4173e5db794f28",
+      "size": 4
+    },
+    {
+      "kind": "file",
+      "mode": 420,
+      "path": "tree/source",
+      "sha256": "a95803d91f2a2eb57d42e2a799bb0d42e2acc37c22aa9d433a4173e5db794f28",
+      "size": 4
+    }
+  ],
+  "format": "marathon-differential/evidence@1",
+  "identities": {
+    "sandbox": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1/tools/differential/runs/committed-pairs/local/2/tmp/.tmpY7wWP6"
+  },
+  "implementation": "native",
+  "outcome": {
+    "cli": 0,
+    "fake": null,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "provenance": {
+    "driver_sha256": "bb0b9af0f657ed05b1f39b15b1aeb96349dc575defda2afa104db01c58fc6a20",
+    "native_sha": "643a7c54743ccfae74281a3bb4b52cee8a4d66e5",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "process": {
+      "argv": [
+        "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-7.1/target/debug/deps/differential_local-408ece897543f060",
+        "--exact",
+        "capture_actual_local_contract"
+      ],
+      "exit": 0,
+      "watchdog": false
+    },
+    "python": "3.9.6",
+    "stderr_base64": "",
+    "stdout_base64": "CnJ1bm5pbmcgMSB0ZXN0CnRlc3QgY2FwdHVyZV9hY3R1YWxfbG9jYWxfY29udHJhY3QgLi4uIG9rCgp0ZXN0IHJlc3VsdDogb2suIDEgcGFzc2VkOyAwIGZhaWxlZDsgMCBpZ25vcmVkOyAwIG1lYXN1cmVkOyAwIGZpbHRlcmVkIG91dDsgZmluaXNoZWQgaW4gMC4wMXMKCg=="
+  },
+  "source": "e47352f25cbc50333900d5d040a5544ff1224501"
+}

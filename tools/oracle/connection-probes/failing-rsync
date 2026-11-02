@@ -1,0 +1,3 @@
+#!/bin/sh
+printf 'failure\rline' >&2
+exit 23

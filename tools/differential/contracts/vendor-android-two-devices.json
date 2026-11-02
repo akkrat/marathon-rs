@@ -1,0 +1,107 @@
+{
+  "format": "marathon-differential/contract@1",
+  "jvm_config_identities": [
+    "com.malinskiy.marathon.config.AnalyticsConfiguration$DisabledAnalytics@00000001",
+    "com.malinskiy.marathon.config.strategy.PoolingStrategyConfiguration$OmniPoolingStrategyConfiguration@00000002",
+    "com.malinskiy.marathon.config.strategy.ShardingStrategyConfiguration$ParallelShardingStrategyConfiguration@00000003",
+    "com.malinskiy.marathon.config.strategy.SortingStrategyConfiguration$NoSortingStrategyConfiguration@00000004",
+    "com.malinskiy.marathon.config.strategy.FlakinessStrategyConfiguration$IgnoreFlakinessStrategyConfiguration@00000005",
+    "com.malinskiy.marathon.config.strategy.RetryStrategyConfiguration$NoRetryStrategyConfiguration@00000006",
+    "com.malinskiy.marathon.config.vendor.android.TestParserConfiguration$LocalTestParserConfiguration@00000007",
+    "com.malinskiy.marathon.config.CIConfiguration$None@00000008"
+  ],
+  "normalization": {
+    "reports/allure-results/10000000-0000-0000-0000-000000000001-result.json": {
+      "mode": "allure-json",
+      "rules": []
+    },
+    "reports/allure-results/10000000-0000-0000-0000-000000000002-result.json": {
+      "mode": "allure-json",
+      "rules": []
+    },
+    "reports/allure-results/10000000-0000-0000-0000-000000000003-result.json": {
+      "mode": "allure-json",
+      "rules": []
+    },
+    "reports/allure-results/environment.xml": {
+      "mode": "allure-environment",
+      "rules": []
+    }
+  },
+  "outcome": {
+    "cli": 1,
+    "fake": 0,
+    "harness": 0,
+    "joined": true,
+    "unmatched": [],
+    "unused": [],
+    "watchdog": false
+  },
+  "paths": [
+    "reports",
+    "reports/allure-results",
+    "reports/allure-results/10000000-0000-0000-0000-000000000001-result.json",
+    "reports/allure-results/10000000-0000-0000-0000-000000000002-result.json",
+    "reports/allure-results/10000000-0000-0000-0000-000000000003-result.json",
+    "reports/allure-results/environment.xml",
+    "reports/bill",
+    "reports/bill/omni",
+    "reports/bill/omni/{safe_serial}.json",
+    "reports/devices",
+    "reports/devices/omni",
+    "reports/devices/omni/{safe_serial}.json",
+    "reports/devices/omni/{idle_safe_serial}.json",
+    "reports/html",
+    "reports/html/app.min.css",
+    "reports/html/app.min.js",
+    "reports/html/index.html",
+    "reports/html/pools",
+    "reports/html/pools/omni",
+    "reports/html/pools/omni/{safe_serial}",
+    "reports/html/pools/omni/{safe_serial}/com.example.ClassIgnoredTest.testAlwaysIgnored.html",
+    "reports/html/pools/omni/{safe_serial}/com.example.MainActivityAllureTest.testFailure.html",
+    "reports/html/pools/omni/{safe_serial}/com.example.MainActivityTest.testText.html",
+    "reports/html/pools/omni/{safe_serial}/logs",
+    "reports/html/pools/omni/{safe_serial}/logs/com.example.ClassIgnoredTest.testAlwaysIgnored.html",
+    "reports/html/pools/omni/{safe_serial}/logs/com.example.MainActivityAllureTest.testFailure.html",
+    "reports/html/pools/omni/{safe_serial}/logs/com.example.MainActivityTest.testText.html",
+    "reports/html/pools/omni.html",
+    "reports/html/timeline",
+    "reports/html/timeline/chart.css",
+    "reports/html/timeline/chart.js",
+    "reports/html/timeline/iframeResizer.contentWindow.min.js",
+    "reports/html/timeline/index.html",
+    "reports/logs",
+    "reports/logs/omni",
+    "reports/logs/omni/{safe_serial}",
+    "reports/screenshot",
+    "reports/screenshot/omni",
+    "reports/screenshot/omni/{safe_serial}",
+    "reports/test_result",
+    "reports/test_result/omni",
+    "reports/test_result/omni/{safe_serial}",
+    "reports/test_result/omni/{safe_serial}/com.example.ClassIgnoredTest#testAlwaysIgnored.json",
+    "reports/test_result/omni/{safe_serial}/com.example.MainActivityAllureTest#testFailure.json",
+    "reports/test_result/omni/{safe_serial}/com.example.MainActivityTest#testText.json",
+    "reports/test_result/raw.json",
+    "reports/tests",
+    "reports/tests/omni",
+    "reports/tests/omni/marathon_junit_report.xml",
+    "stdout",
+    "stderr",
+    "transcript.jsonl",
+    "state.json"
+  ],
+  "roles": {
+    "idle_safe_serial": "device",
+    "idle_serial": "device",
+    "port": "endpoint",
+    "safe_serial": "device",
+    "sandbox": "path",
+    "serial": "device"
+  },
+  "scenario": "vendor",
+  "transport": "adb",
+  "uses_tapes": true,
+  "vendor": "android-two-devices"
+}

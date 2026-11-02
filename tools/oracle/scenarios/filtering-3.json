@@ -1,0 +1,71 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "one blocklisted device and one allowlisted executing two tests should pass on one device",
+  "source": "core/src/test/kotlin/com/malinskiy/marathon/scenario/DeviceFilteringScenarioTest.kt",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test1",
+      "metaProperties": []
+    },
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test2",
+      "metaProperties": []
+    }
+  ],
+  "devices": [
+    {
+      "serial": "emulator-5000"
+    },
+    {
+      "serial": "emulator-5002"
+    },
+    {
+      "serial": "emulator-5004",
+      "results": {
+        "test.SimpleTest#test1": [
+          "PASSED"
+        ],
+        "test.SimpleTest#test2": [
+          "PASSED"
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "emulator-5000"
+    },
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "emulator-5002"
+    },
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "emulator-5004"
+    },
+    {
+      "at": 20000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "rawJson": "../../../fixtures/core/output/raw/device_filtering_3.json"
+  },
+  "configuration": {
+    "includeSerialRegexes": [
+      "emulator-500[2,4]"
+    ],
+    "excludeSerialRegexes": [
+      "emulator-5002"
+    ]
+  }
+}

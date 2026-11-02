@@ -1,0 +1,69 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "two healthy devices on execution of two tests while one device disconnects should pass",
+  "source": "core/src/test/kotlin/com/malinskiy/marathon/scenario/DisconnectingScenariosTest.kt",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test1",
+      "metaProperties": []
+    },
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test2",
+      "metaProperties": []
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "results": {
+        "test.SimpleTest#test1": [
+          "INCOMPLETE"
+        ],
+        "test.SimpleTest#test2": [
+          "INCOMPLETE"
+        ]
+      }
+    },
+    {
+      "serial": "serial-2",
+      "results": {
+        "test.SimpleTest#test1": [
+          "PASSED"
+        ],
+        "test.SimpleTest#test2": [
+          "PASSED"
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "serial-1"
+    },
+    {
+      "at": 1100,
+      "event": "connect",
+      "device": "serial-2"
+    },
+    {
+      "at": 6100,
+      "event": "disconnect",
+      "device": "serial-1"
+    },
+    {
+      "at": 20000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "rawJson": "../../../fixtures/core/output/raw/disconnecting_scenario_1.json"
+  },
+  "timer": "counter"
+}

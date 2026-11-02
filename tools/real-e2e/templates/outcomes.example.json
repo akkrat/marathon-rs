@@ -1,0 +1,6 @@
+{
+  "format": "marathon-real-e2e/outcomes@2",
+  "review": "SET_JVM_RERUN_REVIEW_REFERENCE",
+  "rules": [],
+  "deviations": []
+}

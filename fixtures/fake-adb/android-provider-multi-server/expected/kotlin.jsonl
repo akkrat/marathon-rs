@@ -1,0 +1,8 @@
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Android Debug Bridge /127.0.0.1:PORT: version 41"}
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Android Debug Bridge /127.0.0.1:PORT: version 41"}
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Device emulator-5554 changed state to CONNECTED"}
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Device emulator-5556 changed state to CONNECTED"}
+{"case": "log:AndroidDevice", "value": "DEBUG Device 127.0.0.1:PORT:emulator-5554 booted!"}
+{"case": "log:AndroidDevice", "value": "DEBUG Device 127.0.0.1:PORT:emulator-5556 booted!"}
+{"case": "multi-server-disconnect", "value": "connected=2|disconnected=1|healthy=false|network=CONNECTED"}
+{"case": "log:AdamDeviceProvider", "value": "DEBUG Device emulator-5554 changed state to DISCONNECTED"}

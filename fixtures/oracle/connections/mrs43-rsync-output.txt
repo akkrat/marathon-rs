@@ -1,0 +1,20 @@
+{"case":"send-false-false-false","value":true}
+{"case":"receive-false-false-false","value":true}
+{"case":"send-false-false-true","value":true}
+{"case":"receive-false-false-true","value":true}
+23:49:52.195 [main] DEBUG c.m.m.a.c.r.rsync.RsyncFileBridge - fixture rsync version
+{"case":"send-false-true-false","value":true}
+{"case":"receive-false-true-false","value":true}
+23:49:52.420 [main] DEBUG c.m.m.a.c.r.rsync.RsyncFileBridge - fixture rsync version
+{"case":"send-false-true-true","value":true}
+{"case":"receive-false-true-true","value":true}
+{"case":"send-true-false-false","value":true}
+{"case":"receive-true-false-false","value":true}
+{"case":"send-true-false-true","value":true}
+{"case":"receive-true-false-true","value":true}
+23:49:53.183 [main] DEBUG c.m.m.a.c.r.rsync.RsyncFileBridge - fixture rsync version
+{"case":"send-true-true-false","value":true}
+{"case":"receive-true-true-false","value":true}
+23:49:53.488 [main] DEBUG c.m.m.a.c.r.rsync.RsyncFileBridge - fixture rsync version
+{"case":"send-true-true-true","value":true}
+{"case":"receive-true-true-true","value":true}

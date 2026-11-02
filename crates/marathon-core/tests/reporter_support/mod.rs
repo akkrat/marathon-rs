@@ -1,0 +1,563 @@
+//! Port of core/src/test/kotlin/com/malinskiy/marathon/report/JUnitReporterTest.kt.
+#![allow(dead_code)]
+use jcompat::{
+    file_manager::{FileManager, JavaPath},
+    jtime::instant_of,
+    logging::MarathonLogging,
+    writers::JavaString,
+};
+use marathon_core::{
+    artifacts::FileManagerOutput,
+    error::*,
+    executor::{
+        CoreExecutor,
+        hooks::{ClockMode, Ids, RuntimeHooks, Tape},
+    },
+    logging::OutputRecord,
+    model::*,
+    output::ConsoleSink,
+    report::*,
+    runtime::*,
+    time::{ReplayHooks, SystemTimer},
+};
+use serde_json::Value;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+pub fn checked<T, E: std::fmt::Debug>(r: Result<T, E>) -> T {
+    match r {
+        Ok(v) => v,
+        Err(e) => panic!("fixture operation: {e:?}"),
+    }
+}
+pub fn rows() -> Vec<Value> {
+    include_str!("../../../../fixtures/oracle/reporters/probes.jsonl")
+        .lines()
+        .chain(include_str!("../../../../fixtures/oracle/reporters/review-round1.jsonl").lines())
+        .map(|l| checked(serde_json::from_str(l)))
+        .collect()
+}
+pub fn row(id: &str) -> Value {
+    rows().into_iter().find(|r| r["id"] == id).unwrap()
+}
+pub fn bytes(v: &Value) -> Vec<u8> {
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n.as_u64().unwrap() as u8)
+        .collect()
+}
+pub fn text(v: &Value) -> JavaString {
+    v.as_str().unwrap().into()
+}
+pub fn device(v: &Value) -> DeviceInfo {
+    DeviceInfo {
+        operating_system: OperatingSystem {
+            version: text(&v["operatingSystem"]["version"]),
+        },
+        serial_number: text(&v["serialNumber"]),
+        model: text(&v["model"]),
+        manufacturer: text(&v["manufacturer"]),
+        network_state: if v["networkState"] == "CONNECTED" {
+            NetworkState::Connected
+        } else {
+            NetworkState::Disconnected
+        },
+        device_features: v["deviceFeatures"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| {
+                if v == "VIDEO" {
+                    DeviceFeature::Video
+                } else {
+                    DeviceFeature::Screenshot
+                }
+            })
+            .collect(),
+        healthy: v["healthy"].as_bool().unwrap(),
+    }
+}
+pub fn pool(v: &Value) -> DevicePoolId {
+    DevicePoolId { name: text(v) }
+}
+pub fn metadata_test() -> Test {
+    use MetaValue::*;
+    let nested = || {
+        Arc::new(MetaArray {
+            jvm_class: "[Lcom.linkedin.dex.parser.DecodedValue;".into(),
+            elements: vec![
+                Decoded(DecodedWrapper::DecodedInt(7)),
+                Decoded(DecodedWrapper::DecodedNull),
+                Decoded(DecodedWrapper::DecodedArrayValue(Arc::from([
+                    DecodedWrapper::DecodedString("nested".into()),
+                ]))),
+            ],
+        })
+    };
+    let arr = nested();
+    let equal = nested();
+    let entries = vec![
+        ("null", Null),
+        ("empty", String("".into())),
+        ("html", String("<>&='\u{2028}\u{2029}😀".into())),
+        ("boolean", Boolean(true)),
+        ("byte", Byte(1)),
+        ("short", Short(2)),
+        ("int", Int(3)),
+        ("long", Long(4)),
+        ("char", Char('é' as u16)),
+        ("float", Float(-0.0)),
+        ("double", Double(-0.0)),
+        ("tinyFloat", Float(f32::from_bits(1))),
+        ("largeDouble", Double(f64::MAX)),
+        ("list", List(vec![Null, Int(1), String("x".into())])),
+        (
+            "map",
+            Map([("null".into(), Null), ("x".into(), Int(7))].into_iter().collect()),
+        ),
+        ("array", Array(arr.clone())),
+        ("alias", Array(arr)),
+        ("equal", Array(equal)),
+        ("literal", String("[I@123abc".into())),
+        (
+            "decoded",
+            Decoded(DecodedWrapper::DecodedArrayValue(Arc::from([
+                DecodedWrapper::DecodedNull,
+                DecodedWrapper::DecodedDouble(1.5),
+            ]))),
+        ),
+        (
+            "bytes",
+            Array(Arc::new(MetaArray {
+                jvm_class: "[B".into(),
+                elements: vec![Byte(1), Byte(2), Byte(-1)],
+            })),
+        ),
+        (
+            "chars",
+            Array(Arc::new(MetaArray {
+                jvm_class: "[C".into(),
+                elements: vec![Char(97), Char('é' as u16)],
+            })),
+        ),
+        (
+            "wrappers",
+            List(vec![
+                Decoded(DecodedWrapper::DecodedByte(-128)),
+                Decoded(DecodedWrapper::DecodedShort(-32768)),
+                Decoded(DecodedWrapper::DecodedLong(i64::MIN)),
+                Decoded(DecodedWrapper::DecodedFloat(1.5)),
+                Decoded(DecodedWrapper::DecodedChar('é' as u16)),
+                Decoded(DecodedWrapper::DecodedBoolean(true)),
+                Decoded(DecodedWrapper::DecodedType("Lpkg/Type;".into())),
+                Decoded(DecodedWrapper::DecodedEnum("ENUM".into())),
+            ]),
+        ),
+    ];
+    Test {
+        pkg: "pkg".into(),
+        clazz: "Class".into(),
+        method: "meta".into(),
+        meta_properties: vec![MetaProperty {
+            name: "annotation".into(),
+            values: entries.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+        }],
+    }
+}
+pub fn test(v: &Value) -> Test {
+    if v["method"] == "meta" {
+        return metadata_test();
+    }
+    Test {
+        pkg: text(&v["pkg"]),
+        clazz: text(&v["clazz"]),
+        method: text(&v["method"]),
+        meta_properties: vec![],
+    }
+}
+pub fn result(v: &Value) -> TestResult {
+    TestResult {
+        test: test(&v["test"]),
+        device: device(&v["device"]),
+        test_batch_id: text(&v["testBatchId"]),
+        status: match v["status"].as_str().unwrap() {
+            "PASSED" => TestStatus::Passed,
+            "FAILURE" => TestStatus::Failure,
+            "INCOMPLETE" => TestStatus::Incomplete,
+            "IGNORED" => TestStatus::Ignored,
+            _ => TestStatus::AssumptionFailure,
+        },
+        start_time: v["startTime"].as_i64().unwrap(),
+        end_time: v["endTime"].as_i64().unwrap(),
+        stacktrace: v.get("stacktrace").map(text),
+        attachments: v["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| Attachment {
+                file: JavaPath(text(&v["file"]).0),
+                kind: if v["type"] == "LOG" {
+                    AttachmentType::Log
+                } else {
+                    AttachmentType::ScreenshotPng
+                },
+                name: v.get("name").map(text),
+            })
+            .collect(),
+    }
+}
+pub fn report(v: &Value) -> ExecutionReport {
+    let instant = |v: &Value, prefix: &str| {
+        instant_of(
+            v[format!("{prefix}Seconds")].as_i64().unwrap(),
+            v[format!("{prefix}Nanos")].as_i64().unwrap(),
+        )
+        .unwrap()
+    };
+    ExecutionReport::new(
+        v["connected"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| DeviceConnectedEvent {
+                instant: instant_of(0, 0).unwrap(),
+                pool_id: pool(&e["pool"]),
+                device: device(&e["device"]),
+            })
+            .collect(),
+        v["disconnected"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| DeviceDisconnectedEvent {
+                instant: instant_of(0, 0).unwrap(),
+                pool_id: pool(&e["pool"]),
+                device: device(&e["device"]),
+            })
+            .collect(),
+        v["preparing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| DevicePreparingEvent {
+                start: instant(e, "start"),
+                finish: instant(e, "finish"),
+                serial_number: text(&e["serial"]),
+            })
+            .collect(),
+        v["provider"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| DeviceProviderPreparingEvent {
+                start: instant(e, "start"),
+                finish: instant(e, "finish"),
+                serial_number: text(&e["serial"]),
+            })
+            .collect(),
+        v["tests"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| TestEvent {
+                instant: instant(e, "instant"),
+                pool_id: pool(&e["pool"]),
+                device: device(&e["device"]),
+                test_result: Arc::new({
+                    let mut r = result(&e["result"]);
+                    if e["nonfinite"] == true {
+                        r.test.meta_properties = vec![MetaProperty {
+                            name: "ann".into(),
+                            values: [("nan".into(), MetaValue::Double(f64::NAN))].into_iter().collect(),
+                        }];
+                    }
+                    r
+                }),
+                final_result: e["final"].as_bool().unwrap(),
+            })
+            .collect(),
+    )
+}
+static NEXT: AtomicUsize = AtomicUsize::new(0);
+pub struct Temp(pub PathBuf);
+impl Temp {
+    pub fn new() -> Self {
+        let p = std::env::temp_dir().join(format!(
+            "mrs-report-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        checked(std::fs::create_dir_all(&p));
+        Self(p)
+    }
+    pub fn path(&self) -> JavaPath {
+        JavaPath::from_text(self.0.to_str().unwrap())
+    }
+}
+impl Default for Temp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Drop for Temp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+#[derive(Default)]
+pub struct Sink(pub Mutex<Vec<u8>>);
+impl ConsoleSink for Sink {
+    fn write(&self, records: Vec<OutputRecord>) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            assert_ne!(std::thread::current().name(), Some("marathon-core"));
+            for r in records {
+                let OutputRecord::Raw(t) = r else {
+                    panic!("unexpected log")
+                };
+                self.0.lock().unwrap().extend(t.to_utf8_bytes());
+            }
+            Ok(())
+        })
+    }
+}
+pub fn context() -> Value {
+    checked(serde_json::from_str(include_str!(
+        "../../../../fixtures/oracle/reporters/context.json"
+    )))
+}
+pub fn files(io: Arc<dyn VendorRuntime>, path: JavaPath, max_filename: i32) -> ReporterFiles {
+    ReporterFiles {
+        files: Arc::new(FileManagerOutput::new(
+            io.clone(),
+            FileManager::new_utf16(0, max_filename, &path.0, &[]),
+            path,
+            MarathonLogging::default().logger("FileManager", None),
+            Arc::new(|_, _, _, _| assert_ne!(std::thread::current().name(), Some("marathon-core"))),
+        )),
+        io,
+        cwd: JavaPath(text(&context()["cwd"]).0),
+    }
+}
+pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<JavaString>) {
+    let r = row(id);
+    let report = report(&r["input"]);
+    let temp = Temp::new();
+    let path = temp.path();
+    let sink = Arc::new(Sink::default());
+    let captured = sink.clone();
+    let warnings = Arc::new(Mutex::new(vec![]));
+    let captured_warnings = warnings.clone();
+    let id = id.to_owned();
+    checked(CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            let mut tape = Tape {
+                wall: ClockMode::Frozen(0),
+                ..Tape::default()
+            };
+            tape.reads
+                .insert("core.BillingReporter.defaultStart".into(), vec![1000]);
+            let elapsed = match id.as_str() {
+                "sort" => 90061999,
+                "duration-negative" => -1,
+                "duration-zero" => 0,
+                "duration-positive" => 1001,
+                _ => 999,
+            };
+            tape.reads.insert(
+                "core.di.Clock".into(),
+                if matches!(id.as_str(), "empty" | "fail-json") {
+                    vec![0]
+                } else {
+                    vec![0, elapsed]
+                },
+            );
+            if id == "metadata" {
+                let identities: Value = checked(serde_json::from_str(include_str!(
+                    "../../../../fixtures/oracle/reporters/identities.json"
+                )));
+                tape.ids.insert(
+                    "core.RawJsonReporter.identities".into(),
+                    Ids::Values(
+                        ["array", "equal", "null", "bytes", "chars"]
+                            .iter()
+                            .map(|k| text(&identities[k]))
+                            .collect(),
+                    ),
+                );
+            }
+            let hooks = RuntimeHooks::taped(tape, &core.clock());
+            let timer =
+                Arc::new(SystemTimer::new(hooks.clone()).map_err(|e| {
+                    marathon_core::executor::shared::failure("ReplayError", &e.message.to_string_lossy())
+                })?);
+            let io = crate::event_support::CountingRuntime::new(core.vendor());
+            let output = files(io.clone(), path.clone(), if id == "paths" { 120 } else { 0 });
+            let bill = BillingReporter::new(
+                output.clone(),
+                hooks.as_ref(),
+                MarathonLogging::default().logger("com.malinskiy.marathon.report.bill.BillingReporter", None),
+                Arc::new(move |_, level, message, _| {
+                    assert_ne!(std::thread::current().name(), Some("marathon-core"));
+                    assert_eq!(level, jcompat::logging::Level::Warn);
+                    captured_warnings.lock().unwrap().push(message.clone())
+                }),
+            )?;
+            let registrations = reporter_registrations(
+                DeviceInfoJsonReporter { output: output.clone() },
+                bill,
+                JUnitReporter {
+                    io: io.clone(),
+                    output_dir: path,
+                    cwd: output.cwd.clone(),
+                },
+                RawJsonReporter {
+                    output: output.clone(),
+                    hooks: hooks.clone(),
+                },
+                TestJsonReporter { output },
+                StdoutReporter {
+                    io: io.clone(),
+                    timer,
+                    sink: captured,
+                },
+            );
+            let task = core.vendor().spawn(Box::pin(async move {
+                for registration in registrations {
+                    registration.reporter.generate(&report).await.map_err(|e| match e {
+                        OperationError::Failed(f) => VendorError::Other(f),
+                        OperationError::Cancelled(c) => VendorError::Cancelled(c),
+                    })?;
+                }
+                Ok(())
+            }));
+            let outcome = task.join().await;
+            if id == "fail-json" {
+                let error = match outcome {
+                    Err(e) => e,
+                    Ok(()) => panic!("Gson accepted nonfinite metadata"),
+                };
+                let expected = row("fail-json");
+                assert_eq!(error.failure().class, text(&expected["error"]["class"]));
+                assert_eq!(error.failure().message, Some(text(&expected["error"]["message"])));
+            } else {
+                outcome.map_err(|e| OperationError::Failed(e.failure().clone()))?;
+            }
+            assert_eq!(
+                io.spawns.load(Ordering::SeqCst),
+                usize::from(!matches!(id.as_str(), "empty" | "fail-json")),
+                "only stdout dispatches its async sink to the I/O runtime"
+            );
+            assert!(io.blocking.load(Ordering::SeqCst) > 0);
+            hooks
+                .verify_consumed()
+                .map_err(|e| marathon_core::executor::shared::failure("ReplayError", &e.message.to_string_lossy()))?;
+            Ok(())
+        })
+    }));
+    let output = sink.0.lock().unwrap().clone();
+    let logs = warnings.lock().unwrap().clone();
+    (temp, output, logs)
+}
+pub fn manifest(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
+        for entry in checked(std::fs::read_dir(dir)) {
+            let p = checked(entry).path();
+            if p.is_dir() {
+                walk(root, &p, out);
+            } else {
+                out.insert(
+                    p.strip_prefix(root).unwrap().to_str().unwrap().to_owned(),
+                    checked(std::fs::read(&p)),
+                );
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(dir, dir, &mut out);
+    out
+}
+/// Remove only D3's named field, preserving every other byte of the JVM output.
+pub fn without_delegate(mut data: Vec<u8>) -> Vec<u8> {
+    let key = b",\"safeSerialNumber$delegate\":";
+    while let Some(start) = data.windows(key.len()).position(|s| s == key) {
+        let mut end = start + key.len();
+        let mut depth = 0;
+        let mut string = false;
+        let mut escape = false;
+        loop {
+            let c = data[end];
+            end += 1;
+            if string {
+                if escape {
+                    escape = false
+                } else if c == b'\\' {
+                    escape = true
+                } else if c == b'"' {
+                    string = false
+                }
+            } else {
+                match c {
+                    b'"' => string = true,
+                    b'{' => depth += 1,
+                    b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        data.drain(start..end);
+    }
+    data
+}
+pub fn compare_scenario(id: &str) {
+    let expected = row(id);
+    let (temp, stdout, warnings) = generate(id);
+    let actual = manifest(&temp.0);
+    let files = expected["files"].as_object().unwrap();
+    assert_eq!(
+        actual.keys().collect::<Vec<_>>(),
+        files.keys().collect::<Vec<_>>(),
+        "manifest {id}"
+    );
+    for (name, expected) in files {
+        let expected = without_delegate(bytes(expected));
+        assert_eq!(
+            String::from_utf8_lossy(&actual[name]),
+            String::from_utf8_lossy(&expected),
+            "{id}: {name}"
+        );
+        assert_eq!(actual[name], expected, "byte boundary {id}: {name}");
+    }
+    fn directories(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        for entry in checked(std::fs::read_dir(dir)) {
+            let p = checked(entry).path();
+            if p.is_dir() {
+                out.push(p.strip_prefix(root).unwrap().to_str().unwrap().to_owned());
+                directories(root, &p, out);
+            }
+        }
+    }
+    let mut actual_dirs = vec![];
+    directories(&temp.0, &temp.0, &mut actual_dirs);
+    actual_dirs.sort();
+    let expected_dirs: Vec<_> = expected["directories"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(actual_dirs, expected_dirs, "directories {id}");
+    assert_eq!(stdout, bytes(&expected["stdout"]), "stdout {id}");
+    let expected_warnings: Vec<_> = expected["warnings"].as_array().unwrap().iter().map(text).collect();
+    assert_eq!(warnings, expected_warnings);
+}

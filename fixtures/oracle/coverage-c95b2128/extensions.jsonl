@@ -1,0 +1,10 @@
+{"path":".app","bundle":true}
+{"path":".framework","bundle":true}
+{"path":"Kit.framework","bundle":true}
+{"path":"App.APP","bundle":false}
+{"path":"App.","bundle":false}
+{"path":"App","bundle":false}
+{"path":".xctest","bundle":true}
+{"path":"a/.bundle/","bundle":true}
+{"path":"/","bundle":false}
+{"path":".","bundle":false}

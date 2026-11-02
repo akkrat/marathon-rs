@@ -1,0 +1,13 @@
+{"op":"message","inputLevel":"TRACE","varargs":false,"pattern":"{} {} {}","arguments":["one","two"],"level":"WARN","output":"one two {}"}
+{"op":"message","inputLevel":"TRACE","varargs":true,"pattern":"{} {} {}","arguments":["one","two","three"],"level":"WARN","output":"[one, two, three] {} {}"}
+{"op":"message","inputLevel":"DEBUG","varargs":true,"pattern":"{} {} {}","arguments":["one","two"],"level":"WARN","output":"[one, two] {} {}"}
+{"op":"message","inputLevel":"DEBUG","varargs":true,"pattern":"{} {} {}","arguments":["one","two","three"],"level":"WARN","output":"[one, two, three] {} {}"}
+{"op":"message","inputLevel":"INFO","varargs":false,"pattern":"{} {} {}","arguments":["one","two"],"level":"WARN","output":"one two {}"}
+{"op":"message","inputLevel":"INFO","varargs":true,"pattern":"{} {} {}","arguments":["one","two","three"],"level":"WARN","output":"[one, two, three] {} {}"}
+{"op":"message","inputLevel":"WARN","varargs":false,"pattern":"{} {} {}","arguments":["one","two"],"level":"WARN","output":"one two {}"}
+{"op":"message","inputLevel":"WARN","varargs":true,"pattern":"{} {} {}","arguments":["one","two","three"],"level":"WARN","output":"one two three"}
+{"op":"message","inputLevel":"ERROR","varargs":false,"pattern":"{} {} {}","arguments":["one","two"],"level":"ERROR","output":"one two {}"}
+{"op":"message","inputLevel":"ERROR","varargs":true,"pattern":"{} {} {}","arguments":["one","two","three"],"level":"ERROR","output":"one two three"}
+{"op":"warning","debug":false,"backend":"NOPLogger","output":""}
+{"op":"warning","debug":true,"backend":"NOPLogger","output":"Can't change log level during runtime for NOPLogger. Please configure your logger separately. Wrapping the log and redirecting everything into warn for now\n"}
+{"op":"warning","debug":true,"backend":"NOPLogger","output":""}

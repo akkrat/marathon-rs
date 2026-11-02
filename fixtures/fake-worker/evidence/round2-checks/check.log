@@ -1,0 +1,270 @@
+
+==> oracle tables (fixtures/oracle)
+45 files checked
+
+==> cargo fmt
+
+==> cargo clippy
+    Blocking waiting for file lock on package cache
+   Compiling aws-lc-sys v0.46.0
+   Compiling aws-lc-rs v1.18.2
+    Checking russh v0.64.1 (/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4a/vendor/russh)
+    Checking fake-worker v0.0.0 (/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4a/tools/fake-worker)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.18s
+
+==> cargo test
+   Compiling aws-lc-sys v0.46.0
+   Compiling aws-lc-rs v1.18.2
+   Compiling russh v0.64.1 (/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4a/vendor/russh)
+   Compiling fake-worker v0.0.0 (/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4a/tools/fake-worker)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.39s
+     Running unittests src/main.rs (target/debug/deps/fake_adb-b2b5d9b837692e9d)
+
+running 2 tests
+test tests::arguments ... ok
+test tests::strict_mode_fails_on_warnings ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/signal.rs (target/debug/deps/signal-900090bb25aafbaf)
+
+running 2 tests
+test sigterm_completes_the_transcript ... ok
+test sigterm_during_a_restart_wait_completes_the_transcript ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.22s
+
+     Running unittests src/lib.rs (target/debug/deps/fake_worker-6f65407c33bcae37)
+
+running 4 tests
+test transcript::tests::cancelled_append_failure_is_reported_by_flush_and_later_events ... ok
+test transcript::tests::suspended_append_waiter_cannot_block_another_event ... ok
+test transcript::tests::cancelled_append_finishes_record_and_preserves_sequence ... ok
+test server::tests::term_drops_interrupted_output_before_finish_with_transcript_locked ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/main.rs (target/debug/deps/fake_worker-e912cd5821708cc5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/contracts.rs (target/debug/deps/contracts-a3f7c153206465dd)
+
+running 13 tests
+test rsync_feature_flags_cannot_enable_symlink_following ... ok
+test actual_kotlin_xctestrun_fields_use_the_shared_resolver ... ok
+test virtual_files_writefile_failure_snapshot_symlinks_and_paths ... ok
+test virtual_background_pid_is_signalled_without_host_processes ... ok
+test streams_term_reuse_limits_and_local_close ... ok
+test held_real_rsync_child_is_reaped_and_other_sessions_progress ... ok
+test pending_extension_routing_is_dropped_on_channel_connection_and_run_cancellation ... ok
+test wire_disconnect_reasons_kex_and_abrupt_loss ... ok
+test auth_rejects_wrong_password_unknown_user_and_key ... ok
+test unsupported_requests_fail_and_fixture_output_survives_eof_fault ... ok
+test ignored_term_custom_signal_exec_rejection_and_extended_data ... ok
+test close_fault_is_per_channel_and_shutdown_is_bounded ... ok
+test keepalive_suppression_does_not_stop_output ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.07s
+
+     Running unittests src/lib.rs (target/debug/deps/jcompat-cd7aaaaa6760fe3c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_adb-626128d57a25f52a)
+
+running 43 tests
+test server::protocol::tests::framing_helpers ... ok
+test server::host::tests::parse_host_requests ... ok
+test server::fs::tests::normalize_paths ... ok
+test server::device::tests::install_payload_sizes ... ok
+test server::fs::tests::write_creates_parents_and_lists ... ok
+test server::script::tests::json_is_accepted ... ok
+test server::protocol::tests::read_request_accepts_both_hex_cases ... ok
+test server::protocol::tests::read_request_eof_and_garbage ... ok
+test server::tests::adb_server_extension_test::test_x ... ok
+test server::tests::adb_server_rule_test::test ... ok
+test server::tests::disconnect_ends_open_sessions ... ok
+test server::tests::reservation_is_released_when_the_device_reconnects_mid_upload ... ok
+test server::tests::reservation_is_released_after_a_connection_reset ... ok
+test server::tests::host_kill_exit_and_ignore ... ok
+test server::tests::scripted_directory_modes_are_kept ... ok
+test server::tests::adb_server_extension_test::test_multisession ... ok
+test server::tests::concurrent_uploads_cannot_share_a_limited_expectation ... ok
+test server::tests::shutdown_completes_the_transcript_file ... ok
+test server::tests::shared_expectations_times_and_builtins_off ... ok
+test server::script::tests::script_errors_are_reported ... ok
+test server::tests::host_version_devices_and_features ... ok
+test server::script::tests::full_script_parses ... ok
+test server::tests::strict_mode_rejects_unmatched_commands ... ok
+test server::tests::transcript_file_is_jsonl ... ok
+test server::transcript::tests::close_drains_to_the_file ... ok
+test server::transcript::tests::write_failures_are_reported ... ok
+test server::tests::short_install_payloads_fail_without_using_the_expectation ... ok
+test server::tests::sync_v2_stat_list_send_recv ... ok
+test server::tests::reverse_forward_list_and_kill ... ok
+test server::tests::sync_v1_push_stat_list_pull ... ok
+test server::tests::unknown_device_service_fails ... ok
+test server::tests::transport_switches ... ok
+test server::tests::framebuffer_generated_and_replayed ... ok
+test server::tests::installs_streaming_split_and_legacy ... ok
+test server::tests::shell_v1_v2_exec_and_abb_exec ... ok
+test server::tests::a_reset_during_an_upload_warns_in_strict_mode ... ok
+test server::tests::a_client_closing_mid_stream_is_not_a_warning ... ok
+test server::tests::track_devices_ends_when_the_client_leaves ... ok
+test server::tests::cancelled_sessions_release_the_socket ... ok
+test server::transcript::tests::flush_waits_for_a_slow_writer ... ok
+test server::tests::track_devices_follows_api_changes_and_timeline ... ok
+test server::tests::kill_server_event_drops_connections_and_restarts ... ok
+test server::tests::delay_stream_and_hang ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/real_adb.rs (target/debug/deps/real_adb-de0c5d08506d6ee4)
+
+running 1 test
+test real_adb_client ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_android-f789bfa4e356aacf)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_apple-16cc4ce03be49e7c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/marathon-d10d1abf44c9d334)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_config-3ede56a914babb93)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_core-3276627790b257ed)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_dex-7083a393dc4160ee)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_ios-e6b3b4f53e8aab0d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_macos-9e085cd8a11ac9f2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/marathon_test_support-5a9ab7c2bd1db7bc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests fake_worker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests jcompat
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_adb
+
+running 1 test
+test crates/marathon-adb/src/server/mod.rs - server (line 8) - compile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.42s; merged doctests compilation took 0.24s
+   Doc-tests marathon_android
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_apple
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_config
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_dex
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_ios
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_macos
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests marathon_test_support
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+==> plan graph
+69 work packages
+critical path: 0.1 -> 0.3a -> 0.4a -> 0.4b -> 2.1 -> 2.2 -> 3.2 -> 3.4a -> 3.7 -> 3.8 -> 3.10 -> 5.2 -> 5.5a -> 5.5b -> 7.2 -> 7.5 -> 7.6 (weight 39)
+
+==> source inventory
+source inventory up to date (505 files)
+
+==> parity matrix
+parity matrix up to date (873 rows)
+
+==> fixtures
+fixtures: 141 files compared, 0 problems
+
+==> all checks passed

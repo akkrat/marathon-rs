@@ -1,0 +1,4 @@
+SLF4J(I): Connected with provider of type [ch.qos.logback.classic.spi.LogbackServiceProvider]
+19:59:45.762 DEBUG [main] Boundary - Transferred large.bin to/from fixture. 150.94 KB/s (32769 bytes in 0.2120)
+19:59:45.795 DEBUG [main] c.m.m.a.c.r.r.RsyncFileBridge - openrsync: protocol version 29
+19:59:45.977 DEBUG [main] Boundary - Transferred small.bin to/from fixture. 0.00 KB/s (4 bytes in 0.1810)

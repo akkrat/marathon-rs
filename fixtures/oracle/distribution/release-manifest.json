@@ -1,0 +1,49 @@
+{
+  "source": "e47352f25cbc50333900d5d040a5544ff1224501",
+  "release_mode": "RELEASE",
+  "version": "7.3-oracle",
+  "gradle": "8.10.1",
+  "archive": "marathon-7.3-oracle.zip",
+  "archive_sha256": "d1b3616335e7e1a33c0779c10d3c06a0f87d47fb5834a079101c8531542b4799",
+  "directories": [
+    {
+      "path": "marathon-7.3-oracle/",
+      "mode": "0o40755"
+    },
+    {
+      "path": "marathon-7.3-oracle/lib/",
+      "mode": "0o40755"
+    },
+    {
+      "path": "marathon-7.3-oracle/bin/",
+      "mode": "0o40755"
+    }
+  ],
+  "jar_modes": [
+    "0o100644"
+  ],
+  "entries": 144,
+  "jars": 139,
+  "launchers": [
+    {
+      "path": "marathon-7.3-oracle/bin/marathon",
+      "mode": "0o100755",
+      "sha256": "f77b234b674063b6dd794acb9f356382b18277a0e1a18c3b8fb0a2f04822230d"
+    },
+    {
+      "path": "marathon-7.3-oracle/bin/marathon.bat",
+      "mode": "0o100755",
+      "sha256": "3f543b2190027b39abd954f7253dfc553f830f4ad9b57c1263ad731a7083f8bf"
+    }
+  ],
+  "invocation": {
+    "argv": [
+      "<extracted>/bin/marathon",
+      "version"
+    ],
+    "cwd": "<unrelated directory with spaces>",
+    "exit": 0,
+    "final_stdout_line": "7.3-oracle",
+    "startup_info_before_version": true
+  }
+}

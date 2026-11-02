@@ -1,0 +1,469 @@
+{"table":"string_substitutor","description":"commons-text 1.12 StringSubstitutor as ConfigurationFactory builds it: StringSubstitutor(environment variable lookup), default settings. The environment is the row's env map: environmentVariableStringLookup is FunctionStringLookup.on(System::getenv), so the oracle uses a FunctionStringLookup over the map instead.","schema":{"env":"the environment (undefined variables are absent)","input":"the text substituted","result":"{ok: string} or {error: {class, message}}"},"rows":468,"jdk":"JetBrains s.r.o. 21.0.10+-117844308-b1163.108","generator":"tools/oracle/module (run tools/oracle/jcompat-tables or the corpus wrappers to regenerate)"}
+{"env":{"V":"value"},"input":"${V}","result":{"ok":"value"}}
+{"env":{"V":"value"},"input":"x${V}y","result":{"ok":"xvaluey"}}
+{"env":{"V":"value"},"input":"${V:-d}","result":{"ok":"value"}}
+{"env":{"V":"value"},"input":"${V:-}","result":{"ok":"value"}}
+{"env":{"V":"value"},"input":"${V:-${W}}","result":{"ok":"value}"}}
+{"env":{"V":"value"},"input":"${V:-${W:-e}}","result":{"ok":"value}"}}
+{"env":{"V":"value"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"value"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"V":"value"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"V":"value"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"V":"value"},"input":"${","result":{"ok":"${"}}
+{"env":{"V":"value"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"V":"value"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"value"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"value"},"input":"$","result":{"ok":"$"}}
+{"env":{"V":"value"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"V":"value"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"value"},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"V":"value"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"V":"value"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"value"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"V":"value"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"V":"value"},"input":"${V}${V}","result":{"ok":"valuevalue"}}
+{"env":{"V":"value"},"input":"${V}${A}","result":{"ok":"value${A}"}}
+{"env":{"V":"value"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"value"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"V":"value"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"V":"value"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"V":"value"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"V":"value"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"value\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"V":"value"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"V":"value"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"V":"value"},"input":"${V:-d:-e}","result":{"ok":"value"}}
+{"env":{"V":"value"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"V":"value"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"V":"value"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"V":""},"input":"${V}","result":{"ok":""}}
+{"env":{"V":""},"input":"x${V}y","result":{"ok":"xy"}}
+{"env":{"V":""},"input":"${V:-d}","result":{"ok":""}}
+{"env":{"V":""},"input":"${V:-}","result":{"ok":""}}
+{"env":{"V":""},"input":"${V:-${W}}","result":{"ok":"}"}}
+{"env":{"V":""},"input":"${V:-${W:-e}}","result":{"ok":"}"}}
+{"env":{"V":""},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":""},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"V":""},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"V":""},"input":"$V","result":{"ok":"$V"}}
+{"env":{"V":""},"input":"${","result":{"ok":"${"}}
+{"env":{"V":""},"input":"${V","result":{"ok":"${V"}}
+{"env":{"V":""},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":""},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":""},"input":"$","result":{"ok":"$"}}
+{"env":{"V":""},"input":"$$","result":{"ok":"$$"}}
+{"env":{"V":""},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":""},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"V":""},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"V":""},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":""},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"V":""},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"V":""},"input":"${V}${V}","result":{"ok":""}}
+{"env":{"V":""},"input":"${V}${A}","result":{"ok":"${A}"}}
+{"env":{"V":""},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":""},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"V":""},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"V":""},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"V":""},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"V":""},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"V":""},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"V":""},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"V":""},"input":"${V:-d:-e}","result":{"ok":""}}
+{"env":{"V":""},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"V":""},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"V":""},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{},"input":"${V}","result":{"ok":"${V}"}}
+{"env":{},"input":"x${V}y","result":{"ok":"x${V}y"}}
+{"env":{},"input":"${V:-d}","result":{"ok":"d"}}
+{"env":{},"input":"${V:-}","result":{"ok":""}}
+{"env":{},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{},"input":"${V:-${W:-e}}","result":{"ok":"${W:-e}"}}
+{"env":{},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{},"input":"$V","result":{"ok":"$V"}}
+{"env":{},"input":"${","result":{"ok":"${"}}
+{"env":{},"input":"${V","result":{"ok":"${V"}}
+{"env":{},"input":"${}","result":{"ok":"${}"}}
+{"env":{},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{},"input":"$","result":{"ok":"$"}}
+{"env":{},"input":"$$","result":{"ok":"$$"}}
+{"env":{},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{},"input":"${V}${V}","result":{"ok":"${V}${V}"}}
+{"env":{},"input":"${V}${A}","result":{"ok":"${V}${A}"}}
+{"env":{},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{},"input":"${V:-d:-e}","result":{"ok":"d:-e"}}
+{"env":{},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V}","result":{"ok":"${V}"}}
+{"env":{"A":"${B}","B":"b"},"input":"x${V}y","result":{"ok":"x${V}y"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:-d}","result":{"ok":"d"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:-}","result":{"ok":""}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:-${W:-e}}","result":{"ok":"${W:-e}"}}
+{"env":{"A":"${B}","B":"b"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"A":"${B}","B":"b"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"A":"${B}","B":"b"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"A":"${B}","B":"b"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"A":"${B}","B":"b"},"input":"${","result":{"ok":"${"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"A":"${B}","B":"b"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"A":"${B}","B":"b"},"input":"$","result":{"ok":"$"}}
+{"env":{"A":"${B}","B":"b"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"A":"${B}","B":"b"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"A":"${B}","B":"b"},"input":"${A}","result":{"ok":"b"}}
+{"env":{"A":"${B}","B":"b"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"A":"${B}","B":"b"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"A":"${B}","B":"b"},"input":"${V}${V}","result":{"ok":"${V}${V}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V}${A}","result":{"ok":"${V}b"}}
+{"env":{"A":"${B}","B":"b"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"A":"${B}","B":"b"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"A":"${B}","B":"b"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V:-d:-e}","result":{"ok":"d:-e"}}
+{"env":{"A":"${B}","B":"b"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"A":"${B}","B":"b"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V}","result":{"ok":"${V}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"x${V}y","result":{"ok":"x${V}y"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:-d}","result":{"ok":"d"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:-}","result":{"ok":""}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:-${W:-e}}","result":{"ok":"${W:-e}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${","result":{"ok":"${"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"$","result":{"ok":"$"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${A}: A->B"}}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V}${V}","result":{"ok":"${V}${V}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V}${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}${A}: A->B"}}}
+{"env":{"A":"${B}","B":"${A}"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V:-d:-e}","result":{"ok":"d:-e"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"A":"${B}","B":"${A}"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"A":"${A}"},"input":"${V}","result":{"ok":"${V}"}}
+{"env":{"A":"${A}"},"input":"x${V}y","result":{"ok":"x${V}y"}}
+{"env":{"A":"${A}"},"input":"${V:-d}","result":{"ok":"d"}}
+{"env":{"A":"${A}"},"input":"${V:-}","result":{"ok":""}}
+{"env":{"A":"${A}"},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{"A":"${A}"},"input":"${V:-${W:-e}}","result":{"ok":"${W:-e}"}}
+{"env":{"A":"${A}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"A":"${A}"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"A":"${A}"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"A":"${A}"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"A":"${A}"},"input":"${","result":{"ok":"${"}}
+{"env":{"A":"${A}"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"A":"${A}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"A":"${A}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"A":"${A}"},"input":"$","result":{"ok":"$"}}
+{"env":{"A":"${A}"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"A":"${A}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"A":"${A}"},"input":"${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${A}: A"}}}
+{"env":{"A":"${A}"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"A":"${A}"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A":"${A}"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"A":"${A}"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"A":"${A}"},"input":"${V}${V}","result":{"ok":"${V}${V}"}}
+{"env":{"A":"${A}"},"input":"${V}${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}${A}: A"}}}
+{"env":{"A":"${A}"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A":"${A}"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"A":"${A}"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"A":"${A}"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"A":"${A}"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"A":"${A}"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"A":"${A}"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"A":"${A}"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"A":"${A}"},"input":"${V:-d:-e}","result":{"ok":"d:-e"}}
+{"env":{"A":"${A}"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"A":"${A}"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"A":"${A}"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V}","result":{"ok":"${V}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"x${V}y","result":{"ok":"x${V}y"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:-d}","result":{"ok":"d"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:-}","result":{"ok":""}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:-${W:-e}}","result":{"ok":"${W:-e}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${","result":{"ok":"${"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"$","result":{"ok":"$"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V}${V}","result":{"ok":"${V}${V}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V}${A}","result":{"ok":"${V}${A}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V:-d:-e}","result":{"ok":"d:-e"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"A_x":"ax","B":"x","A_":"a_"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V}","result":{"ok":"${W}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"x${V}y","result":{"ok":"x${W}y"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:-d}","result":{"ok":"${W}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:-}","result":{"ok":"${W}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:-${W}}","result":{"ok":"${W}}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:-${W:-e}}","result":{"ok":"${W}}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${","result":{"ok":"${"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"$${W}","W":"w"},"input":"$","result":{"ok":"$"}}
+{"env":{"V":"$${W}","W":"w"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V}${V}","result":{"ok":"${W}${W}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V}${A}","result":{"ok":"${W}${A}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"${W}\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"V":"$${W}","W":"w"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${W}","result":{"ok":"w"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V:-d:-e}","result":{"ok":"${W}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"V":"$${W}","W":"w"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V}","result":{"ok":"a:-b"}}
+{"env":{"V":"a:-b","W":"w"},"input":"x${V}y","result":{"ok":"xa:-by"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:-d}","result":{"ok":"a:-b"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:-}","result":{"ok":"a:-b"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:-${W}}","result":{"ok":"a:-b}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:-${W:-e}}","result":{"ok":"a:-b}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${","result":{"ok":"${"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"a:-b","W":"w"},"input":"$","result":{"ok":"$"}}
+{"env":{"V":"a:-b","W":"w"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V}${V}","result":{"ok":"a:-ba:-b"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V}${A}","result":{"ok":"a:-b${A}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"a:-b\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"V":"a:-b","W":"w"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${W}","result":{"ok":"w"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V:-d:-e}","result":{"ok":"a:-b"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"V":"a:-b","W":"w"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"V":"${W:-d}"},"input":"${V}","result":{"ok":"d"}}
+{"env":{"V":"${W:-d}"},"input":"x${V}y","result":{"ok":"xdy"}}
+{"env":{"V":"${W:-d}"},"input":"${V:-d}","result":{"ok":"d"}}
+{"env":{"V":"${W:-d}"},"input":"${V:-}","result":{"ok":"d"}}
+{"env":{"V":"${W:-d}"},"input":"${V:-${W}}","result":{"ok":"d}"}}
+{"env":{"V":"${W:-d}"},"input":"${V:-${W:-e}}","result":{"ok":"d}"}}
+{"env":{"V":"${W:-d}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"${W:-d}"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"V":"${W:-d}"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"V":"${W:-d}"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"V":"${W:-d}"},"input":"${","result":{"ok":"${"}}
+{"env":{"V":"${W:-d}"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"V":"${W:-d}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"${W:-d}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"${W:-d}"},"input":"$","result":{"ok":"$"}}
+{"env":{"V":"${W:-d}"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"V":"${W:-d}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"${W:-d}"},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"V":"${W:-d}"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"V":"${W:-d}"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"${W:-d}"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"V":"${W:-d}"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"V":"${W:-d}"},"input":"${V}${V}","result":{"ok":"dd"}}
+{"env":{"V":"${W:-d}"},"input":"${V}${A}","result":{"ok":"d${A}"}}
+{"env":{"V":"${W:-d}"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"${W:-d}"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"V":"${W:-d}"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"V":"${W:-d}"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"V":"${W:-d}"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"V":"${W:-d}"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"d\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"V":"${W:-d}"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"V":"${W:-d}"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"V":"${W:-d}"},"input":"${V:-d:-e}","result":{"ok":"d"}}
+{"env":{"V":"${W:-d}"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"V":"${W:-d}"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"V":"${W:-d}"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"V:-d":"odd"},"input":"${V}","result":{"ok":"${V}"}}
+{"env":{"V:-d":"odd"},"input":"x${V}y","result":{"ok":"x${V}y"}}
+{"env":{"V:-d":"odd"},"input":"${V:-d}","result":{"ok":"d"}}
+{"env":{"V:-d":"odd"},"input":"${V:-}","result":{"ok":""}}
+{"env":{"V:-d":"odd"},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{"V:-d":"odd"},"input":"${V:-${W:-e}}","result":{"ok":"${W:-e}"}}
+{"env":{"V:-d":"odd"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V:-d":"odd"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"V:-d":"odd"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"V:-d":"odd"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"V:-d":"odd"},"input":"${","result":{"ok":"${"}}
+{"env":{"V:-d":"odd"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"V:-d":"odd"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V:-d":"odd"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V:-d":"odd"},"input":"$","result":{"ok":"$"}}
+{"env":{"V:-d":"odd"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"V:-d":"odd"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V:-d":"odd"},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"V:-d":"odd"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"V:-d":"odd"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V:-d":"odd"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"V:-d":"odd"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"V:-d":"odd"},"input":"${V}${V}","result":{"ok":"${V}${V}"}}
+{"env":{"V:-d":"odd"},"input":"${V}${A}","result":{"ok":"${V}${A}"}}
+{"env":{"V:-d":"odd"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V:-d":"odd"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"V:-d":"odd"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"V:-d":"odd"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"V:-d":"odd"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"V:-d":"odd"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"V:-d":"odd"},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"V:-d":"odd"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"V:-d":"odd"},"input":"${V:-d:-e}","result":{"ok":"d:-e"}}
+{"env":{"V:-d":"odd"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"V:-d":"odd"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"V:-d":"odd"},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V}","result":{"ok":"multi\nline: \"q\""}}
+{"env":{"V":"multi\nline: \"q\""},"input":"x${V}y","result":{"ok":"xmulti\nline: \"q\"y"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:-d}","result":{"ok":"multi\nline: \"q\""}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:-}","result":{"ok":"multi\nline: \"q\""}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:-${W}}","result":{"ok":"multi\nline: \"q\"}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:-${W:-e}}","result":{"ok":"multi\nline: \"q\"}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"$V","result":{"ok":"$V"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${","result":{"ok":"${"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V","result":{"ok":"${V"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"$","result":{"ok":"$"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"$$","result":{"ok":"$$"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V}${V}","result":{"ok":"multi\nline: \"q\"multi\nline: \"q\""}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V}${A}","result":{"ok":"multi\nline: \"q\"${A}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"multi\nline: \"q\"\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${PATH_LIKE}","result":{"ok":"${PATH_LIKE}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V:-d:-e}","result":{"ok":"multi\nline: \"q\""}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"V":"multi\nline: \"q\""},"input":"${env:V}","result":{"ok":"${env:V}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V}","result":{"ok":"$"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"x${V}y","result":{"ok":"x$y"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:-d}","result":{"ok":"$"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:-}","result":{"ok":"$"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:-${W}}","result":{"ok":"$}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:-${W:-e}}","result":{"ok":"$}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"$$${V}","result":{"ok":"$${V}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"$$$${V}","result":{"ok":"$$${V}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"$V","result":{"ok":"$V"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${","result":{"ok":"${"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V","result":{"ok":"${V"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"$","result":{"ok":"$"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"$$","result":{"ok":"$$"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${A}","result":{"ok":"${A}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${A_${B}}","result":{"ok":"${A_${B}}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${UNDEFINED:-default}","result":{"ok":"default"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${UNDEFINED:-}","result":{"ok":""}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V}${V}","result":{"ok":"${V}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V}${A}","result":{"ok":"${A}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"$${UNDEFINED}","result":{"ok":"${UNDEFINED}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:d}","result":{"ok":"${V:d}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V-d}","result":{"ok":"${V-d}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:=d}","result":{"ok":"${V:=d}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:?err}","result":{"ok":"${V:?err}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"name: \"${V}\"\noutputDir: \"${UNDEFINED}\"","result":{"ok":"name: \"$\"\noutputDir: \"${UNDEFINED}\""}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${PATH_LIKE}","result":{"ok":"/usr/bin:/bin"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${W}","result":{"ok":"${W}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V:-d:-e}","result":{"ok":"$"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${${V}}","result":{"ok":"${${V}}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${V\n}","result":{"ok":"${V\n}"}}
+{"env":{"PATH_LIKE":"/usr/bin:/bin","V":"$"},"input":"${env:V}","result":{"ok":"${env:V}"}}

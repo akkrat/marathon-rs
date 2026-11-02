@@ -1,0 +1,13 @@
+{
+  "log": [
+    {
+      "event": "end",
+      "t": 20000
+    }
+  ],
+  "outcome": {
+    "completed": true,
+    "completedAt": 0,
+    "value": true
+  }
+}

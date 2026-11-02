@@ -1,0 +1,156 @@
+[
+  {
+    "path": "sample-app.app/Base.lproj/LaunchScreen.storyboardc/01J-lp-oVM-view-Ze5-6b-2t3.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 1201,
+    "sha256": "980ce6698d6a12b3d1ab05f76679f5f9250334e164d77525894f67f945169659"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/LaunchScreen.storyboardc/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 258,
+    "sha256": "1f255d5cc53b531e3f29a9406a8df49a958e2bf9443d3e20bd8374f707f7d5c8"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/LaunchScreen.storyboardc/UIViewController-01J-lp-oVM.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 924,
+    "sha256": "54f3637f671feba5f19e82ec4f4a7fb448bb3cfc0fb180f089aa571fc8f053e2"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/Main.storyboardc/7ox-Dw-FT2-view-b2c-Uo-fOB.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 2391,
+    "sha256": "7ef64bf5699fc53cae43de41be4c9657101543d9bbdd59dafe90509063d8ddb7"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/Main.storyboardc/BYZ-38-t0r-view-8bC-Xf-vdC.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 4526,
+    "sha256": "b4c283d8932a2a86405aa4bc440726afb5f577b2a528f947492b90a28413e57c"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/Main.storyboardc/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 411,
+    "sha256": "5c233054b15b79dfbfc2195c8f26a73565a43a7bc8f37d038a992f05b244e67a"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/Main.storyboardc/UINavigationController-56p-VW-Fs0.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 2319,
+    "sha256": "43f358dc16f1215f1bb946fe1f52bf9ee88a0a373a0912c1912c56f2c2b28b85"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/Main.storyboardc/UIViewController-BYZ-38-t0r.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 1466,
+    "sha256": "4cb26c0a7c65c11400b2d48d1283893e880ec04c260a0cdb696227262fe8a9fb"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/Main.storyboardc/UIViewController-fJi-Vl-h77.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 860,
+    "sha256": "bcda9689aa044684342523907b20804d10e66bf0adde3f06bee917d7e9d0496d"
+  },
+  {
+    "path": "sample-app.app/Base.lproj/Main.storyboardc/fJi-Vl-h77-view-ws3-eo-fxB.nib",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 2379,
+    "sha256": "28854dff4310dc4c1804319a36ad46dc652142340084ccaf8aa7ee33dcf93011"
+  },
+  {
+    "path": "sample-app.app/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 1164,
+    "sha256": "b48d8bcdbc01cd9aaea6b159d132d071e0149b7759cd2a655280c94a82314148"
+  },
+  {
+    "path": "sample-app.app/PkgInfo",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 8,
+    "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0"
+  },
+  {
+    "path": "sample-app.app/PlugIns/sample-appUnitTests.xctest/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 774,
+    "sha256": "cf21a26cfa1f5534661e3f98195f4b2f1dc2f8fb9b0f13ce6c9d932821be046d"
+  },
+  {
+    "path": "sample-app.app/PlugIns/sample-appUnitTests.xctest/sample-appUnitTests",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 161120,
+    "sha256": "18f3e75312115131060ce1d4cfc52e19355a96e15e3125cface3eeafca273be0"
+  },
+  {
+    "path": "sample-app.app/__preview.dylib",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 33144,
+    "sha256": "23a1e9e17c891a401eac4c24a798d5526fc09f6dfddab940819346d512d4478e"
+  },
+  {
+    "path": "sample-app.app/sample-app",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 72984,
+    "sha256": "0d0b537416a0897199576fdeb21b5374efaab90302b7fd2204fe3590130a4dc9"
+  },
+  {
+    "path": "sample-app.app/sample-app.debug.dylib",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 207144,
+    "sha256": "23391671e4c2b30c37d098d380c673b36eedaacdedf82bdd9e0f9cd74d8bd60e"
+  },
+  {
+    "path": "sample-appUITests-Runner.app/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 10938,
+    "sha256": "11cd4f02aa7301127a33f64d3d5ac486e8c1ad831e4be62f2ad54c49ae80a2fe"
+  },
+  {
+    "path": "sample-appUITests-Runner.app/PkgInfo",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 8,
+    "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0"
+  },
+  {
+    "path": "sample-appUITests-Runner.app/PlugIns/sample-appUITests.xctest/Info.plist",
+    "kind": "file",
+    "mode": "0o644",
+    "size": 798,
+    "sha256": "2866f8a4e33c160ad653aaf0ac9ba83bc07c0a8416d83095e04834035d66d6ae"
+  },
+  {
+    "path": "sample-appUITests-Runner.app/PlugIns/sample-appUITests.xctest/sample-appUITests",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 306448,
+    "sha256": "e21a820974d9c926a88bf0ebdd65a4b44bd588333f1384f70b662fcc7abd756e"
+  },
+  {
+    "path": "sample-appUITests-Runner.app/sample-appUITests-Runner",
+    "kind": "file",
+    "mode": "0o755",
+    "size": 179264,
+    "sha256": "22248df9ca6f8b94f963641856e7409ad96800109d79c4390eeaacac26d8f16d"
+  }
+]

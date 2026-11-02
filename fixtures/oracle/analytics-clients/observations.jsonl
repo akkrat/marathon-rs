@@ -1,0 +1,111 @@
+{"scenario":"v2-instant","instant":"-1000000000-01-01T00:00:00Z","line":"tests duration=1.0 -31557014167219200000"}
+{"scenario":"v2-instant","instant":"+1000000000-12-31T23:59:59.999999999Z","line":"tests duration=1.0 31556889864403199999"}
+{"scenario":"v2-instant","instant":"1969-12-31T23:59:59.999999999Z","line":"tests duration=1.0 0"}
+{"scenario":"v2-instant","instant":"1970-01-01T00:00:00.000999999Z","line":"tests duration=1.0 0"}
+{"scenario":"fault-v1-eof","class":"org.influxdb.InfluxDBIOException","message":"java.io.IOException: unexpected end of stream on http://127.0.0.1:<port>/...","cause":"java.io.IOException"}
+{"scenario":"fault-v1-eof-count","connections":1}
+{"scenario":"fault-v1-reset","class":"org.influxdb.InfluxDBIOException","message":"java.net.SocketException: Connection reset","cause":"java.net.SocketException"}
+{"scenario":"fault-v1-reset-count","connections":1}
+{"scenario":"fault-v1-slow","class":"org.influxdb.InfluxDBIOException","message":"java.net.SocketTimeoutException: Read timed out","cause":"java.net.SocketTimeoutException"}
+{"scenario":"fault-v1-slow-count","connections":1}
+{"scenario":"fault-v2-eof","class":"com.influxdb.exceptions.InfluxException","message":"unexpected end of stream on http://127.0.0.1:<port>/...","cause":"java.io.IOException"}
+{"scenario":"fault-v2-eof-count","connections":1}
+{"scenario":"fault-v2-reset","class":"com.influxdb.exceptions.InfluxException","message":"Connection reset","cause":"java.net.SocketException"}
+{"scenario":"fault-v2-reset-count","connections":1}
+{"scenario":"fault-v2-slow","class":"com.influxdb.exceptions.InfluxException","message":"Read timed out","cause":"java.net.SocketTimeoutException"}
+{"scenario":"fault-v2-slow-count","connections":1}
+{"scenario":"carbon-reset","result":"ok"}
+{"scenario":"duration-format","value":0,"text":"0.0"}
+{"scenario":"duration-format","value":-1,"text":"-1.0"}
+{"scenario":"duration-format","value":1,"text":"1.0"}
+{"scenario":"duration-format","value":999,"text":"999.0"}
+{"scenario":"duration-format","value":9999999,"text":"9999999.0"}
+{"scenario":"duration-format","value":10000000,"text":"10000000.0"}
+{"scenario":"duration-format","value":86400000,"text":"86400000.0"}
+{"scenario":"duration-format","value":123456789012,"text":"123456789012.0"}
+{"scenario":"duration-format","value":999999999999,"text":"999999999999.0"}
+{"scenario":"duration-format","value":1000000000000,"text":"1000000000000.0"}
+{"scenario":"duration-format","value":-1000000000000,"text":"-1000000000000.0"}
+{"scenario":"duration-format","value":9007199254740991,"text":"9007199254740991.0"}
+{"scenario":"duration-format","value":9007199254740992,"text":"9007199254740992.0"}
+{"scenario":"duration-format","value":-9007199254740992,"text":"-9007199254740992.0"}
+{"scenario":"duration-format","value":9223372036854775807,"text":"9223372036854776000.0"}
+{"scenario":"duration-format","value":-9223372036854775808,"text":"-9223372036854776000.0"}
+{"scenario":"url-host","class":"com.influxdb.exceptions.InfluxException","message":"Unable to parse connection string host","cause":null}
+{"scenario":"url-ftp://host","class":"com.influxdb.exceptions.InfluxException","message":"Unable to parse connection string ftp://host","cause":null}
+{"scenario":"url-http:\\host","result":"ok"}
+{"scenario":"url-http://user:pass@host","result":"ok"}
+{"scenario":"url-http://host?q=1","result":"ok"}
+{"scenario":"url-http://host#fragment","result":"ok"}
+{"scenario":"history-v1-er","value":0.0}
+{"scenario":"history-v1-et","value":300000.0}
+{"scenario":"history-v1-p50","value":5000.0}
+{"scenario":"history-v1-p90","value":9000.0}
+{"scenario":"history-v1-r50","value":2000.0}
+{"scenario":"history-v1-r90","value":4000.0}
+{"scenario":"history-v1-s50","value":1.0}
+{"scenario":"history-v1-s65","value":0.8333333333333334}
+{"scenario":"history-v1-s120","value":0.5}
+{"scenario":"history-v2-er","value":0.0}
+{"scenario":"history-v2-et","value":300000.0}
+{"scenario":"history-v2-p50","value":5000.0}
+{"scenario":"history-v2-p90","value":9000.0}
+{"scenario":"history-v2-r50","value":2000.0}
+{"scenario":"history-v2-r90","value":4000.0}
+{"scenario":"history-v2-s50","value":1.0}
+{"scenario":"history-v2-s65","value":0.8333333333333334}
+{"scenario":"history-v2-s120","value":0.5}
+{"scenario":"history-graphite-er","value":0.0}
+{"scenario":"history-graphite-et","value":300000.0}
+{"scenario":"history-graphite-p50","value":5000.0}
+{"scenario":"history-graphite-p90","value":9000.0}
+{"scenario":"history-graphite-r50","value":2000.0}
+{"scenario":"history-graphite-r90","value":4000.0}
+{"scenario":"history-graphite-s50","value":1.0}
+{"scenario":"history-graphite-s65","value":0.8333333333333335}
+{"scenario":"history-graphite-s120","value":0.5}
+{"scenario":"defaults","actions":1000,"flushMs":1000,"jitterMs":0,"buffer":10000,"precision":"NANOSECONDS","drop":false}
+{"scenario":"http","connectMs":60000,"readMs":60000,"writeMs":60000,"callMs":0,"retry":true,"redirects":true}
+{"scenario":"v1-fresh-close-again","result":"ok"}
+{"scenario":"v1-auth-close-again","result":"ok"}
+{"scenario":"v1-partial-close-again","result":"ok"}
+{"scenario":"v1-existing-close-again","result":"ok"}
+{"scenario":"v2-empty-token","result":"ok"}
+{"scenario":"v1-error-database","class":"org.influxdb.InfluxDBException$DatabaseNotFoundException","message":"database not found","cause":null}
+{"scenario":"v1-error-field","class":"org.influxdb.InfluxDBException$FieldTypeConflictException","message":"field type conflict","cause":null}
+{"scenario":"v1-error-auth","class":"org.influxdb.InfluxDBException$AuthorizationFailedException","message":"authorization failed","cause":null}
+{"scenario":"v1-error-other","class":"org.influxdb.InfluxDBException","message":"bad","cause":null}
+{"scenario":"v2-csv-long","class":"com.influxdb.exceptions.InfluxException","message":"For input string: \"1.5\"","cause":"java.lang.NumberFormatException"}
+{"scenario":"v2-csv-double","class":"com.influxdb.exceptions.InfluxException","message":"For input string: \"xyz\"","cause":"java.lang.NumberFormatException"}
+{"scenario":"v2-redirect","class":"com.influxdb.query.exceptions.FluxCsvParserException","message":"Unable to parse CSV response. FluxTable definition was not found.","cause":null}
+{"scenario":"v2-fresh","result":"ok"}
+{"scenario":"v2-existing","result":"ok"}
+{"scenario":"v2-duplicate","result":"ok"}
+{"scenario":"v2-missing","class":"com.malinskiy.marathon.analytics.external.influx2.Influxdb2Exception","message":"No organization with name = org found","cause":null}
+{"scenario":"v1-query","value":{"results":[{"series":[{"name":"tests","tags":{"testname":"pkg.Clazz#method"},"columns":["time","percentile"],"values":[[null,5000.0]]}],"error":null}],"error":null}}
+{"scenario":"v2-records","values":[{"result":"_result","table":0,"testname":"pkg.Clazz#method","_value":5000.0}]}
+{"scenario":"v2-query","result":"ok"}
+{"scenario":"v2-error-400","class":"com.influxdb.exceptions.BadRequestException","message":"HTTP status code: 400; Message: bad","cause":null}
+{"scenario":"v2-error-401","class":"com.influxdb.exceptions.UnauthorizedException","message":"HTTP status code: 401; Message: bad","cause":null}
+{"scenario":"v2-error-429","class":"com.influxdb.exceptions.InfluxException","message":"HTTP status code: 429; Message: bad","cause":null}
+{"scenario":"v2-error-500","class":"com.influxdb.exceptions.InternalServerErrorException","message":"HTTP status code: 500; Message: bad","cause":null}
+{"scenario":"v2-invalid-json","class":"com.influxdb.exceptions.InfluxException","message":"Use JsonReader.setStrictness(Strictness.LENIENT) to accept malformed JSON at line 1 column 1 path $\nSee https://github.com/google/gson/blob/main/Troubleshooting.md#malformed-json","cause":"com.google.gson.stream.MalformedJsonException"}
+{"scenario":"v2-invalid-csv","class":"com.influxdb.query.exceptions.FluxCsvParserException","message":"Unable to parse CSV response. FluxTable definition was not found.","cause":null}
+{"scenario":"graphite-http","lines":["one\r"," ","last"]}
+{"scenario":"graphite-payload","body":"a.b.tests.p a,=\\--Clazz--method.p a,=\\.Clazz.method.serial---x.ignored 0 -1\na.b.tests.p a,=\\--Clazz--method.p a,=\\.Clazz.method.serial---x.success 0 -1\na.b.tests.p a,=\\--Clazz--method.p a,=\\.Clazz.method.serial---x.duration 5000 -1\n"}
+{"scenario":"graphite-payload","body":"a.b.tests.p a,=\\--Clazz--method.p a,=\\.Clazz.method.serial---x.ignored 0 -1\na.b.tests.p a,=\\--Clazz--method.p a,=\\.Clazz.method.serial---x.success 1 -1\na.b.tests.p a,=\\--Clazz--method.p a,=\\.Clazz.method.serial---x.duration 5000 -1\n"}
+{"scenario":"printwriter-suppression","error":true}
+{"scenario":"carbon-suppression","result":"ok"}
+{"scenario":"carbon-refused","class":"com.malinskiy.marathon.analytics.external.graphite.GraphiteException","message":"Error while writing data to graphite: Connection refused","cause":null}
+{"scenario":"v2-refused-query","class":"com.influxdb.exceptions.InfluxException","message":"Failed to connect to /127.0.0.1:1","cause":"java.net.ConnectException"}
+{"scenario":"v2-refused-tracker","result":"ok"}
+{"scenario":"java-form","input":"a b+*~é","encoded":"a+b%2B*%7E%C3%A9"}
+{"scenario":"epoch--1000000000-01-01T00:00:00Z","class":"java.lang.ArithmeticException","message":"long overflow","cause":null}
+{"scenario":"epoch-+1000000000-12-31T23:59:59.999999999Z","class":"java.lang.ArithmeticException","message":"long overflow","cause":null}
+{"scenario":"epoch-millis","instant":"1969-12-31T23:59:58.999Z","millis":-1001}
+{"scenario":"epoch-1969-12-31T23:59:58.999Z","result":"ok"}
+{"scenario":"epoch-millis","instant":"-292275055-05-16T16:47:04.192Z","millis":-9223372036854775808}
+{"scenario":"epoch--292275055-05-16T16:47:04.192Z","result":"ok"}
+{"scenario":"epoch-millis","instant":"+292278994-08-17T07:12:55.807Z","millis":9223372036854775807}
+{"scenario":"epoch-+292278994-08-17T07:12:55.807Z","result":"ok"}
+{"scenario":"custom-logs","records":[{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket a+é, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Tracker","level":"ERROR","message":"Failed to write data point to InfluxDb2","cause":"com.influxdb.exceptions.ServiceUnavailableException"},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"WARN","message":"Multiple organizations with name = org found. Using first one, id = id1","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider","level":"INFO","message":"Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)","cause":null},{"logger":"com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Tracker","level":"ERROR","message":"Failed to write data point to InfluxDb2","cause":"com.influxdb.exceptions.InfluxException"}]}

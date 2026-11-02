@@ -1,0 +1,91 @@
+{
+ "note": "Starting points for the WP 7.5 closure sweep. Old paths are relative to the retained 7.2 runs root (MRS_OLD).",
+ "profiles": {
+  "local-27": {
+   "builds": {
+    "ios-build": [
+     "iOS",
+     "ios-unit-nm"
+    ],
+    "macos-build": [
+     "macOS",
+     "macos-unit-nm"
+    ]
+   }
+  },
+  "linux-kvm": {
+   "builds": {
+    "android-build": [
+     "Android",
+     "android-local-video-sync"
+    ]
+   }
+  }
+ },
+ "scenarios": {
+  "ios-unit-nm": {
+   "profile": "local-27",
+   "build": "ios-build",
+   "application": "Debug-iphonesimulator/sample-app.app",
+   "tests": "Debug-iphonesimulator/sample-app.app/PlugIns/sample-appUnitTests.xctest",
+   "old_selection": "local-27-ios26/ios-unit-inputs/selection.json",
+   "old_draft": "local-27-ios26/ios-unit-nm-outcomes-r3.json"
+  },
+  "ios-ui-video": {
+   "profile": "local-27",
+   "build": "ios-build",
+   "application": "Debug-iphonesimulator/sample-app.app",
+   "tests": "Debug-iphonesimulator/sample-appUITests-Runner.app",
+   "old_selection": "local-27-ios26/ios-ui-video-inputs/selection.json",
+   "old_draft": "local-27-ios26/ios-ui-video-outcomes-r3.json"
+  },
+  "ios-ui-screenshot": {
+   "profile": "local-27",
+   "build": "ios-build",
+   "application": "Debug-iphonesimulator/sample-app.app",
+   "tests": "Debug-iphonesimulator/sample-appUITests-Runner.app",
+   "old_selection": "local-27-ios26/ios-ui-screenshot-inputs/selection.json",
+   "old_draft": "local-27-ios26/ios-ui-screenshot-outcomes-r3.json"
+  },
+  "macos-unit-nm": {
+   "profile": "local-27",
+   "build": "macos-build",
+   "application": "Debug/AppleWorld.app",
+   "tests": "Debug/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest",
+   "old_selection": "local-27-macos/macos-unit-nm-inputs/selection.json",
+   "old_draft": "local-27-macos/macos-unit-nm-outcomes-r3.json"
+  },
+  "macos-permissions": {
+   "profile": "local-27",
+   "build": "macos-build",
+   "application": "Debug/AppleWorld.app",
+   "tests": "Debug/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest",
+   "old_selection": "local-27-macos/macos-permissions-inputs/selection.json",
+   "old_draft": "local-27-macos/macos-permissions-outcomes-r3.json"
+  },
+  "macos-cancel": {
+   "profile": "local-27",
+   "build": "macos-build",
+   "application": "Debug/AppleWorld.app",
+   "tests": "Debug/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest",
+   "old_selection": "local-27-macos/macos-cancel-inputs/selection.json",
+   "old_draft": "local-27-macos/macos-cancel-outcomes-r3.json"
+  },
+  "android-local-video-sync": {
+   "profile": "linux-kvm",
+   "build": "android-build",
+   "application": "debug/app-debug.apk",
+   "tests": "androidTest/debug/app-debug-androidTest.apk",
+   "old_selection": "linux-kvm/box/runs/android-local-video-sync-inputs/selection.json",
+   "old_draft": "linux-kvm/android-local-video-sync-outcomes-r3.json"
+  },
+  "android-remote-screenshots": {
+   "profile": "linux-kvm",
+   "build": "android-build",
+   "application": "debug/app-debug.apk",
+   "tests": "androidTest/debug/app-debug-androidTest.apk",
+   "old_selection": "linux-kvm/box/runs/android-remote-screenshots-inputs/selection.json",
+   "old_draft": "linux-kvm/android-remote-screenshots-outcomes-r3.json"
+  }
+ }
+}

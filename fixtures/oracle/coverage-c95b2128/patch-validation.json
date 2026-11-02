@@ -1,0 +1,376 @@
+{
+  "format": "marathon-replay/validation@1",
+  "runs": 10,
+  "excluded_test_classes": [
+    "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutorTest"
+  ],
+  "checks": {
+    "a": {
+      "tests": 894,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "seconds": 286.154
+    },
+    "b": {
+      "seconds": 380.758,
+      "scenarios": [
+        {
+          "scenario": "all-lost",
+          "files": 21,
+          "runs": 10
+        },
+        {
+          "scenario": "disconnect",
+          "files": 29,
+          "runs": 10
+        },
+        {
+          "scenario": "filtering-1",
+          "files": 26,
+          "runs": 10
+        },
+        {
+          "scenario": "filtering-2",
+          "files": 26,
+          "runs": 10
+        },
+        {
+          "scenario": "filtering-3",
+          "files": 26,
+          "runs": 10
+        },
+        {
+          "scenario": "invalid-config",
+          "files": 5,
+          "runs": 10
+        },
+        {
+          "scenario": "parse",
+          "files": 6,
+          "runs": 10
+        },
+        {
+          "scenario": "random-order",
+          "files": 22,
+          "runs": 10
+        },
+        {
+          "scenario": "scripted-failures",
+          "files": 17,
+          "runs": 10
+        },
+        {
+          "scenario": "scripted",
+          "files": 22,
+          "runs": 10
+        },
+        {
+          "scenario": "success",
+          "files": 22,
+          "runs": 10
+        },
+        {
+          "scenario": "two-pools-disconnect",
+          "files": 18,
+          "runs": 10
+        },
+        {
+          "scenario": "uncompleted-1",
+          "files": 122,
+          "runs": 10
+        },
+        {
+          "scenario": "uncompleted-2",
+          "files": 122,
+          "runs": 10
+        },
+        {
+          "scenario": "uncompleted-3",
+          "files": 25,
+          "runs": 10
+        },
+        {
+          "scenario": "uncompleted-4",
+          "files": 25,
+          "runs": 10
+        },
+        {
+          "scenario": "CLI android-two-devices",
+          "files": 32,
+          "runs": 10
+        }
+      ]
+    },
+    "c": {
+      "seconds": 59.441,
+      "scenarios": [
+        {
+          "scenario": "all-lost",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "QueueActor returned-batch timestamps (duration remains 1)": 16,
+            "billing start/end/duration": 2,
+            "HTML generation date": 2
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "QueueActor returned-batch timestamps (duration remains 1)": 16,
+            "billing start/end/duration": 2,
+            "HTML generation date": 2
+          },
+          "files": 17
+        },
+        {
+          "scenario": "disconnect",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 6,
+            "billing start/end/duration": 2,
+            "HTML generation date": 6
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 6,
+            "billing start/end/duration": 2,
+            "HTML generation date": 6
+          },
+          "files": 25
+        },
+        {
+          "scenario": "filtering-1",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 5,
+            "billing start/end/duration": 1,
+            "HTML generation date": 6
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 5,
+            "billing start/end/duration": 1,
+            "HTML generation date": 6
+          },
+          "files": 22
+        },
+        {
+          "scenario": "filtering-2",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 5,
+            "billing start/end/duration": 1,
+            "HTML generation date": 6
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 5,
+            "billing start/end/duration": 1,
+            "HTML generation date": 6
+          },
+          "files": 22
+        },
+        {
+          "scenario": "filtering-3",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 5,
+            "billing start/end/duration": 1,
+            "HTML generation date": 6
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 5,
+            "billing start/end/duration": 1,
+            "HTML generation date": 6
+          },
+          "files": 22
+        },
+        {
+          "scenario": "invalid-config",
+          "patched_normalizations": {},
+          "reference_normalizations": {},
+          "files": 1
+        },
+        {
+          "scenario": "parse",
+          "patched_normalizations": {},
+          "reference_normalizations": {},
+          "files": 2
+        },
+        {
+          "scenario": "random-order",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "files": 18
+        },
+        {
+          "scenario": "scripted-failures",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 1,
+            "HTML generation date": 2
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 1,
+            "HTML generation date": 2
+          },
+          "files": 13
+        },
+        {
+          "scenario": "scripted",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "files": 18
+        },
+        {
+          "scenario": "success",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 3,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "files": 18
+        },
+        {
+          "scenario": "two-pools-disconnect",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 1,
+            "HTML generation date": 3
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 1,
+            "HTML generation date": 3
+          },
+          "files": 14
+        },
+        {
+          "scenario": "uncompleted-1",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 103,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 103,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "files": 118
+        },
+        {
+          "scenario": "uncompleted-2",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 103,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 103,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "files": 118
+        },
+        {
+          "scenario": "uncompleted-3",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 6,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 6,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "files": 21
+        },
+        {
+          "scenario": "uncompleted-4",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 6,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 6,
+            "billing start/end/duration": 1,
+            "HTML generation date": 4
+          },
+          "files": 21
+        },
+        {
+          "scenario": "CLI android-two-devices",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 20,
+            "CLI clock fields and device roles": 26,
+            "billing start/end/duration": 1,
+            "HTML generation date": 8
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 20,
+            "CLI clock fields and device roles": 26,
+            "billing start/end/duration": 1,
+            "HTML generation date": 8
+          },
+          "files": 26
+        },
+        {
+          "scenario": "CLI no tape",
+          "patched_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 20,
+            "CLI clock fields and device roles": 26,
+            "billing start/end/duration": 1,
+            "HTML generation date": 8
+          },
+          "reference_normalizations": {
+            "typed report IDs / roles / identities and JSON encoding": 20,
+            "CLI clock fields and device roles": 26,
+            "billing start/end/duration": 1,
+            "HTML generation date": 8
+          },
+          "files": 26
+        }
+      ]
+    }
+  },
+  "tape_coverage": {
+    "android.AdamDeviceProvider.connected": 2,
+    "config.Configuration.identities": 132,
+    "core.Actor.mailbox": 52,
+    "core.AllureReporter.uuid": 227,
+    "core.BillingReporter.defaultStart": 17,
+    "core.BillingReporter.generate": 15,
+    "core.DeviceActor.execute": 1,
+    "core.DeviceActor.prepare": 2,
+    "core.HtmlSummaryReporter.date": 15,
+    "core.MappingTracker.deviceConnected": 20,
+    "core.MappingTracker.test": 227,
+    "core.Marathon.run": 2,
+    "core.Marathon.runAsync.parsing": 33,
+    "core.RandomOrderSortingStrategy.key": 1,
+    "core.RawJsonReporter.identities": 12,
+    "core.Scheduler.deviceEvents": 15,
+    "core.TemporalTestResult.startTime": 3,
+    "core.TestBatch.id": 226,
+    "core.Track.trackDevicePreparing": 4,
+    "core.Track.trackProviderDevicePreparing": 4,
+    "core.di.Clock": 19,
+    "library.logback.wall": 1905,
+    "test.ConfigurationFactory.outputDir": 16,
+    "test.MarathonFactory.clock": 151
+  },
+  "passed": true
+}

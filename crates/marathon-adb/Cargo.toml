@@ -1,0 +1,30 @@
+[package]
+name = "marathon-adb"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The scripted ADB server (PLAN.md §6.4). Tests turn it on through the dev-dependency on this crate below.
+server = ["tokio/fs", "tokio/rt-multi-thread", "dep:serde", "dep:serde_json", "dep:serde_norway", "dep:regex", "dep:sha2"]
+
+[dependencies]
+lcms2 = { version = "=6.1.1", features = ["static"] }
+png = "=0.18.1"
+jcompat = { path = "../jcompat" }
+sha2 = { version = "=0.10.9", optional = true }
+regex = { version = "=1.13.1", optional = true }
+serde = { version = "=1.0.229", optional = true, features = ["derive"] }
+serde_json = { version = "=1.0.154", optional = true }
+serde_norway = { version = "=0.9.42", optional = true }
+tokio = { version = "=1.53.2", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+
+[dev-dependencies]
+marathon-adb = { path = ".", features = ["server"] }
+serde_json = "=1.0.154"
+tempfile = "=3.27.0"
+tokio = { version = "=1.53.2", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }

@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""Explicit offline, live, capture and comparison entrypoints; no implicit golden update."""
+import argparse
+import base64
+import datetime
+import json
+import os
+from pathlib import Path
+import platform
+import signal
+import subprocess
+import sys
+import tempfile
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+sys.path.insert(0, str(HERE))
+import evidence as e
+import vendors
+from registry_support import factory_fingerprints
+
+
+def command(argv, work, env=None, timeout=180, expected_exit=0):
+    """One attempt, new log files, bounded process group and awaited teardown."""
+    work = Path(work)
+    work.mkdir(parents=True, exist_ok=False)
+    with (work / 'stdout').open('wb') as stdout, (work / 'stderr').open('wb') as stderr:
+        process = subprocess.Popen(list(map(str, argv)), cwd=ROOT, env=env, stdout=stdout, stderr=stderr, stdin=subprocess.DEVNULL, start_new_session=True, umask=0o022)
+        timed_out = False
+        try:
+            code = process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            os.killpg(process.pid, signal.SIGKILL)
+            code = process.wait()
+        except BaseException:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise
+        (work / 'process.json').write_bytes(e.encoded(dict(argv=list(map(str, argv)), exit=code, watchdog=timed_out)))
+    e.require(not timed_out and code == expected_exit, f'command failed ({code}, watchdog={timed_out}); retained {work}')
+
+
+def adapters():
+    return e.load(HERE / 'registry.json')['adapters']
+
+
+def contract(name):
+    return e.load(ROOT / adapters()[name]['contract'])
+
+
+def golden(name):
+    return ROOT / adapters()[name]['golden']
+
+
+def compare_golden(name, actual, mismatch=None):
+    expected = [golden(name), *[ROOT/path for path in adapters()[name].get('alternates',[])]]
+    return e.compare_variants(expected, actual, contract(name), mismatch)
+
+def native_binary(work, local=False):
+    argv = ['cargo', 'test', '--no-run', '-q', '-p', 'marathon-test-support', '--test', 'differential_local', '--message-format=json'] if local else [
+        'cargo', 'build', '-q', '-p', 'marathon-test-support', '--example', 'differential_probe', '--message-format=json']
+    command(argv, work / 'build', timeout=600)
+    rows = [json.loads(line) for line in (work / 'build/stdout').read_bytes().splitlines()]
+    target = 'differential_local' if local else 'differential_probe'
+    paths = [r['executable'] for r in rows if r.get('reason') == 'compiler-artifact'
+             and r['target']['name'] == target and r.get('executable')]
+    e.require(len(paths) == 1, 'cargo did not report the probe executable')
+    return paths[0]
+
+
+def oracle_build():
+    source = os.environ.get('ORACLE_SOURCE_SHA', 'e47352f25cbc50333900d5d040a5544ff1224501')
+    e.require(source in ('e47352f25cbc50333900d5d040a5544ff1224501','c95b212882c7ba7b1ad91b7981916ed175f1530e'), 'unsupported oracle source')
+    return ROOT/'tools/oracle'/('build' if source.startswith('e47352f2') else 'build-'+source), source
+
+def provenance(implementation, variant='reference'):
+    result = dict(platform=platform.platform(), python=platform.python_version(),
+                  native_sha=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+                  driver_sha256=e.sha(Path(__file__).read_bytes()),
+                  source_sha=(ROOT/'docs/release-source.sha').read_text().strip())
+    if implementation == 'jvm':
+        patch = ROOT / 'tools/oracle/patches/0001-oracle-module.patch'
+        result['patches'] = {patch.name:e.sha(patch.read_bytes())}
+        build, source = oracle_build()
+        clone = build/('marathon-patched' if variant == 'patched' else 'marathon-src')
+        e.require(subprocess.check_output(['git','-C',str(clone),'rev-parse','HEAD'],text=True).strip() == source, 'wrong JVM source checkout')
+        result['source_sha'] = source
+        lib = clone/'cli/build/install/marathon/lib'
+        result['jars'] = {p.name:e.sha(p.read_bytes()) for p in sorted(lib.glob('*.jar'))}
+        e.require(result['jars'], 'missing JVM jar provenance')
+        java = Path(os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')) / 'bin/java'
+        result['jdk'] = subprocess.check_output([str(java), '-version'], stderr=subprocess.STDOUT, text=True).strip()
+    return result
+
+
+def pack(name, implementation, raw, destination, extra=None):
+    c = contract(name)
+    artifact = e.encoded(e.load(raw / 'observation.json'))
+    identities = e.load(raw / 'identities.json') if name == 'local' else {}
+    tree = 'tree' if name == 'local' else 'reports'
+    facts = provenance(implementation)
+    facts.update(extra or {})
+    return e.write_record(destination, c, implementation, {tree:raw / tree}, {'observation.json':artifact},
+                          e.observed_outcome(c, e.loads(artifact), facts.get('process'),
+                                             facts.get('driver_transcript')), facts, identities)
+
+
+def build_vendor_binaries(work):
+    result = {}
+    for label, argv in [('fakes',['cargo','build','-q','-p','fake-worker','-p','fake-adb','--message-format=json']),
+                        ('probe',['cargo','build','-q','-p','marathon-cli','--example','differential_cli','--message-format=json'])]:
+        command(argv,work/label,timeout=600)
+        for line in (work/label/'stdout').read_bytes().splitlines():
+            row = json.loads(line)
+            if row.get('reason') == 'compiler-artifact' and row.get('executable'):
+                result[row['target']['name']] = row['executable']
+    result['native'] = result.pop('differential_cli')
+    result['jvm'] = str(oracle_build()[0]/'marathon-patched/cli/build/install/marathon/bin/marathon')
+    e.require(set(result) == {'native','jvm','fake-worker','fake-adb'},'missing vendor capture executable')
+    return result
+
+
+def capture(name, implementation, work, binaries=None):
+    raw = work / 'raw'
+    if adapters()[name]['kind'] == 'vendor':
+        binaries = binaries or build_vendor_binaries(work/'binaries')
+        vendors.raw_capture(name,implementation,raw,binaries,command)
+        return vendors.pack(name,implementation,raw,contract(name),work/'recording',
+                            provenance(implementation,variant='patched'))
+    env = dict(os.environ)
+    env['MRS_GRADLE_CACHE'] = str(Path.home() / '.gradle/caches/modules-2/files-2.1')
+    home, tmp = work / 'home', work / 'tmp'
+    home.mkdir(); tmp.mkdir()
+    env.update(HOME=str(home), TMPDIR=str(tmp), LANG='en_US.UTF-8', LC_ALL='en_US.UTF-8', TZ='UTC')
+    if implementation == 'jvm' and name == 'parse':
+        binary = ROOT / 'tools/oracle/build/marathon-src/oracle-build/install/oracle/bin/oracle'
+        env['JAVA_HOME'] = os.environ.get('JAVA_HOME', '/Applications/Android Studio.app/Contents/jbr/Contents/Home')
+        env.pop('JAVA_OPTS', None)
+        command([binary, 'scenario', ROOT / 'tools/oracle/scenarios/parse.json', raw], work / 'process', env)
+        transcript = e.load(raw / 'transcript.json')
+        e.require(not transcript['errors'] and transcript['outcome']['completed'], 'incomplete JVM scenario')
+        e.require(all(item['ok'] for item in transcript['expectations']), 'failed JVM expectations')
+        report = transcript['hooksReport']
+        e.require(not contract(name).get('uses_tapes', False) or report is not None, 'missing tape accounting')
+        e.require(report is None or (not report['unused'] and not report['failures']), 'unused/failed JVM tape')
+        log = [row for row in transcript['log'] if 'subscribed' not in row and 'runBlocking' not in row]
+        (raw / 'observation.json').write_bytes(e.encoded(dict(outcome=transcript['outcome'], log=log)))
+        (raw / 'output').rename(raw / 'reports')
+    elif implementation == 'jvm':
+        # Compilation needs the existing cache; the JVM under test gets fresh HOME/TMPDIR.
+        command([ROOT / 'tools/oracle/differential-local/run', raw], work / 'process', env)
+    elif name == 'parse':
+        binary = native_binary(work)
+        command([binary, 'parse', raw], work / 'process', env)
+    else:
+        binary = native_binary(work, local=True)
+        env['MRS_DIFFERENTIAL_OUT'] = str(raw)
+        command([binary, '--exact', 'capture_actual_local_contract'], work / 'process', env)
+    return pack(name, implementation, raw, work / 'recording', dict(
+        process=e.load(work / 'process/process.json'),
+        stdout_base64=base64.b64encode((work / 'process/stdout').read_bytes()).decode(),
+        stderr_base64=base64.b64encode((work / 'process/stderr').read_bytes()).decode(),
+        **({'driver_transcript':e.load(raw / 'transcript.json')} if name == 'parse' and implementation == 'jvm' else {})))
+
+
+def validate_registry():
+    ledger = e.load(HERE / 'registry.json')
+    e.require(ledger['format'] == 'marathon-differential/registry@1', 'registry version')
+    for path, digest in ledger['evidence_inventory'].items():
+        e.require(e.sha((ROOT / path).read_bytes()) == digest, f'committed evidence changed: {path}')
+    for path, digest in ledger['legacy_inventory'].items():
+        e.require(e.sha((ROOT / path).read_bytes()) == digest, f'legacy evidence changed: {path}')
+    registered = ledger.get('adapters')
+    e.require(isinstance(registered,dict),'missing capture adapter registry')
+    e.require({name for name,row in registered.items() if row.get('kind') == 'vendor'} == set(vendors.CASES),
+              'required vendor capture adapter inventory differs')
+    e.require({name for name,row in registered.items() if row.get('kind') == 'portable'} == {'local','parse'},
+              'required portable capture adapter inventory differs')
+    e.require(all(row.get('kind') in ('vendor','portable') and row.get('golden') and row.get('contract')
+                  for row in registered.values()),'invalid capture adapter')
+    names = [r['id'] for r in ledger['cases']]
+    e.require(len(set(names)) == len(names), 'duplicate scenario registration')
+    for row in ledger['cases']:
+        e.require(row['state'] in ('active', 'planned') and row['owner'] and row['comparison'] and row['prerequisites'], 'invalid registry case')
+        for path, digest in row['inputs'].items():
+            e.require(e.sha((ROOT / path).read_bytes()) == digest, f'changed scenario/evidence input: {path}')
+        if row['state'] == 'active':
+            e.require(row.get('native') and row.get('evidence'), 'active case has no native runner/evidence')
+            for path in row['evidence']:
+                e.require((ROOT / path).exists(), f'missing active evidence: {path}')
+    # A future factory registration must update the ledger, not leave a silently reduced gate.
+    for key, digest in factory_fingerprints(ROOT).items():
+        e.require(digest == ledger[key], 'production vendor registration changed: review and activate vendor scenarios')
+    return ledger
+
+
+def validate_all():
+    subprocess.run([sys.executable, '-I', str(HERE / 'make_registry.py'), '--check'], check=True, cwd=ROOT)
+    ledger = validate_registry()
+    for name in adapters():
+        for expected in [golden(name), *[ROOT/path for path in adapters()[name].get('alternates',[])]]:
+            e.require(e.validate(expected, contract(name))['implementation'] == 'jvm', 'not JVM evidence')
+            e.normalized(expected, contract(name))
+    verification = ROOT / 'fixtures/differential/verification'
+    manifest = e.load(verification / 'manifest.json')
+    e.require(manifest['format'] == 'marathon-differential/verification@1', 'verification version')
+    required = {case + '/' + run for case in ('local','parse') for run in ('jvm-a','jvm-b','native')}
+    e.require(set(manifest['records']) == required, 'repeatability inventory differs')
+    for relative, digest in manifest['records'].items():
+        recording = verification / relative
+        e.require(e.sha((recording / 'evidence.json').read_bytes()) == digest, 'verification record changed')
+        facts = e.load(recording / 'evidence.json')
+        case, run = relative.split('/')
+        e.require(facts['provenance']['native_sha'] == manifest['native_sha'], 'verification source differs')
+        e.require(facts['implementation'] == ('native' if run == 'native' else 'jvm'), 'verification implementation differs')
+        compare_golden(case, recording)
+    if any(row['kind'] == 'vendor' for row in adapters().values()):
+        verification = ROOT/'fixtures/differential/vendor-verification-c95b2128'
+        manifest = e.load(verification/'manifest.json')
+        e.require(manifest['format'] == 'marathon-differential/verification@1','vendor verification version')
+        required = {case+'/'+run for case,row in adapters().items() if row['kind'] == 'vendor'
+                    for run in ('jvm-a','jvm-b','native')}
+        e.require(set(manifest['records']) == required,'vendor repeatability inventory differs')
+        for relative,digest in manifest['records'].items():
+            recording = verification/relative
+            e.require(e.sha((recording/'evidence.json').read_bytes()) == digest,'vendor verification record changed')
+            case,run = relative.split('/')
+            facts = e.load(recording/'evidence.json')
+            e.require(facts['implementation'] == ('native' if run == 'native' else 'jvm'),'vendor verification implementation differs')
+            e.require(facts['provenance']['native_sha'] == manifest['native_sha'],'vendor verification source differs')
+            compare_golden(case,recording)
+    print('Validated committed evidence; profile=registered-offline; planned:', ', '.join(r['id'] for r in ledger['cases'] if r['state'] == 'planned'))
+    return ledger
+
+
+def main():
+    # Seed files belong to the controlled input just as much as CLI writes do.
+    os.umask(0o022)
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='operation', required=True)
+    sub.add_parser('validate')
+    sub.add_parser('check')
+    for name in ('smoke', 'all'):
+        p = sub.add_parser(name)
+        p.add_argument('--profile', choices=['harness-first', 'macos-arm64', 'linux-x86_64'], required=True)
+        p.add_argument('--output', type=Path, required=True)
+    p = sub.add_parser('capture')
+    p.add_argument('scenario', choices=list(adapters()))
+    p.add_argument('--output', type=Path, required=True, help='new immutable JVM golden generation')
+    p = sub.add_parser('compare')
+    p.add_argument('expected', type=Path); p.add_argument('actual', type=Path)
+    p.add_argument('--contract', type=Path, required=True); p.add_argument('--mismatch', type=Path)
+    p = sub.add_parser('native-vendors')
+    p.add_argument('--output',type=Path,required=True)
+    for name in ('verify-local', 'verify-parse'):
+        p = sub.add_parser(name); p.add_argument('raw', type=Path)
+    args = parser.parse_args()
+    if args.operation == 'compare':
+        e.compare(args.expected, args.actual, e.load(args.contract), args.mismatch)
+    elif args.operation.startswith('verify-'):
+        name = args.operation.removeprefix('verify-')
+        actual = pack(name, 'native', args.raw, args.raw / 'recording')
+        compare_golden(name, actual, args.raw / 'mismatch')
+    elif args.operation == 'native-vendors':
+        validate_registry()
+        args.output.mkdir(parents=True,exist_ok=False)
+        binaries = build_vendor_binaries(args.output/'binaries')
+        selected = [name for name,row in adapters().items() if row['kind'] == 'vendor']
+        (args.output/'selection.json').write_bytes(e.encoded(dict(profile='registered-vendor-native',cases=selected)))
+        for name in selected:
+            work = args.output/name; work.mkdir()
+            recording = capture(name,'native',work.resolve(),binaries)
+            compare_golden(name,recording,work/'mismatch')
+        print('PASS profile=registered-vendor-native; '+str(len(selected))+' complete vendor captures')
+    elif args.operation in ('validate', 'check'):
+        ledger = validate_all()
+        if args.operation == 'check':
+            subprocess.run([sys.executable, '-I', str(HERE / 'test_evidence.py')], check=True, cwd=ROOT)
+            targets = sorted({tuple(row['native']) for row in ledger['cases'] if row['state'] == 'active'})
+            for target in targets:
+                subprocess.run(['cargo', 'test', '-q', *target], cwd=ROOT, check=True, timeout=600)
+            print('PASS profile=registered-offline-native (whole vendor baselines plus scoped owner contracts)')
+    elif args.operation == 'capture':
+        # Never touch an existing generation, even if capture fails.
+        e.require(not args.output.exists(), 'capture output already exists')
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        work = Path(tempfile.mkdtemp(prefix='.capture-', dir=args.output.parent)).resolve()
+        print('Capture staging:', work, flush=True)
+        variant = 'patched' if adapters()[args.scenario]['kind'] == 'vendor' else 'reference'
+        command([ROOT / 'tools/oracle/build.sh', variant], work / 'verified-reference-build', timeout=600)
+        recording = capture(args.scenario, 'jvm', work)
+        e.publish(recording, args.output, contract(args.scenario))
+        print('Published JVM evidence:', args.output)
+    else:
+        ledger = validate_registry()
+        args.output.mkdir(parents=True, exist_ok=False)
+        (args.output / 'selection.json').write_bytes(e.encoded(dict(profile=args.profile, suite=args.operation, cases=ledger['cases'])))
+        if args.profile != 'harness-first':
+            required_host = {'macos-arm64':('Darwin','arm64'),'linux-x86_64':('Linux','x86_64')}[args.profile]
+            e.require((platform.system(),platform.machine()) == required_host,'selected profile does not match this host')
+            pending = [r['id'] for r in ledger['cases'] if r['state'] == 'planned']
+            e.require(not pending, 'full vendor profile is not active: ' + ', '.join(pending))
+        command([ROOT / 'tools/oracle/build.sh', 'reference'], args.output / 'verified-reference-build', timeout=600)
+        if args.operation == 'all':
+            command([sys.executable, '-I', Path(__file__), 'check'], args.output / 'offline-native', timeout=1200)
+        selected = [name for name,row in adapters().items() if args.profile != 'harness-first' or row['kind'] == 'portable']
+        binaries = None
+        if any(adapters()[name]['kind'] == 'vendor' for name in selected):
+            command([ROOT/'tools/oracle/build.sh','patched'],args.output/'verified-patched-build',timeout=600)
+            binaries = build_vendor_binaries(args.output/'binaries')
+        for name in selected:
+            case = args.output / name
+            case.mkdir()
+            runs = []
+            # Two independent JVM runs establish repeatability of each exact profile.
+            for implementation in ('jvm', 'jvm', 'native'):
+                work = case / str(len(runs)); work.mkdir()
+                runs.append(capture(name, implementation, work.resolve(),binaries))
+            compare_golden(name, runs[0], case / 'golden-mismatch')
+            e.compare(runs[0], runs[1], contract(name), case / 'repeatability-mismatch')
+            e.compare(runs[0], runs[2], contract(name), case / 'native-mismatch')
+        print('PASS profile=' + args.profile + '; paired adapters: ' + ', '.join(selected))
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (e.Invalid, OSError, ValueError, subprocess.SubprocessError) as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(1)

@@ -1,0 +1,629 @@
+PROBE writer-scalars
+scalars bytes=1434
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>EmptyString</key>
+\t<string></string>
+\t<key>EmptyDict</key>
+\t<dict>
+\t</dict>
+\t<key>EmptyArray</key>
+\t<array>
+\t</array>
+\t<key>Nested</key>
+\t<dict>
+\t\t<key>InnerEmptyArray</key>
+\t\t<array>
+\t\t</array>
+\t\t<key>InnerEmptyDict</key>
+\t\t<dict>
+\t\t</dict>
+\t</dict>
+\t<key>Escapes</key>
+\t<string><![CDATA[a&b<c>d"e'f
+g\thi]]></string>
+\t<key>NonAscii</key>
+\t<string>café — üñïçødé 😀</string>
+\t<key><![CDATA[Key<&]]></key>
+\t<string>special key</string>
+\t<key>NegInt</key>
+\t<integer>-42</integer>
+\t<key>BigInt</key>
+\t<integer>3000000000</integer>
+\t<key>LongMax</key>
+\t<integer>9223372036854775807</integer>
+\t<key>LongMin</key>
+\t<integer>-9223372036854775808</integer>
+\t<key>Real</key>
+\t<real>1.5</real>
+\t<key>RealWhole</key>
+\t<real>2.0</real>
+\t<key>RealNegZero</key>
+\t<real>-0.0</real>
+\t<key>RealSmall</key>
+\t<real>1.0E-6</real>
+\t<key>RealBig</key>
+\t<real>1.0E20</real>
+\t<key>True</key>
+\t<true/>
+\t<key>False</key>
+\t<false/>
+\t<key>Date</key>
+\t<date>2024-01-02T03:04:05Z</date>
+\t<key>Data</key>
+\t<data>
+\t\tAAEC/f7/
+\t</data>
+\t<key>LongData</key>
+\t<data>
+\t\tAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk8=
+\t</data>
+\t<key>Uid</key>
+\t<dict>
+\t\t<key>CF$UID</key>
+\t\t<integer>258</integer>
+\t</dict>
+</dict>
+</plist>
+[end]
+PROBE writer-real-special
+real NaN => OK java.lang.String(<real>nan</real>)
+real Infinity => OK java.lang.String(<real>+infinity</real>)
+real -Infinity => OK java.lang.String(<real>-infinity</real>)
+real 3.141592653589793 => OK java.lang.String(<real>3.141592653589793</real>)
+real 1.0E-7 => OK java.lang.String(<real>1.0E-7</real>)
+real 1.2345678912345679E8 => OK java.lang.String(<real>1.2345678912345679E8</real>)
+PROBE writer-root-string
+root-string bytes=195
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<string>hello</string>
+</plist>
+[end]
+PROBE writer-set
+nsset-write => OK java.lang.String(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Set</key>
+	<array>
+		<string>b</string>
+		<string>a</string>
+	</array>
+</dict>
+</plist>)
+PROBE null-writes
+fromJavaObject(null) = java-null
+put-fromNull => OK java.lang.String(stored class=java-null)
+write-fromNull => OK java.lang.String(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+</dict>
+</plist>)
+v0-reuse dict keys = [TestingEnvironmentVariables]
+  TestingEnvironmentVariables -> NSDictionary(com.dd.plist.NSDictionary@2b5)
+v0-reuse-saveAsXML => OK java.lang.String(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>TestingEnvironmentVariables</key>
+	<dict>
+		<key>A</key>
+		<string>1</string>
+	</dict>
+</dict>
+</plist>)
+v0-reuse-read-testBundlePath => THROW java.lang.IllegalArgumentException: plist does not define property TestBundlePath
+after baseline=null keys = [TestingEnvironmentVariables, BaselinePath]
+BaselinePath stored = NSString(somewhere)
+optional-null-then-read => OK java.lang.String(somewhere)
+v0-after-baseline-null-saveAsXML => OK java.lang.String(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>TestingEnvironmentVariables</key>
+	<dict>
+		<key>A</key>
+		<string>1</string>
+	</dict>
+	<key>BaselinePath</key>
+	<string>somewhere</string>
+</dict>
+</plist>)
+v2 after setTestPlan keys = [TestPlan]
+v2 after setTestPlan(null) keys = [TestPlan]
+PROBE duplicate-keys
+dup-parsed-rewritten bytes=262
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>A</key>
+\t<string>second</string>
+\t<key>B</key>
+\t<string>bee</string>
+</dict>
+</plist>
+[end]
+PROBE equality-order
+dict-eq-reordered = true hash-eq = true
+array-eq-reordered = false
+num-int-vs-long = true
+num-int-vs-real = false
+num-bool-vs-int = false
+replace-keeps-position bytes=359
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>X</key>
+\t<string>replaced</string>
+\t<key>Y</key>
+\t<integer>2</integer>
+\t<key>Z</key>
+\t<array>
+\t\t<string>s</string>
+\t</array>
+\t<key>W</key>
+\t<string>appended</string>
+</dict>
+</plist>
+[end]
+reordered-fixture-eq = true hash-eq = true
+PROBE nested-model-reads
+v2.metadata => OK com.malinskiy.marathon.apple.xctestrun.v2.Metadata(com.malinskiy.marathon.apple.xctestrun.v2.Metadata@HASH)
+v2.metadata.formatVersion => OK java.lang.Integer(2)
+v2.testPlan => OK com.malinskiy.marathon.apple.xctestrun.v2.TestPlan(com.malinskiy.marathon.apple.xctestrun.v2.TestPlan@HASH)
+v2.testPlan.name => OK java.lang.String(MyTestPlan)
+v2.testConfigurations => THROW java.lang.IllegalArgumentException: plist property TestConfigurations is of type class [Ljava.lang.Object;
+v2.codeCoverageBuildableInfos => THROW java.lang.IllegalArgumentException: plist property CodeCoverageBuildableInfos is of type class [Ljava.lang.Object;
+v0.targets => OK java.lang.String([TestTargetName])
+v0.targets-nondict-value => THROW java.lang.ClassCastException: class com.dd.plist.NSNumber cannot be cast to class com.dd.plist.NSDictionary (com.dd.plist.NSNumber and com.dd.plist.NSDictionary are in unnamed module of loader 'app')
+v1.targets-nondict-value => OK java.lang.String([])
+v2.testConfigurations-missing => THROW java.lang.IllegalArgumentException: plist does not define property TestConfigurations
+v2.codeCoverageBuildableInfos-missing => OK com.malinskiy.marathon.apple.xctestrun.v2.CodeCoverageBuildableInfo[]
+PROBE missing-keys
+BundleInfo over empty dict constructed OK
+identification.bundleIdentifier => THROW java.lang.IllegalArgumentException: plist does not define property CFBundleIdentifier
+naming.bundleName => THROW java.lang.IllegalArgumentException: plist does not define property CFBundleName
+osVersion.lsMinimumSystemVersion => THROW java.lang.IllegalArgumentException: plist does not define property LSMinimumSystemVersion
+undocumented.bundleSupportedPlatforms => OK java.lang.String[]
+undocumented.uiDeviceFamily => OK java.lang.Integer[]
+categorization.packageType => THROW java.lang.IllegalArgumentException: plist does not define property CFBundlePackageType
+identification.bundleIdentifier-wrongtype => THROW java.lang.ClassCastException: class java.lang.Integer cannot be cast to class java.lang.String (java.lang.Integer and java.lang.String are in module java.base of loader 'bootstrap')
+undocumented.uiDeviceFamily-values => OK java.lang.Integer[java.lang.Integer(1), java.lang.Integer(2)]
+undocumented.bundleSupportedPlatforms-values => OK java.lang.String[java.lang.String(iPhoneSimulator)]
+undocumented.uiDeviceFamily-wrongtype => THROW java.lang.ArrayStoreException: arraycopy: element type mismatch: can not cast one of the elements of java.lang.Object[] to the type of the destination array, java.lang.Integer
+v0.testingEnvironmentVariables-nonstring => OK java.lang.String({N=3, S=ok} N-class=java.lang.Integer)
+PROBE conversions
+NSNumber(2).toJavaObject = java.lang.Integer(2)
+NSNumber(3000000000L).toJavaObject = java.lang.Long(3000000000)
+NSNumber(1.5).toJavaObject = java.lang.Double(1.5)
+NSArray.toJavaObject = java.lang.Object[java.lang.String(x)]
+NSDate.toJavaObject = java.util.Date(2024-01-02T03:04:05Z)
+NSData.toJavaObject = byte[java.lang.Byte(1)]
+parsed FormatVersion object = NSNumber toJavaObject = java.lang.Integer(2)
+metadata.formatVersion-wide => OK java.lang.Integer(-1294967296)
+metadata.formatVersion-real => OK java.lang.Integer(2)
+fromJavaObject-int-type => OK java.lang.String(NSNumber type=0)
+parse-string-root => OK java.lang.String(NSString)
+parse-garbage => THROW com.dd.plist.PropertyListFormatException: The given data is not a property list of a supported format.
+parse-empty => OK null
+PROBE ascii-input
+openstep-parse => OK java.lang.String(java.util.HashMap({CFBundleName=TestApp, CFBundleIdentifier=com.example.test}))
+PROBE escape-rules
+case0 input=amp&only
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K0</key>
+\t<string><![CDATA[amp&only]]></string>
+</dict>
+</plist>
+case0-roundtrip => OK java.lang.String(java.util.HashMap({K0=amp&only}))
+case1 input=lt<only
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K1</key>
+\t<string><![CDATA[lt<only]]></string>
+</dict>
+</plist>
+case1-roundtrip => OK java.lang.String(java.util.HashMap({K1=lt<only}))
+case2 input=gt>only
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K2</key>
+\t<string><![CDATA[gt>only]]></string>
+</dict>
+</plist>
+case2-roundtrip => OK java.lang.String(java.util.HashMap({K2=gt>only}))
+case3 input=quot"only
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K3</key>
+\t<string>quot"only</string>
+</dict>
+</plist>
+case3-roundtrip => OK java.lang.String(java.util.HashMap({K3=quot"only}))
+case4 input=apos'only
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K4</key>
+\t<string>apos'only</string>
+</dict>
+</plist>
+case4-roundtrip => OK java.lang.String(java.util.HashMap({K4=apos'only}))
+case5 input=new\nline
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K5</key>
+\t<string>new
+line</string>
+</dict>
+</plist>
+case5-roundtrip => OK java.lang.String(java.util.HashMap({K5=new
+line}))
+case6 input=carriage\rreturn
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K6</key>
+\t<string>carriage\rreturn</string>
+</dict>
+</plist>
+case6-roundtrip => OK java.lang.String(java.util.HashMap({K6=carriage
+return}))
+case7 input=tab\there
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K7</key>
+\t<string>tab\there</string>
+</dict>
+</plist>
+case7-roundtrip => OK java.lang.String(java.util.HashMap({K7=tab	here}))
+case8 input=cdata]]>inside
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K8</key>
+\t<string><![CDATA[cdata]]]]><![CDATA[>inside]]></string>
+</dict>
+</plist>
+case8-roundtrip => OK java.lang.String(java.util.HashMap({K8=cdata]]>inside}))
+case9 input=ctrlchar
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K9</key>
+\t<string>ctrlchar</string>
+</dict>
+</plist>
+case9-roundtrip => OK java.lang.String(java.util.HashMap({K9=ctrlchar}))
+case10 input=delchar
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K10</key>
+\t<string>delchar</string>
+</dict>
+</plist>
+case10-roundtrip => OK java.lang.String(java.util.HashMap({K10=delchar}))
+case11 input=
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K11</key>
+\t<string></string>
+</dict>
+</plist>
+case11-roundtrip => OK java.lang.String(java.util.HashMap({K11=}))
+case12 input= plain 
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K12</key>
+\t<string> plain </string>
+</dict>
+</plist>
+case12-roundtrip => OK java.lang.String(java.util.HashMap({K12= plain }))
+case13 input=]]>leading
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K13</key>
+\t<string><![CDATA[]]]]><![CDATA[>leading]]></string>
+</dict>
+</plist>
+case13-roundtrip => OK java.lang.String(java.util.HashMap({K13=]]>leading}))
+case14 input=trailing]]
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K14</key>
+\t<string>trailing]]</string>
+</dict>
+</plist>
+case14-roundtrip => OK java.lang.String(java.util.HashMap({K14=trailing]]}))
+key-escapes => OK java.lang.String(<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key></key>
+	<string>empty key</string>
+	<key><![CDATA[key]]]]><![CDATA[>bad]]></key>
+	<string>v</string>
+</dict>
+</plist>)
+data200 line0 len=38 : <?xml version="1.0" encoding="UTF-8"?>
+data200 line1 len=102 : <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+data200 line2 len=21 : <plist version="1.0">
+data200 line3 len=6 : <dict>
+data200 line4 len=13 : <key>D</key>
+data200 line5 len=7 : <data>
+data200 line6 len=270 : AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsc=
+data200 line7 len=8 : </data>
+data200 line8 len=7 : </dict>
+data200 line9 len=8 : </plist>
+real formats:
+  0.0 => <real>0.0</real> java=0.0
+  -1.5 => <real>-1.5</real> java=-1.5
+  100.0 => <real>100.0</real> java=100.0
+  0.1 => <real>0.1</real> java=0.1
+  2.5E-5 => <real>2.5E-5</real> java=2.5E-5
+  9999999.0 => <real>9999999.0</real> java=9999999.0
+  1.0E7 => <real>1.0E7</real> java=1.0E7
+  0.001 => <real>0.001</real> java=0.001
+  1.0E-4 => <real>1.0E-4</real> java=1.0E-4
+  4.9E-324 => <real>4.9E-324</real> java=4.9E-324
+  1.7976931348623157E308 => <real>1.7976931348623157E308</real> java=1.7976931348623157E308
+  1234567.891 => <real>1234567.891</real> java=1234567.891
+PROBE put-null-direct
+after put(A,null) keys=[A] value=one
+after put(B,null) keys=[A]
+put-null-written bytes=223
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>A</key>
+\t<string>one</string>
+</dict>
+</plist>
+[end]
+required-delegate set-null keys=[TestBundlePath]
+PROBE int-conversions
+uiDeviceFamily-wide-real => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to Integer
+formatVersion-2.9 => OK java.lang.Integer(2)
+formatVersion-bool => THROW java.lang.ClassCastException: class java.lang.Boolean cannot be cast to class java.lang.Number (java.lang.Boolean and java.lang.Number are in module java.base of loader 'bootstrap')
+formatVersion-string => THROW java.lang.ClassCastException: class java.lang.String cannot be cast to class java.lang.Number (java.lang.String and java.lang.Number are in module java.base of loader 'bootstrap')
+bool-from-int1 => THROW java.lang.ClassCastException: class java.lang.Integer cannot be cast to class java.lang.Boolean (java.lang.Integer and java.lang.Boolean are in module java.base of loader 'bootstrap')
+bool-from-real1 => THROW java.lang.ClassCastException: class java.lang.Double cannot be cast to class java.lang.Boolean (java.lang.Double and java.lang.Boolean are in module java.base of loader 'bootstrap')
+string-from-real => THROW java.lang.ClassCastException: class java.lang.Double cannot be cast to class java.lang.String (java.lang.Double and java.lang.String are in module java.base of loader 'bootstrap')
+PROBE control-chars-arrays
+writer keeps chars: 09 0a 0d 007f 2028 0085 
+writer drops chars: 00 01 02 03 04 05 06 07 08 0b 0c 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f fffe ffff 
+cdata-with-control bytes=236
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>K</key>
+\t<string><![CDATA[a&bc]]></string>
+</dict>
+</plist>
+[end]
+intArray-elem-int => OK java.lang.Integer[java.lang.Integer(5)]
+stringArray-elem-int => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to String
+intArray-elem-long-small => OK java.lang.Integer[java.lang.Integer(5)]
+stringArray-elem-long-small => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to String
+intArray-elem-long-wide => OK java.lang.Integer[java.lang.Integer(-1294967296)]
+stringArray-elem-long-wide => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to String
+intArray-elem-real-whole => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to Integer
+stringArray-elem-real-whole => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to String
+intArray-elem-real-frac => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to Integer
+stringArray-elem-real-frac => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to String
+intArray-elem-bool => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to Integer
+stringArray-elem-bool => THROW java.lang.IllegalArgumentException: Cannot map NSNumber to String
+intArray-elem-string => THROW java.lang.ArrayStoreException: arraycopy: element type mismatch: can not cast one of the elements of java.lang.Object[] to the type of the destination array, java.lang.Integer
+stringArray-elem-string => OK java.lang.String[java.lang.String(5)]
+PROBE cdata-read
+cdata-written bytes=396
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>URL</key>
+\t<string><![CDATA[https://h/?a=1&b=2]]></string>
+\t<key><![CDATA[K<&]]]]><![CDATA[>]]></key>
+\t<string><![CDATA[x]]]]><![CDATA[>y & <z>]]></string>
+\t<key>Lines</key>
+\t<string>a\rb\r
+c
+d</string>
+</dict>
+</plist>
+[end]
+roundtrip keys = [URL, K<&]]>, Lines]
+roundtrip URL = https://h/?a=1&b=2
+roundtrip special = x]]>y & <z>
+roundtrip Lines = a\nb\nc\nd
+roundtrip eq = false
+hand keys = [A&B, Mixed]
+hand A&B = cdata]]>inside
+hand Mixed = pre<&post
+PROBE encodings
+enc utf-8 => OK java.lang.String(café)
+enc utf-8-bom => OK java.lang.String(café)
+enc utf-16-bom-le => OK java.lang.String(café)
+enc utf-16be-nobom => OK java.lang.String(café)
+enc utf-16le-nobom => OK java.lang.String(café)
+enc iso-8859-1 => OK java.lang.String(café)
+PROBE control-on-parse
+parse literal-u0001 => THROW org.xml.sax.SAXParseException: An invalid XML character (Unicode: 0x1) was found in the element content of the document.
+parse charref-u0001 => THROW org.xml.sax.SAXParseException: Character reference "&#x1" is an invalid XML character.
+PROBE equality-shared
+shared a-eq-b = false
+shared b-eq-c = false
+shared a-eq-a2 = true
+PROBE writer-key-control
+key-control-written bytes=421
+<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>k<01>ey</key>\n\t<string>plain control key</string>\n\t<key><![CDATA[k<01>&<ey]]></key>\n\t<string>cdata control key</string>\n\t<key>bad<FFFE>key</key>\n\t<string>fffe key</string>\n\t<key>V</key>\n\t<string>vw</string>\n</dict>\n</plist>
+[end]
+PROBE writer-date-truncate
+date-ms 1700000000123 => <date>2023-11-14T22:13:20Z</date>
+date-ms 1704164645123 => <date>2024-01-02T03:04:05Z</date>
+date-ms 1704164645000 => <date>2024-01-02T03:04:05Z</date>
+PROBE number-text
+number <integer> 42 </integer> => OK java.lang.String(real(42.0))
+number <integer>\n42\n</integer> => OK java.lang.String(real(42.0))
+number <integer>\t-7\t</integer> => OK java.lang.String(real(-7.0))
+number <real> 2.5 </real> => OK java.lang.String(real(2.5))
+number <real>\n2.5\n</real> => OK java.lang.String(real(2.5))
+number <integer>42</integer> => OK java.lang.String(integer(42))
+number <real>2.5</real> => OK java.lang.String(real(2.5))
+number <real>1</real> => OK java.lang.String(integer(1))
+number <integer>2.0</integer> => OK java.lang.String(real(2.0))
+number <integer>18446744073709551615</integer> => OK java.lang.String(real(1.8446744073709552E19))
+number <integer>0x10</integer> => OK java.lang.String(integer(16))
+number <integer> 0x10 </integer> => THROW com.dd.plist.PropertyListFormatException: The integer node at /plist/dict/*[2] could not be parsed.
+number <integer> </integer> => THROW com.dd.plist.PropertyListFormatException: The integer node at /plist/dict/*[2] could not be parsed.
+PROBE boolean-content
+bool <true/> => OK java.lang.String(boolean(true))
+bool <false/> => OK java.lang.String(boolean(false))
+bool <true>text</true> => OK java.lang.String(boolean(true))
+bool <true>&amp;</true> => OK java.lang.String(boolean(true))
+bool <true>&#x41;</true> => OK java.lang.String(boolean(true))
+bool <true>&#x1;</true> => THROW org.xml.sax.SAXParseException: Character reference "&#x1" is an invalid XML character.
+bool <true>&bogus;</true> => THROW org.xml.sax.SAXParseException: The entity "bogus" was referenced, but not declared.
+bool <false><string>ignored</string></false> => OK java.lang.String(boolean(false))
+bool <true><a><b/></a>x</true> => OK java.lang.String(boolean(true))
+bool <true><![CDATA[x]]></true> => OK java.lang.String(boolean(true))
+PROBE encoding-matrix
+enc none decl=null => OK java.lang.String(café)
+enc none decl=UTF-8 => OK java.lang.String(café)
+enc none decl=utf-8 => OK java.lang.String(café)
+enc none decl=ISO-8859-1 => OK java.lang.String(cafÃ©)
+enc none decl=iso-8859-1 => OK java.lang.String(cafÃ©)
+enc none decl=ISO8859-1 => OK java.lang.String(cafÃ©)
+enc none decl=US-ASCII => THROW org.xml.sax.SAXParseException: Byte "195" is not a member of the (7-bit) ASCII character set.
+enc none decl=us-ascii => THROW org.xml.sax.SAXParseException: Byte "195" is not a member of the (7-bit) ASCII character set.
+enc none decl=ASCII => THROW org.xml.sax.SAXParseException: Byte "195" is not a member of the (7-bit) ASCII character set.
+enc none decl=UTF-16 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc none decl=utf-16 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc none decl=UTF-16LE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc none decl=UTF-16BE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc none decl=utf-16le => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc none decl=utf-16be => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf8 decl=null => OK java.lang.String(café)
+enc bom-utf8 decl=UTF-8 => OK java.lang.String(café)
+enc bom-utf8 decl=utf-8 => OK java.lang.String(café)
+enc bom-utf8 decl=ISO-8859-1 => OK java.lang.String(cafÃ©)
+enc bom-utf8 decl=iso-8859-1 => OK java.lang.String(cafÃ©)
+enc bom-utf8 decl=ISO8859-1 => OK java.lang.String(cafÃ©)
+enc bom-utf8 decl=US-ASCII => THROW org.xml.sax.SAXParseException: Byte "195" is not a member of the (7-bit) ASCII character set.
+enc bom-utf8 decl=us-ascii => THROW org.xml.sax.SAXParseException: Byte "195" is not a member of the (7-bit) ASCII character set.
+enc bom-utf8 decl=ASCII => THROW org.xml.sax.SAXParseException: Byte "195" is not a member of the (7-bit) ASCII character set.
+enc bom-utf8 decl=UTF-16 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf8 decl=utf-16 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf8 decl=UTF-16LE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf8 decl=UTF-16BE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf8 decl=utf-16le => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf8 decl=utf-16be => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16le decl=null => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc bom-utf16le decl=UTF-8 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc bom-utf16le decl=utf-8 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc bom-utf16le decl=ISO-8859-1 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc bom-utf16le decl=iso-8859-1 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc bom-utf16le decl=ISO8859-1 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc bom-utf16le decl=US-ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc bom-utf16le decl=us-ascii => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc bom-utf16le decl=ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc bom-utf16le decl=UTF-16 => OK java.lang.String(café)
+enc bom-utf16le decl=utf-16 => OK java.lang.String(café)
+enc bom-utf16le decl=UTF-16LE => OK java.lang.String(café)
+enc bom-utf16le decl=UTF-16BE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16le decl=utf-16le => OK java.lang.String(café)
+enc bom-utf16le decl=utf-16be => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=null => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=UTF-8 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=utf-8 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=ISO-8859-1 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=iso-8859-1 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=ISO8859-1 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=US-ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc bom-utf16be decl=us-ascii => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc bom-utf16be decl=ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc bom-utf16be decl=UTF-16 => OK java.lang.String(café)
+enc bom-utf16be decl=utf-16 => OK java.lang.String(café)
+enc bom-utf16be decl=UTF-16LE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=UTF-16BE => OK java.lang.String(café)
+enc bom-utf16be decl=utf-16le => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc bom-utf16be decl=utf-16be => OK java.lang.String(café)
+enc pattern-utf16le decl=null => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc pattern-utf16le decl=UTF-8 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc pattern-utf16le decl=utf-8 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc pattern-utf16le decl=ISO-8859-1 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc pattern-utf16le decl=iso-8859-1 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc pattern-utf16le decl=ISO8859-1 => THROW org.xml.sax.SAXParseException: The markup in the document preceding the root element must be well-formed.
+enc pattern-utf16le decl=US-ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc pattern-utf16le decl=us-ascii => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc pattern-utf16le decl=ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc pattern-utf16le decl=UTF-16 => OK java.lang.String(café)
+enc pattern-utf16le decl=utf-16 => OK java.lang.String(café)
+enc pattern-utf16le decl=UTF-16LE => OK java.lang.String(café)
+enc pattern-utf16le decl=UTF-16BE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16le decl=utf-16le => OK java.lang.String(café)
+enc pattern-utf16le decl=utf-16be => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=null => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=UTF-8 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=utf-8 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=ISO-8859-1 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=iso-8859-1 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=ISO8859-1 => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=US-ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc pattern-utf16be decl=us-ascii => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc pattern-utf16be decl=ASCII => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+enc pattern-utf16be decl=UTF-16 => OK java.lang.String(café)
+enc pattern-utf16be decl=utf-16 => OK java.lang.String(café)
+enc pattern-utf16be decl=UTF-16LE => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=UTF-16BE => OK java.lang.String(café)
+enc pattern-utf16be decl=utf-16le => THROW org.xml.sax.SAXParseException: Content is not allowed in prolog.
+enc pattern-utf16be decl=utf-16be => OK java.lang.String(café)
+enc none decl=US-ASCII ascii-only => OK java.lang.String(cafe)
+enc none decl=US-ASCII latin1-byte => THROW org.xml.sax.SAXParseException: Byte "233" is not a member of the (7-bit) ASCII character set.
+PROBE date-text
+date 2024-01-02T03:04:05Z => OK java.lang.String(date(2024-01-02T03:04:05Z))
+date 2024-01-02T03:04:05.123Z => THROW com.dd.plist.PropertyListFormatException: The date node at /plist/dict/*[2] could not be parsed.
+date 2024-01-02T03:04:05.5Z => THROW com.dd.plist.PropertyListFormatException: The date node at /plist/dict/*[2] could not be parsed.
+date 2024-01-02T03:04:05+01:00 => THROW com.dd.plist.PropertyListFormatException: The date node at /plist/dict/*[2] could not be parsed.
+date 2024-01-02T03:04:05 => THROW com.dd.plist.PropertyListFormatException: The date node at /plist/dict/*[2] could not be parsed.
+PROBE lenient-java
+date 2024-1-2T3:4:5Z => OK java.lang.String(date(2024-01-02T03:04:05Z))
+date 2024-13-40T25:61:61Z => OK java.lang.String(date(2025-02-10T02:02:01Z))
+date 2024-01-02T03:04:05Zjunk => OK java.lang.String(date(2024-01-02T03:04:05Z))
+enc decl=LATIN1 => OK java.lang.String(café)

@@ -1,0 +1,35 @@
+{"schema":"filters-v1","source":"e47352f2","java":"21.0.10","allure":"2.29.0","normalization":"temporary root=<tmp>; DecodedNull suffix=<identity>; no stack frames"}
+{"kind":"string","rendered":"a)b(value=x)","extracted":"x","selected":1}
+{"kind":"null","rendered":"null","extracted":"null","selected":1}
+{"kind":"byte","rendered":"DecodedByte(value=-1)","extracted":"-1","selected":1}
+{"kind":"short","rendered":"DecodedShort(value=-2)","extracted":"-2","selected":1}
+{"kind":"int","rendered":"DecodedInt(value=-3)","extracted":"-3","selected":1}
+{"kind":"long","rendered":"DecodedLong(value=-4)","extracted":"-4","selected":1}
+{"kind":"float","rendered":"DecodedFloat(value=-0.0)","extracted":"-0.0","selected":1}
+{"kind":"double","rendered":"DecodedDouble(value=NaN)","extracted":"NaN","selected":1}
+{"kind":"char","rendered":"DecodedChar(value=))","extracted":"","selected":1}
+{"kind":"boolean","rendered":"DecodedBoolean(value=true)","extracted":"true","selected":1}
+{"kind":"decodedString","rendered":"DecodedString(value=a)b)","extracted":"a","selected":1}
+{"kind":"type","rendered":"DecodedType(value=Ltype;)","extracted":"Ltype;","selected":1}
+{"kind":"enum","rendered":"DecodedEnum(value=ENUM)","extracted":"ENUM","selected":1}
+{"kind":"decodedNull","rendered":"com.linkedin.dex.parser.DecodedValue$DecodedNull@<identity>","extracted":"com.linkedin.dex.parser.DecodedValue$DecodedNull@<identity>","selected":1}
+{"kind":"nested","rendered":"DecodedArrayValue(values=[DecodedString(value=a)b), com.linkedin.dex.parser.DecodedValue$DecodedNull@<identity>])","extracted":"a","selected":1}
+{"kind":"empty","rendered":"DecodedArrayValue(values=[])","extracted":"DecodedArrayValue(values=[]","selected":1}
+{"kind":"scalar","rendered":"a)b","selected":1}
+{"kind":"list","rendered":"[a, b]","selected":1}
+{"kind":"map","rendered":"{x=1, y=null}","selected":1}
+{"producer":"byte","extracted":"-1","selected":1}
+{"producer":"short","extracted":"-2","selected":1}
+{"producer":"int","extracted":"-3","selected":1}
+{"producer":"long","extracted":"-4","selected":1}
+{"producer":"float","extracted":"-0.0","selected":1}
+{"producer":"double","extracted":"NaN","selected":1}
+{"producer":"char","extracted":"","selected":1}
+{"producer":"boolean","extracted":"true","selected":1}
+{"producer":"decodedString","extracted":"a","selected":1}
+{"producer":"type","extracted":"Ltype;","selected":1}
+{"producer":"enum","extracted":"ENUM","selected":1}
+{"producer":"decodedNull","extracted":"com.linkedin.dex.parser.DecodedValue$DecodedNull@<identity>","selected":1}
+{"producer":"nested","extracted":"a","selected":1}
+{"producer":"empty","extracted":"DecodedArrayValue(values=[]","selected":1}
+{"eagerRendering":["match","later"],"selected":1}

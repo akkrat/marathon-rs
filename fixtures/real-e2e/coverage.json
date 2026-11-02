@@ -1,0 +1,133 @@
+{
+  "format": "marathon-real-e2e/coverage@1",
+  "pairs": [
+    {
+      "profile": "local-27",
+      "scenario": "ios-unit-nm",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "ssh-26.6",
+      "scenario": "ios-unit-nm",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "local-27",
+      "scenario": "ios-ui-video",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "ssh-26.6",
+      "scenario": "ios-ui-video",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "local-27",
+      "scenario": "ios-ui-screenshot",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "ssh-26.6",
+      "scenario": "ios-ui-screenshot",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "local-27",
+      "scenario": "macos-unit-nm",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "ssh-26.6",
+      "scenario": "macos-unit-nm",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "local-27",
+      "scenario": "macos-ui-xctest",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "ssh-26.6",
+      "scenario": "macos-ui-xctest",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "local-27",
+      "scenario": "macos-cancel",
+      "required_repetitions": 1,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "ssh-26.6",
+      "scenario": "macos-cancel",
+      "required_repetitions": 1,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "local-27",
+      "scenario": "macos-permissions",
+      "required_repetitions": 1,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "ssh-26.6",
+      "scenario": "macos-permissions",
+      "required_repetitions": 1,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "linux-kvm",
+      "scenario": "android-local-video-sync",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    },
+    {
+      "profile": "linux-kvm",
+      "scenario": "android-remote-screenshots",
+      "required_repetitions": 2,
+      "status": "blocked",
+      "reason": "Offline preparation only; orchestrator real-host captures and recorder integration pending",
+      "attempts": []
+    }
+  ]
+}

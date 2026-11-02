@@ -1,0 +1,2 @@
+{"case":"first_close","value":{"first":"failed:[{\"class\":\"ConnectionException\",\"message\":\"Timeout expired: 30000 MILLISECONDS\",\"reason\":\"UNKNOWN\"},{\"class\":\"TimeoutException\",\"message\":\"Timeout expired: 30000 MILLISECONDS\"}]","second":30018}}
+{"case":"completion","value":"completed"}

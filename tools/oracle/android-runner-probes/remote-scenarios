@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""JVM witnesses for successful discovery and P2 failed-attempt cleanup."""
+import json, os, pathlib, shutil, subprocess, tempfile, time
+root=pathlib.Path(__file__).resolve().parents[3]
+source=root/'fixtures/fake-adb/android-runner-cli/script'
+expected=root/'fixtures/oracle/android-remote-probes.jsonl'
+all_rows=[]
+for mode in ['success','fallback','timeout','cancel']:
+    with tempfile.TemporaryDirectory(prefix='mrs66-remote-') as tmp:
+        temp=pathlib.Path(tmp);apk=temp/'test.apk';shutil.copyfile(root/'fixtures/vendor-android/apk/app-debug-androidTest.apk',apk)
+        script=json.loads((source/'devices.yaml').read_text())
+        for entry in script['shell']:
+            if 'stdout_file' in entry: entry['stdout_file']=str((source/entry['stdout_file']).resolve())
+            if entry.get('regex','').startswith('^am instrument'):
+                if mode in ['timeout','cancel']: entry.pop('stdout_file',None);entry['hang']=True
+                if mode=='fallback':
+                    entry['times']=1;entry.pop('stdout_file',None);entry['stdout']='INSTRUMENTATION_STATUS: stream=Could not find extra class com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer\nINSTRUMENTATION_STATUS: stack=trace\nINSTRUMENTATION_STATUS_CODE: -1\nINSTRUMENTATION_CODE: 0\n'
+        file=temp/'script.json';file.write_text(json.dumps(script));port=temp/'port';transcript=temp/'transcript';log=open(temp/'server.log','w')
+        server=subprocess.Popen([str(root/'target/debug/fake-adb'),'--script',str(file),'--port','0','--port-file',str(port),'--transcript',str(transcript),'--strict'],stdout=log,stderr=log)
+        try:
+            for _ in range(500):
+                if port.exists():break
+                if server.poll() is not None:raise RuntimeError('fake failed')
+                time.sleep(.01)
+            env=dict(os.environ,PROBE_SOURCE='RemoteProbe.kt',PROBE_MODE=mode,PROBE_PORT=port.read_text().strip(),PROBE_APK=str(apk))
+            result=subprocess.run(['python3',str(pathlib.Path(__file__).with_name('run'))],env=env,capture_output=True,text=True,timeout=50)
+            if result.returncode: raise RuntimeError(result.stderr[:2000])
+            rows=[json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
+            all_rows.extend(row for row in rows if row['case'].startswith('remote:'))
+        finally:
+            server.terminate();rc=server.wait(timeout=10);log.close()
+        if rc:raise RuntimeError((temp/'server.log').read_text()[:1500])
+        commands=[r['service'] for r in map(json.loads,transcript.read_text().splitlines()) if r.get('type')=='request' and 'am instrument ' in r.get('service','')]
+        all_rows.append({'case':'remote:'+mode+':commands','value':commands})
+        print(mode+': recorded')
+expected.write_text(''.join(json.dumps(row)+'\n' for row in all_rows))

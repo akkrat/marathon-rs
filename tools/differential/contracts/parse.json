@@ -1,0 +1,21 @@
+{
+  "format": "marathon-differential/contract@1",
+  "scenario": "parse",
+  "roles": {},
+  "paths": [
+    "reports",
+    "reports/parse_result.yml",
+    "observation.json"
+  ],
+  "normalization": {},
+  "outcome": {
+    "cli": 0,
+    "fake": null,
+    "harness": 0,
+    "watchdog": false,
+    "joined": true,
+    "unused": [],
+    "unmatched": []
+  },
+  "scope": "injected core parse reports and ordered outcome/events"
+}

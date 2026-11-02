@@ -1,0 +1,43 @@
+{"description":"WP 2.1 Kotlin creators and invalid Regex class chain"}
+{"input":"{}","target":"RequiredString","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"input":"{}","target":"RequiredList","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"input":"{}","target":"RequiredMap","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"input":"{}","target":"RequiredInt","result":{"ok":{"k":0}}}
+{"input":"{}","target":"Regex","result":{"ok":{"k":null}}}
+{"input":"k: null","target":"RequiredString","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"input":"k: null","target":"RequiredList","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"input":"k: null","target":"RequiredMap","result":{"error":["com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"]}}
+{"input":"k: null","target":"RequiredInt","result":{"ok":{"k":0}}}
+{"input":"k: null","target":"Regex","result":{"ok":{"k":null}}}
+{"input":"k: []","target":"RequiredString","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: []","target":"RequiredList","result":{"ok":{"k":[]}}}
+{"input":"k: []","target":"RequiredMap","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: []","target":"RequiredInt","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: []","target":"Regex","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.IllegalStateException"]}}
+{"input":"k: {}","target":"RequiredString","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: {}","target":"RequiredList","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: {}","target":"RequiredMap","result":{"ok":{"k":{}}}}
+{"input":"k: {}","target":"RequiredInt","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: {}","target":"Regex","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.lang.NullPointerException"]}}
+{"input":"k: '[abc'","target":"RequiredString","result":{"ok":{"k":"[abc"}}}
+{"input":"k: '[abc'","target":"RequiredList","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: '[abc'","target":"RequiredMap","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: '[abc'","target":"RequiredInt","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidFormatException"]}}
+{"input":"k: '[abc'","target":"Regex","result":{"error":["com.fasterxml.jackson.databind.JsonMappingException","java.util.regex.PatternSyntaxException"]}}
+{"input":"k: '[a-z]+'","target":"RequiredString","result":{"ok":{"k":"[a-z]+"}}}
+{"input":"k: '[a-z]+'","target":"RequiredList","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: '[a-z]+'","target":"RequiredMap","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: '[a-z]+'","target":"RequiredInt","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidFormatException"]}}
+{"input":"k: '[a-z]+'","target":"Regex","result":{"ok":{"k":"[a-z]+"}}}
+{"input":"k: 017","target":"TreeString","result":{"ok":{"k":"15"}}}
+{"input":"k: 017","target":"TreeDouble","result":{"ok":{"k":15.0}}}
+{"input":"k: 017","target":"TreeMap","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: null\nk: x","target":"TreeString","result":{"ok":{"k":"x"}}}
+{"input":"k: null\nk: x","target":"TreeDouble","result":{"error":["com.fasterxml.jackson.databind.exc.InvalidFormatException"]}}
+{"input":"k: null\nk: x","target":"TreeMap","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: 0.99999999999999999","target":"TreeString","result":{"ok":{"k":"1.0"}}}
+{"input":"k: 0.99999999999999999","target":"TreeDouble","result":{"ok":{"k":1.0}}}
+{"input":"k: 0.99999999999999999","target":"TreeMap","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: {a: 017, a: yes}","target":"TreeString","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: {a: 017, a: yes}","target":"TreeDouble","result":{"error":["com.fasterxml.jackson.databind.exc.MismatchedInputException"]}}
+{"input":"k: {a: 017, a: yes}","target":"TreeMap","result":{"ok":{"k":{"a":"true"}}}}

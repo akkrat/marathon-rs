@@ -1,0 +1,43 @@
+name: AppleWorld
+options:
+  deploymentTarget:
+    macOS: '13.0'
+settings:
+  base:
+    CODE_SIGNING_ALLOWED: NO
+    GENERATE_INFOPLIST_FILE: YES
+    ENABLE_HARDENED_RUNTIME: NO
+    DEBUG_INFORMATION_FORMAT: dwarf
+    ARCHS: arm64
+    ONLY_ACTIVE_ARCH: YES
+targets:
+  AppleWorld:
+    type: application
+    platform: macOS
+    sources: [App]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: org.marathon.AppleWorld
+      INFOPLIST_KEY_NSPrincipalClass: NSApplication
+  AppleWorldTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: AppleWorld
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: org.marathon.AppleWorldTests
+  AppleWorldUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests]
+    dependencies:
+      - target: AppleWorld
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: org.marathon.AppleWorldUITests
+schemes:
+  AppleWorld:
+    build:
+      targets:
+        AppleWorld: all
+    test:
+      targets: [AppleWorldTests, AppleWorldUITests]

@@ -1,0 +1,18 @@
+{"id":"summary","pools":["pool"],"tests":["x","x","a","zero","negative","overflow"],"passed":["com.example#x","com.example#zero","com.example#negative","com.example#overflow"],"failed":["com.example#x"],"ignored":["com.example#a"],"duration":197,"rawDuration":296,"rawIncomplete":["com.example#x"],"flaky":0}
+{"id":"connections","pools":["b","a"],"models":["first","first"]}
+{"id":"same-object","tests":2,"keys":1,"retryIndexes":[[]]}
+{"id":"equal-distinct","tests":2,"keys":1,"retryIndexes":[[0]]}
+{"id":"sort-repeat-close","calls":["early,equal,late","early,equal,late"]}
+{"id":"reporter-failure","error":"java.lang.IllegalStateException","calls":["bad"]}
+{"id":"internal-order","calls":["a","b","close-a"],"error":"java.lang.IllegalStateException"}
+{"id":"fanout","calls":["a","a","bad"],"error":"java.lang.IllegalArgumentException"}
+{"id":"attachments","count":4}
+{"id":"logs","testBytes":[111,110,101,10,10],"batchBytes":[116,97,105,108,10],"registered":0}
+{"id":"log-reset-failure","error":"java.nio.file.FileSystemException","message":"\u003ctmp\u003e/not-dir/logs/pool: Not a directory","secondEmptySuccess":true}
+{"id":"log-utf16","saveBytes":[97,63,98,10],"appendBytes":[97,63,98,10]}
+{"id":"empty","missing":true,"empty":true,"nonempty":false,"directoryLength":64,"directoryEmpty":false}
+{"id":"sum-overflow","duration":-4,"rawDuration":-4}
+{"id":"track-snapshot","first":["register"],"second":["register","register","added"]}
+{"id":"tail-true","testBytes":[116,97,105,108,10],"batchExists":false}
+{"id":"tail-false","batchExists":true}
+{"id":"transfer","fileReturn":123,"fileError":"java.lang.IllegalArgumentException","folderReturn":456,"folderError":"java.lang.IllegalArgumentException","messages":["Transferred small to/from serial. 0.00 KB/s (999 bytes in 0.0260)","Transferred small to/from serial. 0.00 KB/s (999 bytes in 0.0250)","Transferred folder with 2 dirs and 1 files to/from serial. 33.33 KB/s (1500 bytes in 0.0300)"]}

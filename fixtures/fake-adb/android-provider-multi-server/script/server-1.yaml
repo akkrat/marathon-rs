@@ -1,0 +1,48 @@
+{
+  "server": {
+    "strict": true
+  },
+  "devices": [
+    {
+      "serial": "emulator-5554",
+      "features": [],
+      "getprop": {
+        "sys.boot_completed": "1",
+        "ro.product.cpu.abi": "x86",
+        "ro.build.version.sdk": "27",
+        "ro.build.version.codename": "REL",
+        "ro.product.model": "Android SDK built for x86",
+        "ro.product.manufacturer": "Google",
+        "ro.boot.serialno": "EMULATOR30X6X5X0"
+      }
+    }
+  ],
+  "shell": [
+    {
+      "exact": "dumpsys input",
+      "stdout": "SurfaceOrientation: 0\n"
+    },
+    {
+      "exact": "echo $EXTERNAL_STORAGE",
+      "stdout": "/sdcard\n"
+    },
+    {
+      "exact": "ls /system/bin/screenrecord",
+      "stdout": "/system/bin/screenrecord"
+    },
+    {
+      "exact": "ls /system/bin/md5",
+      "stdout": "/system/bin/md5"
+    },
+    {
+      "exact": "logcat -v long",
+      "hang": true
+    }
+  ],
+  "events": [
+    {
+      "at_ms": 5000,
+      "disconnect": "emulator-5554"
+    }
+  ]
+}

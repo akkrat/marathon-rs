@@ -1,0 +1,59 @@
+{
+  "format": "marathon-replay/scenario@1",
+  "name": "random sorting with explicit draw and clock reads",
+  "source": "oracle replay coverage",
+  "tests": [
+    {
+      "pkg": "test",
+      "clazz": "SimpleTest",
+      "method": "test",
+      "metaProperties": [
+        {
+          "name": "someAnnotation",
+          "values": {
+            "value": "contact.foo@deadbeef",
+            "duration": "contact.foo@deadbeef"
+          }
+        }
+      ]
+    }
+  ],
+  "devices": [
+    {
+      "serial": "serial-1",
+      "results": {
+        "test.SimpleTest#test": [
+          "PASSED",
+          "PASSED"
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "at": 1000,
+      "event": "connect",
+      "device": "serial-1"
+    },
+    {
+      "at": 20000,
+      "event": "end"
+    }
+  ],
+  "expect": {
+    "completed": true,
+    "value": true
+  },
+  "configuration": {
+    "sortingStrategy": {
+      "type": "random-order"
+    },
+    "flakinessStrategy": {
+      "type": "probability",
+      "minSuccessRate": 0.99,
+      "maxCount": 1,
+      "timeLimit": "2020-01-01T00:00:00Z"
+    },
+    "name": "contact.foo@deadbeef"
+  }
+}

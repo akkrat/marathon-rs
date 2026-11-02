@@ -1,0 +1,12 @@
+name: "map key order"
+outputDir: "./marathon"
+vendorConfiguration:
+  type: "Android"
+  androidSdk: "/opt/android-sdk"
+  # Canonical keys sort by UTF-16 code unit: U+1F600 (surrogates D83D DE00) sorts before U+FF5A, though its code point is larger.
+  instrumentationArgs:
+    "ｚ": "fullwidth z, U+FF5A"
+    "😀": "U+1F600"
+    "Z": "U+005A"
+    "a": "U+0061"
+    "é": "U+00E9"

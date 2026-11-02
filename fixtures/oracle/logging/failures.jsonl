@@ -1,0 +1,18 @@
+{"sequence":"\u001b[9999999999999m","input":"before\u001b[9999999999999mafter","error":"java.lang.NumberFormatException","output":"before"}
+{"sequence":"\u001b[9999999999999m","input":"next event\n","error":"java.lang.NumberFormatException","output":"before"}
+{"sequence":"\u001b[9999999999999m","input":"\u001b[31mcoloured\u001b[0m\n","error":"java.lang.NumberFormatException","output":"before"}
+{"sequence":"\u001b[2147483648G","input":"before\u001b[2147483648Gafter","error":"java.lang.NumberFormatException","output":"before"}
+{"sequence":"\u001b[2147483648G","input":"next event\n","error":"java.lang.NumberFormatException","output":"before"}
+{"sequence":"\u001b[2147483648G","input":"\u001b[31mcoloured\u001b[0m\n","error":"java.lang.NumberFormatException","output":"before"}
+{"sequence":"\u001b[?J","input":"before\u001b[?Jafter","error":"java.lang.ClassCastException","output":"before"}
+{"sequence":"\u001b[?J","input":"next event\n","error":null,"output":"beforenext event\n"}
+{"sequence":"\u001b[?J","input":"\u001b[31mcoloured\u001b[0m\n","error":null,"output":"beforenext event\ncoloured\n"}
+{"sequence":"\u001b[=J","input":"before\u001b[=Jafter","error":"java.lang.ClassCastException","output":"before"}
+{"sequence":"\u001b[=J","input":"next event\n","error":null,"output":"beforenext event\n"}
+{"sequence":"\u001b[=J","input":"\u001b[31mcoloured\u001b[0m\n","error":null,"output":"beforenext event\ncoloured\n"}
+{"sequence":"\u001b[?K","input":"before\u001b[?Kafter","error":"java.lang.ClassCastException","output":"before"}
+{"sequence":"\u001b[?K","input":"next event\n","error":null,"output":"beforenext event\n"}
+{"sequence":"\u001b[?K","input":"\u001b[31mcoloured\u001b[0m\n","error":null,"output":"beforenext event\ncoloured\n"}
+{"sequence":"\u001b[?m","input":"before\u001b[?mafter","error":null,"output":"before\u001b[?mafter"}
+{"sequence":"\u001b[?m","input":"next event\n","error":null,"output":"before\u001b[?mafternext event\n"}
+{"sequence":"\u001b[?m","input":"\u001b[31mcoloured\u001b[0m\n","error":null,"output":"before\u001b[?mafternext event\ncoloured\n"}

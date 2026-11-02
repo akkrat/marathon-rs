@@ -1,0 +1,78 @@
+//! Port of cli/src/main/kotlin/com/malinskiy/marathon/cli/ApplicationView.kt (`main`).
+//!
+//! The `marathon` binary: the process's arguments, working directory, environment, clock and standard streams
+//! around `marathon_cli::run_cli` (PLAN §3.1).
+
+use jcompat::{jtime::instant_of, logging::OutputTarget, writers::JavaString};
+use marathon_cli::{
+    application::{CliOutput, Process, failure_exit},
+    run_cli,
+    runner::{ProductionRunner, missing_vendors},
+};
+use std::{
+    io::{self, IsTerminal},
+    process::ExitCode,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+/// Where stdout goes: Jansi's default mode keeps ANSI only on a terminal.
+fn stdout_target() -> OutputTarget {
+    let stdout = io::stdout();
+    if stdout.is_terminal() {
+        return OutputTarget::Terminal;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        if let Ok(fd) = stdout.as_fd().try_clone_to_owned()
+            && std::fs::File::from(fd).metadata().is_ok_and(|m| m.is_file())
+        {
+            return OutputTarget::File;
+        }
+    }
+    OutputTarget::Pipe
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    let cwd = match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(e) => return failure_exit("java.io.IOException", &e.to_string()),
+    };
+    let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let Some(now) = instant_of(since_epoch.as_secs() as i64, i64::from(since_epoch.subsec_nanos())) else {
+        return failure_exit(
+            "java.time.DateTimeException",
+            "Instant exceeds minimum or maximum instant",
+        );
+    };
+    let process = Process {
+        cwd,
+        environment: std::env::vars_os()
+            .map(|(k, v)| {
+                (
+                    JavaString::from(k.to_string_lossy().as_ref()),
+                    JavaString::from(v.to_string_lossy().as_ref()),
+                )
+            })
+            .collect(),
+        now,
+    };
+    let output = CliOutput::new(
+        Box::new(io::stdout()),
+        Box::new(io::stderr()),
+        stdout_target(),
+        Box::new(|| chrono::Local::now().naive_local().and_utc().timestamp_millis()),
+    );
+    let runner = ProductionRunner {
+        factories: std::sync::Arc::new(missing_vendors()),
+        cwd: process.cwd.clone(),
+        environment: process.environment.clone(),
+        signal_hooks: Default::default(),
+    };
+    let code = run_cli(&args, &process, &runner, &output);
+    ExitCode::from(u8::try_from(code).unwrap_or(1))
+}

@@ -1,0 +1,2 @@
+*/expected/raw/** -text whitespace=cr-at-eol,-blank-at-eof,-blank-at-eol
+*/expected/normalized/** -text whitespace=cr-at-eol,-blank-at-eof,-blank-at-eol

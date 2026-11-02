@@ -1,0 +1,2 @@
+Test Case '-[TimeoutTests.TimeoutTests testHang]' started.
+Test Case '-[TimeoutTests.TimeoutTests testHang]' exceeded execution time allowance of 1 minute. The test may have hung; check Xcode's test report for additional diagnostics. If the test requires additional time, use -[XCTestCase executionTimeAllowance] or one of xcodebuild's command-line overrides.

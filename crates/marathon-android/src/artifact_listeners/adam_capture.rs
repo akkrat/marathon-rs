@@ -1,0 +1,74 @@
+//! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt
+use super::*;
+use crate::listeners::{AndroidTestRunListener, to_test};
+use jcompat::logging::Level;
+use marathon_adb::testrunner::TestEvent;
+use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
+pub const METRIC: &str = "com.malinskiy.adam.junit4.android.screencapture.AdamScreenCaptureProcessor.v1";
+pub struct AdamScreenCaptureTestRunListener {
+    pub artifacts: ArtifactContext,
+    attachments: Attachments,
+}
+impl AdamScreenCaptureTestRunListener {
+    pub fn new(artifacts: ArtifactContext) -> Self {
+        Self {
+            artifacts,
+            attachments: Attachments::default(),
+        }
+    }
+}
+impl AttachmentProvider for AdamScreenCaptureTestRunListener {
+    fn register_listener(&self, listener: Arc<dyn AttachmentListener>) -> VendorResult<()> {
+        self.attachments.register(listener)
+    }
+}
+impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
+    fn on_event_in<'a>(&'a self, event: &'a TestEvent, context: VendorContext) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            if let TestEvent::TestEnded { id, metrics } = event {
+                for (_, path) in metrics.entries().iter().filter(|(key, _)| *key == METRIC.into()) {
+                    let path = path.to_string_lossy();
+                    let pair = match path.rsplit('.').next().unwrap_or("") {
+                        "jpeg" | "jpg" => Some((FileType::ScreenshotJpg, AttachmentType::ScreenshotJpeg)),
+                        "png" => Some((FileType::ScreenshotPng, AttachmentType::ScreenshotPng)),
+                        "webp" => Some((FileType::ScreenshotWebp, AttachmentType::ScreenshotWebp)),
+                        "gif" => Some((FileType::ScreenshotGif, AttachmentType::ScreenshotGif)),
+                        _ => None,
+                    };
+                    // N30/N31: wrong logger name and no pull despite promising a report file.
+                    let logger = "ScreenCapturerTestRunListener";
+                    if let Some((kind, attachment)) = pair {
+                        let test = to_test(id);
+                        let uuid = context
+                            .hooks
+                            .allocate_id("android.AdamScreenCaptureTestRunListener.testEnded")
+                            .map_err(|e| other("ReplayError", e.message))?;
+                        let file = self.artifacts.file(kind, Some(&test), Some(uuid), None).await?;
+                        let local = file.clone();
+                        let local = blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
+                            let cwd = std::env::current_dir().map_err(io)?;
+                            let cwd = JavaPath::from_text(&cwd.to_string_lossy());
+                            let absolute = jcompat::file_manager::absolute_file_path_utf16(&local.0, &cwd.0);
+                            Ok(JavaString(absolute.0).to_string_lossy())
+                        })
+                        .await?;
+                        self.artifacts
+                            .device
+                            .safe_pull_file(&path, &local, context.clone())
+                            .await?;
+                        self.artifacts.device.log_named(
+                            logger,
+                            Level::Debug,
+                            &format!("Received screen capture file {path}"),
+                            None,
+                        );
+                        self.attachments.emit(&test, file, attachment, "screen")?;
+                    } else {
+                        self.artifacts.device.log_named(logger,Level::Warn,&format!("Unable to decode image format of screen capture {path}. The file will be available in the report directory, but will not be included as part of any visual report"),None);
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+}

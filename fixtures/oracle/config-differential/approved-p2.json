@@ -1,0 +1,13 @@
+{
+  "approval": "P2: R1-sol-3, orchestrator fix-round-1 decision 3",
+  "input": "name: t\noutputDir: out\nvendorConfiguration: [null, {}]\n",
+  "buildIdentity": "build-identity.json",
+  "jvm": {
+    "rawText": "{\n  \"stage\": \"parse\",\n  \"error\": {\n    \"class\": \"com.malinskiy.marathon.config.exceptions.ConfigurationException\",\n    \"message\": \"Error parsing config file /tmp/mrs26-r1-p2/jvm/config/Marathonfile\",\n    \"causes\": [\n      \"com.fasterxml.jackson.databind.exc.InvalidTypeIdException: Could not resolve type id 'null' as a subtype of `com.malinskiy.marathon.config.vendor.VendorConfiguration`: known type ids = [Android, empty, iOS, macOS, stub, tvOS, visionOS, watchOS] (for POJO property 'vendorConfiguration')\\n at [Source: (StringReader); line: 3, column: 29]\"\n    ]\n  },\n  \"config\": null,\n  \"fsEffects\": []\n}\n",
+    "normalizedText": "{\"stage\":\"parse\",\"error\":{\"class\":\"com.malinskiy.marathon.config.exceptions.ConfigurationException\",\"message\":\"Error parsing config file <RUN>/config/Marathonfile\",\"causes\":[\"com.fasterxml.jackson.databind.exc.InvalidTypeIdException: Could not resolve type id 'null' as a subtype of `com.malinskiy.marathon.config.vendor.VendorConfiguration`: known type ids = [Android, empty, iOS, macOS, stub, tvOS, visionOS, watchOS] (for POJO property 'vendorConfiguration')\\n at [Source: (StringReader); line: 3, column: 29]\"]},\"config\":null,\"fsEffects\":[]}\n"
+  },
+  "rust": {
+    "rawText": "{\n  \"stage\": \"parse\",\n  \"error\": {\n    \"class\": \"com.malinskiy.marathon.config.exceptions.ConfigurationException\",\n    \"message\": \"Error parsing config file /tmp/mrs26-r1-p2/rust/config/Marathonfile\",\n    \"causes\": [\n      \"com.fasterxml.jackson.databind.exc.MismatchedInputException: expected a wrapper-array type id\"\n    ]\n  },\n  \"config\": null,\n  \"fsEffects\": []\n}\n",
+    "normalizedText": "{\"stage\":\"parse\",\"error\":{\"class\":\"com.malinskiy.marathon.config.exceptions.ConfigurationException\",\"message\":\"Error parsing config file <RUN>/config/Marathonfile\",\"causes\":[\"com.fasterxml.jackson.databind.exc.MismatchedInputException: expected a wrapper-array type id\"]},\"config\":null,\"fsEffects\":[]}\n"
+  }
+}

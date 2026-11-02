@@ -1,0 +1,249 @@
+{"table":"string_substitutor_edges","description":"commons-text 1.12.0 default StringSubstitutor: prefix/suffix boundaries, Unicode, escaped nesting and cycle diagnostics.","schema":{"env":"lookup map","input":"input text","result":"{ok} or {error: {class, message}}"},"rows":248,"jdk":"JetBrains s.r.o. 21.0.10+-117844308-b1163.108","generator":"tools/oracle/module (run tools/oracle/jcompat-tables or the corpus wrappers to regenerate)"}
+{"env":{},"input":"","result":{"ok":""}}
+{"env":{},"input":"}","result":{"ok":"}"}}
+{"env":{},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{},"input":"$${","result":{"ok":"$${"}}
+{"env":{},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{},"input":"$${${V}}","result":{"ok":"${${V}}"}}
+{"env":{},"input":"$${V:-${W}}","result":{"ok":"${V:-${W}}"}}
+{"env":{},"input":"${V}}","result":{"ok":"${V}}"}}
+{"env":{},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{},"input":"${V:-$${W}}","result":{"ok":"$${W}"}}
+{"env":{},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{},"input":"${V:-${W:-${A}}}","result":{"ok":"${W:-${A}}"}}
+{"env":{},"input":"${V:-a}b}","result":{"ok":"ab}"}}
+{"env":{},"input":"${V}${W}","result":{"ok":"${V}${W}"}}
+{"env":{},"input":"${V}{W}","result":{"ok":"${V}{W}"}}
+{"env":{},"input":"${V}A}","result":{"ok":"${V}A}"}}
+{"env":{},"input":"${V}$${A}","result":{"ok":"${V}${A}"}}
+{"env":{},"input":"$${W} ${V}","result":{"ok":"${W} ${V}"}}
+{"env":{},"input":"${MISSING} $${W} ${V}","result":{"ok":"${MISSING} ${W} ${V}"}}
+{"env":{},"input":"${A} ${V}","result":{"ok":"${A} ${V}"}}
+{"env":{},"input":"${}","result":{"ok":"${}"}}
+{"env":{},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{},"input":"${😀}","result":{"ok":"${😀}"}}
+{"env":{},"input":"😀$${W} ${V}😀","result":{"ok":"😀${W} ${V}😀"}}
+{"env":{},"input":"${V:-😀}","result":{"ok":"😀"}}
+{"env":{},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{},"input":"${V:-a:-b}","result":{"ok":"a:-b"}}
+{"env":{},"input":"${V:-${A}}${A}","result":{"ok":"${A}${A}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"","result":{"ok":""}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"}","result":{"ok":"}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"$${","result":{"ok":"$${"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"$${${V}}","result":{"ok":"${value}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"$${V:-${W}}","result":{"ok":"${V:-w}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V}}","result":{"ok":"value}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V:-$${W}}","result":{"ok":"value}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V:-${W}}","result":{"ok":"value}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V:-${W:-${A}}}","result":{"ok":"value}}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V:-a}b}","result":{"ok":"valueb}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V}${W}","result":{"ok":"valuew"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V}{W}","result":{"ok":"value{W}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V}A}","result":{"ok":"valueA}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V}$${A}","result":{"ok":"value${A}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"$${W} ${V}","result":{"ok":"${W} value"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${MISSING} $${W} ${V}","result":{"ok":"${MISSING} ${W} value"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${A} ${V}","result":{"ok":"${A} value"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${}","result":{"ok":"empty-name"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${:-d}","result":{"ok":"empty-name"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${ V }","result":{"ok":"spaces"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${😀}","result":{"ok":"unicode"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"😀$${W} ${V}😀","result":{"ok":"😀${W} value😀"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V:-😀}","result":{"ok":"value"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V:-a:-b}","result":{"ok":"value"}}
+{"env":{"V":"value","W":"w","":"empty-name"," V ":"spaces","😀":"unicode"},"input":"${V:-${A}}${A}","result":{"ok":"value}${A}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"","result":{"ok":""}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"}","result":{"ok":"}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"$${","result":{"ok":"$${"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"$${${V}}","result":{"ok":"${$}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"$${V:-${W}}","result":{"ok":"${V:-{V}}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V}}","result":{"ok":"$}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V:-$${W}}","result":{"ok":"$}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V:-${W}}","result":{"ok":"$}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V:-${W:-${A}}}","result":{"ok":"$}}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V:-a}b}","result":{"ok":"$b}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V}${W}","result":{"ok":"${W}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V}{W}","result":{"ok":"${W}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V}A}","result":{"ok":"$A}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V}$${A}","result":{"ok":"$${A}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"$${W} ${V}","result":{"ok":"${W} $"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${MISSING} $${W} ${V}","result":{"ok":"${MISSING} ${W} $"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${A} ${V}","result":{"ok":"${W} $"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${😀}","result":{"ok":"${😀}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"😀$${W} ${V}😀","result":{"ok":"😀${W} $😀"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V:-😀}","result":{"ok":"$"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V:-a:-b}","result":{"ok":"$"}}
+{"env":{"V":"$","W":"{V}","A":"${V}${W}"},"input":"${V:-${A}}${A}","result":{"ok":"$}${W}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"","result":{"ok":""}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"}","result":{"ok":"}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"$${","result":{"ok":"$${"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"$${${V}}","result":{"ok":"${${W}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"$${V:-${W}}","result":{"ok":"${V:-w}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V}}","result":{"ok":"${W}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V:-$${W}}","result":{"ok":"${W}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V:-${W}}","result":{"ok":"${W}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V:-${W:-${A}}}","result":{"ok":"${W}}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V:-a}b}","result":{"ok":"${Wb}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V}${W}","result":{"ok":"${Ww"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V}{W}","result":{"ok":"${W{W}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V}A}","result":{"ok":"${WA}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V}$${A}","result":{"ok":"${W${A}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"$${W} ${V}","result":{"ok":"${W} ${W"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${MISSING} $${W} ${V}","result":{"ok":"${MISSING} ${W} ${W"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${A} ${V}","result":{"ok":"${W} ${W"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${😀}","result":{"ok":"${😀}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"😀$${W} ${V}😀","result":{"ok":"😀${W} ${W😀"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V:-😀}","result":{"ok":"${W"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V:-a:-b}","result":{"ok":"${W"}}
+{"env":{"V":"${W","W":"w","A":"${V}}"},"input":"${V:-${A}}${A}","result":{"ok":"${W}${W}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"","result":{"ok":""}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"}","result":{"ok":"}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"$${","result":{"ok":"$${"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"$${${V}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${${V}}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"$${V:-${W}}","result":{"ok":"${V:-${W}}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V:-$${W}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-$${W}}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V:-${W}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-${W}}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V:-${W:-${A}}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-${W:-${A}}}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V:-a}b}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-a}b}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V}${W}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}${W}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V}{W}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}{W}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V}A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}A}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V}$${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}$${A}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"$${W} ${V}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${W} ${V}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${MISSING} $${W} ${V}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${MISSING} $${W} ${V}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${A} ${V}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${A} ${V}: A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${😀}","result":{"ok":"${😀}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"😀$${W} ${V}😀","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of 😀${W} ${V}😀: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V:-😀}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-😀}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V:-a:-b}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-a:-b}: V->A->B"}}}
+{"env":{"V":"${A}","A":"${B}","B":"${A}"},"input":"${V:-${A}}${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-${A}}${A}: V->A->B"}}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"","result":{"ok":""}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"}","result":{"ok":"}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"$${","result":{"ok":"$${"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"$${${V}}","result":{"ok":"${${A}}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"$${V:-${W}}","result":{"ok":"${V:-${W}}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V}}","result":{"ok":"${A}}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V:-$${W}}","result":{"ok":"${A}}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V:-${W}}","result":{"ok":"${A}}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V:-${W:-${A}}}","result":{"ok":"${A}}}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V:-a}b}","result":{"ok":"${A}b}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V}${W}","result":{"ok":"${A}${W}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V}{W}","result":{"ok":"${A}{W}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V}A}","result":{"ok":"${A}A}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V}$${A}","result":{"ok":"${A}${A}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"$${W} ${V}","result":{"ok":"${W} ${A}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${MISSING} $${W} ${V}","result":{"ok":"${MISSING} ${W} ${A}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${A} ${V}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${A} ${V}: A"}}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${😀}","result":{"ok":"${😀}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"😀$${W} ${V}😀","result":{"ok":"😀${W} ${A}😀"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V:-😀}","result":{"ok":"${A}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V:-a:-b}","result":{"ok":"${A}"}}
+{"env":{"V":"$${A}","A":"${A}"},"input":"${V:-${A}}${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-${A}}${A}: A"}}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"","result":{"ok":""}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"}","result":{"ok":"}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"$${","result":{"ok":"$${"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"$${${V}}","result":{"ok":"${${A}}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"$${V:-${W}}","result":{"ok":"${V:-${W}}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V}}","result":{"ok":"${A}}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V:-$${W}}","result":{"ok":"${A}}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V:-${W}}","result":{"ok":"${A}}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V:-${W:-${A}}}","result":{"ok":"${A}}}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V:-a}b}","result":{"ok":"${A}b}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V}${W}","result":{"ok":"${A}${W}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V}{W}","result":{"ok":"${A}{W}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V}A}","result":{"ok":"${A}A}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V}$${A}","result":{"ok":"${A}${A}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"$${W} ${V}","result":{"ok":"${W} ${A}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${MISSING} $${W} ${V}","result":{"ok":"${MISSING} ${W} ${A}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${A} ${V}","result":{"ok":"a ${A}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${😀}","result":{"ok":"${😀}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"😀$${W} ${V}😀","result":{"ok":"😀${W} ${A}😀"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V:-😀}","result":{"ok":"${A}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V:-a:-b}","result":{"ok":"${A}"}}
+{"env":{"V":"${W:-${A}}","A":"a"},"input":"${V:-${A}}${A}","result":{"ok":"${A}}a"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"","result":{"ok":""}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"}","result":{"ok":"}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"{V}","result":{"ok":"{V}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"$${","result":{"ok":"$${"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"$${V","result":{"ok":"$${V"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"$${V}","result":{"ok":"${V}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"$${${V}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${${V}}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"$${V:-${W}}","result":{"ok":"${V:-${W}}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${{V}}","result":{"ok":"${{V}}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${${V}:-d}","result":{"ok":"${${V}:-d}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V:-$${W}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-$${W}}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V:-${W}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-${W}}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V:-${W:-${A}}}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-${W:-${A}}}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V:-a}b}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-a}b}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V}${W}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}${W}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V}{W}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}{W}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V}A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}A}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V}$${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V}$${A}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"$${W} ${V}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${W} ${V}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${MISSING} $${W} ${V}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${MISSING} $${W} ${V}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${A} ${V}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${A} ${V}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${}","result":{"ok":"${}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${:-d}","result":{"ok":"d"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${ V }","result":{"ok":"${ V }"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${😀}","result":{"ok":"${😀}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"😀$${W} ${V}😀","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of 😀${W} ${V}😀: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V:-😀}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-😀}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V\u0000}","result":{"ok":"${V\u0000}"}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V:-a:-b}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-a:-b}: V"}}}
+{"env":{"V":"${V:-d}","A":"${MISSING}"},"input":"${V:-${A}}${A}","result":{"error":{"class":"java.lang.IllegalStateException","message":"Infinite loop in property interpolation of ${V:-${A}}${A}: V"}}}

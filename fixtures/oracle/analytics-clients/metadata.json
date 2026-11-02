@@ -1,0 +1,13 @@
+{
+  "reference": "e47352f2",
+  "jdk": "openjdk version \"21.0.10\" 2026-01-20\nOpenJDK Runtime Environment (build 21.0.10+-117844308-b1163.108)\nOpenJDK 64-Bit Server VM (build 21.0.10+-117844308-b1163.108, mixed mode)",
+  "jars": {
+    "influxdb-java-2.24.jar": "1471868144f6bd6fddfae86129b40d3275d4d34596bb2921a40238981a91088c",
+    "influxdb-client-java-7.2.0.jar": "bd732e2729df7464b270709741f61e6777339f72730d3ae9507f6ce38b6a85b2",
+    "influxdb-client-core-7.2.0.jar": "907bfe223582dcfe8711e92a49430ccb376ad3ade6bf2bc4049417f927f55a82",
+    "okhttp-4.12.0.jar": "b1050081b14bb7a3a7e55a4d3ef01b5dcfabc453b4573a4fc019767191d5f4e0"
+  },
+  "generator_sha256": "a069e730b6dc73da06ac4b42a7135ca91d7f9bfdac4dd1617299400f940ea391",
+  "normalization": "Ephemeral loopback authorities in fault messages only; request paths, headers, payload bytes and response order unchanged.",
+  "service_evidence": false
+}

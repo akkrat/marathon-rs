@@ -1,0 +1,10 @@
+#!/bin/sh
+# Opt-in disposable fixture feeder. Never reads a real account's credentials.
+case "$1" in
+    *assword:*) ;;
+    *) exit 1 ;;
+esac
+case "${FW_ASKPASS_PASSWORD:-fake-password}" in
+    fake-password|wrong-fixture-password) printf '%s\n' "${FW_ASKPASS_PASSWORD:-fake-password}" ;;
+    *) exit 1 ;;
+esac

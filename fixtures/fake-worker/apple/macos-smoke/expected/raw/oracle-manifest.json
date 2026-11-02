@@ -1,0 +1,806 @@
+{
+  "id": "apple-macos-smoke-20261023T222746471880",
+  "binary": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/oracle/build/marathon-src/cli/build/install/marathon/bin/marathon",
+  "args": [
+    "run",
+    "-m",
+    "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/oracle/runs/apple-macos-smoke-20261023T222746471880/in/Marathonfile",
+    "--analyticsTracking",
+    "false",
+    "--bugsnag",
+    "false"
+  ],
+  "source": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/fake-worker/runs/apple-macos-smoke-20261023T222746471880/in",
+  "cwd": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/oracle/runs/apple-macos-smoke-20261023T222746471880/in",
+  "env": {
+    "HOME": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/oracle/runs/apple-macos-smoke-20261023T222746471880/home",
+    "TMPDIR": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/oracle/runs/apple-macos-smoke-20261023T222746471880/tmp/",
+    "PATH": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/fake-worker/shims:/usr/bin:/bin:/usr/sbin:/sbin",
+    "JAVA_HOME": "/Applications/Android Studio.app/Contents/jbr/Contents/Home",
+    "FW_FIXTURE_KEY": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/fake-worker/runs/apple-macos-smoke-20261023T222746471880/client-key",
+    "FW_KNOWN_HOSTS": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/fake-worker/runs/apple-macos-smoke-20261023T222746471880/known_hosts",
+    "FW_PORT": "63980",
+    "RSYNC4J_RSYNC": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/fake-worker/shims/rsync",
+    "FW_REAL_RSYNC": "/usr/bin/rsync",
+    "FW_REAL_SSH": "/usr/bin/ssh",
+    "FW_ARGV_LOG": "/Users/developer/Projects/marathon-rs/.claude/worktrees/wp-0.4b/tools/fake-worker/runs/apple-macos-smoke-20261023T222746471880/host-argv.jsonl"
+  },
+  "timeoutSeconds": 120.0,
+  "timedOut": false,
+  "exitCode": 1,
+  "startedAt": "2026-10-23T22:27:47.432899+00:00",
+  "finishedAt": "2026-10-23T22:27:50.779633+00:00",
+  "durationMs": 3346,
+  "stdout": {
+    "path": "stdout",
+    "size": 39165
+  },
+  "stderr": {
+    "path": "stderr",
+    "size": 268
+  },
+  "inputTree": [
+    {
+      "path": "Marathondevices",
+      "kind": "file",
+      "size": 148,
+      "sha256": "38e9c01a8687e5da095a7b1b675a02617b9807d81ce1e574e2806e0da04bf5e4"
+    },
+    {
+      "path": "Marathonfile",
+      "kind": "file",
+      "size": 722,
+      "sha256": "57bafbd5257215e8baa7b34ee7213c64c914e2bc7dcf6cb0b4ee8ba274af75bf"
+    },
+    {
+      "path": "app.zip",
+      "kind": "file",
+      "size": 13901,
+      "sha256": "432d05aa499ea7e55091eb7c29d7ab209fd978d8197aced7cb69206ff7f7dc2e"
+    },
+    {
+      "path": "tests.zip",
+      "kind": "file",
+      "size": 4408,
+      "sha256": "8fa726d690ed93bcca31358d1a0e1c1ae37e158c9046fb745feeb71bbf44e1ec"
+    }
+  ],
+  "tree": [
+    {
+      "path": "in/Marathondevices",
+      "kind": "file",
+      "size": 148,
+      "sha256": "38e9c01a8687e5da095a7b1b675a02617b9807d81ce1e574e2806e0da04bf5e4"
+    },
+    {
+      "path": "in/Marathonfile",
+      "kind": "file",
+      "size": 722,
+      "sha256": "57bafbd5257215e8baa7b34ee7213c64c914e2bc7dcf6cb0b4ee8ba274af75bf"
+    },
+    {
+      "path": "in/app",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app.zip",
+      "kind": "file",
+      "size": 13901,
+      "sha256": "432d05aa499ea7e55091eb7c29d7ab209fd978d8197aced7cb69206ff7f7dc2e"
+    },
+    {
+      "path": "in/app/AppleWorld.app",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/Info.plist",
+      "kind": "file",
+      "size": 1240,
+      "sha256": "d37b6bbdd198ecc56f818cc554fc152339580b97575ac7b7d25945d25d7cf7ac"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/MacOS",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/MacOS/AppleWorld",
+      "kind": "file",
+      "size": 37576,
+      "sha256": "72fce09ab49679445772fa20967f74ec426f114744e8198f3fd5ba198c010f3a"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/MacOS/AppleWorld.debug.dylib",
+      "kind": "file",
+      "size": 33944,
+      "sha256": "58e7a3fd76a8c343a63af389275c5df1e5a86e46100256d02a4669d12aeb2763"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/MacOS/__preview.dylib",
+      "kind": "file",
+      "size": 16760,
+      "sha256": "6370adca8612fe8dac047c6bba5423b9efaad1bf1bb5cc815229df0775aadd57"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/PkgInfo",
+      "kind": "file",
+      "size": 8,
+      "sha256": "82502191c9484b04d685374f9879a0066069c49b8acae7a04b01d38d07e8eca0"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/PlugIns",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest/Contents",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/Info.plist",
+      "kind": "file",
+      "size": 1194,
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/MacOS",
+      "kind": "dir"
+    },
+    {
+      "path": "in/app/AppleWorld.app/Contents/PlugIns/AppleWorldTests.xctest/Contents/MacOS/AppleWorldTests",
+      "kind": "file",
+      "size": 52736,
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb"
+    },
+    {
+      "path": "in/report",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/allure-results",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/allure-results/ab037084-094d-4630-9692-04d2374d26ee-result.json",
+      "kind": "file",
+      "size": 929,
+      "sha256": "4c8fbc63147662fcdb8f9246a2bb567f30c0c11908b09a9edc7cd27cd3bb4098"
+    },
+    {
+      "path": "in/report/allure-results/eb8b0270-e2af-4dff-9cba-8ecbb1205ca2-result.json",
+      "kind": "file",
+      "size": 930,
+      "sha256": "d58583b9100515858677ccca2c6cfcf222819b42b00e45af74aad8bb83e653db"
+    },
+    {
+      "path": "in/report/allure-results/environment.xml",
+      "kind": "file",
+      "size": 4938,
+      "sha256": "fa2b78b1fe90491606e7feeb9feba9fa773586d525da88d72ec213237d4fff65"
+    },
+    {
+      "path": "in/report/allure-results/f65be618-ee66-4432-9c82-5187cf6fb992-result.json",
+      "kind": "file",
+      "size": 1093,
+      "sha256": "e151e8e41684ab6d0859fad7f8f2ab62735df7573eef5a7401d915484cf87ad1"
+    },
+    {
+      "path": "in/report/bill",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/bill/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/bill/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980.json",
+      "kind": "file",
+      "size": 418,
+      "sha256": "7166765cf03398c47579092c5d5c3a2622424db2c5436c4bec256e1d75d4ed4e"
+    },
+    {
+      "path": "in/report/device-files",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/device-files/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/xcresult",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/xcresult/e1589579-0f69-4037-94c2-54733f07292a.xcresult",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/xcresult/e1589579-0f69-4037-94c2-54733f07292a.xcresult/SCRIPTED",
+      "kind": "file",
+      "size": 64,
+      "sha256": "03c1a436daf6ccc9e0059390f945bab3724ea796fe41b8c04fd6ecf42856c1a9"
+    },
+    {
+      "path": "in/report/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/xcresult/e1589579-0f69-4037-94c2-54733f07292a.xcresult/root.json",
+      "kind": "file",
+      "size": 1083,
+      "sha256": "1eb8e80717ef6a9b0a3ca36983be8ffac7997471a10d077797736dc82c4b1e19"
+    },
+    {
+      "path": "in/report/device-files/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/xcresult/e1589579-0f69-4037-94c2-54733f07292a.xcresult/tests-0.json",
+      "kind": "file",
+      "size": 366,
+      "sha256": "5989ea48c035fa1947cf3a204340e5b9b8a09e9e903814ed8549b09293ea33bf"
+    },
+    {
+      "path": "in/report/devices",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/devices/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/devices/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980.json",
+      "kind": "file",
+      "size": 284,
+      "sha256": "3db4bbd713c15914d68e504ca416a7642990101a0eff1068c340c893aac163ca"
+    },
+    {
+      "path": "in/report/html",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/html/app.min.css",
+      "kind": "file",
+      "size": 20391,
+      "sha256": "594d3178d769152c06dffbbe8a583901457d63d9c3aa02ac048d345daab39c33"
+    },
+    {
+      "path": "in/report/html/app.min.js",
+      "kind": "file",
+      "size": 327442,
+      "sha256": "a5d4a764d874d1b4a630ae523d687f205bd131e36356c1e576c3c4c42bd0f2e9"
+    },
+    {
+      "path": "in/report/html/index.html",
+      "kind": "file",
+      "size": 1914,
+      "sha256": "1eaf73e3573aacf15bebce7186fe4d4d61ee3029ed24d515f98a42d9ce6cba38"
+    },
+    {
+      "path": "in/report/html/pools",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/html/pools/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/html/pools/omni.html",
+      "kind": "file",
+      "size": 1704,
+      "sha256": "e4871de00a37e062d312c1253dbabb1c492507163c9de0483992b32e76bc3a88"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests.testFail.html",
+      "kind": "file",
+      "size": 1415,
+      "sha256": "1464ba53a31416071feb53085145387614598ed76a234af9e0b5f30c627eeba4"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests.testPass.html",
+      "kind": "file",
+      "size": 1167,
+      "sha256": "64a71dc6bff69b05f10372a14eb88ac5af49fef6e3a3bb3f11a12b9b70002de5"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests.testSkip.html",
+      "kind": "file",
+      "size": 1168,
+      "sha256": "70f348760d49c72220ba2f9444d6a4dc943e96c74ea0187ff2a9681969bb0937"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/logs",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/logs/AppleWorldTests.SmokeTests.testFail.html",
+      "kind": "file",
+      "size": 955,
+      "sha256": "2bbf5961bba22303b067db69006e8dfb127bb909ebb34213615c864df78bceb4"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/logs/AppleWorldTests.SmokeTests.testPass.html",
+      "kind": "file",
+      "size": 955,
+      "sha256": "6cbd921c1238b1b7a337c6f6597eb1673b98984516fe5f46fc026815fe02583f"
+    },
+    {
+      "path": "in/report/html/pools/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/logs/AppleWorldTests.SmokeTests.testSkip.html",
+      "kind": "file",
+      "size": 955,
+      "sha256": "528402872379cda529300fa4c457db0e9d87f2b020c6041c29ac785278741fc8"
+    },
+    {
+      "path": "in/report/html/timeline",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/html/timeline/chart.css",
+      "kind": "file",
+      "size": 1662,
+      "sha256": "b341b6d43643ace936e92c1b0580df6126c3c503fa848825c7deeb312ba3fa9e"
+    },
+    {
+      "path": "in/report/html/timeline/chart.js",
+      "kind": "file",
+      "size": 19868,
+      "sha256": "8dd21eb578e4936c3dcbf6441632abf8fef2318fa5c93f9eb718a5132d47dcba"
+    },
+    {
+      "path": "in/report/html/timeline/iframeResizer.contentWindow.min.js",
+      "kind": "file",
+      "size": 13616,
+      "sha256": "564bc24981d512ef6006155a0be62e330a1233932c0127b23dd56a4cb0a3fbc2"
+    },
+    {
+      "path": "in/report/html/timeline/index.html",
+      "kind": "file",
+      "size": 1821,
+      "sha256": "c6d47158d8934779907f93c66497133563dea985b2bf876974b59b2fe19da5e8"
+    },
+    {
+      "path": "in/report/logs",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/logs/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testFail-e1589579-0f69-4037-94c2-54733f07292a.log",
+      "kind": "file",
+      "size": 135,
+      "sha256": "a0e734e23cc65d70153b753eda2296e6cf96e09a7d2a1acee19abcad00ee200f"
+    },
+    {
+      "path": "in/report/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testPass-e1589579-0f69-4037-94c2-54733f07292a.log",
+      "kind": "file",
+      "size": 75,
+      "sha256": "a8a7d718db32c5301373d6cedab7bd51f1f7d5fbda74b3cb7db34c5b1d90888b"
+    },
+    {
+      "path": "in/report/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testSkip-e1589579-0f69-4037-94c2-54733f07292a.log",
+      "kind": "file",
+      "size": 136,
+      "sha256": "c474897c679f859e0129dd5a2ea388aa1dd210cb96c059d7a93c8bf57c96f320"
+    },
+    {
+      "path": "in/report/logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/e1589579-0f69-4037-94c2-54733f07292a.e1589579-0f69-4037-94c2-54733f07292a",
+      "kind": "file",
+      "size": 28,
+      "sha256": "60486747b3f110366f3ae11909ad6e18e90eb0e51a3bf1cd63aec2d6f7995468"
+    },
+    {
+      "path": "in/report/screenshot",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/screenshot/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/screenshot/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/test_result",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/test_result/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testFail.json",
+      "kind": "file",
+      "size": 953,
+      "sha256": "6b1029ae059963ef820a36d9f44d93ad108e0cfa8ad6d74198cc81c11cf2a51a"
+    },
+    {
+      "path": "in/report/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testPass.json",
+      "kind": "file",
+      "size": 881,
+      "sha256": "debdf7680640012bfce9cd174e9d2d419fc1c66995ea11c022002a389a3ecc84"
+    },
+    {
+      "path": "in/report/test_result/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-63980/AppleWorldTests.SmokeTests#testSkip.json",
+      "kind": "file",
+      "size": 882,
+      "sha256": "32ffa99d16818bdc0a965be79045e9731d8f6f17472e756843410cb863c11888"
+    },
+    {
+      "path": "in/report/test_result/raw.json",
+      "kind": "file",
+      "size": 777,
+      "sha256": "8e7237e0ac8e98175d08d05725bfeb8fb72596d4e36667f16b939ba1ee328387"
+    },
+    {
+      "path": "in/report/tests",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/tests/omni",
+      "kind": "dir"
+    },
+    {
+      "path": "in/report/tests/omni/marathon_junit_report.xml",
+      "kind": "file",
+      "size": 795,
+      "sha256": "cf6fe846821123b31a4290f3e8a1ad435251daa9d2dbb5fdcec455fb2a381da7"
+    },
+    {
+      "path": "in/tests",
+      "kind": "dir"
+    },
+    {
+      "path": "in/tests.zip",
+      "kind": "file",
+      "size": 4408,
+      "sha256": "8fa726d690ed93bcca31358d1a0e1c1ae37e158c9046fb745feeb71bbf44e1ec"
+    },
+    {
+      "path": "in/tests/AppleWorldTests.xctest",
+      "kind": "dir"
+    },
+    {
+      "path": "in/tests/AppleWorldTests.xctest/Contents",
+      "kind": "dir"
+    },
+    {
+      "path": "in/tests/AppleWorldTests.xctest/Contents/Info.plist",
+      "kind": "file",
+      "size": 1194,
+      "sha256": "8acfffdd1ba3cb2ca88b9a979592444715a1f6fc51ff63b2a9380b4f9d1e2d1b"
+    },
+    {
+      "path": "in/tests/AppleWorldTests.xctest/Contents/MacOS",
+      "kind": "dir"
+    },
+    {
+      "path": "in/tests/AppleWorldTests.xctest/Contents/MacOS/AppleWorldTests",
+      "kind": "file",
+      "size": 52736,
+      "sha256": "970cc095d5c5fdb755828c9cb4d65bd3c248c0ac10b4723f9f8d0e8764e93bfb"
+    },
+    {
+      "path": "home/Library",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/_bootlocale.cpython-39.pyc",
+      "kind": "file",
+      "size": 1313,
+      "sha256": "8630b39ceb12b17badefeaee696c09e88465c8282f305a6a983875b0d81cb087"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/_collections_abc.cpython-39.pyc",
+      "kind": "file",
+      "size": 31823,
+      "sha256": "711edd2803b65d8b7aa4f18ecaa9b9c1215d0bacef6b36c02adaf2315bff44a7"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/_sitebuiltins.cpython-39.pyc",
+      "kind": "file",
+      "size": 3587,
+      "sha256": "24438051f78c8b4307dbfe940d8ebe4cfb6211ceed201b3f38c3f0a4138bd322"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/abc.cpython-39.pyc",
+      "kind": "file",
+      "size": 5861,
+      "sha256": "a3c1ac1bf593765d3fc8026490b3fb36a403ee73b5c31dc870442e9d586563c2"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/codecs.cpython-39.pyc",
+      "kind": "file",
+      "size": 33974,
+      "sha256": "af7dcf15d835ea6c0e8dac1c0e860b3e0ae157753d245131a9cd5e725763a445"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/collections",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/collections/__init__.cpython-39.pyc",
+      "kind": "file",
+      "size": 48187,
+      "sha256": "4b2c2c15ff3c9da6b8650d8b7e4ef30570f64df919487361ffaa28b9311e6419"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/copyreg.cpython-39.pyc",
+      "kind": "file",
+      "size": 4516,
+      "sha256": "082b4ed9c68b2d406ea56c5f81a7ac2a7f849c4b3e96e0e35bf2091257c66b5d"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/encodings",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/encodings/__init__.cpython-39.pyc",
+      "kind": "file",
+      "size": 4011,
+      "sha256": "7c760139153664cdeb9a9e6296023d11e964e645744f1cfb6a099e2f36d5cbd3"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/encodings/aliases.cpython-39.pyc",
+      "kind": "file",
+      "size": 6416,
+      "sha256": "04018d4be988a213650bdd084ed9ed4cf7446b3f9cdae0ee7624f18ad34739b5"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/encodings/cp437.cpython-39.pyc",
+      "kind": "file",
+      "size": 7934,
+      "sha256": "67c2691a802bb54c4bfcc87e68419251ac2fec11e8f3955f5a225133d02ab136"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/encodings/latin_1.cpython-39.pyc",
+      "kind": "file",
+      "size": 1981,
+      "sha256": "e1f5f11a6d1da0938adb978fe494bf142952f02093b9d5e51cf7749cf671a769"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/encodings/utf_8.cpython-39.pyc",
+      "kind": "file",
+      "size": 1718,
+      "sha256": "3094d9a467357d0366a84ae546bf5d364b84502f3d358d08fe785d84c74935c4"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/enum.cpython-39.pyc",
+      "kind": "file",
+      "size": 26106,
+      "sha256": "84a5f60d2a391bee035a6d49041b9da2eb40bcdd44c561304570ef2fb1d83c11"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/fnmatch.cpython-39.pyc",
+      "kind": "file",
+      "size": 4028,
+      "sha256": "29892a4019080ee8a902f635e11f7b4661cf9b0086d5b1ad85d831ac77821f55"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/functools.cpython-39.pyc",
+      "kind": "file",
+      "size": 28268,
+      "sha256": "69510342675bc025d9d0a41e4dafa6209a95e88cbcb56b44309455976022baf4"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/genericpath.cpython-39.pyc",
+      "kind": "file",
+      "size": 4110,
+      "sha256": "20b219ef3316daf4801f01edfa07748c55ec3b548c037228af962bc931fd766d"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/heapq.cpython-39.pyc",
+      "kind": "file",
+      "size": 14126,
+      "sha256": "4ae438d55eb881f0894d37fcb71695ba60bb2f8538c20c5ac5e48ee4eaa804ca"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/io.cpython-39.pyc",
+      "kind": "file",
+      "size": 3494,
+      "sha256": "3ce64b3ab3a694f038699b4c8d3eb640ad521326fd3a8f32f2d3618a54f22788"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/__init__.cpython-39.pyc",
+      "kind": "file",
+      "size": 12379,
+      "sha256": "b761d2ed5fdf8a2874517b8cfff6c72cdf7d4f9341a8c3c3c628d422d4bf1300"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/decoder.cpython-39.pyc",
+      "kind": "file",
+      "size": 9894,
+      "sha256": "f31d0fa8655017a02a16a3169357438f5a2cd006d014f22b36cf96eb1d06ba4a"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/encoder.cpython-39.pyc",
+      "kind": "file",
+      "size": 11217,
+      "sha256": "d71d5057d359dbe322e30a30d037fbc664280df73cccde30c1ef7b149c3dbb3e"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/json/scanner.cpython-39.pyc",
+      "kind": "file",
+      "size": 2039,
+      "sha256": "4858136b8975156834ed9dc624192baf9919e827afdceed07f4146bf14d3cee1"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/keyword.cpython-39.pyc",
+      "kind": "file",
+      "size": 1002,
+      "sha256": "10be90e0c4e44cd862801509a68f2dded4a953ba2f166e9e5156c3fa57bb8463"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/ntpath.cpython-39.pyc",
+      "kind": "file",
+      "size": 14628,
+      "sha256": "844d66c0db6d6ff6b946c753b80abb17c6942ff73188dac21652edb719f940d2"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/operator.cpython-39.pyc",
+      "kind": "file",
+      "size": 13834,
+      "sha256": "1b35465bc4645625f4412ac105f520f9935405a3ec6d3ff02ac76b99b803b9b3"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/os.cpython-39.pyc",
+      "kind": "file",
+      "size": 32083,
+      "sha256": "902e61561e71567f0f2a58a69a158820d8b8ac833d4315ea45f670ab60bfc921"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/pathlib.cpython-39.pyc",
+      "kind": "file",
+      "size": 44755,
+      "sha256": "8313b9f7365040f26b2731eeb7c09bba34f9479633fccf68bdbdef1d8a09268a"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/posixpath.cpython-39.pyc",
+      "kind": "file",
+      "size": 10415,
+      "sha256": "58961314454480beb09f90d677bd11e5eb417d292f793fd6b4729fca00103084"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/re.cpython-39.pyc",
+      "kind": "file",
+      "size": 14448,
+      "sha256": "6316d6fcade3a7fa280004130c5c34c2291c17e0d9d147bfa0c68d53e7c188ed"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/reprlib.cpython-39.pyc",
+      "kind": "file",
+      "size": 5393,
+      "sha256": "bbdb023c25ad5e4e2cc504ee581daf587fe99b215ce0df8ce1cd93a113d467bf"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/site.cpython-39.pyc",
+      "kind": "file",
+      "size": 17480,
+      "sha256": "49ea2ddec4827a0d5cd5c4b5a25503aef8939dc8fa6909acc4276006710d377e"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/sre_compile.cpython-39.pyc",
+      "kind": "file",
+      "size": 15139,
+      "sha256": "b647027a1ed5c4aba2507794ee32624c796a3e0e9f78cf968baf2fbef05e03fc"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/sre_constants.cpython-39.pyc",
+      "kind": "file",
+      "size": 6403,
+      "sha256": "703a51ff2e044525da51019cb306095733a516073265577a1ab048330fe5670c"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/sre_parse.cpython-39.pyc",
+      "kind": "file",
+      "size": 21689,
+      "sha256": "a29b54637a11f4e2bed145274117b215b41b4b84e783977123c2181436f20f3e"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/stat.cpython-39.pyc",
+      "kind": "file",
+      "size": 4458,
+      "sha256": "a4300c6d970f18d6f6c9904a8725b6fae641cb19913ecc02b1690d86666fb1fe"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/types.cpython-39.pyc",
+      "kind": "file",
+      "size": 9307,
+      "sha256": "cd165ef54ce60cc43e9509dc49330cdcb8a5709c06629eff05784ae23b25e3e5"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/urllib",
+      "kind": "dir"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/urllib/__init__.cpython-39.pyc",
+      "kind": "file",
+      "size": 216,
+      "sha256": "8d9851e07586d4982124daf72745c55f8edb4e6ccccf72f9d2dcec74cb827370"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/urllib/parse.cpython-39.pyc",
+      "kind": "file",
+      "size": 35009,
+      "sha256": "da7608e171ae004d7c4bf1a5d0b0eaa52d1f22642bb03629198119a833dcceff"
+    },
+    {
+      "path": "home/Library/Caches/com.apple.python/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/warnings.cpython-39.pyc",
+      "kind": "file",
+      "size": 13691,
+      "sha256": "ecd624ddbc4f03f72eb74db2b0c8e3e63f3d47bdd29ba33c54c2327f01e077b3"
+    }
+  ]
+}

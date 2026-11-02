@@ -1,0 +1,13 @@
+server: { strict: true }
+devices:
+  - serial: emulator-5554
+    features: [cmd, abb_exec, stat_v2, ls_v2, sendrecv_v2]
+    framebuffer: { version: 2, width: 1, height: 1, fill: [90, 130, 170, 128], color_space: 2 }
+  - serial: emulator-5556
+shell:
+  - { prefix: "package install", service: abb_exec, stdout: "Success\n" }
+  - { prefix: "cmd package install-create", service: exec, stdout: "Success [S1]\n" }
+  - { prefix: "cmd package install-write", service: exec, stdout: "Success\n" }
+  - { exact: "cmd package install-commit S1", service: exec, stdout: "" }
+  - { exact: "mkdir", stdout: "" }
+  - { prefix: "mkdir ", stdout: "" }

@@ -1,0 +1,47 @@
+[
+  {
+    "attachments": [
+      {
+        "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-52641/sample-appUnitTests.SampleTests#testFailing-67694fa9-6d73-4bbb-aae0-123f55def30a.log",
+        "sha256": "9d651ba186e6560743a4ac55a340f8e195be048bfdb9edf7c2ac7dcba86325b1",
+        "type": "LOG"
+      }
+    ],
+    "class": "SampleTests",
+    "device": "worker-1",
+    "failure": "scripted enriched failure\nfile:///fixture/SmokeTests:1",
+    "method": "testFailing",
+    "package": "sample_appUnitTests",
+    "status": "FAILURE"
+  },
+  {
+    "attachments": [
+      {
+        "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-52641/sample-appUnitTests.SampleTests#testPassing-67694fa9-6d73-4bbb-aae0-123f55def30a.log",
+        "sha256": "49e9c225a4107574e361d435e2c001e3a7aa43ccd1b3edacaa48721294c66633",
+        "type": "LOG"
+      }
+    ],
+    "class": "SampleTests",
+    "device": "worker-1",
+    "failure": null,
+    "method": "testPassing",
+    "package": "sample_appUnitTests",
+    "status": "PASSED"
+  },
+  {
+    "attachments": [
+      {
+        "path": "logs/omni/AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE-fixture-127.0.0.1-52641/sample-appUnitTests.SampleTests#testSkipping-67694fa9-6d73-4bbb-aae0-123f55def30a.log",
+        "sha256": "bbd29e420c7d9ac6f1ef9fd8527e1fa9e52e5aaf7736e82ad01c9e93f72ef5e5",
+        "type": "LOG"
+      }
+    ],
+    "class": "SampleTests",
+    "device": "worker-1",
+    "failure": null,
+    "method": "testSkipping",
+    "package": "sample_appUnitTests",
+    "status": "IGNORED"
+  }
+]

@@ -1,0 +1,271 @@
+{"table":"date_format","description":"The date formats marathon uses, in UTC: SimpleDateFormat(\"HH:mm:ss z, MMM d yyyy\") with the default locale (HtmlSummaryReporter, recorded under several locales), SimpleDateFormat(\"yyyy-MM-dd'T'HH:mm:ss\", Locale.US) (JUnitReporter) and DateTimeFormatter.ofPattern(\"HH:mm_yyyyMMdd\") with zone UTC (QueryableGraphiteClient, default locale).","schema":{"formatter":"SimpleDateFormat | DateTimeFormatter","pattern":"the pattern","locale":"BCP 47 tag of the locale","epochMillis":"the instant formatted","output":"the formatted string"},"rows":270,"jdk":"JetBrains s.r.o. 21.0.10+-117844308-b1163.108","generator":"tools/oracle/module (run tools/oracle/jcompat-tables or the corpus wrappers to regenerate)"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":0,"output":"00:00:00 UTC, Jan 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1,"output":"00:00:00 UTC, Jan 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":999,"output":"00:00:00 UTC, Jan 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1000000000,"output":"13:46:40 UTC, Jan 12 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1000000000000,"output":"01:46:40 UTC, Sep 9 2001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1700000000123,"output":"22:13:20 UTC, Nov 14 2023"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1760227200000,"output":"00:00:00 UTC, Oct 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1760270400000,"output":"12:00:00 UTC, Oct 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1767225599999,"output":"23:59:59 UTC, Dec 31 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1767225600000,"output":"00:00:00 UTC, Jan 1 2026"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":951782400000,"output":"00:00:00 UTC, Feb 29 2000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":4102444800000,"output":"00:00:00 UTC, Jan 1 2100"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":253402300799999,"output":"23:59:59 UTC, Dec 31 9999"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":253402300800000,"output":"00:00:00 UTC, Jan 1 10000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":-1,"output":"23:59:59 UTC, Dec 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":-86400000,"output":"00:00:00 UTC, Dec 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":-62135596800000,"output":"00:00:00 UTC, Jan 3 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":-62135596800001,"output":"23:59:59 UTC, Jan 2 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1735689600000,"output":"00:00:00 UTC, Jan 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1738371723000,"output":"01:02:03 UTC, Feb 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1741053846000,"output":"02:04:06 UTC, Mar 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1743735969000,"output":"03:06:09 UTC, Apr 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1746418092000,"output":"04:08:12 UTC, May 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1749100215000,"output":"05:10:15 UTC, Jun 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1751782338000,"output":"06:12:18 UTC, Jul 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1754464461000,"output":"07:14:21 UTC, Aug 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1757146584000,"output":"08:16:24 UTC, Sep 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1759828707000,"output":"09:18:27 UTC, Oct 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1762510830000,"output":"10:20:30 UTC, Nov 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"und","epochMillis":1765192953000,"output":"11:22:33 UTC, Dec 8 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":0,"output":"00:00:00 UTC, Jan 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1,"output":"00:00:00 UTC, Jan 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":999,"output":"00:00:00 UTC, Jan 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1000000000,"output":"13:46:40 UTC, Jan 12 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1000000000000,"output":"01:46:40 UTC, Sep 9 2001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1700000000123,"output":"22:13:20 UTC, Nov 14 2023"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1760227200000,"output":"00:00:00 UTC, Oct 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1760270400000,"output":"12:00:00 UTC, Oct 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1767225599999,"output":"23:59:59 UTC, Dec 31 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1767225600000,"output":"00:00:00 UTC, Jan 1 2026"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":951782400000,"output":"00:00:00 UTC, Feb 29 2000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":4102444800000,"output":"00:00:00 UTC, Jan 1 2100"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":253402300799999,"output":"23:59:59 UTC, Dec 31 9999"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":253402300800000,"output":"00:00:00 UTC, Jan 1 10000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":-1,"output":"23:59:59 UTC, Dec 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":-86400000,"output":"00:00:00 UTC, Dec 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":-62135596800000,"output":"00:00:00 UTC, Jan 3 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":-62135596800001,"output":"23:59:59 UTC, Jan 2 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1735689600000,"output":"00:00:00 UTC, Jan 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1738371723000,"output":"01:02:03 UTC, Feb 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1741053846000,"output":"02:04:06 UTC, Mar 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1743735969000,"output":"03:06:09 UTC, Apr 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1746418092000,"output":"04:08:12 UTC, May 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1749100215000,"output":"05:10:15 UTC, Jun 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1751782338000,"output":"06:12:18 UTC, Jul 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1754464461000,"output":"07:14:21 UTC, Aug 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1757146584000,"output":"08:16:24 UTC, Sep 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1759828707000,"output":"09:18:27 UTC, Oct 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1762510830000,"output":"10:20:30 UTC, Nov 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"en-US","epochMillis":1765192953000,"output":"11:22:33 UTC, Dec 8 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":0,"output":"00:00:00 UTC, янв. 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1,"output":"00:00:00 UTC, янв. 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":999,"output":"00:00:00 UTC, янв. 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1000000000,"output":"13:46:40 UTC, янв. 12 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1000000000000,"output":"01:46:40 UTC, сент. 9 2001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1700000000123,"output":"22:13:20 UTC, нояб. 14 2023"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1760227200000,"output":"00:00:00 UTC, окт. 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1760270400000,"output":"12:00:00 UTC, окт. 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1767225599999,"output":"23:59:59 UTC, дек. 31 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1767225600000,"output":"00:00:00 UTC, янв. 1 2026"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":951782400000,"output":"00:00:00 UTC, февр. 29 2000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":4102444800000,"output":"00:00:00 UTC, янв. 1 2100"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":253402300799999,"output":"23:59:59 UTC, дек. 31 9999"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":253402300800000,"output":"00:00:00 UTC, янв. 1 10000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":-1,"output":"23:59:59 UTC, дек. 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":-86400000,"output":"00:00:00 UTC, дек. 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":-62135596800000,"output":"00:00:00 UTC, янв. 3 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":-62135596800001,"output":"23:59:59 UTC, янв. 2 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1735689600000,"output":"00:00:00 UTC, янв. 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1738371723000,"output":"01:02:03 UTC, февр. 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1741053846000,"output":"02:04:06 UTC, мар. 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1743735969000,"output":"03:06:09 UTC, апр. 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1746418092000,"output":"04:08:12 UTC, мая 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1749100215000,"output":"05:10:15 UTC, июн. 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1751782338000,"output":"06:12:18 UTC, июл. 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1754464461000,"output":"07:14:21 UTC, авг. 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1757146584000,"output":"08:16:24 UTC, сент. 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1759828707000,"output":"09:18:27 UTC, окт. 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1762510830000,"output":"10:20:30 UTC, нояб. 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"ru-RU","epochMillis":1765192953000,"output":"11:22:33 UTC, дек. 8 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":0,"output":"00:00:00 UTC, Jan. 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1,"output":"00:00:00 UTC, Jan. 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":999,"output":"00:00:00 UTC, Jan. 1 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1000000000,"output":"13:46:40 UTC, Jan. 12 1970"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1000000000000,"output":"01:46:40 UTC, Sept. 9 2001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1700000000123,"output":"22:13:20 UTC, Nov. 14 2023"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1760227200000,"output":"00:00:00 UTC, Okt. 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1760270400000,"output":"12:00:00 UTC, Okt. 12 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1767225599999,"output":"23:59:59 UTC, Dez. 31 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1767225600000,"output":"00:00:00 UTC, Jan. 1 2026"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":951782400000,"output":"00:00:00 UTC, Feb. 29 2000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":4102444800000,"output":"00:00:00 UTC, Jan. 1 2100"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":253402300799999,"output":"23:59:59 UTC, Dez. 31 9999"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":253402300800000,"output":"00:00:00 UTC, Jan. 1 10000"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":-1,"output":"23:59:59 UTC, Dez. 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":-86400000,"output":"00:00:00 UTC, Dez. 31 1969"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":-62135596800000,"output":"00:00:00 UTC, Jan. 3 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":-62135596800001,"output":"23:59:59 UTC, Jan. 2 0001"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1735689600000,"output":"00:00:00 UTC, Jan. 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1738371723000,"output":"01:02:03 UTC, Feb. 1 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1741053846000,"output":"02:04:06 UTC, März 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1743735969000,"output":"03:06:09 UTC, Apr. 4 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1746418092000,"output":"04:08:12 UTC, Mai 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1749100215000,"output":"05:10:15 UTC, Juni 5 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1751782338000,"output":"06:12:18 UTC, Juli 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1754464461000,"output":"07:14:21 UTC, Aug. 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1757146584000,"output":"08:16:24 UTC, Sept. 6 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1759828707000,"output":"09:18:27 UTC, Okt. 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1762510830000,"output":"10:20:30 UTC, Nov. 7 2025"}
+{"formatter":"SimpleDateFormat","pattern":"HH:mm:ss z, MMM d yyyy","locale":"de-DE","epochMillis":1765192953000,"output":"11:22:33 UTC, Dez. 8 2025"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":0,"output":"1970-01-01T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1,"output":"1970-01-01T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":999,"output":"1970-01-01T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1000000000,"output":"1970-01-12T13:46:40"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1000000000000,"output":"2001-09-09T01:46:40"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1700000000123,"output":"2023-11-14T22:13:20"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1760227200000,"output":"2025-10-12T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1760270400000,"output":"2025-10-12T12:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1767225599999,"output":"2025-12-31T23:59:59"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1767225600000,"output":"2026-01-01T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":951782400000,"output":"2000-02-29T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":4102444800000,"output":"2100-01-01T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":253402300799999,"output":"9999-12-31T23:59:59"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":253402300800000,"output":"10000-01-01T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":-1,"output":"1969-12-31T23:59:59"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":-86400000,"output":"1969-12-31T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":-62135596800000,"output":"0001-01-03T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":-62135596800001,"output":"0001-01-02T23:59:59"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1735689600000,"output":"2025-01-01T00:00:00"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1738371723000,"output":"2025-02-01T01:02:03"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1741053846000,"output":"2025-03-04T02:04:06"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1743735969000,"output":"2025-04-04T03:06:09"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1746418092000,"output":"2025-05-05T04:08:12"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1749100215000,"output":"2025-06-05T05:10:15"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1751782338000,"output":"2025-07-06T06:12:18"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1754464461000,"output":"2025-08-06T07:14:21"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1757146584000,"output":"2025-09-06T08:16:24"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1759828707000,"output":"2025-10-07T09:18:27"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1762510830000,"output":"2025-11-07T10:20:30"}
+{"formatter":"SimpleDateFormat","pattern":"yyyy-MM-dd'T'HH:mm:ss","locale":"en-US","epochMillis":1765192953000,"output":"2025-12-08T11:22:33"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":0,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":999,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1000000000,"output":"13:46_19700112"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1000000000000,"output":"01:46_20010909"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1700000000123,"output":"22:13_20231114"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1760227200000,"output":"00:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1760270400000,"output":"12:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1767225599999,"output":"23:59_20251231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1767225600000,"output":"00:00_20260101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":951782400000,"output":"00:00_20000229"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":4102444800000,"output":"00:00_21000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":253402300799999,"output":"23:59_99991231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":253402300800000,"output":"00:00_+100000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":-1,"output":"23:59_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":-86400000,"output":"00:00_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":-62135596800000,"output":"00:00_00010101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":-62135596800001,"output":"23:59_00011231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1735689600000,"output":"00:00_20250101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1738371723000,"output":"01:02_20250201"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1741053846000,"output":"02:04_20250304"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1743735969000,"output":"03:06_20250404"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1746418092000,"output":"04:08_20250505"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1749100215000,"output":"05:10_20250605"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1751782338000,"output":"06:12_20250706"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1754464461000,"output":"07:14_20250806"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1757146584000,"output":"08:16_20250906"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1759828707000,"output":"09:18_20251007"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1762510830000,"output":"10:20_20251107"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"und","epochMillis":1765192953000,"output":"11:22_20251208"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":0,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":999,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1000000000,"output":"13:46_19700112"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1000000000000,"output":"01:46_20010909"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1700000000123,"output":"22:13_20231114"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1760227200000,"output":"00:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1760270400000,"output":"12:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1767225599999,"output":"23:59_20251231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1767225600000,"output":"00:00_20260101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":951782400000,"output":"00:00_20000229"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":4102444800000,"output":"00:00_21000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":253402300799999,"output":"23:59_99991231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":253402300800000,"output":"00:00_+100000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":-1,"output":"23:59_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":-86400000,"output":"00:00_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":-62135596800000,"output":"00:00_00010101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":-62135596800001,"output":"23:59_00011231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1735689600000,"output":"00:00_20250101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1738371723000,"output":"01:02_20250201"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1741053846000,"output":"02:04_20250304"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1743735969000,"output":"03:06_20250404"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1746418092000,"output":"04:08_20250505"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1749100215000,"output":"05:10_20250605"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1751782338000,"output":"06:12_20250706"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1754464461000,"output":"07:14_20250806"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1757146584000,"output":"08:16_20250906"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1759828707000,"output":"09:18_20251007"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1762510830000,"output":"10:20_20251107"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"en-US","epochMillis":1765192953000,"output":"11:22_20251208"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":0,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":999,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1000000000,"output":"13:46_19700112"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1000000000000,"output":"01:46_20010909"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1700000000123,"output":"22:13_20231114"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1760227200000,"output":"00:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1760270400000,"output":"12:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1767225599999,"output":"23:59_20251231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1767225600000,"output":"00:00_20260101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":951782400000,"output":"00:00_20000229"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":4102444800000,"output":"00:00_21000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":253402300799999,"output":"23:59_99991231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":253402300800000,"output":"00:00_+100000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":-1,"output":"23:59_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":-86400000,"output":"00:00_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":-62135596800000,"output":"00:00_00010101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":-62135596800001,"output":"23:59_00011231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1735689600000,"output":"00:00_20250101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1738371723000,"output":"01:02_20250201"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1741053846000,"output":"02:04_20250304"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1743735969000,"output":"03:06_20250404"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1746418092000,"output":"04:08_20250505"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1749100215000,"output":"05:10_20250605"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1751782338000,"output":"06:12_20250706"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1754464461000,"output":"07:14_20250806"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1757146584000,"output":"08:16_20250906"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1759828707000,"output":"09:18_20251007"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1762510830000,"output":"10:20_20251107"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"ru-RU","epochMillis":1765192953000,"output":"11:22_20251208"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":0,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":999,"output":"00:00_19700101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1000000000,"output":"13:46_19700112"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1000000000000,"output":"01:46_20010909"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1700000000123,"output":"22:13_20231114"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1760227200000,"output":"00:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1760270400000,"output":"12:00_20251012"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1767225599999,"output":"23:59_20251231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1767225600000,"output":"00:00_20260101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":951782400000,"output":"00:00_20000229"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":4102444800000,"output":"00:00_21000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":253402300799999,"output":"23:59_99991231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":253402300800000,"output":"00:00_+100000101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":-1,"output":"23:59_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":-86400000,"output":"00:00_19691231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":-62135596800000,"output":"00:00_00010101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":-62135596800001,"output":"23:59_00011231"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1735689600000,"output":"00:00_20250101"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1738371723000,"output":"01:02_20250201"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1741053846000,"output":"02:04_20250304"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1743735969000,"output":"03:06_20250404"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1746418092000,"output":"04:08_20250505"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1749100215000,"output":"05:10_20250605"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1751782338000,"output":"06:12_20250706"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1754464461000,"output":"07:14_20250806"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1757146584000,"output":"08:16_20250906"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1759828707000,"output":"09:18_20251007"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1762510830000,"output":"10:20_20251107"}
+{"formatter":"DateTimeFormatter","pattern":"HH:mm_yyyyMMdd","locale":"de-DE","epochMillis":1765192953000,"output":"11:22_20251208"}

@@ -1,0 +1,27 @@
+{"layout": "failure-m", "target": "terminal", "mode": "default", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 1}
+{"layout": "failure-m", "target": "terminal", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 1}
+{"layout": "failure-m", "target": "terminal", "mode": "strip", "output": "E [main] <probe> before", "exitCode": 1}
+{"layout": "failure-m", "target": "pipe", "mode": "default", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-m", "target": "pipe", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 0}
+{"layout": "failure-m", "target": "pipe", "mode": "strip", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-m", "target": "file", "mode": "default", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-m", "target": "file", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 0}
+{"layout": "failure-m", "target": "file", "mode": "strip", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-G", "target": "terminal", "mode": "default", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 1}
+{"layout": "failure-G", "target": "terminal", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 1}
+{"layout": "failure-G", "target": "terminal", "mode": "strip", "output": "E [main] <probe> before", "exitCode": 1}
+{"layout": "failure-G", "target": "pipe", "mode": "default", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-G", "target": "pipe", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 0}
+{"layout": "failure-G", "target": "pipe", "mode": "strip", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-G", "target": "file", "mode": "default", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-G", "target": "file", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before", "exitCode": 0}
+{"layout": "failure-G", "target": "file", "mode": "strip", "output": "E [main] <probe> before", "exitCode": 0}
+{"layout": "failure-private", "target": "terminal", "mode": "default", "output": "\u001b[1;31mE [main] <probe> before\u001b[?Jafter\n\u001b[0;39m\u001b[1;31mE [main] <probe> next event\n\u001b[0;39m\u001b[1;31mE [main] <probe> third event\n\u001b[0;39m\u001b[0m", "exitCode": 0}
+{"layout": "failure-private", "target": "terminal", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before\u001b[?Jafter\n\u001b[0;39m\u001b[1;31mE [main] <probe> next event\n\u001b[0;39m\u001b[1;31mE [main] <probe> third event\n\u001b[0;39m\u001b[0m", "exitCode": 0}
+{"layout": "failure-private", "target": "terminal", "mode": "strip", "output": "E [main] <probe> beforeE [main] <probe> next event\nE [main] <probe> third event\n\u001b[0m", "exitCode": 0}
+{"layout": "failure-private", "target": "pipe", "mode": "default", "output": "E [main] <probe> beforeE [main] <probe> next event\nE [main] <probe> third event\n", "exitCode": 0}
+{"layout": "failure-private", "target": "pipe", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before\u001b[?Jafter\n\u001b[0;39m\u001b[1;31mE [main] <probe> next event\n\u001b[0;39m\u001b[1;31mE [main] <probe> third event\n\u001b[0;39m", "exitCode": 0}
+{"layout": "failure-private", "target": "pipe", "mode": "strip", "output": "E [main] <probe> beforeE [main] <probe> next event\nE [main] <probe> third event\n", "exitCode": 0}
+{"layout": "failure-private", "target": "file", "mode": "default", "output": "E [main] <probe> beforeE [main] <probe> next event\nE [main] <probe> third event\n", "exitCode": 0}
+{"layout": "failure-private", "target": "file", "mode": "force", "output": "\u001b[1;31mE [main] <probe> before\u001b[?Jafter\n\u001b[0;39m\u001b[1;31mE [main] <probe> next event\n\u001b[0;39m\u001b[1;31mE [main] <probe> third event\n\u001b[0;39m", "exitCode": 0}
+{"layout": "failure-private", "target": "file", "mode": "strip", "output": "E [main] <probe> beforeE [main] <probe> next event\nE [main] <probe> third event\n", "exitCode": 0}

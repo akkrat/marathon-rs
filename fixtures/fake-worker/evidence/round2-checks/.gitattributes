@@ -1,0 +1,2 @@
+# Test logs retain their original line endings and trailing blank lines.
+*.log -text whitespace=cr-at-eol,-blank-at-eof

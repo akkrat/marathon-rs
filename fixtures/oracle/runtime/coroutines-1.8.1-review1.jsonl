@@ -1,0 +1,14 @@
+{"case":"cancelled-body:parent","value":"true,true"}
+{"case":"cancelled-body:child","value":"true,true"}
+{"case":"cancelled-body:supervisor-active","value":"true"}
+{"case":"actor:owner-active","value":"true"}
+{"case":"actor:owner-children","value":"0"}
+{"case":"actor:receiver-closed","value":"true"}
+{"case":"exception-handler:calls","value":"1"}
+{"case":"exception-handler:nested-calls","value":"1"}
+{"case":"exception-handler:caught-calls","value":"0"}
+{"case":"job:parent-child-callbacks","value":"early-child,parent,late-child"}
+{"case":"deferred:cancelled-waiter-failed","value":"IllegalStateException:stored-failure"}
+{"case":"deferred:cancelled-waiter-successful","value":"success"}
+{"case":"deferred:cancelled-waiter-pending","value":"CancellationException:waiter"}
+{"case":"deferred:cancelled-waiter-cancelled","value":"CancellationException:stored-cancel"}

@@ -1,0 +1,6 @@
+{
+  "discovery_sha256": "SET_SHA256_OF_ACTUAL_JVM_PARSED_YML",
+  "tests": ["SET_EXACT_JVM_QUALIFIED_TEST_NAME"],
+  "excluded_methods": {},
+  "review": "SET_REVIEW_REFERENCE_FOR_DISCOVERY_INVENTORY"
+}

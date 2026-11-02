@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Preserve the matrix through its generator; mark only release-added tests with verified Rust names."""
+import importlib.util, pathlib, re, sys
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+spec = importlib.util.spec_from_file_location('parity', ROOT/'scripts/parity_matrix.py')
+parity = importlib.util.module_from_spec(spec);spec.loader.exec_module(parity)
+existing = parity.read_existing()
+rows = parity.generate(pathlib.Path(sys.argv[1]), existing)
+suites = {
+    'CodeCoverageTargetsTest':'crates/marathon-apple/tests/code_coverage_targets.rs',
+    'SkipCopyingDerivedDataTest':'crates/marathon-apple/tests/skip_copying_derived_data.rs',
+    'IosConfigurationFactoryTest':'crates/marathon-config/tests/configuration_factory.rs',
+}
+count=0
+for values in rows:
+    row = dict(zip(parity.COLUMNS, values))
+    if row['status'] != 'pending' or row['test_class'] not in suites: continue
+    path=suites[row['test_class']]
+    name=re.sub(r'[^A-Za-z0-9]+','_',row['test_name']).strip('_').lower()
+    if row['test_class'] == 'SkipCopyingDerivedDataTest':
+        name=name.replace('iscodecoverageenabled','is_code_coverage_enabled')
+    assert re.search(r'fn\s+'+re.escape(name)+r'\s*\(', (ROOT/path).read_text()), name
+    values[7:] = ['ported', path+'::'+name, sys.argv[2]]
+    count+=1
+assert count == 20,count
+parity.OUT.write_text(parity.render(rows))
+print('20 release-added rows ported; no n/a rows added')

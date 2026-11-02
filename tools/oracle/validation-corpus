@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# See tools/oracle/README.md. Writes fixtures/oracle/config-validation-corpus.jsonl from the copied fixture configs.
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+exec "$(dirname "$0")/oracle" validation-corpus "${1:-$ROOT/fixtures/oracle}" "$ROOT/fixtures/configuration/fixture/config"

@@ -1,0 +1,1098 @@
+java_regex FAIL unicode-classes-009 matches "\\p{IsAlphabetic}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: IsAlphabetic")
+java_regex FAIL unicode-classes-016 matches "\\p{Space}"
+    input[9] "\u{b}": expected true, got false
+java_regex FAIL unicode-classes-030 matches "\\p{IsWhite_Space}"
+    input[9] "\u{b}": expected true, got false
+    input[12] "\u{a0}": expected true, got false
+    input[13] "\u{2007}": expected true, got false
+    input[14] "\u{3000}": expected true, got false
+    input[32] "\u{85}": expected true, got false
+java_regex FAIL flags-013 matches "(?U)(?i)ж"
+    input[8] "Ж": expected true, got false
+java_regex FAIL flags-174 findAll "(?U)(?i)k"
+    input[9] "K": expected [{"groups":["K"],"range":[0,1]}], got []
+java_regex FAIL flags-175 findAll "(?U:(?i)k)"
+    input[9] "K": expected [{"groups":["K"],"range":[0,1]}], got []
+java_regex E1 advanced-022: scalar-only match boundaries and empty-match advancement
+java_regex E1 advanced-025: scalar-only match boundaries and empty-match advancement
+java_regex E1 advanced-027: scalar-only match boundaries and empty-match advancement
+java_regex FAIL advanced-034 findAll "\\N{LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 3")
+java_regex FAIL advanced-038 findAll "\\p{javaJavaIdentifierStart}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: javaJavaIdentifierStart")
+java_regex FAIL advanced-039 findAll "a\\b{g}b"
+    Java compiles it; the backend does not: Syntax("\\b{g} grapheme cluster boundary is not supported")
+java_regex FAIL advanced-041 findAll "(?c)a"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex PROVEN adversarial-008: oracle aborted; mandatory-literal proof supplies the answer
+java_regex FAIL invalid-024 find "\\x{110000}"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL invalid-027 find "\\i"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-018 matches "[a&&]"
+    Java compiles it; the backend does not: Syntax("Empty intersection operand")
+java_regex FAIL round1-019 matches "[&&a]"
+    input[1] "a": expected true, got false
+java_regex FAIL round1-023 matches "[\\Qabc\\E-z]"
+    input[4] "d": expected true, got false
+    input[12] "x": expected true, got false
+java_regex FAIL round1-026 matches "(?x)a{2, 3}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 9")
+java_regex FAIL round1-027 matches "(?x)a* ?"
+    Java compiles it; the backend does not: Syntax("Dangling meta character '?'")
+java_regex FAIL round1-030 matches "(?i--i)a"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-051 findAll "(?U)\\b"
+    input[0] "\u{301}": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}], got [{"groups":[""],"range":[1,1]}]
+    input[3] "\u{200c}\u{301}": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}], got []
+    input[6] "Ᲊ": expected [], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}]
+java_regex FAIL round1-052 findAll "(?U)\\B"
+    input[0] "\u{301}": expected [], got [{"groups":[""],"range":[0,0]}]
+    input[3] "\u{200c}\u{301}": expected [{"groups":[""],"range":[1,1]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}]
+    input[6] "Ᲊ": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}], got []
+java_regex FAIL round1-053 findAll "\\b"
+    input[2] "é\u{301}": expected [{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}], got []
+    input[4] "_\u{301}": expected [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[2,2]}]
+java_regex FAIL round1-054 findAll "\\B"
+    input[2] "é\u{301}": expected [{"groups":[""],"range":[0,0]}], got [{"groups":[""],"range":[0,0]},{"groups":[""],"range":[1,1]},{"groups":[""],"range":[2,2]}]
+    input[4] "_\u{301}": expected [{"groups":[""],"range":[2,2]}], got [{"groups":[""],"range":[1,1]}]
+java_regex FAIL round1-081 matches "\\p{sc=Adlm}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: sc=Adlm")
+java_regex FAIL round1-082 matches "\\p{InHighSurrogates}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: InHighSurrogates")
+java_regex FAIL round1-083 matches "\\p{L}"
+    input[4] "Ᲊ": expected false, got true
+    input[5] "ᲊ": expected false, got true
+java_regex FAIL round1-084 matches "(?iu)\\u1c89"
+    input[5] "ᲊ": expected false, got true
+java_regex FAIL round1-086 matches "\\b{2}"
+    Java compiles it; the backend does not: Syntax("\\b{g} grapheme cluster boundary is not supported")
+java_regex FAIL round1-088 matches "\\N"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-097 matches "(?x)( ?i)a"
+    Java compiles it; the backend does not: Syntax("Dangling meta character '?'")
+java_regex FAIL round1-098 matches "(?x)(?i :a)"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-099 matches "(?x)[a- z]"
+    Java compiles it; the backend does not: Syntax("Invalid range: a- ")
+java_regex FAIL round1-102 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+java_regex FAIL round1-105 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",a"]
+java_regex FAIL round1-106 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+java_regex FAIL round1-107 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+java_regex FAIL round1-110 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,",""], got ["","a",",a"]
+java_regex FAIL round1-111 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+java_regex FAIL round1-112 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+java_regex FAIL round1-115 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","a"]
+java_regex FAIL round1-116 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+java_regex FAIL round1-124 matches "(?c)é"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-135 matches "(?x)(? i)a"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-136 matches "(?x)(?< a >a)"
+    Java compiles it; the backend does not: Syntax("Empty group name")
+java_regex FAIL round1-138 matches "(?--i)a"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-139 matches "(?i--m)a"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-143 matches "\\b{2}a"
+    Java compiles it; the backend does not: Syntax("\\b{g} grapheme cluster boundary is not supported")
+java_regex FAIL round1-148 matches "\\p{InBasic-Latin}"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-150 matches "(?u)(?-U)(?i)k"
+    input[5] "K": expected false, got true
+java_regex FAIL round1-151 matches "[\\Q\\E]"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round1-153 matches "\\p{sc=Deva}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: sc=Deva")
+java_regex FAIL round1-154 matches "\\p{Lu}"
+    input[0] "Ᲊ": expected false, got true
+java_regex FAIL round1-155 matches "\\p{Cn}"
+    input[0] "Ᲊ": expected true, got false
+    input[1] "ᲊ": expected true, got false
+java_regex FAIL round1-156 matches "(?iu)Ɤ"
+    input[5] "ɤ": expected false, got true
+java_regex FAIL round1-157 matches "(?iu)Ᲊ"
+    input[1] "ᲊ": expected false, got true
+java_regex FAIL round1-158 matches "(?U)\\w"
+    input[0] "Ᲊ": expected false, got true
+    input[1] "ᲊ": expected false, got true
+    input[6] "\u{200c}": expected true, got false
+java_regex FAIL round1-159 matches "\\p{javaJavaIdentifierStart}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: javaJavaIdentifierStart")
+java_regex FAIL round1-160 matches "\\P{javaJavaIdentifierPart}"
+    Java compiles it; the backend does not: Syntax("Unknown Unicode property: javaJavaIdentifierPart")
+java_regex FAIL round1-161 matches "\\p{javaUnicodeIdentifierStart}"
+    input[0] "Ᲊ": expected false, got true
+    input[1] "ᲊ": expected false, got true
+java_regex FAIL round1-162 matches "\\p{javaUnicodeIdentifierPart}"
+    input[0] "Ᲊ": expected false, got true
+    input[1] "ᲊ": expected false, got true
+    input[6] "\u{200c}": expected true, got false
+java_regex FAIL round1-163 replace "\\G"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,a", got "-a-,-a-"
+java_regex FAIL round1-164 replace "\\G|a"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,--", got "-a-,-a-"
+java_regex FAIL round1-165 replace "\\G,|(?=a)"
+    input[1] "a,a": expected "-a,-a", got "-a--a"
+java_regex FAIL round1-167 matches "(?!(a|aa)+$).*"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected true, got false
+java_regex FAIL round1-168 matches "(?x)\\x 4 1"
+    Java compiles it; the backend does not: Syntax("Invalid hex escape")
+java_regex FAIL round1-169 matches "(?x)\\x{ 4 1 }"
+    Java compiles it; the backend does not: Syntax("Invalid hex escape:  4 1 ")
+java_regex FAIL round1-170 matches "(?x)\\u 0 0 4 1"
+    Java compiles it; the backend does not: Syntax("Invalid unicode escape: ")
+java_regex FAIL round1-171 matches "(?x)\\0 1 0 1"
+    Java compiles it; the backend does not: Syntax("Illegal octal escape sequence near index 6")
+java_regex FAIL round1-172 matches "(?x)\\c A"
+    input[10] "\u{1}": expected true, got false
+java_regex FAIL round1-173 matches "(?x)\\p {Lu}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round1-176 matches "(?x)(?< name >a)\\k < name >"
+    Java compiles it; the backend does not: Syntax("Empty group name")
+java_regex FAIL round1-177 matches "(?x)\\b {g }"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round1-179 matches "(?x)[a & &b]"
+    input[2] "a": expected false, got true
+    input[3] "b": expected false, got true
+    input[9] "&": expected false, got true
+java_regex FAIL round1-180 matches "(?x)\\u D 8 0 0 \\u D C 0 0"
+    Java compiles it; the backend does not: Syntax("Invalid unicode escape: ")
+java_regex FAIL round1-181 matches "(?x)\\N {LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round1-183 matches "(?x)[a- #comment\nz]"
+    Java compiles it; the backend does not: Syntax("Invalid range: a- ")
+java_regex FAIL round1-184 matches "(?x)(? #comment\n i)a"
+    Java compiles it; the backend does not: Syntax("Invalid inline flag")
+java_regex FAIL round1-185 matches "(?x)a{2,#comment\n3}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 9")
+java_regex FAIL round1-188 matches "(?:(a)|b)*(?=)"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"… (1100000 bytes): expected {"error":{"class":"java.lang.StackOverflowError","message":null}}, got false
+java_regex FAIL round1-189 matches "(?=)(a)*"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (13018565) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex FAIL round2-003 findAll "(?<!(a))"
+    input[7] "a😀": expected [{"groups":["",null],"range":[0,0]},{"groups":["","a"],"range":[2,2]},{"groups":["",null],"range":[3,3]}], got [{"groups":["",null],"range":[0,0]},{"groups":["","a"],"range":[3,3]}]
+java_regex E1 round2-005: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-008: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-009: scalar-only match boundaries and empty-match advancement
+java_regex FAIL round2-010 matches "(?<=((a|b){2}))b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-011 find "(?<=((a|b){2}))b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-012 findAll "(?<=((a|b){2}))b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-013 matches "(?<=((a|b){2}))\\1"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-014 find "(?<=((a|b){2}))\\1"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-015 findAll "(?<=((a|b){2}))\\1"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-016 matches "(?<=((a|b){2}))\\2"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-017 find "(?<=((a|b){2}))\\2"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-018 findAll "(?<=((a|b){2}))\\2"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-019 matches "(?<=((a|b){2}))"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-020 find "(?<=((a|b){2}))"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-021 findAll "(?<=((a|b){2}))"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-022 matches "(?<!((a|b){2}))b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-023 find "(?<!((a|b){2}))b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-024 findAll "(?<!((a|b){2}))b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-025 matches "(?<!((a|b){2}))\\1"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-026 find "(?<!((a|b){2}))\\1"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-027 findAll "(?<!((a|b){2}))\\1"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-028 matches "(?<!((a|b){2}))\\2"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-029 find "(?<!((a|b){2}))\\2"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-030 findAll "(?<!((a|b){2}))\\2"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-031 matches "(?<!((a|b){2}))"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-032 find "(?<!((a|b){2}))"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-033 findAll "(?<!((a|b){2}))"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex E1 round2-035: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-038: scalar-only match boundaries and empty-match advancement
+java_regex FAIL round2-043 findAll "(?<!(a(?<=(a))))"
+    input[7] "a😀": expected [{"groups":["",null,null],"range":[0,0]},{"groups":["","a","a"],"range":[2,2]},{"groups":["",null,null],"range":[3,3]}], got [{"groups":["",null,null],"range":[0,0]},{"groups":["","a","a"],"range":[3,3]}]
+java_regex E1 round2-046: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-047: scalar-only match boundaries and empty-match advancement
+java_regex FAIL round2-048 find "(?<=(.{2}))"
+    input[0] "😀b": expected {"groups":["",{"utf16":[56832,98]}],"range":[3,3]}, got {"groups":["","😀b"],"range":[3,3]}
+    input[1] "𐐀b": expected {"groups":["",{"utf16":[56320,98]}],"range":[3,3]}, got {"groups":["","𐐀b"],"range":[3,3]}
+    input[2] "😀😀": expected null, got {"groups":["","😀😀"],"range":[4,4]}
+    input[3] "a😀": expected null, got {"groups":["","a😀"],"range":[3,3]}
+java_regex FAIL round2-049 findAll "(?<=(.{2}))"
+    input[0] "😀b": expected [{"groups":["",{"utf16":[56832,98]}],"range":[3,3]}], got [{"groups":["","😀b"],"range":[3,3]}]
+    input[1] "𐐀b": expected [{"groups":["",{"utf16":[56320,98]}],"range":[3,3]}], got [{"groups":["","𐐀b"],"range":[3,3]}]
+    input[2] "😀😀": expected [], got [{"groups":["","😀😀"],"range":[4,4]}]
+    input[3] "a😀": expected [], got [{"groups":["","a😀"],"range":[3,3]}]
+java_regex FAIL round2-050 findAll "(?<!(.{2}))"
+    input[2] "😀😀": expected [{"groups":["",null],"range":[0,0]},{"groups":["",null],"range":[1,1]},{"groups":["",null],"range":[2,2]},{"groups":["",null],"range":[3,3]},{"groups":["",null],"range":[4,4]}], got [{"groups":["",null],"range":[0,0]},{"groups":["",null],"range":[2,2]}]
+    input[3] "a😀": expected [{"groups":["",null],"range":[0,0]},{"groups":["",null],"range":[1,1]},{"groups":["",null],"range":[2,2]},{"groups":["",null],"range":[3,3]}], got [{"groups":["",null],"range":[0,0]},{"groups":["",null],"range":[1,1]}]
+java_regex E1 round2-051: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-052: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-053: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-058: scalar-only match boundaries and empty-match advancement
+java_regex FAIL round2-061 findAll "(?<!(?=(a))a)"
+    input[7] "a😀": expected [{"groups":["",null],"range":[0,0]},{"groups":["","a"],"range":[2,2]},{"groups":["",null],"range":[3,3]}], got [{"groups":["",null],"range":[0,0]},{"groups":["","a"],"range":[3,3]}]
+java_regex FAIL round2-062 replace "\\G|."
+    input[0] "😀a": expected {"utf16":[45,55357,45,45,97]}, got "-😀-a-"
+    input[1] "ab😀b": expected {"utf16":[45,97,45,45,55357,45,45,98]}, got "-a-b-😀-b-"
+    input[2] "😀": expected {"utf16":[45,55357,45,45]}, got "-😀-"
+    input[3] "😀😀": expected {"utf16":[45,55357,45,45,55357,45,45]}, got "-😀-😀-"
+    input[4] "𐐀": expected {"utf16":[45,55297,45,45]}, got "-𐐀-"
+    input[5] "𐐀a": expected {"utf16":[45,55297,45,45,97]}, got "-𐐀-a-"
+java_regex FAIL round2-063 split "\\G|."
+    input[0] "😀a": expected ["",{"utf16":[55357]},"","a"], got ["","😀","a",""]
+    input[1] "ab😀b": expected ["","a","",{"utf16":[55357]},"","b"], got ["","a","b","😀","b",""]
+    input[2] "😀": expected ["",{"utf16":[55357]},"",""], got ["","😀",""]
+    input[3] "😀😀": expected ["",{"utf16":[55357]},"",{"utf16":[55357]},"",""], got ["","😀","😀",""]
+    input[4] "𐐀": expected ["",{"utf16":[55297]},"",""], got ["","𐐀",""]
+    input[5] "𐐀a": expected ["",{"utf16":[55297]},"","a"], got ["","𐐀","a",""]
+java_regex FAIL round2-095 matches "(?<=(a|b){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-096 find "(?<=(a|b){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-097 matches "(?<=(?:a|b){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-098 find "(?<=(?:a|b){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-099 matches "(?<=((?:ab|cd){2}))e"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-100 find "(?<=((?:ab|cd){2}))e"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-101 matches "(?<=(a?){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-102 find "(?<=(a?){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex COMPILE-LIMIT round2-119: authorized nesting bound
+java_regex COMPILE-LIMIT round2-120: authorized nesting bound
+java_regex COMPILE-LIMIT round2-121: authorized nesting bound
+java_regex E1 round2-122: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-123: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-124: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-125: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-126: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-127: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-128: scalar-only match boundaries and empty-match advancement
+java_regex E1 round2-129: scalar-only match boundaries and empty-match advancement
+java_regex FAIL round2-130 find ".(?<=..)"
+    input[0] "a😀": expected null, got {"groups":["😀"],"range":[1,3]}
+    input[1] "😀😀": expected null, got {"groups":["😀"],"range":[2,4]}
+    input[2] "a𐐀": expected null, got {"groups":["𐐀"],"range":[1,3]}
+java_regex FAIL round2-131 findAll ".(?<=..)"
+    input[0] "a😀": expected [], got [{"groups":["😀"],"range":[1,3]}]
+    input[1] "😀😀": expected [], got [{"groups":["😀"],"range":[2,4]}]
+    input[2] "a𐐀": expected [], got [{"groups":["𐐀"],"range":[1,3]}]
+java_regex FAIL round2-132 split ".(?<=..)"
+    input[0] "a😀": expected ["a😀"], got ["a",""]
+    input[1] "😀😀": expected ["😀😀"], got ["😀",""]
+    input[2] "a𐐀": expected ["a𐐀"], got ["a",""]
+java_regex FAIL round2-133 replace ".(?<=..)"
+    input[0] "a😀": expected "a😀", got "a-"
+    input[1] "😀😀": expected "😀😀", got "😀-"
+    input[2] "a𐐀": expected "a𐐀", got "a-"
+java_regex E1 round2-134: scalar-only match boundaries and empty-match advancement
+java_regex FAIL round2-135 matches "a.(?<=..)"
+    input[0] "a😀": expected false, got true
+    input[1] "a𐐀": expected false, got true
+java_regex FAIL round2-136 find "a.(?<=..)"
+    input[0] "a😀": expected null, got {"groups":["a😀"],"range":[0,3]}
+    input[1] "a𐐀": expected null, got {"groups":["a𐐀"],"range":[0,3]}
+java_regex FAIL round2-137 matches ".*(?<=..)"
+    input[0] "a😀": expected false, got true
+java_regex FAIL round2-138 find ".*(?<=..)"
+    input[0] "a😀": expected null, got {"groups":["a😀"],"range":[0,3]}
+java_regex FAIL round2-141 matches "\\N{LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 3")
+java_regex FAIL round2-142 find "\\N{LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 3")
+java_regex FAIL round2-143 matches "(?i)\\N{LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 7")
+java_regex FAIL round2-144 find "(?i)\\N{LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 7")
+java_regex FAIL round2-145 matches "(?iu)\\N{DESERET CAPITAL LETTER LONG I}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round2-146 find "(?iu)\\N{DESERET CAPITAL LETTER LONG I}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round2-147 matches "[\\N{LATIN SMALL LETTER A}-\\N{LATIN SMALL LETTER Z}]"
+    Java compiles it; the backend does not: Syntax("Invalid range: }-N")
+java_regex FAIL round2-148 find "[\\N{LATIN SMALL LETTER A}-\\N{LATIN SMALL LETTER Z}]"
+    Java compiles it; the backend does not: Syntax("Invalid range: }-N")
+java_regex FAIL round2-149 matches "\\N{HIGH SURROGATES D800}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 3")
+java_regex FAIL round2-150 find "\\N{HIGH SURROGATES D800}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 3")
+java_regex FAIL round2-151 matches "(?x)\\N {LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round2-152 find "(?x)\\N {LATIN SMALL LETTER A}"
+    Java compiles it; the backend does not: Syntax("Illegal repetition near index 8")
+java_regex FAIL round2-184 matches "(?<=(?:a|b){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-185 find "(?<=(?:a|b){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-186 matches "(?<=(?:a|b){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-187 find "(?<=(?:a|b){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-206 matches "(?<=(a|b){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-207 find "(?<=(a|b){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-208 matches "(?<=(a|b){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-209 find "(?<=(a|b){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-228 matches "(?<=(a?){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-229 find "(?<=(a?){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-230 matches "(?<=(a?){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-231 find "(?<=(a?){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-250 matches "(?<=(?:a?){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-251 find "(?<=(?:a?){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-252 matches "(?<=(?:a?){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-253 find "(?<=(?:a?){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-254 matches "(?<=(?:a?){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-255 find "(?<=(?:a?){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-298 matches "(?<=(?:a|){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-299 find "(?<=(?:a|){0})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-300 matches "(?<=(?:a|){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-301 find "(?<=(?:a|){1})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-302 matches "(?<=(?:a|){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-303 find "(?<=(?:a|){2})b"
+    Java throws java.util.regex.PatternSyntaxException; the backend compiles it
+java_regex FAIL round2-464 matches "a.(?<=[\\s\\S]{2})"
+    input[0] "a😀": expected false, got true
+    input[1] "a𐐀": expected false, got true
+java_regex FAIL round2-465 find "a.(?<=[\\s\\S]{2})"
+    input[0] "a😀": expected null, got {"groups":["a😀"],"range":[0,3]}
+    input[1] "a𐐀": expected null, got {"groups":["a𐐀"],"range":[0,3]}
+java_regex FAIL round2-466 matches "(?U)a.(?<=\\w{2})"
+    input[1] "a𐐀": expected false, got true
+java_regex FAIL round2-467 find "(?U)a.(?<=\\w{2})"
+    input[1] "a𐐀": expected null, got {"groups":["a𐐀"],"range":[0,3]}
+java_regex FAIL round2-471 find "(?<=\\p{IsDeseret})"
+    input[1] "a𐐀": expected null, got {"groups":[""],"range":[3,3]}
+    input[4] "𐐀b": expected null, got {"groups":[""],"range":[2,2]}
+java_regex FAIL round2-477 find "(?<=[\\u0000-\\uFFFF]{2})"
+    input[4] "𐐀b": expected {"groups":[""],"range":[3,3]}, got null
+java_regex FAIL round2-482 matches "(?!(?:a|aa)+$).*"
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected true, got false
+java_regex FAIL round2-483 find "(?!(?:a|aa)+$).*"
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected {"groups":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"],"range":[0,41]}, got null
+java_regex FAIL runtime-scans-002 find "(?=a*\\z)b"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (13019351) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex FAIL runtime-scans-003 find "(?=a*\\z)b"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (13019354) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex FAIL runtime-scans-004 find "(?=a*\\z)b"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (13019360) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex FAIL runtime-scans-006 find "(?!(?:a*\\z))b"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (13019388) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex FAIL runtime-scans-007 find "(?!(?:a*\\z))b"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (13019392) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex FAIL runtime-scans-008 find "(?!(?:a*\\z))b"
+    worker signal: 6 (SIGABRT): 
+thread 'main' (13019399) has overflowed its stack
+fatal runtime error: stack overflow, aborting
+
+java_regex: slowest row adversarial-002 (817 ms)
+java_regex: aborted row adversarial-008: "proven" in 457 ms
+java_regex: aborted row round1-188: "fail" in 29 ms
+java_regex: aborted row runtime-scans-002: "fail" in 22 ms
+java_regex: aborted row runtime-scans-003: "fail" in 30 ms
+java_regex: aborted row runtime-scans-004: "fail" in 51 ms
+java_regex: aborted row runtime-scans-006: "fail" in 22 ms
+java_regex: aborted row runtime-scans-007: "fail" in 28 ms
+java_regex: aborted row runtime-scans-008: "fail" in 52 ms
+fancy-regex REJECTED unicode-classes-025 "\\X": \X: extended grapheme cluster matching is not supported by the Rust regex backend
+fancy-regex REJECTED advanced-014 "(?<=a+)b": (?<=a+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED advanced-015 "(?<=a{1,3})b": (?<=a{1,3}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex E1 advanced-022: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 advanced-025: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 advanced-027: scalar-only match boundaries and empty-match advancement
+fancy-regex REJECTED advanced-037 "(?i)(a)\\1": \1: case-insensitive backreferences fold differently in the Rust regex backend
+fancy-regex REJECTED advanced-039 "a\\b{g}b": \b{g}: grapheme cluster boundaries are not supported by the Rust regex backend
+fancy-regex REJECTED advanced-040 "\\uD800": \uD800: a lone surrogate cannot occur in Rust strings
+fancy-regex PROVEN adversarial-008: oracle aborted; mandatory-literal proof supplies the answer
+fancy-regex REJECTED invalid-015 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED invalid-028 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-003 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-004 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-005 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-006 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-007 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-008 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-009 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-010 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-011 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-012 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-013 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-014 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex E1 round1-052: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round1-054: scalar-only match boundaries and empty-match advancement
+fancy-regex REJECTED round1-085 "\\x{d800}": \x{d800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-096 "ab(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-125 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-126 ".*(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round1-131 "(?<!([ab]{2}))c": (?<!([ab]{2})): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round1-144 "\\x{D800}": \x{D800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-145 "\\uDC00": \uDC00: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-147 "[\\x{D800}]": \x{D800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round1-167 "(?!(a|aa)+$).*": (?!(a|aa)+$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round1-177 "(?x)\\b {g }": \b {g }: grapheme cluster boundaries are not supported by the Rust regex backend
+fancy-regex REJECTED round1-190 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-001 "(?<!(a))\\1": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-002 "(?<!(a))\\1": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-003 "(?<!(a))": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-004 "(?<!(ab|cd))b": (?<!(ab|cd)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-005 "(?<!(ab|cd))": (?<!(ab|cd)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-006 "(?<!(a|b)(c|d))\\2": (?<!(a|b)(c|d)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-007 "(?<!(a|b)(c|d))\\2": (?<!(a|b)(c|d)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-008 "(?<!(a|b)(c|d))": (?<!(a|b)(c|d)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-009 "(?<!(a{2}))": (?<!(a{2})): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-034 "(?<!((?>ab|cd)))b": (?<!((?>ab|cd))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-035 "(?<!((?>ab|cd)))": (?<!((?>ab|cd))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-036 "(?<!(a(?=(b))))\\1": (?<!(a(?=(b)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-037 "(?<!(a(?=(b))))\\1": (?<!(a(?=(b)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-038 "(?<!(a(?=(b))))": (?<!(a(?=(b)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-039 "(?<!(a(?<=(a))))\\1": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-040 "(?<!(a(?<=(a))))\\1": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-041 "(?<!(a(?<=(a))))\\2": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-042 "(?<!(a(?<=(a))))\\2": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-043 "(?<!(a(?<=(a))))": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-044 "(?<!(😀|a))\\1": (?<!(😀|a)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-045 "(?<!(😀|a))\\1": (?<!(😀|a)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-046 "(?<!(😀|a))": (?<!(😀|a)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-047 "(?<!(😀|𐐀))": (?<!(😀|𐐀)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-048 "(?<=(.{2}))": (?<=(.{2})): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-049 "(?<=(.{2}))": (?<=(.{2})): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-050 "(?<!(.{2}))": (?<!(.{2})): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex E1 round2-051: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-052: scalar-only match boundaries and empty-match advancement
+fancy-regex REJECTED round2-053 "(?<!(a$|b$))": (?<!(a$|b$)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-054 "(?<!(a(?=b)|c(?=d)))b": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-055 "(?<!(a(?=b)|c(?=d)))b": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-056 "(?<!(a(?=b)|c(?=d)))\\1": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-057 "(?<!(a(?=b)|c(?=d)))\\1": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-058 "(?<!(a(?=b)|c(?=d)))": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-059 "(?<!(?=(a))a)\\1": (?<!(?=(a))a): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-060 "(?<!(?=(a))a)\\1": (?<!(?=(a))a): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-061 "(?<!(?=(a))a)": (?<!(?=(a))a): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex E1 round2-062: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-063: scalar-only match boundaries and empty-match advancement
+fancy-regex REJECTED round2-064 "(?!((a|aa)+)$).*": (?!((a|aa)+)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-065 "(?!((a|aa)+)$).*": (?!((a|aa)+)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-066 "(?!(a|aa)+$).*": (?!(a|aa)+$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-067 "(?!(a|aa)+$).*": (?!(a|aa)+$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-070 "(?!(a*)$).*": (?!(a*)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-071 "(?!(a*)$).*": (?!(a*)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-072 "(?!(a)$).*": (?!(a)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-073 "(?!(a)$).*": (?!(a)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-074 "(?!(a|b)$).*": (?!(a|b)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-075 "(?!(a|b)$).*": (?!(a|b)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-091 ".*?(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-092 ".*?(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-093 ".*(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex REJECTED round2-094 ".*(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+fancy-regex COMPILE-LIMIT round2-117: authorized nesting bound
+fancy-regex COMPILE-LIMIT round2-118: authorized nesting bound
+fancy-regex COMPILE-LIMIT round2-119: authorized nesting bound
+fancy-regex COMPILE-LIMIT round2-120: authorized nesting bound
+fancy-regex COMPILE-LIMIT round2-121: authorized nesting bound
+fancy-regex E1 round2-122: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-123: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-124: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-125: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-126: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-127: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-128: scalar-only match boundaries and empty-match advancement
+fancy-regex E1 round2-129: scalar-only match boundaries and empty-match advancement
+fancy-regex REJECTED round2-130 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-131 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-132 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-133 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex E1 round2-134: scalar-only match boundaries and empty-match advancement
+fancy-regex REJECTED round2-135 "a.(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-136 "a.(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-137 ".*(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-138 ".*(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-149 "\\N{HIGH SURROGATES D800}": \N{HIGH SURROGATES D800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round2-150 "\\N{HIGH SURROGATES D800}": \N{HIGH SURROGATES D800}: a lone surrogate cannot occur in Rust strings
+fancy-regex REJECTED round2-194 "(?<=(?:a|b)?)b": (?<=(?:a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-195 "(?<=(?:a|b)?)b": (?<=(?:a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-196 "(?<=(?:a|b)??)b": (?<=(?:a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-197 "(?<=(?:a|b)??)b": (?<=(?:a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-198 "(?<=(?:a|b)?+)b": (?<=(?:a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-199 "(?<=(?:a|b)?+)b": (?<=(?:a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-200 "(?<=(?:a|b){0,1})b": (?<=(?:a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-201 "(?<=(?:a|b){0,1})b": (?<=(?:a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-202 "(?<=(?:a|b){0,1}?)b": (?<=(?:a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-203 "(?<=(?:a|b){0,1}?)b": (?<=(?:a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-204 "(?<=(?:a|b){0,1}+)b": (?<=(?:a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-205 "(?<=(?:a|b){0,1}+)b": (?<=(?:a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-216 "(?<=(a|b)?)b": (?<=(a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-217 "(?<=(a|b)?)b": (?<=(a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-218 "(?<=(a|b)??)b": (?<=(a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-219 "(?<=(a|b)??)b": (?<=(a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-220 "(?<=(a|b)?+)b": (?<=(a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-221 "(?<=(a|b)?+)b": (?<=(a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-222 "(?<=(a|b){0,1})b": (?<=(a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-223 "(?<=(a|b){0,1})b": (?<=(a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-224 "(?<=(a|b){0,1}?)b": (?<=(a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-225 "(?<=(a|b){0,1}?)b": (?<=(a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-226 "(?<=(a|b){0,1}+)b": (?<=(a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-227 "(?<=(a|b){0,1}+)b": (?<=(a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-234 "(?<=(a?){1}+)b": (?<=(a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-235 "(?<=(a?){1}+)b": (?<=(a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-236 "(?<=(a?){2}+)b": (?<=(a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-237 "(?<=(a?){2}+)b": (?<=(a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-238 "(?<=(a?)?)b": (?<=(a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-239 "(?<=(a?)?)b": (?<=(a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-240 "(?<=(a?)??)b": (?<=(a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-241 "(?<=(a?)??)b": (?<=(a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-242 "(?<=(a?)?+)b": (?<=(a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-243 "(?<=(a?)?+)b": (?<=(a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-244 "(?<=(a?){0,1})b": (?<=(a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-245 "(?<=(a?){0,1})b": (?<=(a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-246 "(?<=(a?){0,1}?)b": (?<=(a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-247 "(?<=(a?){0,1}?)b": (?<=(a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-248 "(?<=(a?){0,1}+)b": (?<=(a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-249 "(?<=(a?){0,1}+)b": (?<=(a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-258 "(?<=(?:a?){1}+)b": (?<=(?:a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-259 "(?<=(?:a?){1}+)b": (?<=(?:a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-260 "(?<=(?:a?){2}+)b": (?<=(?:a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-261 "(?<=(?:a?){2}+)b": (?<=(?:a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-262 "(?<=(?:a?)?)b": (?<=(?:a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-263 "(?<=(?:a?)?)b": (?<=(?:a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-264 "(?<=(?:a?)??)b": (?<=(?:a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-265 "(?<=(?:a?)??)b": (?<=(?:a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-266 "(?<=(?:a?)?+)b": (?<=(?:a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-267 "(?<=(?:a?)?+)b": (?<=(?:a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-268 "(?<=(?:a?){0,1})b": (?<=(?:a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-269 "(?<=(?:a?){0,1})b": (?<=(?:a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-270 "(?<=(?:a?){0,1}?)b": (?<=(?:a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-271 "(?<=(?:a?){0,1}?)b": (?<=(?:a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-272 "(?<=(?:a?){0,1}+)b": (?<=(?:a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-273 "(?<=(?:a?){0,1}+)b": (?<=(?:a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-286 "(?<=(?:a)?)b": (?<=(?:a)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-287 "(?<=(?:a)?)b": (?<=(?:a)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-288 "(?<=(?:a)??)b": (?<=(?:a)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-289 "(?<=(?:a)??)b": (?<=(?:a)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-290 "(?<=(?:a)?+)b": (?<=(?:a)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-291 "(?<=(?:a)?+)b": (?<=(?:a)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-292 "(?<=(?:a){0,1})b": (?<=(?:a){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-293 "(?<=(?:a){0,1})b": (?<=(?:a){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-294 "(?<=(?:a){0,1}?)b": (?<=(?:a){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-295 "(?<=(?:a){0,1}?)b": (?<=(?:a){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-296 "(?<=(?:a){0,1}+)b": (?<=(?:a){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-297 "(?<=(?:a){0,1}+)b": (?<=(?:a){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-306 "(?<=(?:a|){1}+)b": (?<=(?:a|){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-307 "(?<=(?:a|){1}+)b": (?<=(?:a|){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-308 "(?<=(?:a|){2}+)b": (?<=(?:a|){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-309 "(?<=(?:a|){2}+)b": (?<=(?:a|){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-310 "(?<=(?:a|)?)b": (?<=(?:a|)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-311 "(?<=(?:a|)?)b": (?<=(?:a|)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-312 "(?<=(?:a|)??)b": (?<=(?:a|)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-313 "(?<=(?:a|)??)b": (?<=(?:a|)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-314 "(?<=(?:a|)?+)b": (?<=(?:a|)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-315 "(?<=(?:a|)?+)b": (?<=(?:a|)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-316 "(?<=(?:a|){0,1})b": (?<=(?:a|){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-317 "(?<=(?:a|){0,1})b": (?<=(?:a|){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-318 "(?<=(?:a|){0,1}?)b": (?<=(?:a|){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-319 "(?<=(?:a|){0,1}?)b": (?<=(?:a|){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-320 "(?<=(?:a|){0,1}+)b": (?<=(?:a|){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-321 "(?<=(?:a|){0,1}+)b": (?<=(?:a|){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-324 "(?<=\\R{1})b": (?<=\R{1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-325 "(?<=\\R{1})b": (?<=\R{1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-326 "(?<=\\R{2})b": (?<=\R{2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-327 "(?<=\\R{2})b": (?<=\R{2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-330 "(?<=\\R{1}+)b": (?<=\R{1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-331 "(?<=\\R{1}+)b": (?<=\R{1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-332 "(?<=\\R{2}+)b": (?<=\R{2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-333 "(?<=\\R{2}+)b": (?<=\R{2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-334 "(?<=\\R?)b": (?<=\R?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-335 "(?<=\\R?)b": (?<=\R?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-336 "(?<=\\R??)b": (?<=\R??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-337 "(?<=\\R??)b": (?<=\R??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-338 "(?<=\\R?+)b": (?<=\R?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-339 "(?<=\\R?+)b": (?<=\R?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-340 "(?<=\\R{0,1})b": (?<=\R{0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-341 "(?<=\\R{0,1})b": (?<=\R{0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-342 "(?<=\\R{0,1}?)b": (?<=\R{0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-343 "(?<=\\R{0,1}?)b": (?<=\R{0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-344 "(?<=\\R{0,1}+)b": (?<=\R{0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-345 "(?<=\\R{0,1}+)b": (?<=\R{0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-348 "(?<=(?:\\R){1})b": (?<=(?:\R){1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-349 "(?<=(?:\\R){1})b": (?<=(?:\R){1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-350 "(?<=(?:\\R){2})b": (?<=(?:\R){2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-351 "(?<=(?:\\R){2})b": (?<=(?:\R){2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-354 "(?<=(?:\\R){1}+)b": (?<=(?:\R){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-355 "(?<=(?:\\R){1}+)b": (?<=(?:\R){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-356 "(?<=(?:\\R){2}+)b": (?<=(?:\R){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-357 "(?<=(?:\\R){2}+)b": (?<=(?:\R){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-358 "(?<=(?:\\R)?)b": (?<=(?:\R)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-359 "(?<=(?:\\R)?)b": (?<=(?:\R)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-360 "(?<=(?:\\R)??)b": (?<=(?:\R)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-361 "(?<=(?:\\R)??)b": (?<=(?:\R)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-362 "(?<=(?:\\R)?+)b": (?<=(?:\R)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-363 "(?<=(?:\\R)?+)b": (?<=(?:\R)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-364 "(?<=(?:\\R){0,1})b": (?<=(?:\R){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-365 "(?<=(?:\\R){0,1})b": (?<=(?:\R){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-366 "(?<=(?:\\R){0,1}?)b": (?<=(?:\R){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-367 "(?<=(?:\\R){0,1}?)b": (?<=(?:\R){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-368 "(?<=(?:\\R){0,1}+)b": (?<=(?:\R){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-369 "(?<=(?:\\R){0,1}+)b": (?<=(?:\R){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-464 "a.(?<=[\\s\\S]{2})": (?<=[\s\S]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-465 "a.(?<=[\\s\\S]{2})": (?<=[\s\S]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-466 "(?U)a.(?<=\\w{2})": (?<=\w{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-467 "(?U)a.(?<=\\w{2})": (?<=\w{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-468 "a.(?<=a😀)": (?<=a😀): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-469 "a.(?<=a😀)": (?<=a😀): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-470 "(?<=\\p{IsDeseret})": (?<=\p{IsDeseret}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-471 "(?<=\\p{IsDeseret})": (?<=\p{IsDeseret}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-474 "(?<=[^a&&[b]])c": (?<=[^a&&[b]]): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-475 "(?<=[^a&&[b]])c": (?<=[^a&&[b]]): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-476 "(?<=[\\u0000-\\uFFFF]{2})": (?<=[\u0000-\uFFFF]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex REJECTED round2-477 "(?<=[\\u0000-\\uFFFF]{2})": (?<=[\u0000-\uFFFF]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+fancy-regex PROVEN runtime-scans-002: oracle aborted; mandatory-literal proof supplies the answer
+fancy-regex HANG runtime-scans-003 "(?=a*\\z)b"
+fancy-regex HANG runtime-scans-004 "(?=a*\\z)b"
+fancy-regex PROVEN runtime-scans-006: oracle aborted; mandatory-literal proof supplies the answer
+fancy-regex HANG runtime-scans-007 "(?!(?:a*\\z))b"
+fancy-regex HANG runtime-scans-008 "(?!(?:a*\\z))b"
+fancy-regex: slowest row runtime-scans-007 (10008 ms)
+fancy-regex: aborted row adversarial-008: "proven" in 22 ms
+fancy-regex: aborted row round1-188: "pass" in 37 ms
+fancy-regex: aborted row runtime-scans-002: "proven" in 1232 ms
+fancy-regex: aborted row runtime-scans-003: "hang" in 10006 ms
+fancy-regex: aborted row runtime-scans-004: "hang" in 10005 ms
+fancy-regex: aborted row runtime-scans-006: "proven" in 1192 ms
+fancy-regex: aborted row runtime-scans-007: "hang" in 10008 ms
+fancy-regex: aborted row runtime-scans-008: "hang" in 10006 ms
+pcre2 REJECTED unicode-classes-025 "\\X": \X: extended grapheme cluster matching is not supported by the Rust regex backend
+pcre2 REJECTED advanced-014 "(?<=a+)b": (?<=a+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED advanced-015 "(?<=a{1,3})b": (?<=a{1,3}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 E1 advanced-022: scalar-only match boundaries and empty-match advancement
+pcre2 E1 advanced-025: scalar-only match boundaries and empty-match advancement
+pcre2 E1 advanced-027: scalar-only match boundaries and empty-match advancement
+pcre2 REJECTED advanced-037 "(?i)(a)\\1": \1: case-insensitive backreferences fold differently in the Rust regex backend
+pcre2 REJECTED advanced-039 "a\\b{g}b": \b{g}: grapheme cluster boundaries are not supported by the Rust regex backend
+pcre2 REJECTED advanced-040 "\\uD800": \uD800: a lone surrogate cannot occur in Rust strings
+pcre2 LIMIT adversarial-001 "(a+)+$"
+    input[3] "aaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-002 "(a|a?)+$"
+    input[3] "aaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-004 "(a|aa)+$"
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-005 "^(([a-z])+.)+[A-Z]([a-z])+$"
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-008 "(.*a){12}"
+    input[3] "aaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-009 "^(\\w+\\s?)*$"
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 LIMIT adversarial-012 "^(a?){25}a{25}$"
+    input[4] "aaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[6] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab": expected false, got {"aborted":true}
+    input[8] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected false, got {"aborted":true}
+pcre2 REJECTED invalid-015 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED invalid-028 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-003 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-004 "(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-005 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-006 "(?<=(a+))b": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-007 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-008 "(?<=(a{1,3}))b": (?<=(a{1,3})): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-009 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-010 "aa(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-011 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-012 "(?<=a*)b": (?<=a*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-013 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-014 "(?<=(a|aa))b": (?<=(a|aa)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 E1 round1-052: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round1-054: scalar-only match boundaries and empty-match advancement
+pcre2 REJECTED round1-085 "\\x{d800}": \x{d800}: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round1-096 "ab(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 FAIL round1-102 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+pcre2 FAIL round1-105 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",a"]
+pcre2 FAIL round1-106 split "\\G"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,a"], got ["","a",",","a",""]
+pcre2 FAIL round1-107 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+pcre2 FAIL round1-110 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","bc"]
+    input[1] "a,a": expected ["","a,",""], got ["","a",",a"]
+pcre2 FAIL round1-111 split "\\G|a"
+    input[0] "abc": expected ["","abc"], got ["","a","b","c",""]
+    input[1] "a,a": expected ["","a,","",""], got ["","a",",","a",""]
+pcre2 FAIL round1-112 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+pcre2 FAIL round1-115 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","a"]
+pcre2 FAIL round1-116 split "\\G,|(?=a)"
+    input[1] "a,a": expected ["","a,","a"], got ["","a","","a"]
+pcre2 REJECTED round1-125 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-126 ".*(?<=(a+))\\1": (?<=(a+)): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round1-131 "(?<!([ab]{2}))c": (?<!([ab]{2})): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round1-144 "\\x{D800}": \x{D800}: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round1-145 "\\uDC00": \uDC00: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round1-147 "[\\x{D800}]": \x{D800}: a lone surrogate cannot occur in Rust strings
+pcre2 FAIL round1-163 replace "\\G"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,a", got "-a-,-a-"
+pcre2 FAIL round1-164 replace "\\G|a"
+    input[0] "abc": expected "-abc", got "-a-b-c-"
+    input[1] "a,a": expected "-a,--", got "-a-,-a-"
+pcre2 FAIL round1-165 replace "\\G,|(?=a)"
+    input[1] "a,a": expected "-a,-a", got "-a--a"
+pcre2 LIMIT round1-166 "(?:(?=)(a?){22}a{22}|a{22})"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaa": expected true, got {"aborted":true}
+pcre2 REJECTED round1-167 "(?!(a|aa)+$).*": (?!(a|aa)+$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round1-177 "(?x)\\b {g }": \b {g }: grapheme cluster boundaries are not supported by the Rust regex backend
+pcre2 LIMIT round1-189 "(?=)(a)*"
+    input[0] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"… (1100000 bytes): expected true, got {"aborted":true}
+pcre2 REJECTED round1-190 ".*(?<=a+b*)c": (?<=a+b*): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-001 "(?<!(a))\\1": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-002 "(?<!(a))\\1": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-003 "(?<!(a))": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-004 "(?<!(ab|cd))b": (?<!(ab|cd)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-005 "(?<!(ab|cd))": (?<!(ab|cd)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-006 "(?<!(a|b)(c|d))\\2": (?<!(a|b)(c|d)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-007 "(?<!(a|b)(c|d))\\2": (?<!(a|b)(c|d)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-008 "(?<!(a|b)(c|d))": (?<!(a|b)(c|d)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-009 "(?<!(a{2}))": (?<!(a{2})): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-034 "(?<!((?>ab|cd)))b": (?<!((?>ab|cd))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-035 "(?<!((?>ab|cd)))": (?<!((?>ab|cd))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-036 "(?<!(a(?=(b))))\\1": (?<!(a(?=(b)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-037 "(?<!(a(?=(b))))\\1": (?<!(a(?=(b)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-038 "(?<!(a(?=(b))))": (?<!(a(?=(b)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-039 "(?<!(a(?<=(a))))\\1": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-040 "(?<!(a(?<=(a))))\\1": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-041 "(?<!(a(?<=(a))))\\2": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-042 "(?<!(a(?<=(a))))\\2": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-043 "(?<!(a(?<=(a))))": (?<!(a(?<=(a)))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-044 "(?<!(😀|a))\\1": (?<!(😀|a)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-045 "(?<!(😀|a))\\1": (?<!(😀|a)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-046 "(?<!(😀|a))": (?<!(😀|a)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-047 "(?<!(😀|𐐀))": (?<!(😀|𐐀)): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-048 "(?<=(.{2}))": (?<=(.{2})): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-049 "(?<=(.{2}))": (?<=(.{2})): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-050 "(?<!(.{2}))": (?<!(.{2})): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 E1 round2-051: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-052: scalar-only match boundaries and empty-match advancement
+pcre2 REJECTED round2-053 "(?<!(a$|b$))": (?<!(a$|b$)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-054 "(?<!(a(?=b)|c(?=d)))b": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-055 "(?<!(a(?=b)|c(?=d)))b": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-056 "(?<!(a(?=b)|c(?=d)))\\1": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-057 "(?<!(a(?=b)|c(?=d)))\\1": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-058 "(?<!(a(?=b)|c(?=d)))": (?<!(a(?=b)|c(?=d))): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-059 "(?<!(?=(a))a)\\1": (?<!(?=(a))a): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-060 "(?<!(?=(a))a)\\1": (?<!(?=(a))a): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-061 "(?<!(?=(a))a)": (?<!(?=(a))a): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 FAIL round2-062 replace "\\G|."
+    input[0] "😀a": expected {"utf16":[45,55357,45,45,97]}, got "-😀-a-"
+    input[1] "ab😀b": expected {"utf16":[45,97,45,45,55357,45,45,98]}, got "-a-b-😀-b-"
+    input[2] "😀": expected {"utf16":[45,55357,45,45]}, got "-😀-"
+    input[3] "😀😀": expected {"utf16":[45,55357,45,45,55357,45,45]}, got "-😀-😀-"
+    input[4] "𐐀": expected {"utf16":[45,55297,45,45]}, got "-𐐀-"
+    input[5] "𐐀a": expected {"utf16":[45,55297,45,45,97]}, got "-𐐀-a-"
+pcre2 FAIL round2-063 split "\\G|."
+    input[0] "😀a": expected ["",{"utf16":[55357]},"","a"], got ["","😀","a",""]
+    input[1] "ab😀b": expected ["","a","",{"utf16":[55357]},"","b"], got ["","a","b","😀","b",""]
+    input[2] "😀": expected ["",{"utf16":[55357]},"",""], got ["","😀",""]
+    input[3] "😀😀": expected ["",{"utf16":[55357]},"",{"utf16":[55357]},"",""], got ["","😀","😀",""]
+    input[4] "𐐀": expected ["",{"utf16":[55297]},"",""], got ["","𐐀",""]
+    input[5] "𐐀a": expected ["",{"utf16":[55297]},"","a"], got ["","𐐀","a",""]
+pcre2 REJECTED round2-064 "(?!((a|aa)+)$).*": (?!((a|aa)+)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-065 "(?!((a|aa)+)$).*": (?!((a|aa)+)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-066 "(?!(a|aa)+$).*": (?!(a|aa)+$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-067 "(?!(a|aa)+$).*": (?!(a|aa)+$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-070 "(?!(a*)$).*": (?!(a*)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-071 "(?!(a*)$).*": (?!(a*)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-072 "(?!(a)$).*": (?!(a)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-073 "(?!(a)$).*": (?!(a)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-074 "(?!(a|b)$).*": (?!(a|b)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-075 "(?!(a|b)$).*": (?!(a|b)$): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-091 ".*?(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-092 ".*?(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-093 ".*(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 REJECTED round2-094 ".*(?<!(a))\\1.*": (?<!(a)): captures in negative lookaround have different lifetimes in the Rust regex backend; use noncapturing groups
+pcre2 COMPILE-LIMIT round2-119: authorized nesting bound
+pcre2 COMPILE-LIMIT round2-120: authorized nesting bound
+pcre2 COMPILE-LIMIT round2-121: authorized nesting bound
+pcre2 E1 round2-122: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-123: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-124: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-125: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-126: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-127: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-128: scalar-only match boundaries and empty-match advancement
+pcre2 E1 round2-129: scalar-only match boundaries and empty-match advancement
+pcre2 REJECTED round2-130 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-131 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-132 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-133 ".(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 E1 round2-134: scalar-only match boundaries and empty-match advancement
+pcre2 REJECTED round2-135 "a.(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-136 "a.(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-137 ".*(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-138 ".*(?<=..)": (?<=..): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-149 "\\N{HIGH SURROGATES D800}": \N{HIGH SURROGATES D800}: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round2-150 "\\N{HIGH SURROGATES D800}": \N{HIGH SURROGATES D800}: a lone surrogate cannot occur in Rust strings
+pcre2 REJECTED round2-194 "(?<=(?:a|b)?)b": (?<=(?:a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-195 "(?<=(?:a|b)?)b": (?<=(?:a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-196 "(?<=(?:a|b)??)b": (?<=(?:a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-197 "(?<=(?:a|b)??)b": (?<=(?:a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-198 "(?<=(?:a|b)?+)b": (?<=(?:a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-199 "(?<=(?:a|b)?+)b": (?<=(?:a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-200 "(?<=(?:a|b){0,1})b": (?<=(?:a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-201 "(?<=(?:a|b){0,1})b": (?<=(?:a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-202 "(?<=(?:a|b){0,1}?)b": (?<=(?:a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-203 "(?<=(?:a|b){0,1}?)b": (?<=(?:a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-204 "(?<=(?:a|b){0,1}+)b": (?<=(?:a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-205 "(?<=(?:a|b){0,1}+)b": (?<=(?:a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-216 "(?<=(a|b)?)b": (?<=(a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-217 "(?<=(a|b)?)b": (?<=(a|b)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-218 "(?<=(a|b)??)b": (?<=(a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-219 "(?<=(a|b)??)b": (?<=(a|b)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-220 "(?<=(a|b)?+)b": (?<=(a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-221 "(?<=(a|b)?+)b": (?<=(a|b)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-222 "(?<=(a|b){0,1})b": (?<=(a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-223 "(?<=(a|b){0,1})b": (?<=(a|b){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-224 "(?<=(a|b){0,1}?)b": (?<=(a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-225 "(?<=(a|b){0,1}?)b": (?<=(a|b){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-226 "(?<=(a|b){0,1}+)b": (?<=(a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-227 "(?<=(a|b){0,1}+)b": (?<=(a|b){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-234 "(?<=(a?){1}+)b": (?<=(a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-235 "(?<=(a?){1}+)b": (?<=(a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-236 "(?<=(a?){2}+)b": (?<=(a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-237 "(?<=(a?){2}+)b": (?<=(a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-238 "(?<=(a?)?)b": (?<=(a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-239 "(?<=(a?)?)b": (?<=(a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-240 "(?<=(a?)??)b": (?<=(a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-241 "(?<=(a?)??)b": (?<=(a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-242 "(?<=(a?)?+)b": (?<=(a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-243 "(?<=(a?)?+)b": (?<=(a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-244 "(?<=(a?){0,1})b": (?<=(a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-245 "(?<=(a?){0,1})b": (?<=(a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-246 "(?<=(a?){0,1}?)b": (?<=(a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-247 "(?<=(a?){0,1}?)b": (?<=(a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-248 "(?<=(a?){0,1}+)b": (?<=(a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-249 "(?<=(a?){0,1}+)b": (?<=(a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-258 "(?<=(?:a?){1}+)b": (?<=(?:a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-259 "(?<=(?:a?){1}+)b": (?<=(?:a?){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-260 "(?<=(?:a?){2}+)b": (?<=(?:a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-261 "(?<=(?:a?){2}+)b": (?<=(?:a?){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-262 "(?<=(?:a?)?)b": (?<=(?:a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-263 "(?<=(?:a?)?)b": (?<=(?:a?)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-264 "(?<=(?:a?)??)b": (?<=(?:a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-265 "(?<=(?:a?)??)b": (?<=(?:a?)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-266 "(?<=(?:a?)?+)b": (?<=(?:a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-267 "(?<=(?:a?)?+)b": (?<=(?:a?)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-268 "(?<=(?:a?){0,1})b": (?<=(?:a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-269 "(?<=(?:a?){0,1})b": (?<=(?:a?){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-270 "(?<=(?:a?){0,1}?)b": (?<=(?:a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-271 "(?<=(?:a?){0,1}?)b": (?<=(?:a?){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-272 "(?<=(?:a?){0,1}+)b": (?<=(?:a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-273 "(?<=(?:a?){0,1}+)b": (?<=(?:a?){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-286 "(?<=(?:a)?)b": (?<=(?:a)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-287 "(?<=(?:a)?)b": (?<=(?:a)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-288 "(?<=(?:a)??)b": (?<=(?:a)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-289 "(?<=(?:a)??)b": (?<=(?:a)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-290 "(?<=(?:a)?+)b": (?<=(?:a)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-291 "(?<=(?:a)?+)b": (?<=(?:a)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-292 "(?<=(?:a){0,1})b": (?<=(?:a){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-293 "(?<=(?:a){0,1})b": (?<=(?:a){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-294 "(?<=(?:a){0,1}?)b": (?<=(?:a){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-295 "(?<=(?:a){0,1}?)b": (?<=(?:a){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-296 "(?<=(?:a){0,1}+)b": (?<=(?:a){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-297 "(?<=(?:a){0,1}+)b": (?<=(?:a){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-306 "(?<=(?:a|){1}+)b": (?<=(?:a|){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-307 "(?<=(?:a|){1}+)b": (?<=(?:a|){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-308 "(?<=(?:a|){2}+)b": (?<=(?:a|){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-309 "(?<=(?:a|){2}+)b": (?<=(?:a|){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-310 "(?<=(?:a|)?)b": (?<=(?:a|)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-311 "(?<=(?:a|)?)b": (?<=(?:a|)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-312 "(?<=(?:a|)??)b": (?<=(?:a|)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-313 "(?<=(?:a|)??)b": (?<=(?:a|)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-314 "(?<=(?:a|)?+)b": (?<=(?:a|)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-315 "(?<=(?:a|)?+)b": (?<=(?:a|)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-316 "(?<=(?:a|){0,1})b": (?<=(?:a|){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-317 "(?<=(?:a|){0,1})b": (?<=(?:a|){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-318 "(?<=(?:a|){0,1}?)b": (?<=(?:a|){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-319 "(?<=(?:a|){0,1}?)b": (?<=(?:a|){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-320 "(?<=(?:a|){0,1}+)b": (?<=(?:a|){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-321 "(?<=(?:a|){0,1}+)b": (?<=(?:a|){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-324 "(?<=\\R{1})b": (?<=\R{1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-325 "(?<=\\R{1})b": (?<=\R{1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-326 "(?<=\\R{2})b": (?<=\R{2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-327 "(?<=\\R{2})b": (?<=\R{2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-330 "(?<=\\R{1}+)b": (?<=\R{1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-331 "(?<=\\R{1}+)b": (?<=\R{1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-332 "(?<=\\R{2}+)b": (?<=\R{2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-333 "(?<=\\R{2}+)b": (?<=\R{2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-334 "(?<=\\R?)b": (?<=\R?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-335 "(?<=\\R?)b": (?<=\R?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-336 "(?<=\\R??)b": (?<=\R??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-337 "(?<=\\R??)b": (?<=\R??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-338 "(?<=\\R?+)b": (?<=\R?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-339 "(?<=\\R?+)b": (?<=\R?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-340 "(?<=\\R{0,1})b": (?<=\R{0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-341 "(?<=\\R{0,1})b": (?<=\R{0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-342 "(?<=\\R{0,1}?)b": (?<=\R{0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-343 "(?<=\\R{0,1}?)b": (?<=\R{0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-344 "(?<=\\R{0,1}+)b": (?<=\R{0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-345 "(?<=\\R{0,1}+)b": (?<=\R{0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-348 "(?<=(?:\\R){1})b": (?<=(?:\R){1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-349 "(?<=(?:\\R){1})b": (?<=(?:\R){1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-350 "(?<=(?:\\R){2})b": (?<=(?:\R){2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-351 "(?<=(?:\\R){2})b": (?<=(?:\R){2}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-354 "(?<=(?:\\R){1}+)b": (?<=(?:\R){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-355 "(?<=(?:\\R){1}+)b": (?<=(?:\R){1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-356 "(?<=(?:\\R){2}+)b": (?<=(?:\R){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-357 "(?<=(?:\\R){2}+)b": (?<=(?:\R){2}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-358 "(?<=(?:\\R)?)b": (?<=(?:\R)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-359 "(?<=(?:\\R)?)b": (?<=(?:\R)?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-360 "(?<=(?:\\R)??)b": (?<=(?:\R)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-361 "(?<=(?:\\R)??)b": (?<=(?:\R)??): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-362 "(?<=(?:\\R)?+)b": (?<=(?:\R)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-363 "(?<=(?:\\R)?+)b": (?<=(?:\R)?+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-364 "(?<=(?:\\R){0,1})b": (?<=(?:\R){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-365 "(?<=(?:\\R){0,1})b": (?<=(?:\R){0,1}): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-366 "(?<=(?:\\R){0,1}?)b": (?<=(?:\R){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-367 "(?<=(?:\\R){0,1}?)b": (?<=(?:\R){0,1}?): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-368 "(?<=(?:\\R){0,1}+)b": (?<=(?:\R){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-369 "(?<=(?:\\R){0,1}+)b": (?<=(?:\R){0,1}+): variable-length lookbehind has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-464 "a.(?<=[\\s\\S]{2})": (?<=[\s\S]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-465 "a.(?<=[\\s\\S]{2})": (?<=[\s\S]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-466 "(?U)a.(?<=\\w{2})": (?<=\w{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-467 "(?U)a.(?<=\\w{2})": (?<=\w{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-468 "a.(?<=a😀)": (?<=a😀): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-469 "a.(?<=a😀)": (?<=a😀): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-470 "(?<=\\p{IsDeseret})": (?<=\p{IsDeseret}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-471 "(?<=\\p{IsDeseret})": (?<=\p{IsDeseret}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-474 "(?<=[^a&&[b]])c": (?<=[^a&&[b]]): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-475 "(?<=[^a&&[b]])c": (?<=[^a&&[b]]): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-476 "(?<=[\\u0000-\\uFFFF]{2})": (?<=[\u0000-\uFFFF]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 REJECTED round2-477 "(?<=[\\u0000-\\uFFFF]{2})": (?<=[\u0000-\uFFFF]{2}): lookbehind over supplementary code points or surrogate code units has different matching semantics in the Rust regex backend
+pcre2 LIMIT round2-482 "(?!(?:a|aa)+$).*"
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected true, got {"aborted":true}
+pcre2 LIMIT round2-483 "(?!(?:a|aa)+$).*"
+    input[5] "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!": expected {"groups":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"],"range":[0,41]}, got {"aborted":true}
+pcre2 PROVEN runtime-scans-002: oracle aborted; mandatory-literal proof supplies the answer
+pcre2 PROVEN runtime-scans-003: oracle aborted; mandatory-literal proof supplies the answer
+pcre2 PROVEN runtime-scans-004: oracle aborted; mandatory-literal proof supplies the answer
+pcre2 PROVEN runtime-scans-006: oracle aborted; mandatory-literal proof supplies the answer
+pcre2 PROVEN runtime-scans-007: oracle aborted; mandatory-literal proof supplies the answer
+pcre2 PROVEN runtime-scans-008: oracle aborted; mandatory-literal proof supplies the answer
+pcre2: slowest row adversarial-012 (239 ms)
+pcre2: aborted row adversarial-008: "limit" in 80 ms
+pcre2: aborted row round1-188: "pass" in 28 ms
+pcre2: aborted row runtime-scans-002: "proven" in 22 ms
+pcre2: aborted row runtime-scans-003: "proven" in 27 ms
+pcre2: aborted row runtime-scans-004: "proven" in 29 ms
+pcre2: aborted row runtime-scans-006: "proven" in 22 ms
+pcre2: aborted row runtime-scans-007: "proven" in 30 ms
+pcre2: aborted row runtime-scans-008: "proven" in 28 ms
+
+| Family | java_regex | fancy-regex | pcre2 |
+|---|---|---|---|
+| ascii-classes | 13/13 | 13/13 | 13/13 |
+| unicode-classes | 27/30 +3 fail | 29/30 +1 D6 | 29/30 +1 D6 |
+| flags | 175/178 +3 fail | 178/178 | 178/178 |
+| flag-scope | 18/18 | 18/18 | 18/18 |
+| anchors | 30/30 | 30/30 | 30/30 |
+| dot | 9/9 | 9/9 | 9/9 |
+| quoting | 10/10 | 10/10 | 10/10 |
+| advanced | 34/41 +4 fail +3 E1 | 33/41 +3 E1 +5 D6 | 33/41 +3 E1 +5 D6 |
+| hardcoded | 24/24 | 24/24 | 24/24 |
+| split | 4/4 | 4/4 | 4/4 |
+| user-realistic | 9/9 | 9/9 | 9/9 |
+| adversarial | 11/12 +1 proven | 11/12 +1 proven | 5/12 +7 limit |
+| invalid | 28/30 +2 fail | 28/30 +2 D6 | 28/30 +2 D6 |
+| round1 | 123/190 +67 fail | 165/190 +2 E1 +23 D6 | 151/190 +2 limit +12 fail +2 E1 +23 D6 |
+| round2 | 376/491 +92 fail +20 E1 +3 compile-limit | 278/491 +13 E1 +5 compile-limit +195 D6 | 278/491 +2 limit +2 fail +11 E1 +3 compile-limit +195 D6 |
+| runtime-scans | 2/8 +6 fail | 2/8 +2 proven (4 hang) | 2/8 +6 proven |
+| **all** | **893/1097 +177 fail +1 proven +23 E1 +3 compile-limit** | **841/1097 +3 proven +18 E1 +5 compile-limit +226 D6 (4 hang)** | **821/1097 +11 limit +14 fail +6 proven +16 E1 +3 compile-limit +226 D6** |

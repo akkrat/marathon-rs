@@ -1,0 +1,21 @@
+[
+  {
+    "case": "scenario:screenshot:attachments",
+    "value": [
+      [
+        "screen",
+        "SCREENSHOT_GIF",
+        "pkg.clazz#method-batch.gif"
+      ]
+    ]
+  },
+  {
+    "case": "scenario:screenshot:files",
+    "value": [
+      [
+        "screenshot/pool/SERIAL/pkg.clazz#method-batch.gif",
+        "55115"
+      ]
+    ]
+  }
+]
