@@ -28,7 +28,9 @@ fn config() -> marathon_config::Configuration {
             ("other".into(), "value".into()),
         ],
     };
-    c.test_output_timeout_millis = 30;
+    // Real time between output chunks of the fake instrumentation: only a hang guard here; the
+    // timeout test sets its own short value.
+    c.test_output_timeout_millis = 60_000;
     c
 }
 fn script(outputs: Vec<Value>) -> Value {
@@ -170,7 +172,10 @@ impl VendorClock for HandshakeClock {
 }
 #[test]
 fn timeout_has_three_inner_attempts_and_unregisters_every_attempt() {
-    run(config(), |runtime, context| {
+    let mut c = config();
+    // The fake never answers, so each inner attempt ends on this timeout.
+    c.test_output_timeout_millis = 30;
+    run(c, |runtime, context| {
         Box::pin(async move {
             let mut server = server(script(vec![json!({"prefix":"am instrument","hang":true})])).await;
             let runtime = change_runtime(&runtime, &[server.port()]);
