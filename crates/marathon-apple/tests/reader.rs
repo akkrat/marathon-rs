@@ -250,3 +250,33 @@ async fn cancel_discards_queued_lines_but_keeps_the_first_close_cause() {
         Err(VendorError::Cancelled(cancelled("first")))
     );
 }
+
+// U145 witness: output and EOF that arrive after a poll found nothing and before can_read sees the EOF are never
+// read. Reader.kt has the same order (available() == 0, then canRead() → isEOF), so Kotlin drops them too.
+#[tokio::test(start_paused = true)]
+async fn output_arriving_with_eof_between_an_empty_read_and_can_read_is_never_read() {
+    let stream = Stream::default();
+    let arriving = stream.clone();
+    let output = LineChannel::new(64);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = calls.clone();
+    produce_lines_manually(
+        stream.clone(),
+        output.clone(),
+        Arc::new(AtomicI64::new(0)),
+        duration(60_000),
+        context(),
+        move || {
+            // The SSH pump delivers the command's stdout and then EOF exactly here.
+            if seen.fetch_add(1, Ordering::SeqCst) == 0 {
+                arriving.write("HOME=/Users/worker\nUSER=worker\n");
+            }
+            false
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(collect(&output).await.unwrap(), Vec::<String>::new());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(stream.0.lock().unwrap().len(), 31, "the output stays buffered, unread");
+}
