@@ -1,31 +1,34 @@
 # Migrating from the JVM distribution
 
 Keep your existing Marathonfile, Marathondevices and command lines, subject to
-[the approved differences](deviations.md). This is a pre-release migration
-recipe. Production use requires the validation and cutover gates described in
-[release readiness](releasing.md#release-readiness); packaging checks alone do
-not certify end-to-end parity. Check the published tag's release notes before
-migrating.
+[the approved differences](deviations.md). Packaging checks alone do not certify
+end-to-end parity: see [release readiness](releasing.md#release-readiness) for what
+the evidence covers, and check the release's notes before migrating.
 
 ## Install the native entry point
 
-When a tag is published, choose the archive for the **runner host**, not the
-device architecture: `aarch64-apple-darwin` for Apple Silicon macOS, or
-`x86_64-unknown-linux-gnu` for x86_64 GNU/Linux. Download
-`marathon-<tag>-<target>.zip` and `SHA256SUMS` from the same tag's GitHub Release.
-There is no Windows, Intel Mac or universal binary. Branch builds do not publish.
-GitHub latest means the last successfully promoted release, not necessarily the
-highest semantic version. Use a pinned tag for reproducible CI entry points.
+Choose the archive for the **runner host**, not the device architecture:
+`aarch64-apple-darwin` for Apple Silicon macOS, or `x86_64-unknown-linux-musl` for
+x86_64 Linux on any distribution. Download `marathon-<version>-<target>.zip` and
+`SHA256SUMS` from the same version's GitHub Release. Versions and tags have no `v`
+prefix. There is no Windows, Intel Mac, Linux on ARM or universal binary. Branch builds
+do not publish. GitHub latest means the last successfully promoted release, not
+necessarily the highest semantic version, and pre-releases are never latest. Use a
+pinned version for reproducible CI entry points.
 
-The following is a **template**, not a live release URL or an exercised download.
-Replace the angle-bracket placeholders before running it. In the download
-directory, verify the selected asset against its exact entry in `SHA256SUMS`:
+Replace the angle-bracket placeholders before running this; each release's notes carry
+the same commands with its own version and repository filled in. It verifies the
+selected asset against its exact entry in `SHA256SUMS`:
 
 ```sh
 set -eu
-tag='<published-tag>'
-target='aarch64-apple-darwin'  # or x86_64-unknown-linux-gnu
-archive="marathon-${tag}-${target}.zip"
+version='<version>'
+repo='<owner>/<repo>'
+target='aarch64-apple-darwin'  # or x86_64-unknown-linux-musl
+archive="marathon-${version}-${target}.zip"
+url="https://github.com/${repo}/releases/download/${version}"
+curl -fLO "${url}/${archive}"
+curl -fLO "${url}/SHA256SUMS"
 # Fail unless the checksum file contains exactly this asset once:
 awk -v asset="$archive" '$2 == asset { print; n++ } END { if (n != 1) exit 1 }' \
   SHA256SUMS > selected.sha256 || {
@@ -35,13 +38,29 @@ awk -v asset="$archive" '$2 == asset { print; n++ } END { if (n != 1) exit 1 }' 
 [ -s selected.sha256 ] || { echo "Selected checksum is empty" >&2; exit 1; }
 shasum -a 256 -c selected.sha256
 unzip "$archive" -d native-runner
-"./native-runner/marathon-${tag}/bin/marathon" version
+"./native-runner/marathon-${version}/bin/marathon" version
 ```
 
-On GNU/Linux, replace `shasum -a 256 -c` with `sha256sum -c`. Extract into a fresh
-directory. The archive contains one executable, `marathon-<tag>/bin/marathon`,
-with Unix mode 0755; there is no launcher script or JAR directory. The final
-stdout line from `version` must equal the tag exactly. A startup log precedes it.
+On Linux, replace `shasum -a 256 -c` with `sha256sum -c`. Extract into a fresh directory.
+The archive contains `marathon-<version>/bin/marathon`, with Unix mode 0755, and the text
+files `LICENSE` and `THIRD-PARTY-LICENSES`, with mode 0644. There is no launcher script or
+JAR directory. The final stdout line from `version` must equal the version exactly. A
+startup log precedes it. To check where an archive was built, run
+`gh attestation verify "$archive" --repo "$repo"`.
+
+**macOS quarantine.** The macOS binary is ad-hoc signed and not notarised, because
+that needs an Apple Developer account. A browser marks its downloads as quarantined, and
+extracting such a zip with `unzip` passes the mark to the binary. Gatekeeper then blocks
+it: it does not start, and in an unattended session, such as a CI step, it hangs with no
+output. `curl` and `gh`, as above, set no quarantine. For a browser download, clear the
+mark from the extracted binary before the first run:
+
+```sh
+xattr -d com.apple.quarantine "marathon-${version}/bin/marathon"
+```
+
+A copy already launched while quarantined can stay blocked after that, so extract it
+again and clear the new copy.
 
 Change your PATH or CI executable path to the extracted `bin/marathon`, retaining
 the previous JVM distribution separately for rollback. Check `command -v marathon`
@@ -52,12 +71,13 @@ the native argv: `JAVA_OPTS` and `MARATHON_OPTS` are ignored (D2).
 ### Platform and workload prerequisites
 
 The macOS release helper sets a macOS 11.0 linker floor; observed WP 7.3 metadata
-matches it, but old-macOS execution is not certified. Linux builds target GNU
-libc, using Ubuntu 22.04/glibc 2.35 as the workflow baseline. That is a build
-baseline, not a measured minimum: native Linux archive inspection and extraction
-smoke were unavailable in the recorded WP 7.3 evidence. Review the actual
-release's dependency metadata before deployment. See [release evidence](wp/7.3-findings.md)
-and [operator instructions](releasing.md) for precise limitations.
+matches it, but old-macOS execution is not certified. The Linux binary is static, so
+it needs no particular libc: each release runs `version` and `--help` in an Alpine
+container before it is published. The real Android runs in the
+[release evidence](wp/7.5-findings.md#closure-sweep-results) used a glibc build, and
+musl's allocator and DNS resolver differ from glibc's, so include your Android workload
+and worker hosts in the trial below. See [operator instructions](releasing.md) for
+precise limitations.
 
 The runner needs no JVM. Android still needs the configured SDK, ADB server and
 devices; SDK lookup uses `androidSdk`, then `ANDROID_HOME`, then

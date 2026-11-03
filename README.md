@@ -4,10 +4,13 @@ A native Rust rewrite of the Kotlin marathon fork frozen at `e47352f2`,
 for running Android, iOS and macOS tests with the existing Marathonfile,
 Marathondevices, CLI and report formats.
 
-**Pre-release.** Production use requires the differential, real-device,
-port-queue and isolated cutover gates; packaging checks alone do not certify
-end-to-end parity. See [release status and requirements](docs/releasing.md#release-readiness)
-and the published tag's release notes before migrating.
+**0.99.0 is the first public release.** The Kotlin tests are ported or marked not
+applicable with a reason, differential suites compare whole runs with the JVM program,
+and real iOS, macOS and Android runs were compared on an earlier commit.
+No isolated shadow or canary results are recorded in this repository. Trial it in a
+disposable environment and keep your JVM distribution for rollback. See the
+[changelog](CHANGELOG.md) for known limits and
+[release readiness](docs/releasing.md#release-readiness) for what the evidence covers.
 
 - [Fork notes and compatibility scope](docs/fork-notes.md)
 - [Approved differences from Kotlin](docs/deviations.md)
@@ -15,19 +18,23 @@ and the published tag's release notes before migrating.
 
 ## Install
 
-When a release is published, download the matching zip and `SHA256SUMS` from
-that tag's GitHub Release. The two build targets are:
+Download the matching zip and `SHA256SUMS` from a version's GitHub Release. Each
+release's notes carry the exact commands. There are two assets:
 
 | Runner host | Asset |
 |---|---|
-| Apple Silicon macOS | `marathon-<tag>-aarch64-apple-darwin.zip` |
-| x86_64 GNU/Linux | `marathon-<tag>-x86_64-unknown-linux-gnu.zip` |
+| Apple Silicon macOS | `marathon-<version>-aarch64-apple-darwin.zip` |
+| x86_64 Linux, any distribution (static binary) | `marathon-<version>-x86_64-unknown-linux-musl.zip` |
 
-`<tag>` is a placeholder for an actual published tag, including any `v` prefix.
-There is no Windows, Intel Mac or universal build. Follow the
+Versions and tags have no `v` prefix, for example `0.99.0`. There is no Windows,
+Intel Mac, Linux on ARM or universal build. Follow the
 [checksum and extraction recipe](docs/migration.md#install-the-native-entry-point)
-and its platform qualifications. The zip contains
-`marathon-<tag>/bin/marathon`; no JVM is needed by the native runner.
+and its platform qualifications. The zip contains `marathon-<version>/bin/marathon`,
+`LICENSE` and `THIRD-PARTY-LICENSES`; no JVM is needed by the native runner.
+
+The macOS binary is not notarised, so a browser download is quarantined and hangs when
+run. Download with `curl` or `gh`, or clear it with `xattr -d com.apple.quarantine` before
+the first run; see the [recipe](docs/migration.md#install-the-native-entry-point).
 
 ## Quick start
 
@@ -75,4 +82,5 @@ scheme. A release binary's version equals its tag; untagged builds use the
 existing fallback, which is not evidence that a release exists.
 
 Derived from marathon and distributed under [GPL-2.0](LICENSE). Existing source
-attribution and third-party notices remain in their respective files.
+attribution and third-party notices remain in their respective files, and each release
+archive carries a generated `THIRD-PARTY-LICENSES`.
