@@ -17,6 +17,7 @@ The reference build of the Kotlin marathon (commit `e47352f2`) and the JVM tools
 | `plist-probes/` | WP 4.5a JVM probes against dd-plist 1.28 and the Kotlin plist models (`PlistProbes.java`, recorded `expected.txt`; see its `README.md`) |
 | `strategy-probes/` | WP 3.2 JVM probes of the e47352f2 strategies against the reference `installDist` jars (`StrategyProbes.kt`; `run [OUT_DIR]` writes `fixtures/oracle/strategies/*.jsonl`) |
 | `queue-probes/` | WP 3.7 JVM probe driving the e47352f2 `QueueActor` with the real `PoolProgressAccumulator` (`QueueProbes.kt`; `run [OUT_DIR]` writes `fixtures/oracle/queue/queue.jsonl`) |
+| `reader-race-probe/` | WP x9 JVM probe of the e47352f2 `produceLinesManually` with stdout and EOF arriving between `available()` and `canRead()` (`ReaderRaceProbe.java`, recorded `expected.txt`; evidence for D19, see its `README.md`) |
 | `run-isolated.sh` | runs a marathon binary in a fresh sandbox and writes a manifest |
 | `test-run-isolated.sh` | tests the isolation checks of `run-isolated.sh` |
 | `build/` (gitignored) | the clone, `build/marathon-src`, and all build outputs |

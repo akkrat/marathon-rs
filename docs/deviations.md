@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D18; implementation availability
+canonical. This guide covers D1–D19; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -197,6 +197,23 @@ expose the same serial, the replay key of `borrow` is `serial@server` instead of
 the bare serial.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [x1 evidence](wp/x1-findings.md) and [x2 findings](wp/x2-findings.md).
+
+## D19 — Apple command output that arrives with EOF is read
+
+Kotlin's Apple command reader (`Reader.kt`) asks whether output is available
+and, when none is, whether it may keep reading (over SSH: the channel is open
+and has no EOF; locally: the process is alive and has not exited). If the
+command's output and its EOF or exit arrive between those two checks, the
+reader stops without reading that output. The command then succeeds with an
+empty or truncated stdout, so for example simulator setup can fail because a
+successful `env` lost its `HOME` line. It is rare (the reader must be
+descheduled at that point), but it happens on loaded hosts. Native builds read
+whatever is still buffered after the second check before finishing, so every
+byte the worker sent before EOF is parsed. Idle timeouts, cancellation and the
+other reader behaviour are unchanged. No configuration change is needed;
+expect fewer spurious setup and parsing failures on busy workers.
+See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
+and [x9 findings](wp/x9-findings.md).
 
 ## Other accepted text differences and synchronization
 

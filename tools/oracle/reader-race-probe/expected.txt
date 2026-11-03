@@ -1,0 +1,2 @@
+stdout and EOF before the first poll: [HOME=/Users/worker, USER=worker]
+stdout and EOF between available() and canRead(): []
