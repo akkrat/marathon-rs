@@ -589,11 +589,18 @@ impl marathon_core::runtime::VendorClock for RetryClock {
         self.inner.with_timeout_or_null(parent, millis, body)
     }
 }
+/// A free port below the ephemeral ranges (Linux from 32768, macOS from 49152): a parallel test
+/// binding port 0 cannot take it while the provider is being refused, as it can a released one.
+fn closed_port() -> std::io::Result<u16> {
+    (20_000 + std::process::id() % 10_000..30_000)
+        .chain(20_000..30_000)
+        .map(|port| port as u16)
+        .find(|&port| std::net::TcpListener::bind(("127.0.0.1", port)).is_ok())
+        .ok_or_else(|| std::io::Error::other("no closed port below the ephemeral range"))
+}
 #[tokio::test]
 async fn refused_connections_wait_five_seconds_then_connect_without_restarting_after_eof() -> TestResult {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
-    let port = listener.local_addr()?.port();
-    drop(listener);
+    let port = closed_port()?;
     let mut h = simulator_support::Harness::new(|v| {
         v.device_provider = Source::Dynamic {
             host: "127.0.0.1".into(),

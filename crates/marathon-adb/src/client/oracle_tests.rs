@@ -255,9 +255,7 @@ async fn close() {
 #[tokio::test]
 async fn connect_refused() {
     let kotlin = kotlin();
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
+    let port = crate::server::closed_port([127, 0, 0, 1].into()).unwrap();
     let factory = Arc::new(SocketFactory::new(DEFAULT_CONNECT_TIMEOUT_MS, 30_000));
     let client = AndroidDebugBridgeClient::new([127, 0, 0, 1].into(), port, factory.clone(), None);
     let error = client.execute(GetAdbServerVersionRequest, None).await.unwrap_err();
@@ -300,12 +298,10 @@ async fn connect_refused() {
 #[tokio::test]
 async fn connect_refused_ipv6() {
     let kotlin = kotlin();
-    let Ok(listener) = TcpListener::bind("[::1]:0").await else {
+    let Ok(port) = crate::server::closed_port("::1".parse().unwrap()) else {
         eprintln!("no IPv6 loopback here; skipped");
         return;
     };
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
     let factory = Arc::new(SocketFactory::new(DEFAULT_CONNECT_TIMEOUT_MS, 30_000));
     let client = AndroidDebugBridgeClient::new("::1".parse().unwrap(), port, factory, None).with_host_name("::1");
     let error = client.execute(GetAdbServerVersionRequest, None).await.unwrap_err();

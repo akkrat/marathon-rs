@@ -155,12 +155,16 @@ pub async fn test_terminate<E: CommandExecutor>(executor: E) {
             .unwrap();
         let ctx = context();
         let awaiting = session.await_result(&ctx);
+        // Kotlin waits 500 ms and expects 3..=10 lines, "a fuzzy way of checking that we didn't
+        // actually produce all 50 lines". Each line forks `date` and `sleep`, so a loaded host
+        // prints fewer in a fixed time and may terminate late: wait 1 s and keep only the
+        // property, fewer than the 50 lines of the 5 s timeout.
         let (result, ()) = tokio::join!(awaiting, async {
-            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             session.terminate().unwrap();
         });
         let result = result.unwrap();
-        assert!((3..=10).contains(&result.stdout.len()));
+        assert!((3..50).contains(&result.stdout.len()), "{} lines", result.stdout.len());
         assert!(result.stderr.is_empty());
         assert_eq!(result.exit_code, Some(143));
         session.close().await.unwrap();

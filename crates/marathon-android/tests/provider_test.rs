@@ -189,7 +189,9 @@ fn track_eof_ends_loop_without_reconnect() {
 }
 #[test]
 fn no_devices_messages() {
-    let _ports = shared_ports();
+    // Exclusive: the second half reuses the stopped server's port, which another test here could
+    // otherwise bind in the meantime.
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     let mut c = configuration();
     android(&mut c).wait_for_devices_timeout_millis = 25;
     run(c, |runtime, context| {

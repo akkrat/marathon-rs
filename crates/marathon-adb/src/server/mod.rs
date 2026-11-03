@@ -374,3 +374,22 @@ async fn connection(world: Arc<World>, stream: TcpStream, conn: u64) -> io::Resu
         return device::handle(world, t, req, rd, wr, conn).await;
     }
 }
+
+/// A port on `ip` that nothing listens on, for connection-refused tests. It lies below the
+/// ephemeral ranges (Linux from 32768, macOS from 49152), so a parallel test binding port 0 cannot
+/// be handed it, as it can a port released by a dropped listener.
+pub fn closed_port(ip: IpAddr) -> io::Result<u16> {
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let start = std::process::id();
+    for _ in 0..10_000 {
+        let offset = start.wrapping_add(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) % 10_000;
+        let port = 20_000 + offset as u16;
+        if std::net::TcpListener::bind((ip, port)).is_ok() {
+            return Ok(port);
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AddrNotAvailable,
+        "no closed port below the ephemeral range",
+    ))
+}

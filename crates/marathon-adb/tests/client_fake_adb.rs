@@ -454,10 +454,7 @@ async fn close_ends_live_streams_and_refuses_new_requests() {
 
 #[tokio::test]
 async fn connect_refused_is_a_connect_exception() {
-    let server = start(ONE_DEVICE).await;
-    let port = server.port();
-    drop(server);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let port = marathon_adb::server::closed_port(IpAddr::V4(Ipv4Addr::LOCALHOST)).unwrap();
     let factory = Arc::new(SocketFactory::new(10_000, 30_000));
     let client = AndroidDebugBridgeClient::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port, factory, None);
     let error = client.execute(GetAdbServerVersionRequest, None).await.unwrap_err();

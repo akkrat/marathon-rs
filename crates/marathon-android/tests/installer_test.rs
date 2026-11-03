@@ -228,9 +228,45 @@ fn inverted_api21_check_rejects_plain_apk() {
         })
     });
 }
+/// Cancels the caller's signal when the md5 poll starts its second delay. A real-time cancel can
+/// land while a request is half sent, which the fake adb server rightly records as a reset.
+struct CancelOnSecondDelay {
+    inner: std::sync::Arc<dyn marathon_core::runtime::VendorClock>,
+    signal: std::sync::Arc<marathon_core::executor::Signal>,
+    delays: std::sync::atomic::AtomicUsize,
+}
+impl marathon_core::runtime::VendorClock for CancelOnSecondDelay {
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: std::sync::Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        if self.delays.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+            self.signal
+                .cancel(marathon_core::executor::shared::requested("stop md5 poll"));
+        }
+        self.inner.delay(millis, cancellation)
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: std::sync::Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis, body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: std::sync::Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        self.inner.with_timeout_or_null(parent, millis, body)
+    }
+}
 #[test]
 fn md5_poll_is_cancelled_by_its_caller() {
-    use marathon_core::{executor::Signal, executor::shared::requested};
+    use marathon_core::executor::Signal;
     run(configuration(), |runtime, context| {
         Box::pin(async move {
             let mut script = base_script(27, vec![]);
@@ -242,10 +278,10 @@ fn md5_poll_is_cancelled_by_its_caller() {
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
             let signal = Signal::new();
-            let cancel = signal.clone();
-            let task = tokio::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_millis(40)).await;
-                cancel.cancel(requested("stop md5 poll"));
+            let clock = std::sync::Arc::new(CancelOnSecondDelay {
+                inner: context.clock.clone(),
+                signal: signal.clone(),
+                delays: 0.into(),
             });
             let err = device
                 .wait_for_remote_file_sync(
@@ -253,12 +289,12 @@ fn md5_poll_is_cancelled_by_its_caller() {
                     "/mismatch",
                     marathon_core::vendor::VendorContext {
                         cancellation: signal,
+                        clock,
                         ..context
                     },
                 )
                 .await
                 .unwrap_err();
-            checked(task.await);
             assert!(matches!(err, VendorError::Cancelled(_)));
             assert!(commands(&server).iter().filter(|s| *s == "md5 /mismatch").count() >= 2);
             finish(server, device).await;
