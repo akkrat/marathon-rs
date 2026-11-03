@@ -6,7 +6,7 @@ of [found-bugs.md](../found-bugs.md).
 
 ## A: lost output (D19)
 
-The loss came from a check-then-act race in the reader loop, shared with Kotlin (`Reader.kt:56,92,98`). Each poll reads
+The loss came from a check-then-act race in the reader loop, shared with Kotlin (`Reader.kt:56,92,98`; A100 in [known-kotlin-bugs.md](../known-kotlin-bugs.md)). Each poll reads
 the stream first. If it read nothing, it then evaluates `can_read`:
 
 - over SSH, `is_open && !is_eof`;

@@ -212,8 +212,8 @@ whatever is still buffered after the second check before finishing, so every
 byte the worker sent before EOF is parsed. Idle timeouts, cancellation and the
 other reader behaviour are unchanged. No configuration change is needed;
 expect fewer spurious setup and parsing failures on busy workers.
-See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
-and [x9 findings](wp/x9-findings.md).
+See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A100](known-kotlin-bugs.md) and [x9 findings](wp/x9-findings.md).
 
 ## Other accepted text differences and synchronization
 
