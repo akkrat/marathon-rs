@@ -269,13 +269,8 @@ fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() 
                     ..Default::default()
                 },
             );
-            for i in 0..4 {
-                pool.add(&TestDevice::new(
-                    &format!("failed-{i}"),
-                    Some("A"),
-                    None,
-                    fail_on(&fail[i]),
-                ));
+            for (i, gate) in fail.iter().enumerate() {
+                pool.add(&TestDevice::new(&format!("failed-{i}"), Some("A"), None, fail_on(gate)));
             }
             let idle = [
                 TestDevice::new(
