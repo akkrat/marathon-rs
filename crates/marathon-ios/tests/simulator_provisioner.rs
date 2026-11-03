@@ -181,7 +181,16 @@ async fn failed_new_simulator_is_deleted_while_healthy_profiles_finish() -> Test
     assert_eq!(h.registered(), 2);
     assert_eq!(h.connections.released.load(Ordering::SeqCst), 1);
     assert_eq!(h.deletes(), 1);
-    assert_eq!(h.worker.count(&["xcrun", "simctl", "delete", "new-1"]), 1);
+    // Ids follow simctl create order, while the fake fails whichever setup starts first;
+    // the three profiles run concurrently, so that need not be new-1.
+    let failed = h
+        .trace
+        .lock()
+        .unwrap()
+        .iter()
+        .find_map(|e| e.strip_prefix("setup:").map(str::to_owned))
+        .expect("a setup started");
+    assert_eq!(h.worker.count(&["xcrun", "simctl", "delete", &failed]), 1);
     Ok(())
 }
 #[tokio::test(start_paused = true)]
