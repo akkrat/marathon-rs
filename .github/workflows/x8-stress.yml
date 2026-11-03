@@ -1,0 +1,59 @@
+name: TEMP x8 timing stress
+
+on:
+  push:
+    branches: ['wp/x8-timing-sweep']
+
+permissions:
+  contents: read
+
+jobs:
+  stress:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-22.04, macos-14]
+        shard: [1, 2, 3, 4]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prerequisites
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential pkg-config python3 unzip binutils openssh-client rsync sshpass file libxml2-utils
+          else
+            brew install rsync sshpass
+          fi
+          rustup toolchain install
+      - name: Build tests
+        run: cargo test --workspace --no-run -q
+      - name: Repeat the workspace tests
+        shell: bash
+        run: |
+          mkdir -p stress
+          fails=0
+          for i in 1 2 3; do
+            if ! cargo test --workspace --no-fail-fast > "stress/run-$i.txt" 2>&1; then
+              fails=$((fails+1))
+            fi
+            echo "== iteration $i"
+            grep -E "^test .* FAILED$|^---- .* stdout ----$|panicked at|^error: test failed|test result: FAILED" "stress/run-$i.txt" || true
+          done
+          echo "failed iterations: $fails"
+          [[ $fails -eq 0 ]]
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stress-${{ matrix.runner }}-${{ matrix.shard }}
+          path: |
+            stress/
+            tools/differential/runs/
+            tools/fake-worker/runs/
+          if-no-files-found: ignore
+          retention-days: 3
