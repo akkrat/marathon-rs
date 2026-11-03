@@ -251,10 +251,11 @@ async fn cancel_discards_queued_lines_but_keeps_the_first_close_cause() {
     );
 }
 
-// U145 witness: output and EOF that arrive after a poll found nothing and before can_read sees the EOF are never
-// read. Reader.kt has the same order (available() == 0, then canRead() → isEOF), so Kotlin drops them too.
+// D19 (U145): output and EOF that arrive after a poll found nothing and before can_read sees the EOF are still read.
+// Kotlin's Reader.kt checks available() and then canRead() → isEOF in the same order and drops them
+// (tools/oracle/reader-race-probe).
 #[tokio::test(start_paused = true)]
-async fn output_arriving_with_eof_between_an_empty_read_and_can_read_is_never_read() {
+async fn output_arriving_with_eof_between_an_empty_read_and_can_read_is_still_delivered() {
     let stream = Stream::default();
     let arriving = stream.clone();
     let output = LineChannel::new(64);
@@ -276,7 +277,7 @@ async fn output_arriving_with_eof_between_an_empty_read_and_can_read_is_never_re
     )
     .await
     .unwrap();
-    assert_eq!(collect(&output).await.unwrap(), Vec::<String>::new());
+    assert_eq!(collect(&output).await.unwrap(), ["HOME=/Users/worker", "USER=worker"]);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(stream.0.lock().unwrap().len(), 31, "the output stays buffered, unread");
+    assert!(stream.0.lock().unwrap().is_empty());
 }

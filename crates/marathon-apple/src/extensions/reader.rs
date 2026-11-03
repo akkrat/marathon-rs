@@ -50,16 +50,7 @@ where
             if context.cancellation.reason().is_some() || output.is_closed() {
                 break;
             }
-            let read = std::future::poll_fn(|cx| {
-                let mut buf = ReadBuf::new(&mut bytes);
-                Poll::Ready(match Pin::new(&mut input).poll_read(cx, &mut buf) {
-                    Poll::Ready(Ok(())) => Ok(Some(buf.filled().len())),
-                    Poll::Ready(Err(error)) => Err(error),
-                    Poll::Pending => Ok(None),
-                })
-            })
-            .await;
-            let count = match read {
+            let count = match read_now(&mut input, &mut bytes).await {
                 Ok(count) => count,
                 Err(_) => break,
             };
@@ -82,6 +73,17 @@ where
             // Kotlin never reads when available()==0, including pipe EOF.
             // Only can_read ends that polling while the process is alive (A25).
             if !can_read() {
+                // D19: output that arrived together with EOF after this poll's empty read is still buffered.
+                // Kotlin stops here without reading it (U145); read it before the drain below.
+                while context.cancellation.reason().is_none() && !output.is_closed() {
+                    match read_now(&mut input, &mut bytes).await {
+                        Ok(Some(count)) if count > 0 => {
+                            buffer.append(&bytes[..count]);
+                            buffer.flush().await?;
+                        }
+                        _ => break,
+                    }
+                }
                 break;
             }
             context
@@ -118,4 +120,17 @@ where
         }
         Err(error) => Err(error),
     }
+}
+
+/// One non-waiting read: `Some(0)` at EOF, `None` while nothing is available.
+async fn read_now<R: AsyncRead + Unpin>(input: &mut R, bytes: &mut [u8]) -> std::io::Result<Option<usize>> {
+    std::future::poll_fn(|cx| {
+        let mut buf = ReadBuf::new(bytes);
+        Poll::Ready(match Pin::new(&mut *input).poll_read(cx, &mut buf) {
+            Poll::Ready(Ok(())) => Ok(Some(buf.filled().len())),
+            Poll::Ready(Err(error)) => Err(error),
+            Poll::Pending => Ok(None),
+        })
+    })
+    .await
 }
