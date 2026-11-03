@@ -178,6 +178,17 @@ pub fn expect_setup(commands: &[String]) {
 }
 pub async fn finish(mut server: FakeAdbServer, device: AndroidDevice) {
     use marathon_core::vendor::Device;
+    // A completed setup ends by starting logcat in the background, right after the features request; a
+    // dispose that lands in logcat's transport handshake resets it and warns.
+    let set_up = server.transcript().iter().any(|r| {
+        r["type"] == "request"
+            && r["service"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("host-serial:") && s.ends_with(":features"))
+    });
+    if set_up {
+        logcat_streams(&[(&server, 1)]).await;
+    }
     checked(device.dispose().await);
     assert_eq!(server.warnings(), 0, "{:?}", server.transcript());
     checked(server.shutdown().await);
@@ -212,4 +223,26 @@ pub fn change_runtime(runtime: &Arc<AndroidRuntime>, ports: &[u16]) -> Arc<Andro
         executor: runtime.executor.clone(),
         log: runtime.log.clone(),
     })
+}
+/// Waits until each fake server has seen at least `count` logcat streams, i.e. the devices it announced have finished
+/// the transport handshake that follows `Connected`.
+/// Polls rather than spinning on yield_now, which holds a vendor worker and starves the fake servers on small runners;
+/// the deadline only catches a hang.
+pub async fn logcat_streams(wanted: &[(&marathon_adb::server::FakeAdbServer, usize)]) {
+    checked(
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            for (server, count) in wanted {
+                while server
+                    .transcript()
+                    .iter()
+                    .filter(|record| record["type"] == "shell" && record["command"] == "logcat -v long")
+                    .count()
+                    < *count
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            }
+        })
+        .await,
+    );
 }

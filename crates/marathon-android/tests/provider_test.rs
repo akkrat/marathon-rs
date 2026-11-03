@@ -95,6 +95,8 @@ fn multi_server_disconnect_keeps_identity_and_disposed_borrow() {
                 panic!("connections")
             };
             assert_ne!(a, b);
+            // Connected comes before the device's logcat handshake; see logcat_streams.
+            logcat_streams(&[(&first, 1), (&second, 1)]).await;
             let first_ref = if a.0.info().serial_number.to_string_lossy().ends_with("emulator-5554") {
                 a.clone()
             } else {
@@ -117,8 +119,8 @@ fn multi_server_disconnect_keeps_identity_and_disposed_borrow() {
             assert!(!borrowed.0.info().healthy);
             provider.terminate().await?;
             provider.terminate().await?;
-            assert_eq!(first.warnings(), 0);
-            assert_eq!(second.warnings(), 0);
+            assert_eq!(first.warnings(), 0, "{:?}", first.transcript());
+            assert_eq!(second.warnings(), 0, "{:?}", second.transcript());
             checked(first.shutdown().await);
             checked(second.shutdown().await);
             Ok(())
@@ -239,29 +241,6 @@ fn test_start_and_kill_adb_server() {
             Ok(())
         })
     });
-}
-
-/// Waits until each fake server has seen at least `count` logcat streams, i.e. the devices it announced have finished
-/// the transport handshake that follows `Connected`.
-/// Polls rather than spinning on yield_now, which holds a vendor worker and starves the fake servers on small runners;
-/// the deadline only catches a hang.
-async fn logcat_streams(wanted: &[(&marathon_adb::server::FakeAdbServer, usize)]) {
-    checked(
-        tokio::time::timeout(std::time::Duration::from_secs(60), async {
-            for (server, count) in wanted {
-                while server
-                    .transcript()
-                    .iter()
-                    .filter(|record| record["type"] == "shell" && record["command"] == "logcat -v long")
-                    .count()
-                    < *count
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-                }
-            }
-        })
-        .await,
-    );
 }
 
 /// D18 (supersedes the collision half of N27): the device map is keyed by (adb server, serial), so a state change on
@@ -392,9 +371,11 @@ fn loopback_start_server_retries_version_after_fake_binary() {
             let mut server = checked(startup.await);
             result?;
             assert!(matches!(event(&provider).await, DeviceEvent::Connected(_)));
+            // Connected comes before the device's logcat handshake; see logcat_streams.
+            logcat_streams(&[(&server, 1)]).await;
             provider.terminate().await?;
             checked(server.shutdown().await);
-            assert_eq!(server.warnings(), 0);
+            assert_eq!(server.warnings(), 0, "{:?}", server.transcript());
             drop(temp);
             Ok(())
         })
