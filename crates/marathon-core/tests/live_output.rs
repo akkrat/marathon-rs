@@ -102,7 +102,25 @@ fn live_run_prints_a_vendor_log_line_before_the_test_ends() {
 fn replay_run_keeps_its_flush_points() {
     let outcome = scenario::run("success.json", |_| {});
     assert!(outcome.completed);
-    assert_eq!(outcome.batches, [3, 2, 3, 9, 3, 1, 1], "{:?}", outcome.lines);
+    // The device asks for its next batch after the vendor worker completes the batch, which can
+    // be after the queue has closed (Kotlin's actors race the same way); the pool then logs one
+    // dropped request. That line is not a flush point, so it is not counted.
+    let dropped = |line: &marathon_test_support::console::Line| {
+        matches!(line, marathon_test_support::console::Line::Log { message, .. }
+            if message == "pool DevicePoolId(name=omni): queue is closed, RequestBatch is dropped")
+    };
+    assert!(outcome.lines.iter().filter(|line| dropped(line)).count() <= 1);
+    let mut start = 0;
+    let batches: Vec<usize> = outcome
+        .batches
+        .iter()
+        .map(|&size| {
+            let batch = &outcome.lines[start..start + size];
+            start += size;
+            size - batch.iter().filter(|line| dropped(line)).count()
+        })
+        .collect();
+    assert_eq!(batches, [3, 2, 3, 9, 3, 1, 1], "{:?}", outcome.lines);
 }
 
 struct Batches(Mutex<Vec<Vec<String>>>);
