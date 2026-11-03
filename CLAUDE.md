@@ -13,7 +13,7 @@ A Rust rewrite of marathon, a test runner for Android, iOS and macOS. The source
 - **Concurrency** follows `docs/design/lifecycle.md` once it exists (WP 0.6).
   - No blocking calls on the core executor thread.
   - No `unwrap()`/`expect()` on I/O, process or network results; they return errors.
-- **Tests.** Port every Kotlin test listed for your WP in `docs/parity-matrix.csv`, under the Kotlin test's name in snake_case, and set its row to `ported` with the Rust test path. A row may be set to `n/a` only with a reason, and a reviewer must agree.
+- **Tests.** Port every Kotlin test listed for your WP in `docs/parity-matrix.csv`, under the Kotlin test's name in snake_case, and set its row to `ported` with the Rust test path. A row may be set to `n/a` only with a reason, and a reviewer must agree. Real-time tests follow the timing rules in `docs/testing.md`.
 - **Fixtures.** Test resources live under `fixtures/`, copied unchanged from the Kotlin repo. `fixtures/PROVENANCE.md` records where each came from. Never edit a copied fixture; add a new file instead.
 - **Comments.** Match the surrounding density. Explain *why* (a Kotlin quirk being kept, a protocol detail), not *what*.
 

@@ -21,7 +21,7 @@ fn okay(s: &mut TcpStream) {
 
 fn device(port: u16, service: &str) -> TcpStream {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
     request(&mut s, "host:transport:d1");
     okay(&mut s);
     request(&mut s, service);
@@ -46,7 +46,7 @@ fn spawn(dir: &Path, script_text: &str) -> (Child, u16, PathBuf) {
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(60);
     let port: u16 = loop {
         if let Ok(p) = std::fs::read_to_string(&port_file)
             && let Ok(p) = p.parse()
@@ -66,7 +66,7 @@ fn terminate(mut child: Child, transcript: &Path) -> Vec<Value> {
         .status()
         .unwrap();
     assert!(status.success());
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(60);
     let status = loop {
         if let Some(s) = child.try_wait().unwrap() {
             break s;

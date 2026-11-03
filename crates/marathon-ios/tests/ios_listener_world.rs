@@ -133,7 +133,7 @@ async fn replay(
         .test_started(&test)
         .await
         .map_err(|e| format!("{e:?}"))?;
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             let ready = if screenshot {
                 worker
@@ -154,7 +154,7 @@ async fn replay(
             if ready {
                 break;
             }
-            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     })
     .await?;
@@ -287,9 +287,9 @@ async fn replay(
     }
     let state = world.final_state(&fs).await.map_err(|e| e.to_string())?;
     assert_eq!(state["deferred"], serde_json::json!([]));
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
         while !worker.processes().active().await.is_empty() {
-            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     })
     .await?;

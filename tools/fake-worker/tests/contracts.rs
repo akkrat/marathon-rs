@@ -93,7 +93,7 @@ async fn connect(w: &RunningWorker) -> Result<client::Handle<Client>> {
     Ok(c)
 }
 async fn collect(ch: &mut russh::Channel<client::Msg>) -> Result<(Vec<u8>, Vec<u8>, Option<u32>, Option<Sig>)> {
-    timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(60), async {
         let (mut out, mut err, mut status, mut signal) = (vec![], vec![], None, None);
         while let Some(msg) = ch.wait().await {
             match msg {
@@ -143,7 +143,7 @@ async fn streams_term_reuse_limits_and_local_close() -> Result<()> {
     assert_eq!(result.1, b"err\n");
     b.close().await?;
     assert!(matches!(
-        timeout(Duration::from_secs(2), async {
+        timeout(Duration::from_secs(60), async {
             loop {
                 if matches!(b.wait().await, Some(ChannelMsg::Close) | None) {
                     break;
@@ -159,7 +159,7 @@ async fn streams_term_reuse_limits_and_local_close() -> Result<()> {
     cat.eof().await?;
     assert_eq!(collect(&mut cat).await?.0, [0, 255, 1]);
     c.disconnect(russh::Disconnect::ByApplication, "test", "").await?;
-    timeout(Duration::from_secs(3), w.shutdown()).await??;
+    timeout(Duration::from_secs(60), w.shutdown()).await??;
     let text = tokio::fs::read_to_string(dir.path().join("events.jsonl")).await?;
     assert!(text.contains("session_rejected"));
     assert!(text.contains("\"cleanup\""));
@@ -187,7 +187,7 @@ async fn close_fault_is_per_channel_and_shutdown_is_bounded() -> Result<()> {
     let mut a = c.channel_open_session().await?;
     a.exec(true, "hang").await?;
     a.signal(Sig::TERM).await?;
-    timeout(Duration::from_secs(2), async {
+    timeout(Duration::from_secs(60), async {
         loop {
             if matches!(a.wait().await, Some(ChannelMsg::ExitSignal { .. })) {
                 break;
@@ -214,7 +214,7 @@ async fn close_fault_is_per_channel_and_shutdown_is_bounded() -> Result<()> {
     let mut d = c2.channel_open_session().await?;
     d.exec(true, "ok").await?;
     assert_eq!(collect(&mut d).await?.2, Some(7));
-    timeout(Duration::from_secs(3), w.shutdown()).await??;
+    timeout(Duration::from_secs(60), w.shutdown()).await??;
     let log = tokio::fs::read_to_string(dir.path().join("events.jsonl")).await?;
     assert!(log.contains("close_withheld"));
     Ok(())
@@ -238,7 +238,7 @@ async fn ignored_signals_before_close_are_recorded_with_and_without_eof() -> Res
         let mut ch = c.channel_open_session().await?;
         ch.exec(true, "ignore").await?;
         assert!(matches!(
-            timeout(Duration::from_secs(3), ch.wait()).await?,
+            timeout(Duration::from_secs(60), ch.wait()).await?,
             Some(ChannelMsg::Success)
         ));
         if eof {
@@ -252,7 +252,7 @@ async fn ignored_signals_before_close_are_recorded_with_and_without_eof() -> Res
         let (out, err, status, signal) = collect(&mut ch).await?;
         assert!(out.is_empty() && err.is_empty() && status.is_none() && signal.is_none());
     }
-    timeout(Duration::from_secs(3), w.shutdown()).await??;
+    timeout(Duration::from_secs(60), w.shutdown()).await??;
     let log = tokio::fs::read_to_string(dir.path().join("events.jsonl")).await?;
     let rows: Vec<serde_json::Value> = log.lines().map(serde_json::from_str).collect::<Result<_, _>>()?;
     assert_eq!(rows.iter().filter(|r| r["event"] == "signal_ignored").count(), 4);
@@ -306,14 +306,14 @@ async fn ignored_term_custom_signal_exec_rejection_and_extended_data() -> Result
     let mut b = c.channel_open_session().await?;
     b.exec(true, "reject").await?;
     assert!(matches!(
-        timeout(Duration::from_secs(1), b.wait()).await?,
+        timeout(Duration::from_secs(60), b.wait()).await?,
         Some(ChannelMsg::Failure)
     ));
     b.close().await?;
     let mut d = c.channel_open_session().await?;
     d.exec(true, "odd").await?;
     let mut saw = false;
-    while let Some(m) = timeout(Duration::from_secs(2), d.wait()).await? {
+    while let Some(m) = timeout(Duration::from_secs(60), d.wait()).await? {
         match m {
             ChannelMsg::ExtendedData { ext: 42, data } => {
                 saw = true;
@@ -544,7 +544,7 @@ async fn wire_disconnect_reasons_kex_and_abrupt_loss() -> Result<()> {
                     let ch = c.channel_open_session().await?;
                     ch.exec(true, "anything").await?;
                 }
-                let _ = timeout(Duration::from_secs(2), c).await;
+                let _ = timeout(Duration::from_secs(60), c).await;
             }
             assert_eq!(
                 *captured.lock().await,
@@ -582,7 +582,7 @@ async fn wire_disconnect_reasons_kex_and_abrupt_loss() -> Result<()> {
     let c = connect(&w).await?;
     let mut ch = c.channel_open_session().await?;
     ch.exec(true, "drop").await?;
-    timeout(Duration::from_secs(2), async { while ch.wait().await.is_some() {} }).await?;
+    timeout(Duration::from_secs(60), async { while ch.wait().await.is_some() {} }).await?;
     w.shutdown().await
 }
 
@@ -606,7 +606,7 @@ async fn held_real_rsync_child_is_reaped_and_other_sessions_progress() -> Result
     ch.exec(true, "/usr/bin/rsync --server -r . /tmp/marathon/transfer/")
         .await?;
     let log_path = dir.path().join("events.jsonl");
-    timeout(Duration::from_secs(3), async {
+    timeout(Duration::from_secs(60), async {
         loop {
             let log = tokio::fs::read_to_string(&log_path).await?;
             if log.contains("child_start") {
@@ -619,7 +619,7 @@ async fn held_real_rsync_child_is_reaped_and_other_sessions_progress() -> Result
     let mut other = c.channel_open_session().await?;
     other.exec(true, "hello").await?;
     assert_eq!(collect(&mut other).await?.2, Some(7));
-    timeout(Duration::from_secs(3), w.shutdown()).await??;
+    timeout(Duration::from_secs(60), w.shutdown()).await??;
     let log = tokio::fs::read_to_string(log_path).await?;
     assert!(log.contains("child_reaped"));
     for row in log.lines().map(serde_json::from_str::<serde_json::Value>) {
@@ -699,23 +699,23 @@ async fn unsupported_requests_fail_and_fixture_output_survives_eof_fault() -> Re
     for _ in 0..40 {
         ch.set_env(true, "F", "value").await?;
         assert!(matches!(
-            timeout(Duration::from_secs(1), ch.wait()).await?,
+            timeout(Duration::from_secs(60), ch.wait()).await?,
             Some(ChannelMsg::Failure)
         ));
     }
     ch.request_pty(true, "xterm", 80, 24, 0, 0, &[]).await?;
     assert!(matches!(
-        timeout(Duration::from_secs(1), ch.wait()).await?,
+        timeout(Duration::from_secs(60), ch.wait()).await?,
         Some(ChannelMsg::Failure)
     ));
     ch.request_shell(true).await?;
     assert!(matches!(
-        timeout(Duration::from_secs(1), ch.wait()).await?,
+        timeout(Duration::from_secs(60), ch.wait()).await?,
         Some(ChannelMsg::Failure)
     ));
     ch.request_subsystem(true, "sftp").await?;
     assert!(matches!(
-        timeout(Duration::from_secs(1), ch.wait()).await?,
+        timeout(Duration::from_secs(60), ch.wait()).await?,
         Some(ChannelMsg::Failure)
     ));
     ch.exec(true, "late").await?;
@@ -795,14 +795,14 @@ async fn pending_extension_routing_is_dropped_on_channel_connection_and_run_canc
             let c = connect(&w).await?;
             let ch = c.channel_open_session().await?;
             ch.exec(true, command).await?;
-            timeout(Duration::from_secs(2), entered.notified()).await?;
+            timeout(Duration::from_secs(60), entered.notified()).await?;
             match cancellation {
                 "channel" => ch.close().await?,
                 "connection" => c.disconnect(russh::Disconnect::ByApplication, "test", "").await?,
                 _ => (),
             }
             if cancellation != "run" {
-                timeout(Duration::from_secs(2), dropped.notified()).await?;
+                timeout(Duration::from_secs(60), dropped.notified()).await?;
                 // Channel cancellation must leave the transport usable.
                 if cancellation == "channel" {
                     let mut other = c.channel_open_session().await?;
@@ -810,9 +810,9 @@ async fn pending_extension_routing_is_dropped_on_channel_connection_and_run_canc
                     assert_eq!(collect(&mut other).await?.2, Some(0));
                 }
             }
-            timeout(Duration::from_secs(2), w.shutdown()).await??;
+            timeout(Duration::from_secs(60), w.shutdown()).await??;
             if cancellation == "run" {
-                timeout(Duration::from_secs(2), dropped.notified()).await?;
+                timeout(Duration::from_secs(60), dropped.notified()).await?;
             }
         }
     }

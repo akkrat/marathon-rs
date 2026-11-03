@@ -113,7 +113,7 @@ fn last_device_loss_joins_batch_and_queue_barriers_and_a_replacement_does_not_re
                 let c = context.clone();
                 async move { c.clock.delay(millis, c.job).await }
             };
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
             while script.count.load(Ordering::SeqCst) == 0 {
                 assert!(std::time::Instant::now() < deadline);
                 wait(5).await?;

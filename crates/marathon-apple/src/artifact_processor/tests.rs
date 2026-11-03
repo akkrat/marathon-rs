@@ -776,7 +776,7 @@ async fn a_thread_blocked_in_a_transfer_does_not_hold_finalization_and_its_late_
                         e.complete(Ok(()));
                         let (lock, cv) = &*l;
                         let (_guard, timeout) = cv
-                            .wait_timeout_while(lock.lock().unwrap(), std::time::Duration::from_secs(10), |v| !*v)
+                            .wait_timeout_while(lock.lock().unwrap(), std::time::Duration::from_secs(60), |v| !*v)
                             .unwrap();
                         assert!(!timeout.timed_out(), "blocking test watchdog");
                         Ok(())
@@ -791,7 +791,7 @@ async fn a_thread_blocked_in_a_transfer_does_not_hold_finalization_and_its_late_
     entered.wait().await.unwrap();
     let start = std::time::Instant::now();
     let retained = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(60),
         h.p.close_and_join(200, 200, &h.context),
     )
     .await
@@ -881,7 +881,7 @@ async fn work_its_worker_finishes_reporting_after_the_cancellation_deadline_is_s
         e.complete(Ok(()));
         let (lock, cv) = &*l;
         let (_guard, timeout) = cv
-            .wait_timeout_while(lock.lock().unwrap(), std::time::Duration::from_secs(10), |v| !*v)
+            .wait_timeout_while(lock.lock().unwrap(), std::time::Duration::from_secs(60), |v| !*v)
             .unwrap();
         assert!(!timeout.timed_out());
         p.upgrade().unwrap().report_undelivered(
@@ -916,7 +916,7 @@ async fn work_its_worker_finishes_reporting_after_the_cancellation_deadline_is_s
     assert!(!close.is_finished());
     *latch.0.lock().unwrap() = true;
     latch.1.notify_all();
-    let retained = tokio::time::timeout(std::time::Duration::from_secs(10), close)
+    let retained = tokio::time::timeout(std::time::Duration::from_secs(60), close)
         .await
         .unwrap()
         .unwrap()

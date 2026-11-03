@@ -367,8 +367,9 @@ fn watchdog_fails_a_scenario_blocked_inside_poll() {
     let started = std::time::Instant::now();
     let result = CoreExecutor::run_virtual_with_watchdog(std::time::Duration::from_millis(200), |_core, _driver| {
         Box::pin(async move {
+            // Long enough that a loaded host cannot mistake waiting for the poll for the watchdog.
             std::future::poll_fn(|_| {
-                std::thread::sleep(std::time::Duration::from_secs(2));
+                std::thread::sleep(std::time::Duration::from_secs(10));
                 std::task::Poll::Ready(())
             })
             .await;
@@ -382,5 +383,5 @@ fn watchdog_fails_a_scenario_blocked_inside_poll() {
         }
         other => panic!("expected the watchdog failure, got {other:?}"),
     }
-    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
 }

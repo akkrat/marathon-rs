@@ -62,7 +62,7 @@ fn kotlin_install_matrix() {
             let mut devices = Vec::new();
             while devices.len() < 2 {
                 let e = checked(checked(
-                    tokio::time::timeout(std::time::Duration::from_secs(3), provider.subscribe().receive()).await,
+                    tokio::time::timeout(std::time::Duration::from_secs(60), provider.subscribe().receive()).await,
                 ))
                 .unwrap();
                 if let DeviceEvent::Connected(d) = e {
@@ -115,7 +115,7 @@ fn kotlin_two_devices_setup_and_install_subset() {
             provider.initialize(context.clone()).await?;
             for _ in 0..2 {
                 let event = checked(checked(
-                    tokio::time::timeout(std::time::Duration::from_secs(3), provider.subscribe().receive()).await,
+                    tokio::time::timeout(std::time::Duration::from_secs(60), provider.subscribe().receive()).await,
                 ))
                 .unwrap();
                 let DeviceEvent::Connected(d) = event else {
@@ -161,13 +161,13 @@ fn kotlin_multi_server_disconnect() {
             for _ in 0..2 {
                 assert!(matches!(
                     checked(checked(
-                        tokio::time::timeout(std::time::Duration::from_secs(3), provider.subscribe().receive()).await
+                        tokio::time::timeout(std::time::Duration::from_secs(60), provider.subscribe().receive()).await
                     )),
                     Some(DeviceEvent::Connected(_))
                 ))
             }
             let event = checked(checked(
-                tokio::time::timeout(std::time::Duration::from_secs(6), provider.subscribe().receive()).await,
+                tokio::time::timeout(std::time::Duration::from_secs(60), provider.subscribe().receive()).await,
             ));
             let Some(DeviceEvent::Disconnected(device)) = event else {
                 panic!("disconnect")

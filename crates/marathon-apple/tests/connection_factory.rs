@@ -44,7 +44,7 @@ fn rsync() -> RsyncConfiguration {
     }
 }
 async fn wait(gate: &Semaphore, n: u32) {
-    tokio::time::timeout(std::time::Duration::from_secs(10), gate.acquire_many(n))
+    tokio::time::timeout(std::time::Duration::from_secs(60), gate.acquire_many(n))
         .await
         .unwrap()
         .unwrap()

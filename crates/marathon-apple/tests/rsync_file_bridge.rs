@@ -285,7 +285,7 @@ fn send_serialization_unbounded_receives_and_a3_deadline_match_kotlin() {
     }
 }
 async fn marker(root: &Path, label: &str) {
-    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
         while !root.join(format!("{label}.entered")).exists() {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }

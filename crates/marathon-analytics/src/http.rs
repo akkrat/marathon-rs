@@ -539,7 +539,7 @@ pub(crate) mod tests {
     }
     #[tokio::test]
     async fn read_and_write_have_independent_idle_timeouts() {
-        let result = tokio::time::timeout(Duration::from_secs(5), async {
+        let result = tokio::time::timeout(Duration::from_secs(60), async {
             timeout(false).await?;
             timeout(true).await
         })

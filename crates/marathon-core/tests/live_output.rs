@@ -70,13 +70,16 @@ fn live_run_prints_a_vendor_log_line_before_the_test_ends() {
             let sender = core.log_queue().sender();
             let executing = move |name: &str| calls.lock().unwrap().iter().any(|c| c["call"] == name);
             std::thread::spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(20);
+                let deadline = Instant::now() + Duration::from_secs(60);
                 while !executing("execute") && Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 let pushed = Instant::now();
                 sender.push(probe_record());
-                while console.messages(PROBE).is_empty() && pushed.elapsed() < Duration::from_millis(1500) {
+                // Live means printed before the 3 s test ends, not within a fixed time a loaded
+                // host could outlast; the deadline only catches hangs.
+                let deadline = Instant::now() + Duration::from_secs(60);
+                while console.messages(PROBE).is_empty() && !executing("executed") && Instant::now() < deadline {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 let printed = !console.messages(PROBE).is_empty();

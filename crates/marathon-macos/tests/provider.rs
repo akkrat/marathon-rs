@@ -251,7 +251,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         jcompat::file_manager::JavaPath::from_text(&h.root.path().to_string_lossy()),
         vec![],
     );
-    let error = tokio::time::timeout(std::time::Duration::from_secs(5), p.initialize(h.context.clone()))
+    let error = tokio::time::timeout(std::time::Duration::from_secs(60), p.initialize(h.context.clone()))
         .await?
         .err()
         .ok_or("connect failure")?;

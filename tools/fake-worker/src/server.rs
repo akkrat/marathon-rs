@@ -1002,14 +1002,14 @@ mod tests {
         let pause = w.transcript.pause_append("output", false);
         let mut ch = c.channel_open_session().await?;
         ch.exec(true, "held").await?;
-        timeout(Duration::from_secs(2), pause.entered.notified()).await?;
+        timeout(Duration::from_secs(60), pause.entered.notified()).await?;
         ch.signal(Sig::TERM).await?;
         // The writer holds its mutex halfway through the output row. TERM must
         // destroy the suspended output future before finish tries to record exit.
-        timeout(Duration::from_secs(2), pause.dropped.notified()).await?;
+        timeout(Duration::from_secs(60), pause.dropped.notified()).await?;
         pause.release.send(())?;
         let (mut signal, mut eof, mut close) = (false, false, false);
-        timeout(Duration::from_secs(2), async {
+        timeout(Duration::from_secs(60), async {
             while let Some(message) = ch.wait().await {
                 match message {
                     ChannelMsg::ExitSignal {
@@ -1028,7 +1028,7 @@ mod tests {
         assert!(signal && eof && close);
         let mut reused = c.channel_open_session().await?;
         reused.exec(true, "test -e /tmp/marathon").await?;
-        timeout(Duration::from_secs(2), async {
+        timeout(Duration::from_secs(60), async {
             while let Some(message) = reused.wait().await {
                 if matches!(message, ChannelMsg::Close) {
                     break;
@@ -1037,7 +1037,7 @@ mod tests {
         })
         .await?;
         c.disconnect(russh::Disconnect::ByApplication, "test", "").await?;
-        timeout(Duration::from_secs(2), w.shutdown()).await??;
+        timeout(Duration::from_secs(60), w.shutdown()).await??;
         let text = tokio::fs::read_to_string(path).await?;
         let rows: Vec<Value> = text.lines().map(serde_json::from_str).collect::<Result<_, _>>()?;
         for (i, row) in rows.iter().enumerate() {

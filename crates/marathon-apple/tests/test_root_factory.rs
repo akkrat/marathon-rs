@@ -48,7 +48,7 @@ async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult 
         let device = Fake::new(c.clone(), temp.path());
         let bundle = bundle(c, temp.path(), device.logging.clone()).await?;
         let outcome = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(60),
             generate(&device, &bundle, &support::context()),
         )
         .await?;
@@ -133,7 +133,7 @@ async fn transfer_case(ssh: bool, debug: bool, fail: bool) -> TestResult {
     }
     let bundle = bundle(&c, temp.path(), device.logging.clone()).await?;
     v(tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(60),
         generate(&device, &bundle, &support::context()),
     )
     .await?)?;
@@ -273,7 +273,7 @@ async fn cancellation_waits_for_send_then_cleans_the_staged_file() -> TestResult
             tokio::task::yield_now().await;
         }
     };
-    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         tokio::join!(generation, cancellation)
     })
     .await?;

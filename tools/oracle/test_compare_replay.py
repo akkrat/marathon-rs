@@ -220,7 +220,7 @@ class ComparisonTest(unittest.TestCase):
                                           '--transcript',str(root/'adb.jsonl'),'--strict'],stdout=out,stderr=err)
                 sockets=[]
                 try:
-                    deadline=time.monotonic()+10
+                    deadline=time.monotonic()+60
                     while not port.exists():
                         self.assertIsNone(process.poll())
                         if time.monotonic()>deadline: raise TimeoutError('fake-adb startup')

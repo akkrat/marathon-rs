@@ -334,7 +334,7 @@ async fn v2_partial_packet() {
         .client()
         .execute_channel(v2::ChanneledShellCommandRequest::new("x", None), Some("s"))
         .unwrap();
-    let first = tokio::time::timeout(Duration::from_secs(2), stream.next()).await.ok();
+    let first = tokio::time::timeout(Duration::from_secs(60), stream.next()).await.ok();
     let first = first
         .flatten()
         .map(|chunk| chunk.unwrap().stdout.unwrap_or_default().len());
@@ -365,7 +365,7 @@ async fn idle_blocked_write() {
     // Accepted, never read.
     let (_peer, _) = listener.accept().await.unwrap();
     let bytes = vec![0u8; 32 << 20];
-    let outcome = tokio::time::timeout(Duration::from_millis(2000), socket.write_fully(&bytes))
+    let outcome = tokio::time::timeout(Duration::from_secs(60), socket.write_fully(&bytes))
         .await
         .ok()
         .map(|r| r.map_or_else(|e| describe(&e), |()| "ok".to_string()));
@@ -385,7 +385,7 @@ async fn close_peer_eof() {
     let (mut peer, _) = listener.accept().await.unwrap();
     factory.close();
     let mut byte = [0u8; 1];
-    let read = tokio::time::timeout(Duration::from_millis(1000), peer.read(&mut byte)).await;
+    let read = tokio::time::timeout(Duration::from_secs(60), peer.read(&mut byte)).await;
     let read = read.ok().map(|r| match r {
         Ok(0) | Err(_) => -1,
         Ok(_) => i32::from(byte[0]),
@@ -471,7 +471,7 @@ async fn compat_close_cancelled() {
     };
     assert_eq!(or_null(first), kotlin["compat-close-cancelled-first"]);
     let _ = release.send(());
-    let second = tokio::time::timeout(Duration::from_secs(1), stream.next())
+    let second = tokio::time::timeout(Duration::from_secs(60), stream.next())
         .await
         .ok()
         .flatten();

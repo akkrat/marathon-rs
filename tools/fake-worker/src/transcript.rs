@@ -111,7 +111,7 @@ pub(crate) mod tests {
             file.write_all(&bytes[..middle])?;
             self.entered.notify_one();
             self.release
-                .recv_timeout(Duration::from_secs(5))
+                .recv_timeout(Duration::from_secs(60))
                 .map_err(std::io::Error::other)?;
             if self.fail {
                 return Err(std::io::Error::other("injected transcript write failure"));
@@ -165,7 +165,7 @@ pub(crate) mod tests {
             _ = pause.entered.notified() => (),
         }
         drop(event);
-        timeout(Duration::from_secs(1), pause.dropped.notified()).await?;
+        timeout(Duration::from_secs(60), pause.dropped.notified()).await?;
         pause.release.send(())?;
         log.event(1, Some(1), "exit_signal", json!({"signal":"TERM"})).await?;
         log.flush().await?;
@@ -193,7 +193,7 @@ pub(crate) mod tests {
         // Signal/ignored-signal/stdin branches may log while an output future
         // remains pinned and unpolled. Its append must make independent progress.
         timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(60),
             log.event(1, Some(1), "signal_ignored", json!({})),
         )
         .await??;

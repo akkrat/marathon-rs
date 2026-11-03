@@ -74,7 +74,7 @@ async fn connect(w: &RunningWorker) -> Result<client::Handle<Client>> {
     Ok(c)
 }
 async fn collect(ch: &mut russh::Channel<client::Msg>) -> Result<(Vec<u8>, Vec<u8>, Option<u32>, Option<Sig>)> {
-    timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(60), async {
         let (mut out, mut err, mut status, mut signal) = (vec![], vec![], None, None);
         while let Some(msg) = ch.wait().await {
             match msg {
@@ -160,7 +160,7 @@ async fn catalogue_deferrals_are_explicit() -> Result<()> {
 async fn barriers_release_the_filesystem_and_reject_escaping_paths() -> Result<()> {
     let dir = tempfile::tempdir()?;
     let fs = VirtualFs::create(dir.path().join("root")).await?;
-    timeout(Duration::from_secs(2), async {
+    timeout(Duration::from_secs(60), async {
         let (a, b) = tokio::join!(
             fs.wait_for_file("/tmp/marathon/ready"),
             fs.write("/tmp/marathon/ready", vec![], 0o600)
@@ -225,7 +225,7 @@ async fn two_connections_share_devices_and_recording_publishes_only_after_int() 
     );
     assert_eq!(exec(&a, &start).await?.2, Some(0));
     timeout(
-        Duration::from_secs(2),
+        Duration::from_secs(60),
         w.fs.wait_for_file("/tmp/marathon/.apple-world/testAlwaysFailing.ready"),
     )
     .await??;
@@ -237,7 +237,7 @@ async fn two_connections_share_devices_and_recording_publishes_only_after_int() 
         include_bytes!("../../../fixtures/fake-worker/apple/media/recording.mp4")
     );
     assert_eq!(exec(&b, stop).await?.2, Some(1));
-    timeout(Duration::from_secs(2), w.shutdown()).await??;
+    timeout(Duration::from_secs(60), w.shutdown()).await??;
     Ok(())
 }
 #[tokio::test]
@@ -284,7 +284,7 @@ async fn device_log_wrapper_owns_jobs_and_joins_before_pull() -> Result<()> {
     // Run cancellation joins the separate wrapper too and publishes no complete
     // artifact from an interrupted logging job.
     let fs = w.fs.clone();
-    timeout(Duration::from_secs(2), w.shutdown()).await??;
+    timeout(Duration::from_secs(60), w.shutdown()).await??;
     assert!(fs.stat("/tmp/marathon/device.log").await.is_err());
     let rows = std::fs::read_to_string(dir.path().join("events.jsonl"))?
         .lines()
@@ -324,7 +324,7 @@ async fn waiting_output_is_cancelled_on_channel_connection_and_run_loss() -> Res
         let c = connect(&w).await?;
         let mut ch = c.channel_open_session().await?;
         ch.exec(true, "barrier").await?;
-        timeout(Duration::from_secs(2), async {
+        timeout(Duration::from_secs(60), async {
             loop {
                 if matches!(ch.wait().await, Some(ChannelMsg::Data { .. })) {
                     break;
@@ -340,11 +340,11 @@ async fn waiting_output_is_cancelled_on_channel_connection_and_run_loss() -> Res
         // The old barrier implementation retained its lease here and hung both
         // this write and shutdown after cancellation (AW1).
         timeout(
-            Duration::from_secs(2),
+            Duration::from_secs(60),
             w.fs.write("/tmp/marathon/progress", vec![], 0o600),
         )
         .await??;
-        timeout(Duration::from_secs(2), w.shutdown()).await??;
+        timeout(Duration::from_secs(60), w.shutdown()).await??;
     }
     Ok(())
 }

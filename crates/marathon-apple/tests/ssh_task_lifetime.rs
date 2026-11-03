@@ -47,9 +47,9 @@ impl Counting {
         let (logging, _) = ssh::logging(false);
         SshjCommandExecutorFactory::new(logging, Arc::new(self.clone()), Arc::new(support::Clock::default()))
     }
-    /// The running task count once it reaches zero, or after 5 s.
+    /// The running task count once it reaches zero, or after 60 s.
     async fn settled(&self) -> usize {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(60);
         while self.0.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

@@ -195,7 +195,7 @@ async fn connection_flag_and_blocking_hook_are_independent_of_execution() -> any
             blocked
                 .lock()
                 .unwrap()
-                .recv_timeout(std::time::Duration::from_secs(2))
+                .recv_timeout(std::time::Duration::from_secs(60))
                 .is_ok()
         );
     });

@@ -74,7 +74,7 @@ fn serial_strategies_and_ipv6() {
 }
 async fn event(provider: &AdamDeviceProvider) -> DeviceEvent {
     checked(checked(
-        tokio::time::timeout(std::time::Duration::from_secs(3), provider.subscribe().receive()).await,
+        tokio::time::timeout(std::time::Duration::from_secs(60), provider.subscribe().receive()).await,
     ))
     .unwrap()
 }

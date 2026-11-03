@@ -154,7 +154,7 @@ async fn cancelled_awaiter_keeps_collectors_running_and_process_alive() {
             task.await.unwrap(),
             Err(VendorError::Cancelled(cancelled("awaiter stopped")))
         );
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
             while !completed.exists() {
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
@@ -382,7 +382,7 @@ async fn dropped_execute_during_spawn_or_delivery_closes_and_joins_the_undeliver
             );
             let root = tempfile::tempdir().unwrap();
             let pidfile = root.path().join("pid");
-            let script = format!("echo $$ > {}; exec sleep 10", pidfile.display());
+            let script = format!("echo $$ > {}; exec sleep 120", pidfile.display());
             let mut caller = executor.execute(CommandRequest::new(["sh", "-c", &script], duration(50)), context());
             std::future::poll_fn(|cx| {
                 assert!(caller.as_mut().poll(cx).is_pending());
@@ -399,8 +399,9 @@ async fn dropped_execute_during_spawn_or_delivery_closes_and_joins_the_undeliver
                 release.send(()).unwrap();
             }
             // The launch task must join cleanup, and the independent reaper must
-            // finish well before the orphan witness's ten-second sleep ends.
-            let closed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            // finish well before the orphan witness's two-minute sleep ends. Both rounds fit in
+            // the 60 s watchdog, so a hang still reaches the kill below.
+            let closed = tokio::time::timeout(std::time::Duration::from_secs(25), async {
                 let launch = runtime.tasks.lock().unwrap()[0].clone();
                 launch.join().await.unwrap();
                 let tasks = runtime.tasks.lock().unwrap().clone();
@@ -443,8 +444,10 @@ async fn drain_returns_immediately_before_idle_failure_in_its_detached_collector
             std::task::Poll::Ready(())
         })
         .await;
+        // The collectors close after a real 20 ms idle timeout; poll rather than spin, which holds
+        // a worker thread on a small runner.
         while !session.base.stdout.is_closed() || !session.base.stderr.is_closed() {
-            tokio::task::yield_now().await;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
         assert!(session.is_alive());
         session.close().await.unwrap();

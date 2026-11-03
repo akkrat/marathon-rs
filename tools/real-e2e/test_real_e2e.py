@@ -275,7 +275,7 @@ class Guards(unittest.TestCase):
         """
         code = 'import subprocess,sys; p = subprocess.Popen([sys.executable, "-I", "-c", "import time; time.sleep(60)"]); print(p.pid, flush=True)'
         child = lease.spawn([sys.executable, '-I', '-c', code], dict(os.environ), 'owned-test')
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 60
         while child.poll() is None and time.monotonic() < deadline:
             time.sleep(.02)
         descendant = int((lease.root / 'owned-test.stdout').read_text().strip())
@@ -341,7 +341,7 @@ class Guards(unittest.TestCase):
     def test_a_leader_reaped_behind_the_harness_is_not_owned_either(self):
         lease = self.lease(); lease.prepare()
         child = lease.spawn([sys.executable, '-I', '-c', 'pass'], dict(os.environ), 'reaped')
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 60
         while child.poll() is None and time.monotonic() < deadline:
             time.sleep(.02)
         os.waitpid(child.pid, 0)  # someone else collected it
@@ -381,7 +381,7 @@ class Guards(unittest.TestCase):
             w.Lease.recover(lease.run_id)
         os.killpg(child.pid, signal.SIGKILL)
         child.wait(timeout=10)
-        deadline = time.monotonic() + 10
+        deadline = time.monotonic() + 60
         while w.group_alive(child.pid) and time.monotonic() < deadline:
             time.sleep(.05)
         lease.cleanup()
@@ -557,7 +557,7 @@ class Preparation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             code = 'import signal,time; signal.signal(signal.SIGINT,lambda *_:exit(37)); print("START",flush=True); time.sleep(20)'
-            result = c.execute([sys.executable, '-I', '-c', code], root, dict(os.environ), root / 'run', timeout=5, marker=b'START')
+            result = c.execute([sys.executable, '-I', '-c', code], root, dict(os.environ), root / 'run', timeout=60, marker=b'START')
             self.assertTrue(result['marker_seen'])
             self.assertEqual(result['exit'], 37)
             self.assertFalse(result['watchdog'])

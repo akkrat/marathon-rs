@@ -952,7 +952,7 @@ devices:
 /// while a leaked task still holds the read half.
 async fn assert_fully_closed(c: &mut Client) {
     assert_eq!(c.rest().await, b"");
-    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
         if c.s.write_all(b"x").await.is_err() {
             return;

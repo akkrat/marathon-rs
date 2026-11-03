@@ -116,7 +116,7 @@ fn cancelled_prepare_holder_stops_fetch_without_caching_and_another_pool_refetch
             ));
             let reason = requested("holder cancelled");
             signal.cancel(reason.clone());
-            let result = tokio::time::timeout(Duration::from_secs(2), preparation).await;
+            let result = tokio::time::timeout(Duration::from_secs(60), preparation).await;
             assert!(matches!(result, Ok(Err(OperationError::Cancelled(actual))) if actual == reason));
             assert_eq!(
                 source.active.load(Ordering::SeqCst),
@@ -160,7 +160,7 @@ fn cancelling_a_prepare_waiter_keeps_the_other_pools_single_flight_fetch() {
             .await;
             let reason = Cancellation::Parent(failure("cancelled", "waiter parent cancelled"));
             signal.cancel(reason.clone());
-            let result = tokio::time::timeout(Duration::from_secs(2), waiter).await;
+            let result = tokio::time::timeout(Duration::from_secs(60), waiter).await;
             assert!(matches!(result, Ok(Err(OperationError::Cancelled(actual))) if actual == reason));
             assert_eq!(source.active.load(Ordering::SeqCst), 1);
             assert_eq!(source.calls.load(Ordering::SeqCst), 1);

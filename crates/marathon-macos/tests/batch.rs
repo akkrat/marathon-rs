@@ -26,7 +26,7 @@ async fn start(
     let mut context = h.context.clone();
     context.cancellation = signal.clone();
     let task = tokio::spawn(batch(device, context));
-    timeout(Duration::from_secs(5), running.opened.notified()).await?;
+    timeout(Duration::from_secs(60), running.opened.notified()).await?;
     Ok((signal, task))
 }
 async fn still_waiting<T>(future: impl std::future::Future<Output = T>) {
@@ -42,7 +42,7 @@ async fn a_batch_cancelled_while_its_xcodebuild_session_is_open_ends_only_after_
     still_waiting(&mut task).await;
     running.release.notify_one();
     assert!(matches!(
-        timeout(Duration::from_secs(5), task).await??,
+        timeout(Duration::from_secs(60), task).await??,
         Err(VendorError::Cancelled(_))
     ));
     assert_eq!(
@@ -63,7 +63,7 @@ async fn a_cancelled_batch_that_has_not_finished_in_time_is_not_waited_for_any_l
     let (signal, task) = start(&h, d.clone(), &running).await?;
     signal.cancel(cancelled("caller"));
     assert!(matches!(
-        timeout(Duration::from_secs(5), task).await??,
+        timeout(Duration::from_secs(60), task).await??,
         Err(VendorError::Cancelled(_))
     ));
     assert_eq!(running.events.lock().unwrap().len(), 1);
@@ -71,7 +71,7 @@ async fn a_cancelled_batch_that_has_not_finished_in_time_is_not_waited_for_any_l
     let mut disposal = tokio::spawn(async move { device.dispose().await });
     still_waiting(&mut disposal).await;
     running.release.notify_one();
-    v(timeout(Duration::from_secs(5), disposal).await??)?;
+    v(timeout(Duration::from_secs(60), disposal).await??)?;
     assert_eq!(running.events.lock().unwrap().len(), 2);
     v(d.join_pending().await)?;
     Ok(())
@@ -83,12 +83,12 @@ async fn disposal_during_the_cancellation_of_a_batch_returns_only_after_its_xcod
     let running = Running::install(&h, vec![]);
     let (signal, task) = start(&h, d.clone(), &running).await?;
     signal.cancel(cancelled("caller"));
-    timeout(Duration::from_secs(5), running.closing.notified()).await?;
+    timeout(Duration::from_secs(60), running.closing.notified()).await?;
     let device = d.clone();
     let mut disposal = tokio::spawn(async move { device.dispose().await });
     still_waiting(&mut disposal).await;
     running.release.notify_one();
-    v(timeout(Duration::from_secs(5), disposal).await??)?;
+    v(timeout(Duration::from_secs(60), disposal).await??)?;
     assert_eq!(running.events.lock().unwrap().len(), 2);
     assert!(matches!(task.await?, Err(VendorError::Cancelled(_))));
     v(d.join_pending().await)?;
@@ -101,11 +101,11 @@ async fn disposal_stops_waiting_for_a_batch_that_has_not_finished_in_time() -> R
     let d = prepared(&h).await?;
     let running = Running::install(&h, vec![]);
     let (_, task) = start(&h, d.clone(), &running).await?;
-    v(timeout(Duration::from_secs(5), d.dispose()).await?)?;
+    v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
     assert_eq!(running.events.lock().unwrap().len(), 1);
     running.release.notify_one();
     assert!(matches!(
-        timeout(Duration::from_secs(5), task).await??,
+        timeout(Duration::from_secs(60), task).await??,
         Err(VendorError::DeviceLost(_))
     ));
     assert_eq!(running.events.lock().unwrap().len(), 2);
@@ -120,7 +120,7 @@ async fn a_device_that_is_being_disposed_of_takes_no_further_batch() -> R {
     let (_, task) = start(&h, d.clone(), &running).await?;
     let device = d.clone();
     let mut disposal = tokio::spawn(async move { device.dispose().await });
-    timeout(Duration::from_secs(5), running.closing.notified()).await?;
+    timeout(Duration::from_secs(60), running.closing.notified()).await?;
     let err = batch(d.clone(), h.context.clone())
         .await
         .err()
@@ -155,7 +155,7 @@ async fn a_batch_level_failure_still_drops_the_device_once_its_session_has_close
     let d = prepared(&h).await?;
     let running = Running::install(&h, vec!["Test runner exited before starting test execution".into()]);
     running.release.notify_one();
-    let error = timeout(Duration::from_secs(5), batch(d.clone(), h.context.clone()))
+    let error = timeout(Duration::from_secs(60), batch(d.clone(), h.context.clone()))
         .await?
         .err()
         .ok_or("expected failure")?;
@@ -179,10 +179,10 @@ async fn concurrent_disposal_joins_one_completion_and_result_delivery_is_indepen
     let running = Running::install(&h, vec![]);
     let result = marathon_core::executor::shared::SharedDeferred::new();
     let task = tokio::spawn(execute(d.clone(), h.context.clone(), result.clone()));
-    timeout(Duration::from_secs(5), running.opened.notified()).await?;
+    timeout(Duration::from_secs(60), running.opened.notified()).await?;
     let device = d.clone();
     let mut first = tokio::spawn(async move { device.dispose().await });
-    timeout(Duration::from_secs(5), running.closing.notified()).await?;
+    timeout(Duration::from_secs(60), running.closing.notified()).await?;
     let device = d.clone();
     let mut second = tokio::spawn(async move { device.dispose().await });
     use marathon_core::runtime::Deferred;
@@ -248,11 +248,11 @@ async fn dropping_a_disposal_waiter_does_not_abandon_the_shared_completion() -> 
     let (_, task) = start(&h, d.clone(), &running).await?;
     let device = d.clone();
     let first = tokio::spawn(async move { device.dispose().await });
-    timeout(Duration::from_secs(5), running.closing.notified()).await?;
+    timeout(Duration::from_secs(60), running.closing.notified()).await?;
     first.abort();
     assert!(first.await.err().is_some_and(|e| e.is_cancelled()));
     running.release.notify_one();
-    v(timeout(Duration::from_secs(5), d.dispose()).await?)?;
+    v(timeout(Duration::from_secs(60), d.dispose()).await?)?;
     let error = task.await?.err().ok_or("disposal cancellation")?;
     assert!(matches!(error, VendorError::DeviceLost(_)));
     let oracle: serde_json::Value = include_str!("../../../fixtures/oracle/macos/probes.jsonl")
@@ -304,13 +304,13 @@ async fn preparation_continues_after_its_caller_is_cancelled() -> R {
     let device = d.clone();
     let config = h.options.dependencies.configuration.clone();
     let task = tokio::spawn(async move { device.prepare(config, context).await });
-    timeout(Duration::from_secs(5), entered.notified()).await?;
+    timeout(Duration::from_secs(60), entered.notified()).await?;
     signal.cancel(cancelled("caller"));
     assert!(matches!(task.await?, Err(VendorError::Cancelled(_))));
     v(d.dispose().await)?;
     assert!(h.bridge.sent.lock().unwrap().is_empty());
     release.notify_one();
-    v(timeout(Duration::from_secs(5), d.join_pending()).await?)?;
+    v(timeout(Duration::from_secs(60), d.join_pending()).await?)?;
     assert!(
         h.bridge
             .sent
@@ -332,11 +332,11 @@ async fn inline_bundle_pull_finishes_after_result_delivery_and_before_execute_re
     h.bridge.block_pull.store(true, std::sync::atomic::Ordering::SeqCst);
     let result = marathon_core::executor::shared::SharedDeferred::new();
     let mut task = tokio::spawn(execute(d.clone(), h.context.clone(), result.clone()));
-    timeout(Duration::from_secs(5), h.bridge.pull_entered.notified()).await?;
+    timeout(Duration::from_secs(60), h.bridge.pull_entered.notified()).await?;
     assert!(result.completed().is_some());
     still_waiting(&mut task).await;
     h.bridge.pull_release.notify_one();
-    v(timeout(Duration::from_secs(5), task).await??)?;
+    v(timeout(Duration::from_secs(60), task).await??)?;
     let oracle: serde_json::Value = include_str!("../../../fixtures/oracle/macos/probes.jsonl")
         .lines()
         .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
@@ -391,7 +391,7 @@ async fn blocking_session_close_does_not_block_the_single_device_thread() -> R {
                             let released = lock.lock().unwrap();
                             cl.notify_one();
                             let (released, _) = condition
-                                .wait_timeout_while(released, Duration::from_secs(5), |r| !*r)
+                                .wait_timeout_while(released, Duration::from_secs(60), |r| !*r)
                                 .unwrap();
                             assert!(*released, "blocked close watchdog");
                         })
@@ -407,14 +407,14 @@ async fn blocking_session_close_does_not_block_the_single_device_thread() -> R {
     let mut context = h.context.clone();
     context.cancellation = signal.clone();
     let mut task = tokio::spawn(batch(d.clone(), context));
-    timeout(Duration::from_secs(5), opened.notified()).await?;
+    timeout(Duration::from_secs(60), opened.notified()).await?;
     signal.cancel(cancelled("caller"));
-    timeout(Duration::from_secs(5), closing.notified()).await?;
+    timeout(Duration::from_secs(60), closing.notified()).await?;
     still_waiting(&mut task).await;
     *latch.0.lock().unwrap() = true;
     latch.1.notify_all();
     assert!(matches!(
-        timeout(Duration::from_secs(5), task).await??,
+        timeout(Duration::from_secs(60), task).await??,
         Err(VendorError::Cancelled(_))
     ));
     v(d.dispose().await)?;

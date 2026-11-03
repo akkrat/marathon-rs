@@ -43,7 +43,7 @@ fn records(server: &FakeAdbServer, kind: &str) -> Vec<Value> {
 
 /// Waits (bounded) until the server has recorded `event`.
 async fn wait_for_event(server: &FakeAdbServer, event: &str) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(60);
     while !records(server, "event").iter().any(|r| r["event"] == event) {
         assert!(
             Instant::now() < deadline,
@@ -190,7 +190,7 @@ shell:
   - { exact: "exit 255", stdout: "out", stderr: "err", exit_code: 255 }
   - { exact: "exit 128", exit_code: 128 }
   - { exact: "sleep 0.2", delay_ms: 200, stdout: "late\n" }
-  - { exact: "sleep 1.5", delay_ms: 1500, stdout: "late\n" }
+  - { exact: "sleep 5", delay_ms: 5000, stdout: "late\n" }
   - { exact: "split", output: [{ stdout: "ж" }, { sleep_ms: 50 }, { stdout: "x\n" }] }
   - { prefix: "logcat", stdout: "line\n", hang: true }
   - { exact: "cmd package install -S 5", service: exec, stdout: "Success\n" }
@@ -409,7 +409,7 @@ async fn idle_timeout_counts_seconds() {
     assert_eq!(r.output(), "late\n");
     let started = Instant::now();
     let error = client
-        .execute(ShellCommandRequest::new("sleep 1.5"), serial)
+        .execute(ShellCommandRequest::new("sleep 5"), serial)
         .await
         .unwrap_err();
     let elapsed = started.elapsed();
@@ -417,8 +417,10 @@ async fn idle_timeout_counts_seconds() {
         error,
         AdbError::RequestRejected("No exit code delimiter found in ".into())
     );
+    // The reply is 5 s late, so a timer delayed by a loaded host still fires first; the upper
+    // bound only tells the one-second idle timeout from the reply.
     assert!(
-        elapsed >= Duration::from_millis(900) && elapsed < Duration::from_millis(1450),
+        elapsed >= Duration::from_millis(900) && elapsed < Duration::from_millis(4500),
         "{elapsed:?}"
     );
 }

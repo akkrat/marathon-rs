@@ -25,7 +25,7 @@ fn io<T>(result: std::io::Result<T>) -> OperationResult<T> {
     result.map_err(|e| network_error(&e).into())
 }
 
-/// One faulty connection, then a short window in which a transport retry would reconnect.
+/// One faulty connection, then a window, open until the client returns, in which a transport retry would reconnect.
 async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
     let listener = io(TcpListener::bind("127.0.0.1:0").await)?;
     let url = format!("http://{}", io(listener.local_addr())?);
@@ -46,9 +46,16 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
             _ => {}
         }
         drop(socket);
-        if mode != "slow"
-            && let Ok(accept) = tokio::time::timeout(Duration::from_millis(500), listener.accept()).await
-        {
+        // A retry would reconnect before the client returns, so the window stays open until then
+        // rather than for a fixed time a loaded host could outlast.
+        let retry = match mode {
+            "slow" => None,
+            _ => tokio::select! {
+                accept = listener.accept() => Some(accept),
+                () = released.notified() => None,
+            },
+        };
+        if let Some(accept) = retry {
             let (mut socket, _) = io(accept)?;
             count.fetch_add(1, Ordering::SeqCst);
             let _ = io(socket.read(&mut [0; 8192]).await)?;
@@ -104,7 +111,7 @@ fn failure_of(message: &str) -> Failure {
 async fn eof_reset_and_slow_peers_match_jvm_wrappers_causes_and_connection_counts() {
     for backend in ["v1", "v2"] {
         for mode in ["eof", "reset", "slow"] {
-            let result = tokio::time::timeout(Duration::from_secs(10), fault(backend, mode)).await;
+            let result = tokio::time::timeout(Duration::from_secs(60), fault(backend, mode)).await;
             assert!(matches!(result, Ok(Ok(()))), "fault-{backend}-{mode}: {result:?}");
         }
     }

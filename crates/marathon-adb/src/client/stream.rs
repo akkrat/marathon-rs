@@ -321,7 +321,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(1);
         tx.send(1).await.unwrap();
         let mut stream = server.client().execute_channel(PanickingInput(Some(rx)), None).unwrap();
-        let next = tokio::time::timeout(Duration::from_secs(10), stream.next()).await;
+        let next = tokio::time::timeout(Duration::from_secs(60), stream.next()).await;
         assert!(
             matches!(next, Ok(Some(Err(AdbError::IllegalState(_))))),
             "{:?}",

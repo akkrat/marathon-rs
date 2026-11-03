@@ -101,7 +101,7 @@ fn lookup_never_waits_for_unrelated_fetch_or_registry_and_sees_observations() {
         };
         source.entered.notified().await;
         tokio::time::timeout(
-            std::time::Duration::from_secs(2),
+            std::time::Duration::from_secs(60),
             p.observe_execution_times(&[result(&t[0], TestStatus::Failure, 40000)]),
         )
         .await
@@ -371,7 +371,7 @@ fn prefetch_does_not_reacquire_the_logging_registry() {
             send.send(p.prefetch(&[key(80.0)]).await).unwrap();
         });
     });
-    let completed = receive.recv_timeout(std::time::Duration::from_secs(2));
+    let completed = receive.recv_timeout(std::time::Duration::from_secs(60));
     // Release before joining even on failure, so a regression cannot hang the gate.
     drop(registry);
     task.join().unwrap();

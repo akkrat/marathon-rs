@@ -245,6 +245,6 @@ fn real_adb_client() {
 
     // kill-server stops the fake like the real one.
     adb.ok(&["kill-server"]);
-    rt.block_on(async { tokio::time::timeout(Duration::from_secs(10), server.stopped()).await })
+    rt.block_on(async { tokio::time::timeout(Duration::from_secs(60), server.stopped()).await })
         .unwrap();
 }

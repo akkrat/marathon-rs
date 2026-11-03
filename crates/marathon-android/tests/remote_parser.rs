@@ -255,7 +255,7 @@ fn cancellation_is_not_retried_and_unregisters() {
             let parse = parser.extract(reference, child);
             tokio::pin!(parse);
             let error = loop {
-                tokio::select! {result=&mut parse=>break result.unwrap_err(),_ = tokio::task::yield_now()=>{if commands(&server).iter().any(|s|s.starts_with("am instrument")){signal.cancel(requested("cancel parse"));}}}
+                tokio::select! {result=&mut parse=>break result.unwrap_err(),_ = tokio::time::sleep(std::time::Duration::from_millis(5))=>{if commands(&server).iter().any(|s|s.starts_with("am instrument")){signal.cancel(requested("cancel parse"));}}}
             };
             assert!(matches!(error, VendorError::Cancelled(_)));
             assert_eq!(

@@ -59,7 +59,7 @@ fn ssh_connects_and_executes_on_the_production_vendor_runtime() {
     // close() returns once the client side is done; the fake records the server-side end a
     // moment later, so wait for it instead of reading the transcript immediately.
     let ends = worker_runtime.block_on(async {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
         loop {
             let ends = fake.events("connection_end").await;
             if !ends.is_empty() || tokio::time::Instant::now() >= deadline {
