@@ -1,4 +1,4 @@
-name: TEMP x9 reader stress
+name: TEMP x9 reader stress (workspace)
 
 on:
   push:
@@ -28,28 +28,20 @@ jobs:
       - name: Use main's reader (baseline)
         if: matrix.code == 'base'
         run: git checkout 3f0c8ccb -- crates/marathon-apple/src/extensions/reader.rs crates/marathon-apple/tests/reader.rs
-      - name: Build
-        run: |
-          cargo test -q -p marathon-cli --test differential_vendors --no-run
-          cargo build -q -p fake-worker -p fake-adb
-          cargo build -q -p marathon-cli --example differential_cli
-      - name: Repeat the vendor differential under CPU load
+      - name: Build tests
+        run: cargo test --workspace --no-run -q
+      - name: Repeat the workspace tests
         shell: bash
         run: |
           mkdir -p stress
           fails=0
-          for i in $(seq 1 10); do
-            yes > /dev/null & y1=$!
-            yes > /dev/null & y2=$!
-            if ! cargo test -q -p marathon-cli --test differential_vendors > "stress/run-$i.txt" 2>&1; then
+          for i in 1 2 3 4; do
+            if ! cargo test --workspace --no-fail-fast > "stress/run-$i.txt" 2>&1; then
               fails=$((fails+1))
             fi
-            kill $y1 $y2 || true
-            wait $y1 $y2 2>/dev/null || true
             echo "== iteration $i"
-            grep -oE "vendor differential failed.{0,300}|[a-z]+-[a-z0-9-]+: .{0,400}|test result.*" "stress/run-$i.txt" | head -5 || true
+            grep -E "^test .* FAILED$|panicked at|expectation |test result: FAILED" "stress/run-$i.txt" | cut -c1-400 || true
           done
-          pkill -x yes || true
           echo "failed iterations: $fails" | tee stress/summary.txt
           [[ $fails -eq 0 ]]
       - uses: actions/upload-artifact@v4
