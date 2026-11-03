@@ -54,6 +54,19 @@ To check this locally, the fake worker's `env` reply was changed to leave out `H
 committed) and the timeout was set to 5 s. The CLI then logged `Failed to set up simulator on Ssh(...)` with the
 `DeviceSetupException` and exited 1 with `NoDevicesException` after 5 s.
 
+## Verification
+
+- The deterministic regression test above fails on the pre-D19 reader and passes with D19.
+- Stress on hosted macos-14 runners, with a temporary workflow that has since been removed. Each round compared
+  main's reader with D19 on the same commit:
+  - Round 1: `cargo test -p marathon-cli --test differential_vendors`, 4 runners × 10 iterations per side, with two
+    `yes` processes as CPU load. Baseline 0/40 failures, D19 0/40.
+  - Round 2: `cargo test --workspace --no-fail-fast`, the condition under which U145 was seen, 4 runners × 4
+    iterations per side. Baseline 0/16, D19 0/16.
+- The race did not show up in either baseline. At the rate seen in WP x8 (about 1 in 24 workspace runs), measuring a
+  difference would take hundreds of runs. The stress shows that D19 introduces no new failure; the deterministic test
+  is the proof of the fix.
+
 ## Incidental bugs
 
 - The differential CLI runs on replay hooks, which are not live. Without the output pump, vendor log records wait for
