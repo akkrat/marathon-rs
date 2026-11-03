@@ -48,7 +48,7 @@ can be retried.
 | `preflight` (bad version, no changelog section, tag not on `main`) | Nothing was built or published. Delete the tag (`git push origin :refs/tags/<version>`), fix the cause through a normal WP, and tag again. |
 | `no-existing-release` | A release or draft already holds this tag. If it is a leftover draft, treat it as a failed upload, below. A published release is never replaced: use the next version. |
 | A flake in `gate`, `build` or `musl-proof` | `gh run rerun <run id> --failed`. Successful jobs and their artifacts are kept. Do not move the tag. Record the flake. |
-| Upload or `publish` failed | A draft may be left behind, and a rerun refuses to continue while it exists. Inspect it with `gh release view <version>`, delete it with `gh release delete <version> --yes` (never `--cleanup-tag`), then `gh run rerun <run id> --failed`. A rerun attests the same archives a second time, which is harmless. |
+| Upload or `publish` failed | First run `gh release view <version> --json isDraft,assets`: the last command can fail after GitHub has already published. If `isDraft` is `false`, the release is public, so do not delete it: check its assets against `SHA256SUMS` by hand as `verify` would, and treat any mismatch as a bad published release. Only if `isDraft` is `true` (a rerun refuses to continue while it exists), delete it with `gh release delete <version> --yes` (never `--cleanup-tag`), then `gh run rerun <run id> --failed`. A rerun attests the same archives a second time, which is harmless. |
 | A bad published release | Never move the tag and never replace its assets. Add a warning to its notes with `gh release edit <version> --notes-file <file>` and ship the next patch version. |
 
 ### A failed verify job

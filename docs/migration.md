@@ -56,7 +56,7 @@ output. `curl` and `gh`, as above, set no quarantine. For a browser download, cl
 mark from the extracted binary before the first run:
 
 ```sh
-xattr -d com.apple.quarantine "marathon-${version}/bin/marathon"
+xattr -d com.apple.quarantine "native-runner/marathon-${version}/bin/marathon"
 ```
 
 A copy already launched while quarantined can stay blocked after that, so extract it
