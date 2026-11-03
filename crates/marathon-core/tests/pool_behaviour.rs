@@ -237,7 +237,11 @@ fn all_devices_terminated_error_is_logged_even_after_the_last_result_passed() {
 fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let fail = Gate::default();
+            // One gate per failing device: released together, a device whose failure was processed
+            // early asks again (after its outcome) and can reach the queue just after a later failure
+            // added a retry but before the parked devices were told, taking that retry. Kotlin's
+            // single-threaded dispatcher processes all four failures first.
+            let fail = (0..4).map(|_| Gate::default()).collect::<Vec<_>>();
             // The four failures resume on vendor workers in any order and at any speed; a retry
             // that finished before the last failure arrived would free its device for a second pick.
             let release = Gate::default();
@@ -270,7 +274,7 @@ fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() 
                     &format!("failed-{i}"),
                     Some("A"),
                     None,
-                    fail_on(&fail),
+                    fail_on(&fail[i]),
                 ));
             }
             let idle = [
@@ -292,8 +296,10 @@ fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() 
                 gate.open();
                 h.run_current().await;
             }
-            fail.open();
-            h.run_current().await;
+            for gate in &fail {
+                gate.open();
+                h.run_current().await;
+            }
             assert_eq!(&picked.borrow()[4..], &["null", "B", "A-first", "A-last"]);
             release.open();
             h.await_pool_termination().await;

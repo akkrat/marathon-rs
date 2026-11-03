@@ -2,7 +2,7 @@
 
 ## Test timing rules
 
-Tests run in parallel on small hosted runners (two cores) and on loaded build boxes, so any real-time margin will eventually be exceeded. The fixes behind U99, U116 and U120–U141 in [found-bugs.md](found-bugs.md) give these rules:
+Tests run in parallel on small hosted runners (two cores) and on loaded build boxes, so any real-time margin will eventually be exceeded. The fixes behind U99, U116 and U120–U142 in [found-bugs.md](found-bugs.md) give these rules:
 
 1. A positive real-time deadline (`timeout`, `recv_timeout`, a polling deadline) only catches hangs: use 60 s, whatever the expected time is.
 2. Wait for work outside the current task (processes, sockets, blocking threads) by polling with a short `sleep` or a notification, never by spinning on `yield_now`.
