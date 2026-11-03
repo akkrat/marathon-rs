@@ -28,8 +28,10 @@ async fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
     ensure!(args.len() == 2, "usage: extension CONFIG.json");
     let config = serde_json::from_slice(&tokio::fs::read(&args[1]).await?)?;
+    // Installed before the ready line, so a harness may signal as soon as it has read it.
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
     let worker = fake_worker::start(config, vec![Arc::new(FixtureWorld)]).await?;
     println!("{}", serde_json::to_string(&worker.ready)?);
-    tokio::signal::ctrl_c().await?;
+    interrupt.recv().await;
     worker.shutdown().await
 }

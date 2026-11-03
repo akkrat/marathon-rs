@@ -84,12 +84,19 @@ async fn main() -> ExitCode {
         }
     };
     script.strict |= args.strict;
+    let shutdown = match shutdown_signal() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("fake-adb: cannot handle signals: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     match serve_with_state(
         script,
         args.options,
         args.port_file.as_deref(),
         args.state_file.as_deref(),
-        shutdown_signal(),
+        shutdown,
     )
     .await
     {
@@ -101,13 +108,19 @@ async fn main() -> ExitCode {
     }
 }
 
-/// SIGINT or SIGTERM; a harness usually stops the server with the latter.
-async fn shutdown_signal() -> std::io::Result<()> {
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    tokio::select! {
-        r = tokio::signal::ctrl_c() => r,
-        _ = term.recv() => Ok(()),
-    }
+/// SIGINT or SIGTERM; a harness usually stops the server with the latter. The handlers are installed
+/// here, before the port file exists: a lazily polled handler left a window in which a harness that
+/// had already used the server could kill it with the default action.
+fn shutdown_signal() -> std::io::Result<impl Future<Output = std::io::Result<()>>> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut term = signal(SignalKind::terminate())?;
+    let mut interrupt = signal(SignalKind::interrupt())?;
+    Ok(async move {
+        tokio::select! {
+            _ = interrupt.recv() => Ok(()),
+            _ = term.recv() => Ok(()),
+        }
+    })
 }
 
 /// Serves until `adb kill-server` (with `on_kill: exit`) or `shutdown`, then shuts the server down and

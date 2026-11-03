@@ -20,10 +20,13 @@ async fn main() -> Result<()> {
         .as_ref()
         .map(|w| vec![Arc::new(w.clone()) as Arc<dyn fake_worker::router::Handler>])
         .unwrap_or_default();
+    // Installed before the ready line, so a harness may signal as soon as it has read it.
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut terminate = signal(SignalKind::terminate())?;
+    let mut interrupt = signal(SignalKind::interrupt())?;
     let worker = fake_worker::start(config, extensions).await?;
     println!("{}", serde_json::to_string(&worker.ready)?);
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    tokio::select! {r=tokio::signal::ctrl_c()=>r?,_=terminate.recv()=>()};
+    tokio::select! {_=interrupt.recv()=>(),_=terminate.recv()=>()};
     let fs = worker.fs.clone();
     worker.shutdown().await?;
     if let Some(world) = world {
