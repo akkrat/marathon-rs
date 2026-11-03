@@ -205,6 +205,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('--ignore-missing SHA256SUMS', text)
         self.assertIn(f'xattr -d com.apple.quarantine marathon-{VERSION}/bin/marathon', text)
         self.assertIn('not notarised', text)
+        self.assertIn('before the first run', text)
 
     def test_notes_table_has_each_hash(self):
         with tempfile.TemporaryDirectory() as tmp:

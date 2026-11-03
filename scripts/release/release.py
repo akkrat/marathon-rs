@@ -291,13 +291,16 @@ gh attestation verify {sample} --repo {repo}
 
 ## macOS: the binary is not notarised
 
-The macOS binary is ad-hoc signed, not signed with an Apple Developer ID and not notarised. A browser download
-is quarantined and Gatekeeper refuses to run the extracted binary. Downloading with `curl` or `gh`, as above,
-sets no quarantine. For a browser download, clear it with:
+The macOS binary is ad-hoc signed, not signed with an Apple Developer ID and not notarised. A browser marks
+its downloads as quarantined, and extracting such a zip with `unzip` passes the mark to the binary. Gatekeeper then
+blocks it: it does not start, and in an unattended session it hangs with no output. Downloading with `curl` or
+`gh`, as above, sets no quarantine. For a browser download, clear the mark before the first run:
 
 ```sh
 xattr -d com.apple.quarantine marathon-{version}/bin/marathon
 ```
+
+A copy already launched while quarantined can stay blocked after that, so extract it again and clear the new copy.
 """
 
 

@@ -76,10 +76,12 @@ def source_description(package, workspace_root):
 def render(target, metadata, crates):
     packages = select_packages(metadata, crates)
     # Crate-relative names only: an absolute path would put the build machine into a published file.
-    lines = [f'Third-party software compiled into marathon for {target}', '',
+    lines = [f'Third-party Rust crates compiled into marathon for {target}', '',
              "Generated from Cargo.lock when this archive was built. It lists marathon-cli's normal dependency",
              'graph for this target, including procedural macros, which run while compiling. Dev and build',
-             "dependencies are not listed. This repository's own crates are covered by the file LICENSE.", '',
+             "dependencies are not listed. This repository's own crates are covered by the file LICENSE.",
+             'Only crates are listed: assets copied from the Kotlin marathon source and compiled into the',
+             'binary, such as the HTML report bundles and the libxctest-parser libraries, are not.', '',
              f'{len(packages)} crates:', '']
     for package in packages:
         lines.append(f'{package["name"]} {package["version"]}: {package.get("license") or "no licence declared"}')
