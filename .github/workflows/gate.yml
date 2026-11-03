@@ -1,0 +1,66 @@
+name: Gate
+
+# The one definition of the gate. ci.yml calls it for every branch and pull request,
+# and release.yml calls it for the exact commit being released.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+    # Variables may contain a JSON label array, e.g. ["self-hosted", "macOS", "ARM64"].
+    runs-on: ${{ fromJSON((matrix.target == 'aarch64-apple-darwin' && vars.MARATHON_MACOS_RUNNER) || (matrix.target == 'x86_64-unknown-linux-gnu' && vars.MARATHON_LINUX_RUNNER) || format('["{0}"]', matrix.runner)) }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prerequisites
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install -y build-essential pkg-config python3 unzip binutils openssh-client rsync sshpass file libxml2-utils
+          else
+            brew install rsync sshpass
+          fi
+          rustup toolchain install
+      - name: Workspace gate
+        run: scripts/check.sh
+      - name: Keep failure evidence
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: failure-evidence-${{ matrix.target }}
+          path: |
+            tools/differential/runs/
+            tools/oracle/runs/
+            tools/fake-worker/runs/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Version cache and runtime environment checks
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 -I scripts/release/check_versions.py "$TARGET"
+      # Built with the fallback version, so this cannot be mistaken for a release asset.
+      - name: Native archive and extracted smoke
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 -I scripts/release/release.py build --target "$TARGET" --output "dist/$TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 14

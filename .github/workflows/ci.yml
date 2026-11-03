@@ -1,9 +1,8 @@
-name: CI and native releases
+name: CI
 
 on:
   push:
     branches: ['**']
-    tags: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -11,89 +10,30 @@ permissions:
   contents: read
 
 jobs:
-  test-build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            runner: macos-14
-          - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-22.04
-    # Variables may contain a JSON label array, e.g. ["self-hosted", "macOS", "ARM64"].
-    runs-on: ${{ fromJSON((matrix.target == 'aarch64-apple-darwin' && vars.MARATHON_MACOS_RUNNER) || (matrix.target == 'x86_64-unknown-linux-gnu' && vars.MARATHON_LINUX_RUNNER) || format('["{0}"]', matrix.runner)) }}
+  gate:
+    uses: ./.github/workflows/gate.yml
+
+  # Proves the release build on every push, so that a broken one is found before anyone tags.
+  musl-package:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      TARGET: x86_64-unknown-linux-musl
+      VERSION: 0.0.0-ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
-      - name: Prerequisites
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == Linux ]]; then
-            sudo apt-get update
-            sudo apt-get install -y build-essential pkg-config python3 unzip binutils openssh-client rsync sshpass file libxml2-utils
-          else
-            brew install rsync sshpass
-          fi
-          rustup toolchain install
-      - name: Workspace gate
-        run: scripts/check.sh
-      - name: Keep failure evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/setup-musl-tools
         with:
-          name: failure-evidence-${{ matrix.target }}
-          path: |
-            tools/differential/runs/
-            tools/oracle/runs/
-            tools/fake-worker/runs/
-          if-no-files-found: ignore
-          retention-days: 14
-      - name: Version cache and runtime environment checks
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python3 -I scripts/release/check_versions.py "$TARGET"
-      - name: Native archive and extracted smoke
-        shell: bash
-        env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
-          TARGET: ${{ matrix.target }}
-        run: |
-          if [[ "$REF_TYPE" == tag ]]; then
-            export GIT_TAG_NAME="$REF_NAME"
-          else
-            unset GIT_TAG_NAME
-          fi
-          python3 -I scripts/release/release.py build --target "$TARGET" --output "dist/$TARGET"
-      - uses: actions/upload-artifact@v4
+          cache: 'true'
+      - name: Static archive and extracted smoke
+        run: python3 -I scripts/release/release.py build --target "$TARGET" --version "$VERSION" --output "dist/$TARGET"
+      - name: Run the packaged binary without glibc
+        run: python3 -I scripts/release/release.py prove-musl --archive "dist/$TARGET/marathon-$VERSION-$TARGET.zip" --version "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-${{ matrix.target }}
-          path: dist/${{ matrix.target }}/
+          name: native-${{ env.TARGET }}
+          path: dist/${{ env.TARGET }}/
           if-no-files-found: error
           retention-days: 14
-
-  publish:
-    needs: test-build
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-    # One promotion at a time; a failed draft is retained and blocks silent reruns.
-    concurrency:
-      group: marathon-release-publication
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: native-*
-          path: dist
-      - name: Publish tested assets, then mark latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: python3 -I scripts/release/release.py publish --artifacts dist

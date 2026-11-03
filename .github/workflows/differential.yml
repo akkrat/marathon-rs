@@ -8,8 +8,6 @@ on:
         type: choice
         options: [full, harness-first]
         default: full
-  push:
-    tags: ['**']
 
 permissions:
   contents: read

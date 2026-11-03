@@ -1,0 +1,47 @@
+name: Static Linux build tools
+description: >-
+  Puts the pinned zig and cargo-zigbuild on PATH and adds the Rust musl target, for
+  `release.py build --target x86_64-unknown-linux-musl` on a Linux x86_64 runner.
+
+inputs:
+  cache:
+    description: Reuse cargo-zigbuild from the Actions cache. Release builds leave this off and install it themselves.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Packaging tools and the Rust musl target
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y file unzip binutils
+        rustup toolchain install
+        rustup target add x86_64-unknown-linux-musl
+    - name: Zig, checked against its pinned SHA-256
+      shell: bash
+      env:
+        ZIG_VERSION: 0.17.0
+        ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+      run: |
+        tarball="zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+        curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/$tarball" "https://ziglang.org/download/${ZIG_VERSION}/${tarball}"
+        echo "${ZIG_SHA256}  ${RUNNER_TEMP}/${tarball}" | sha256sum -c
+        tar -xJf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/zig-x86_64-linux-${ZIG_VERSION}" >> "$GITHUB_PATH"
+    - name: Restore cargo-zigbuild
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cargo-zigbuild
+        key: cargo-zigbuild-0.24.0-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
+    - name: cargo-zigbuild
+      shell: bash
+      env:
+        ZIGBUILD_VERSION: 0.24.0
+      run: |
+        if [[ ! -x "$HOME/.cargo-zigbuild/bin/cargo-zigbuild" ]]; then
+          cargo install --locked --root "$HOME/.cargo-zigbuild" "cargo-zigbuild@${ZIGBUILD_VERSION}"
+        fi
+        echo "$HOME/.cargo-zigbuild/bin" >> "$GITHUB_PATH"

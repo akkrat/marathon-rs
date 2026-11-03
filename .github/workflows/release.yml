@@ -1,0 +1,204 @@
+name: Release
+
+# A release tag publishes. A manual run rehearses everything except publication: see docs/releasing.md.
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-*'
+    # TEMPORARY for WP x10 verification; removed before the branch is finished.
+    branches: [wp/x10-release-workflow]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to rehearse, such as 0.99.0 or 0.99.0-rc.1, without a v. Nothing is published.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      # Full history: a tag's ancestry is checked against origin/main.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: validate
+        name: Version, changelog section and, on a tag, ancestry
+        env:
+          # TEMPORARY for WP x10 verification: the `|| '0.99.0'` branch-push fallback, and ref_type in place of event_name.
+          VERSION: ${{ github.ref_type == 'tag' && github.event_name == 'push' && github.ref_name || inputs.version || '0.99.0' }}
+        run: |
+          python3 -I scripts/release/release.py preflight --version "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  # A separate job because drafts are visible only to a token that can write, and only a tag push needs it.
+  no-existing-release:
+    needs: preflight
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No release or draft exists for this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: python3 -I scripts/release/release.py check-absent --version "$VERSION"
+
+  gate:
+    needs: preflight
+    uses: ./.github/workflows/gate.yml
+
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: rustup toolchain install
+      - uses: ./.github/actions/setup-musl-tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+      - name: Archive and extracted smoke
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: python3 -I scripts/release/release.py build --target "$TARGET" --version "$VERSION" --output "dist/$TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 14
+
+  musl-proof:
+    needs: [preflight, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-x86_64-unknown-linux-musl
+          path: dist
+      - name: Run the packaged binary without glibc
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: python3 -I scripts/release/release.py prove-musl --archive "dist/marathon-$VERSION-x86_64-unknown-linux-musl.zip" --version "$VERSION"
+
+  dry-run:
+    needs: [preflight, gate, build, musl-proof]
+    if: github.event_name != 'push' || github.ref_type != 'tag'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+      - name: Checksums and notes, without publishing
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: python3 -I scripts/release/release.py prepare --artifacts dist --version "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dry-run-${{ needs.preflight.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [preflight, no-existing-release, gate, build, musl-proof]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    # One promotion at a time; a failed draft is retained and blocks silent reruns.
+    concurrency:
+      group: marathon-release-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+      - name: Recheck the tested archives
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: python3 -I scripts/release/release.py prepare --artifacts dist --version "$VERSION"
+      - name: Build provenance, before anything is public
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/release-*/marathon-*.zip
+      - name: Draft, attach, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 -I scripts/release/release.py publish --artifacts dist
+
+  verify:
+    needs: [preflight, publish]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the published release and run it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: python3 -I scripts/release/release.py verify --version "$VERSION" --target "$TARGET" --dir "$RUNNER_TEMP/published release"
+      - name: Say what this failure means
+        if: failure()
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: echo "::error title=Published release failed verification::$VERSION is already public and failed verification on $TARGET. Follow docs/releasing.md, 'A failed verify job'."
