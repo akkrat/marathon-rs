@@ -668,6 +668,13 @@ class VendorEvidenceTests(unittest.TestCase):
         update = 'D 00:00:00.000 [worker] <AppleSimulatorProvider> Processing updates from Ssh(addr=127.0.0.1, port=42):\n- Connected(target=Simulator(udid=fixture))\n'
         self.assertEqual(console.normalize((timing+update).encode(),v,'native','stdout'),
                          console.normalize((update+timing).encode(),v,'native','stdout'))
+        connected = ''.join('D 00:00:00.000 [worker] <AdamDeviceProvider> Device emulator-%d changed state to CONNECTED\n' % n
+                            for n in (5554, 5556))
+        parsed = 'I 00:00:00.000 [worker] <Timings> Parsed 36 tests in 0 ms (+0 ms since start)\n'
+        self.assertEqual(console.normalize((timing+connected+parsed).encode(),v,'native','stdout'),
+                         console.normalize((connected+timing+parsed).encode(),v,'native','stdout'))
+        self.assertNotEqual(console.normalize((timing+connected+parsed).encode(),v,'native','stdout'),
+                            console.normalize((timing+parsed+connected).encode(),v,'native','stdout'))
         self.assertNotEqual(console.normalize(b'first\nsecond\n',v,'native','stdout'),
                             console.normalize(b'second\nfirst\n',v,'native','stdout'))
 

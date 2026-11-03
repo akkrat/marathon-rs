@@ -98,4 +98,15 @@ def normalize(data, values, implementation, stream, facts=None):
             continue
         if (updates in triple[0] and triple[1].startswith('- Connected(target=Simulator(') and timing in triple[2]):
             result[i:i+3] = [triple[2],triple[0],triple[1]]
+    # The Android provider launches its device-tracking job (providerJob) before returning, so its
+    # CONNECTED lines can also precede the caller's timing log: the timing line moves ahead of
+    # the run of CONNECTED lines just before it.
+    connected = lambda line: ' <AdamDeviceProvider> Device ' in line and line.rstrip('\n').endswith(' changed state to CONNECTED')
+    for i, line in enumerate(result):
+        if timing in line:
+            start = i
+            while start > 0 and connected(result[start-1]):
+                start -= 1
+            result[start:i+1] = [line] + result[start:i]
+            break
     return ''.join(result).encode()
