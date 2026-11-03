@@ -25,6 +25,22 @@ fn io<T>(result: std::io::Result<T>) -> OperationResult<T> {
     result.map_err(|e| network_error(&e).into())
 }
 
+/// Waits for a retry connection until the client has returned. A retry finishes its TCP handshake,
+/// so it is in the listen backlog, before the client can return. The listener only learns that it
+/// is readable on the reactor's next turn, so a release can win the first poll while a retry is
+/// already queued; after the release one more accept runs, and Timeout polls it before its timer,
+/// so a queued retry is found however late the task is scheduled.
+async fn retry_window(
+    listener: &TcpListener,
+    released: &Notify,
+) -> Option<std::io::Result<(tokio::net::TcpStream, std::net::SocketAddr)>> {
+    tokio::select! {
+        biased;
+        accept = listener.accept() => Some(accept),
+        () = released.notified() => tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.ok(),
+    }
+}
+
 /// One faulty connection, then a window, open until the client returns, in which a transport retry would reconnect.
 async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
     let listener = io(TcpListener::bind("127.0.0.1:0").await)?;
@@ -50,10 +66,7 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
         // rather than for a fixed time a loaded host could outlast.
         let retry = match mode {
             "slow" => None,
-            _ => tokio::select! {
-                accept = listener.accept() => Some(accept),
-                () = released.notified() => None,
-            },
+            _ => retry_window(&listener, &released).await,
         };
         if let Some(accept) = retry {
             let (mut socket, _) = io(accept)?;
@@ -105,6 +118,18 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
 }
 fn failure_of(message: &str) -> Failure {
     marathon_core::executor::shared::failure("test.Peer", message)
+}
+
+#[tokio::test]
+async fn a_queued_retry_is_counted_even_when_the_client_has_already_returned() -> OperationResult<()> {
+    for _ in 0..128 {
+        let listener = io(TcpListener::bind("127.0.0.1:0").await)?;
+        let _retry = io(tokio::net::TcpStream::connect(io(listener.local_addr())?).await)?;
+        let released = Notify::new();
+        released.notify_one();
+        assert!(matches!(retry_window(&listener, &released).await, Some(Ok(_))));
+    }
+    Ok(())
 }
 
 #[tokio::test]
