@@ -6,7 +6,9 @@ Marathondevices, CLI and report formats.
 
 **0.99.0 is the first public release.** The Kotlin tests are ported or marked not
 applicable with a reason, differential suites compare whole runs with the JVM program,
-and real iOS, macOS and Android runs were compared on an earlier commit.
+and the real iOS, macOS and Android runs recorded in this repository were compared on
+an earlier commit, the Android ones with a glibc build. Outside this repository the
+maintainer also compared earlier builds on private CI farms, which cannot be checked here.
 No isolated shadow or canary results are recorded in this repository. Trial it in a
 disposable environment and keep your JVM distribution for rollback. See the
 [changelog](CHANGELOG.md) for known limits and
@@ -81,6 +83,12 @@ Branch builds do not publish; GitHub's latest release replaces the old promotion
 scheme. A release binary's version equals its tag; untagged builds use the
 existing fallback, which is not evidence that a release exists.
 
-Derived from marathon and distributed under [GPL-2.0](LICENSE). Existing source
-attribution and third-party notices remain in their respective files, and each release
-archive carries a generated `THIRD-PARTY-LICENSES`.
+Derived from marathon. The source is distributed under [GPL-2.0-only](LICENSE). Existing
+source attribution and third-party notices remain in their respective files, and each
+release archive carries a generated `THIRD-PARTY-LICENSES` for the crates and other files
+compiled in.
+
+`libxctest-parser` is excluded. This repository and its archives do not contain it, and
+this repository's licence does not cover it. It is third-party software under its own
+EULA, needed only by runs that select the `xctest` test parser, which use a copy you supply
+([D20](docs/deviations.md#d20--the-xctest-parser-library-is-supplied-by-you)).

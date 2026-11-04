@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D19; implementation availability
+canonical. This guide covers D1–D20; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -228,3 +228,22 @@ same change or leave an explicit WP 7.4 handoff. Compare both ID sets **and full
 entry meanings** at review and again in WP 7.5 on the release SHA. Later iOS or
 differential work may add approved IDs; do not promote pending proposals here.
 The [documentation findings](wp/7.4-findings.md) record this comparison.
+
+## D20 — The `xctest` parser library is supplied by you
+
+Kotlin marathon ships five copies of `libxctest-parser.dylib` in its resources
+(`XCTestParser.kt:61`) and pushes the one for the device's platform to the
+worker. The library is third-party software under
+[its own EULA](https://github.com/MarathonLabs/marathon/blob/-/vendor/vendor-apple/base/src/main/resources/EULA.md),
+not part of the GPL-licensed code. The native program neither contains nor ships
+it. `testParserConfiguration: {type: "xctest"}` stays valid, and a run that
+selects it reads the file from the directory named by
+`MARATHON_XCTEST_PARSER_DIR`, in the layout of the Kotlin resources:
+`<platform name>/libxctest-parser.dylib`. Without a readable file the run fails
+before it installs anything, with exit status 1 and a message that says what to
+supply. The push to the worker and the fake test run are unchanged. The default
+`nm` parser needs no library and never reads the variable, so only a Marathonfile
+that selects `xctest` needs action; see the
+[migration guide](migration.md#the-xctest-parser-needs-a-library-you-supply).
+See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x11 findings](wp/x11-findings.md).

@@ -11,7 +11,8 @@ Marathonfile configuration, Marathondevices files and dynamic updates, command
 line options and exit codes, artifact paths and contents, logs, scheduling,
 and the commands and timeouts sent to workers. Native implementation alone
 does not establish that these contracts have passed their release gates.
-See the [README's dated status](../README.md) for currently wired vendors.
+See the [README](../README.md) for the current status and
+[release readiness](releasing.md#release-readiness) for what the evidence covers.
 
 Known Kotlin bugs are deliberately retained unless an approved exception says
 otherwise. The [bug ledger](known-kotlin-bugs.md) distinguishes confirmed ports
@@ -28,8 +29,12 @@ proves packaging only. Whole-run differential checks, real Android/iOS/macOS
 runs, port-queue reconciliation and isolated shadow/canary cutover are separate
 [release gates](../PLAN.md#10-risks-and-release-gates).
 
-This project remains derived from marathon under the existing
-[GNU GPL version 2](../LICENSE). Preserve source attribution, copyright notices
-and applicable dependency notices when redistributing. No new project branding
+This project remains derived from marathon. Its source is distributed under the
+[GNU GPL version 2 only](../LICENSE) (`GPL-2.0-only`). Preserve source attribution,
+copyright notices and applicable dependency notices when redistributing; each
+archive's `THIRD-PARTY-LICENSES` lists the crates and other files compiled in.
+`libxctest-parser` is excluded: this repository and its archives do not contain it,
+and this repository's licence does not cover it. It is third-party software under its
+own EULA, and an `xctest` run uses a copy that you supply ([D20](deviations.md#d20--the-xctest-parser-library-is-supplied-by-you)). No new project branding
 or replacement upstream documentation is implied. Use the
 [migration guide](migration.md) for the executable switch and rollback procedure.

@@ -169,6 +169,54 @@ Crash/usage telemetry is disabled (D1), but configured Influx/Graphite remains
 active (D4). **Do not rely on `readOnly` for isolation**: the Kotlin deserializers
 ignore it (F3), and that bug is retained. Use isolated backends for comparisons.
 
+## The xctest parser needs a library you supply
+
+You need this section only if your Marathonfile selects the parser:
+
+```yaml
+vendorConfiguration:
+  testParserConfiguration:
+    type: xctest
+```
+
+The default is `nm`, which needs no library. If your tests are not generated at runtime,
+switching to `nm` is the simple way out.
+
+An `xctest` run injects `libxctest-parser.dylib` into a fake test run on the worker. The
+native program does not contain this library
+([D20](deviations.md#d20--the-xctest-parser-library-is-supplied-by-you)). Take a copy from a
+Kotlin marathon distribution, under the terms of its
+[EULA](https://github.com/MarathonLabs/marathon/blob/-/vendor/vendor-apple/base/src/main/resources/EULA.md),
+and point the runner at it:
+
+```sh
+export MARATHON_XCTEST_PARSER_DIR=/path/to/libraries
+```
+
+The directory has the layout of the Kotlin resources (`libxctest-parser/` in its jar),
+`<platform name>/libxctest-parser.dylib`. You need the platforms you test on:
+
+| Devices | File |
+|---|---|
+| iPhone and iPad simulators | `iPhoneSimulator/libxctest-parser.dylib` |
+| Apple TV simulators | `AppleTVSimulator/libxctest-parser.dylib` |
+| Apple Watch simulators | `WatchSimulator/libxctest-parser.dylib` |
+| Vision simulators | `XRSimulator/libxctest-parser.dylib` |
+| macOS | `MacOSX/libxctest-parser.dylib` |
+
+The variable is read on the machine that runs `marathon`, which pushes the file to the
+worker as Kotlin did.
+
+The library is third-party software and this project's licence does not cover it. Its EULA
+says that it communicates with its server: it sends error reports, which cannot be disabled,
+and anonymized usage data, which you may opt out of. Read the EULA before you use it, and
+consider this if your workers have restricted network access.
+
+Without a readable file the run stops with exit status 1 and a message naming the variable or
+the file. macOS, and iOS with no simulator file at all, stop before any connection. An iOS run
+with files for other platforms only stops once it has its first device, because only then is
+the platform known; it does not retry or install anything.
+
 ## Retained behavior to account for
 
 These statuses are from the [full bug ledger](known-kotlin-bugs.md) at the

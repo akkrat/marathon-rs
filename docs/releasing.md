@@ -61,6 +61,19 @@ release is already public and may already be downloaded. Read the failing step:
 - **Checksum, asset list, release state or version mismatch:** treat it as a bad
   published release, as above. Do not edit the assets to make the job pass.
 
+## Repository settings
+
+These two settings live on GitHub, not in this tree, and a new repository needs them set
+again:
+
+- **The `release` environment** that `publish` uses accepts deployments only from
+  version-shaped tags: a custom deployment policy of type tag with the pattern
+  `[0-9]*.[0-9]*.[0-9]*`. No branch and no other tag can deploy to it.
+- **The ruleset "Release tags cannot move"** targets all tags, with no bypass, and blocks
+  updates and force-pushes. It deliberately allows deletion, because the recovery table above
+  deletes a tag after a failed `preflight`. A published release is never replaced, so do not
+  delete the tag of one.
+
 ## What the workflow does
 
 | Job | Runs on | Purpose |
@@ -131,9 +144,18 @@ excludes dev and build dependencies, and this repository's own crates, which `LI
 covers. For each crate it writes the name, version and SPDX expression, and the text of
 every `LICENSE*`, `LICENCE*`, `COPYING*`, `NOTICE*`, `COPYRIGHT*` and `UNLICENSE*` file
 in its source, including those of bundled C libraries in subdirectories. A crate with no
-such file gets a line saying so and giving its SPDX expression. It lists crates only, and
-says so: assets copied from the Kotlin source and compiled in, such as the HTML report
-bundles and the `libxctest-parser` libraries, are not in it.
+such file gets a line saying so and giving its SPDX expression.
+
+Files compiled in that are not crates get their own section, from
+`scripts/release/embedded_assets.json` and the texts in `scripts/release/asset-licences/`:
+the report bundles and the colour profiles. It also carries the notice of adam, which
+`crates/marathon-adb` ports. The build and an offline test fail when that list and the
+production `include_bytes!`, `include_str!` and `include_dir!` calls disagree, so a new asset
+needs an entry, with an upstream, a licence text and a status, before it can be released.
+
+The source is `GPL-2.0-only` (`LICENSE`). `libxctest-parser` is excluded: neither the source
+tree nor an archive contains it, this repository's licence does not cover it, and an `xctest`
+run uses a copy that the user supplies (D20). Do not add it or its EULA to an archive.
 
 Future resource-owning WPs must keep required assets embedded or update this manifest
 before releasing. The `<target>.json` metadata beside each archive records the source
