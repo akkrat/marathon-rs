@@ -99,7 +99,11 @@ def strip_test_items(text):
 
 
 def production_includes(root):
-    """Repository paths of the files that production Rust code embeds with include_bytes!, include_str! or include_dir!."""
+    """Repository paths of the files that production Rust code embeds with include_bytes!, include_str! or include_dir!.
+
+    The fast offline check, which needs no build. It reads source text, so it can miss what a macro hides, such as one
+    invoking `$m!($p)`. The authoritative check is `check_dep_info` in release.py, on rustc's own record of a real build.
+    """
     root = Path(root)
     sources = [path for base in ('crates', 'vendor') for path in (root / base).glob('*/src/**/*.rs')]
     test_modules = set()
@@ -113,9 +117,10 @@ def production_includes(root):
         relative = path.relative_to(root).as_posix()
         if path in test_modules or relative.startswith(NOT_COMPILED_IN) or path.name == 'tests.rs' or '/tests/' in relative:
             continue
-        code = strip_test_items(path.read_text(encoding='utf-8', errors='replace'))
-        code = '\n'.join(line for line in code.split('\n') if not line.lstrip().startswith('//'))
-        for match in INCLUDE.finditer(code):
+        # Comments first: a commented #[cfg(test)] must not hide the next item.
+        code = '\n'.join(line for line in path.read_text(encoding='utf-8', errors='replace').split('\n')
+                         if not line.lstrip().startswith('//'))
+        for match in INCLUDE.finditer(strip_test_items(code)):
             # Only a plain string literal can be checked against the list; a computed path could embed anything.
             if not match.group(1):
                 raise ValueError(f'{relative}: cannot resolve the path of {match.group(0)}; use a string literal')

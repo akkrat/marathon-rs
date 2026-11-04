@@ -357,6 +357,35 @@ def check_asset_statuses():
                          'decide their terms and set their status before releasing')
 
 
+def listed_assets():
+    return {name for asset in json.loads(ASSET_LIST.read_text(encoding='utf-8'))['assets'] for name in asset['files']}
+
+
+def check_dep_info(path):
+    """The authoritative asset check: every non-Rust workspace file rustc read for this binary must be listed, and the
+    reverse. Cargo's dep-info includes path dependencies, so vendor/ and all crates count, and macros hide nothing.
+    A crate README pulled in for documentation is such a file too: it fails here until someone decides what it is.
+    """
+    try:
+        text = Path(path).read_text(encoding='utf-8')
+    except OSError as error:
+        raise ValueError(f'cannot read the dep-info of the build: {error}') from error
+    # One make rule: `target: dep dep`, with spaces in paths escaped.
+    deps = re.split(r'(?<!\\):\s', text.replace('\\\n', ' '), maxsplit=1)
+    names = [name.replace('\\ ', ' ') for name in re.split(r'(?<!\\)\s+', deps[-1].strip()) if len(deps) == 2 and name]
+    if not any(name.endswith('.rs') for name in names):
+        raise ValueError(f'the dep-info {path} lists no Rust source; its format may have changed')
+    workspace = set()
+    for name in names:
+        relative = os.path.relpath(Path(ROOT, name), ROOT).replace(os.sep, '/')
+        if not relative.startswith('../') and not relative.endswith('.rs'):
+            workspace.add(relative)
+    listed = listed_assets()
+    if workspace != listed:
+        raise ValueError(f'{ASSET_LIST.name} differs from the files compiled in: not in the list {sorted(workspace - listed)}, '
+                         f'not compiled in {sorted(listed - workspace)}')
+
+
 def preflight(version, env):
     strict_version(version)
     changelog_section(version)
@@ -503,6 +532,7 @@ def main():
         if not target_dir.is_absolute():
             target_dir = ROOT / target_dir
         binary = target_dir / args.target / 'release/marathon'
+        check_dep_info(binary.with_name('marathon.d'))
     else:
         binary = args.binary.resolve()
     print(package(binary, args.output.resolve(), version, args.target, toolchain))

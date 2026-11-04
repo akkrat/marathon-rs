@@ -379,6 +379,55 @@ class ReleaseTests(unittest.TestCase):
     def test_an_unresolved_asset_status_does_not_stop_the_package_build(self):
         self.assertIn('sRGB colour profile', '\n'.join(tpl.render_assets(tpl.load_assets())))
 
+    def dep_info(self, root, *deps):
+        """What cargo writes beside the binary: one make rule, with spaces escaped."""
+        root = Path(root)
+        (root / 'scripts/release').mkdir(parents=True, exist_ok=True)
+        path = root / 'marathon.d'
+        names = [str(root / d).replace(' ', '\\ ') for d in ('crates/x/src/main.rs', *deps)]
+        path.write_text(f'{root}/target/release/marathon: ' + ' '.join(names) + '\n\n')
+        return path
+
+    def asset_list(self, root, *files):
+        path = Path(root) / 'assets.json'
+        path.write_text(json.dumps(dict(assets=[dict(component='thing', status='open-source', files=list(files))])))
+        return path
+
+    def check_dep_info(self, root, dep_info, *files):
+        with patch.object(r, 'ROOT', Path(root)), patch.object(r, 'ASSET_LIST', self.asset_list(root, *files)):
+            r.check_dep_info(dep_info)
+
+    def test_dep_info_must_match_the_asset_list_exactly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.check_dep_info(tmp, self.dep_info(tmp, 'fixtures/a.bin', 'fixtures/with space.bin'),
+                                'fixtures/a.bin', 'fixtures/with space.bin')
+            with self.assertRaisesRegex(ValueError, r"not in .*\['fixtures/new.bin'\]"):
+                self.check_dep_info(tmp, self.dep_info(tmp, 'fixtures/a.bin', 'fixtures/new.bin'), 'fixtures/a.bin')
+            with self.assertRaisesRegex(ValueError, r"not compiled in .*\['fixtures/gone.bin'\]"):
+                self.check_dep_info(tmp, self.dep_info(tmp, 'fixtures/a.bin'), 'fixtures/a.bin', 'fixtures/gone.bin')
+
+    def test_dep_info_counts_documentation_and_ignores_rust_and_outside_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # A crate README pulled in for docs is still a file rustc read: it needs a deliberate list entry.
+            with self.assertRaisesRegex(ValueError, r"vendor/x/README.md"):
+                self.check_dep_info(tmp, self.dep_info(tmp, 'vendor/x/README.md'))
+            path = self.dep_info(tmp, 'crates/x/src/other.rs', '../registry/crate/data.bin')
+            self.check_dep_info(tmp, path)
+
+    def test_dep_info_that_is_missing_or_empty_fails_rather_than_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, 'dep-info'):
+                self.check_dep_info(tmp, Path(tmp) / 'absent.d')
+            empty = Path(tmp) / 'empty.d'
+            empty.write_text('target/release/marathon:\n')
+            with self.assertRaisesRegex(ValueError, 'dep-info'):
+                self.check_dep_info(tmp, empty)
+
+    def test_the_real_list_has_the_shape_the_dep_info_check_reads(self):
+        files = r.listed_assets()
+        self.assertIn('fixtures/adam/colorProfiles/sRGB.icc', files)
+        self.assertNotIn('fixtures/adam/colorProfiles/README.md', files)
+
     def test_preflight_of_a_tag_on_main(self):
         self.preflight(TAG_ENV)
         self.assertEqual(self.preflight_git, [['git', 'merge-base', '--is-ancestor', SHA, 'refs/remotes/origin/main']])
@@ -607,7 +656,7 @@ class ReleaseTests(unittest.TestCase):
             args = ['release.py', 'build', '--target', r.MUSL, '--version', 'v1', '--output', tmp + '/out']
             with patch.object(r.sys, 'argv', args), patch.object(r, 'run', side_effect=fake_run), \
                     patch.object(r.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as sub, \
-                    patch.object(r, 'package', return_value=Path('x')) as package:
+                    patch.object(r, 'check_dep_info'), patch.object(r, 'package', return_value=Path('x')) as package:
                 try:
                     with contextlib.redirect_stdout(io.StringIO()):
                         r.main()
@@ -639,9 +688,26 @@ class ReleaseTests(unittest.TestCase):
             args = ['release.py', 'build', '--target', r.GNU, '--output', tmp + '/out']
             with patch.object(r.sys, 'argv', args), patch.object(r, 'run', return_value='host: ' + r.GNU), \
                     patch.object(r.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as sub, \
-                    patch.object(r, 'package', return_value=Path('x')), contextlib.redirect_stdout(io.StringIO()):
+                    patch.object(r, 'check_dep_info') as checked, patch.object(r, 'package', return_value=Path('x')), \
+                    contextlib.redirect_stdout(io.StringIO()):
                 r.main()
             self.assertEqual(sub.call_args.args[0][:2], ['cargo', 'build'])
+            self.assertEqual(checked.call_args.args[0].name, 'marathon.d')
+            self.assertEqual(checked.call_args.args[0].parent, r.ROOT / 'target' / r.GNU / 'release')
+
+    def test_a_build_with_an_unlisted_compiled_file_is_not_packaged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = ['release.py', 'build', '--target', r.GNU, '--output', tmp + '/out']
+            with patch.object(r.sys, 'argv', args), patch.object(r, 'run', return_value='host: ' + r.GNU), \
+                    patch.dict(r.os.environ, dict(CARGO_TARGET_DIR=tmp)), \
+                    patch.object(r.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
+                    patch.object(r, 'package') as package:
+                release = Path(tmp) / r.GNU / 'release'
+                release.mkdir(parents=True)
+                (release / 'marathon.d').write_text(f'{release}/marathon: {r.ROOT}/crates/x/src/main.rs {r.ROOT}/fixtures/new.bin\n')
+                with self.assertRaisesRegex(ValueError, 'fixtures/new.bin'):
+                    r.main()
+                package.assert_not_called()
 
     def smoke_archive(self, root, licence=None, third_party=b'notices\n'):
         archive = root / 'release with spaces.zip'
@@ -848,6 +914,12 @@ const Q: &str = include_str!("../../../fixtures/after.txt");
             source = '#[cfg(test)]\nmod t {\n    const A: &[u8] = include_bytes!(concat!("a", "b"));\n}\n'
             (Path(tmp) / 'crates/x/src/lib.rs').write_text(source)
             self.assertEqual(tpl.production_includes(tmp), set())
+
+    def test_a_commented_test_attribute_does_not_hide_the_next_include(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = '// #[cfg(test)]\nconst A: &[u8] = include_bytes!("../../../fixtures/hidden.bin");\n'
+            self.asset_tree(Path(tmp), source, ['fixtures/hidden.bin'])
+            self.assertEqual(tpl.production_includes(tmp), {'fixtures/hidden.bin'})
 
     def test_output_is_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:
