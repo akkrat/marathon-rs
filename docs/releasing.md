@@ -157,9 +157,11 @@ counts too. An offline test also compares the list with the production `include_
 is only the fast check, because it reads source text. So a new asset needs an entry, with an
 upstream, a licence text and a status, before it can be released.
 
-`release.py preflight`, which a tag and a dry run both start with, refuses any asset whose
-status is not `open-source`. Package builds and CI do not check it, so a `review` entry leaves
-ordinary CI green and only blocks a release until its terms are decided.
+`release.py preflight`, which a tag and a dry run both start with, accepts the asset statuses
+`open-source` and `redistributable` and refuses anything else. `redistributable` means the asset is
+not strictly open source but its terms allow what we do, and its entry records the decision and who
+made it. A `review` entry blocks a release until its terms are decided. Package builds and CI do not
+check the status, so ordinary CI stays green.
 
 The source is `GPL-2.0-only` (`LICENSE`). `libxctest-parser` is excluded: neither the source
 tree nor an archive contains it, this repository's licence does not cover it, and an `xctest`

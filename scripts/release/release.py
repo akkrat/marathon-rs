@@ -29,6 +29,8 @@ CHANGELOG = ROOT / 'CHANGELOG.md'
 LICENSE = ROOT / 'LICENSE'
 THIRD_PARTY_SCRIPT = Path(__file__).resolve().with_name('third_party_licenses.py')
 ASSET_LIST = Path(__file__).resolve().with_name('embedded_assets.json')
+# `redistributable`: not strictly open source, but its terms allow what we do; the list records who decided that.
+RELEASABLE_ASSET_STATUSES = ('open-source', 'redistributable')
 # The tag is for readers; the digest is what Docker resolves. It names the multi-architecture index.
 ALPINE_IMAGE = 'alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a'
 # Numeric identifiers without leading zeros, as in semver. No build metadata: `+` has no tag use here.
@@ -348,10 +350,10 @@ def commit_of(revision):
 
 
 def check_asset_statuses():
-    """An embedded asset whose terms still need a human decision blocks a release. A package build does not check it."""
+    """Only settled statuses may release; anything else, such as `review`, blocks it. A package build does not check it."""
     assets = json.loads(ASSET_LIST.read_text(encoding='utf-8'))['assets']
     unresolved = [f'{asset["component"]} ({asset.get("status", "no status")})' for asset in assets
-                  if asset.get('status') != 'open-source']
+                  if asset.get('status') not in RELEASABLE_ASSET_STATUSES]
     if unresolved:
         raise ValueError(f'unresolved embedded assets in {ASSET_LIST.name}: {", ".join(unresolved)}; '
                          'decide their terms and set their status before releasing')

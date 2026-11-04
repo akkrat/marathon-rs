@@ -356,28 +356,47 @@ class ReleaseTests(unittest.TestCase):
                 self.preflight_git = [call.args[0] for call in sub.call_args_list]
                 self.preflight_run = [call.args[0] for call in run.call_args_list]
 
-    def test_preflight_refuses_any_unresolved_asset_status_on_a_tag_and_a_dry_run(self):
+    def test_preflight_accepts_only_the_two_settled_asset_statuses(self):
         dry_run = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF_TYPE='branch')
-        for env in (TAG_ENV, dry_run):
-            with self.subTest(env=env['GITHUB_EVENT_NAME']), patch.object(r, 'changelog_section'), \
-                    self.assertRaisesRegex(ValueError, r'sRGB colour profile.*review'):
-                r.preflight(VERSION, env)
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'assets.json'
-            for status, refused in (('open-source', False), ('review', True), ('unknown', True)):
+            for status in ('open-source', 'redistributable'):
                 path.write_text(json.dumps(dict(assets=[dict(component='thing', status=status)])))
-                with self.subTest(status=status), patch.object(r, 'ASSET_LIST', path):
-                    if refused:
-                        with self.assertRaisesRegex(ValueError, 'thing'):
-                            r.check_asset_statuses()
-                    else:
-                        r.check_asset_statuses()
+                with self.subTest(status=status), patch.object(r, 'ASSET_LIST', path), patch.object(r, 'changelog_section'):
+                    r.check_asset_statuses()
+                    r.preflight(VERSION, dry_run)
+            for status in ('review', 'unknown', 'Redistributable', '', None):
+                path.write_text(json.dumps(dict(assets=[dict(component='thing', status=status)])))
+                for env in (TAG_ENV, dry_run):
+                    with self.subTest(status=status, env=env['GITHUB_EVENT_NAME']), patch.object(r, 'ASSET_LIST', path), \
+                            patch.object(r, 'changelog_section'), self.assertRaisesRegex(ValueError, 'thing'):
+                        r.preflight(VERSION, env)
             path.write_text(json.dumps(dict(assets=[dict(component='thing')])))
             with patch.object(r, 'ASSET_LIST', path), self.assertRaisesRegex(ValueError, 'thing'):
                 r.check_asset_statuses()
 
+    def test_a_dry_run_of_this_repository_gets_past_the_asset_check(self):
+        dry_run = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF_TYPE='branch')
+        r.preflight('0.99.0', dry_run)
+
+    def test_the_srgb_decision_is_recorded_and_its_file_is_unchanged(self):
+        import hashlib
+        manifest = tpl.load_assets()
+        asset = next(a for a in manifest['assets'] if a['component'].startswith('sRGB colour profile'))
+        self.assertEqual(asset['status'], 'redistributable')
+        decision = asset['decision']
+        for part in ('2026-11-04', 'project owner', 'unchanged', 'THIRD-PARTY-LICENSES', 'publicity'):
+            self.assertIn(part, decision)
+        self.assertNotIn('GPL', decision)
+        data = (tpl.ROOT / asset['files'][0]).read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), asset['sha256'])
+        terms = '\n'.join(tpl.render_assets(manifest))
+        self.assertIn('provided that the file is not changed including the HP', terms)
+
     def test_an_unresolved_asset_status_does_not_stop_the_package_build(self):
-        self.assertIn('sRGB colour profile', '\n'.join(tpl.render_assets(tpl.load_assets())))
+        manifest = tpl.load_assets()
+        manifest['assets'][0] = dict(manifest['assets'][0], status='review')
+        self.assertIn(manifest['assets'][0]['component'], '\n'.join(tpl.render_assets(manifest)))
 
     def dep_info(self, root, *deps):
         """What cargo writes beside the binary: one make rule, with spaces escaped."""
@@ -875,8 +894,9 @@ const Q: &str = include_str!("../../../fixtures/after.txt");
             self.assertEqual(tpl.production_includes(root), {'fixtures/prod.bin', 'fixtures/after.txt'})
             tpl.load_assets(root)
 
-    def test_the_asset_list_matches_this_repository_and_only_named_assets_await_review(self):
+    def test_the_asset_list_matches_this_repository_and_no_asset_awaits_a_decision(self):
         manifest = tpl.load_assets()
+        self.assertEqual({a['status'] for a in manifest['assets']}, {'open-source', 'redistributable'})
         self.assertEqual([a['component'] for a in manifest['assets'] if a['status'] != 'open-source'],
                          ['sRGB colour profile (sRGB IEC61966-2.1)'])
         for asset in manifest['assets']:

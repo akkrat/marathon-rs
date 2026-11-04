@@ -1,5 +1,5 @@
 {
-  "comment": "Every non-crate file compiled into marathon, checked against the sources by third_party_licenses.py. status is open-source, or review when the terms need a human decision.",
+  "comment": "Every non-crate file compiled into marathon, checked against the sources by third_party_licenses.py. status is open-source; redistributable for an asset that is not strictly open source but whose terms allow what we do, with its decision recorded; or review while the terms need a human decision, which blocks a release.",
   "adam": {
     "version": "0.5.8",
     "spdx": "Apache-2.0",
@@ -87,7 +87,9 @@
       "component": "sRGB colour profile (sRGB IEC61966-2.1)",
       "version": "2.1",
       "spdx": "LicenseRef-HP-sRGB",
-      "status": "review",
+      "status": "redistributable",
+      "decision": "Decided 2026-11-04 by the project owner: stays embedded under HP's terms, and is not marked open-source. The file is unchanged, HP's terms ship in THIRD-PARTY-LICENSES, and HP's name is not used in publicity.",
+      "sha256": "2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e",
       "source": "Hewlett-Packard, through the resources of adam 0.5.8",
       "files": [
         "fixtures/adam/colorProfiles/sRGB.icc"

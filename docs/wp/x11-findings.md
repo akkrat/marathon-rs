@@ -288,7 +288,7 @@ binaries, JAR or APK resources, or fonts among them now, and no `build.rs` in th
 | `reporters/timeline/iframeResizer.contentWindow.min.js` | iframe-resizer 4.3.2 | MIT, David J. Bradshaw |
 | `adam/colorProfiles/DisplayP3.icc` | byte-identical to skcms `profiles/mobile/Display_P3_parametric.icc` (git blob `3f0126be`), through adam 0.5.8 | BSD-3-Clause |
 | `oracle/adb-request-jdk-srgb.icc` | output of the reference JDK, tags name Little CMS | GPL-2.0 with Classpath exception; lcms MIT |
-| `adam/colorProfiles/sRGB.icc` | Hewlett-Packard, through adam 0.5.8 | **HP's own terms; `status: review`** |
+| `adam/colorProfiles/sRGB.icc` | Hewlett-Packard, through adam 0.5.8 | HP's own terms; `status: redistributable` (decision below) |
 
 `react-loading` and `load-script` ship no licence file; their sections hold the standard MIT text with
 what their package states. `scripts/release/third_party_licenses.py` now fails when the list and the
@@ -312,12 +312,17 @@ them: one would fail the build, naming the file, and someone then decides whethe
 include. Files outside the workspace, such as registry crates, are out of this check; their notices come from
 the crate section.
 
-**To decide: `sRGB.icc`.** Its grant allows use, copying and distribution without fee provided the file
-is unchanged, including its copyright tag, and HP's name stays out of publicity. It is not one of the
-usual open-source licences. It is embedded unchanged, and the generated file reproduces those terms. The list's `review` status
-keeps it visible, and a test pins it as the only such asset. `release.py preflight` refuses any status
-other than `open-source`, so a tag and a dry run both fail while it stands; ordinary CI and package
-builds do not check it. Replacing it would change the input of the framebuffer conversion, so it needs a decision.
+**Decision on `sRGB.icc`, 2026-11-04, by the project owner.** It stays embedded under HP's terms. Those
+terms allow use, copying and distribution without fee, provided the file is unchanged, including its
+copyright tag, and HP's name stays out of publicity. They are not one of the usual open-source licences, so
+the asset is not marked `open-source`: it has its own status, `redistributable`, for an asset that is not
+strictly open source but whose terms allow what we do. The file is unchanged
+(SHA-256 `2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e`, which a test pins), HP's terms ship
+in `THIRD-PARTY-LICENSES`, and HP's name is not used in publicity. `embedded_assets.json` records the same.
+
+`release.py preflight` accepts `open-source` and `redistributable` and refuses anything else, including
+`review`, on a tag and a dry run. A dry run with this status gets past it. Ordinary CI and package builds do
+not check the status.
 
 **adam.** `crates/marathon-adb` ports adam 0.5.8 (Apache-2.0), with a `Port of adam` header per file.
 Adam's NOTICE and licence are now carried in `THIRD-PARTY-LICENSES`.
