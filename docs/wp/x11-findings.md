@@ -19,6 +19,10 @@ excluded, and an `xctest` run reads a copy the user supplies. See D20 in PLAN §
   An iOS run with files for other platforms only therefore has its first device by then, which
   may have booted a simulator. That is the one late case, and it installs nothing.
 
+Both checks, and the read itself, open the file with `O_NONBLOCK` and then check that it is a regular
+file. A plain open of a FIFO with no writer would block forever, during construction before any log
+line explained why.
+
 Physical device SDKs have no Kotlin resource and no supplied path, so they keep S3 from WP 4.8:
 `No libxctest-parser.dylib for platform X`, three attempts. No v1 provider produces them.
 
@@ -80,8 +84,46 @@ the library was not analysed.
 - It covers git objects on main only. refs/t3 were ignored as instructed. It cannot see forks, clones,
   caches, or GitHub Actions artifacts (next section).
 
-**Paths to cover in a history rewrite.** The same 31 blob ids, for `--strip-blobs-with-ids`-style
-tools, are the first column; the first 12 characters are enough to find them.
+**History rewrite: remove by these 31 blob IDs, not by the 70 paths.** Deleting the paths would
+also delete `fixtures/fake-worker/apple/macos-smoke/expected/raw/transcript.jsonl`, whose sanitised
+version at head must stay. Evidence blobs carry their digest as a file name, so at head they are
+already under other names. These are full IDs, as `git filter-repo --strip-blobs-with-ids` wants:
+
+```
+04592c31273322c01ca97295355fcfd5809eb418
+153e9a59376110bda7f5374011d61e4000de7904
+1a0d2be13e5f7161c090c2b2c3e3a2aa3eb4768a
+238f233d96815e8ce15b309b70a384624dbc2b9b
+26a6fe9375e8e58e9ed2a4f5b1b2fca493ef2ac5
+3dff078febd07aa2423b9b0e261cd3f1fd3951c9
+4035c028e6b818eab09b3e90bb67ed654813c731
+40c515442492cde371829d52391e74c5e566521f
+4ef957ef1eb21b1537c87e959e7601621451d088
+4f3e6d01357e4f9cec99c3443a59a4638c9a13a6
+4f4ccac60b2669d6fa42970c11d342471eecd597
+5a0d433c99b464c91843cf8b0f91ae9dcbce08ad
+5a17f52ad2da8c88a631449430a724d171be533f
+65f3551f05e83ed6383fa16ad512eae145a8359f
+6d6a77ee80116ee4679367cfe936fafd38ebaa2c
+80b2950886c46e906780766cb0627120caa05a8a
+88f6047bd2f77c33e63e539ed2fc427dbac090bc
+8a787baaf263eefadc8d8eec2499634f87995311
+8df70928bf57943b516585163a6139ef2e9376a9
+a6888fed2b18c7d0cff667a48a0f45b143b1b084
+af51eaa173ef10b08d79fc476b2477db3dd8a51f
+b12f949e499c6a85de9f5925d769b1daf1ae882b
+b97b4bb955fce69586f7b4a16c4d6b96c857a991
+bb175e5c8286f3543b72c01d7f8336a89e62f4d2
+dc54666304140d3acbd7d4812301f1336d2fb904
+e57978e23b53082a00e31448061e268bb4742617
+eb4893414ec4bc8d7c9375ec466ca282b5f19ef9
+f383ccdc3a4fc68556846c86b5c5b89fccf49ddd
+f6edd7ab2244bebd7cb4cb34fafe2f9dd7a4d946
+f9987cd907c134b7a24ee1b6ceb1bc4609c28266
+fbe4b355a0e33018d120bb447bea147640a51f30
+```
+
+The paths those blobs occupied, with the first 12 characters of each blob ID:
 
 ```
 fbe4b355a0e3 crates/marathon-apple/resources/libxctest-parser/AppleTVSimulator/libxctest-parser.dylib
@@ -189,7 +231,19 @@ binaries that embed the library. This WP deletes nothing there.
 None of these is a copy from the Kotlin repository; all are recordings of ours. Details are in
 `fixtures/PROVENANCE.md`. A new JVM capture applies both steps itself (`withhold_parser`,
 `redact_parser_transfer`, also in `apple_evidence.collect`), and `validate` rejects a record that
-stores the digest or a JVM transcript with non-zero bytes in that session.
+stores the digest, or a recorded transcript with non-zero bytes in that session.
+
+**New and recorded native evidence differ.** `write_record` withholds for JVM captures only. A live
+native capture of the real digest is refused before anything is stored: it would be a regression,
+and must not turn into a valid `withheld` entry that compares equal to the stand-in. `validate`
+accepts `withheld` on a native record only from the two commits that recorded the older evidence
+(`HISTORICAL_NATIVE_SHAS`, equal to the two manifests' `native_sha`). A new native transcript may
+hold no redaction marker and at most 16 KiB in the library's transfer.
+
+**A marker proves nothing by itself.** `redact_parser_transfer` used to skip any row that had a
+`redacted` key, so nonzero bytes under a marker passed. Each marked row must now hold exactly `D20`,
+belong to `stdin` of the library's transfer, and be all zeros. `apple_evidence.validate` checks the
+same for the older recording.
 
 ## Comparator change
 
@@ -206,7 +260,10 @@ respect.
 Tests are in `tools/differential/test_evidence.py` (`test_d20_*`). Positive: withheld against stand-in,
 and against a recorded native. Negative: other bytes, an empty file, another mode, the real digest
 stored, a wrong digest or size or flag on a withheld entry, `withheld` on another path, the stand-in
-in a JVM record, library bytes in a JVM transcript, and any committed record holding a library blob.
+in a JVM record, library bytes in a JVM transcript, a live native capture of the real digest, a new
+native record that withholds or carries a marker or a library-sized transfer, all marked chunks
+refilled with nonzero bytes under valid digests, a wrong or misplaced marker, and any committed
+record holding a library blob.
 `make_registry.py` regenerated `registry.json`; both verification manifests were updated for the
 changed `evidence.json` digests by the one-off rewrite, which asserted a byte-exact round trip first.
 
@@ -230,13 +287,17 @@ binaries, JAR or APK resources, or fonts among them now, and no `build.rs` in th
 
 `react-loading` and `load-script` ship no licence file; their sections hold the standard MIT text with
 what their package states. `scripts/release/third_party_licenses.py` now fails when the list and the
-production includes disagree, and `scripts/release/test_release.py` tests that both ways. It ignores
-test code, including `#[cfg(test)]` items and test-only modules.
+production includes disagree, or when a production include has anything but a plain string literal as
+its path, such as `concat!(env!("CARGO_MANIFEST_DIR"), ...)`, since such a path cannot be checked.
+`scripts/release/test_release.py` tests this. It ignores comments and test code, including
+`#[cfg(test)]` items and test-only modules.
 
 **To decide: `sRGB.icc`.** Its grant allows use, copying and distribution without fee provided the file
 is unchanged, including its copyright tag, and HP's name stays out of publicity. It is not one of the
 usual open-source licences. It is embedded unchanged, and the generated file reproduces those terms. The list's `review` status
-keeps it visible, and a test pins it as the only such asset. Replacing it would change the input of the framebuffer conversion, so it needs a decision.
+keeps it visible, and a test pins it as the only such asset. `release.py preflight` refuses any status
+other than `open-source`, so a tag and a dry run both fail while it stands; ordinary CI and package
+builds do not check it. Replacing it would change the input of the framebuffer conversion, so it needs a decision.
 
 **adam.** `crates/marathon-adb` ports adam 0.5.8 (Apache-2.0), with a `Port of adam` header per file.
 Adam's NOTICE and licence are now carried in `THIRD-PARTY-LICENSES`.

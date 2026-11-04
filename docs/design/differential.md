@@ -14,14 +14,18 @@ copy, which this repository must not hold, so `evidence.py` records
 payload does not, and `validate` accepts this for that path, digest and size only. A native
 run gets a fixed stand-in from a directory the harness supplies, and `normalized` gives the
 withheld entry and that exact stand-in the same content. Other bytes in a native run, the
-stand-in in a JVM record, or a different mode still differ. So the comparison proves that a
+stand-in in a JVM record, or a different mode still differ. A live native capture of the real
+digest is refused outright. Only the two commits that recorded the older native evidence may
+keep a withheld entry, because those runs still embedded the library. So the comparison proves that a
 supplied file reaches the worker's path with the right mode, and no longer that its bytes
 equal Kotlin's, which the D20 stand-in rules out by construction.
 
 The rsync stdin of that transfer is zeroed in JVM transcripts (`redact_parser_transfer`),
 keeping rows, sizes and order. `ssh()` drops rsync streams from the comparison, so this changes
-no comparison, and `validate_record` rejects a JVM transcript that still holds the bytes. A new
-capture applies both steps itself.
+no comparison. `validate_record` rejects a recorded transcript with an unmarked chunk in that
+transfer, a marker other than `D20`, a marker elsewhere, or a marked chunk that is not all zeros.
+A new native transcript may hold no marked row and at most 16 KiB in that transfer, far below any
+of the libraries. A new JVM capture applies both steps itself.
 
 ## Commands and activation
 

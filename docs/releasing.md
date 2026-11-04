@@ -45,7 +45,7 @@ can be retried.
 
 | What failed | What to do |
 |---|---|
-| `preflight` (bad version, no changelog section, tag not on `main`) | Nothing was built or published. Delete the tag (`git push origin :refs/tags/<version>`), fix the cause through a normal WP, and tag again. |
+| `preflight` (bad version, no changelog section, unresolved asset status, tag not on `main`) | Nothing was built or published. Delete the tag (`git push origin :refs/tags/<version>`), fix the cause through a normal WP, and tag again. |
 | `no-existing-release` | A release or draft already holds this tag. If it is a leftover draft, treat it as a failed upload, below. A published release is never replaced: use the next version. |
 | A flake in `gate`, `build` or `musl-proof` | `gh run rerun <run id> --failed`. Successful jobs and their artifacts are kept. Do not move the tag. Record the flake. |
 | Upload or `publish` failed | First run `gh release view <version> --json isDraft,assets`: the last command can fail after GitHub has already published. If `isDraft` is `false`, the release is public, so do not delete it: check its assets against `SHA256SUMS` by hand as `verify` would, and treat any mismatch as a bad published release. Only if `isDraft` is `true` (a rerun refuses to continue while it exists), delete it with `gh release delete <version> --yes` (never `--cleanup-tag`), then `gh run rerun <run id> --failed`. A rerun attests the same archives a second time, which is harmless. |
@@ -78,7 +78,7 @@ again:
 
 | Job | Runs on | Purpose |
 |---|---|---|
-| `preflight` | every run | Strict version (`X.Y.Z` or `X.Y.Z-prerelease`, no `v`) and a `CHANGELOG.md` section for exactly this version. On a tag, also that the tag is the version and its commit is an ancestor of `origin/main`. |
+| `preflight` | every run | Strict version (`X.Y.Z` or `X.Y.Z-prerelease`, no `v`), a `CHANGELOG.md` section for exactly this version, and no embedded asset with an unresolved status. On a tag, also that the tag is the version and its commit is an ancestor of `origin/main`. |
 | `no-existing-release` | tag push | No release or draft for the tag. It has `contents: write` because a token that can only read does not see drafts. |
 | `gate` | every run | `gate.yml`, the same reusable workflow `ci.yml` calls: the full `scripts/check.sh` and packaging checks on `ubuntu-22.04` (gnu) and `macos-14`, at this commit. |
 | `build` | every run | One archive per asset with the release version: `aarch64-apple-darwin` on `macos-14`, `x86_64-unknown-linux-musl` on `ubuntu-22.04`. Includes the extracted smoke. |
@@ -150,8 +150,13 @@ Files compiled in that are not crates get their own section, from
 `scripts/release/embedded_assets.json` and the texts in `scripts/release/asset-licences/`:
 the report bundles and the colour profiles. It also carries the notice of adam, which
 `crates/marathon-adb` ports. The build and an offline test fail when that list and the
-production `include_bytes!`, `include_str!` and `include_dir!` calls disagree, so a new asset
-needs an entry, with an upstream, a licence text and a status, before it can be released.
+production `include_bytes!`, `include_str!` and `include_dir!` calls disagree, or when such a
+call has anything but a plain string literal as its path. So a new asset needs an entry, with an
+upstream, a licence text and a status, before it can be released.
+
+`release.py preflight`, which a tag and a dry run both start with, refuses any asset whose
+status is not `open-source`. Package builds and CI do not check it, so a `review` entry leaves
+ordinary CI green and only blocks a release until its terms are decided.
 
 The source is `GPL-2.0-only` (`LICENSE`). `libxctest-parser` is excluded: neither the source
 tree nor an archive contains it, this repository's licence does not cover it, and an `xctest`
