@@ -350,10 +350,34 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(r, 'run', side_effect=fake_git) as run, \
                 patch.object(r.subprocess, 'run', return_value=subprocess.CompletedProcess([], ancestor_rc)) as sub:
             try:
-                r.preflight(version, env)
+                with patch.object(r, 'check_asset_statuses'):
+                    r.preflight(version, env)
             finally:
                 self.preflight_git = [call.args[0] for call in sub.call_args_list]
                 self.preflight_run = [call.args[0] for call in run.call_args_list]
+
+    def test_preflight_refuses_any_unresolved_asset_status_on_a_tag_and_a_dry_run(self):
+        dry_run = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF_TYPE='branch')
+        for env in (TAG_ENV, dry_run):
+            with self.subTest(env=env['GITHUB_EVENT_NAME']), patch.object(r, 'changelog_section'), \
+                    self.assertRaisesRegex(ValueError, r'sRGB colour profile.*review'):
+                r.preflight(VERSION, env)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'assets.json'
+            for status, refused in (('open-source', False), ('review', True), ('unknown', True)):
+                path.write_text(json.dumps(dict(assets=[dict(component='thing', status=status)])))
+                with self.subTest(status=status), patch.object(r, 'ASSET_LIST', path):
+                    if refused:
+                        with self.assertRaisesRegex(ValueError, 'thing'):
+                            r.check_asset_statuses()
+                    else:
+                        r.check_asset_statuses()
+            path.write_text(json.dumps(dict(assets=[dict(component='thing')])))
+            with patch.object(r, 'ASSET_LIST', path), self.assertRaisesRegex(ValueError, 'thing'):
+                r.check_asset_statuses()
+
+    def test_an_unresolved_asset_status_does_not_stop_the_package_build(self):
+        self.assertIn('sRGB colour profile', '\n'.join(tpl.render_assets(tpl.load_assets())))
 
     def test_preflight_of_a_tag_on_main(self):
         self.preflight(TAG_ENV)
@@ -801,6 +825,29 @@ const Q: &str = include_str!("../../../fixtures/after.txt");
             first = (tpl.ROOT / 'vendor/russh' / name).read_text(encoding='utf-8').splitlines()[0]
             self.assertIn('Modified by marathon-rs', first, name)
         self.assertTrue((tpl.ROOT / 'vendor/russh/LICENSE').is_file())
+
+    def test_a_computed_include_in_production_code_fails_the_build(self):
+        for source in ('const A: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/new.bin"));\n',
+                       'const A: &str = core::include_str!(r"../../../fixtures/raw.txt");\n',
+                       'const A: &[u8] = include_bytes![PATH];\n',
+                       'macro_rules! m { ($p:literal) => { include_bytes!($p) } }\n',
+                       'const A: &str = include_str!\n    (concat!("a", "b"));\n'):
+            with self.subTest(source), tempfile.TemporaryDirectory() as tmp:
+                self.asset_tree(Path(tmp), source, [])
+                with self.assertRaisesRegex(ValueError, 'cannot resolve'):
+                    tpl.load_assets(tmp)
+
+    def test_other_include_spellings_are_resolved_and_comments_are_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = ('// include_bytes!(concat!("in", "comment"));\n'
+                      '/// Uses include_str!(PATH) in its documentation.\n'
+                      'const A: &str = std::include_str!(\n    "../../../fixtures/split.txt",\n);\n'
+                      'const B: &[u8] = include_bytes! ("../../../fixtures/spaced.bin");\n')
+            self.asset_tree(Path(tmp), source, ['fixtures/split.txt', 'fixtures/spaced.bin'])
+            self.assertEqual(tpl.production_includes(tmp), {'fixtures/split.txt', 'fixtures/spaced.bin'})
+            source = '#[cfg(test)]\nmod t {\n    const A: &[u8] = include_bytes!(concat!("a", "b"));\n}\n'
+            (Path(tmp) / 'crates/x/src/lib.rs').write_text(source)
+            self.assertEqual(tpl.production_includes(tmp), set())
 
     def test_output_is_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:

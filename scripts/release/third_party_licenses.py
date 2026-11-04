@@ -27,7 +27,7 @@ CODE_SUFFIXES = ('.rs', '.c', '.cc', '.cpp', '.h', '.hpp', '.s', '.asm', '.pl', 
                  '.json', '.yml', '.yaml', '.cmake')
 RULE = '=' * 80
 ASSETS = Path(__file__).resolve().with_name('embedded_assets.json')
-INCLUDE = re.compile(r'include_(?:bytes|str|dir)!\s*\(\s*"([^"]+)"')
+INCLUDE = re.compile(r'include_(?:bytes|str|dir)\s*!\s*(?:\(\s*"([^"\\]+)"\s*,?\s*\))?')
 TEST_ITEM = re.compile(r'#\[(?:cfg\((?:all\()?test\b[^\]]*|test|tokio::test[^\]]*)\]')
 # Packages that never reach the marathon binary.
 NOT_COMPILED_IN = ('crates/marathon-test-support/',)
@@ -113,8 +113,13 @@ def production_includes(root):
         relative = path.relative_to(root).as_posix()
         if path in test_modules or relative.startswith(NOT_COMPILED_IN) or path.name == 'tests.rs' or '/tests/' in relative:
             continue
-        for included in INCLUDE.findall(strip_test_items(path.read_text(encoding='utf-8', errors='replace'))):
-            found.add(os.path.relpath(path.parent / included, root).replace(os.sep, '/'))
+        code = strip_test_items(path.read_text(encoding='utf-8', errors='replace'))
+        code = '\n'.join(line for line in code.split('\n') if not line.lstrip().startswith('//'))
+        for match in INCLUDE.finditer(code):
+            # Only a plain string literal can be checked against the list; a computed path could embed anything.
+            if not match.group(1):
+                raise ValueError(f'{relative}: cannot resolve the path of {match.group(0)}; use a string literal')
+            found.add(os.path.relpath(path.parent / match.group(1), root).replace(os.sep, '/'))
     return found
 
 
