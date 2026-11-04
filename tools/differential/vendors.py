@@ -331,9 +331,6 @@ def pack(name, implementation, raw, contract, destination, provenance):
         facts['hook_sources'] = {str(p.relative_to(ROOT)):e.sha(p.read_bytes()) for p in sorted((ROOT/'tools/oracle/hooks/src/main').rglob('*.kt'))}
     trees = {'reports':raw/'in/report'}
     artifacts = {name:(raw/name).read_bytes() for name in ['transcript.jsonl','state.json']}
-    if apple(name) and implementation == 'jvm':
-        import vendor_transport
-        artifacts['transcript.jsonl'] = vendor_transport.redact_parser_transfer(artifacts['transcript.jsonl'])
     artifacts.update({name:(raw/'process'/name).read_bytes() for name in ['stdout','stderr']})
     if apple(name):
         trees['worker'] = raw/'root'
@@ -365,7 +362,7 @@ def validate_record(directory, contract, record):
     import vendor_transport as t
     if apple(contract['vendor']):
         t.ssh(artifact('transcript.jsonl'),contract['vendor'])
-        if e.may_withhold(record):
+        if e.may_withhold(directory, record):
             e.require(t.redact_parser_transfer(artifact('transcript.jsonl')) == artifact('transcript.jsonl'),
                       'third-party library bytes in the transcript of a recorded run')
         else:

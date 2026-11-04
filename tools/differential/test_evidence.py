@@ -591,10 +591,16 @@ class VendorEvidenceTests(unittest.TestCase):
         self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
         contract = DRIVER['contract']('macos-smoke')
         golden = DRIVER['golden']('macos-smoke')
-        native = ROOT / 'fixtures/differential/vendor-verification-c95b2128/macos-smoke/native'
+        recorded = ROOT / 'fixtures/differential/vendor-verification-c95b2128/macos-smoke/native'
+        def small_chunks(rows):
+            for row in self.parser_chunks(rows):
+                del row['detail']['redacted']
+                self.set_payload(row, b's')
+        # A changed record is a new native, so these need a transcript a new native may hold.
+        native = self.rewrite_transcript(recorded, 'native-small-chunks', small_chunks)
         # Positive: what a live native run records compares equal to the JVM's withheld copy.
         e.compare(golden, self.parser_copy(native, 'stand-in', e.PARSER_STAND_IN), contract)
-        e.compare(golden, native, contract)
+        e.compare(golden, recorded, contract)
         for label, source, kwargs, message in [
             ('other bytes', native, dict(content=b'another library\n'), 'worker/shared/libxctest-parser.dylib'),
             ('empty file', native, dict(content=b''), 'worker/shared/libxctest-parser.dylib'),
@@ -726,7 +732,6 @@ class VendorEvidenceTests(unittest.TestCase):
             cls.set_payload(row, b'x' * row['detail']['size'])
 
     NATIVE = ROOT / 'fixtures/differential/vendor-verification-c95b2128/macos-smoke/native'
-    NEW_NATIVE_SHA = dict(native_sha='f' * 40)
 
     def test_d20_a_live_native_capture_of_the_real_library_is_refused(self):
         library = b'bytes of the library in this test only\n'
@@ -740,23 +745,11 @@ class VendorEvidenceTests(unittest.TestCase):
                                synthetic_provenance(), {})
         self.assertEqual(list((self.root / 'native-real/blobs').iterdir()), [])
 
-    def test_d20_only_the_recorded_native_commits_may_withhold(self):
-        contract = DRIVER['contract']('macos-smoke')
-        e.validate(self.NATIVE, contract)
-        for name in ('vendor-verification', 'vendor-verification-c95b2128'):
-            manifest = e.load(ROOT / 'fixtures/differential' / name / 'manifest.json')
-            self.assertIn(manifest['native_sha'], e.HISTORICAL_NATIVE_SHAS)
-        forged = self.rewrite_transcript(self.NATIVE, 'new-native-withheld', lambda rows: None, **self.NEW_NATIVE_SHA)
-        with self.assertRaisesRegex(e.Invalid, 'withheld'):
-            e.validate(forged, contract)
-        with self.assertRaises(e.Invalid):
-            e.compare(DRIVER['golden']('macos-smoke'), forged, contract)
-
     def live_native(self, name, change):
         """A record shaped like a new native capture: the stand-in on the worker, and `change` on its transcript."""
         self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
         source = self.parser_copy(self.NATIVE, name, e.PARSER_STAND_IN)
-        return self.rewrite_transcript(source, name + '-live', change, **self.NEW_NATIVE_SHA)
+        return self.rewrite_transcript(source, name + '-live', change)
 
     @staticmethod
     def parser_chunks(rows):
@@ -775,7 +768,7 @@ class VendorEvidenceTests(unittest.TestCase):
             for row in self.parser_chunks(rows):
                 del row['detail']['redacted']
                 self.set_payload(row, b'x' * row['detail']['size'])
-        with self.assertRaisesRegex(e.Invalid, 'library bytes in the native transcript'):
+        with self.assertRaisesRegex(e.Invalid, 'library bytes in the parser transfer'):
             e.validate(self.live_native('large', library_sized), contract)
         def marked(rows):
             for row in self.parser_chunks(rows):
@@ -784,13 +777,16 @@ class VendorEvidenceTests(unittest.TestCase):
             e.validate(self.live_native('marked', marked), contract)
 
     def test_d20_marked_chunks_with_nonzero_bytes_are_rejected(self):
-        for source, contract in [(DRIVER['golden']('macos-smoke'), DRIVER['contract']('macos-smoke')),
-                                 (self.NATIVE, DRIVER['contract']('macos-smoke'))]:
-            filled = self.rewrite_transcript(source, 'filled-' + source.name, self.fill_marked)
-            with self.assertRaisesRegex(e.Invalid, 'not zero-filled'):
-                e.validate(filled, contract)
-            with self.assertRaisesRegex(e.Invalid, 'not zero-filled'):
-                e.compare(DRIVER['golden']('macos-smoke'), filled, contract)
+        golden, contract = DRIVER['golden']('macos-smoke'), DRIVER['contract']('macos-smoke')
+        filled = self.rewrite_transcript(golden, 'filled-jvm', self.fill_marked)
+        with self.assertRaisesRegex(e.Invalid, 'not zero-filled'):
+            e.validate(filled, contract)
+        with self.assertRaisesRegex(e.Invalid, 'not zero-filled'):
+            e.compare(golden, filled, contract)
+        # A native copy is no longer the pinned record once changed, so it fails even earlier.
+        filled = self.rewrite_transcript(self.NATIVE, 'filled-native', self.fill_marked)
+        with self.assertRaisesRegex(e.Invalid, 'withheld payload in a new native record'):
+            e.compare(golden, filled, contract)
 
     def test_d20_the_redaction_marker_is_exact_and_belongs_to_the_parser_transfer(self):
         import vendor_transport as t
@@ -812,6 +808,88 @@ class VendorEvidenceTests(unittest.TestCase):
         ]:
             with self.subTest(label), self.assertRaisesRegex(e.Invalid, message):
                 t.redact_parser_transfer(bad)
+
+    @classmethod
+    def add_parser_stream(cls, rows, data, extended=None):
+        """Sol's reproduction: `data` in 31-byte rows of the parser transfer's output, sequence numbers kept contiguous."""
+        last = max(i for i, row in enumerate(rows) if row in cls.parser_chunks(rows))
+        added = []
+        for start in range(0, len(data), 31):
+            row = json.loads(json.dumps(rows[last]))
+            row['event'] = 'output'
+            row['detail'].pop('redacted', None)
+            cls.set_payload(row, data[start:start + 31])
+            if extended is not None:
+                row['detail']['extended'] = extended
+            added.append(row)
+        rows[last + 1:last + 1] = added
+        for seq, row in enumerate(rows):
+            row['seq'] = seq
+
+    def test_d20_library_sized_output_of_the_parser_transfer_is_refused(self):
+        contract = DRIVER['contract']('macos-smoke')
+        golden = DRIVER['golden']('macos-smoke')
+        library_sized = b'L' * e.PARSER_SIZE
+        def small_chunks(rows):
+            for row in self.parser_chunks(rows):
+                del row['detail']['redacted']
+                self.set_payload(row, b's')
+        for extended in (None, 1):
+            def new_native(rows):
+                small_chunks(rows)
+                self.add_parser_stream(rows, library_sized, extended)
+            def recorded(rows):
+                self.add_parser_stream(rows, library_sized, extended)
+            for label, record in [('new native', self.live_native(f'out-{extended}', new_native)),
+                                  ('jvm', self.rewrite_transcript(golden, f'jvm-out-{extended}', recorded))]:
+                with self.subTest(label, extended=extended):
+                    with self.assertRaisesRegex(e.Invalid, 'library bytes in the parser transfer'):
+                        e.validate(record, contract)
+                    with self.assertRaisesRegex(e.Invalid, 'library bytes in the parser transfer'):
+                        e.compare(golden, record, contract)
+        # Under the bound it is ordinary rsync protocol traffic.
+        def small_output(rows):
+            small_chunks(rows)
+            self.add_parser_stream(rows, b'p' * 1024)
+        e.compare(golden, self.live_native('small-out', small_output), contract)
+
+    def test_d20_a_capture_is_refused_before_anything_is_stored(self):
+        contract = DRIVER['contract']('macos-smoke')
+        golden = DRIVER['golden']('macos-smoke')
+        record = e.load(golden / 'evidence.json')
+        row = next(r for r in record['entries'] if r['path'] == 'transcript.jsonl')
+        rows = [json.loads(line) for line in e.payload(golden, row, record).splitlines()]
+        self.add_parser_stream(rows, b'L' * e.PARSER_SIZE)
+        data = b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
+        tree = self.root / 'capture-tree'
+        tree.mkdir()
+        for implementation in ('native', 'jvm'):
+            destination = self.root / ('refused-' + implementation)
+            with self.subTest(implementation), self.assertRaisesRegex(e.Invalid, 'parser transfer|redacted row'):
+                e.write_record(destination, contract, implementation, {'worker': tree}, {'transcript.jsonl': data},
+                               contract['outcome'], synthetic_provenance(), {})
+            self.assertEqual(list((destination / 'blobs').iterdir()), [])
+
+    def test_d20_a_modified_native_record_cannot_claim_a_recorded_commit(self):
+        self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
+        contract = DRIVER['contract']('macos-smoke')
+        golden = DRIVER['golden']('macos-smoke')
+        # The provenance still names the allowlisted commit in both.
+        withheld = self.rewrite_transcript(self.NATIVE, 'claims-withheld', lambda rows: None, note='changed')
+        self.assertIn(e.load(withheld / 'evidence.json')['provenance']['native_sha'],
+                      [e.load(ROOT / 'fixtures/differential' / name / 'manifest.json')['native_sha']
+                       for name in ('vendor-verification', 'vendor-verification-c95b2128')])
+        with self.assertRaisesRegex(e.Invalid, 'withheld payload in a new native record'):
+            e.compare(golden, withheld, contract)
+        redacted = self.parser_copy(self.NATIVE, 'claims-redacted', e.PARSER_STAND_IN)
+        with self.assertRaisesRegex(e.Invalid, 'redacted row in a new native transcript'):
+            e.compare(golden, redacted, contract)
+        # Every unmodified recorded native still validates, wherever it is copied.
+        for name in ('vendor-verification', 'vendor-verification-c95b2128'):
+            for case in ('ignore', 'parse', 'pass', 'smoke'):
+                copy = self.root / f'{name}-{case}'
+                shutil.copytree(ROOT / 'fixtures/differential' / name / f'macos-{case}/native', copy)
+                self.assertTrue(e.may_withhold(copy, e.load(copy / 'evidence.json')), copy)
 
     def test_source_parallel_preparation_keeps_branch_order_and_join(self):
         import vendor_transport as transport

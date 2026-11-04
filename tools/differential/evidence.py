@@ -18,14 +18,16 @@ SOURCE = 'e47352f25cbc50333900d5d040a5544ff1224501'
 # D20: the JVM build pushes its own copy of this third-party library, which this repository must not hold. A JVM record
 # keeps only the path, mode, size and digest. A live native run pushes PARSER_STAND_IN from a directory the harness
 # supplies, so both sides compare by role. Nothing else in a record, and no other file, gets this treatment. Native
-# records made before D20 pushed the embedded library too and are withheld the same way, so only the commits that
-# recorded them may withhold: a native run of today's code that pushes the real library is a regression.
+# records made before D20 pushed the embedded library too and are withheld the same way. Only those exact records may
+# withhold, pinned by the evidence.json digests in the verification manifests, which the registry pins in turn: that
+# digest covers every entry and blob digest. A native run of today's code that pushes the real library is a regression.
 PARSER_PATH = 'worker/shared/libxctest-parser.dylib'
 PARSER_DIGEST = '730015f8bcb9bd906837544c8be9aa904826d151e252cd3aeac9ed87270a9d3b'
 PARSER_SIZE = 206152
 PARSER_ROLE = 'third-party libxctest-parser.dylib, compared by role (D20)'
 PARSER_STAND_IN = b'marathon-rs differential stand-in for libxctest-parser.dylib; not a library\n'
-HISTORICAL_NATIVE_SHAS = ('bdb9bbfc2de48de08239ee506669bc391cd6064e', '9e1538c53560b64e018c257afc44474a0d27ed9d')
+VERIFICATION_MANIFESTS = ('fixtures/differential/vendor-verification/manifest.json',
+                          'fixtures/differential/vendor-verification-c95b2128/manifest.json')
 
 
 class Invalid(ValueError):
@@ -138,6 +140,14 @@ def write_record(destination, contract, implementation, trees, artifacts, outcom
         rows, content = snapshot(root, name)
         entries.extend(rows)
         payloads.update(content)
+    if contract.get('scenario') == 'vendor' and contract.get('transport') == 'ssh' and 'transcript.jsonl' in artifacts:
+        # D20: decided before any payload is stored, for every caller.
+        import vendor_transport
+        artifacts = dict(artifacts)
+        if implementation == 'jvm':
+            artifacts['transcript.jsonl'] = vendor_transport.redact_parser_transfer(artifacts['transcript.jsonl'])
+        else:
+            vendor_transport.check_new_native_transfer(artifacts['transcript.jsonl'])
     for name, data in artifacts.items():
         entries.append(dict(path=relative(name), kind='file', mode=0o644, size=len(data), sha256=sha(data)))
         payloads[sha(data)] = data
@@ -172,8 +182,15 @@ def refuse_native_parser(entries):
             raise Invalid('native run pushed the real third-party library')
 
 
-def may_withhold(record):
-    return record['implementation'] == 'jvm' or record['provenance'].get('native_sha') in HISTORICAL_NATIVE_SHAS
+def recorded_native_digests():
+    root = Path(__file__).resolve().parents[2]
+    return {digest for name in VERIFICATION_MANIFESTS for key, digest in load(root / name)['records'].items()
+            if key.endswith('/native')}
+
+
+def may_withhold(directory, record):
+    return (record['implementation'] == 'jvm'
+            or sha((Path(directory) / 'evidence.json').read_bytes()) in recorded_native_digests())
 
 
 def parser_scope(contract, name):
@@ -319,7 +336,7 @@ def validate(directory, contract):
             if 'withheld' in row:
                 require(row['withheld'] is True and parser_scope(contract, name) and digest == PARSER_DIGEST
                         and row['size'] == PARSER_SIZE, f'invalid withheld payload: {name}')
-                require(may_withhold(record), f'withheld payload in a new native record: {name}')
+                require(may_withhold(directory, record), f'withheld payload in a new native record: {name}')
                 require(set(row) == fields | {'withheld'}, f'entry schema: {name}')
                 continue
             p = directory / 'blobs' / digest

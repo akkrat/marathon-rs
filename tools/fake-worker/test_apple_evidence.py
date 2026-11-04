@@ -122,6 +122,24 @@ class Evidence(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError,'third-party library bytes'):
                 e.validate(work,spec)
 
+    def test_every_marked_row_is_checked_wherever_it_is(self):
+        original=e.ROOT/'fixtures/fake-worker/apple/macos-smoke/expected/raw'
+        spec=e.load(e.ROOT/'fixtures/fake-worker/apple/macos-smoke/script/world.json')
+        for label,marker,data in [('other marker','not-D20',b'nonzero'),('exact marker elsewhere','D20',bytes(7))]:
+            with self.subTest(label),tempfile.TemporaryDirectory() as temporary:
+                work=Path(temporary)/'evidence';shutil.copytree(original,work)
+                transcript=e.rows(work/'transcript.jsonl')
+                parser=next((r['connection'],r['channel']) for r in transcript if r['event']=='exec'
+                            and base64.b64decode(r['detail']['base64']).endswith(b'/libxctest-parser.dylib'))
+                row=next(r for r in transcript if r['event']=='output' and (r['connection'],r['channel'])!=parser)
+                row['detail'].update(base64=base64.b64encode(data).decode(),sha256=e.sha(data),size=len(data),redacted=marker)
+                (work/'transcript.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in transcript))
+                manifest=e.load(work/'manifest.json')
+                manifest['artifact_hashes']['transcript.jsonl']=e.sha((work/'transcript.jsonl').read_bytes())
+                e.save(work/'manifest.json',manifest)
+                with self.assertRaisesRegex(AssertionError,'third-party library bytes'):
+                    e.validate(work,spec)
+
     def check_mutation(self, mutate, name='ios-media'):
         scenario=e.ROOT / 'fixtures/fake-worker/apple' / name
         with tempfile.TemporaryDirectory() as temporary:

@@ -46,13 +46,26 @@ def check_redacted(row, keys):
     e.require(data == bytes(len(data)),'marked parser chunk is not zero-filled')
 
 
+def check_stream_bound(rows, keys, skip=()):
+    """Every byte the transfer's rows retain counts, whichever stream and however small its chunks."""
+    sizes = defaultdict(int)
+    for row in rows:
+        if ((row['connection'],row['channel']) in keys and row['event'] != 'exec' and row['event'] not in skip
+                and 'base64' in row['detail']):
+            sizes[row['connection'],row['channel']] += len(payload(row['detail']))
+    e.require(all(size <= STAND_IN_TRANSFER_LIMIT for size in sizes.values()),'library bytes in the parser transfer')
+
+
 def redact_parser_transfer(data):
     """D20: a JVM recording's rsync stdin to the library's path carries the library, so its bytes become zeros.
 
     Every chunk keeps its row, sequence number and size and gets the digest of what it now holds; the projection in
     ssh() drops rsync streams, so no comparison reads them. Other rows stay byte-identical.
     """
-    keys = parser_transfer_keys(records(data))
+    rows = records(data)
+    keys = parser_transfer_keys(rows)
+    # Its stdin is about to be zeros; what the worker sent back is kept, and holds no library.
+    check_stream_bound(rows,keys,skip=('stdin',))
     lines = data.splitlines(keepends=True)
     for i,line in enumerate(lines):
         row = e.loads(line)
@@ -70,11 +83,7 @@ def check_new_native_transfer(data):
     rows = records(data)
     keys = parser_transfer_keys(rows)
     e.require(not any('redacted' in row['detail'] for row in rows),'redacted row in a new native transcript')
-    sizes = defaultdict(int)
-    for row in rows:
-        if is_parser_chunk(row,keys):
-            sizes[row['connection'],row['channel']] += len(payload(row['detail']))
-    e.require(all(size <= STAND_IN_TRANSFER_LIMIT for size in sizes.values()),'library bytes in the native transcript')
+    check_stream_bound(rows,keys)
 
 
 def ssh(data, name=None):

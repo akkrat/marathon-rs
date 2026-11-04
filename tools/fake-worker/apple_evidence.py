@@ -125,13 +125,28 @@ def glob(pattern, value):
     return re.fullmatch(regex,value,flags=re.DOTALL) is not None
 
 
-def redact_parser_transfer(work):
-    """D20: a JVM recording must not keep the third-party library that its rsync pushes to the worker."""
+def vendor_transport():
     import sys
     sys.path.insert(0, str(ROOT / 'tools/differential'))
-    import vendor_transport
+    import vendor_transport as module
+    return module
+
+
+def redact_parser_transfer(work):
+    """D20: a JVM recording must not keep the third-party library that its rsync pushes to the worker."""
     path = work / 'transcript.jsonl'
-    path.write_bytes(vendor_transport.redact_parser_transfer(path.read_bytes()))
+    path.write_bytes(vendor_transport().redact_parser_transfer(path.read_bytes()))
+
+
+def check_parser_redaction(work):
+    """The differential validator's rules: a recorded transcript is what redaction would leave it as."""
+    transport = vendor_transport()
+    data = (work / 'transcript.jsonl').read_bytes()
+    try:
+        same = transport.redact_parser_transfer(data) == data
+    except transport.e.Invalid as error:
+        raise AssertionError(f'third-party library bytes in transcript: {error}') from error
+    assert same, 'third-party library bytes in transcript: unredacted parser transfer'
 
 
 def collect(work, run, spec):
@@ -238,9 +253,7 @@ def validate(work, spec):
         if row['event']=='exec' and base64.b64decode(row['detail']['base64']).endswith(b'/libxctest-parser.dylib'):
             parser=(row['connection'],row['channel'])
             assert any(r['event']=='stdin' and (r['connection'],r['channel'])==parser for r in transcript),'parser transfer vanished'
-            for chunk in (r for r in transcript if r['event']=='stdin' and (r['connection'],r['channel'])==parser):
-                bytes_of=base64.b64decode(chunk['detail']['base64'],validate=True)
-                assert chunk['detail'].get('redacted')=='D20' and bytes_of==bytes(len(bytes_of)),'third-party library bytes in transcript'
+    check_parser_redaction(work)
     assert (work / 'stderr').read_bytes().rstrip().endswith(b'Marathon execution failed'), 'wrong final CLI message'
     assert b'Marathon execution crashed' not in (work / 'stderr').read_bytes(), 'CLI crashed'
     host=rows(work/'host-argv.jsonl')
