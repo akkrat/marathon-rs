@@ -706,7 +706,10 @@ class ReleaseTests(unittest.TestCase):
     def test_gnu_build_still_uses_plain_cargo(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = ['release.py', 'build', '--target', r.GNU, '--output', tmp + '/out']
+            # The remote gate exports CARGO_TARGET_DIR; this test is about the default location.
+            environment = {k: v for k, v in r.os.environ.items() if k != 'CARGO_TARGET_DIR'}
             with patch.object(r.sys, 'argv', args), patch.object(r, 'run', return_value='host: ' + r.GNU), \
+                    patch.dict(r.os.environ, environment, clear=True), \
                     patch.object(r.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)) as sub, \
                     patch.object(r, 'check_dep_info') as checked, patch.object(r, 'package', return_value=Path('x')), \
                     contextlib.redirect_stdout(io.StringIO()):
