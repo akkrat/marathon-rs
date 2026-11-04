@@ -1,0 +1,116 @@
+{
+  "comment": "Every non-crate file compiled into marathon, checked against the sources by third_party_licenses.py. status is open-source, or review when the terms need a human decision.",
+  "adam": {
+    "version": "0.5.8",
+    "spdx": "Apache-2.0",
+    "source": "https://github.com/Malinskiy/adam",
+    "licence": "scripts/release/asset-licences/adam-NOTICE.txt",
+    "note": "crates/marathon-adb is a Rust port of adam 0.5.8, whose NOTICE and licence follow."
+  },
+  "assets": [
+    {
+      "component": "marathon HTML and timeline reports",
+      "version": "source e47352f2",
+      "spdx": "GPL-2.0-only",
+      "status": "open-source",
+      "source": "report/html-report and report/execution-timeline of the Kotlin marathon source",
+      "files": [
+        "fixtures/reporters/html/app.min.css",
+        "fixtures/reporters/html/index.html",
+        "fixtures/reporters/timeline/chart.css",
+        "fixtures/reporters/timeline/chart.js",
+        "fixtures/reporters/timeline/index.html"
+      ],
+      "note": "Marathon code, covered by the file LICENSE. The timeline page asks the browser for moment.js, D3 and a web font from their own sites when it is viewed; those are not in this binary.",
+      "licences": []
+    },
+    {
+      "component": "HTML report JavaScript bundle (app.min.js)",
+      "version": "source e47352f2",
+      "spdx": "MIT AND CC0-1.0",
+      "status": "open-source",
+      "source": "webpack build of report/html-report in the Kotlin marathon source; the versions below are from its package-lock.json",
+      "files": [
+        "fixtures/reporters/html/app.min.js"
+      ],
+      "note": "Bundled notices follow as webpack extracted them, then the licence file of each runtime library: classnames 2.3.2, deepmerge 4.2.2, elasticlunr 0.9.5, iframe-resizer 4.3.2, iframe-resizer-react 1.1.0, load-script 1.0.0, memoize-one 5.2.1, object-assign 4.1.1, prop-types 15.8.1, randomcolor 0.6.2, react 16.14.0, react-dom 16.14.0, react-fast-compare 3.2.0, react-is 16.13.1, react-loading 2.0.3, react-player 2.11.0, scheduler 0.19.1.",
+      "licences": [
+        "fixtures/reporters/html/app.min.js.LICENSE.txt",
+        "scripts/release/asset-licences/classnames.txt",
+        "scripts/release/asset-licences/deepmerge.txt",
+        "scripts/release/asset-licences/elasticlunr.txt",
+        "scripts/release/asset-licences/iframe-resizer.txt",
+        "scripts/release/asset-licences/iframe-resizer-react.txt",
+        "scripts/release/asset-licences/load-script.txt",
+        "scripts/release/asset-licences/memoize-one.txt",
+        "scripts/release/asset-licences/object-assign.txt",
+        "scripts/release/asset-licences/prop-types.txt",
+        "scripts/release/asset-licences/randomcolor.txt",
+        "scripts/release/asset-licences/react.txt",
+        "scripts/release/asset-licences/react-dom.txt",
+        "scripts/release/asset-licences/react-fast-compare.txt",
+        "scripts/release/asset-licences/react-is.txt",
+        "scripts/release/asset-licences/react-loading.txt",
+        "scripts/release/asset-licences/react-player.txt",
+        "scripts/release/asset-licences/scheduler.txt"
+      ]
+    },
+    {
+      "component": "iFrame Resizer (iframeResizer.contentWindow.min.js)",
+      "version": "4.3.2",
+      "spdx": "MIT",
+      "status": "open-source",
+      "source": "https://github.com/davidjbradshaw/iframe-resizer, through report/execution-timeline of the Kotlin marathon source",
+      "files": [
+        "fixtures/reporters/timeline/iframeResizer.contentWindow.min.js"
+      ],
+      "note": "",
+      "licences": [
+        "scripts/release/asset-licences/iframe-resizer.txt"
+      ]
+    },
+    {
+      "component": "Display P3 colour profile",
+      "version": "skcms profiles/mobile/Display_P3_parametric.icc (byte-identical)",
+      "spdx": "BSD-3-Clause",
+      "status": "open-source",
+      "source": "https://skia.googlesource.com/skcms, through the resources of adam 0.5.8",
+      "files": [
+        "fixtures/adam/colorProfiles/DisplayP3.icc"
+      ],
+      "note": "The profile's own copyright tag reads: Copyright (c) 2017 Google Inc.",
+      "licences": [
+        "scripts/release/asset-licences/skcms.txt"
+      ]
+    },
+    {
+      "component": "sRGB colour profile (sRGB IEC61966-2.1)",
+      "version": "2.1",
+      "spdx": "LicenseRef-HP-sRGB",
+      "status": "review",
+      "source": "Hewlett-Packard, through the resources of adam 0.5.8",
+      "files": [
+        "fixtures/adam/colorProfiles/sRGB.icc"
+      ],
+      "note": "Embedded unchanged.",
+      "licences": [
+        "scripts/release/asset-licences/hp-srgb.txt"
+      ]
+    },
+    {
+      "component": "JDK built-in sRGB profile",
+      "version": "OpenJDK 21.0.10",
+      "spdx": "GPL-2.0-only WITH Classpath-exception-2.0",
+      "status": "open-source",
+      "source": "ICC_Profile.getInstance(ColorSpace.CS_sRGB).getData() on the reference JDK; its tags name Little CMS, whose licence follows",
+      "files": [
+        "fixtures/oracle/adb-request-jdk-srgb.icc"
+      ],
+      "note": "",
+      "licences": [
+        "scripts/release/asset-licences/openjdk-classpath-exception.txt",
+        "scripts/release/asset-licences/lcms.txt"
+      ]
+    }
+  ]
+}

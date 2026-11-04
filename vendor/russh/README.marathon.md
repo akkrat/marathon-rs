@@ -33,6 +33,10 @@ Applied changes, in order:
      own channel and never the session loop;
    - two client tests (manual window, default unchanged).
 
+Each file these changes touch starts with a `Modified by marathon-rs` line (Apache-2.0 section 4(b)):
+`Cargo.toml`, `src/client/{encrypted,mod,session,test}.rs`, `src/helpers.rs`, `src/keys/{known_hosts,mod}.rs`,
+`src/pty.rs`, `src/server/{encrypted,mod,session}.rs` and `src/session.rs`. The upstream archive holds no NOTICE file.
+
 No process-wide environment flag changes protocol behavior. All default hooks
 retain the upstream wire behavior. These patches have not been submitted upstream.
 

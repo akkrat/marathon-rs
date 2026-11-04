@@ -1,3 +1,4 @@
+// Modified by marathon-rs (server hooks): see vendor/russh/README.marathon.md for each change.
 use std::collections::{HashMap, VecDeque};
 use std::io::ErrorKind;
 use std::sync::Arc;

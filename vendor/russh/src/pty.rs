@@ -1,3 +1,4 @@
+// Modified by marathon-rs (variant rename, wire number unchanged): see vendor/russh/README.marathon.md for each change.
 #[allow(non_camel_case_types, missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// Standard pseudo-terminal codes.

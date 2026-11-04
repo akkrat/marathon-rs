@@ -1,3 +1,4 @@
+// Modified by marathon-rs (inline test strings moved to fixtures): see vendor/russh/README.marathon.md for each change.
 use std::fmt::Debug;
 
 use ssh_encoding::{Decode, Encode};

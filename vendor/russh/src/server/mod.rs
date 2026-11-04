@@ -1,3 +1,4 @@
+// Modified by marathon-rs (server hooks): see vendor/russh/README.marathon.md for each change.
 // Copyright 2016 Pierre-Étienne Meunier
 //
 // Licensed under the Apache License, Version 2.0 (the "License");

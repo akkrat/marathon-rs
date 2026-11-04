@@ -1,3 +1,4 @@
+// Modified by marathon-rs (tests for the client changes): see vendor/russh/README.marathon.md for each change.
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;

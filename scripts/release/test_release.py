@@ -733,6 +733,75 @@ class ThirdPartyLicenseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIn('caf\ufffd', self.rendered(Path(tmp)))
 
+    def test_each_embedded_asset_has_a_section_with_its_licence_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = self.rendered(Path(tmp))
+        for expected in ('Other files compiled into marathon, not crates', 'HTML report JavaScript bundle (app.min.js)',
+                         'fixtures/reporters/html/app.min.js', 'scheduler.production.min.js', 'Copyright (c) Facebook',
+                         'iFrame Resizer', '4.3.2', 'Copyright (c) 2013-2021 David J. Bradshaw',
+                         'Display P3 colour profile', 'Copyright (c) 2018 Google Inc.', 'Hewlett-Packard',
+                         'Portions Copyright Eastman Kodak', 'Marti Maria Saguer', 'The Android Open Source Project',
+                         'crates/marathon-adb is a Rust port of adam'):
+            self.assertIn(expected, text)
+        self.assertNotIn('libxctest-parser', text)
+
+    def asset_tree(self, root, source, files):
+        (root / 'crates/x/src').mkdir(parents=True)
+        (root / 'crates/x/src/lib.rs').write_text(source)
+        (root / 'scripts/release').mkdir(parents=True)
+        (root / 'scripts/release/embedded_assets.json').write_text(json.dumps(dict(assets=[dict(files=files)])))
+
+    def test_an_embedded_file_missing_from_the_asset_list_fails_the_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.asset_tree(Path(tmp), 'const A: &[u8] = include_bytes!("../../../fixtures/a.bin");\n', [])
+            with self.assertRaisesRegex(ValueError, r"not listed \['fixtures/a.bin'\]"):
+                tpl.load_assets(tmp)
+
+    def test_a_listed_file_nothing_embeds_fails_the_build(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.asset_tree(Path(tmp), '', ['fixtures/gone.bin'])
+            with self.assertRaisesRegex(ValueError, r"not embedded \['fixtures/gone.bin'\]"):
+                tpl.load_assets(tmp)
+
+    def test_test_code_is_not_an_embedded_asset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = '''const P: &[u8] = include_bytes!("../../../fixtures/prod.bin");
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod inline {
+    const T: &str = include_str!("../../../fixtures/inline.txt");
+    fn f() { if true { let _ = 1; } }
+}
+#[cfg(all(test, feature = "x"))]
+const U: &str = include_str!("../../../fixtures/const.txt");
+#[test]
+fn t() { let _ = include_str!("../../../fixtures/fn.txt"); }
+const Q: &str = include_str!("../../../fixtures/after.txt");
+'''
+            self.asset_tree(root, source, ['fixtures/prod.bin', 'fixtures/after.txt'])
+            (root / 'crates/x/src/tests.rs').write_text('const A: &str = include_str!("../../../fixtures/module.txt");\n')
+            self.assertEqual(tpl.production_includes(root), {'fixtures/prod.bin', 'fixtures/after.txt'})
+            tpl.load_assets(root)
+
+    def test_the_asset_list_matches_this_repository_and_only_named_assets_await_review(self):
+        manifest = tpl.load_assets()
+        self.assertEqual([a['component'] for a in manifest['assets'] if a['status'] != 'open-source'],
+                         ['sRGB colour profile (sRGB IEC61966-2.1)'])
+        for asset in manifest['assets']:
+            for name in asset['licences']:
+                self.assertTrue((tpl.ROOT / name).is_file(), name)
+
+    def test_modified_vendored_russh_files_carry_a_prominent_notice(self):
+        files = ['Cargo.toml'] + ['src/' + name + '.rs' for name in (
+            'client/encrypted', 'client/mod', 'client/session', 'client/test', 'helpers', 'keys/known_hosts', 'keys/mod', 'pty',
+            'server/encrypted', 'server/mod', 'server/session', 'session')]
+        for name in files:
+            first = (tpl.ROOT / 'vendor/russh' / name).read_text(encoding='utf-8').splitlines()[0]
+            self.assertIn('Modified by marathon-rs', first, name)
+        self.assertTrue((tpl.ROOT / 'vendor/russh/LICENSE').is_file())
+
     def test_output_is_deterministic(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

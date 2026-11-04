@@ -1,3 +1,4 @@
+// Modified by marathon-rs (close after local close (R1/U1)): see vendor/russh/README.marathon.md for each change.
 use log::error;
 use ssh_encoding::Encode;
 use tokio::sync::oneshot;

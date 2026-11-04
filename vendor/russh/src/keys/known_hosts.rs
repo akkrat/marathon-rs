@@ -1,3 +1,4 @@
+// Modified by marathon-rs (inline test strings moved to fixtures): see vendor/russh/README.marathon.md for each change.
 use std::borrow::Cow;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};

@@ -1,3 +1,4 @@
+// Modified by marathon-rs (inline test strings moved to fixtures): see vendor/russh/README.marathon.md for each change.
 //! This crate contains methods to deal with SSH keys, as defined in
 //! crate Russh. This includes in particular various functions for
 //! opening key files, deciphering encrypted keys, and dealing with
