@@ -1,4 +1,8 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XCTestParser.kt
+//!
+//! D20 (PLAN.md §3.11): Kotlin loads libxctest-parser.dylib from its own resources. This program neither contains nor
+//! ships that third-party library, so an `xctest` run reads a copy the user supplies. What follows the read, the push to
+//! the worker and the fake test run, is the port.
 use crate::{
     apple_application_installer::AppleApplicationInstaller,
     apple_device::AppleDevice,
@@ -25,29 +29,92 @@ use marathon_core::{
     vendor::{DeviceRef, RemoteTestParser, VendorContext},
 };
 use std::{
-    io::Write,
+    fs::File,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
-pub fn embedded_dylib(sdk: Sdk) -> Option<&'static [u8]> {
-    macro_rules! lib {
-        ($p:literal) => {
-            include_bytes!(concat!(
-                "../resources/libxctest-parser/",
-                $p,
-                "/libxctest-parser.dylib"
-            ))
-            .as_slice()
-        };
+/// D20: names the directory that holds the user's copy of the library.
+pub const PARSER_DIR_VARIABLE: &str = "MARATHON_XCTEST_PARSER_DIR";
+const LIBRARY: &str = "libxctest-parser.dylib";
+/// The SDKs Kotlin has a resource for; physical device SDKs have none and keep failing per attempt (S3).
+pub const SIMULATOR_SDKS: [Sdk; 4] = [
+    Sdk::IphoneSimulator,
+    Sdk::TvSimulator,
+    Sdk::WatchSimulator,
+    Sdk::VisionSimulator,
+];
+const CONFIGURATION_EXCEPTION: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
+
+/// Where an `xctest` run finds the user's copy of the library. Only the `xctest` branch of a vendor builds this from
+/// the environment, so an `nm` run never reads the variable.
+#[derive(Clone, Debug, Default)]
+pub struct ParserLibraries {
+    directory: Option<PathBuf>,
+}
+impl ParserLibraries {
+    pub fn new(directory: impl Into<PathBuf>) -> Self {
+        Self {
+            directory: Some(directory.into()),
+        }
     }
-    Some(match sdk {
-        Sdk::IphoneSimulator => lib!("iPhoneSimulator"),
-        Sdk::Macos => lib!("MacOSX"),
-        Sdk::TvSimulator => lib!("AppleTVSimulator"),
-        Sdk::WatchSimulator => lib!("WatchSimulator"),
-        Sdk::VisionSimulator => lib!("XRSimulator"),
-        _ => return None,
-    })
+    pub fn from_environment() -> Self {
+        Self {
+            directory: std::env::var_os(PARSER_DIR_VARIABLE)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from),
+        }
+    }
+    /// The Kotlin resource layout: `<platform name>/libxctest-parser.dylib`.
+    fn file(&self, sdk: Sdk) -> Option<PathBuf> {
+        let directory = self.directory.as_ref().filter(|_| is_supplied(sdk))?;
+        Some(directory.join(sdk.platform_name()).join(LIBRARY))
+    }
+    /// Blocks on the file system. Passes when one of `sdks` has a readable file.
+    fn check(&self, sdks: &[Sdk]) -> Result<(), String> {
+        let Some(directory) = &self.directory else {
+            return Err(format!("the environment variable {PARSER_DIR_VARIABLE} is not set"));
+        };
+        let mut problems = Vec::new();
+        for sdk in sdks {
+            let path = directory.join(sdk.platform_name()).join(LIBRARY);
+            let readable = File::open(&path).and_then(|file| file.metadata()).map(|m| m.is_file());
+            match readable {
+                Ok(true) => return Ok(()),
+                Ok(false) => problems.push(format!("{} is not a file", path.display())),
+                Err(error) => problems.push(format!("{} cannot be read ({error})", path.display())),
+            }
+        }
+        Err(problems.join("; "))
+    }
+    /// The vendor's check before any connection or simulator exists. An iOS vendor only learns the platform from the
+    /// device it gets, so it passes all simulator SDKs and `extract` checks the device's own platform.
+    pub async fn check_at_construction(
+        &self,
+        sdks: &[Sdk],
+        runtime: &dyn marathon_core::runtime::VendorRuntime,
+    ) -> VendorResult<()> {
+        let libraries = self.clone();
+        let sdks = sdks.to_vec();
+        blocking(runtime, move || {
+            libraries.check(&sdks).map_err(|problem| {
+                VendorError::Other(crate::cmd::failure(CONFIGURATION_EXCEPTION, supply_message(&problem)))
+            })
+        })
+        .await
+    }
+}
+fn is_supplied(sdk: Sdk) -> bool {
+    sdk == Sdk::Macos || SIMULATOR_SDKS.contains(&sdk)
+}
+fn supply_message(problem: &str) -> String {
+    format!(
+        "The xctest test parser needs {LIBRARY}, which this program does not ship: {problem}. Set {PARSER_DIR_VARIABLE} \
+         to a directory holding <platform name>/{LIBRARY} (for example MacOSX/{LIBRARY}), with a copy obtained under its \
+         EULA from a Kotlin marathon distribution. The library is third-party software under its own EULA, which states \
+         that it sends error reports to its server. If your tests are not generated at runtime, use the nm test parser \
+         (testParserConfiguration type nm), which needs no library."
+    )
 }
 #[derive(Default)]
 struct Buffer(Mutex<JavaString>);
@@ -69,6 +136,7 @@ pub struct XCTestParser<'a> {
     pub runtime: Arc<dyn VendorRuntime>,
     pub logging: SshLogging,
     pub session_close_timeout: Duration,
+    libraries: ParserLibraries,
     logger: Logger,
     buffer: Arc<Buffer>,
 }
@@ -80,6 +148,7 @@ impl<'a> XCTestParser<'a> {
         installer: AppleApplicationInstaller<'a>,
         runtime: Arc<dyn VendorRuntime>,
         logging: SshLogging,
+        libraries: ParserLibraries,
     ) -> Self {
         let logger = logging.logger("XCTestParser");
         Self {
@@ -90,6 +159,7 @@ impl<'a> XCTestParser<'a> {
             runtime,
             logging,
             session_close_timeout: CLOSE_TIMEOUT,
+            libraries,
             logger,
             buffer: Arc::default(),
         }
@@ -105,12 +175,13 @@ impl<'a> XCTestParser<'a> {
             .await
             .map_err(|e| e.into_vendor())?;
         let sdk = device.sdk();
-        let dylib = embedded_dylib(sdk).ok_or_else(|| {
+        let library = self.libraries.file(sdk).ok_or_else(|| {
             parsing_error(format!("No libxctest-parser.dylib for platform {}", sdk.platform_name()).into())
         })?;
         let temp = blocking(&*self.runtime, move || {
+            let mut source = File::open(library).map_err(io_error)?;
             let mut file = tempfile::NamedTempFile::new().map_err(io_error)?;
-            file.write_all(dylib).map_err(io_error)?;
+            std::io::copy(&mut source, &mut file).map_err(io_error)?;
             Ok(file)
         })
         .await?;
@@ -228,6 +299,22 @@ impl<'a> XCTestParser<'a> {
 impl RemoteTestParser for XCTestParser<'_> {
     fn extract(&self, device: DeviceRef, context: VendorContext) -> VendorFuture<'_, Vec<Test>> {
         Box::pin(async move {
+            // D20: retrying cannot make a missing library appear, so this fails before the attempts and the install.
+            if let Some(sdk) = self
+                .registry
+                .lookup(&device)
+                .ok()
+                .map(|apple| apple.sdk())
+                .filter(|sdk| is_supplied(*sdk))
+            {
+                let libraries = self.libraries.clone();
+                blocking(&*self.runtime, move || {
+                    libraries
+                        .check(&[sdk])
+                        .map_err(|problem| parsing_error(supply_message(&problem).into()))
+                })
+                .await?;
+            }
             let mut last = None;
             for _ in 0..3 {
                 let result = async {

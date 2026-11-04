@@ -52,8 +52,8 @@
       "kind": "file",
       "mode": 420,
       "path": "transcript.jsonl",
-      "sha256": "ca211262d59b36c4ebced67500d47ec69e51257523e291af2bcc983e72c39738",
-      "size": 718283
+      "sha256": "4ded5d64378d52502f268f353b63bf2d265239b705101d6cf678ccc782a02a48",
+      "size": 718878
     },
     {
       "kind": "directory",
@@ -212,7 +212,8 @@
       "mode": 384,
       "path": "worker/shared/libxctest-parser.dylib",
       "sha256": "730015f8bcb9bd906837544c8be9aa904826d151e252cd3aeac9ed87270a9d3b",
-      "size": 206152
+      "size": 206152,
+      "withheld": true
     },
     {
       "kind": "directory",

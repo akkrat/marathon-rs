@@ -146,6 +146,12 @@ def raw_capture(name, implementation, work, binaries, command):
             public = (work / 'host-key.pub').read_text().split()
             (work / 'known_hosts').write_text(f'[127.0.0.1]:{port} {public[0]} {public[1]}\n')
             shims = ROOT / 'tools/fake-worker/shims'
+            if implementation == 'native' and CASES[name]['base'] == 'macos-smoke':
+                # D20: the native program has no library of its own; the JVM distribution keeps using its copy.
+                supplied = work / 'supplied-parser/MacOSX'
+                supplied.mkdir(parents=True)
+                (supplied / 'libxctest-parser.dylib').write_bytes(e.PARSER_STAND_IN)
+                env['MARATHON_XCTEST_PARSER_DIR'] = str(supplied.parent)
             env.update(FW_FIXTURE_KEY=str(work / 'client-key'), FW_KNOWN_HOSTS=str(work / 'known_hosts'), FW_PORT=port,
                        PATH=str(shims) + ':' + env['PATH'], RSYNC4J_RSYNC=str(shims / 'rsync'),
                        FW_REAL_RSYNC=config['rsync_binary'], FW_REAL_SSH='/usr/bin/ssh', FW_ARGV_LOG=str(work / 'host-argv.jsonl'))
@@ -325,6 +331,9 @@ def pack(name, implementation, raw, contract, destination, provenance):
         facts['hook_sources'] = {str(p.relative_to(ROOT)):e.sha(p.read_bytes()) for p in sorted((ROOT/'tools/oracle/hooks/src/main').rglob('*.kt'))}
     trees = {'reports':raw/'in/report'}
     artifacts = {name:(raw/name).read_bytes() for name in ['transcript.jsonl','state.json']}
+    if apple(name) and implementation == 'jvm':
+        import vendor_transport
+        artifacts['transcript.jsonl'] = vendor_transport.redact_parser_transfer(artifacts['transcript.jsonl'])
     artifacts.update({name:(raw/'process'/name).read_bytes() for name in ['stdout','stderr']})
     if apple(name):
         trees['worker'] = raw/'root'
@@ -356,6 +365,9 @@ def validate_record(directory, contract, record):
     import vendor_transport as t
     if apple(contract['vendor']):
         t.ssh(artifact('transcript.jsonl'),contract['vendor'])
+        if record['implementation'] == 'jvm':
+            e.require(t.redact_parser_transfer(artifact('transcript.jsonl')) == artifact('transcript.jsonl'),
+                      'third-party library bytes in the JVM transcript')
         t.host_argv(artifact('host-argv.jsonl'),record['identities'])
         state = e.loads(artifact('state.json'))
         e.require(not state['deferred'] and all(s['state'] == 'finished' for s in state['sessions']),

@@ -570,6 +570,133 @@ class VendorEvidenceTests(unittest.TestCase):
             with self.subTest(option=old),self.assertRaises(e.Invalid):
                 e.compare(self.source,self.actual,self.contract)
 
+    def parser_copy(self, source, name, content=None, mode=None, **fields):
+        """A copy of a committed macOS record whose parser entry holds `content` or is rewritten by `fields`."""
+        destination = self.tmp_root / name
+        shutil.copytree(source, destination)
+        record = json.loads((destination / 'evidence.json').read_bytes())
+        row = next(r for r in record['entries'] if r['path'] == e.PARSER_PATH)
+        self.assertIs(row['withheld'], True)
+        if content is not None:
+            del row['withheld']
+            row.update(size=len(content), sha256=e.sha(content))
+            e.save_payload(destination, row['sha256'], content, record)
+        if mode is not None:
+            row['mode'] = mode
+        row.update(fields)
+        (destination / 'evidence.json').write_bytes(e.encoded(record))
+        return destination
+
+    def test_d20_stand_in_matches_the_withheld_library_and_nothing_else_does(self):
+        self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
+        contract = DRIVER['contract']('macos-smoke')
+        golden = DRIVER['golden']('macos-smoke')
+        native = ROOT / 'fixtures/differential/vendor-verification-c95b2128/macos-smoke/native'
+        # Positive: what a live native run records compares equal to the JVM's withheld copy.
+        e.compare(golden, self.parser_copy(native, 'stand-in', e.PARSER_STAND_IN), contract)
+        e.compare(golden, native, contract)
+        for label, source, kwargs, message in [
+            ('other bytes', native, dict(content=b'another library\n'), 'worker/shared/libxctest-parser.dylib'),
+            ('empty file', native, dict(content=b''), 'worker/shared/libxctest-parser.dylib'),
+            ('mode', native, dict(content=e.PARSER_STAND_IN, mode=0o644), 'mode'),
+            ('stored digest', native, dict(content=e.PARSER_STAND_IN, sha256=e.PARSER_DIGEST), 'third-party library bytes stored'),
+            ('withheld wrong digest', native, dict(sha256=e.sha(b'x')), 'invalid withheld payload'),
+            ('withheld wrong size', native, dict(size=1), 'invalid withheld payload'),
+            ('withheld not true', native, dict(withheld='yes'), 'third-party library bytes stored'),
+        ]:
+            with self.subTest(label):
+                with self.assertRaisesRegex(e.Invalid, message):
+                    e.compare(golden, self.parser_copy(source, label, **kwargs), contract)
+        # A JVM record cannot use the stand-in: only a native run does.
+        with self.assertRaisesRegex(e.Invalid, 'worker/shared/libxctest-parser.dylib'):
+            e.compare(self.parser_copy(golden, 'jvm stand-in', e.PARSER_STAND_IN),
+                      self.parser_copy(native, 'stand-in 2', e.PARSER_STAND_IN), contract)
+
+    def test_d20_withholding_is_limited_to_the_parser_path_of_macos_cases(self):
+        self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
+        golden = DRIVER['golden']('macos-smoke')
+        contract = DRIVER['contract']('macos-smoke')
+        record = json.loads((golden / 'evidence.json').read_bytes())
+        other = next(r for r in record['entries'] if r['path'] == 'state.json')
+        other['withheld'] = True
+        copy = self.tmp_root / 'other-path'
+        shutil.copytree(golden, copy)
+        (copy / 'evidence.json').write_bytes(e.encoded(record))
+        with self.assertRaisesRegex(e.Invalid, 'invalid withheld payload'):
+            e.validate(copy, contract)
+        self.assertFalse(e.parser_scope(DRIVER['contract']('ios-smoke'), e.PARSER_PATH))
+        self.assertFalse(e.parser_scope(dict(scenario='parse'), e.PARSER_PATH))
+        self.assertFalse(e.parser_scope(contract, 'worker/shared/other.dylib'))
+
+    def test_d20_a_capture_keeps_the_digest_and_drops_the_bytes(self):
+        entries = [dict(path=e.PARSER_PATH, sha256=e.PARSER_DIGEST), dict(path='other', sha256=e.sha(b'o'))]
+        payloads = {e.PARSER_DIGEST: b'real', e.sha(b'o'): b'o'}
+        e.withhold_parser(entries, payloads)
+        self.assertIs(entries[0]['withheld'], True)
+        self.assertNotIn('withheld', entries[1])
+        self.assertEqual(list(payloads), [e.sha(b'o')])
+        stand_in = [dict(path=e.PARSER_PATH, sha256=e.sha(e.PARSER_STAND_IN))]
+        kept = {e.sha(e.PARSER_STAND_IN): e.PARSER_STAND_IN}
+        e.withhold_parser(stand_in, kept)
+        self.assertNotIn('withheld', stand_in[0])
+        self.assertIn(e.sha(e.PARSER_STAND_IN), kept)
+
+    def test_d20_transcript_redaction_touches_only_the_parser_transfer(self):
+        import vendor_transport as t
+        def row(seq, event, connection, data):
+            return dict(channel=2, connection=connection, detail=dict(base64=base64.b64encode(data).decode(),
+                        sha256=e.sha(data), size=len(data)), event=event, run='macos-smoke', schema=1, seq=seq)
+        parser = b"/usr/bin/rsync --server -vlogDtpre.iLsfxCIvu --partial . /tmp/marathon/shared/libxctest-parser.dylib"
+        other = b"/usr/bin/rsync --server -vlogDtpre.iLsfxCIvu --partial . /tmp/marathon/shared/other"
+        rows = [row(0, 'exec', 1, parser), row(1, 'stdin', 1, b'library bytes'), row(2, 'output', 1, b'server reply'),
+                row(3, 'exec', 2, other), row(4, 'stdin', 2, b'other bytes')]
+        data = b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
+        redacted = t.redact_parser_transfer(data)
+        before, after = data.splitlines(), redacted.splitlines()
+        self.assertEqual([a == b for a, b in zip(before, after)], [True, False, True, True, True])
+        self.assertNotIn(base64.b64encode(b'library bytes'), redacted)
+        changed = json.loads(after[1])
+        self.assertEqual(t.payload(changed['detail']), bytes(13))
+        self.assertEqual(changed['detail']['redacted'], 'D20')
+        self.assertEqual(t.redact_parser_transfer(redacted), redacted)
+
+    def test_d20_a_jvm_record_with_library_bytes_in_its_transcript_is_rejected(self):
+        golden = DRIVER['golden']('macos-smoke')
+        contract = DRIVER['contract']('macos-smoke')
+        copy = self.root / 'unredacted'
+        shutil.copytree(golden, copy)
+        record = json.loads((copy / 'evidence.json').read_bytes())
+        row = next(r for r in record['entries'] if r['path'] == 'transcript.jsonl')
+        rows = [json.loads(line) for line in e.payload(copy, row, record).splitlines()]
+        chunk = next(r for r in rows if r['detail'].get('redacted'))
+        del chunk['detail']['redacted']
+        fake = b'x' * chunk['detail']['size']
+        chunk['detail'].update(base64=base64.b64encode(fake).decode(), sha256=e.sha(fake))
+        data = b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
+        (copy / 'blobs' / row['sha256']).unlink()
+        row.update(sha256=e.sha(data), size=len(data))
+        e.save_payload(copy, row['sha256'], data, record)
+        (copy / 'evidence.json').write_bytes(e.encoded(record))
+        with self.assertRaisesRegex(e.Invalid, 'third-party library bytes in the JVM transcript'):
+            e.validate(copy, contract)
+
+    def test_d20_committed_records_hold_no_copy_of_the_library(self):
+        digests = {'680185323898795897641a932fb4b5b4481206429b6472db1a4ba317598cb782',
+                   'a82ca9e3d6259ac95f526b797371a6bd59771f7213fb67a4a011f30cbfd9c327',
+                   e.PARSER_DIGEST,
+                   '9e0020168274d4adc2c3f5e1cbd0c114932dfd62e57f5f88a37299df0a8aa149',
+                   '25eda5f7e59ebcb57f8787241836e339b0cc02a9f5df57b71d374f50421bacc3'}
+        count = 0
+        for path in (ROOT / 'fixtures/differential').rglob('evidence.json'):
+            record = json.loads(path.read_bytes())
+            blobs = {p.name for p in (path.parent / 'blobs').iterdir()}
+            self.assertFalse(blobs & digests, path)
+            for row in record['entries']:
+                if row['path'] == e.PARSER_PATH:
+                    count += 1
+                    self.assertIs(row.get('withheld'), True, path)
+        self.assertEqual(count, 32)
+
     def test_source_parallel_preparation_keeps_branch_order_and_join(self):
         import vendor_transport as transport
         def swap(data, first, second, move_after=False):

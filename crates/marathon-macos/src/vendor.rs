@@ -16,9 +16,10 @@ use marathon_apple::{
     apple_test_bundle_identifier::AppleTestBundleIdentifier,
     cmd::{failure, remote::ssh::sshj::config::SshLogging, shared_transfers::SharedTransfers},
     device::connection_factory::ConnectionFactory,
+    model::Sdk,
     nm_test_parser::NmTestParser,
     xcodebuild_session::CLOSE_TIMEOUT,
-    xctest_parser::XCTestParser,
+    xctest_parser::{ParserLibraries, XCTestParser},
 };
 use marathon_config::{VendorConfiguration, vendor::AppleTestParserConfiguration};
 use marathon_core::{
@@ -48,6 +49,13 @@ pub fn logging(dependencies: &VendorDependencies) -> SshLogging {
 }
 /// Construction runs off core but does not connect, discover devices or configure logging.
 pub async fn construct(dependencies: VendorDependencies) -> VendorResult<VendorServices> {
+    construct_with_parser_libraries(dependencies, ParserLibraries::from_environment).await
+}
+/// `parser_libraries` runs only for the `xctest` parser, which fails here without its library (D20).
+pub async fn construct_with_parser_libraries(
+    dependencies: VendorDependencies,
+    parser_libraries: impl FnOnce() -> ParserLibraries,
+) -> VendorResult<VendorServices> {
     let VendorConfiguration::Macos(config) = &dependencies.configuration.vendor_configuration else {
         return Err(VendorError::Other(failure(
             "com.malinskiy.marathon.config.exceptions.ConfigurationException",
@@ -55,6 +63,16 @@ pub async fn construct(dependencies: VendorDependencies) -> VendorResult<VendorS
         )));
     };
     let config = Arc::new(config.clone());
+    let libraries = match &config.test_parser_configuration {
+        AppleTestParserConfiguration::Xctest => {
+            let libraries = parser_libraries();
+            libraries
+                .check_at_construction(&[Sdk::Macos], &*dependencies.io)
+                .await?;
+            libraries
+        }
+        AppleTestParserConfiguration::Nm { .. } => ParserLibraries::default(),
+    };
     let logging = logging(&dependencies);
     let cwd = std::env::current_dir().map_err(crate::io_error)?;
     let files = Arc::new(FileManager::new_utf16(
@@ -110,6 +128,7 @@ pub async fn construct(dependencies: VendorDependencies) -> VendorResult<VendorS
                 .with_owned_after_install(installer),
             dependencies.io.clone(),
             logging,
+            libraries,
         )),
         AppleTestParserConfiguration::Nm { test_class_regexes } => Arc::new(NmTestParser::new(
             configuration,

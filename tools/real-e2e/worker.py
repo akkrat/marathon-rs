@@ -282,7 +282,7 @@ class Lease:
 
     def preflight(self):
         c = self.config
-        require(set(c.get('environment', {})) <= {'DEVELOPER_DIR', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'}, 'unapproved worker environment')
+        require(set(c.get('environment', {})) <= {'DEVELOPER_DIR', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'MARATHON_XCTEST_PARSER_DIR'}, 'unapproved worker environment')
         os.environ.update(c.get('environment', {}))
         require(c.get('harness_sha256') == harness_hashes(), 'blocked: worker harness revision differs')
         require(Path(c['worker_home']).resolve() == Path.home().resolve(), 'blocked: worker account/home differs')

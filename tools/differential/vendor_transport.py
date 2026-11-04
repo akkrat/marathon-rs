@@ -18,6 +18,34 @@ def payload(detail):
     return raw
 
 
+def parser_transfer_keys(rows):
+    """Connection and channel of each rsync session that pushes the third-party library (D20)."""
+    keys = set()
+    for row in rows:
+        if row['event'] == 'exec':
+            wire = payload(row['detail']).decode()
+            if wire.startswith('/usr/bin/rsync --server ') and shlex.split(wire)[-1].endswith('/libxctest-parser.dylib'):
+                keys.add((row['connection'],row['channel']))
+    return keys
+
+
+def redact_parser_transfer(data):
+    """D20: a JVM recording's rsync stdin to the library's path carries the library, so its bytes become zeros.
+
+    Every chunk keeps its row, sequence number and size and gets the digest of what it now holds; the projection in
+    ssh() drops rsync streams, so no comparison reads them. Other rows stay byte-identical.
+    """
+    keys = parser_transfer_keys(records(data))
+    lines = data.splitlines(keepends=True)
+    for i,line in enumerate(lines):
+        row = e.loads(line)
+        if row['event'] == 'stdin' and (row['connection'],row['channel']) in keys and 'redacted' not in row['detail']:
+            size = len(payload(row['detail']))
+            row['detail'].update(base64=base64.b64encode(bytes(size)).decode(),sha256=e.sha(bytes(size)),redacted='D20')
+            lines[i] = (json.dumps(row,separators=(',',':'),sort_keys=True) + '\n').encode()
+    return b''.join(lines)
+
+
 def ssh(data, name=None):
     rows = records(data)
     e.require([r['seq'] for r in rows] == list(range(len(rows))),'truncated/reordered SSH transcript')

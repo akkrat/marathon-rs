@@ -10,9 +10,8 @@ use marathon_apple::{
     apple_application_installer::AppleApplicationInstaller,
     apple_test_bundle_identifier::AppleTestBundleIdentifier,
     cmd::cancelled,
-    model::Sdk,
     test::TestEvent,
-    xctest_parser::{XCTestParser, embedded_dylib},
+    xctest_parser::{PARSER_DIR_VARIABLE, ParserLibraries, XCTestParser},
 };
 use marathon_core::{
     error::VendorError,
@@ -62,6 +61,7 @@ async fn parse(timeout: bool, cancel: bool) -> TestResult {
         installer,
         runtime,
         logging,
+        ParserLibraries::default(),
     );
     parser.session_close_timeout = support::duration(200);
     let ctx = support::context();
@@ -110,24 +110,6 @@ async fn parsing_keeps_its_tests_when_its_xcodebuild_session_does_not_close_in_t
 async fn cancellation_is_swallowed_and_partial_tests_are_registered() -> TestResult {
     parse(false, true).await
 }
-#[test]
-fn embedded_dylibs_match_upstream_digests() {
-    use sha2::{Digest, Sha256};
-    let provenance = include_str!("../resources/libxctest-parser/PROVENANCE.md");
-    for sdk in [
-        Sdk::IphoneSimulator,
-        Sdk::Macos,
-        Sdk::TvSimulator,
-        Sdk::WatchSimulator,
-        Sdk::VisionSimulator,
-    ] {
-        let digest = format!("{:x}", Sha256::digest(embedded_dylib(sdk).unwrap()));
-        assert!(provenance.contains(&format!("`{}`: `{digest}`", sdk.platform_name())));
-    }
-    for sdk in [Sdk::Iphoneos, Sdk::Tv, Sdk::Watch, Sdk::Vision] {
-        assert!(embedded_dylib(sdk).is_none());
-    }
-}
 #[tokio::test]
 async fn identifier_ignores_metadata_overwrites_and_preserves_identity() -> TestResult {
     let tmp = tempfile::tempdir()?;
@@ -150,7 +132,7 @@ async fn identifier_ignores_metadata_overwrites_and_preserves_identity() -> Test
 }
 
 #[tokio::test]
-async fn full_extract_pushes_embedded_bytes_cleans_temp_files_and_keeps_the_push_error_typo() -> TestResult {
+async fn full_extract_pushes_supplied_bytes_cleans_temp_files_and_keeps_the_push_error_typo() -> TestResult {
     use marathon_core::vendor::RemoteTestParser;
     for succeeds in [true, false] {
         let tmp = tempfile::tempdir()?;
@@ -170,7 +152,8 @@ async fn full_extract_pushes_embedded_bytes_cleans_temp_files_and_keeps_the_push
         let config = Arc::new(parser_support::configuration(&c, tmp.path())?);
         let runtime = Arc::new(support::Runtime);
         let installer = AppleApplicationInstaller::new_owned((*config).clone(), runtime.clone(), logging.clone());
-        let parser = XCTestParser::new(config, registry, Arc::default(), installer, runtime, logging);
+        let libraries = parser_support::parser_libraries(tmp.path())?;
+        let parser = XCTestParser::new(config, registry, Arc::default(), installer, runtime, logging, libraries);
         // This is the concrete type a vendor factory stores in VendorServices.
         let parser: Arc<dyn RemoteTestParser> = Arc::new(parser);
         let result = parser.extract(id, support::context()).await;
@@ -182,7 +165,7 @@ async fn full_extract_pushes_embedded_bytes_cleans_temp_files_and_keeps_the_push
                 bridge
                     .iter()
                     .any(|(path, bytes)| path.ends_with("libxctest-parser.dylib")
-                        && bytes == embedded_dylib(Sdk::IphoneSimulator).unwrap())
+                        && bytes == parser_support::STAND_IN_LIBRARY)
             );
             let request = device.requests.lock().unwrap()[0].clone();
             assert!(!request.coverage);
@@ -233,7 +216,15 @@ async fn empty_parse_returns_empty_and_warns_with_the_jvm_text() -> TestResult {
     let config = Arc::new(parser_support::configuration(&c, tmp.path())?);
     let runtime = Arc::new(support::Runtime);
     let installer = AppleApplicationInstaller::new_owned((*config).clone(), runtime.clone(), logging.clone());
-    let parser = XCTestParser::new(config, Arc::default(), Arc::default(), installer, runtime, logging);
+    let parser = XCTestParser::new(
+        config,
+        Arc::default(),
+        Arc::default(),
+        installer,
+        runtime,
+        logging,
+        ParserLibraries::default(),
+    );
     let result = parser.collect_tests(&device, bundle, &support::context()).await;
     v(device.dispose().await)?;
     assert!(v(result)?.is_empty());
@@ -270,7 +261,8 @@ async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_
     let config = Arc::new(parser_support::configuration(&input, tmp.path())?);
     let runtime = Arc::new(support::Runtime);
     let installer = AppleApplicationInstaller::new_owned((*config).clone(), runtime.clone(), logging.clone());
-    let parser = XCTestParser::new(config, registry, Arc::default(), installer, runtime, logging);
+    let libraries = parser_support::parser_libraries(tmp.path())?;
+    let parser = XCTestParser::new(config, registry, Arc::default(), installer, runtime, logging, libraries);
     let error = parser.extract(id, support::context()).await.unwrap_err();
     v(device.dispose().await)?;
     assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
@@ -302,5 +294,87 @@ async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_
     );
     assert!(device.requests.lock().unwrap().is_empty());
     assert!(device.staged.lock().unwrap().is_empty());
+    Ok(())
+}
+
+/// D20: `extract` with `libraries` on an iPhone simulator; returns the single error and what reached the device.
+async fn extract_failure(libraries: ParserLibraries, tmp: &std::path::Path) -> TestResult<(VendorError, usize, usize)> {
+    use marathon_core::vendor::RemoteTestParser;
+    let c = parser_support::input(false, false);
+    prepare(tmp, &c)?;
+    let inner = Fake::new(c.clone(), tmp);
+    let logging = inner.logging.clone();
+    let device = Arc::new(RunnerDevice::new(inner, logging.clone()));
+    let registry = Arc::new(marathon_apple::apple_device_registry::AppleDeviceRegistry::default());
+    let id = registry.register(device.clone());
+    let config = Arc::new(parser_support::configuration(&c, tmp)?);
+    let runtime = Arc::new(support::Runtime);
+    let installer = AppleApplicationInstaller::new_owned((*config).clone(), runtime.clone(), logging.clone());
+    let parser = XCTestParser::new(config, registry, Arc::default(), installer, runtime, logging, libraries);
+    let error = parser.extract(id, support::context()).await.unwrap_err();
+    v(device.dispose().await)?;
+    let transferred = device.inner.bridge.lock().unwrap().len();
+    let staged = device.staged.lock().unwrap().len();
+    assert!(device.requests.lock().unwrap().is_empty());
+    Ok((error, transferred, staged))
+}
+fn assert_explains_the_supply(error: &VendorError, names: &str) {
+    assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
+    let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+    for part in [
+        names,
+        PARSER_DIR_VARIABLE,
+        "<platform name>/libxctest-parser.dylib",
+        "EULA",
+        "sends error reports to its server",
+        "nm test parser",
+    ] {
+        assert!(message.contains(part), "{part} missing from {message}");
+    }
+}
+#[tokio::test]
+async fn extract_with_the_variable_unset_fails_once_before_installing_anything() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let (error, transferred, staged) = extract_failure(ParserLibraries::default(), tmp.path()).await?;
+    assert_explains_the_supply(&error, "is not set");
+    assert_eq!((transferred, staged), (0, 0));
+    Ok(())
+}
+#[tokio::test]
+async fn extract_without_the_devices_platform_file_names_it_and_does_not_retry() -> TestResult {
+    let tmp = tempfile::tempdir()?;
+    let supplied = tmp.path().join("only-macos");
+    std::fs::create_dir_all(supplied.join("MacOSX"))?;
+    std::fs::write(
+        supplied.join("MacOSX/libxctest-parser.dylib"),
+        parser_support::STAND_IN_LIBRARY,
+    )?;
+    let (error, transferred, staged) = extract_failure(ParserLibraries::new(&supplied), tmp.path()).await?;
+    assert_explains_the_supply(&error, "iPhoneSimulator/libxctest-parser.dylib cannot be read");
+    assert_eq!((transferred, staged), (0, 0));
+    Ok(())
+}
+#[tokio::test]
+async fn extract_with_an_unreadable_platform_file_fails_before_installing_anything() -> TestResult {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir()?;
+    let supplied = tmp.path().join("not-a-file");
+    std::fs::create_dir_all(supplied.join("iPhoneSimulator/libxctest-parser.dylib"))?;
+    let (error, transferred, staged) = extract_failure(ParserLibraries::new(&supplied), tmp.path()).await?;
+    assert_explains_the_supply(&error, "is not a file");
+    assert_eq!((transferred, staged), (0, 0));
+
+    let tmp = tempfile::tempdir()?;
+    let libraries = parser_support::parser_libraries(tmp.path())?;
+    let file = tmp
+        .path()
+        .join("supplied-parser/iPhoneSimulator/libxctest-parser.dylib");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000))?;
+    // Root reads a file of any mode, which leaves nothing to observe.
+    if std::fs::File::open(&file).is_err() {
+        let (error, transferred, staged) = extract_failure(libraries, tmp.path()).await?;
+        assert_explains_the_supply(&error, "cannot be read");
+        assert_eq!((transferred, staged), (0, 0));
+    }
     Ok(())
 }

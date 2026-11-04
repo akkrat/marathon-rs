@@ -19,6 +19,26 @@ use marathon_config::{
 };
 use serde_json::{Value, json};
 use std::{path::Path, sync::Arc};
+/// Plainly not a library: a test must never need the real third-party file (D20).
+pub const STAND_IN_LIBRARY: &[u8] = b"fake stand-in for libxctest-parser.dylib, written by a test\n";
+/// A supplied directory in the Kotlin resource layout, under `root`.
+pub fn parser_libraries(root: &Path) -> TestResult<marathon_apple::xctest_parser::ParserLibraries> {
+    let directory = root.join("supplied-parser");
+    for platform in [
+        "iPhoneSimulator",
+        "MacOSX",
+        "AppleTVSimulator",
+        "WatchSimulator",
+        "XRSimulator",
+    ] {
+        std::fs::create_dir_all(directory.join(platform))?;
+        std::fs::write(
+            directory.join(platform).join("libxctest-parser.dylib"),
+            STAND_IN_LIBRARY,
+        )?;
+    }
+    Ok(marathon_apple::xctest_parser::ParserLibraries::new(directory))
+}
 pub fn input(reuse: bool, skip: bool) -> Value {
     json!({"id":"rust-parsing","sdk":"IPHONESIMULATOR","type":"XCUITEST","app":"CloudApp.app","runner":"UITests-Runner.app","test":"UITests-Runner.app/PlugIns/UITests.xctest","reuse":reuse,"skip":skip,"installer":true,"udid":"udid"})
 }

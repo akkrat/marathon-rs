@@ -244,6 +244,7 @@ async fn production_vendor_services_keep_default_retry_and_run_a_healthy_peer_be
             p.h().services.logging.clone(),
         )),
         registry: services.registry,
+        parser_libraries: Default::default(),
     }
     .construct()?;
     std::fs::write(

@@ -17,7 +17,7 @@ use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::shared_transfers::SharedTransfers,
     nm_test_parser::NmTestParser,
-    xctest_parser::XCTestParser,
+    xctest_parser::{ParserLibraries, SIMULATOR_SDKS, XCTestParser},
 };
 use marathon_config::{VendorConfiguration, binding::BindingContext, vendor::AppleTestParserConfiguration};
 use marathon_core::vendor::{TestParser, VendorServices};
@@ -32,6 +32,8 @@ pub struct IosVendor {
     pub recovery: Arc<dyn ProviderRecovery>,
     pub shared_transfers: Arc<SharedTransfers>,
     pub registry: Arc<AppleDeviceRegistry>,
+    /// D20: only the `xctest` parser reads these.
+    pub parser_libraries: ParserLibraries,
 }
 impl IosVendor {
     pub fn construct(self) -> ProvisioningResult<VendorServices> {
@@ -80,6 +82,7 @@ impl IosVendor {
                 AppleApplicationInstaller::new_owned((*configuration).clone(), s.runtime.clone(), s.logging.clone()),
                 s.runtime.clone(),
                 s.logging.clone(),
+                self.parser_libraries,
             ))),
             AppleTestParserConfiguration::Nm { test_class_regexes } => TestParser::Remote(Arc::new(NmTestParser::new(
                 configuration,
@@ -106,6 +109,13 @@ impl IosVendor {
 pub async fn construct(
     dependencies: marathon_core::wiring::VendorDependencies,
 ) -> marathon_core::error::VendorResult<VendorServices> {
+    construct_with_parser_libraries(dependencies, ParserLibraries::from_environment).await
+}
+/// `parser_libraries` runs only for the `xctest` parser, which fails here without any library for a simulator (D20).
+pub async fn construct_with_parser_libraries(
+    dependencies: marathon_core::wiring::VendorDependencies,
+    parser_libraries: impl FnOnce() -> ParserLibraries,
+) -> marathon_core::error::VendorResult<VendorServices> {
     use jcompat::{
         file_manager::{FileManager, JavaPath},
         writers::JavaString,
@@ -126,6 +136,16 @@ pub async fn construct(
         )));
     };
     let config = Arc::new(config.clone());
+    let libraries = match &config.test_parser_configuration {
+        AppleTestParserConfiguration::Xctest => {
+            let libraries = parser_libraries();
+            libraries
+                .check_at_construction(&SIMULATOR_SDKS, &*dependencies.io)
+                .await?;
+            libraries
+        }
+        AppleTestParserConfiguration::Nm { .. } => ParserLibraries::default(),
+    };
     let logs = dependencies.logs.clone();
     let wall = dependencies.wall.clone();
     let logging = SshLogging::new(
@@ -217,6 +237,7 @@ pub async fn construct(
         recovery: crate::device::simulator_provider::recovery::SimulatorRecovery::new(),
         shared_transfers: Arc::new(SharedTransfers::new(dependencies.io, logging)),
         registry: Arc::new(AppleDeviceRegistry::default()),
+        parser_libraries: libraries,
     }
     .construct()
     .map_err(crate::device::error::ProvisioningError::into_vendor)

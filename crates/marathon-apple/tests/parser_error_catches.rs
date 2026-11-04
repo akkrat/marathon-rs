@@ -72,6 +72,7 @@ async fn both_parsers_retry_errors_without_logging_and_log_exceptions_named_erro
                     installer,
                     runtime,
                     logging,
+                    parser_support::parser_libraries(tmp.path())?,
                 ))
             } else {
                 Box::new(NmTestParser::new(

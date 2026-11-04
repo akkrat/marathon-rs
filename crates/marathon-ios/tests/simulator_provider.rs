@@ -436,6 +436,7 @@ async fn explicit_vendor_construction_shares_identity_and_performs_no_initializa
                 p.h.services.logging.clone(),
             )),
             registry: registry.clone(),
+            parser_libraries: Default::default(),
         }
         .construct()?;
         assert_eq!(p.connections.acquired.load(Ordering::SeqCst), 0);

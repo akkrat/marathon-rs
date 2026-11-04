@@ -171,6 +171,10 @@ def capture(args, host):
         tests = check_selection(scenario, e.load(raw / 'in/selection.json'), raw / 'in/discovery.yml')
     for key in ('jvm', 'native'):
         require(Path(host[key]).is_absolute() and Path(host[key]).is_file(), 'missing production CLI: ' + key)
+    # D20: the native program has no copy of its own; the real library comes from the host's Kotlin distribution.
+    if args.side == 'native' and scenario['parser'] == 'xctest':
+        require('MARATHON_XCTEST_PARSER_DIR' in host.get('environment', {}),
+                'blocked: xctest scenario without MARATHON_XCTEST_PARSER_DIR in the host environment')
     jdk = java_version(host['java_home'], host['profile'])
     native_source = subprocess.check_output(['git', '-C', ROOT, 'rev-parse', 'HEAD'], text=True, timeout=10).strip()
     run_id = uuid.uuid4().hex

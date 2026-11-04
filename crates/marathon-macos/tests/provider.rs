@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-apple/macos/src/test/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProviderTest.kt
 mod support;
 use marathon_apple::apple_device::AppleDevice;
+use marathon_apple::xctest_parser::ParserLibraries;
 use marathon_core::{
     error::VendorError,
     vendor::{DeviceEvent, DeviceProvider},
@@ -171,7 +172,20 @@ async fn null_executor_setup_failure_and_udid_fallback() -> R {
 async fn factory_construction_is_inert_for_both_parsers() -> R {
     for parser in ["nm", "xctest"] {
         let h = Harness::new(&format!("  testParserConfiguration:\n    type: {parser}\n"))?;
-        let services = v(marathon_macos::construct(h.options.dependencies.clone()).await)?;
+        let supplied = h.root.path().join("supplied-parser");
+        std::fs::create_dir_all(supplied.join("MacOSX"))?;
+        std::fs::write(
+            supplied.join("MacOSX/libxctest-parser.dylib"),
+            b"fake stand-in, written by a test\n",
+        )?;
+        let services = v(marathon_macos::vendor::construct_with_parser_libraries(
+            h.options.dependencies.clone(),
+            move || {
+                assert_eq!(parser, "xctest", "only the xctest parser may look for the library");
+                ParserLibraries::new(supplied)
+            },
+        )
+        .await)?;
         assert!(services.bundle_identifier.is_some());
         assert!(services.log_configurator.is_some());
         assert!(matches!(
@@ -180,6 +194,36 @@ async fn factory_construction_is_inert_for_both_parsers() -> R {
         ));
         assert_eq!(services.provider.subscribe().state().queued, 0);
         v(services.provider.terminate().await)?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn xctest_construction_fails_without_its_library_and_nm_never_looks_for_it() -> R {
+    let h = Harness::new("  testParserConfiguration:\n    type: xctest\n")?;
+    for (libraries, problem) in [
+        (ParserLibraries::default(), "is not set"),
+        (
+            ParserLibraries::new(h.root.path().join("no-such-directory")),
+            "MacOSX/libxctest-parser.dylib cannot be read",
+        ),
+    ] {
+        let error =
+            match marathon_macos::vendor::construct_with_parser_libraries(h.options.dependencies.clone(), || libraries)
+                .await
+            {
+                Ok(_) => panic!("constructed without a library"),
+                Err(error) => error,
+            };
+        let failure = error.failure();
+        assert_eq!(
+            failure.class.to_string_lossy(),
+            "com.malinskiy.marathon.config.exceptions.ConfigurationException"
+        );
+        let message = failure.message.as_ref().unwrap().to_string_lossy();
+        for part in [problem, "MARATHON_XCTEST_PARSER_DIR", "EULA", "nm test parser"] {
+            assert!(message.contains(part), "{part} missing from {message}");
+        }
     }
     Ok(())
 }

@@ -10,7 +10,7 @@
     "state.json": "83277cd02ed1308d3c61aa7e4c9a45b81e2950d29dea1fad662541e3ffde91ee",
     "stderr": "9832f8edc47aaf6eae8bb13b42f51c1689fffa7697112ba2d7279a940b1667b1",
     "stdout": "d0726179110f13a21f4730610e69b7d5f9f12ddc0256570306efb4a4f5269b85",
-    "transcript.jsonl": "9aae910d75268bf4445a2468614d2133c796e7702d55545002904bdd5fe73257"
+    "transcript.jsonl": "d66e5dd5ec7548d5033f12fdd464534c22dd2ddf59fd07518da533121a3b0ca3"
   },
   "exit_code": 1,
   "required_artifacts": [

@@ -45,7 +45,7 @@ JBR 21.0.10, frozen Kotlin source, production JVM/native binaries and the
 applicable SDK/runtime/device type. Paths must be absolute. For iOS video set
 `ffmpeg` to the worker's actual executable. Decision 8 approves `no-sorting`: the frozen CLI has **no lexical strategy**.
 No additional `sorting_review` setting is required. No fake lexical option or production scheduling change is
-introduced. `environment` allows only DEVELOPER_DIR/ANDROID_HOME/ANDROID_SDK_ROOT.
+introduced. `environment` allows only DEVELOPER_DIR/ANDROID_HOME/ANDROID_SDK_ROOT/MARATHON_XCTEST_PARSER_DIR. A native capture of an `xctest` scenario needs the last one: the directory holding the real library from the host's Kotlin distribution (D20), so both sides run the same file.
 The CLI gets a fresh HOME/TMPDIR and an explicit environment allowlist; replay
 tapes, telemetry, analytics backends and inherited JAVA_OPTS are absent.
 

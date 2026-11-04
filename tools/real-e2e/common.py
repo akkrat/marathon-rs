@@ -63,7 +63,7 @@ def private_config(path, require_transport=True):
                 'installed x86_64 system image required')
         require(int(config['image'].split(';')[1].split('-')[1]) >= 34, 'API must be >=34')
     require(600 <= config.get('watchdog_seconds', 1800) <= 7200, 'watchdog outside bounded range')
-    require(set(config.get('environment', {})) <= {'DEVELOPER_DIR', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'},
+    require(set(config.get('environment', {})) <= {'DEVELOPER_DIR', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'MARATHON_XCTEST_PARSER_DIR'},
             'unapproved environment key')
     config['harness_sha256'] = harness_hashes()
     return config
@@ -229,7 +229,7 @@ def ssh_argv(config):
 def clean_env(home, tmp, config):
     env = dict(PATH='/usr/bin:/bin:/usr/sbin:/sbin', HOME=str(home), TMPDIR=str(tmp),
                LANG='en_US.UTF-8', LC_ALL='en_US.UTF-8', TZ='UTC')
-    allowed = {'DEVELOPER_DIR', 'ANDROID_HOME', 'ANDROID_SDK_ROOT'}
+    allowed = {'DEVELOPER_DIR', 'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'MARATHON_XCTEST_PARSER_DIR'}
     additions = config.get('environment', {})
     require(set(additions) <= allowed, 'unapproved environment key')
     env.update(additions)

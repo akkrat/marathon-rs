@@ -125,7 +125,17 @@ def glob(pattern, value):
     return re.fullmatch(regex,value,flags=re.DOTALL) is not None
 
 
+def redact_parser_transfer(work):
+    """D20: a JVM recording must not keep the third-party library that its rsync pushes to the worker."""
+    import sys
+    sys.path.insert(0, str(ROOT / 'tools/differential'))
+    import vendor_transport
+    path = work / 'transcript.jsonl'
+    path.write_bytes(vendor_transport.redact_parser_transfer(path.read_bytes()))
+
+
 def collect(work, run, spec):
+    redact_parser_transfer(work)
     report = run / 'in/report'
     raw_results = load(report / 'test_result/raw.json')
     details = [load(p) for p in report.glob('test_result/*/*/*.json')]
@@ -225,6 +235,10 @@ def validate(work, spec):
             assert not row['detail'].get('warning'), 'unmatched command'
         if row['event']=='background_end':
             assert row['detail']['error'] is None, 'background job failed'
+        if row['event']=='exec' and base64.b64decode(row['detail']['base64']).endswith(b'/libxctest-parser.dylib'):
+            parser=(row['connection'],row['channel'])
+            assert any(r['event']=='stdin' and (r['connection'],r['channel'])==parser for r in transcript),'parser transfer vanished'
+            assert all(r['detail'].get('redacted')=='D20' for r in transcript if r['event']=='stdin' and (r['connection'],r['channel'])==parser),'third-party library bytes in transcript'
     assert (work / 'stderr').read_bytes().rstrip().endswith(b'Marathon execution failed'), 'wrong final CLI message'
     assert b'Marathon execution crashed' not in (work / 'stderr').read_bytes(), 'CLI crashed'
     host=rows(work/'host-argv.jsonl')

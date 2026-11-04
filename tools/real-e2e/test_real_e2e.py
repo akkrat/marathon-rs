@@ -197,6 +197,13 @@ class Guards(unittest.TestCase):
                 w.owned_devices(devices, 'emulator-owned')
         w.owned_devices({'emulator-owned': 'device'}, 'emulator-owned')
 
+    def test_clean_env_passes_the_supplied_parser_directory_and_no_other_key(self):
+        host = dict(self.host, environment={'MARATHON_XCTEST_PARSER_DIR': '/supplied'})
+        self.assertEqual(c.clean_env('/h', '/t', host)['MARATHON_XCTEST_PARSER_DIR'], '/supplied')
+        self.assertNotIn('MARATHON_XCTEST_PARSER_DIR', c.clean_env('/h', '/t', dict(self.host, environment={})))
+        with self.assertRaisesRegex(c.e.Invalid, 'unapproved environment key'):
+            c.clean_env('/h', '/t', dict(self.host, environment={'OTHER': '1'}))
+
     def test_host_config_refuses_non_loopback_and_default_forward(self):
         host = dict(self.host, profile='ssh-26.6', ssh={'host': 'unapproved', 'port': 5037})
         path = self.root / 'host.json'; c.save(path, host); path.chmod(0o600)

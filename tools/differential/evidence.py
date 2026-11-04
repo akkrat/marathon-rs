@@ -15,6 +15,14 @@ import xml.etree.ElementTree as ET
 FORMAT = 'marathon-differential/evidence@1'
 COMPRESSED_FORMAT = 'marathon-differential/evidence@2'
 SOURCE = 'e47352f25cbc50333900d5d040a5544ff1224501'
+# D20: the JVM build pushes its own copy of this third-party library, which this repository must not hold. A JVM record
+# keeps only the path, mode, size and digest. A live native run pushes PARSER_STAND_IN from a directory the harness
+# supplies, so both sides compare by role. Nothing else in a record, and no other file, gets this treatment.
+PARSER_PATH = 'worker/shared/libxctest-parser.dylib'
+PARSER_DIGEST = '730015f8bcb9bd906837544c8be9aa904826d151e252cd3aeac9ed87270a9d3b'
+PARSER_SIZE = 206152
+PARSER_ROLE = 'third-party libxctest-parser.dylib, compared by role (D20)'
+PARSER_STAND_IN = b'marathon-rs differential stand-in for libxctest-parser.dylib; not a library\n'
 
 
 class Invalid(ValueError):
@@ -130,6 +138,7 @@ def write_record(destination, contract, implementation, trees, artifacts, outcom
     for name, data in artifacts.items():
         entries.append(dict(path=relative(name), kind='file', mode=0o644, size=len(data), sha256=sha(data)))
         payloads[sha(data)] = data
+    withhold_parser(entries, payloads)
     record = dict(format=FORMAT, contract=sha(encoded(contract)), implementation=implementation,
                   source=provenance.get("source_sha", SOURCE), provenance=provenance, identities=identities or {},
                   outcome=outcome, entries=sorted(entries, key=lambda e: e['path']))
@@ -140,6 +149,26 @@ def write_record(destination, contract, implementation, trees, artifacts, outcom
     (destination / 'evidence.json').write_bytes(encoded(record))
     validate(destination, contract)
     return destination
+
+
+def withhold_parser(entries, payloads):
+    """D20: a capture of the JVM's real library keeps its digest and drops its bytes."""
+    for row in entries:
+        if row['path'] == PARSER_PATH and row.get('sha256') == PARSER_DIGEST:
+            row['withheld'] = True
+            payloads.pop(PARSER_DIGEST)
+
+
+def parser_scope(contract, name):
+    return contract.get('scenario') == 'vendor' and contract['vendor'].startswith('macos-') and name == PARSER_PATH
+
+
+def parser_compares_by_role(row, record, contract, directory):
+    if not parser_scope(contract, row['path']):
+        return False
+    if row.get('withheld'):
+        return True
+    return record['implementation'] == 'native' and sha(payload(directory, row, record)) == sha(PARSER_STAND_IN)
 
 
 def bindings(record, contract):
@@ -269,6 +298,12 @@ def validate(directory, contract):
             fields |= {'size', 'sha256'}
             digest = row['sha256']
             require(isinstance(digest, str) and re.fullmatch('[0-9a-f]{64}', digest), 'invalid digest')
+            require(digest != PARSER_DIGEST or row.get('withheld') is True, f'third-party library bytes stored: {name}')
+            if 'withheld' in row:
+                require(row['withheld'] is True and parser_scope(contract, name) and digest == PARSER_DIGEST
+                        and row['size'] == PARSER_SIZE, f'invalid withheld payload: {name}')
+                require(set(row) == fields | {'withheld'}, f'entry schema: {name}')
+                continue
             p = directory / 'blobs' / digest
             require(p.is_file() and not p.is_symlink(), f'missing payload: {name}')
             data = payload(directory,row,record)
@@ -413,11 +448,13 @@ def normalized(directory, contract):
     used = set()
     for row in record['entries']:
         name = paths.get(row['path'], row['path'])
-        entry = {k: v for k, v in row.items() if k not in ('path', 'size', 'sha256')}
+        entry = {k: v for k, v in row.items() if k not in ('path', 'size', 'sha256', 'withheld')}
         if row['kind'] == 'link' and contract.get('scenario') == 'vendor':
             import vendors
             entry['mode'] = vendors.link_mode(name, row['mode'], record, contract)
-        if row['kind'] == 'file':
+        if row['kind'] == 'file' and parser_compares_by_role(row, record, contract, directory):
+            entry['content'] = PARSER_ROLE
+        elif row['kind'] == 'file':
             data = payload(directory,row,record)
             if contract.get('scenario') == 'vendor' and name.startswith('reports/'):
                 import vendor_reports
