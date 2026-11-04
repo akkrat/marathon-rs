@@ -149,9 +149,12 @@ such file gets a line saying so and giving its SPDX expression.
 Files compiled in that are not crates get their own section, from
 `scripts/release/embedded_assets.json` and the texts in `scripts/release/asset-licences/`:
 the report bundles and the colour profiles. It also carries the notice of adam, which
-`crates/marathon-adb` ports. The build and an offline test fail when that list and the
-production `include_bytes!`, `include_str!` and `include_dir!` calls disagree, or when such a
-call has anything but a plain string literal as its path. So a new asset needs an entry, with an
+`crates/marathon-adb` ports. `release.py build` compares that list with the non-Rust workspace
+files in rustc's dep-info for the binary (`target/<target>/release/marathon.d`) and fails on any
+difference, in either direction; this is the authoritative check, and a documentation include
+counts too. An offline test also compares the list with the production `include_bytes!`,
+`include_str!` and `include_dir!` calls, and fails on a path that is not a plain string literal. It
+is only the fast check, because it reads source text. So a new asset needs an entry, with an
 upstream, a licence text and a status, before it can be released.
 
 `release.py preflight`, which a tag and a dry run both start with, refuses any asset whose

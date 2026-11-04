@@ -236,14 +236,19 @@ stores the digest, or a recorded transcript with non-zero bytes in that session.
 **New and recorded native evidence differ.** `write_record` withholds for JVM captures only. A live
 native capture of the real digest is refused before anything is stored: it would be a regression,
 and must not turn into a valid `withheld` entry that compares equal to the stand-in. `validate`
-accepts `withheld` on a native record only from the two commits that recorded the older evidence
-(`HISTORICAL_NATIVE_SHAS`, equal to the two manifests' `native_sha`). A new native transcript may
-hold no redaction marker and at most 16 KiB in the library's transfer.
+accepts `withheld` on a native record only if its `evidence.json` digest is one of the `/native`
+records in the two verification manifests, which the registry pins. That digest covers every entry
+and blob digest, so a modified record cannot claim to be a recorded one, whatever commit its
+provenance names. A new native transcript may hold no redaction marker and at most 16 KiB in the
+library's transfer. The bound counts every retained stream of that transfer, in rows of any size:
+`stdin`, stdout and stderr. A recorded transcript has the same bound on what is not its zeroed
+`stdin`. `write_record` applies these rules, and the JVM redaction, before it stores any payload.
 
 **A marker proves nothing by itself.** `redact_parser_transfer` used to skip any row that had a
 `redacted` key, so nonzero bytes under a marker passed. Each marked row must now hold exactly `D20`,
 belong to `stdin` of the library's transfer, and be all zeros. `apple_evidence.validate` checks the
-same for the older recording.
+same for the older recording, by the same code and for every marked row in the transcript, not only
+those in the parser's `stdin`.
 
 ## Comparator change
 
@@ -290,7 +295,22 @@ what their package states. `scripts/release/third_party_licenses.py` now fails w
 production includes disagree, or when a production include has anything but a plain string literal as
 its path, such as `concat!(env!("CARGO_MANIFEST_DIR"), ...)`, since such a path cannot be checked.
 `scripts/release/test_release.py` tests this. It ignores comments and test code, including
-`#[cfg(test)]` items and test-only modules.
+`#[cfg(test)]` items and test-only modules, in that order, so a commented `#[cfg(test)]` hides nothing.
+
+That scanner is the fast offline check and deliberately stops there: it reads source text, so a macro
+taking `$m:ident` and invoking `$m!($p)` escapes it. **The authoritative check is `release.py build`,**
+which compares the non-Rust workspace files in rustc's dep-info for the binary
+(`target/<target>/release/marathon.d`) with the list, and fails on a file missing from it or listed but
+absent, or on a dep-info it cannot read or that lists no Rust source. A real build confirms that the file
+includes path dependencies: `aarch64-apple-darwin` lists 419 Rust files, among them `vendor/russh/src/lib.rs`
+and `crates/marathon-adb/src/lib.rs`, and exactly the 10 listed assets. A throwaway, uncommitted edit embedding
+a PNG through such a macro passed the scanner and failed `release.py build`, naming the file, with no
+archive produced. CI's `musl-package` runs the same check on Linux.
+
+No crate README or other documentation include appears in the dep-info today. There is no exclusion for
+them: one would fail the build, naming the file, and someone then decides whether to list it or drop the
+include. Files outside the workspace, such as registry crates, are out of this check; their notices come from
+the crate section.
 
 **To decide: `sRGB.icc`.** Its grant allows use, copying and distribution without fee provided the file
 is unchanged, including its copyright tag, and HP's name stays out of publicity. It is not one of the
