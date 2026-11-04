@@ -30,7 +30,8 @@ use marathon_core::{
 };
 use std::{
     fs::File,
-    path::PathBuf,
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -77,12 +78,9 @@ impl ParserLibraries {
         };
         let mut problems = Vec::new();
         for sdk in sdks {
-            let path = directory.join(sdk.platform_name()).join(LIBRARY);
-            let readable = File::open(&path).and_then(|file| file.metadata()).map(|m| m.is_file());
-            match readable {
-                Ok(true) => return Ok(()),
-                Ok(false) => problems.push(format!("{} is not a file", path.display())),
-                Err(error) => problems.push(format!("{} cannot be read ({error})", path.display())),
+            match open_regular_file(&directory.join(sdk.platform_name()).join(LIBRARY)) {
+                Ok(_) => return Ok(()),
+                Err(problem) => problems.push(problem),
             }
         }
         Err(problems.join("; "))
@@ -102,6 +100,20 @@ impl ParserLibraries {
             })
         })
         .await
+    }
+}
+/// Blocks on the file system. Without O_NONBLOCK, opening a FIFO that has no writer would wait forever.
+fn open_regular_file(path: &Path) -> Result<File, String> {
+    let unreadable = |error: std::io::Error| format!("{} cannot be read ({error})", path.display());
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::fcntl::OFlag::O_NONBLOCK.bits())
+        .open(path)
+        .map_err(unreadable)?;
+    if file.metadata().map_err(unreadable)?.is_file() {
+        Ok(file)
+    } else {
+        Err(format!("{} is not a file", path.display()))
     }
 }
 fn is_supplied(sdk: Sdk) -> bool {
@@ -179,7 +191,8 @@ impl<'a> XCTestParser<'a> {
             parsing_error(format!("No libxctest-parser.dylib for platform {}", sdk.platform_name()).into())
         })?;
         let temp = blocking(&*self.runtime, move || {
-            let mut source = File::open(library).map_err(io_error)?;
+            let mut source =
+                open_regular_file(&library).map_err(|problem| parsing_error(supply_message(&problem).into()))?;
             let mut file = tempfile::NamedTempFile::new().map_err(io_error)?;
             std::io::copy(&mut source, &mut file).map_err(io_error)?;
             Ok(file)

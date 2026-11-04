@@ -378,3 +378,38 @@ async fn extract_with_an_unreadable_platform_file_fails_before_installing_anythi
     }
     Ok(())
 }
+#[tokio::test]
+async fn extract_with_a_fifo_as_the_platform_file_fails_instead_of_blocking() -> TestResult {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let tmp = tempfile::tempdir()?;
+    let supplied = tmp.path().join("fifo");
+    std::fs::create_dir_all(supplied.join("iPhoneSimulator"))?;
+    let fifo = supplied.join("iPhoneSimulator/libxctest-parser.dylib");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status()?.success());
+    // A blocked open cannot be cancelled, so a rescuer opens the write side at the 60 s hang deadline, which ends the
+    // block and records that it had to. It leaves at once when the parser has finished.
+    let finished = Arc::new(AtomicBool::new(false));
+    let rescued = Arc::new(AtomicBool::new(false));
+    let rescuer = {
+        let (finished, rescued, fifo) = (finished.clone(), rescued.clone(), fifo.clone());
+        std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while !finished.load(Ordering::SeqCst) {
+                if std::time::Instant::now() > deadline {
+                    rescued.store(true, Ordering::SeqCst);
+                    let _ = std::fs::OpenOptions::new().write(true).open(&fifo);
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        })
+    };
+    let result = extract_failure(ParserLibraries::new(&supplied), tmp.path()).await;
+    finished.store(true, Ordering::SeqCst);
+    assert!(rescuer.join().is_ok());
+    assert!(!rescued.load(Ordering::SeqCst), "extract blocked on the FIFO");
+    let (error, transferred, staged) = result?;
+    assert_explains_the_supply(&error, "is not a file");
+    assert_eq!((transferred, staged), (0, 0));
+    Ok(())
+}

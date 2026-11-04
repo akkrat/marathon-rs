@@ -238,7 +238,9 @@ def validate(work, spec):
         if row['event']=='exec' and base64.b64decode(row['detail']['base64']).endswith(b'/libxctest-parser.dylib'):
             parser=(row['connection'],row['channel'])
             assert any(r['event']=='stdin' and (r['connection'],r['channel'])==parser for r in transcript),'parser transfer vanished'
-            assert all(r['detail'].get('redacted')=='D20' for r in transcript if r['event']=='stdin' and (r['connection'],r['channel'])==parser),'third-party library bytes in transcript'
+            for chunk in (r for r in transcript if r['event']=='stdin' and (r['connection'],r['channel'])==parser):
+                bytes_of=base64.b64decode(chunk['detail']['base64'],validate=True)
+                assert chunk['detail'].get('redacted')=='D20' and bytes_of==bytes(len(bytes_of)),'third-party library bytes in transcript'
     assert (work / 'stderr').read_bytes().rstrip().endswith(b'Marathon execution failed'), 'wrong final CLI message'
     assert b'Marathon execution crashed' not in (work / 'stderr').read_bytes(), 'CLI crashed'
     host=rows(work/'host-argv.jsonl')

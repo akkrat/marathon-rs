@@ -365,9 +365,11 @@ def validate_record(directory, contract, record):
     import vendor_transport as t
     if apple(contract['vendor']):
         t.ssh(artifact('transcript.jsonl'),contract['vendor'])
-        if record['implementation'] == 'jvm':
+        if e.may_withhold(record):
             e.require(t.redact_parser_transfer(artifact('transcript.jsonl')) == artifact('transcript.jsonl'),
-                      'third-party library bytes in the JVM transcript')
+                      'third-party library bytes in the transcript of a recorded run')
+        else:
+            t.check_new_native_transfer(artifact('transcript.jsonl'))
         t.host_argv(artifact('host-argv.jsonl'),record['identities'])
         state = e.loads(artifact('state.json'))
         e.require(not state['deferred'] and all(s['state'] == 'finished' for s in state['sessions']),

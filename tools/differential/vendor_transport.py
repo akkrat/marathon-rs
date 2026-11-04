@@ -6,6 +6,10 @@ import re
 import shlex
 import evidence as e
 
+REDACTED = 'D20'
+# A few hundred bytes of rsync protocol around the 76-byte stand-in; the smallest of the five libraries is 126214 bytes.
+STAND_IN_TRANSFER_LIMIT = 16384
+
 
 def records(data):
     e.require(data and data.endswith(b'\n'),'empty/truncated transcript')
@@ -29,6 +33,19 @@ def parser_transfer_keys(rows):
     return keys
 
 
+def is_parser_chunk(row, keys):
+    return row['event'] == 'stdin' and (row['connection'],row['channel']) in keys
+
+
+def check_redacted(row, keys):
+    """A marked row is zeros in the library's transfer, whatever the rest of the record claims."""
+    detail = row['detail']
+    e.require(detail['redacted'] == REDACTED,'unknown redaction marker')
+    e.require(is_parser_chunk(row,keys),'redaction marker outside the parser transfer')
+    data = payload(detail)
+    e.require(data == bytes(len(data)),'marked parser chunk is not zero-filled')
+
+
 def redact_parser_transfer(data):
     """D20: a JVM recording's rsync stdin to the library's path carries the library, so its bytes become zeros.
 
@@ -39,11 +56,25 @@ def redact_parser_transfer(data):
     lines = data.splitlines(keepends=True)
     for i,line in enumerate(lines):
         row = e.loads(line)
-        if row['event'] == 'stdin' and (row['connection'],row['channel']) in keys and 'redacted' not in row['detail']:
+        if 'redacted' in row['detail']:
+            check_redacted(row,keys)
+        elif is_parser_chunk(row,keys):
             size = len(payload(row['detail']))
-            row['detail'].update(base64=base64.b64encode(bytes(size)).decode(),sha256=e.sha(bytes(size)),redacted='D20')
+            row['detail'].update(base64=base64.b64encode(bytes(size)).decode(),sha256=e.sha(bytes(size)),redacted=REDACTED)
             lines[i] = (json.dumps(row,separators=(',',':'),sort_keys=True) + '\n').encode()
     return b''.join(lines)
+
+
+def check_new_native_transfer(data):
+    """D20: a new native capture pushes the stand-in, and no library fits in the bytes of that transfer."""
+    rows = records(data)
+    keys = parser_transfer_keys(rows)
+    e.require(not any('redacted' in row['detail'] for row in rows),'redacted row in a new native transcript')
+    sizes = defaultdict(int)
+    for row in rows:
+        if is_parser_chunk(row,keys):
+            sizes[row['connection'],row['channel']] += len(payload(row['detail']))
+    e.require(all(size <= STAND_IN_TRANSFER_LIMIT for size in sizes.values()),'library bytes in the native transcript')
 
 
 def ssh(data, name=None):

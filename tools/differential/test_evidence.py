@@ -677,7 +677,7 @@ class VendorEvidenceTests(unittest.TestCase):
         row.update(sha256=e.sha(data), size=len(data))
         e.save_payload(copy, row['sha256'], data, record)
         (copy / 'evidence.json').write_bytes(e.encoded(record))
-        with self.assertRaisesRegex(e.Invalid, 'third-party library bytes in the JVM transcript'):
+        with self.assertRaisesRegex(e.Invalid, 'third-party library bytes in the transcript of a recorded run'):
             e.validate(copy, contract)
 
     def test_d20_committed_records_hold_no_copy_of_the_library(self):
@@ -696,6 +696,122 @@ class VendorEvidenceTests(unittest.TestCase):
                     count += 1
                     self.assertIs(row.get('withheld'), True, path)
         self.assertEqual(count, 32)
+
+    def rewrite_transcript(self, source, name, change, **provenance):
+        """A copy of a committed record with `change` applied to the rows of its transcript, digests recomputed."""
+        destination = self.root / name
+        shutil.copytree(source, destination)
+        record = json.loads((destination / 'evidence.json').read_bytes())
+        row = next(r for r in record['entries'] if r['path'] == 'transcript.jsonl')
+        rows = [json.loads(line) for line in e.payload(destination, row, record).splitlines()]
+        change(rows)
+        data = b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
+        (destination / 'blobs' / row['sha256']).unlink()
+        row.update(sha256=e.sha(data), size=len(data))
+        e.save_payload(destination, row['sha256'], data, record)
+        record['provenance'].update(provenance)
+        (destination / 'evidence.json').write_bytes(e.encoded(record))
+        return destination
+
+    @staticmethod
+    def set_payload(row, data):
+        row['detail'].update(base64=base64.b64encode(data).decode(), sha256=e.sha(data), size=len(data))
+
+    @classmethod
+    def fill_marked(cls, rows):
+        """Sol's reproduction: every marked chunk holds nonzero bytes again, keeping its marker and a valid digest."""
+        marked = [r for r in rows if r['detail'].get('redacted')]
+        assert marked
+        for row in marked:
+            cls.set_payload(row, b'x' * row['detail']['size'])
+
+    NATIVE = ROOT / 'fixtures/differential/vendor-verification-c95b2128/macos-smoke/native'
+    NEW_NATIVE_SHA = dict(native_sha='f' * 40)
+
+    def test_d20_a_live_native_capture_of_the_real_library_is_refused(self):
+        library = b'bytes of the library in this test only\n'
+        tree = self.root / 'worker-tree'
+        (tree / 'shared').mkdir(parents=True)
+        (tree / 'shared/libxctest-parser.dylib').write_bytes(library)
+        contract = DRIVER['contract']('macos-smoke')
+        with mock.patch.object(e, 'PARSER_DIGEST', e.sha(library)):
+            with self.assertRaisesRegex(e.Invalid, 'native run pushed the real'):
+                e.write_record(self.root / 'native-real', contract, 'native', {'worker': tree}, {}, contract['outcome'],
+                               synthetic_provenance(), {})
+        self.assertEqual(list((self.root / 'native-real/blobs').iterdir()), [])
+
+    def test_d20_only_the_recorded_native_commits_may_withhold(self):
+        contract = DRIVER['contract']('macos-smoke')
+        e.validate(self.NATIVE, contract)
+        for name in ('vendor-verification', 'vendor-verification-c95b2128'):
+            manifest = e.load(ROOT / 'fixtures/differential' / name / 'manifest.json')
+            self.assertIn(manifest['native_sha'], e.HISTORICAL_NATIVE_SHAS)
+        forged = self.rewrite_transcript(self.NATIVE, 'new-native-withheld', lambda rows: None, **self.NEW_NATIVE_SHA)
+        with self.assertRaisesRegex(e.Invalid, 'withheld'):
+            e.validate(forged, contract)
+        with self.assertRaises(e.Invalid):
+            e.compare(DRIVER['golden']('macos-smoke'), forged, contract)
+
+    def live_native(self, name, change):
+        """A record shaped like a new native capture: the stand-in on the worker, and `change` on its transcript."""
+        self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
+        source = self.parser_copy(self.NATIVE, name, e.PARSER_STAND_IN)
+        return self.rewrite_transcript(source, name + '-live', change, **self.NEW_NATIVE_SHA)
+
+    @staticmethod
+    def parser_chunks(rows):
+        import vendor_transport as t
+        keys = t.parser_transfer_keys(rows)
+        return [r for r in rows if r['event'] == 'stdin' and (r['connection'], r['channel']) in keys]
+
+    def test_d20_a_live_native_transcript_may_hold_the_stand_in_transfer_only(self):
+        contract = DRIVER['contract']('macos-smoke')
+        def small(rows):
+            for row in self.parser_chunks(rows):
+                del row['detail']['redacted']
+                self.set_payload(row, b's')
+        e.compare(DRIVER['golden']('macos-smoke'), self.live_native('small', small), contract)
+        def library_sized(rows):
+            for row in self.parser_chunks(rows):
+                del row['detail']['redacted']
+                self.set_payload(row, b'x' * row['detail']['size'])
+        with self.assertRaisesRegex(e.Invalid, 'library bytes in the native transcript'):
+            e.validate(self.live_native('large', library_sized), contract)
+        def marked(rows):
+            for row in self.parser_chunks(rows):
+                self.set_payload(row, bytes(1))
+        with self.assertRaisesRegex(e.Invalid, 'redacted row in a new native transcript'):
+            e.validate(self.live_native('marked', marked), contract)
+
+    def test_d20_marked_chunks_with_nonzero_bytes_are_rejected(self):
+        for source, contract in [(DRIVER['golden']('macos-smoke'), DRIVER['contract']('macos-smoke')),
+                                 (self.NATIVE, DRIVER['contract']('macos-smoke'))]:
+            filled = self.rewrite_transcript(source, 'filled-' + source.name, self.fill_marked)
+            with self.assertRaisesRegex(e.Invalid, 'not zero-filled'):
+                e.validate(filled, contract)
+            with self.assertRaisesRegex(e.Invalid, 'not zero-filled'):
+                e.compare(DRIVER['golden']('macos-smoke'), filled, contract)
+
+    def test_d20_the_redaction_marker_is_exact_and_belongs_to_the_parser_transfer(self):
+        import vendor_transport as t
+        def row(seq, event, connection, data, **detail):
+            return dict(channel=2, connection=connection, detail=dict(base64=base64.b64encode(data).decode(),
+                        sha256=e.sha(data), size=len(data), **detail), event=event, run='macos-smoke', schema=1, seq=seq)
+        parser = b"/usr/bin/rsync --server -vlogDtpre.iLsfxCIvu --partial . /tmp/marathon/shared/libxctest-parser.dylib"
+        other = b"/usr/bin/rsync --server -vlogDtpre.iLsfxCIvu --partial . /tmp/marathon/shared/other"
+        def lines(*rows):
+            return b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
+        good = lines(row(0, 'exec', 1, parser), row(1, 'stdin', 1, bytes(4), redacted='D20'))
+        self.assertEqual(t.redact_parser_transfer(good), good)
+        for label, bad, message in [
+            ('other marker', lines(row(0, 'exec', 1, parser), row(1, 'stdin', 1, bytes(4), redacted='yes')), 'redaction marker'),
+            ('empty marker', lines(row(0, 'exec', 1, parser), row(1, 'stdin', 1, bytes(4), redacted='')), 'redaction marker'),
+            ('nonzero', lines(row(0, 'exec', 1, parser), row(1, 'stdin', 1, b'real', redacted='D20')), 'not zero-filled'),
+            ('other session', lines(row(0, 'exec', 2, other), row(1, 'stdin', 2, bytes(4), redacted='D20')), 'outside the parser transfer'),
+            ('other event', lines(row(0, 'exec', 1, parser), row(1, 'output', 1, bytes(4), redacted='D20')), 'outside the parser transfer'),
+        ]:
+            with self.subTest(label), self.assertRaisesRegex(e.Invalid, message):
+                t.redact_parser_transfer(bad)
 
     def test_source_parallel_preparation_keeps_branch_order_and_join(self):
         import vendor_transport as transport

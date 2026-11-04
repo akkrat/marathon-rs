@@ -8,7 +8,7 @@ use std::{
 
 const VARIABLE: &str = "MARATHON_XCTEST_PARSER_DIR";
 
-fn marathon(root: &Path, vendor: &str, parser: &str, variable: Option<&str>) -> std::io::Result<Output> {
+fn marathon_config_files(root: &Path, vendor: &str, parser: &str) -> std::io::Result<()> {
     fs::write(root.join("Marathondevices"), "workers: []\n")?;
     // Binding wants the bundle folders to exist; nothing in these runs reads them.
     fs::create_dir_all(root.join("Sample.app"))?;
@@ -21,7 +21,11 @@ fn marathon(root: &Path, vendor: &str, parser: &str, variable: Option<&str>) -> 
              bundle:\n    application: Sample.app\n    testApplication: Sample.xctest\n    testType: xctest\n  \
              testParserConfiguration:\n    type: {parser}\n"
         ),
-    )?;
+    )
+}
+
+fn marathon(root: &Path, vendor: &str, parser: &str, variable: Option<&str>) -> std::io::Result<Output> {
+    marathon_config_files(root, vendor, parser)?;
     let mut command = Command::new(env!("CARGO_BIN_EXE_marathon"));
     command
         .current_dir(root)
@@ -116,6 +120,40 @@ fn an_xctest_run_with_its_library_gets_past_construction() -> std::io::Result<()
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stdout.contains("No workers found"), "{vendor}: {stdout}{stderr}");
         assert!(!stderr.contains(VARIABLE), "{vendor}: {stderr}");
+    }
+    Ok(())
+}
+
+/// A FIFO with no writer blocks a plain open forever, so this polls with the 60 s hang deadline of docs/testing.md.
+#[test]
+fn a_fifo_in_place_of_the_library_fails_construction_instead_of_blocking() -> std::io::Result<()> {
+    let root = tempfile::tempdir()?;
+    let supplied = root.path().join("supplied");
+    fs::create_dir_all(supplied.join("MacOSX"))?;
+    let fifo = supplied.join("MacOSX/libxctest-parser.dylib");
+    assert!(Command::new("mkfifo").arg(&fifo).status()?.success());
+    marathon_config_files(root.path(), "macOS", "xctest")?;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_marathon"))
+        .current_dir(root.path())
+        .args(["run", "-m", "Marathonfile"])
+        .env(VARIABLE, &supplied)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while child.try_wait()?.is_none() {
+        if std::time::Instant::now() > deadline {
+            child.kill()?;
+            child.wait()?;
+            panic!("construction blocked on the FIFO");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let output = child.wait_with_output()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    for part in ["ConfigurationException", "is not a file", VARIABLE, "EULA"] {
+        assert!(stderr.contains(part), "{part} missing from {stderr}");
     }
     Ok(())
 }
