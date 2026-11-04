@@ -2,7 +2,7 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## 0.99.0
+## 0.11.0
 
 The first public release of marathon-rs, a native Rust rewrite of the marathon test
 runner for Android, iOS and macOS.

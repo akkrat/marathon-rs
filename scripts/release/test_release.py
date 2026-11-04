@@ -76,7 +76,7 @@ class ReleaseTests(unittest.TestCase):
             self.archive(root, target, version)
 
     def test_strict_version(self):
-        for value in ('0.99.0', '1.2.3', '10.20.30', '0.99.0-rc.1', '1.0.0-alpha', '1.0.0-alpha-1', '1.0.0-0.3.7', '1.0.0-x.7.z.92'):
+        for value in ('0.11.0', '1.2.3', '10.20.30', '0.11.0-rc.1', '1.0.0-alpha', '1.0.0-alpha-1', '1.0.0-0.3.7', '1.0.0-x.7.z.92'):
             with self.subTest(value=value):
                 self.assertEqual(r.strict_version(value), value)
         for value in ('', 'v1.2.3', '1.2', '1', '1.2.3.4', '01.2.3', '1.02.3', '1.2.03', '1.2.3-', '1.2.3-a..b', '1.2.3-01',
@@ -185,7 +185,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_repository_changelog_has_the_first_release(self):
         with patch.object(r, 'CHANGELOG', REAL_CHANGELOG):
-            self.assertIn('docs/deviations.md', r.changelog_section('0.99.0'))
+            self.assertIn('docs/deviations.md', r.changelog_section('0.11.0'))
 
     def test_notes_content(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -378,7 +378,7 @@ class ReleaseTests(unittest.TestCase):
     def test_a_dry_run_of_this_repository_gets_past_the_asset_check(self):
         dry_run = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF_TYPE='branch')
         with patch.object(r, 'CHANGELOG', REAL_CHANGELOG):
-            r.preflight('0.99.0', dry_run)
+            r.preflight('0.11.0', dry_run)
 
     def test_the_srgb_decision_is_recorded_and_its_file_is_unchanged(self):
         import hashlib

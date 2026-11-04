@@ -4,7 +4,7 @@ A native Rust rewrite of the Kotlin marathon fork frozen at `e47352f2`,
 for running Android, iOS and macOS tests with the existing Marathonfile,
 Marathondevices, CLI and report formats.
 
-**0.99.0 is the first public release.** The Kotlin tests are ported or marked not
+**0.11.0 is the first public release.** The Kotlin tests are ported or marked not
 applicable with a reason, differential suites compare whole runs with the JVM program,
 and the real iOS, macOS and Android runs recorded in this repository were compared on
 an earlier commit, the Android ones with a glibc build. Outside this repository the
@@ -28,7 +28,7 @@ release's notes carry the exact commands. There are two assets:
 | Apple Silicon macOS | `marathon-<version>-aarch64-apple-darwin.zip` |
 | x86_64 Linux, any distribution (static binary) | `marathon-<version>-x86_64-unknown-linux-musl.zip` |
 
-Versions and tags have no `v` prefix, for example `0.99.0`. There is no Windows,
+Versions and tags have no `v` prefix, for example `0.11.0`. There is no Windows,
 Intel Mac, Linux on ARM or universal build. Follow the
 [checksum and extraction recipe](docs/migration.md#install-the-native-entry-point)
 and its platform qualifications. The zip contains `marathon-<version>/bin/marathon`,
