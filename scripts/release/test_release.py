@@ -377,7 +377,8 @@ class ReleaseTests(unittest.TestCase):
 
     def test_a_dry_run_of_this_repository_gets_past_the_asset_check(self):
         dry_run = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF_TYPE='branch')
-        r.preflight('0.99.0', dry_run)
+        with patch.object(r, 'CHANGELOG', REAL_CHANGELOG):
+            r.preflight('0.99.0', dry_run)
 
     def test_the_srgb_decision_is_recorded_and_its_file_is_unchanged(self):
         import hashlib
