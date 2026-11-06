@@ -4,7 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-Android fixes of bugs the Kotlin fork has, each an approved difference. See the
+Fixes of bugs the Kotlin fork has, each an approved difference. See the
 [deviations guide](docs/deviations.md) and the [migration guide](docs/migration.md).
 
 ### Behaviour change to check
@@ -28,6 +28,9 @@ Android fixes of bugs the Kotlin fork has, each an approved difference. See the
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
 - In a batch that mixes test APKs, each instrumentation runs only its own tests, and the batch reports one result
   (D28).
+- A history query that fails is no longer final for the run: it is retried in the background a limited number of times,
+  and queues built and batches composed afterwards use the history it finds. A run never waits for this. With a
+  failing analytics backend the log has more warnings and timing lines (D34).
 
 ## 0.11.0
 

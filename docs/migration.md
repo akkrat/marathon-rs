@@ -234,6 +234,7 @@ Documentation adds no new reproductions.
 | F6 | macOS logical validation omits `MacosConfiguration.validate()`; successful validation is not proof that SSH/bundle settings are usable. | Confirmed |
 | C3 | TeamCity auto-detection searches environment **values** for `TEAMCITY_VERSION`, rather than checking the key. A normally named variable alone does not ensure detection. | Confirmed |
 | N4 | Kotlin's Android preparation clears the whole external-storage root, for example `/sdcard`. Native builds do not ([D27](#android-external-storage-is-no-longer-wiped)). | Fixed by D27 |
+| C41 | Kotlin keeps a failed history query's empty answer for the whole run. Native builds query again in the background, a bounded number of times, and a queue already built keeps its order. With a failing backend the log has more `Cannot fetch … from database` warnings and timing lines ([D34](deviations.md#d34--a-failed-history-query-is-not-final)). | Fixed by D34 |
 
 ## Android external storage is no longer wiped
 

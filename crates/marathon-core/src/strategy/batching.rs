@@ -94,6 +94,10 @@ impl BatchingStrategy {
         if queue.is_empty() {
             return Err(BatchingError::EmptyQueue);
         }
+        // D34: a refresh reaches the next batch, never half of this one. Batching only reads
+        // durations, so unlike a comparator it can take new history at every batch.
+        let view = metrics.view();
+        let metrics = view.as_deref().unwrap_or(metrics);
         let tests = match self {
             Self::FixedSize {
                 size,

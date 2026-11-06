@@ -22,6 +22,7 @@ pub use sorting::{SortingStrategy, TestComparator, TestQueue};
 
 use crate::model::Test;
 use jcompat::jtime::Instant;
+use std::sync::Arc;
 
 /// The synchronous view of `MetricsProvider` the strategies call, as Kotlin's
 /// `MetricsProvider` is synchronous (its implementation blocks).
@@ -31,9 +32,17 @@ use jcompat::jtime::Instant;
 /// before the strategy runs, so implementations answer from memory and never
 /// block. Fetch failures are absorbed into Kotlin's defaults by the provider
 /// (WP 3.4a), hence infallible results.
+///
+/// D34: a failed query's history can still arrive later, from off core. Whoever reads
+/// more than once and needs the answers to agree reads through [`Self::view`].
 pub trait MetricsLookup: Send + Sync {
     fn success_rate(&self, test: &Test, limit: Instant) -> f64;
     fn execution_time(&self, test: &Test, percentile: f64, limit: Instant) -> f64;
+    /// A view of the history as it is now, which a later refresh leaves alone.
+    /// `None` means this lookup's history never changes, so it can be read directly.
+    fn view(&self) -> Option<Arc<dyn MetricsLookup>> {
+        None
+    }
 }
 
 /// A history query a strategy may make: the `(percentile, limit)` of

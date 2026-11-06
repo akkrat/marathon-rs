@@ -193,3 +193,118 @@ fn already_cancelled_prepare_rejects_even_an_empty_prefetch() {
         })
     });
 }
+
+/// D34: the JavaPriorityQueue of a live pool keeps the history it was built on, and the next pool's takes the refresh.
+#[test]
+fn a_queue_keeps_the_history_it_was_built_on_and_the_next_pools_queue_gets_the_refresh() {
+    use marathon_core::runtime::CoreRuntime;
+    use marathon_core::{
+        execution::FromQueue,
+        execution::queue::PreparedQueue,
+        execution::queue::{QueueHandle, QueueMessage, RequestBatch},
+        model::{DevicePoolId, Test, TestShard},
+        strategy::TestQueue,
+    };
+    use std::rc::Rc;
+    use support::*;
+    let mut configuration = support::configuration();
+    configuration.sorting_strategy = SortingStrategyConfiguration::SuccessRate {
+        time_limit: support::epoch(),
+        ascending: true,
+    };
+    configuration.batching_strategy = support::fixed_size(1);
+    support::run(move |core| {
+        Box::pin(async move {
+            let h = metrics_support::Harness::new();
+            let tests: Vec<Test> = (0..7).map(|i| mtest("pkg", "Class", &format!("method{i}"))).collect();
+            let source = Arc::new(metrics_support::Source::default());
+            let down = || Some(OperationError::Failed(failure("java.lang.RuntimeException", "down")));
+            *source.errors.lock().unwrap() = [down(), down(), down()].into();
+            // Ascending in insertion order. The heap drains equal keys as 0, 6, 5, 4, ..., so a comparator
+            // that took this history while the heap holds them would come out differently.
+            *source.rates.lock().unwrap() = tests
+                .iter()
+                .enumerate()
+                .map(|(i, t)| metrics_support::rate_row(t, 0.5 + i as f64 / 100.0))
+                .collect();
+            let analytics = Arc::new(h.provider(source.clone(), 1000, None));
+            let spawn = |prepared: PreparedQueue| -> (QueueHandle, Rc<RecordingPool>) {
+                let pool = RecordingPool::new(&core);
+                let progress = Queue::spawn(&core, Setup::new(configuration.clone(), tests.clone())).progress;
+                let handle = QueueActor::spawn(
+                    core.clone(),
+                    prepared,
+                    &configuration,
+                    TestShard {
+                        tests: tests.clone(),
+                        flaky_tests: vec![],
+                    },
+                    pool.clone(),
+                    DevicePoolId { name: "pool".into() },
+                    Arc::new(ScriptedTimer {
+                        trace: Trace::default(),
+                        times: Default::default(),
+                    }),
+                    None,
+                    progress,
+                    core.job(marathon_core::runtime::JobKind::Ordinary, None),
+                    Arc::new(Hooks {
+                        trace: Trace::default(),
+                        draws: Default::default(),
+                        ids: Default::default(),
+                    }),
+                );
+                (handle, pool)
+            };
+            let order = |queue: (QueueHandle, Rc<RecordingPool>)| async move {
+                let (handle, pool) = queue;
+                let mut order: Vec<Test> = vec![];
+                for i in 0..7 {
+                    assert!(handle.try_send(QueueMessage::RequestBatch(RequestBatch {
+                        device: device(&format!("serial{i}")),
+                        worker_id: None,
+                    })));
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    assert!(handle.try_send(QueueMessage::IsEmpty(tx)));
+                    rx.await.unwrap();
+                    for reply in pool.take() {
+                        if let FromQueue::ExecuteBatch(_, batch) = reply {
+                            order.extend(batch.tests.iter().cloned());
+                        }
+                    }
+                }
+                order
+            };
+
+            let vendor = core.vendor();
+            let prepared =
+                QueueActor::prepare(vendor.as_ref(), analytics.clone(), &configuration, Signal::new()).await?;
+            assert_eq!(source.calls.lock().unwrap().len(), 3);
+            let live = spawn(prepared);
+
+            h.clock.release_refreshes(1);
+            tokio::time::timeout(Duration::from_secs(60), async {
+                while h.running.load(Ordering::SeqCst) != 0 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .expect("the refresh never ended");
+            assert_eq!(source.calls.lock().unwrap().len(), 4);
+
+            // All keys equal: the order the same heap gives without any history.
+            let mut control = TestQueue::new(Box::new(|_: &Test, _: &Test| std::cmp::Ordering::Equal));
+            control.add_all(tests.iter().cloned());
+            assert_eq!(
+                order(live).await,
+                std::iter::from_fn(|| control.poll()).collect::<Vec<_>>()
+            );
+
+            let prepared = QueueActor::prepare(vendor.as_ref(), analytics, &configuration, Signal::new()).await?;
+            assert_eq!(order(spawn(prepared)).await, tests);
+            // The second pool's prepare took what the refresh had cached, without a query.
+            assert_eq!(source.calls.lock().unwrap().len(), 4);
+            Ok(())
+        })
+    });
+}

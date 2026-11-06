@@ -49,6 +49,7 @@ pub fn run(body: impl FnOnce(Env) -> ServiceFuture<'static, ()> + Send + 'static
         Box::pin(async move {
             let context = MetricsContext {
                 clock: core.vendor_clock(),
+                vendor: core.vendor(),
                 monotonic: Arc::new(Mono),
                 cancellation: Signal::new(),
                 registry: core.logging(),

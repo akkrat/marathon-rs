@@ -49,6 +49,9 @@ impl FlakinessStrategy {
         else {
             return shard;
         };
+        // D34: every test of the shard is judged by the same history.
+        let view = metrics.view();
+        let metrics = view.as_deref().unwrap_or(metrics);
         let mut output = Vec::new();
         for test in &shard.tests {
             let success_rate = metrics.success_rate(test, *time_limit);

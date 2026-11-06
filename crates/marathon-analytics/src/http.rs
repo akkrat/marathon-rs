@@ -430,9 +430,22 @@ pub(crate) mod tests {
             Box::pin(async move { b(p).await.map(Some) })
         }
     }
+    struct NoRuntime;
+    impl VendorRuntime for NoRuntime {
+        fn spawn_cancellable(&self, _: VendorTaskBody) -> Arc<dyn VendorTask> {
+            unreachable!("these transport tests build no metrics provider")
+        }
+        fn spawn(&self, _: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
+            unreachable!("these transport tests build no metrics provider")
+        }
+        fn spawn_blocking(&self, _: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
+            unreachable!("these transport tests build no metrics provider")
+        }
+    }
     pub(crate) fn context() -> MetricsContext {
         MetricsContext {
             clock: Arc::new(Clock),
+            vendor: Arc::new(NoRuntime),
             monotonic: Arc::new(Clock),
             cancellation: Signal::new(),
             registry: Arc::default(),

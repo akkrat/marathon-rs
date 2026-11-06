@@ -1,14 +1,33 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
 use super::*;
-use crate::{error::OperationError, executor::retry::with_retry_send, model::TestStatus};
+use crate::{
+    error::OperationError,
+    executor::{
+        retry::with_retry_send,
+        shared::{race, requested},
+    },
+    model::TestStatus,
+    runtime::VendorTask,
+};
 use crossbeam_skiplist::SkipMap;
 use jcompat::jnum::double_to_string;
 use marathon_config::Defaults;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        MutexGuard,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::sync::Mutex as AsyncMutex;
+
+/// The three attempts and 50 ms of Kotlin's `withRetry`, for a key's first query.
+const FIRST_QUERY_ATTEMPTS: i32 = 3;
+const FIRST_QUERY_RETRY_DELAY_MILLIS: i64 = 50;
+/// D34: the waits before each round of re-queries, about 15 minutes in all. The length is also
+/// how many re-queries a failed key gets. A key that fails while rounds are running gets the
+/// same number, at the delays still to come and then at the last one.
+const REFRESH_DELAYS_MILLIS: [i64; 8] = [5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000];
 
 #[derive(Clone, Default)]
 struct State {
@@ -20,17 +39,32 @@ struct Observations {
     values: Vec<Arc<Mutex<Vec<i64>>>>,
     index: HashMap<JavaString, usize>,
 }
+/// D34. Touched off core only, and never held across an await.
+#[derive(Default)]
+struct Refresh {
+    /// Keys whose last query failed, in first-failure order, which is the order a round
+    /// queries them in, with the re-queries each has had.
+    failed: Vec<(MetricsKey, usize)>,
+    /// The one task that re-queries them, so a key is never queried twice at once.
+    task: Option<Arc<dyn VendorTask>>,
+    closed: bool,
+}
 pub struct MetricsProviderImpl {
+    shared: Arc<Shared>,
+    serial: AsyncMutex<()>,
+}
+struct Shared {
     source: Arc<dyn remote::RemoteDataSource>,
     defaults: Defaults,
     context: MetricsContext,
-    serial: AsyncMutex<()>,
     observed: Mutex<Observations>,
     // Publish before removing the old generation. Readers always see a complete
     // immutable snapshot; no blocking lock, no retention of past generations.
     state: SkipMap<u64, Arc<State>>,
     warned_success: SkipMap<JavaString, AtomicBool>,
     warned_time: SkipMap<JavaString, AtomicBool>,
+    // Also serialises writers of `state`.
+    refresh: Mutex<Refresh>,
 }
 impl MetricsProviderImpl {
     /// Construct off core. Synchronous lookup callers must validate that the
@@ -46,16 +80,54 @@ impl MetricsProviderImpl {
         let state = SkipMap::new();
         state.insert(0, Arc::new(State::default()));
         Ok(Self {
-            source,
-            defaults,
-            context,
+            shared: Arc::new(Shared {
+                source,
+                defaults,
+                context,
+                observed: Mutex::default(),
+                state,
+                warned_success: SkipMap::new(),
+                warned_time: SkipMap::new(),
+                refresh: Mutex::default(),
+            }),
             serial: AsyncMutex::new(()),
-            observed: Mutex::default(),
-            state,
-            warned_success: SkipMap::new(),
-            warned_time: SkipMap::new(),
         })
     }
+    /// A failed query never waits here for its refresh: the cached defaults answer until one lands.
+    pub async fn prefetch(&self, keys: &[MetricsKey]) -> OperationResult<()> {
+        let shared = &self.shared;
+        let _guard = self.serial.lock().await;
+        for key in keys {
+            if shared.snapshot().measurements.iter().any(|(cached, _)| cached == key) {
+                continue;
+            }
+            let fetched = shared
+                .fetch(
+                    *key,
+                    FIRST_QUERY_ATTEMPTS,
+                    FIRST_QUERY_RETRY_DELAY_MILLIS,
+                    shared.context.cancellation.clone(),
+                )
+                .await?;
+            let mut refresh = shared.refresh();
+            match fetched {
+                Ok(rows) => shared.publish_values(&refresh, *key, rows),
+                Err(_) => {
+                    shared.publish_values(&refresh, *key, Vec::new());
+                    shared.schedule_refresh(&mut refresh, *key);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+/// The history of one moment: what a comparator keeps for its queue's lifetime, and a batch
+/// or a flakiness pass for its own (D34). What a test observed in this run stays live.
+struct PinnedMetrics {
+    shared: Arc<Shared>,
+    state: Arc<State>,
+}
+impl Shared {
     fn snapshot(&self) -> Arc<State> {
         self.state
             .back()
@@ -68,101 +140,223 @@ impl MetricsProviderImpl {
         self.state.insert(old.key() + 1, Arc::new(state));
         old.remove();
     }
-    pub async fn prefetch(&self, keys: &[MetricsKey]) -> OperationResult<()> {
-        let _guard = self.serial.lock().await;
-        for key in keys {
-            if self.snapshot().measurements.iter().any(|(cached, _)| cached == key) {
-                continue;
-            }
-            let (label, description, warning) = match key {
-                MetricsKey::SuccessRate { limit } => (
-                    "core.MetricsProviderImpl.successRate",
-                    format!("Success rate history query (since {limit})"),
-                    "Cannot fetch success rate from database",
-                ),
-                MetricsKey::ExecutionTime { percentile, limit } => (
-                    "core.MetricsProviderImpl.executionTimes",
-                    format!(
-                        "Execution time history query (percentile {} since {limit})",
-                        double_to_string(*percentile)
-                    ),
-                    "Cannot fetch execution time from database",
-                ),
-            };
-            let started = self
-                .context
-                .monotonic
-                .nanos(label)
-                .map_err(|e| failure("marathon.ReplayError", &e.message.to_string_lossy()))?;
-            let fetched = with_retry_send(
-                3,
-                50,
-                self.context.clock.as_ref(),
-                self.context.cancellation.clone(),
-                || async {
-                    match *key {
-                        MetricsKey::SuccessRate { limit } => self
-                            .source
-                            .request_all_success_rates(limit)
-                            .await
-                            .map(|v| v.into_iter().map(|v| (v.test_name, v.mean)).collect::<Vec<_>>()),
-                        MetricsKey::ExecutionTime { percentile, limit } => self
-                            .source
-                            .request_all_execution_times(percentile, limit)
-                            .await
-                            .map(|v| v.into_iter().map(|v| (v.test_name, v.percentile)).collect()),
-                    }
-                },
-            )
-            .await;
-            if let Err(OperationError::Cancelled(reason)) = fetched {
-                return Err(reason.into());
-            }
-            if let Some(reason) = self.context.cancellation.reason() {
-                return Err(reason.into());
-            }
-            if let Err(OperationError::Failed(error)) = &fetched {
-                self.context
-                    .log("MetricsProviderImpl", Level::Warn, warning.into(), Some(error.clone()));
-            }
-            let elapsed = self
-                .context
-                .monotonic
-                .nanos(label)
-                .map_err(|e| failure("marathon.ReplayError", &e.message.to_string_lossy()))?
-                .wrapping_sub(started)
-                / 1_000_000;
-            let outcome = fetched
-                .as_ref()
-                .map_or_else(|_| "failed".to_owned(), |rows| format!("returned {} tests", rows.len()));
-            self.context.log(
-                "Timings",
-                Level::Info,
-                format!("{description} {outcome} in {elapsed} ms").into(),
-                None,
-            );
-            if let (MetricsKey::ExecutionTime { .. }, Ok(rows)) = (key, &fetched) {
-                use jcompat::writers::KotlinValue;
-                let message = KotlinValue::List(
-                    rows.iter()
-                        .map(|(name, value)| KotlinValue::DataClass {
-                            name: "ExecutionTime".into(),
-                            fields: vec![
-                                ("testName".into(), KotlinValue::Text(name.clone())),
-                                ("percentile".into(), KotlinValue::Text(double_to_string(*value).into())),
-                            ],
-                        })
-                        .collect(),
-                )
-                .render();
-                self.context.log("MetricsProviderImpl", Level::Debug, message, None);
-            }
-            let mut next = (*self.snapshot()).clone();
-            next.measurements
-                .push((*key, Arc::new(fetched.unwrap_or_default().into_iter().collect())));
-            self.publish(next);
+    fn refresh(&self) -> MutexGuard<'_, Refresh> {
+        self.refresh.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn publish_values(&self, _writer: &MutexGuard<'_, Refresh>, key: MetricsKey, rows: Vec<(JavaString, f64)>) {
+        let values = Arc::new(rows.into_iter().collect());
+        let mut next = (*self.snapshot()).clone();
+        match next.measurements.iter_mut().find(|(cached, _)| *cached == key) {
+            Some(measurement) => measurement.1 = values,
+            None => next.measurements.push((key, values)),
         }
-        Ok(())
+        self.publish(next);
+    }
+    fn describe(key: MetricsKey) -> (&'static str, String, &'static str) {
+        match key {
+            MetricsKey::SuccessRate { limit } => (
+                "core.MetricsProviderImpl.successRate",
+                format!("Success rate history query (since {limit})"),
+                "Cannot fetch success rate from database",
+            ),
+            MetricsKey::ExecutionTime { percentile, limit } => (
+                "core.MetricsProviderImpl.executionTimes",
+                format!(
+                    "Execution time history query (percentile {} since {limit})",
+                    double_to_string(percentile)
+                ),
+                "Cannot fetch execution time from database",
+            ),
+        }
+    }
+    /// One query with its logs. The outer error is a cancellation or a replay failure, which
+    /// logs nothing; the inner one is a backend failure, already logged.
+    async fn fetch(
+        &self,
+        key: MetricsKey,
+        attempts: i32,
+        retry_delay_millis: i64,
+        cancellation: Arc<dyn CancellationSignal>,
+    ) -> OperationResult<Result<Vec<(JavaString, f64)>, Failure>> {
+        let (label, description, warning) = Self::describe(key);
+        let started = self
+            .context
+            .monotonic
+            .nanos(label)
+            .map_err(|e| failure("marathon.ReplayError", &e.message.to_string_lossy()))?;
+        let fetched = with_retry_send(
+            attempts,
+            retry_delay_millis,
+            self.context.clock.as_ref(),
+            cancellation.clone(),
+            || async {
+                match key {
+                    MetricsKey::SuccessRate { limit } => self
+                        .source
+                        .request_all_success_rates(limit)
+                        .await
+                        .map(|v| v.into_iter().map(|v| (v.test_name, v.mean)).collect::<Vec<_>>()),
+                    MetricsKey::ExecutionTime { percentile, limit } => self
+                        .source
+                        .request_all_execution_times(percentile, limit)
+                        .await
+                        .map(|v| v.into_iter().map(|v| (v.test_name, v.percentile)).collect()),
+                }
+            },
+        )
+        .await;
+        let fetched = match fetched {
+            Ok(rows) => Ok(rows),
+            Err(OperationError::Cancelled(reason)) => return Err(reason.into()),
+            Err(OperationError::Failed(error)) => Err(error),
+        };
+        if let Some(reason) = cancellation.reason().or_else(|| self.context.cancellation.reason()) {
+            return Err(reason.into());
+        }
+        if let Err(error) = &fetched {
+            self.context
+                .log("MetricsProviderImpl", Level::Warn, warning.into(), Some(error.clone()));
+        }
+        let elapsed = self
+            .context
+            .monotonic
+            .nanos(label)
+            .map_err(|e| failure("marathon.ReplayError", &e.message.to_string_lossy()))?
+            .wrapping_sub(started)
+            / 1_000_000;
+        let outcome = fetched
+            .as_ref()
+            .map_or_else(|_| "failed".to_owned(), |rows| format!("returned {} tests", rows.len()));
+        self.context.log(
+            "Timings",
+            Level::Info,
+            format!("{description} {outcome} in {elapsed} ms").into(),
+            None,
+        );
+        if let (MetricsKey::ExecutionTime { .. }, Ok(rows)) = (key, &fetched) {
+            use jcompat::writers::KotlinValue;
+            let message = KotlinValue::List(
+                rows.iter()
+                    .map(|(name, value)| KotlinValue::DataClass {
+                        name: "ExecutionTime".into(),
+                        fields: vec![
+                            ("testName".into(), KotlinValue::Text(name.clone())),
+                            ("percentile".into(), KotlinValue::Text(double_to_string(*value).into())),
+                        ],
+                    })
+                    .collect(),
+            )
+            .render();
+            self.context.log("MetricsProviderImpl", Level::Debug, message, None);
+        }
+        Ok(fetched)
+    }
+    fn schedule_refresh(self: &Arc<Self>, refresh: &mut MutexGuard<'_, Refresh>, key: MetricsKey) {
+        if refresh.closed {
+            return;
+        }
+        refresh.failed.push((key, 0));
+        if refresh.task.is_none() {
+            let shared = self.clone();
+            // On the vendor runtime, so replay's quiescence sees it like any other vendor work.
+            refresh.task = Some(self.context.vendor.spawn_cancellable(Box::new(move |signal| {
+                Box::pin(async move {
+                    let run = shared.context.cancellation.clone();
+                    race(run.cancelled(), shared.run_refresh(signal)).await;
+                    Ok(())
+                })
+            })));
+        }
+    }
+    /// Rounds, not one timer per key: one query at a time, in an order that depends only on the
+    /// order the keys failed in. The refresh ends once no key is left to retry.
+    async fn run_refresh(&self, signal: Arc<dyn CancellationSignal>) {
+        for round in 0.. {
+            let delay = REFRESH_DELAYS_MILLIS[round.min(REFRESH_DELAYS_MILLIS.len() - 1)];
+            if self.context.clock.delay(delay, signal.clone()).await.is_err() {
+                break;
+            }
+            let keys: Vec<MetricsKey> = self.refresh().failed.iter().map(|(key, _)| *key).collect();
+            for key in keys {
+                // One attempt: the delays above are the retries.
+                match self.fetch(key, 1, 0, signal.clone()).await {
+                    Ok(fetched) => self.refreshed(key, fetched),
+                    Err(_) => {
+                        // Cancelled, as in prefetch: nothing logged or cached. The key keeps its defaults.
+                        let mut refresh = self.refresh();
+                        refresh.failed.clear();
+                        refresh.task = None;
+                        return;
+                    }
+                }
+            }
+            // Under the lock a new failure registers under, so none is left without a task.
+            let mut refresh = self.refresh();
+            if refresh.failed.is_empty() {
+                refresh.task = None;
+                return;
+            }
+        }
+        // The delay was cancelled or its clock failed.
+        let mut refresh = self.refresh();
+        refresh.failed.clear();
+        refresh.task = None;
+    }
+    fn refreshed(&self, key: MetricsKey, fetched: Result<Vec<(JavaString, f64)>, Failure>) {
+        let (_, description, _) = Self::describe(key);
+        let mut refresh = self.refresh();
+        let Some(index) = refresh.failed.iter().position(|(failed, _)| *failed == key) else {
+            return;
+        };
+        match fetched {
+            Ok(rows) => {
+                let count = rows.len();
+                refresh.failed.remove(index);
+                self.publish_values(&refresh, key, rows);
+                drop(refresh);
+                self.context.log(
+                    "MetricsProviderImpl",
+                    Level::Info,
+                    format!(
+                        "{description} returned {count} tests after failing earlier. Queues built and batches composed from now on use it; a queue that already exists keeps its order"
+                    )
+                    .into(),
+                    None,
+                );
+            }
+            Err(_) => {
+                refresh.failed[index].1 += 1;
+                if refresh.failed[index].1 < REFRESH_DELAYS_MILLIS.len() {
+                    return;
+                }
+                refresh.failed.remove(index);
+                drop(refresh);
+                self.context.log(
+                    "MetricsProviderImpl",
+                    Level::Warn,
+                    format!(
+                        "{description} failed {} more times. Tests without history use the defaults for the rest of this run",
+                        REFRESH_DELAYS_MILLIS.len()
+                    )
+                    .into(),
+                    None,
+                );
+            }
+        }
+    }
+    /// Joined so that nothing queries the source once it closes. Cancelling drops any query in
+    /// flight at its next await, so this does not wait for the backend.
+    async fn stop_refresh(&self) {
+        let task = {
+            let mut refresh = self.refresh();
+            refresh.closed = true;
+            refresh.failed.clear();
+            refresh.task.take()
+        };
+        if let Some(task) = task {
+            task.cancel(requested("The metrics provider is closed"));
+            let _ = task.join().await;
+        }
     }
     fn measurement<'a>(&self, state: &'a State, key: MetricsKey) -> Option<&'a BTreeMap<JavaString, f64>> {
         let found = state
@@ -194,13 +388,16 @@ impl MetricsProviderImpl {
             .to_millis()
             .ok_or_else(|| failure("java.lang.ArithmeticException", "long overflow").into())
     }
-}
-impl MetricsProviderImpl {
-    fn execution_time_value(&self, test: &Test, percentile: f64, limit: Instant) -> OperationResult<f64> {
-        let state = self.snapshot();
+    fn execution_time_value(
+        &self,
+        state: &State,
+        test: &Test,
+        percentile: f64,
+        limit: Instant,
+    ) -> OperationResult<f64> {
         let name = test.to_safe_test_name();
         if let Some(value) = self
-            .measurement(&state, MetricsKey::ExecutionTime { percentile, limit })
+            .measurement(state, MetricsKey::ExecutionTime { percentile, limit })
             .and_then(|m| m.get(&name))
         {
             return Ok(*value);
@@ -222,23 +419,10 @@ impl MetricsProviderImpl {
         }
         Ok(expected)
     }
-}
-
-fn observed_percentile(values: &Mutex<Vec<i64>>, percentile: f64) -> f64 {
-    // Copy only this test's samples; sorting never holds a provider lock.
-    let mut sorted = values.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    sorted.sort();
-    // NaN.toInt() == 0; Rust's saturating float cast has that same behaviour.
-    let rank =
-        ((percentile.clamp(0.0, 100.0) / 100.0 * sorted.len() as f64).ceil() as i32).clamp(1, sorted.len() as i32);
-    sorted[(rank - 1) as usize] as f64
-}
-impl MetricsLookup for MetricsProviderImpl {
-    fn success_rate(&self, test: &Test, limit: Instant) -> f64 {
-        let state = self.snapshot();
+    fn success_rate_value(&self, state: &State, test: &Test, limit: Instant) -> f64 {
         let name = test.to_safe_test_name();
         if let Some(value) = self
-            .measurement(&state, MetricsKey::SuccessRate { limit })
+            .measurement(state, MetricsKey::SuccessRate { limit })
             .and_then(|m| m.get(&name))
         {
             return *value;
@@ -256,11 +440,53 @@ impl MetricsLookup for MetricsProviderImpl {
         }
         self.defaults.success_rate
     }
-    fn execution_time(&self, test: &Test, percentile: f64, limit: Instant) -> f64 {
-        // Factory construction validates duration before exposing the core view.
-        // Direct async callers retain Kotlin's lazy overflow error.
-        self.execution_time_value(test, percentile, limit)
+    // Factory construction validates duration before exposing the core view.
+    // Direct async callers retain Kotlin's lazy overflow error.
+    fn execution_time_or_panic(&self, state: &State, test: &Test, percentile: f64, limit: Instant) -> f64 {
+        self.execution_time_value(state, test, percentile, limit)
             .unwrap_or_else(|error| std::panic::panic_any(error))
+    }
+}
+impl Drop for MetricsProviderImpl {
+    fn drop(&mut self) {
+        // A run that ends without close leaves no refresh querying a provider nobody can read.
+        if let Some(task) = self.shared.refresh().task.take() {
+            task.cancel(requested("The metrics provider is gone"));
+        }
+    }
+}
+
+fn observed_percentile(values: &Mutex<Vec<i64>>, percentile: f64) -> f64 {
+    // Copy only this test's samples; sorting never holds a provider lock.
+    let mut sorted = values.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    sorted.sort();
+    // NaN.toInt() == 0; Rust's saturating float cast has that same behaviour.
+    let rank =
+        ((percentile.clamp(0.0, 100.0) / 100.0 * sorted.len() as f64).ceil() as i32).clamp(1, sorted.len() as i32);
+    sorted[(rank - 1) as usize] as f64
+}
+impl MetricsLookup for MetricsProviderImpl {
+    fn success_rate(&self, test: &Test, limit: Instant) -> f64 {
+        self.shared.success_rate_value(&self.shared.snapshot(), test, limit)
+    }
+    fn execution_time(&self, test: &Test, percentile: f64, limit: Instant) -> f64 {
+        self.shared
+            .execution_time_or_panic(&self.shared.snapshot(), test, percentile, limit)
+    }
+    fn view(&self) -> Option<Arc<dyn MetricsLookup>> {
+        Some(Arc::new(PinnedMetrics {
+            shared: self.shared.clone(),
+            state: self.shared.snapshot(),
+        }))
+    }
+}
+impl MetricsLookup for PinnedMetrics {
+    fn success_rate(&self, test: &Test, limit: Instant) -> f64 {
+        self.shared.success_rate_value(&self.state, test, limit)
+    }
+    fn execution_time(&self, test: &Test, percentile: f64, limit: Instant) -> f64 {
+        self.shared
+            .execution_time_or_panic(&self.state, test, percentile, limit)
     }
 }
 impl MetricsProvider for MetricsProviderImpl {
@@ -274,12 +500,13 @@ impl MetricsProvider for MetricsProviderImpl {
         Box::pin(async move {
             self.prefetch(&[MetricsKey::ExecutionTime { percentile, limit }])
                 .await?;
-            self.execution_time_value(test, percentile, limit)
+            self.shared
+                .execution_time_value(&self.shared.snapshot(), test, percentile, limit)
         })
     }
     fn observe_execution_times<'a>(&'a self, results: &'a [TestResult]) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
-            if self.defaults.observed_duration_min_tests.is_none() {
+            if self.shared.defaults.observed_duration_min_tests.is_none() {
                 return Ok(());
             }
             for result in results {
@@ -288,7 +515,7 @@ impl MetricsProvider for MetricsProviderImpl {
                     continue;
                 }
                 let name = result.test.to_safe_test_name();
-                let mut observed = self.observed.lock().unwrap_or_else(|e| e.into_inner());
+                let mut observed = self.shared.observed.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(index) = observed.index.get(&name) {
                     let values = observed.values[*index].clone();
                     drop(observed);
@@ -316,8 +543,8 @@ impl MetricsProvider for MetricsProviderImpl {
             }
             let key = MetricsKey::ExecutionTime { percentile, limit };
             self.prefetch(&[key]).await?;
-            let state = self.snapshot();
-            let measurements = self.measurement(&state, key);
+            let state = self.shared.snapshot();
+            let measurements = self.shared.measurement(&state, key);
             let with = names
                 .iter()
                 .filter(|name| measurements.is_some_and(|m| m.contains_key(*name)))
@@ -332,24 +559,27 @@ impl MetricsProvider for MetricsProviderImpl {
             ));
             let mut level = Level::Info;
             if without > 0 {
-                let millis = self.default_millis()?;
-                match self.defaults.observed_duration_min_tests {
+                let millis = self.shared.default_millis()?;
+                match self.shared.defaults.observed_duration_min_tests {
                     None => message.push_str(&format!(", {without} tests are expected to take the default {millis} ms")),
                     Some(min) => message.push_str(&format!(", {without} tests are estimated from this run, using the default {millis} ms until {min} tests have passed or failed")),
                 }
                 if without * 2 > names.len() {
                     level = Level::Warn;
                     message.push_str(". Most tests have no history; check that the analytics backend can be queried");
-                    if self.defaults.observed_duration_min_tests.is_none() {
+                    if self.shared.defaults.observed_duration_min_tests.is_none() {
                         message.push_str(", or set analyticsConfiguration.defaults.duration or analyticsConfiguration.defaults.observedDurationMinTests");
                     }
                 }
             }
-            self.context.log("MetricsProviderImpl", level, message, None);
+            self.shared.context.log("MetricsProviderImpl", level, message, None);
             Ok(())
         })
     }
     fn close(&self) -> ServiceFuture<'_, ()> {
-        self.source.close()
+        Box::pin(async move {
+            self.shared.stop_refresh().await;
+            self.shared.source.close().await
+        })
     }
 }

@@ -17,7 +17,7 @@ use crate::{
     executor::shared::failure,
     logging::{LogRecord, LogSender},
     model::{Test, TestResult},
-    runtime::{CancellationSignal, ServiceFuture, VendorClock},
+    runtime::{CancellationSignal, ServiceFuture, VendorClock, VendorRuntime},
     strategy::{MetricsKey, MetricsLookup},
     time::MonotonicClock,
     wiring::MetricsProvider,
@@ -34,6 +34,8 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 pub struct MetricsContext {
     pub clock: Arc<dyn VendorClock>,
+    /// Where a failed history query's refresh runs (D34).
+    pub vendor: Arc<dyn VendorRuntime>,
     pub monotonic: Arc<dyn MonotonicClock>,
     pub cancellation: Arc<dyn CancellationSignal>,
     pub registry: Arc<Mutex<MarathonLogging>>,
@@ -70,7 +72,8 @@ impl MetricsContext {
 }
 
 /// A run-wide provider. Share this Arc across Marathon and every pool; queue
-/// construction awaits prefetch off core, then uses the live in-memory view.
+/// construction awaits prefetch off core, then uses the in-memory view, which the
+/// strategies pin when they read it (D34).
 pub struct Analytics {
     backend: Backend,
 }

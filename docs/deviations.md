@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D28; implementation availability
+canonical. This guide covers D1–D34; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -340,3 +340,15 @@ package data apply to each instrumentation. Batches of one instrumentation are u
 Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N35](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+
+## D34 — A failed history query is not final
+
+Kotlin caches a history query that fails three times as empty for the whole run, so a short backend outage
+at the start costs the run its history. Native builds answer with the defaults, as Kotlin does, and query
+again in the background: after 5, 10, 20, 40, 80, 160, 300 and 300 seconds, at most 8 times per query. An empty answer
+counts as an answer and is not repeated. A queue already built keeps its order, so new history reaches
+queues built later and batches composed later. A run never waits for this, and it stops when the run ends. With
+a healthy backend nothing changes. With a failing one the log gains one failed timing line and one warning per
+re-query, and one line when the history returns or the attempts run out. No configuration change is needed.
+Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[C41](known-kotlin-bugs.md) and the [x15 findings](wp/x15-findings.md).

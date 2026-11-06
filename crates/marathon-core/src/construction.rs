@@ -225,6 +225,7 @@ pub async fn construct(core: Rc<CoreExecutor>, inputs: RunInputs) -> Result<Rc<M
     let monotonic: Arc<dyn MonotonicClock> = inputs.hooks.clone();
     let context = MetricsContext {
         clock: core.vendor_clock(),
+        vendor: core.vendor(),
         monotonic,
         cancellation: Signal::new(),
         registry: inputs.logging.clone(),

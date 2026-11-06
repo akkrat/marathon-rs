@@ -67,6 +67,9 @@ impl SortingStrategy {
     }
 
     pub fn process(&self, metrics: Arc<dyn MetricsLookup>, hooks: Arc<dyn ReplayHooks>) -> TestComparator {
+        // D34: the heap holds keys ordered by earlier answers, so a comparator's answers must
+        // never change. A refresh that lands later reaches the next comparator, not this one.
+        let metrics = metrics.view().unwrap_or(metrics);
         match self {
             Self::ExecutionTime { percentile, time_limit } => {
                 let (percentile, limit) = (*percentile, *time_limit);

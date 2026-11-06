@@ -32,6 +32,7 @@ fn execute(tests: Vec<Test>, flaky_tests: Vec<Test>) -> String {
         Box::pin(async move {
             let context = MetricsContext {
                 clock: core.vendor_clock(),
+                vendor: core.vendor(),
                 monotonic: RuntimeHooks::live(),
                 cancellation: Signal::new(),
                 registry: Arc::new(Mutex::new(MarathonLogging::default())),

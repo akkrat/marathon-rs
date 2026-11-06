@@ -170,7 +170,7 @@ fn abort_interrupts_a_pending_fetch_without_logging_or_caching() {
     });
 }
 #[test]
-fn failed_queries_cache_defaults_close_errors_propagate_and_duplicate_names_count() {
+fn failed_queries_answer_defaults_until_a_refresh_close_errors_propagate_and_duplicate_names_count() {
     run(async {
         let h = Harness::new();
         let source = Arc::new(Source {

@@ -25,7 +25,10 @@ use marathon_test_support::{
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
 };
 
 fn test() -> Test {
@@ -242,4 +245,117 @@ fn the_execution_time_history_is_queried_while_the_run_starts_before_scheduling(
             "Scheduling 1 tests (+0 ms since start)",
         ]
     );
+}
+
+/// Fails the first `failing` queries, and then knows one test.
+#[derive(Default)]
+struct Unreliable {
+    failing: usize,
+    calls: AtomicUsize,
+    closed: AtomicBool,
+    after_close: AtomicUsize,
+}
+impl RemoteDataSource for Unreliable {
+    fn request_all_success_rates(&self, _limit: jcompat::jtime::Instant) -> ServiceFuture<'_, Vec<SuccessRate>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+    fn request_all_execution_times(
+        &self,
+        _percentile: f64,
+        _limit: jcompat::jtime::Instant,
+    ) -> ServiceFuture<'_, Vec<ExecutionTime>> {
+        Box::pin(async {
+            if self.closed.load(Ordering::SeqCst) {
+                self.after_close.fetch_add(1, Ordering::SeqCst);
+            }
+            if self.calls.fetch_add(1, Ordering::SeqCst) < self.failing {
+                return Err(marathon_core::executor::shared::failure("java.io.IOException", "down").into());
+            }
+            Ok(vec![ExecutionTime {
+                test_name: "pkg.SimpleTest#test".into(),
+                percentile: 1.0,
+            }])
+        })
+    }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async {
+            self.closed.store(true, Ordering::SeqCst);
+            Ok(())
+        })
+    }
+}
+fn run_with(source: Arc<Unreliable>, connect_at: i64) -> scenario::Outcome {
+    let device = StubDevice::new(StubDeviceOptions::default());
+    device.set_execution_results(HashMap::from([(test(), vec![TestStatus::Passed])]));
+    let mut factory = MarathonFactory::new();
+    factory.configuration.configuration.debug = false;
+    factory.configuration.configuration.sorting_strategy = SortingStrategyConfiguration::ExecutionTime {
+        percentile: 90.0,
+        time_limit: instant_of(0, 0).unwrap(),
+    };
+    factory.parser = Some(TestParser::Local(Arc::new(OneTest)));
+    factory.analytics = Some(Box::new(move |context| {
+        let defaults = Defaults {
+            success_rate: 0.5,
+            duration: duration_of(1, 0).unwrap(),
+            observed_duration_min_tests: None,
+        };
+        Ok(Analytics::new(MetricsProviderImpl::new(source, defaults, context)?))
+    }));
+    let mut script = connect_at_1000(&device, 2_000_000);
+    script.events[0].0 = connect_at;
+    scenario::drive(
+        factory,
+        script,
+        Some(Box::new(|core, factory| {
+            factory.timer = Some(Arc::new(FakeTimer(core.clock().now_source())));
+        })),
+        None,
+    )
+}
+const FAILED: &str = "Execution time history query (percentile 90.0 since 1970-01-01T00:00:00Z) failed";
+const ANSWERED: &str = "Execution time history query (percentile 90.0 since 1970-01-01T00:00:00Z) returned 1 tests";
+fn query_lines(lines: &[Line]) -> Vec<String> {
+    timings(lines)
+        .iter()
+        .map(|line| line.split(" in ").next().unwrap_or_default().to_owned())
+        .filter(|line| line.contains("history query"))
+        .collect()
+}
+
+/// D34, through the real vendor runtime and run flow.
+#[test]
+fn a_run_against_a_backend_that_stays_down_ends_without_waiting_for_its_refresh() {
+    let source = Arc::new(Unreliable {
+        failing: usize::MAX,
+        ..Unreliable::default()
+    });
+    let outcome = run_with(source.clone(), 1000);
+    assert!(outcome.completed);
+    assert!(matches!(outcome.value, Some(Ok(true))), "{:?}", outcome.value);
+    // It ends when a run with a healthy backend ends, with the next re-query 10 s away.
+    let healthy = run_with(Arc::new(Unreliable::default()), 1000);
+    assert!(healthy.completed_at.is_some());
+    assert_eq!(outcome.completed_at, healthy.completed_at);
+    assert_eq!(query_lines(&healthy.lines), vec![ANSWERED]);
+    // The first refresh, due at 5 s, happened during the run; the second, at 15 s, did not.
+    assert_eq!(query_lines(&outcome.lines), vec![FAILED, FAILED]);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 4);
+    assert!(source.closed.load(Ordering::SeqCst));
+    assert_eq!(source.after_close.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn history_that_comes_back_reaches_a_queue_built_after_the_refresh() {
+    let source = Arc::new(Unreliable {
+        failing: 3,
+        ..Unreliable::default()
+    });
+    // The first refresh is due at 5 s, and the device connects at 8 s.
+    let outcome = run_with(source.clone(), 8000);
+    assert!(outcome.completed);
+    assert!(matches!(outcome.value, Some(Ok(true))), "{:?}", outcome.value);
+    assert_eq!(query_lines(&outcome.lines), vec![FAILED, ANSWERED]);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 4);
+    assert_eq!(source.after_close.load(Ordering::SeqCst), 0);
 }
