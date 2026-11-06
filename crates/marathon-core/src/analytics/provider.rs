@@ -141,6 +141,15 @@ impl Drop for RefreshEnd<'_> {
             let mut refresh = self.shared.refresh();
             refresh.failed.clear();
             refresh.task = None;
+            drop(refresh);
+            if std::thread::panicking() {
+                self.shared.context.log(
+                    "MetricsProviderImpl",
+                    Level::Warn,
+                    "The history refresh panicked, so its failed queries are not tried again. Tests without history use the defaults".into(),
+                    None,
+                );
+            }
         }
     }
 }

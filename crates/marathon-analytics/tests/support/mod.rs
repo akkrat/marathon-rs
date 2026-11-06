@@ -62,7 +62,7 @@ pub fn run(body: impl FnOnce(Env) -> ServiceFuture<'static, ()> + Send + 'static
             };
             call_vendor(core.vendor().as_ref(), Signal::new(), move |_| {
                 Box::pin(async move {
-                    match tokio::time::timeout(std::time::Duration::from_secs(25), body(env)).await {
+                    match tokio::time::timeout(std::time::Duration::from_secs(60), body(env)).await {
                         Ok(Ok(())) => Ok(()),
                         Ok(Err(OperationError::Failed(f))) => Err(VendorError::Other(f)),
                         Ok(Err(OperationError::Cancelled(c))) => Err(VendorError::Cancelled(c)),

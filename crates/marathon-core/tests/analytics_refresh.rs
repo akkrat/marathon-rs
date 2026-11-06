@@ -521,6 +521,45 @@ fn a_refresh_the_run_cancels_before_its_first_poll_leaves_no_stale_handle_either
         the_next_failure_starts_a_clean_refresh(&h, &p, &source, 0).await;
     });
 }
+/// Fails its first query, and panics on its first re-query. Every later query fails.
+#[derive(Default)]
+struct Panicking {
+    calls: AtomicUsize,
+}
+impl RemoteDataSource for Panicking {
+    fn request_all_success_rates(&self, _: Instant) -> ServiceFuture<'_, Vec<SuccessRate>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+    fn request_all_execution_times(&self, _: f64, _: Instant) -> ServiceFuture<'_, Vec<ExecutionTime>> {
+        Box::pin(async {
+            if self.calls.fetch_add(1, AtomicOrdering::SeqCst) == 3 {
+                panic!("a bug in the source, as this test expects");
+            }
+            Err(down())
+        })
+    }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+#[test]
+fn a_source_that_panics_during_a_refresh_ends_it_with_one_warning_and_no_stale_handle() {
+    run(async {
+        let h = Harness::new();
+        let p = h.provider(Arc::new(Panicking::default()), 300000, None);
+        p.prefetch(&[key(80.0)]).await.unwrap();
+        h.clock.release_refreshes(1);
+        // `h.running` never falls here: the harness's task count does not survive a panic.
+        until("the warning", || lines_with(&h, Level::Warn, "refresh panicked") == 1).await;
+        assert_eq!(p.lookup().execution_time(&default_test(), 80.0, limit()), 300000.0);
+        // The next failure starts a refresh of its own, from the start of the schedule.
+        p.prefetch(&[key(90.0)]).await.unwrap();
+        h.clock.refresh_delay_started(2).await;
+        assert_eq!(*h.clock.refresh_delays.lock().unwrap(), vec![5000, 5000]);
+        p.close().await.unwrap();
+        assert_eq!(lines_with(&h, Level::Warn, "refresh panicked"), 1);
+    });
+}
 #[test]
 fn a_cancelled_refresh_query_keeps_the_defaults_and_ends_the_refresh_silently() {
     run(async {
