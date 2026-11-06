@@ -47,6 +47,75 @@ fn remote_command(cmd: &'static str, operation: u8) {
         })
     });
 }
+/// D21: with the idle timeout in real milliseconds, silence under a configured timeout must still work: a v1
+/// `screenrecord`, and every shell command up to `shell`. The same silence fails on the plain client.
+#[test]
+fn silent_requests_under_a_timeout_outlast_the_idle_limit_d21() {
+    use marathon_adb::client::{
+        AdbError, AndroidDebugBridgeClient, SocketFactory,
+        device::{Device as AdbDevice, DeviceState},
+        shell::v1::ShellCommandRequest,
+    };
+    use marathon_android::{device::AndroidDevice, tracker::DeviceStateTracker};
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let record = "screenrecord --size 720x1280 --bit-rate 1000000 --time-limit 180 /sdcard/v.mp4";
+            let mut script = base_script(27, vec![]);
+            for command in [record, "pm clear silent", "perfetto silent"] {
+                script["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"exact":command,"stdout":"","delay_ms":1000}));
+            }
+            let server = server(script).await;
+            let client = AndroidDebugBridgeClient::new(
+                server.addr().ip(),
+                server.port(),
+                std::sync::Arc::new(SocketFactory::new(10_000, 50)),
+                None,
+            );
+            let tracker = std::sync::Arc::new(DeviceStateTracker::default());
+            tracker.update(&[AdbDevice {
+                serial: "emulator-5554".into(),
+                state: DeviceState::Device,
+            }]);
+            let device = AndroidDevice::new(client.clone(), "emulator-5554".into(), tracker, runtime.clone());
+            let error = client
+                .execute(ShellCommandRequest::new("pm clear silent"), Some("emulator-5554"))
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error,
+                AdbError::RequestRejected("No exit code delimiter found in ".into())
+            );
+            assert!(
+                device
+                    .safe_execute_shell_command("pm clear silent", "", context.clone())
+                    .await?
+                    .is_some_and(|r| r.exit_code == 0)
+            );
+            device
+                .critical_execute_shell_command("pm clear silent", "", context.clone())
+                .await?;
+            assert!(
+                device
+                    .execute_shell_command("perfetto silent", "", context.clone())
+                    .await?
+                    .is_some_and(|r| r.exit_code == 0)
+            );
+            device
+                .safe_start_screen_recorder(
+                    "/sdcard/v.mp4",
+                    &runtime.configuration.screen_record_configuration.video_configuration,
+                    context,
+                )
+                .await?;
+            let mut server = server;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
 #[test]
 fn test_remote_video() {
     run(configuration(), |runtime, context| {

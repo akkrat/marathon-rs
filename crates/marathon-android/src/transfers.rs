@@ -44,7 +44,7 @@ impl AndroidDevice {
                 Box::pin(async {
                     let stat = cancellable(context.cancellation.clone(), async {
                         CompatStatFileRequest::new(remote, self.supported_features())
-                            .execute(self.client(), Some(self.adb_serial()))
+                            .execute(self.bounded_client(), Some(self.adb_serial()))
                             .await
                             .map_err(adb_error)
                     })
@@ -80,7 +80,7 @@ impl AndroidDevice {
                     let completion = request.0.completion();
                     let result = async {
                         let mut stream = request
-                            .execute(self.client(), Some(self.adb_serial()))
+                            .execute(self.bounded_client(), Some(self.adb_serial()))
                             .map_err(adb_error)?;
                         let mut progress = 0.0;
                         while let Some(update) = cancellable(context.cancellation.clone(), async {
@@ -148,7 +148,7 @@ impl AndroidDevice {
                     let completion = request.0.completion();
                     let result = async {
                         let mut stream = request
-                            .execute(self.client(), Some(self.adb_serial()))
+                            .execute(self.bounded_client(), Some(self.adb_serial()))
                             .map_err(adb_error)?;
                         let mut progress = 0.0;
                         while let Some(update) = cancellable(context.cancellation.clone(), async {
@@ -267,7 +267,7 @@ impl AndroidDevice {
                     millis(self.runtime().configuration.timeout_configuration.list_files)?,
                     |s| {
                         Box::pin(cancellable(s, async {
-                            self.client()
+                            self.bounded_client()
                                 .execute(ListFilesRequest::new(&dir), Some(self.adb_serial()))
                                 .await
                                 .map_err(adb_error)
@@ -350,7 +350,7 @@ impl AndroidDevice {
                     let completion = request.completion();
                     let result = cancellable(signal, async {
                         request
-                            .execute(self.client(), Some(self.adb_serial()))
+                            .execute(self.bounded_client(), Some(self.adb_serial()))
                             .await
                             .map_err(adb_error)
                     })
@@ -377,7 +377,7 @@ impl AndroidDevice {
             millis(self.runtime().configuration.timeout_configuration.uninstall)?,
             |signal| {
                 Box::pin(cancellable(signal, async {
-                    self.client()
+                    self.bounded_client()
                         .execute(
                             UninstallRemotePackageRequest::new(package, keep_data),
                             Some(self.adb_serial()),
@@ -415,7 +415,7 @@ impl AndroidDevice {
                                 .map_err(adb_error)?;
                         let completion = request.completion();
                         let result = cancellable(signal, async {
-                            self.client()
+                            self.bounded_client()
                                 .execute(request, Some(self.adb_serial()))
                                 .await
                                 .map_err(adb_error)
@@ -471,7 +471,7 @@ impl AndroidDevice {
             millis(self.runtime().configuration.timeout_configuration.install)?,
             |signal| {
                 Box::pin(cancellable(signal, async {
-                    self.client()
+                    self.bounded_client()
                         .execute(
                             InstallRemotePackageRequest::new(&remote, reinstall, args),
                             Some(self.adb_serial()),
@@ -513,7 +513,7 @@ impl AndroidDevice {
                     let completion = request.completion();
                     let result = cancellable(signal, async {
                         request
-                            .execute(self.client(), Some(self.adb_serial()))
+                            .execute(self.bounded_client(), Some(self.adb_serial()))
                             .await
                             .map_err(adb_error)
                     })
@@ -530,7 +530,7 @@ impl AndroidDevice {
         let result = timed(&context, millis(timeout)?, |signal| {
             Box::pin(cancellable(signal, async {
                 let raw = self
-                    .client()
+                    .bounded_client()
                     .execute(ScreenCaptureRequest, Some(self.adb_serial()))
                     .await
                     .map_err(adb_error)?;
@@ -568,8 +568,9 @@ impl AndroidDevice {
             |signal| {
                 Box::pin(cancellable(signal, async {
                     self.log(Level::Debug, &format!("Running screenrecorder for {remote}"), None);
+                    // A silent recording of up to 180 s is why Kotlin's idle unit bug went unnoticed (N12).
                     let r = self
-                        .client()
+                        .bounded_client()
                         .execute(
                             marathon_adb::client::shell::v1::ShellCommandRequest::new(cmd),
                             Some(self.adb_serial()),

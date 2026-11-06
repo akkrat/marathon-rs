@@ -153,7 +153,9 @@ impl AdamDeviceProvider {
         if clients.is_empty() {
             return Err(no_devices("All adb servers are unavailable"));
         }
-        let wait_clients = &clients;
+        // Under waitForDevicesTimeoutMillis (D21).
+        let wait_clients: Vec<_> = clients.iter().map(|c| c.without_idle_limit()).collect();
+        let wait_clients = &wait_clients;
         let clock = context.clock.clone();
         let found = timed(
             &context,

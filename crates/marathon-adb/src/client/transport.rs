@@ -13,7 +13,7 @@
 //! - the idle timer runs during a blocked write too, and fails it with netty's
 //!   `StacklessClosedChannelException`;
 //! - the idle timer and `close()` close the connection itself, so the server sees it go at once;
-//! - the idle timeout counts **seconds**, not the milliseconds adam meant (known bug N12).
+//! - the idle timeout counts the milliseconds it was given (D21; adam's counted seconds, known bug N12).
 //!
 //! The connect and idle timers are transport timers (netty's), not the scheduler clock, so they use
 //! `tokio::time` directly (WP 6.1 orchestrator decision 4).
@@ -44,15 +44,20 @@ pub fn to_timeout_int(value: i64) -> i32 {
     if int < 0 { i32::MAX } else { int }
 }
 
-/// The idle timeout as vert.x 4.4.6 applies it: `setIdleTimeout(int)` with the default unit,
-/// `TCPSSLOptions.DEFAULT_IDLE_TIMEOUT_TIME_UNIT = SECONDS`. adam passes milliseconds, so the default
-/// 30,000 ms becomes 30,000 s; zero disables it. Kept under D5 (known bug N12): `screenrecord` runs silent
-/// for up to 180 s and relies on it.
+/// `Request::socket_idle_timeout` for a request with no idle limit: silent by nature, or bounded by a
+/// watchdog of its own. Kotlin's `Long.MAX_VALUE`.
+pub const NO_IDLE_LIMIT: i64 = i64::MAX;
+
+/// D21: the idle timeout in the milliseconds it is given. adam passes milliseconds to vert.x 4.4.6
+/// `setIdleTimeout(int)`, which counts seconds, so Kotlin's default 30 s lasts 30,000 s (known bug N12, whose
+/// silent `screenrecord` now runs on a client without a limit: `AndroidDebugBridgeClient::without_idle_limit`).
+/// Zero disables it, as in vert.x; so do [`NO_IDLE_LIMIT`] and a negative value, which Kotlin turned into
+/// 68 years.
 pub fn idle_timeout(millis: i64) -> Option<Duration> {
-    match to_timeout_int(millis) {
-        0 => None,
-        seconds => Some(Duration::from_secs(seconds as u64)),
+    if millis <= 0 || millis == NO_IDLE_LIMIT {
+        return None;
     }
+    Some(Duration::from_millis(millis as u64))
 }
 
 /// netty's `CONNECT_TIMEOUT_MILLIS`, which really is milliseconds; zero means no timeout.
@@ -415,7 +420,7 @@ impl SocketWriter {
     /// `writeFully`: `IllegalStateException` once the connection is closed (`VertxSocket.kt` `writeFully`).
     /// A write the server does not take in fails when the idle timer fires, as netty closes the channel
     /// under it. Each part written counts as activity; netty counts only the completed write, which
-    /// differs only for a write slower than the idle timeout, 30,000 s by default (N12).
+    /// differs only for a write slower than the idle timeout.
     pub async fn write_fully(&self, bytes: &[u8]) -> Result<(), AdbError> {
         let not_connected = || AdbError::IllegalState("Socket write error: socket is not connected CLOSED".into());
         if self.0.is_closed() {
@@ -469,16 +474,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn timeout_conversion_keeps_the_unit_bug() {
+    fn idle_timeout_is_in_milliseconds_d21() {
+        assert_eq!(idle_timeout(30_000), Some(Duration::from_secs(30)));
+        assert_eq!(idle_timeout(1), Some(Duration::from_millis(1)));
+        assert_eq!(idle_timeout(0), None);
+        assert_eq!(idle_timeout(-1), None);
+        assert_eq!(idle_timeout(NO_IDLE_LIMIT), None);
+        // Long.toInt() no longer wraps: 2^32 + 5 ms is not 5.
+        assert_eq!(idle_timeout((1 << 32) + 5), Some(Duration::from_millis((1 << 32) + 5)));
+    }
+
+    #[test]
+    fn connect_timeout_conversion_keeps_the_int_wrap() {
         assert_eq!(to_timeout_int(30_000), 30_000);
         assert_eq!(to_timeout_int(-1), i32::MAX);
         assert_eq!(to_timeout_int(i64::MAX), i32::MAX);
         // Long.toInt() wraps: 2^32 + 5 becomes 5.
         assert_eq!(to_timeout_int((1 << 32) + 5), 5);
-        assert_eq!(idle_timeout(30_000), Some(Duration::from_secs(30_000)));
-        assert_eq!(idle_timeout(1), Some(Duration::from_secs(1)));
-        assert_eq!(idle_timeout(0), None);
-        assert_eq!(idle_timeout(i64::MAX), Some(Duration::from_secs(i32::MAX as u64)));
         assert_eq!(connect_timeout(10_000), Some(Duration::from_millis(10_000)));
         assert_eq!(connect_timeout(0), None);
     }

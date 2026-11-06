@@ -61,6 +61,8 @@ pub struct AndroidDebugBridgeClient {
     port: u16,
     socket_factory: Arc<SocketFactory>,
     logging: Option<AdamLogging>,
+    /// Replaces each request's own `socket_idle_timeout`; see [`Self::without_idle_limit`].
+    idle_override: Option<i64>,
 }
 
 impl AndroidDebugBridgeClient {
@@ -73,6 +75,17 @@ impl AndroidDebugBridgeClient {
             port,
             socket_factory,
             logging,
+            idle_override: None,
+        }
+    }
+
+    /// D21: the same server and factory, with no idle limit on any request. For requests whose caller
+    /// bounds them with a configured timeout: their silence is legitimate up to that timeout (a
+    /// `screenrecord`, `pm install` compiling an APK), so the idle limit must not fire before it does.
+    pub fn without_idle_limit(&self) -> Self {
+        Self {
+            idle_override: Some(transport::NO_IDLE_LIMIT),
+            ..self.clone()
         }
     }
 
@@ -116,7 +129,7 @@ impl AndroidDebugBridgeClient {
             &self.socket_factory,
             self.address(),
             self.host_name.as_deref(),
-            request.socket_idle_timeout(),
+            self.idle_override.or(request.socket_idle_timeout()),
             self.logging.clone(),
         )
         .await?;
@@ -151,6 +164,7 @@ impl AndroidDebugBridgeClient {
             self.address(),
             self.host_name.clone(),
             self.logging.clone(),
+            self.idle_override,
             request,
             serial.map(str::to_string),
         )

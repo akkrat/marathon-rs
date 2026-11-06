@@ -34,8 +34,7 @@ pub trait Request: Send {
         ValidationResponse::SUCCESS
     }
 
-    /// `socketIdleTimeout`: milliseconds, before the idle unit bug turns them into seconds; `None` uses
-    /// the client's.
+    /// `socketIdleTimeout` in milliseconds (D21); `None` uses the client's.
     fn socket_idle_timeout(&self) -> Option<i64> {
         None
     }

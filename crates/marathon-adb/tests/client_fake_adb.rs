@@ -397,16 +397,11 @@ async fn exec_and_abb_exec_raw_sessions() {
 }
 
 #[tokio::test]
-async fn idle_timeout_counts_seconds() {
+async fn idle_timeout_counts_milliseconds_d21() {
     let server = start(ONE_DEVICE).await;
-    // 1 ms of socketIdleTimeout is one second of idle time (known bug N12).
-    let client = client(&server, 1);
+    // 1000 ms of socketIdleTimeout is one second of idle time, where Kotlin's lasted 1000 s (known bug N12).
+    let client = client(&server, 1000);
     let serial = Some("emulator-5554");
-    let r = client
-        .execute(ShellCommandRequest::new("sleep 0.2"), serial)
-        .await
-        .unwrap();
-    assert_eq!(r.output(), "late\n");
     let started = Instant::now();
     let error = client
         .execute(ShellCommandRequest::new("sleep 5"), serial)
@@ -423,6 +418,50 @@ async fn idle_timeout_counts_seconds() {
         elapsed >= Duration::from_millis(900) && elapsed < Duration::from_millis(4500),
         "{elapsed:?}"
     );
+    // The unit, in the other direction: 1 ms does not last the one second Kotlin's did.
+    let error = self::client(&server, 1)
+        .execute(ShellCommandRequest::new("sleep 0.2"), serial)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        AdbError::RequestRejected("No exit code delimiter found in ".into())
+    );
+}
+
+/// D21: a client without an idle limit waits through silence that fails the same request on the plain client.
+#[tokio::test]
+async fn without_idle_limit_outlasts_the_silence_d21() {
+    let server = start(ONE_DEVICE).await;
+    let client = client(&server, 50);
+    let serial = Some("emulator-5554");
+    let error = client
+        .execute(ShellCommandRequest::new("sleep 0.2"), serial)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        AdbError::RequestRejected("No exit code delimiter found in ".into())
+    );
+    let r = client
+        .without_idle_limit()
+        .execute(ShellCommandRequest::new("sleep 0.2"), serial)
+        .await
+        .unwrap();
+    assert_eq!(r.output(), "late\n");
+    // A stream takes the override too.
+    let mut stream = client
+        .without_idle_limit()
+        .execute_channel(
+            marathon_adb::client::shell::v1::ChanneledShellCommandRequest::new("sleep 0.2"),
+            serial,
+        )
+        .unwrap();
+    let mut output = String::new();
+    while let Some(part) = stream.next().await {
+        output.push_str(&part.unwrap());
+    }
+    assert_eq!(output, "late\n");
 }
 
 #[tokio::test]

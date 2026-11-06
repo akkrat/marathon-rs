@@ -75,12 +75,21 @@ impl<R: AsyncChannelRequest> ChannelStream<R> {
         addr: SocketAddr,
         host_name: Option<String>,
         logging: Option<AdamLogging>,
+        idle_override: Option<i64>,
         request: R,
         serial: Option<String>,
     ) -> Self {
         Self {
             pending: VecDeque::new(),
-            state: State::Pulling(Box::pin(open(factory, addr, host_name, logging, request, serial))),
+            state: State::Pulling(Box::pin(open(
+                factory,
+                addr,
+                host_name,
+                logging,
+                idle_override,
+                request,
+                serial,
+            ))),
         }
     }
 
@@ -126,6 +135,7 @@ async fn open<R: AsyncChannelRequest>(
     addr: SocketAddr,
     host_name: Option<String>,
     logging: Option<AdamLogging>,
+    idle_override: Option<i64>,
     mut request: R,
     serial: Option<String>,
 ) -> Step<R> {
@@ -134,7 +144,7 @@ async fn open<R: AsyncChannelRequest>(
         &factory,
         addr,
         host_name.as_deref(),
-        request.socket_idle_timeout(),
+        idle_override.or(request.socket_idle_timeout()),
         logging.clone(),
     )
     .await

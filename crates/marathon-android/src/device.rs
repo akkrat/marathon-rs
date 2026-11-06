@@ -68,6 +68,8 @@ pub struct AndroidDevice {
 struct Inner {
     reference: Mutex<Option<Weak<dyn Device>>>,
     client: AndroidDebugBridgeClient,
+    /// D21: for requests under a configured timeout or watchdog, or silent by nature.
+    bounded_client: AndroidDebugBridgeClient,
     adb_serial: String,
     runtime: Arc<AndroidRuntime>,
     tracker: Arc<DeviceStateTracker>,
@@ -110,6 +112,7 @@ impl AndroidDevice {
         Self {
             inner: Arc::new(Inner {
                 reference: Mutex::default(),
+                bounded_client: client.without_idle_limit(),
                 client,
                 adb_serial,
                 runtime,
@@ -162,6 +165,11 @@ impl AndroidDevice {
     }
     pub fn client(&self) -> &AndroidDebugBridgeClient {
         &self.inner.client
+    }
+    /// D21: the client for work whose caller has a timeout of its own, which the socket's idle limit must not
+    /// beat. See the request audit in `docs/wp/x12-findings.md`.
+    pub(crate) fn bounded_client(&self) -> &AndroidDebugBridgeClient {
+        &self.inner.bounded_client
     }
     pub fn adb_serial(&self) -> &str {
         &self.inner.adb_serial
@@ -230,6 +238,20 @@ impl AndroidDevice {
         })
         .await
     }
+    /// [`Self::request`] for a request bounded by its caller (D21).
+    async fn bounded_request<R: ComplexRequest>(
+        &self,
+        request: R,
+        signal: Arc<dyn CancellationSignal>,
+    ) -> VendorResult<R::Output> {
+        cancellable(signal, async {
+            self.bounded_client()
+                .execute(request, Some(self.adb_serial()))
+                .await
+                .map_err(adb_error)
+        })
+        .await
+    }
     async fn fetch_props(&self, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
         let props = self.request(GetPropRequest, Some(self.adb_serial()), signal).await?;
         lock(&self.inner.state).props = props;
@@ -252,7 +274,9 @@ impl AndroidDevice {
         let boot = timed(&context, millis(self.timeouts().boot)?, |signal| {
             Box::pin(async move {
                 loop {
-                    self.fetch_props(signal.clone()).await?;
+                    // The boot timeout bounds it (D21).
+                    let props = self.bounded_request(GetPropRequest, signal.clone()).await?;
+                    lock(&self.inner.state).props = props;
                     if lock(&self.inner.state).props.contains_key("sys.boot_completed") {
                         break;
                     }
@@ -383,13 +407,12 @@ impl AndroidDevice {
                         Box::pin(async move {
                             let port = self.client().port();
                             let local = RemotePortSpec::Tcp(port as i32);
-                            self.request(
+                            self.bounded_request(
                                 ReversePortForwardRequest {
                                     local: local.clone(),
                                     remote: LocalPortSpec::Tcp(port as i32),
                                     mode: PortForwardingMode::Default,
                                 },
-                                Some(self.adb_serial()),
                                 signal,
                             )
                             .await?;
@@ -414,12 +437,10 @@ impl AndroidDevice {
         error_message: &str,
         context: VendorContext,
     ) -> VendorResult<Option<ShellCommandResult>> {
+        // No timeout of its own: its callers are a 10 s health check and perfetto, which runs silent until
+        // its listener kills it (D21).
         let result = self
-            .request(
-                ShellCommandRequest::new(command),
-                Some(self.adb_serial()),
-                context.cancellation,
-            )
+            .bounded_request(ShellCommandRequest::new(command), context.cancellation)
             .await
             .map(Into::into);
         self.shell_catch(result.map(Some), error_message)
@@ -432,7 +453,7 @@ impl AndroidDevice {
     ) -> VendorResult<Option<ShellCommandResult>> {
         let result = timed(&context, millis(self.timeouts().shell)?, |s| {
             Box::pin(async move {
-                self.request(ShellCommandRequest::new(command), Some(self.adb_serial()), s)
+                self.bounded_request(ShellCommandRequest::new(command), s)
                     .await
                     .map(Into::into)
             })
@@ -461,7 +482,7 @@ impl AndroidDevice {
     ) -> VendorResult<ShellCommandResult> {
         timed(&context, millis(self.timeouts().shell)?, |s| {
             Box::pin(async move {
-                self.request(ShellCommandRequest::new(command), Some(self.adb_serial()), s)
+                self.bounded_request(ShellCommandRequest::new(command), s)
                     .await
                     .map(Into::into)
             })

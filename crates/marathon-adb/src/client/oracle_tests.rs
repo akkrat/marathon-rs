@@ -143,6 +143,7 @@ async fn devices_line_without_tab() {
 #[tokio::test]
 async fn idle_timeout_unit() {
     let kotlin = kotlin();
+    // Kotlin's 1 "ms" lasted one second (N12), so the recorded rows are what 1000 ms does now (D21).
     for delay in [200u64, 1500] {
         let server = stub::session(move |mut s| async move {
             transport_and_shell(&mut s, "shell:x;echo x$?").await;
@@ -151,7 +152,7 @@ async fn idle_timeout_unit() {
             let _ = s.try_respond(b"late\nx0").await;
         })
         .await;
-        let factory = Arc::new(SocketFactory::new(DEFAULT_CONNECT_TIMEOUT_MS, 1));
+        let factory = Arc::new(SocketFactory::new(DEFAULT_CONNECT_TIMEOUT_MS, 1000));
         let client = AndroidDebugBridgeClient::new(server.addr().ip(), server.addr().port(), factory, None);
         let started = Instant::now();
         let outcome = match client.execute(v1::ShellCommandRequest::new("x"), Some("s")).await {
@@ -348,12 +349,12 @@ async fn v2_partial_packet() {
     server.finish().await;
 }
 
-/// R1-sol-2: the idle timer fails a write the server never takes in (one second, N12).
+/// R1-sol-2: the idle timer fails a write the server never takes in.
 #[tokio::test]
 async fn idle_blocked_write() {
     let kotlin = kotlin();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let factory = SocketFactory::new(DEFAULT_CONNECT_TIMEOUT_MS, 1);
+    let factory = SocketFactory::new(DEFAULT_CONNECT_TIMEOUT_MS, 1000);
     let socket = factory
         .tcp(listener.local_addr().unwrap(), None, None, None)
         .await
