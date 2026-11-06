@@ -335,13 +335,16 @@ impl Shared {
                 refresh.failed.remove(index);
                 self.publish_values(&refresh, key, rows);
                 drop(refresh);
+                // Still logged when empty: it says why this key's warnings have stopped.
+                let effect = if count == 0 {
+                    "There is no history to use, so nothing changes"
+                } else {
+                    "Queues built and batches composed from now on use it; a queue that already exists keeps its order"
+                };
                 self.context.log(
                     "MetricsProviderImpl",
                     Level::Info,
-                    format!(
-                        "{description} returned {count} tests after failing earlier. Queues built and batches composed from now on use it; a queue that already exists keeps its order"
-                    )
-                    .into(),
+                    format!("{description} returned {count} tests after failing earlier. {effect}").into(),
                     None,
                 );
             }

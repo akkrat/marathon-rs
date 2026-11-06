@@ -94,6 +94,7 @@ fn a_failed_query_recovers_on_a_later_refresh() {
         );
         assert_eq!(lines_with(&h, Level::Warn, "Cannot fetch execution time"), 1);
         assert_eq!(lines_with(&h, Level::Info, "after failing earlier"), 1);
+        assert_eq!(lines_with(&h, Level::Info, "from now on use it"), 1);
         // The recovery ends the refresh: once read, a successful value never changes.
         *source.times.lock().unwrap() = vec![time_row(&test, 1.0)];
         h.clock.release_refreshes(8);
@@ -123,6 +124,16 @@ fn an_empty_answer_is_a_success_so_it_is_cached_and_never_refreshed() {
         until_idle(&h).await;
         assert_eq!(source.calls.lock().unwrap().len(), 1 + 3 + 1);
         assert_eq!(*h.clock.refresh_delays.lock().unwrap(), vec![5000]);
+        // One line still ends the key's warnings, and it does not promise a change it can't bring.
+        assert_eq!(
+            lines_with(
+                &h,
+                Level::Info,
+                "returned 0 tests after failing earlier. There is no history to use, so nothing changes"
+            ),
+            1
+        );
+        assert_eq!(lines_with(&h, Level::Info, "from now on use it"), 0);
         p.prefetch(&[key(80.0), other]).await.unwrap();
         assert_eq!(source.calls.lock().unwrap().len(), 1 + 3 + 1);
     });
