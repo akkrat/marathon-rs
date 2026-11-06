@@ -21,8 +21,21 @@ fn terminate() -> DevicePoolMessage {
 fn message(device: &Arc<TestDevice>, event: fn(marathon_core::vendor::DeviceRef) -> FromDevice) -> DevicePoolMessage {
     DevicePoolMessage::FromDevice(event(device.reference()))
 }
+/// C27's JVM row stays the witness of the old behaviour: a second RemoveDevice of the old device
+/// took the replacement with it, so only `keeper` was left.
+fn c27_witness() -> serde_json::Value {
+    include_str!("../../../fixtures/oracle/pool/scheduler.jsonl")
+        .lines()
+        .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
+        .find(|r| r["name"] == "C27")
+        .unwrap()
+}
+fn completed(actor: &marathon_core::execution::device::DeviceActorRef) -> bool {
+    matches!(Actor::job(actor.actor.as_ref()).state(), JobState::Completed(_))
+}
 #[test]
-fn stale_disconnect_removes_the_replacement() {
+fn stale_disconnect_leaves_the_replacement_d40() {
+    assert_eq!(c27_witness()["devices"], serde_json::json!(["keeper"]));
     for _ in 0..50 {
         scheduling_test(|h| {
             Box::pin(async move {
@@ -40,32 +53,151 @@ fn stale_disconnect_removes_the_replacement() {
                 pool.add(&old);
                 pool.add(&keeper);
                 h.run_current().await;
+                let original = pool.actor_of(&old).unwrap();
                 pool.remove(&old);
                 pool.add(&new);
                 h.run_current().await;
+                assert!(completed(&original));
                 let replacement = pool.actor_of(&new).unwrap();
-                assert!(!matches!(
-                    Actor::job(replacement.actor.as_ref()).state(),
-                    JobState::Completed(_)
-                ));
+                assert!(!completed(&replacement));
                 pool.remove(&old);
                 h.run_current().await;
-                assert!(matches!(
-                    Actor::job(replacement.actor.as_ref()).state(),
-                    JobState::Completed(_)
-                ));
+                assert!(!completed(&replacement));
                 assert!(!pool.terminated());
-                let expected: serde_json::Value = include_str!("../../../fixtures/oracle/pool/scheduler.jsonl")
-                    .lines()
-                    .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
-                    .find(|r| r["name"] == "C27")
-                    .unwrap();
-                assert_eq!(expected["devices"], serde_json::json!(["keeper"]));
+                pool.remove(&new);
+                h.run_current().await;
+                assert!(completed(&replacement));
+                assert!(!pool.terminated());
                 pool.send(terminate());
                 h.await_pool_termination().await;
             })
         });
     }
+}
+#[test]
+fn stale_disconnect_returns_the_old_batch_and_keeps_the_replacements_d40() {
+    for _ in 0..50 {
+        scheduling_test(|h| {
+            Box::pin(async move {
+                let old = TestDevice::new("same", None, None, finish_on_signal());
+                let new = TestDevice::new("same", None, None, finish_on_signal());
+                let pool = h.start_pool(tests(1, "Behaviour"), Default::default());
+                pool.add(&old);
+                h.run_current().await;
+                assert_eq!(old.batches().len(), 1);
+                pool.remove(&old);
+                pool.add(&new);
+                h.run_current().await;
+                // The old actor gave its batch back, and the replacement runs it.
+                assert_eq!(new.batches().len(), 1);
+                let replacement = pool.actor_of(&new).unwrap();
+                pool.remove(&old);
+                h.run_current().await;
+                assert!(!completed(&replacement));
+                assert!(!pool.terminated());
+                new.finish.send();
+                h.await_pool_termination().await;
+                assert!(pool.aggregate_result().await.unwrap());
+            })
+        });
+    }
+}
+/// The last device's termination, old device first: the replacement holds the pool open whatever
+/// stale or duplicate events arrive, and ends it when it goes.
+#[test]
+fn the_last_device_ends_the_pool_with_the_old_device_removed_first_d40() {
+    for _ in 0..50 {
+        scheduling_test(|h| {
+            Box::pin(async move {
+                let gate = Gate::default();
+                let old = TestDevice::new("same", None, Some(prepare_on(&gate)), report_passed());
+                let new = TestDevice::new("same", None, Some(prepare_on(&gate)), report_passed());
+                let pool = h.start_pool(tests(1, "Behaviour"), Default::default());
+                pool.add(&old);
+                h.run_current().await;
+                pool.remove(&old);
+                pool.add(&new);
+                pool.remove(&old);
+                h.run_current().await;
+                let replacement = pool.actor_of(&new).unwrap();
+                assert!(!completed(&replacement));
+                assert!(!pool.terminated());
+                pool.remove(&old);
+                h.run_current().await;
+                assert!(!pool.terminated());
+                pool.remove(&new);
+                pool.remove(&new);
+                h.await_pool_termination().await;
+                assert!(completed(&replacement));
+            })
+        });
+    }
+}
+/// New device first: the pool still holds the old one and rejects the new one, as in Kotlin. The
+/// rejected device's disconnect no longer takes the old one with it, and the old one's does.
+#[test]
+fn the_last_device_ends_the_pool_with_the_new_device_seen_first_d40() {
+    for _ in 0..50 {
+        scheduling_test(|h| {
+            Box::pin(async move {
+                let gate = Gate::default();
+                let old = TestDevice::new("same", None, Some(prepare_on(&gate)), report_passed());
+                let new = TestDevice::new("same", None, Some(prepare_on(&gate)), report_passed());
+                let pool = h.start_pool(tests(1, "Behaviour"), Default::default());
+                pool.add(&old);
+                pool.add(&new);
+                h.run_current().await;
+                assert!(pool.actor_of(&new).is_none());
+                let original = pool.actor_of(&old).unwrap();
+                pool.remove(&new);
+                h.run_current().await;
+                assert!(!completed(&original));
+                assert!(!pool.terminated());
+                pool.remove(&old);
+                h.await_pool_termination().await;
+                assert!(completed(&original));
+            })
+        });
+    }
+}
+/// Duplicates with no replacement: the pool waits for the terminating device, once.
+#[test]
+fn a_duplicate_disconnect_of_the_last_device_ends_the_pool_once_d40() {
+    for _ in 0..50 {
+        scheduling_test(|h| {
+            Box::pin(async move {
+                let gate = Gate::default();
+                let d = TestDevice::new("same", None, Some(prepare_on(&gate)), report_passed());
+                let pool = h.start_pool(tests(1, "Behaviour"), Default::default());
+                pool.add(&d);
+                h.run_current().await;
+                pool.remove(&d);
+                pool.remove(&d);
+                h.await_pool_termination().await;
+                assert!(pool.terminated());
+            })
+        });
+    }
+}
+/// RemoveDevice reaches every pool (B3). A device this pool never held changes nothing here;
+/// `unknown_disconnect_still_terminates_an_empty_pool` covers the pool with no device.
+#[test]
+fn a_disconnect_of_another_pools_device_changes_nothing_here_d40() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let gate = Gate::default();
+            let here = TestDevice::new("here", None, Some(prepare_on(&gate)), report_passed());
+            let other = TestDevice::new("other", None, Some(prepare_on(&gate)), report_passed());
+            let pool = h.start_pool(tests(1, "Behaviour"), Default::default());
+            pool.add(&here);
+            h.run_current().await;
+            pool.remove(&other);
+            h.run_current().await;
+            assert!(!pool.terminated());
+            pool.send(terminate());
+            h.await_pool_termination().await;
+        })
+    });
 }
 #[test]
 fn stale_termination_does_not_remove_the_replacement_or_its_assignment() {

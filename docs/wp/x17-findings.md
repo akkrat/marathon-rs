@@ -126,10 +126,11 @@ these lines. Each is a form recorded in the real log or in `fixtures/`:
 | Log line of `xcodebuild`, `simctl`, `…Runner` | `… xcodebuild[1:2] [MT] text` | The whole line |
 | Anything else | | The whole line, as in Kotlin |
 
-Only those tools print into xcodebuild's stdout besides the application under test. XCTest also runs inside a hosted
-test's application, whose name says nothing, so there `Terminating since there is no system app`, `Exiting because the
-workspace server has disconnected` and `Connection peer refused channel request for "` still count when they are the
-whole message.
+Besides the application under test, those are the tools expected to write into this stream. **This list is reasoned,
+not recorded:** a real failure logged with a date header by any other process would now be missed, and is the first
+thing to check if a batch waits for its timeout. XCTest also runs inside a hosted test's application, whose name says
+nothing, so there `Terminating since there is no system app`, `Exiting because the workspace server has disconnected`
+and `Connection peer refused channel request for "` still count when they are the whole message.
 
 `✘` and `⚠` are not in the real log, which had no failing Swift Testing event, nor are the macOS symbols in the private
 use plane. They are included because they belong to the same set of markers and a failed test's line carries its
@@ -172,3 +173,78 @@ progress parser claims too, with the literal after the name. On device level,
 `a_real_failure_after_a_tests_own_text_still_ends_the_batch_d39` ends the batch at the failure and keeps the earlier
 result, and `a_tests_own_text_does_not_end_the_batch_d39` runs it to the end. With the rule temporarily removed, those
 two, the corpus test, the JVM replay and both `_d39` line tests fail.
+
+## D40 / C27: removing a device compares identity
+
+### Which identity
+
+The instance, `DeviceRef`, compared by pointer as readiness and termination do. The id string cannot work: a simulator
+that comes back has the same udid and serial, and an Android device the same `host:port:serial`, so a stale event would
+still match. The actor is not needed: the pool's map holds one actor per device, and `RemoveDevice` carries the device.
+
+`remove_device` now removes only if the map's actor belongs to that instance. Its logs are unchanged, and a stale event
+still evaluates `no_active_devices`, as any removal of an unknown device does in Kotlin.
+
+### Removing the old device still does what it must
+
+An older instance is out of `devices` only after one of two things: `RemoveDevice` told its actor to terminate and
+released its request, or its actor reported `Terminated`. `add_device` rejects a same-serial device while the old one is
+present, so a replacement is in the map only after one of those. By then the old batch is on its way back, so the stale
+event has nothing left to do, and it no longer takes the replacement's actor, batch or request with it.
+
+### Every sender
+
+Every sender passes a clone of the reference it announced, so `DeviceRef` equality holds. If a vendor sent a fresh
+instance on disconnect, a device would never leave its pool, which is why this was traced first.
+
+| Sender | Instance sent | Can it arrive stale? |
+|---|---|---|
+| Android `provider.rs` | `Provided.reference`, a clone of what `Connected` carried. One map entry per `(server, serial)`, so one `Disconnected` per instance | No. One loop handles the tracker's updates in order, and `Disconnected` follows the setup task's join when it was not ready. With D18 the serial includes the server. After D22 and D24 a reconnect makes a new instance and a fresh actor, after the old `Disconnected` |
+| iOS tracker, `simulator_provider.rs` | `device.device` from `state.devices`, the `Connected` reference | `state.removed` and the snapshot are taken under one lock, and `register` refuses a removed id, so no order found publishes the old one after the new one |
+| iOS recovery, `recovery.rs` | `DeviceRef(handle.clone())`. `AppleSimulatorConstructor` builds `handle` and `device` from one `Arc`, so they compare equal | Published before re-provisioning, once per `recovering` entry. A tracker removal in between sends a duplicate, before the new device exists |
+| macOS `provider.rs` | No `Disconnected` is ever sent | No |
+| Scheduler `on_device_disconnected` | Forwards the same reference to every pool (B3) | Passes on what the vendor sent |
+| `marathon-test-support` scenarios | `stub.reference()`, the same `Arc` | Only if a scenario scripts it. None changed |
+
+So **no vendor path found today produces the stale order**, and the JVM case is the pool-level row. D40 makes the pool
+right on its own, instead of relying on each provider's ordering. Android, iOS and macOS crate tests pass unchanged.
+
+### The pool's last device, every order
+
+| Order | Behaviour | Test (50 repetitions) |
+|---|---|---|
+| Old removed, new added, old removed again | The new device holds the pool open, and ends it when it goes | `the_last_device_ends_the_pool_with_the_old_device_removed_first_d40` |
+| New added first | Rejected, as in Kotlin. Its disconnect changes nothing. The old device's ends the pool | `the_last_device_ends_the_pool_with_the_new_device_seen_first_d40` |
+| Old removed twice, no replacement | The pool waits for the terminating device and ends once | `a_duplicate_disconnect_of_the_last_device_ends_the_pool_once_d40` |
+| New removed twice | The first terminates it, the second finds nothing | In the old-first test |
+| Disconnect of another pool's device (B3) | Nothing here. An empty pool still ends, as in Kotlin | `a_disconnect_of_another_pools_device_changes_nothing_here_d40` (one run), `unknown_disconnect_still_terminates_an_empty_pool` |
+
+`stale_disconnect_leaves_the_replacement_d40` replaces `stale_disconnect_removes_the_replacement`, with the JVM row
+`C27` in `fixtures/oracle/pool/scheduler.jsonl` as the witness that the old behaviour left only `keeper`.
+`stale_disconnect_returns_the_old_batch_and_keeps_the_replacements_d40` shows the batch coming back and finishing on the
+replacement. With the check temporarily removed, those two and the old-first and new-first tests fail.
+
+## What was run
+
+`cargo fmt --check`; `cargo clippy -p marathon-core -p marathon-apple -p marathon-ios --all-targets -- -D warnings`;
+`cargo test` for `marathon-core`, `marathon-apple`, `marathon-ios`, `marathon-macos`, `marathon-android`,
+`marathon-test-support` and `marathon-cli`; `tools/differential/make_registry.py --check`;
+`tools/differential/test_evidence.py`. The gates (`scripts/check.sh`, `scripts/remote-check.sh`, the workspace suite) and
+a real batch through xcodebuild were not run, as the brief asks: the orchestrator runs the gates.
+
+## Incidental bugs
+
+Kotlin behaviour seen nearby and left alone:
+
+- **The readiness probe is huge.** Each `launchctl dumpstate` returns 145,000 to 170,000 lines (19 MB on iOS 27.0), and
+  `boot_failure` holds it all in memory to read one line, once per poll. Over SSH it also counts against the flow
+  control x16 changes.
+- **A replacement seen before the old device's disconnect is dropped for the run.** `add_device` warns and returns, as
+  in Kotlin, so the pool never gets the new device (`duplicate_serial_add_keeps_the_original_device`). The iOS and macOS
+  `register` paths can do this by disposing a previous device with no `Disconnected`. The tracker only connects an absent
+  key, so none was found reachable on iOS; there, a later disconnect of that new device no longer removes the old one,
+  which then stays until its next batch fails or its queue ends.
+- **`Not authorized for performing UI testing PropertyActions`.** Nothing in Xcode 27.2 matches `Not authorized for
+  performing`. The literal dates from the pattern list's first commit, so it may never match on current Xcode.
+- **`print system` cannot detect readiness on current runtimes.** On iOS 27.0 its output has no marker, so an unparsable
+  runtime version never counts as booted. Only an unusual version string reaches this branch.

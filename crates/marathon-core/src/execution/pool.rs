@@ -1,8 +1,9 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/DevicePoolActor.kt
 //!
-//! Line by line, including C27 (RemoveDevice removes by serial alone). Device
-//! identity is `DeviceRef` pointer identity; the maps are keyed by serial number
-//! as Kotlin's are, because the queue's replies carry only a `DeviceInfo`.
+//! Line by line, except D40: RemoveDevice compares identity, not the serial alone
+//! (C27). Device identity is `DeviceRef` pointer identity; the maps are keyed by
+//! serial number as Kotlin's are, because the queue's replies carry only a
+//! `DeviceInfo`.
 use crate::error::*;
 use crate::{
     execution::{
@@ -548,8 +549,15 @@ impl DevicePoolActor {
     async fn remove_device(&mut self, device: DeviceRef, task: &TaskContext) -> OperationResult<()> {
         let serial = serial(&device);
         self.debug(&[S("remove device "), J(&serial)]);
-        // By serial alone: a stale disconnect removes the replacement (C27)
-        let actor = self.devices.shift_remove(&serial);
+        // D40: a replacement under the same serial is another instance. An older instance is out
+        // of this map only after its actor was told to terminate or has terminated, so a stale
+        // disconnect has nothing left to do for it (C27).
+        let current = self.devices.get(&serial).is_some_and(|actor| actor.device == device);
+        let actor = if current {
+            self.devices.shift_remove(&serial)
+        } else {
+            None
+        };
         if let Some(actor) = &actor {
             self.terminating_devices.push(actor.device.clone());
             self.release_device(&actor.device);

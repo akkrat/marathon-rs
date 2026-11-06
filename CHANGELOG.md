@@ -38,6 +38,7 @@ Android and Apple fixes of bugs the Kotlin fork has, each an approved difference
   (D38).
 - A test name, an assertion message or an application's log line that contains a device failure text, such as
   `Failed to terminate`, no longer aborts the batch (D39).
+- A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40).
 
 ## 0.11.0
 

@@ -221,9 +221,8 @@ The merged JavaPriorityQueue takes synchronous comparisons. WP 3.2 P2
 supersedes 0.6 D4 for queue construction: prefetch each pool's declared
 history keys off core before building its queue. Comparators read memory
 only, so queue operations stay on core; see model-contract.md.
-RemoveDevice is an intentional exception to replacement identity protection:
-it removes by serial
-alone (`DevicePoolActor.kt:283–290`, C27); preserve that stale-disconnect bug.
+RemoveDevice compares identity too: Kotlin removes by serial alone
+(`DevicePoolActor.kt:283–290`, C27), and D40 fixes that stale-disconnect bug.
 
 ## Timeouts and error control flow
 

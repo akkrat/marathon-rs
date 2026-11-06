@@ -78,9 +78,9 @@ fn failure_text(line: &str) -> Option<&str> {
     if let Some(header) = LOG_HEADER.find(line) {
         let process = header.get(1).map_or("", |process| process.as_str());
         let message = &line[header.get(0).map_or(0, |all| all.end())..];
-        // Only xcodebuild, simctl and the test runner print into xcodebuild's stdout besides the
-        // application under test. XCTest also runs inside a hosted test's application, whose name
-        // says nothing, so there the framework's own sentences still count.
+        // Besides the application under test, these tools are expected to write here. XCTest also
+        // runs inside a hosted test's application, whose name says nothing, so there the
+        // framework's own sentences still count.
         let tool = process == "xcodebuild" || process == "simctl" || process.ends_with("Runner");
         return (tool || is_framework_sentence(message)).then_some(line);
     }

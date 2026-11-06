@@ -393,3 +393,12 @@ be missed. A failure text inside an assertion now fails that test, not the batch
 holding one still aborts, since it cannot be told from a real failure. Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [A48](known-kotlin-bugs.md) and the
 [x17 findings](wp/x17-findings.md).
+
+## D40 — A stale disconnect leaves a device's replacement alone
+
+Kotlin removes a device from its pool by serial alone, so a delayed disconnect for an old device could remove its
+replacement with the same serial. Native builds compare the device instance, as readiness and termination already do.
+The old device has already been told to terminate by then, and its batch comes back. No provider path found today sends
+that order, so this makes the pool right on its own. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C27](known-kotlin-bugs.md) and the
+[x17 findings](wp/x17-findings.md).
