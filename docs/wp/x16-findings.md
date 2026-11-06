@@ -160,13 +160,20 @@ and the other stream stops too. No consumer reads one stream to its end before t
 collect in two tasks, and `consume_output` joins both. So a stream stops only because a callback is stuck, or nobody
 consumes at all. Then:
 
-| What ends it | How | Needs window? | Test (fake and real OpenSSH) |
-|---|---|---|---|
-| The consumer resumes | A read that returns data grants credit up to the cap again; nothing is lost | - | `reading_only_stderr_blocks_at_the_cap_…_d37`, `d37_reading_only_stderr_…` |
-| Command timeout | `exit_code` sends TERM, then CLOSE, with a null exit code. Every command has a finite timeout (`Durations.INFINITE` is 7 days) | No | `a_stuck_consumer_is_ended_by_the_command_timeout_d37`, `d37_a_stuck_consumer_…` |
-| Idle timeout | The other stream's reader is not blocked. It sees no data, so its idle check fires and fails the consumer | No | `a_stuck_consumer_is_ended_by_the_idle_timeout_d37` |
-| Session close | TERM, CLOSE, then the line channels are cancelled, which frees a producer stuck on a full one | No | `a_session_blocked_at_the_cap_closes_d37`, `d37_a_stuck_consumer_…` (1 ms) |
-| Cancellation | Producers and consumers select on it | No | Existing session tests |
+| What ends it | How | Needs window? | Real OpenSSH 10.5p1, at the cap | Fake, at the cap |
+|---|---|---|---|---|
+| The consumer resumes | A read that returns data grants credit up to the cap again; nothing is lost | - | All data, exit 7 (`d37_reading_only_stderr_…`) | All data, exit 0 (`reading_only_stderr_blocks_at_the_cap_…_d37`) |
+| Command timeout | `exit_code` sends TERM, then CLOSE, with a null exit code. Every command has a finite timeout (`Durations.INFINITE` is 7 days) | No | Exit null (`d37_at_the_cap_other_sessions_flow_and_the_command_timeout_ends_it_…`) | TERM sent; exit null, or the 30 s close wait expires (`a_stuck_consumer_at_the_cap_is_ended_by_the_command_timeout_d37`) |
+| Idle timeout | The other stream's reader is not blocked. It sees no data, so its idle check fires and fails the consumer | No | `TimeoutException` (`d37_at_the_cap_the_idle_timeout_ends_it_…`) | `TimeoutException` (`a_stuck_consumer_at_the_cap_is_ended_by_the_idle_timeout_d37`) |
+| Session close | TERM, CLOSE, then the line channels are cancelled, which frees a producer stuck on a full one | No | Returns in 0 ms (`d37_at_the_cap_close_returns_…`) | TERM sent; returns, or the 30 s close wait expires (`a_session_blocked_at_the_cap_can_be_closed_d37`) |
+| Cancellation | Producers and consumers select on it | No | - | Existing session tests |
+
+**How these tests know they reached the cap.** They would otherwise block on the initial window, as an earlier version of
+them did: with stderr once per MiB, each stderr read found the window above the 512 KiB threshold and granted nothing, so
+the session stopped near 2 MiB, which is pre-D37 behaviour and passes without the fix. So the floods now write stderr
+every 64 KiB, and `ssh::wait_for_the_cap` requires `ConnectionShared::peak_unread` to reach exactly 16,777,215. That
+counter exists only under the `test-support` feature. The command timeout fires when the test says so, through
+`GatedTimeoutClock`, so it cannot race the way to the cap on a loaded host.
 
 A stuck callback could always stall its own consumer until one of these fires; D37 adds no such path, and only at the
 cap does it replace the connection's death with that wait. A worker that finished writing while its output sits behind
@@ -178,12 +185,17 @@ queue without ever waiting for a consumer (it only appends to `State`), and wind
 channel's own writer task. `reading_only_stderr_blocks_at_the_cap_…_d37` runs a command on the same connection while
 blocked, and `stalled_consumer_blocks_only_its_own_channel` also has the keep-alive answered.
 
-russh does have one shared stall, and the fake's server side hit it in about 1 run in 10 (see Incidental bugs): its
-session loop takes no message from any channel's handle while any channel has `pending_data`. The client's loop has the
-same gate (`client/mod.rs`, `can_receive_outbound`), so this was checked: `pending_data` only holds a side's own channel
-data, and the executor never sends any; EOF is not sent either. Window adjustments, exec, signals and CLOSE are not
-data. So a client's receive window, closed or open, cannot arm the gate. The test now grants credit only with nothing in
-flight, so that it does not depend on the fake's race; the real OpenSSH run reads at the threshold and has no such gate.
+russh does have one shared stall, and the fake's server side shows it (U152): with data held past the window, its session
+loop takes no message from any channel's handle, and the reply to CLOSE waits too. The client's loop has the same gate
+(`client/mod.rs`, `can_receive_outbound`), so this was checked: `pending_data` only holds a side's own channel data, and
+the executor never sends any; EOF is not sent either. Window adjustments, exec, signals and CLOSE are not data. So a
+client's receive window, closed or open, cannot arm the gate.
+
+This limits what the fake can show. It reached that state in about 1 run in 10 at the cap, so the fake tests assert what
+does not depend on the fake answering: the cap, the connection surviving, TERM on the wire, and a close that either returns
+or ends in exactly the 30 s wait's expiry (2 of 25 runs took that branch). The other session while blocked, the exit code
+of the timeout without that alternative, and the close time are asserted on real OpenSSH only, which has no such gate.
+Those real tests are opt-in, so the gate does not run them.
 
 **The cap's protection.** `receive` keeps its check: `a_peer_that_ignores_the_window_still_hits_the_cap` drives the
 channel directly, since the fake honours the window, and memory stops at the cap with sshj's `Attempted overflow`.
@@ -192,23 +204,25 @@ channel directly, since the fake honours the window, and memory stops at the cap
 
 | | JVM oracle | Before D37 | After, fake | After, real OpenSSH 10.5p1 |
 |---|---|---|---|---|
-| stderr bytes read | 15 | Below 32 | Below 32 | 15 |
+| stderr bytes read | 15 | Below 32 | Below 32 | 15–16 |
 | stdout buffered | 16,744,448 | Above 8 MiB | Within 64 bytes of the cap | 16,777,215 |
 | Connection | Lost | Lost | **Alive** | **Alive** |
-| Next command on it | Fails | Fails | Works | Works |
+| Next command on it, while blocked | Fails | Fails | Not asserted (U152) | Works |
 | After reading stdout | - | - | All 32 MiB, 32 stderr bytes, exit 0 | All 32 MiB, 32 stderr bytes, exit 7 |
 
-**Fails without it:** with the credit computed from the read stream again,
-`reading_only_stderr_blocks_at_the_cap_…_d37` and `d37_reading_only_stderr_…` fail, because the connection dies. The
-timeout and close tests pass on both: they pin the progress guarantee, not the overflow.
+**Fails without it:** with the credit computed from the read stream again, all four of
+`reading_only_stderr_blocks_at_the_cap_…_d37`, `a_stuck_consumer_at_the_cap_…_d37` (both) and
+`a_session_blocked_at_the_cap_can_be_closed_d37` fail on the fake, and all four `d37_*` tests fail on real OpenSSH: the
+connection is lost, at 16,760,832 unread bytes for the three that use a session.
+`both_streams_read_promptly_deliver_everything_d37` passes on both, as it should.
 
 ## What was run
 
 `cargo fmt --check`; `cargo clippy -p marathon-apple -p marathon-ios -p marathon-macos -p marathon-test-support
---all-targets -- -D warnings`; the tests of those four crates; `tests/ssh_real_sshd.rs` in full (19 tests) against two
-throwaway loopback OpenSSH 10.5p1 servers with temporary keys, removed afterwards; `make_registry.py --check` and
-`test_evidence.py`. Each fix was reverted temporarily to see its tests fail. The flood test ran 30 times in a row on its
-own after its fix; there was no stress run.
+--all-targets -- -D warnings`; the tests of those four crates; `tests/ssh_real_sshd.rs` against throwaway loopback OpenSSH
+10.5p1 servers with temporary keys, removed afterwards; `make_registry.py --check` and `test_evidence.py`. Each fix was
+reverted temporarily to see its tests fail. For the D37 tests: 25 runs on the fake (no failures) and 6 on OpenSSH
+(no failures, the cap reached exactly each time). There was no load run.
 
 ## Not verified
 
@@ -220,14 +234,10 @@ own after its fix; there was no stress run.
 ## Incidental bugs
 
 - `LineBuffer` holds a line until it ends, with no limit, and so does Kotlin's. A worker that writes a very long line
-  with no newline grows marathon's memory, whatever the window does: `both_streams_read_promptly_…_d37` first ran on
-  the oracle's newline-free script and held 32 MiB there. D37 keeps the limit it was asked to keep, on the channel's
+  with no newline grows marathon's memory, whatever the window does: `both_streams_read_promptly_…_d37` runs on the
+  oracle's newline-free script and holds 32 MiB there. D37 keeps the limit it was asked to keep, on the channel's
   buffers, and this is left alone.
-- Vendored russh 0.64.1, server side, seen through the fake only. A window adjust does `window_size().update(new_size)`
-  from the session's count, which has not yet subtracted data queued as messages, so a writer can reserve past the
-  real window. The excess lands in `pending_data`, and `server/session.rs` then takes nothing from `receiver` for any
-  channel until that window reopens: exec replies of other sessions wait (the client's 30 s `Timeout expired`). No
-  marathon code runs this in production. It is for docs/found-bugs.md and an upstream report; a number is left to the
-  orchestrator, since other branches are adding rows at the same time.
+- Vendored russh 0.64.1, server side, seen through the fake only: U152 in `docs/found-bugs.md`. Patching it would let
+  the fake assert the strict outcomes too. That is a change to a vendored crate, so it is left for the owner to decide.
 - `docs/research/ssh.md` still says that a failed key exchange is transient (T26/A16). It records what was found at the
   time, so it was not edited.

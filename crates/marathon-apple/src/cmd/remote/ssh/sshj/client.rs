@@ -79,6 +79,8 @@ pub struct ConnectionShared {
     open_failures: Mutex<VecDeque<String>>,
     open_failure_added: Notify,
     next_channel: AtomicU32,
+    #[cfg(feature = "test-support")]
+    peak_unread: std::sync::atomic::AtomicUsize,
 }
 impl ConnectionShared {
     pub(super) fn new(loggers: SshLoggers) -> Arc<Self> {
@@ -93,7 +95,18 @@ impl ConnectionShared {
             open_failures: Mutex::new(VecDeque::new()),
             open_failure_added: Notify::new(),
             next_channel: AtomicU32::new(0),
+            #[cfg(feature = "test-support")]
+            peak_unread: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+    /// The most unread bytes any stream of this connection has held, for tests that must reach the cap.
+    #[cfg(feature = "test-support")]
+    pub fn peak_unread(&self) -> usize {
+        self.peak_unread.load(Ordering::SeqCst)
+    }
+    #[cfg(feature = "test-support")]
+    pub(super) fn note_unread(&self, unread: usize) {
+        self.peak_unread.fetch_max(unread, Ordering::SeqCst);
     }
     pub fn death(&self) -> Option<SshFailure> {
         self.death.lock().unwrap_or_else(|e| e.into_inner()).clone()

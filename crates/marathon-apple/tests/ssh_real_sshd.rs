@@ -411,7 +411,7 @@ async fn d37_reading_only_stderr_keeps_the_connection_on_a_real_sshd() {
     println!("D37.info.real: stderr read {err}, stdout buffered {buffered}");
 
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 60_000).await.unwrap().stdout,
         ["hello"]
     );
     assert_eq!(channel.available(Stream::Stdout), buffered);
@@ -438,48 +438,92 @@ async fn d37_reading_only_stderr_keeps_the_connection_on_a_real_sshd() {
     assert!(executor.connected());
 }
 
+/// With stderr every 64 KiB, rarer than which a stderr read grants nothing and the session stays on the initial window
+/// (see `flood_reaching_the_cap` in `ssh_session.rs`). More than the cap in all.
+const FLOOD_REACHING_THE_CAP: &str = "i=0; while [ $i -lt 512 ]; do yes | head -c 65536; echo e >&2; i=$((i+1)); done";
+
+/// A session on `executor` whose stdout consumer has stopped for good, and that has reached the cap because of it.
+async fn stuck_at_the_cap(
+    executor: &SshCommandExecutor,
+    idle_millis: Option<i64>,
+    context: marathon_core::vendor::VendorContext,
+) -> (
+    Arc<CommandSession>,
+    tokio::task::JoinHandle<marathon_core::error::VendorResult<Option<i32>>>,
+) {
+    let mut flood = request(&["sh", "-c", FLOOD_REACHING_THE_CAP], 600_000);
+    if let Some(idle) = idle_millis {
+        flood.idle_timeout = duration(idle);
+    }
+    let session = Arc::new(executor.execute(flood, context.clone()).await.unwrap());
+    let consumed = session.clone();
+    let consumer = tokio::spawn(async move {
+        consume_output(
+            &consumed.base,
+            &context,
+            |_| std::future::pending(),
+            |_| std::future::ready(Ok(())),
+        )
+        .await
+    });
+    ssh::wait_for_the_cap(executor).await;
+    (session, consumer)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs MARATHON_SSH_REAL"]
-async fn d37_a_stuck_consumer_is_ended_by_timeout_and_close_on_a_real_sshd() {
-    // What guarantees progress when a consumer has stopped, on a worker that blocks behind the closed window.
+async fn d37_at_the_cap_other_sessions_flow_and_the_command_timeout_ends_it_on_a_real_sshd() {
     let executor = connect().await;
-    let stuck = |session: Arc<CommandSession>| {
-        tokio::spawn(async move {
-            consume_output(
-                &session.base,
-                &context(),
-                |_| std::future::pending(),
-                |_| std::future::ready(Ok(())),
-            )
-            .await
-        })
+    let expire = Arc::new(tokio::sync::Notify::new());
+    let gated = marathon_core::vendor::VendorContext {
+        clock: Arc::new(ssh::GatedTimeoutClock::new(expire.clone())),
+        ..context()
     };
-    let script = flood_script(256);
-    let timed = Arc::new(
-        executor
-            .execute(request(&["sh", "-c", &script], 3000), context())
-            .await
-            .unwrap(),
+    let (session, consumer) = stuck_at_the_cap(&executor, None, gated).await;
+    // The blocked channel holds nothing shared: another command on this connection runs while it stays blocked.
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 60_000).await.unwrap().stdout,
+        ["hello"]
     );
-    let consumer = stuck(timed.clone());
-    let exit = tokio::time::timeout(Duration::from_secs(60), timed.base.exit_code.wait())
+    expire.notify_one();
+    let exit = tokio::time::timeout(Duration::from_secs(60), session.base.exit_code.wait())
         .await
         .unwrap();
     assert_eq!(exit, Ok(None));
     consumer.abort();
-    timed.close().await.unwrap();
+    session.close().await.unwrap();
     assert!(executor.connected());
+}
 
-    let closed = Arc::new(
-        executor
-            .execute(request(&["sh", "-c", &script], 600_000), context())
-            .await
-            .unwrap(),
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn d37_at_the_cap_the_idle_timeout_ends_it_on_a_real_sshd() {
+    let executor = connect().await;
+    let (session, consumer) = stuck_at_the_cap(&executor, Some(5000), context()).await;
+    let error = tokio::time::timeout(Duration::from_secs(60), consumer)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error.failure().class.to_string_lossy(),
+        "java.util.concurrent.TimeoutException"
     );
-    let consumer = stuck(closed.clone());
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    session.close().await.unwrap();
+    assert!(executor.connected());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 60_000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn d37_at_the_cap_close_returns_on_a_real_sshd() {
+    let executor = connect().await;
+    let (session, consumer) = stuck_at_the_cap(&executor, None, context()).await;
     let started = Instant::now();
-    tokio::time::timeout(Duration::from_secs(60), closed.close())
+    tokio::time::timeout(Duration::from_secs(60), session.close())
         .await
         .unwrap()
         .unwrap();
@@ -487,7 +531,7 @@ async fn d37_a_stuck_consumer_is_ended_by_timeout_and_close_on_a_real_sshd() {
     consumer.abort();
     assert!(executor.connected());
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 60_000).await.unwrap().stdout,
         ["hello"]
     );
 }

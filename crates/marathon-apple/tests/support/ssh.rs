@@ -314,3 +314,84 @@ pub fn lines(events: &Events) -> Vec<(String, Level, String)> {
         .map(|(logger, level, message, _)| (logger.clone(), *level, message.clone()))
         .collect()
 }
+
+/// `ConfigImpl.maxCircularBufferSize` less one: the most a stream can hold, which D37 keeps a flood at.
+pub const UNREAD_CAP: usize = 16 * 1024 * 1024 - 1;
+/// Waits until a stream has reached the cap. A test that must exercise D37 calls this: a session that blocks on the
+/// initial 2 MiB window behaves the same with or without the fix. The connection dying here is the A32 overflow.
+pub async fn wait_for_the_cap(executor: &SshCommandExecutor) {
+    use marathon_apple::cmd::CommandExecutor;
+    let shared = &executor.connection().shared;
+    let reached = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        while shared.peak_unread() < UNREAD_CAP {
+            assert!(
+                executor.connected(),
+                "the connection was lost at {} unread bytes",
+                shared.peak_unread()
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    assert!(reached.is_ok(), "stopped at {} unread bytes", shared.peak_unread());
+    assert_eq!(shared.peak_unread(), UNREAD_CAP);
+    assert!(executor.connected());
+}
+
+/// The test clock, except that a command's timeout expires when the test says so, however long the command's own
+/// timeout is: a timeout that must fire in a given state cannot race the way to that state on a loaded host.
+pub struct GatedTimeoutClock {
+    inner: super::Clock,
+    expire: Arc<tokio::sync::Notify>,
+}
+impl GatedTimeoutClock {
+    pub fn new(expire: Arc<tokio::sync::Notify>) -> Self {
+        Self {
+            inner: super::Clock::default(),
+            expire,
+        }
+    }
+}
+impl marathon_core::runtime::VendorClock for GatedTimeoutClock {
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.inner.delay(millis, cancellation)
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis, body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        _: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        use marathon_apple::cmd::{SessionScope, cancelled};
+        use marathon_core::error::VendorError;
+        Box::pin(async move {
+            let child = Arc::new(SessionScope::default());
+            let mut future = body(child.clone());
+            tokio::select! { biased;
+                reason = parent.cancelled() => {
+                    child.cancel(reason.clone());
+                    let _ = future.await;
+                    Err(VendorError::Cancelled(reason))
+                },
+                result = &mut future => result.map(Some),
+                _ = self.expire.notified() => {
+                    child.cancel(cancelled("timeout"));
+                    let _ = future.await;
+                    Ok(None)
+                },
+            }
+        })
+    }
+}

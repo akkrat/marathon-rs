@@ -374,6 +374,8 @@ impl ExecChannel {
                 return true;
             }
             buffer.extend(data);
+            #[cfg(feature = "test-support")]
+            self.shared.note_unread(buffer.len());
             false
         });
         if overflow {
