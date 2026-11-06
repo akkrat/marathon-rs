@@ -53,3 +53,53 @@ async fn a_batch_level_failure_keeps_the_simulator() -> TestResult {
     h.finish(&[d]).await;
     Ok(())
 }
+/// Each failure literal in a test's name, an assertion, an activity line and an application's log.
+fn test_text() -> Vec<String> {
+    FAILURE_PATTERNS
+        .iter()
+        .flat_map(|(literal, _)| {
+            [
+                format!("Test Suite '{literal}' started at 2026-11-06 12:08:08.118."),
+                format!("/a/T.swift:33: error: -[Suite test1] : XCTAssertTrue failed - {literal}"),
+                format!("    t =     4.20s Tap \"{literal}\" Button"),
+                format!("2026-11-06 12:08:08.118250+0300 Some App[27239:2608175] [general] {literal}: E"),
+            ]
+        })
+        .collect()
+}
+#[tokio::test(start_paused = true)]
+async fn a_tests_own_text_does_not_end_the_batch_d39() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    let mut lines = test_text();
+    lines.extend(passed(1));
+    lines.extend(passed(2));
+    s.output(lines);
+    let (r, results) = run(&h, &d).await;
+    assert!(r.is_ok(), "{r:?}");
+    let results = results.unwrap();
+    assert_eq!(results.finished.len(), 2);
+    assert!(results.uncompleted.is_empty());
+    assert!(!d.lost());
+    assert!(!d.retired());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_real_failure_after_a_tests_own_text_still_ends_the_batch_d39() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    let mut lines = test_text();
+    lines.extend(passed(1));
+    lines.push("2026-11-06 12:08:08.118250+0300 Tests-Runner[1:2] Terminating since there is no system app.".into());
+    lines.extend(passed(2));
+    s.output(lines);
+    let (r, results) = run(&h, &d).await;
+    assert!(matches!(r, Err(marathon_core::error::VendorError::DeviceLost(_))));
+    let results = results.unwrap();
+    assert_eq!(results.finished.len(), 1);
+    assert_eq!(results.uncompleted.len(), 1);
+    assert!(d.retired());
+    h.finish(&[d]).await;
+    Ok(())
+}

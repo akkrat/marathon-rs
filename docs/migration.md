@@ -278,6 +278,9 @@ These fix bugs that Kotlin has, and need no configuration change.
 - **A failed readiness probe means not running**
   ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)). On a host so slow that the probe times out for
   the whole of `bootWait`, a simulator is now booted once more and then leaves its pool. Raise `shell` if that happens.
+- **A test's own text does not abort its batch**
+  ([D39](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch)). A failure text inside an assertion now fails
+  that test and not the batch, so a batch whose application cannot launch may run longer, test by test.
 
 ## Trial and rollback
 

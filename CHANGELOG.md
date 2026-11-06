@@ -36,6 +36,8 @@ Android and Apple fixes of bugs the Kotlin fork has, each an approved difference
   failing analytics backend the log has more warnings and timing lines (D34).
 - A failed or timed-out simulator readiness probe now means the simulator is not running yet, on every iOS runtime
   (D38).
+- A test name, an assertion message or an application's log line that contains a device failure text, such as
+  `Failed to terminate`, no longer aborts the batch (D39).
 
 ## 0.11.0
 

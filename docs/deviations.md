@@ -382,3 +382,14 @@ poll. Only a probe that fails for the whole of `bootWait` shuts the simulator do
 out of its pool, and no probe result erases a simulator. The commands are unchanged. Approved 2026-11-06 (user
 decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A41](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
+
+## D39 — A test's own text does not abort its batch
+
+Kotlin looks for its device failure texts anywhere in xcodebuild's output, so a test named after one, an
+assertion message or an application's log line holding one aborts the batch. Native builds ignore these texts in
+test and suite names, assertion lines, UI test activity lines, Swift Testing events and an application's log lines.
+Every other line matches as before, including `xcodebuild`, `simctl` and test runner logs, so no real failure should
+be missed. A failure text inside an assertion now fails that test, not the batch, and later tests go on. A raw `print`
+holding one still aborts, since it cannot be told from a real failure. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [A48](known-kotlin-bugs.md) and the
+[x17 findings](wp/x17-findings.md).
