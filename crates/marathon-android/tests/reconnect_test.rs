@@ -589,7 +589,7 @@ pub fn ran_on(observed: &Observed) -> (usize, BTreeMap<String, (bool, bool)>) {
         // D27: the step that now holds the dropped device in prepare, `logcat -c`, only logs its failure, where the
         // JVM's `rm -r` fails prepare. So the drop that ends the hold can finish prepare first, and one batch can start
         // on a device whose Disconnected is on its way. It is returned at once and runs again elsewhere. Only one per
-        // device: more would be batches really handed to a lost device, which the map must prevent (D24).
+        // device: more would be batches really handed to a lost device, which its queued Disconnected must prevent.
         let dropped = mine.clone().any(|e| !e.connect && e.serial == *serial);
         if dropped
             && drop.is_some_and(|d| *start >= d)

@@ -453,7 +453,7 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
     };
     use std::sync::Arc;
     #[derive(Default)]
-    struct Lost(tokio::sync::Notify, tokio::sync::Notify);
+    struct Lost(tokio::sync::Notify, std::sync::atomic::AtomicUsize);
     impl AndroidBatchExecutor for Lost {
         fn execute<'a>(
             &'a self,
@@ -465,7 +465,7 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
             _: VendorContext,
         ) -> VendorFuture<'a, ()> {
             Box::pin(async move {
-                self.1.notify_one();
+                self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 self.0.notified().await;
                 Err(VendorError::DeviceLost(Failure {
                     class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
@@ -522,7 +522,22 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
                 tokio::time::timeout(std::time::Duration::from_secs(60), running).await,
             ));
             assert!(matches!(outcome, Err(VendorError::DeviceLost(_))), "{outcome:?}");
+            // Each batch must be past the gate before its server goes, or it would wait for the server to return.
+            let entered = |count: usize| {
+                let lost = lost.clone();
+                async move {
+                    checked(
+                        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                            while lost.1.load(std::sync::atomic::Ordering::SeqCst) < count {
+                                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                            }
+                        })
+                        .await,
+                    );
+                }
+            };
             let running = batch();
+            entered(2).await;
             server.kill(Some(std::time::Duration::from_secs(2)));
             checked(
                 tokio::time::timeout(std::time::Duration::from_secs(60), async {
@@ -541,7 +556,7 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
             // The fast restart: the server answers again, so the probe alone would call this a device loss, but its
             // list has not settled, because the device is not on it yet.
             let running = batch();
-            checked(tokio::time::timeout(std::time::Duration::from_secs(60), lost.1.notified()).await);
+            entered(3).await;
             server.kill(Some(std::time::Duration::from_millis(200)));
             checked(
                 tokio::time::timeout(std::time::Duration::from_secs(60), async {

@@ -252,7 +252,7 @@ The Linux gate was not run: the orchestrator runs `scripts/remote-check.sh`.
 A cross-family review of `92854034` found no false-green, lost-test or unbounded-hang path. Its findings:
 
 - **Fixed: a fast server restart could retire the last device.** A batch's device loss was judged only by probing `host:version`, so a server that had already returned made it a real device loss, and the run ended. The tracker's flag now counts too, until the list has settled. `device_loss_counts_only_while_the_server_is_there_d22` covers it and fails without the fix.
-- **Fixed: giving up on a server released waiting batches before the disconnects landed,** so they failed on the dead server and used retry quota. The flag is now set after the disconnects are handled.
+- **Fixed: giving up on a server released waiting batches before the disconnects landed,** so they failed on the dead server and used retry quota. The flag is now set after the provider's loop has handled the disconnects (devices disposed, events queued); a released batch can still race the pool's removal, once per device actor.
 - **Fixed: the `ran_on` allowance skipped any number of batches.** Now one per dropped device.
 - **Documented, not fixed: an emulator that itself restarted during an outage keeps its actor without being prepared again.** It cannot be told apart from a plain server restart, and no test covers it. A boot-identity check on resume would be a follow-up.
 - **Accepted: a first partition that times out before `beforeTestRun` loses its failure text** (D28). Its tests still count as uncompleted and are retried, with the generic message.
