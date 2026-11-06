@@ -54,9 +54,18 @@ ignores signals, CLOSE may be all that stops the process, and it now goes out 10
 measured to end on TERM took 8 s (T15t), so T07 and T15t stay as they were. 20 s for the reply is the rest, and only a peer
 that has really stalled uses it.
 
-**An ordinary fast exit is not slower.** The exit report ends step 1, so CLOSE follows within a round trip. The real sshd's
-flood close is 2 ms, T07's 4018 ms against Kotlin's 3996 ms, and T15t's 8025 ms against 8078 ms. A process that ends on TERM
-sees no KILL (`a_fast_exit_on_term_closes_at_once_and_sends_no_kill_d30`).
+**An ordinary fast exit is not slower.** The exit report ends step 1, so CLOSE follows within a round trip, and a process that
+ends on TERM sees no KILL (`a_fast_exit_on_term_closes_at_once_and_sends_no_kill_d30`).
+
+| Real sshd | Kotlin (4.2 findings) | Now, macOS sshd, local | Now, Linux OpenSSH 10.2p1, through a forward |
+|---|---|---|---|
+| T07 close, a process that ignores TERM for 4 s | 3996–4005 ms | 4013 ms | 3940 ms |
+| T15t, a process that ignores TERM for 8 s, timeout branch | 8078 ms | 8021 ms | 7942 ms |
+| T14 close during an output flood | 38 ms | 2 ms | **881 ms** |
+| T30, a process that TERM never ends | Failure after 30 s, process running | 10,004 ms, nothing left | 10,016 ms, nothing left |
+
+The one real cost is the flood: CLOSE no longer goes out with TERM, so the exit report has to come through the output already in
+flight. That is a session closed in the middle of heavy output, which means a cancelled batch, and step 1 bounds it at 10 s.
 
 **Who pays for the later CLOSE.** Only `Xcodebuild::test_without_building` hands out a live session
 (`bin/xcrun/xcodebuild.rs`); other commands are awaited and never closed. So a session is closed with its process still
@@ -99,8 +108,10 @@ null: they do not hang. The connection is not closed, because other sessions may
 (`abandoning_a_session_leaves_the_connection_and_its_other_sessions_alone_d30`). The pump keeps draining the abandoned channel,
 and with no reader the window stops refilling after at most 2 MiB, so that output cannot grow without limit.
 
-**KILL on the real sshd.** `session_signal_req: signal KILL, killpg(…, 9)` reaches the whole process group, so a child that
-inherits the ignored TERM dies too (`t30_kill_ends_a_process_that_ignores_term`: close in 10,004 ms, no process left).
+**KILL on the real sshd.** `session_signal_req: signal KILL, killpg(…, 9)` is in both sshds' logs, so it reaches the whole process
+group, and a child that inherits the ignored TERM dies too (`t30_kill_ends_a_process_that_ignores_term`). sshd answers when the
+session's own process is reaped, and the rest of the group can take a moment longer: one run saw them just after the close, so the
+test polls.
 
 **Failure without it**, by temporary revert of one thing at a time, on `ssh_session.rs`:
 
@@ -207,7 +218,7 @@ the tool it starts (measured: `env NSUnbufferedIO=YES xcrun env` prints it). A u
 
 So `env`. The cost is that `env` must be on the worker's `PATH`, which it is by default on macOS.
 
-**Real sshd** (the throwaway one that `ssh_real_sshd.rs` uses, on this Mac, zsh login shell):
+**Real sshd** (the throwaway one that `ssh_real_sshd.rs` uses, on this Mac with a zsh login shell and on Linux OpenSSH 10.2p1):
 `t32_ns_unbuffered_io_reaches_the_process_and_nothing_else_does` gives `NS=YES F=unset`, and the home directory rather than the
 workdir. With the prefix reverted it gives `NS=unset F=unset`.
 
@@ -247,14 +258,15 @@ no JDK; the five Android cases were left out as no Android code changed.
 
 ## What was verified, and how
 
-Everything below ran on this Mac unless it says otherwise. The real sshd was throwaway: `sshd -D -e -f <temp config>` as the normal
-user, on a random high loopback port, with its own host key and one temporary client key, removed afterwards; no system file was
-touched. The Linux rsync measurements ran over SSH on a Linux box, in a temp directory that was removed.
+Everything below ran on this Mac unless it says otherwise. The real sshds were throwaway: `sshd -D -e -f <temp config>` as the
+normal user, on a random high loopback port, with its own host key and one temporary client key, on this Mac and on a Linux box
+(reached through a standalone `ssh -L`), all removed afterwards; no system file was touched. The Linux rsync measurements ran in a
+temp directory on that box, also removed.
 
 | What | How | Result |
 |---|---|---|
-| `ssh_real_sshd.rs` in full, 17 tests | `MARATHON_SSH_REAL=… cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1` | See the final report for the last run |
-| Durations and exit codes against Kotlin's real-host rows | T07, T14, T15t, T16 in that suite | Match, within the milliseconds of earlier rows |
+| `ssh_real_sshd.rs` in full, 17 tests, against macOS's sshd and Linux OpenSSH 10.2p1 | `MARATHON_SSH_REAL=… cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1` | 17 passed on each |
+| Durations and exit codes against Kotlin's real-host rows | T07, T14, T15t, T16 in that suite | The table under D30; T16's exit codes unchanged |
 | rsync on macOS and Linux | Fake ssh shims, from a hang before the greeting to a slow link | The table under D31 |
 
 ## What was not verified
@@ -264,8 +276,6 @@ touched. The Linux rsync measurements ran over SSH on a Linux box, in a temp dir
   from xcodebuild.
 - **SSH servers that ignore signals.** The escalation's behaviour is shown only on a fake peer that ignores TERM and KILL. Tailscale
   SSH was not run: per the spike, marathon cannot drive a worker through it anyway. Old OpenSSH without signal support was not run.
-- **What D30's `KILL` does on OpenSSH on Linux.** `killpg` was seen in the log of the macOS build's sshd only. The Kotlin evidence
-  rows for Linux are unaffected, but the suite was not re-run against Linux OpenSSH.
 - **rsync 2.6.9 from samba**, which old macOS hosts ship: the flag and the report's wording come from its source history, not a run.
 - **fish** as a login shell.
 

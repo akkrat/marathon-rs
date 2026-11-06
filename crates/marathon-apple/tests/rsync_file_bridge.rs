@@ -576,7 +576,10 @@ fn stalled_send_child_with(mode: &str, program: &Path, extra_path: Option<&Path>
             .and_then(|text| text.trim().parse::<i32>().ok())
         {
             let pid = nix::unistd::Pid::from_raw(pid);
-            if file != "held" && nix::sys::signal::kill(pid, None).is_ok() {
+            // openrsync ends ssh on the bridge's TERM. rsync 3 exits by itself, and what becomes of a hung ssh is its affair,
+            // so the bridge can only answer for rsync there.
+            let answers_for = file == "pid" || (file == "ssh-pid" && cfg!(target_os = "macos"));
+            if answers_for && nix::sys::signal::kill(pid, None).is_ok() {
                 survivors.push(file);
             }
             let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
