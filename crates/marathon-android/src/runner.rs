@@ -364,6 +364,11 @@ impl AndroidDeviceTestRunner<'_> {
                 id: batch.id.clone(),
             };
             let request = self.prepare_request(&configuration, &info, &batch)?;
+            if count > 1 {
+                listener
+                    .on_instrumentation_tests_in(&batch.tests, context.clone())
+                    .await?;
+            }
             let mut channel = None;
             let result = timed(&context, configuration.test_batch_timeout_millis, |signal| {
                 let channel = &mut channel;

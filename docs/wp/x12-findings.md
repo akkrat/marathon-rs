@@ -199,7 +199,7 @@ count such a batch.
 | New internal callback | `before_next_instrumentation_in`, for file sync to prepare and later collect each application's app data. `afterTestRun` runs once, so it pulls every package |
 | A run failure, stuck output or batch timeout in one | Recorded; the next instrumentation runs |
 | A lost device, an error, cancellation in one | The batch ends: one `afterTestRun`, the rest uncompleted, the error returned |
-| Failure text | `TestRunResultsAccumulator::keep_run_failure` (a small addition to core, not used by other vendors): a later run's start would otherwise erase why an earlier one failed. The latest failure wins if there are several |
+| Failure text | `TestRunResultsAccumulator::start_instrumentation` (a small addition to core, not used by other vendors): a later run's start would otherwise erase why an earlier one failed. Each instrumentation's failure is the text of its own tests (WP x20, U151). Until then the latest failure won |
 
 The trap in the listener: results were built at the first `afterTestRun`, when a later partition's tests were still
 missing, which would have counted them uncompleted. Now that is called once, after all ran.
@@ -255,7 +255,7 @@ A cross-family review of `92854034` found no false-green, lost-test or unbounded
 - **Fixed: giving up on a server released waiting batches before the disconnects landed,** so they failed on the dead server and used retry quota. The flag is now set after the provider's loop has handled the disconnects (devices disposed, events queued); a released batch can still race the pool's removal, once per device actor.
 - **Fixed: the `ran_on` allowance skipped any number of batches.** Now one per dropped device.
 - **Documented, not fixed: an emulator that itself restarted during an outage keeps its actor without being prepared again.** It cannot be told apart from a plain server restart, and no test covers it. A boot-identity check on resume would be a follow-up.
-- **Accepted: a first partition that times out before `beforeTestRun` loses its failure text** (D28). Its tests still count as uncompleted and are retried, with the generic message.
+- **Accepted, then fixed by WP x20: a first partition that times out before `beforeTestRun` loses its failure text** (D28). Its tests still counted as uncompleted and were retried, with the generic message. They now have its text (U151).
 - **Accepted: a crafted DEX 041 container costs O(images × file) in table allocation.** No panic or overflow; each image's tables are bounded by the file rather than by its own `file_size`. The input is the user's own test APK.
 
 A second review of `0a9b1266` tried to break the fixes with throwaway tests, on the fake adb. Nothing blocked:
@@ -264,7 +264,7 @@ A second review of `0a9b1266` tried to break the fixes with throwaway tests, on 
 - **D22:** whole runs through the core scheduler: flapping, a device `offline` first or for ever, two servers sharing a serial with overlapping outages, kills at 11 points, and servers that never return. Every run ended, with no duplicate actors and no test requested twice.
 - **D21:** a proxy silencing the fake server confirmed the audit for the kinds it reached.
 - **D26:** 39,444 mutated inputs over the four fixtures, with no panic or hang and no large allocation.
-- **Found:** a test that a later instrumentation did not report can show an earlier instrumentation's failure text (U151). Only the text is wrong.
+- **Found:** a test that a later instrumentation did not report can show an earlier instrumentation's failure text (U151). Only the text is wrong. Fixed by WP x20.
 - **Reasoning only:** remote test parsing has no D22 gate and retries three times without delay, so an outage landing exactly there could use all its attempts. Kills at 50–600 virtual ms with a restart all passed; the case was not produced.
 - **Not reached:** the D24 races (disconnect during `borrow`, setup or a handed-out batch; repeated reconnects); a never-matching md5 through legacy install and file sync; cancellation while polling; prepare over stale files; silent-server runs for streaming, split and legacy install, `host:devices`, and `getprop` during boot; provider termination in the middle of an outage at whole-run level; flapping with a low `uncompletedTestRetryQuota`.
 

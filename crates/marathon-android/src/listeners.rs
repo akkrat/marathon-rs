@@ -42,6 +42,15 @@ pub trait AndroidTestRunListener: Send + Sync {
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
+    /// D28: the batch's next instrumentation, first or later, is about to run these tests, before it clears any data or
+    /// gets as far as `before_test_run_in`. Not called for a batch of one instrumentation.
+    fn on_instrumentation_tests_in<'a>(
+        &'a self,
+        _tests: &'a [Test],
+        _context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
     /// D25: the instrumentation's stream failed, for this reason; a `TestRunFailed` with the same text follows.
     fn on_stream_failed_in<'a>(
         &'a self,
@@ -109,6 +118,18 @@ impl AndroidTestRunListener for CompositeTestRunListener {
         Box::pin(async move {
             for listener in &self.listeners {
                 listener.before_next_instrumentation_in(info, context.clone()).await?;
+            }
+            Ok(())
+        })
+    }
+    fn on_instrumentation_tests_in<'a>(
+        &'a self,
+        tests: &'a [Test],
+        context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            for listener in &self.listeners {
+                listener.on_instrumentation_tests_in(tests, context.clone()).await?;
             }
             Ok(())
         })
@@ -305,15 +326,15 @@ impl TestResultsListener {
     }
 }
 impl AndroidTestRunListener for TestResultsListener {
-    /// D28: the next run's start must not erase why this one failed, which is the text of its uncompleted tests.
-    fn before_next_instrumentation_in<'a>(
+    /// D28: the next run's start must not erase why this one failed, which is the text of its own uncompleted tests.
+    fn on_instrumentation_tests_in<'a>(
         &'a self,
-        _info: &'a InstrumentationInfo,
+        tests: &'a [Test],
         _context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.accumulator.update(|a| {
-                a.keep_run_failure();
+                a.start_instrumentation(tests.to_vec());
                 Ok(())
             })
         })

@@ -98,6 +98,11 @@ impl TemporalResults {
         }
     }
 }
+/// D28: an instrumentation of a batch that is over, and why it failed, if it did.
+struct FinishedInstrumentation {
+    tests: Vec<Test>,
+    failure: Option<JavaString>,
+}
 /// Serial vendor-side owner; callbacks are synchronous and never do I/O.
 /// Adapters deliver `take_logs()` with the shared ordered output after callbacks.
 pub struct TestRunResultsAccumulator {
@@ -113,9 +118,11 @@ pub struct TestRunResultsAccumulator {
     expected_test_count: i32,
     elapsed_time: i64,
     run_failure_message: Option<JavaString>,
-    /// D28 (Android): a failure from an earlier run of the same batch, which `test_run_started` does not clear.
-    earlier_run_failure: Option<JavaString>,
-    /// D28 (Android): how many tests the earlier runs of the same batch reported.
+    /// D28 (Android): the instrumentations of this batch that are over. Empty unless the batch has several.
+    finished_instrumentations: Vec<FinishedInstrumentation>,
+    /// D28 (Android): the tests of the instrumentation running now. Empty unless the batch has several.
+    current_instrumentation: Vec<Test>,
+    /// D28 (Android): how many tests the batch's earlier instrumentations reported.
     tests_of_earlier_runs: usize,
     logs: Vec<LogRecord>,
 }
@@ -137,7 +144,8 @@ impl TestRunResultsAccumulator {
             expected_test_count: 0,
             elapsed_time: 0,
             run_failure_message: None,
-            earlier_run_failure: None,
+            finished_instrumentations: Vec::new(),
+            current_instrumentation: Vec::new(),
             tests_of_earlier_runs: 0,
             logs: Vec::new(),
         })
@@ -187,12 +195,23 @@ impl TestRunResultsAccumulator {
     pub fn has_failed_tests(&mut self) -> bool {
         self.num_all_failed_tests() > 0
     }
-    /// Another run of the same batch follows: the failure so far stays the text of tests that do not complete.
-    pub fn keep_run_failure(&mut self) {
-        if let Some(message) = self.run_failure_message.clone() {
-            self.earlier_run_failure = Some(message);
-        }
+    /// D28: an instrumentation of a batch of several is about to run these tests, and the one before it is over. Its
+    /// failure stays the text of its own tests that do not complete, and of no others.
+    pub fn start_instrumentation(&mut self, tests: Vec<Test>) {
+        let finished = std::mem::replace(&mut self.current_instrumentation, tests);
+        self.finished_instrumentations.push(FinishedInstrumentation {
+            tests: finished,
+            failure: self.run_failure_message.take(),
+        });
         self.tests_of_earlier_runs = self.temporal_test_results.0.len();
+    }
+    /// A test of an instrumentation that is over has that one's failure. Any other has the current failure: its
+    /// instrumentation is the current one, or never ran because the current one ended the batch.
+    fn failure_of(&self, test: &Test) -> Option<&JavaString> {
+        match self.finished_instrumentations.iter().find(|i| i.tests.contains(test)) {
+            Some(finished) => finished.failure.as_ref(),
+            None => self.run_failure_message.as_ref(),
+        }
     }
     /// D25 (Android): this run's output broke off, and that is why a test in progress never finished. Other run
     /// failures leave such a test without a text, as in Kotlin.
@@ -341,8 +360,8 @@ impl TestRunResultsAccumulator {
             .map(|(_, r)| r.end_time)
             .max()
             .unwrap_or(self.creation_time);
-        let trace = || {
-            self.run_failure_message.clone().or_else(|| self.earlier_run_failure.clone()).unwrap_or_else(|| {
+        let trace = |test: &Test| {
+            self.failure_of(test).cloned().unwrap_or_else(|| {
                 "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed"
                     .into()
             })
@@ -355,7 +374,7 @@ impl TestRunResultsAccumulator {
                 status: TestStatus::Incomplete,
                 start_time: start,
                 end_time: self.timer.current_time_millis()?,
-                stacktrace: Some(trace()),
+                stacktrace: Some(trace(test)),
                 attachments: Vec::new(),
             })
         };

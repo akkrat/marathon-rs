@@ -118,7 +118,7 @@ So it also applies to the earlier D25 texts. Other run failures leave that test 
 **Device.** `java.io.EOFException` is not in `means_device_loss`, so a healthy device stays. A device that is really gone is
 reported by `host:track-devices`, as today.
 
-**D28.** The text applies from the current instrumentation's first test on (`tests_of_earlier_runs`, set by `keep_run_failure`), so
+**D28.** The text applies from the current instrumentation's first test on (`tests_of_earlier_runs`, set by `start_instrumentation` since WP x20), so
 a crash in an earlier instrumentation keeps its empty text. The next instrumentation still runs, and tests finished before the cut
 stay finished. A batch of one instrumentation that reaches its code has the same events as before, byte for byte: nothing in this
 path runs unless the stream lacked the code.
@@ -176,7 +176,7 @@ A second-model review of `7546d8b8` found no blocker and ran its own prefix swee
 - **Fixed:** a stream cut inside the protocol's first word, or after a lone line break, was still read as output that never was the protocol. Remote parsing then gave an empty list with no retry, and with several bundles a run could go green without that bundle's tests. Now blank output, or an unfinished last line that could still become the protocol's first word, counts as cut. A first version required text to end in a whole line; the gate refused it, since adam's `test_returns_content_on_failure` pins `something-something` with no line break as ordinary output.
 - **Left, as a limit:** other text followed by a cut can't be told from "never the protocol" on a v1 shell. A v2 stream with no exit packet could be told apart, but no such output has been seen and the first write normally arrives whole.
 - **Left, Kotlin's behaviour, for the owner:** a session that ends with code 0 and a message other than `Process crashed` keeps its partial list (`ordinary_ends_are_not_retried_d25`). It isn't a broken stream, so it's out of this WP's scope, and it is the remaining way a parse can come back short.
-- **Noted:** `remote_parsing_waits_out_an_outage_and_it_uses_up_no_attempt_d22` needs the parser to reach the gate before the tracker has closed and reopened it, a window of the reconnect backoff plus the list settling. A stall longer than that would fail the test. Not seen. U151 can now also carry the cut-stream text to a later instrumentation's unreported test; that is text only.
+- **Noted:** `remote_parsing_waits_out_an_outage_and_it_uses_up_no_attempt_d22` needs the parser to reach the gate before the tracker has closed and reopened it, a window of the reconnect backoff plus the list settling. A stall longer than that would fail the test. Not seen. U151 could also carry the cut-stream text to a later instrumentation's unreported test; that was text only, and WP x20 fixed it.
 
 ## Incidental bugs
 
@@ -188,4 +188,4 @@ No new bug in our own code beyond U152, which is what this WP fixes. Seen nearby
   that failed get a text, by the brief.
 - **`adam` reads the shell's exit byte as signed** (`v2.rs`, 137 as -119). Kept there; the request masks it for its own use.
 - Recorded for the owner and not changed, by the brief: the brief `offline` of a last device ending a run; reverse-forward recovery;
-  U151.
+  U151, since fixed by WP x20.

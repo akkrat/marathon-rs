@@ -194,6 +194,61 @@ fn repeated_runs_keep_records_metrics_and_elapsed_and_replacements_keep_first_ke
     a.test_run_stopped(1).unwrap();
     assert_eq!(a.elapsed_time(), i64::MIN);
 }
+/// U151: each instrumentation of a batch keeps its own failure for its own tests. A test of no instrumentation that is
+/// over has the current failure: its instrumentation is the current one, or never ran as the current one ended the batch.
+#[test]
+fn a_failure_stays_with_the_tests_of_its_instrumentation_u151() {
+    let mut a = TestRunResultsAccumulator::new(ScriptTimer::new(vec![0; 16]), Arc::new(host_millis)).unwrap();
+    let d = device("1");
+    let batch = TestBatch {
+        tests: vec![],
+        id: "batch".into(),
+    };
+    let text = |a: &TestRunResultsAccumulator, name: &str| {
+        a.create_uncompleted_test_results(&[test(name)], &batch, &d).unwrap()[0]
+            .stacktrace
+            .as_ref()
+            .unwrap()
+            .to_string_lossy()
+    };
+    const GENERIC: &str =
+        "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed";
+    a.start_instrumentation(vec![test("a")]);
+    a.test_run_started("run".into(), 1);
+    a.test_run_failed("first".into()).unwrap();
+    assert_eq!(text(&a, "a"), "first");
+    a.start_instrumentation(vec![test("b")]);
+    assert!(!a.is_run_failure());
+    a.start_instrumentation(vec![test("c")]);
+    a.test_run_started("run".into(), 1);
+    a.test_run_failed("third".into()).unwrap();
+    assert_eq!(text(&a, "a"), "first");
+    assert_eq!(text(&a, "b"), GENERIC);
+    assert_eq!(text(&a, "c"), "third");
+    assert_eq!(text(&a, "never ran"), "third");
+}
+/// U151 changes nothing for a batch of one instrumentation, or for another vendor: a new run start clears the failure.
+#[test]
+fn without_instrumentations_a_new_run_clears_the_failure_u151() {
+    let mut a = TestRunResultsAccumulator::new(ScriptTimer::new(vec![0; 8]), Arc::new(host_millis)).unwrap();
+    let d = device("1");
+    let batch = TestBatch {
+        tests: vec![],
+        id: "batch".into(),
+    };
+    a.test_run_failed("failed".into()).unwrap();
+    let r = a.create_uncompleted_test_results(&[test("a")], &batch, &d).unwrap();
+    assert_eq!(r[0].stacktrace, Some("failed".into()));
+    a.test_run_started("run".into(), 1);
+    let r = a.create_uncompleted_test_results(&[test("a")], &batch, &d).unwrap();
+    assert_eq!(
+        r[0].stacktrace,
+        Some(
+            "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed"
+                .into()
+        )
+    );
+}
 #[test]
 fn synthesis_uses_maximum_even_incomplete_or_zero_and_reads_once_per_requested_test() {
     let timer = ScriptTimer::new(vec![100, 101, 102, 103, 104, 105]);

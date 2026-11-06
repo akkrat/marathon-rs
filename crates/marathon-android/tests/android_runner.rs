@@ -85,6 +85,7 @@ fn argument_corpus() {
 #[derive(Default)]
 struct Events {
     values: Mutex<Vec<String>>,
+    instrumentation_tests: Mutex<Vec<Vec<String>>>,
     fail_event: bool,
     fail_after: bool,
     cancel_on_start: Option<Arc<Signal>>,
@@ -113,6 +114,13 @@ impl AndroidTestRunListener for Events {
                 .lock()
                 .unwrap()
                 .push(format!("next:{}", info.instrumentation_package.to_string_lossy()));
+            Ok(())
+        })
+    }
+    fn on_instrumentation_tests_in<'a>(&'a self, tests: &'a [Test], _: VendorContext) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            let methods = tests.iter().map(|t| t.method.to_string_lossy()).collect();
+            self.instrumentation_tests.lock().unwrap().push(methods);
             Ok(())
         })
     }
@@ -921,7 +929,11 @@ fn a_stream_ended_by_provider_shutdown_stays_quiet_d25() {
 fn two_instrumentations(runtime: &Arc<marathon_android::services::AndroidRuntime>) -> (Test, Test) {
     let (one, two) = (test("one"), test("two"));
     runtime.identifier.put(&one, &runtime.bundles[0]);
-    let second = Arc::new(marathon_android::models::AndroidTestBundle::new(
+    runtime.identifier.put(&two, &second_bundle());
+    (one, two)
+}
+fn second_bundle() -> Arc<marathon_android::models::AndroidTestBundle> {
+    Arc::new(marathon_android::models::AndroidTestBundle::new(
         marathon_android::dex_test_parser::DexTestBundleFiles {
             application: None,
             test_application: JavaPath::from_text(&fixture("dex/mutants/manifest-relative-bare.apk").to_string_lossy()),
@@ -929,9 +941,7 @@ fn two_instrumentations(runtime: &Arc<marathon_android::services::AndroidRuntime
             split_apks: vec![],
         },
         &JavaPath::from_text("/"),
-    ));
-    runtime.identifier.put(&two, &second);
-    (one, two)
+    ))
 }
 fn instrumentations(server: &marathon_adb::server::FakeAdbServer) -> Vec<String> {
     commands(server)
@@ -1236,11 +1246,223 @@ fn a_lost_device_ends_the_batch_with_one_result_d28() {
             assert!(instrumentations(&server).is_empty());
             let results = deferred.completed().unwrap().unwrap();
             assert_eq!(names(&results.uncompleted), ["one", "two"]);
+            // U151: the one that never ran has the failure that ended the batch, which is the only reason there is.
+            let text = results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy();
+            assert!(text.starts_with("Instrumentation failed: "), "{text}");
+            assert_eq!(results.uncompleted[1].stacktrace, results.uncompleted[0].stacktrace);
             d.dispose().await?;
             checked(server.shutdown().await);
             Ok(())
         })
     });
+}
+const GENERIC_TEXT: &str =
+    "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed";
+/// The output of an instrumentation with two tests that reports only the first, then ends as given.
+fn reports_only(method: &str, end: &str) -> String {
+    let id = format!("INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test={method}\n");
+    format!(
+        "{id}INSTRUMENTATION_STATUS: numtests=2\nINSTRUMENTATION_STATUS_CODE: 1\n{id}INSTRUMENTATION_STATUS: numtests=2\nINSTRUMENTATION_STATUS_CODE: 0\n{end}"
+    )
+}
+/// A batch of `a` and `b` under one instrumentation and `c` and `d` under another, which report only `a` and `c`: what
+/// the listener gets. With no output for the first, its data clearing hangs, so it never reaches beforeTestRun.
+fn results_of_two_instrumentations(
+    configuration: marathon_config::Configuration,
+    first: Option<String>,
+    second: String,
+) -> Arc<TestBatchResults> {
+    let slot = Arc::new(Mutex::new(None));
+    let out = slot.clone();
+    run(configuration, move |runtime, context| {
+        Box::pin(async move {
+            let mut built = base_script(30, vec!["cmd", "abb_exec", "sendrecv_v2"]);
+            let rules = built["shell"].as_array_mut().unwrap();
+            match first {
+                Some(output) => {
+                    rules.push(json!({"regex":"^am instrument.* -e class pkg.Clazz#a,pkg.Clazz#b ","stdout":output}))
+                }
+                None => rules.push(json!({"exact":"pm clear com.example","hang":true,"times":1})),
+            }
+            rules.push(json!({"prefix":"pm clear ","stdout":"Success\n"}));
+            rules.push(json!({"regex":"^am instrument.* -e class pkg.Clazz#c,pkg.Clazz#d ","stdout":second}));
+            let mut server = server(built).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let tests = vec![test("a"), test("b"), test("c"), test("d")];
+            let other = second_bundle();
+            for (index, test) in tests.iter().enumerate() {
+                if index < 2 {
+                    runtime.identifier.put(test, &runtime.bundles[0]);
+                } else {
+                    runtime.identifier.put(test, &other);
+                }
+            }
+            let batch: BatchRef = Arc::new(TestBatch {
+                tests,
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            *out.lock().unwrap() = deferred.completed().unwrap().ok();
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+    let results = slot.lock().unwrap().take();
+    results.unwrap()
+}
+fn text_of(results: &TestBatchResults, method: &str) -> String {
+    results
+        .uncompleted
+        .iter()
+        .find(|r| r.test.method.to_string_lossy() == method)
+        .and_then(|r| r.stacktrace.as_ref())
+        .map(|s| s.to_string_lossy())
+        .unwrap_or_else(|| panic!("no text for {method}"))
+}
+/// U151: each instrumentation's failure is the text of its own unreported tests, and no other instrumentation's. The
+/// latest failure used to win, so a test could show the reason of an instrumentation it was never part of. The states
+/// are the same in every row, and are what the texts must not change.
+#[test]
+fn a_failure_is_the_text_of_its_own_instrumentations_tests_only_u151() {
+    let crash = "INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n";
+    let other = "INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n";
+    let fine = "INSTRUMENTATION_CODE: -1\n";
+    let cut = "";
+    for (first, second, first_text, second_text) in [
+        (crash, fine, "Process crashed.", GENERIC_TEXT),
+        (fine, crash, GENERIC_TEXT, "Process crashed."),
+        (crash, other, "Process crashed.", "Other"),
+        (other, crash, "Other", "Process crashed."),
+        (cut, fine, STREAM_ENDED, GENERIC_TEXT),
+        (fine, cut, GENERIC_TEXT, STREAM_ENDED),
+        (cut, other, STREAM_ENDED, "Other"),
+        (other, cut, "Other", STREAM_ENDED),
+        (fine, fine, GENERIC_TEXT, GENERIC_TEXT),
+    ] {
+        let results =
+            results_of_two_instrumentations(config(), Some(reports_only("a", first)), reports_only("c", second));
+        assert_eq!(names(&results.finished), ["a", "c"], "{first:?} then {second:?}");
+        assert_eq!(names(&results.uncompleted), ["b", "d"], "{first:?} then {second:?}");
+        assert!(results.failed.is_empty());
+        assert_eq!(text_of(&results, "b"), first_text, "{first:?} then {second:?}");
+        assert_eq!(text_of(&results, "d"), second_text, "{first:?} then {second:?}");
+    }
+}
+/// U151: an instrumentation that timed out before beforeTestRun used to lose its text to the next one's start, as
+/// nothing had told the listener that it was over.
+#[test]
+fn an_instrumentation_that_never_reached_before_test_run_keeps_its_text_u151() {
+    let mut c = config();
+    c.test_batch_timeout_millis = 5000;
+    android(&mut c).application_pm_clear = true;
+    let results = results_of_two_instrumentations(c, None, reports_only("c", "INSTRUMENTATION_CODE: -1\n"));
+    assert_eq!(names(&results.finished), ["c"]);
+    assert_eq!(names(&results.uncompleted), ["a", "b", "d"]);
+    assert_eq!(text_of(&results, "a"), ERROR_STUCK);
+    assert_eq!(text_of(&results, "b"), ERROR_STUCK);
+    assert_eq!(text_of(&results, "d"), GENERIC_TEXT);
+}
+/// U151 leaves a batch of one instrumentation alone. These are the texts of every kind of end, and this test passes
+/// unchanged on the code before the fix.
+#[test]
+fn a_batch_of_one_instrumentation_keeps_its_texts_u151() {
+    for (output, expected) in [
+        ("INSTRUMENTATION_CODE: -1\n".to_owned(), GENERIC_TEXT),
+        (
+            "INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n".to_owned(),
+            "Other",
+        ),
+        (
+            "INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n".to_owned(),
+            "Process crashed.",
+        ),
+        (
+            "INSTRUMENTATION_CODE: 0\n".to_owned(),
+            "Unexpected INSTRUMENTATION_CODE: 0",
+        ),
+        (String::new(), STREAM_ENDED),
+    ] {
+        let output = reports_only("a", &output);
+        run(config(), move |runtime, context| {
+            Box::pin(async move {
+                let mut built = base_script(30, vec!["cmd", "abb_exec", "sendrecv_v2"]);
+                built["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"prefix":"am instrument","stdout":output}));
+                let mut server = server(built).await;
+                let d = device(&server, runtime.clone());
+                d.setup(context.clone()).await?;
+                let tests = vec![test("a"), test("b")];
+                register(&runtime, &tests);
+                let batch: BatchRef = Arc::new(TestBatch {
+                    tests,
+                    id: "batch".into(),
+                });
+                let deferred = Arc::new(SharedDeferred::default());
+                let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+                AndroidDeviceTestRunner { device: &d }
+                    .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                    .await?;
+                let results = deferred.completed().unwrap().unwrap();
+                assert_eq!(names(&results.finished), ["a"]);
+                assert_eq!(names(&results.uncompleted), ["b"]);
+                assert_eq!(text_of(&results, "b"), expected);
+                d.dispose().await?;
+                checked(server.shutdown().await);
+                Ok(())
+            })
+        });
+    }
+}
+/// U151: the listener hears of an instrumentation's tests only in a batch of several.
+#[test]
+fn only_a_batch_of_several_instrumentations_tells_the_listener_their_tests_u151() {
+    for several in [false, true] {
+        run(config(), move |runtime, context| {
+            Box::pin(async move {
+                let mut server = server(script("INSTRUMENTATION_CODE: -1\n", false)).await;
+                let d = device(&server, runtime.clone());
+                d.setup(context.clone()).await?;
+                let (one, two) = two_instrumentations(&runtime);
+                runtime.identifier.put(
+                    &two,
+                    &if several {
+                        second_bundle()
+                    } else {
+                        runtime.bundles[0].clone()
+                    },
+                );
+                let events = Events::default();
+                AndroidDeviceTestRunner { device: &d }
+                    .execute(
+                        runtime.dependencies.configuration.clone(),
+                        Arc::new(TestBatch {
+                            tests: vec![one, two],
+                            id: "batch".into(),
+                        }),
+                        &events,
+                        context,
+                    )
+                    .await?;
+                let told = events.instrumentation_tests.lock().unwrap().clone();
+                if several {
+                    assert_eq!(told, [["one"], ["two"]]);
+                } else {
+                    assert!(told.is_empty(), "{told:?}");
+                }
+                d.dispose().await?;
+                checked(server.shutdown().await);
+                Ok(())
+            })
+        });
+    }
 }
 struct InjectLineFactory;
 struct InjectLine(marathon_android::device::AndroidDevice);
