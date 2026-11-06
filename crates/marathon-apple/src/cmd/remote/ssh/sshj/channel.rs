@@ -33,8 +33,9 @@ const ADJUST_THRESHOLD: u32 = if MAX_PACKET_SIZE * 20 < WINDOW_SIZE / 4 {
 };
 /// `ConfigImpl.maxCircularBufferSize`: each stream's buffer cap, which bounds the window adjustments.
 const MAX_BUFFER: usize = 16 * 1024 * 1024;
-/// D29: how long a rejected `exec` waits for the peer's reply to its CLOSE. No process runs behind a rejected request,
-/// so a healthy peer answers within a round trip, and the slot is free before the caller's next command.
+/// D29: how long an `exec` that failed waits for the peer's reply to its CLOSE. No process runs behind a rejected request,
+/// so a healthy peer answers within a round trip, and the slot is free before the caller's next command. U154: the same
+/// for a request with no reply, where a peer that has stalled will not answer this either, so waiting longer only adds delay.
 const REJECTED_CLOSE_WAIT_MILLIS: i64 = 5_000;
 /// D30: how long a process gets to end on TERM before KILL and CLOSE. Most of Kotlin's 30 s, so xcodebuild has room to
 /// finish its cancellation (how long that takes on a real worker is unmeasured). A server that ignores signals gets its
@@ -161,7 +162,8 @@ impl ExecChannel {
         self.read(|s| s.window)
     }
     /// `exec` with want-reply under the 30 s request timeout; a CHANNEL_FAILURE is `Request failed` (T23), and D29
-    /// closes the channel the request was sent on, so that it does not hold a `MaxSessions` slot.
+    /// closes the channel the request was sent on, so that it does not hold a `MaxSessions` slot. U154 does the same for
+    /// a request with no reply, with Kotlin's expiry still the error, and one line that names the command.
     pub async fn exec(&self, command: String) -> Result<(), SshFailure> {
         let promise = format!("chan#{} / chanreq for exec", self.number);
         self.update(|s| s.command = command.clone());
@@ -187,22 +189,42 @@ impl ExecChannel {
                 true,
             ),
             Some(Err(error)) => (error, false),
-            None => return Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT)),
+            None => {
+                let command = self.read(|s| s.command.clone());
+                self.log_error(format!(
+                    "No reply to exec `{command}` in 30 s: closing its channel. If the worker gets to the request later, the command may still start, and hold its session slot until it ends"
+                ));
+                // No TERM ahead of the CLOSE: on a peer that resumes, sshd takes both in one go and its `killpg` beats the new
+                // process's `setsid`, so the signal is lost (2 of 30 got through, x21 findings).
+                self.close_failed_exec().await;
+                return Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT));
+            }
         };
         self.shared.loggers.woke_to(&promise, &error);
         if rejected {
-            // The caller gets the rejection whatever becomes of the CLOSE: its outcome is deliberately unused.
-            self.request_close();
-            let closing = self.wait_for(|s| s.closed.clone());
-            let _ = within(
-                self.clock.as_ref(),
-                self.scope.clone(),
-                REJECTED_CLOSE_WAIT_MILLIS,
-                closing,
-            )
-            .await;
+            self.close_failed_exec().await;
         }
         Err(error)
+    }
+    /// The caller gets the exec's own error whatever becomes of the CLOSE: its outcome is deliberately unused. A peer that
+    /// never answers keeps the slot; the pump drains what it may still send, so the shared connection is not held up.
+    async fn close_failed_exec(&self) {
+        self.request_close();
+        let closing = self.wait_for(|s| s.closed.clone());
+        let _ = within(
+            self.clock.as_ref(),
+            self.scope.clone(),
+            REJECTED_CLOSE_WAIT_MILLIS,
+            closing,
+        )
+        .await;
+    }
+    fn log_error(&self, message: String) {
+        let loggers = &self.shared.loggers;
+        let logger = loggers
+            .logging
+            .logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor");
+        loggers.logging.log(&logger, Level::Error, || message, None);
     }
     /// `signal(sig)`: no want-reply and no state check, like sshj; a dead transport rejects the write.
     pub fn signal(&self, signal: Sig) -> Result<(), SshFailure> {
@@ -282,20 +304,9 @@ impl ExecChannel {
                 s.abandoned = true;
                 s.command.clone()
             });
-            let loggers = &self.shared.loggers;
-            let logger = loggers
-                .logging
-                .logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor");
-            loggers.logging.log(
-                &logger,
-                Level::Error,
-                || {
-                    format!(
-                        "Abandoning session `{command}`: no reply to TERM, KILL and CLOSE in 30 s. The process may still run on the worker and hold its session slot"
-                    )
-                },
-                None,
-            );
+            self.log_error(format!(
+                "Abandoning session `{command}`: no reply to TERM, KILL and CLOSE in 30 s. The process may still run on the worker and hold its session slot"
+            ));
         }
         self.close_outcome(closed)
     }

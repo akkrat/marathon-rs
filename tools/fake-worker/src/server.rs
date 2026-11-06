@@ -469,6 +469,11 @@ impl russh::server::Handler for Connection {
         if self.shared.config.script.faults.reject_exec {
             return self.reject(ch, "exec", s).await;
         }
+        if let Some(silent) = &self.shared.config.script.faults.silent_exec
+            && String::from_utf8_lossy(data).contains(silent.as_str())
+        {
+            return Ok(());
+        }
         if let Some(d) = &self.shared.config.script.faults.during_exec {
             return self.disconnect(d, "during_exec", s).await;
         }

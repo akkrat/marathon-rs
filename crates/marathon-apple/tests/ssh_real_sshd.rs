@@ -296,6 +296,72 @@ async fn t30_kill_ends_a_process_that_ignores_term() {
     println!("T30.info.close_ms: {close_ms}");
 }
 
+/// U154 on a real sshd, which answers an `exec` only when its session process runs, so that process is stopped to stall the
+/// request. It is stopped after the channel has opened, since an open has its own wait. The whole connection stalls with it,
+/// so neither the reply nor the answer to CLOSE comes, and a second connection resumes it. It then starts the command it had
+/// queued and takes the CLOSE, which is the end of that command's input: `cat` ends, and sshd gives the slot back. Without the
+/// CLOSE, `cat` waits on its input and holds the slot until the connection ends. A command that does not read its input keeps
+/// running: see the x21 findings.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn u154_an_exec_with_no_reply_is_closed_when_the_peer_resumes() {
+    let (stalled, other) = (connect().await, connect().await);
+    // The nearest sshd above the shell handles this connection's packets, with or without privilege separation.
+    let find = "p=$$; while [ \"$p\" -gt 1 ]; do case \"$(ps -o comm= -p \"$p\")\" in *sshd*) echo \"$p\"; exit 0;; esac; p=$(ps -o ppid= -p \"$p\" | tr -d \" \"); done; exit 1";
+    let found = ssh::run(&stalled, &["sh", "-c", find], 10_000).await.unwrap();
+    assert_eq!(found.exit_code, Some(0), "{found:?}");
+    let pid = found.stdout[0].clone();
+    // This run's own text, because the probe below matches command lines.
+    let mark = format!("u154-{}", std::process::id());
+    let channel = stalled.connection().start_session().await.unwrap();
+    assert_eq!(
+        ssh::run(&other, &["kill", "-STOP", pid.as_str()], 10_000)
+            .await
+            .unwrap()
+            .exit_code,
+        Some(0)
+    );
+    let started = Instant::now();
+    let result = channel.exec(format!("sh -c 'cat; echo {mark}'")).await;
+    let waited_ms = started.elapsed().as_millis();
+    // Before any assertion: a failed one must not leave the session process stopped.
+    let resumed = ssh::run(&other, &["kill", "-CONT", pid.as_str()], 10_000)
+        .await
+        .unwrap();
+    assert_eq!(resumed.exit_code, Some(0));
+    // No reply in 30 s, then no answer to CLOSE in 5 s.
+    assert!((35_000..40_000).contains(&waited_ms), "{waited_ms}");
+    let error = format!("{:?}", result.err().unwrap());
+    assert!(error.contains("Timeout expired: 30000 MILLISECONDS"), "{error}");
+    let first = format!("[{}]{}", &mark[..1], &mark[1..]);
+    let probe = format!("pgrep -fl \"{first}\"");
+    let left = ["sh", "-c", probe.as_str()];
+    let mut found = Vec::new();
+    for _ in 0..100 {
+        found = ssh::run(&other, &left, 10_000).await.unwrap().stdout;
+        if found.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if !found.is_empty() {
+        let kill = format!("pkill -f \"{first}\"");
+        let _ = ssh::run(&other, &["sh", "-c", kill.as_str()], 10_000).await;
+    }
+    assert_eq!(
+        found,
+        Vec::<String>::new(),
+        "the late command is still waiting on its input"
+    );
+    // The connection carries on.
+    assert_eq!(
+        ssh::run(&stalled, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
+    );
+    assert!(stalled.connected());
+    println!("U154.info.waited_ms: {waited_ms}");
+}
+
 /// D32 against a real login shell and sshd: the variable reaches the process, while F and the workdir still do not (A2).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs MARATHON_SSH_REAL"]

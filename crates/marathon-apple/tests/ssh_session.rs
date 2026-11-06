@@ -1,5 +1,5 @@
 //! Execute, streams, exit wait, close and keep-alive of the SSH executor on the fake worker: the spike checklist
-//! (T08, T09, T14-T16, T22-T25), D7, D29, D30, D32, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
+//! (T08, T09, T14-T16, T22-T25), D7, D29, D30, D32, U154, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
 mod support;
 use fake_worker::script::{Action, Chunk, Faults, Keepalive};
 use jcompat::logging::Level;
@@ -256,6 +256,133 @@ async fn exec_rejection_by_a_peer_that_never_answers_close_is_still_request_fail
     );
     assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
     assert!(executor.connected());
+}
+
+/// A script where the command `silent` gets no reply, while all others work.
+fn silent_exec_script(withhold_close: bool) -> fake_worker::script::Script {
+    fake_worker::script::Script {
+        faults: Faults {
+            silent_exec: Some("silent".into()),
+            withhold_close,
+            ..Default::default()
+        },
+        ..ssh::suite_script()
+    }
+}
+const NO_REPLY_LINE: &str = "No reply to exec `echo silent` in 30 s: closing its channel. If the worker gets to the request later, the command may still start, and hold its session slot until it ends";
+fn assert_is_the_exec_timeout(failure: &Failure) {
+    // Kotlin's expiry of the same wait, which callers already handle: `safe_execute` returns null for it.
+    assert_eq!(
+        class_chain(failure),
+        [
+            (
+                CONNECTION_EXCEPTION.to_owned(),
+                Some("Timeout expired: 30000 MILLISECONDS".to_owned())
+            ),
+            (
+                TIMEOUT_EXCEPTION.to_owned(),
+                Some("Timeout expired: 30000 MILLISECONDS".to_owned())
+            ),
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_exec_with_no_reply_fails_with_its_timeout_and_gives_its_slot_back_u154() {
+    // One slot, so that a channel left open would make the next command fail to open one. 30 s in compressed time.
+    let fake = ssh::fake(silent_exec_script(false), 1).await;
+    let (executor, events) = executor_with(&fake, 10, 0).await;
+    let started = Instant::now();
+    let failure = other(
+        executor
+            .execute(request(&["echo", "silent"], 5000), context())
+            .await
+            .err()
+            .unwrap(),
+    );
+    assert!(started.elapsed() >= Duration::from_secs(3), "{:?}", started.elapsed());
+    assert_is_the_exec_timeout(&failure);
+    let lines = ssh::lines(&events);
+    let logged: Vec<_> = lines.iter().filter(|(_, level, _)| *level == Level::Error).collect();
+    assert_eq!(logged.len(), 1, "{lines:?}");
+    assert_eq!(logged[0].2, NO_REPLY_LINE);
+    assert!(executor.connected());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ["hello"]
+    );
+    let wire: Vec<_> = fake
+        .transcript()
+        .await
+        .into_iter()
+        .filter_map(|event| {
+            let name = event["event"].as_str().unwrap().to_owned();
+            ["exec", "signal", "client_close"]
+                .contains(&name.as_str())
+                .then_some(name)
+        })
+        .take(2)
+        .collect();
+    assert_eq!(wire, ["exec", "client_close"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_exec_with_no_reply_from_a_peer_that_never_answers_close_still_returns_u154() {
+    let fake = ssh::fake(silent_exec_script(true), 4).await;
+    let (executor, events) = executor_with(&fake, 10, 0).await;
+    let started = Instant::now();
+    let failure = other(
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            executor.execute(request(&["echo", "silent"], 5000), context()),
+        )
+        .await
+        .unwrap()
+        .err()
+        .unwrap(),
+    );
+    // Both waits, 30 s and 5 s, in compressed time.
+    assert!(
+        started.elapsed() >= Duration::from_millis(3500),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_is_the_exec_timeout(&failure);
+    assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
+    // Neither wait logs a `woke to` line: nothing woke them.
+    assert!(
+        !ssh::lines(&events).iter().any(|(logger, ..)| logger == "Promise"),
+        "{:?}",
+        ssh::lines(&events)
+    );
+    assert!(executor.connected());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn other_sessions_keep_working_while_an_exec_waits_for_a_reply_u154() {
+    let fake = ssh::fake(silent_exec_script(false), 4).await;
+    let (executor, _) = executor_with(&fake, 10, 0).await;
+    let silent_request = request(&["echo", "silent"], 5000);
+    let silent_context = context();
+    let waiting = executor.execute(silent_request, silent_context);
+    tokio::pin!(waiting);
+    let mut answered = 0;
+    let failure = loop {
+        tokio::select! {
+            result = &mut waiting => break result.err().unwrap(),
+            result = ssh::run(&executor, &["echo", "hello"], 60_000) => {
+                assert_eq!(result.unwrap().stdout, ["hello"]);
+                answered += 1;
+            }
+        }
+    };
+    assert_is_the_exec_timeout(&other(failure));
+    // Each answer is a round trip on this machine, in the 3 s of the wait; only a connection held up would give none.
+    assert!(answered > 0);
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ["hello"]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

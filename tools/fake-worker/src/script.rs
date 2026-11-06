@@ -127,6 +127,8 @@ pub struct Faults {
     pub withhold_close: bool,
     pub keepalive: Keepalive,
     pub reject_exec: bool,
+    /// An `exec` whose string contains this gets no reply and starts nothing, and its session keeps its slot until closed.
+    pub silent_exec: Option<String>,
     pub before_kex: Option<Disconnect>,
     pub after_auth: Option<Disconnect>,
     pub during_exec: Option<Disconnect>,
