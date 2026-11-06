@@ -4,7 +4,7 @@ use crate::{
     device::AndroidDevice,
     services::AndroidRuntime,
     support::*,
-    tracker::{MultiServerDeviceStateTracker, TrackingUpdate},
+    tracker::{DeviceStateTracker, MultiServerDeviceStateTracker, TrackingUpdate, is_passing},
 };
 use jcompat::{
     file_manager::JavaPath,
@@ -428,27 +428,47 @@ impl AdamDeviceProvider {
             .execute_channel(AsyncDeviceMonitorRequest, None)
             .map_err(adb_error)?;
         let mut settling: Option<Settling<'_>> = None;
+        let mut blips = Blips {
+            clock: clock.as_ref(),
+            cancellation: context.cancellation.clone(),
+            tracker: tracker.clone(),
+            open: vec![],
+            latest: vec![],
+        };
         loop {
             let step = cancellable(context.cancellation.clone(), async {
-                match settling.as_mut() {
-                    Some(window) => tokio::select! {
-                        next = stream.next() => Ok(TrackStep::Next(next)),
-                        elapsed = &mut window.timer => elapsed.map(|()| TrackStep::Settled),
-                    },
-                    None => Ok(TrackStep::Next(stream.next().await)),
+                tokio::select! {
+                    next = stream.next() => Ok(TrackStep::Next(next)),
+                    elapsed = settled(&mut settling) => elapsed.map(|()| TrackStep::Settled),
+                    over = blips.next_over() => over.map(TrackStep::BlipOver),
                 }
             })
             .await?;
             let cause = match step {
                 TrackStep::Next(Some(Ok(devices))) => {
-                    settling = self.on_device_list(&client, devices, settling, tx, &context).await?;
+                    settling = self
+                        .on_device_list(&client, devices, settling, &mut blips, tx, &context)
+                        .await?;
                     continue;
                 }
                 TrackStep::Settled => {
                     if let Some(window) = settling.take() {
-                        self.finish_outage(&client, window.kept, window.latest, tx, &context)
+                        self.finish_outage(&client, window.kept, window.latest, &mut blips, tx, &context)
                             .await?;
                     }
+                    continue;
+                }
+                TrackStep::BlipOver(serial) => {
+                    self.log(
+                        Level::Warn,
+                        &format!("Device {serial} did not return in time; disconnecting it"),
+                        None,
+                    );
+                    blips.close(&serial);
+                    send(tx, Tracked::Devices(client.clone(), blips.shown()))?;
+                    // Only after the disconnect: a batch released sooner fails on the missing device.
+                    handled(tx, context.cancellation.clone()).await?;
+                    tracker.release(&serial);
                     continue;
                 }
                 TrackStep::Next(Some(Err(e))) => Some(adb_error(e)),
@@ -464,6 +484,8 @@ impl AdamDeviceProvider {
                 cause.as_ref().map(VendorError::failure),
             );
             tracker.set_server_available(false);
+            // D41: the outage's own bound now covers a device in its grace period, and the server gate holds its batches.
+            blips.abandon();
             handled(tx, context.cancellation.clone()).await?;
             let kept = tracker.device_serials();
             let recovered = timed(&context, wait, |signal| {
@@ -500,7 +522,9 @@ impl AdamDeviceProvider {
                 }
             };
             stream = new_stream;
-            settling = self.on_device_list(&client, devices, settling, tx, &context).await?;
+            settling = self
+                .on_device_list(&client, devices, settling, &mut blips, tx, &context)
+                .await?;
         }
     }
     /// A list from the stream. While the window after a reconnect is open, a device that was there before the outage
@@ -510,11 +534,12 @@ impl AdamDeviceProvider {
         client: &AndroidDebugBridgeClient,
         devices: Vec<AdbDevice>,
         settling: Option<Settling<'a>>,
+        blips: &mut Blips<'a>,
         tx: &TrackedSender,
         context: &VendorContext,
     ) -> VendorResult<Option<Settling<'a>>> {
         let Some(mut window) = settling else {
-            send(tx, Tracked::Devices(client.clone(), devices))?;
+            self.offer(client, devices, &[], blips, tx, context).await?;
             return Ok(None);
         };
         let listed = |serial: &String| {
@@ -524,7 +549,8 @@ impl AdamDeviceProvider {
         };
         let missing: Vec<String> = window.kept.iter().filter(|s| !listed(s)).cloned().collect();
         if missing.is_empty() {
-            self.finish_outage(client, window.kept, devices, tx, context).await?;
+            self.finish_outage(client, window.kept, devices, blips, tx, context)
+                .await?;
             return Ok(None);
         }
         let mut held: Vec<AdbDevice> = devices
@@ -536,9 +562,109 @@ impl AdamDeviceProvider {
             serial,
             state: DeviceState::Device,
         }));
-        send(tx, Tracked::Devices(client.clone(), held))?;
+        self.offer(client, held, &[], blips, tx, context).await?;
         window.latest = devices;
         Ok(Some(window))
+    }
+    /// D41: a list on its way to the loop that owns the device events. A device with an actor that adb reports as passing
+    /// through `offline` stays `device` in what is sent on, for a limited time, so that it keeps its actor: a pool ends
+    /// with its last device. A real blip reads `offline`, an empty list for up to a second, `offline`, `device`, and an
+    /// emulator that was killed reads `offline`, an empty list, and nothing more, so a device missing from the list during
+    /// its grace has a shorter limit. Devices in `exempt` have had the outage's window and get no grace on top of it.
+    ///
+    /// A list with nothing passing through, with no grace open, is sent as it is, with no request and no wait.
+    async fn offer<'a>(
+        &self,
+        client: &AndroidDebugBridgeClient,
+        devices: Vec<AdbDevice>,
+        exempt: &[String],
+        blips: &mut Blips<'a>,
+        tx: &TrackedSender,
+        context: &VendorContext,
+    ) -> VendorResult<()> {
+        if blips.open.is_empty() && !devices.iter().any(|d| is_passing(d.state)) {
+            return send(tx, Tracked::Devices(client.clone(), devices));
+        }
+        // What this decides by must include all that was sent before.
+        handled(tx, context.cancellation.clone()).await?;
+        let tracker = self.inner.trackers.tracker(client);
+        let server = server_name(client);
+        let provided = |serial: &str| {
+            lock(&self.inner.devices)
+                .get(&(server.clone(), serial.to_owned()))
+                .filter(|p| p.ready.load(Ordering::Acquire))
+                .map(|p| p.device.clone())
+        };
+        let (returned, gone) = blips.update(&devices);
+        for device in devices.iter().filter(|d| is_passing(d.state)) {
+            let serial = &device.serial;
+            // A device still in setup goes through disconnect and connect as ever: its setup has failed by now.
+            if blips.is_open(serial)
+                || returned.contains(serial)
+                || exempt.contains(serial)
+                || tracker.get_state(serial) != Some(DeviceState::Device)
+                || provided(serial).is_none()
+            {
+                continue;
+            }
+            if tracker.blips(serial) >= BLIPS_PER_DEVICE {
+                self.log(
+                    Level::Warn,
+                    &format!("Device {serial} went offline too often; disconnecting it"),
+                    None,
+                );
+                continue;
+            }
+            self.log(
+                Level::Warn,
+                &format!(
+                    "Device {serial} is in state {:?}; waiting up to {BLIP_GRACE_MILLIS} ms for it to return",
+                    device.state
+                ),
+                None,
+            );
+            tracker.hold(serial);
+            blips.open(serial);
+        }
+        let mut restarted = Vec::new();
+        for serial in &returned {
+            match provided(serial) {
+                Some(device) if !device.finished_booting(context).await? => restarted.push(serial.clone()),
+                _ => {}
+            }
+        }
+        blips.latest = devices;
+        let shown = blips.shown();
+        if !restarted.is_empty() {
+            // As after an outage: the normal disconnect, then the normal connect, whose setup waits for the boot.
+            let without = shown
+                .iter()
+                .filter(|d| !restarted.contains(&d.serial))
+                .cloned()
+                .collect();
+            send(tx, Tracked::Devices(client.clone(), without))?;
+        }
+        send(tx, Tracked::Devices(client.clone(), shown))?;
+        if returned.is_empty() && gone.is_empty() {
+            return Ok(());
+        }
+        handled(tx, context.cancellation.clone()).await?;
+        for serial in &returned {
+            if restarted.contains(serial) {
+                self.log(
+                    Level::Warn,
+                    &format!("Device {serial} returned as if restarted; setting it up again"),
+                    None,
+                );
+            } else if let Some(device) = provided(serial) {
+                device.resume_after_blip(context.clone()).await?;
+                self.log(Level::Info, &format!("Device {serial} is back"), None);
+            }
+        }
+        for serial in returned.iter().chain(&gone) {
+            tracker.release(serial);
+        }
+        Ok(())
     }
     /// The real list decides now: a device not on it is disconnected the normal way. A device whose setup the outage
     /// interrupted never had an actor, so it goes through the connect path again. The others keep theirs, with no event,
@@ -548,6 +674,7 @@ impl AdamDeviceProvider {
         client: &AndroidDebugBridgeClient,
         kept: Vec<String>,
         devices: Vec<AdbDevice>,
+        blips: &mut Blips<'_>,
         tx: &TrackedSender,
         context: &VendorContext,
     ) -> VendorResult<()> {
@@ -567,14 +694,14 @@ impl AdamDeviceProvider {
             (interrupted, resumed)
         };
         if !interrupted.is_empty() {
-            let without = devices
-                .iter()
+            let without = blips
+                .shown_of(&devices)
+                .into_iter()
                 .filter(|d| !interrupted.contains(&d.serial))
-                .cloned()
                 .collect();
             send(tx, Tracked::Devices(client.clone(), without))?;
         }
-        send(tx, Tracked::Devices(client.clone(), devices))?;
+        self.offer(client, devices, &kept, blips, tx, context).await?;
         handled(tx, context.cancellation.clone()).await?;
         for device in resumed {
             if device.info().healthy {
@@ -661,7 +788,8 @@ impl DeviceProvider for AdamDeviceProvider {
             loop {
                 let available: Vec<_> = lock(&self.inner.devices)
                     .iter()
-                    .filter(|(_, p)| p.ready.load(Ordering::Acquire))
+                    // D41: a device in its grace period cannot take work now. Never true in a healthy run.
+                    .filter(|(_, p)| p.ready.load(Ordering::Acquire) && !p.device.is_held())
                     .map(|((server, serial), p)| (server.clone(), serial.clone(), p.reference.clone()))
                     .collect();
                 if !available.is_empty() {
@@ -706,6 +834,15 @@ impl DeviceProvider for AdamDeviceProvider {
 /// D22: the wait between attempts to reach a lost adb server.
 const RECONNECT_MIN_MILLIS: i64 = 1000;
 const RECONNECT_MAX_MILLIS: i64 = 8000;
+/// D41: how long a device in a passing state keeps its actor. An adbd restart takes about 1.2 s on a real emulator, and
+/// adb retries a lost TCP device after 250 ms and then every 3 s, so this covers four attempts. See `docs/deviations.md`.
+const BLIP_GRACE_MILLIS: i64 = 10_000;
+/// D41: how long such a device may be missing from the list. The emulator's transport is scanned for once a second: the
+/// empty list lasted up to 1 s in every blip measured, and a killed emulator does not come back.
+const BLIP_MISSING_MILLIS: i64 = 3000;
+/// D41: grace periods per device per run, so that flapping cannot reset the grace for ever. The next `offline` disconnects
+/// the device, as it always did.
+const BLIPS_PER_DEVICE: u32 = 5;
 type TrackedSender = tokio::sync::mpsc::UnboundedSender<VendorResult<Tracked>>;
 /// What the per-server tracking tasks send to the one loop that owns the device events.
 enum Tracked {
@@ -716,12 +853,103 @@ enum Tracked {
 enum TrackStep {
     Next(Option<Result<Vec<AdbDevice>, AdbError>>),
     Settled,
+    BlipOver(String),
 }
 /// The window after a reconnect, in which devices from before the outage may still appear.
 struct Settling<'a> {
     kept: Vec<String>,
     latest: Vec<AdbDevice>,
     timer: VendorFuture<'a, ()>,
+}
+/// Waits for the end of the window; for ever if none is open.
+async fn settled(settling: &mut Option<Settling<'_>>) -> VendorResult<()> {
+    match settling {
+        Some(window) => (&mut window.timer).await,
+        None => std::future::pending().await,
+    }
+}
+/// D41: one device's grace period.
+struct Blip<'a> {
+    serial: String,
+    limit: VendorFuture<'a, ()>,
+    /// Running while the device is missing from the list.
+    missing: Option<VendorFuture<'a, ()>>,
+}
+/// D41: the grace periods open on one adb server, so one server's never reach another's.
+struct Blips<'a> {
+    clock: &'a dyn VendorClock,
+    cancellation: Arc<dyn CancellationSignal>,
+    tracker: Arc<DeviceStateTracker>,
+    open: Vec<Blip<'a>>,
+    latest: Vec<AdbDevice>,
+}
+impl<'a> Blips<'a> {
+    fn is_open(&self, serial: &str) -> bool {
+        self.open.iter().any(|blip| blip.serial == serial)
+    }
+    fn open(&mut self, serial: &str) {
+        self.open.push(Blip {
+            serial: serial.to_owned(),
+            limit: self.clock.delay(BLIP_GRACE_MILLIS, self.cancellation.clone()),
+            missing: None,
+        });
+    }
+    fn close(&mut self, serial: &str) {
+        self.open.retain(|blip| blip.serial != serial);
+    }
+    /// An outage takes over: its own window decides about these devices.
+    fn abandon(&mut self) {
+        self.open.clear();
+        self.tracker.release_all();
+    }
+    /// Reads a new list: the serials that are `device` again, and those in a state that is not passing.
+    fn update(&mut self, devices: &[AdbDevice]) -> (Vec<String>, Vec<String>) {
+        let (mut returned, mut gone) = (vec![], vec![]);
+        for blip in std::mem::take(&mut self.open) {
+            match devices.iter().find(|d| d.serial == blip.serial).map(|d| d.state) {
+                Some(DeviceState::Device) => returned.push(blip.serial),
+                Some(state) if is_passing(state) => self.open.push(Blip { missing: None, ..blip }),
+                Some(_) => gone.push(blip.serial),
+                None => {
+                    let missing = blip
+                        .missing
+                        .unwrap_or_else(|| self.clock.delay(BLIP_MISSING_MILLIS, self.cancellation.clone()));
+                    self.open.push(Blip {
+                        missing: Some(missing),
+                        ..blip
+                    });
+                }
+            }
+        }
+        (returned, gone)
+    }
+    /// The latest list, with the devices in their grace period as `device`.
+    fn shown(&self) -> Vec<AdbDevice> {
+        self.shown_of(&self.latest)
+    }
+    fn shown_of(&self, devices: &[AdbDevice]) -> Vec<AdbDevice> {
+        let mut shown: Vec<AdbDevice> = devices.iter().filter(|d| !self.is_open(&d.serial)).cloned().collect();
+        shown.extend(self.open.iter().map(|blip| AdbDevice {
+            serial: blip.serial.clone(),
+            state: DeviceState::Device,
+        }));
+        shown
+    }
+    /// The next device whose grace is over; for ever if there is none.
+    async fn next_over(&mut self) -> VendorResult<String> {
+        std::future::poll_fn(|cx| {
+            for blip in &mut self.open {
+                let limits = std::iter::once(&mut blip.limit).chain(blip.missing.as_mut());
+                for limit in limits {
+                    if let std::task::Poll::Ready(result) = limit.as_mut().poll(cx) {
+                        return std::task::Poll::Ready(result.map(|()| blip.serial.clone()));
+                    }
+                }
+            }
+            std::task::Poll::Pending
+        })
+        .await
+    }
 }
 fn send(tx: &TrackedSender, message: Tracked) -> VendorResult<()> {
     tx.send(Ok(message))

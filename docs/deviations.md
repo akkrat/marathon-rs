@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D40 and D42; implementation availability
+canonical. This guide covers D1–D42; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -559,6 +559,28 @@ The old device has already been told to terminate by then, and its batch comes b
 that order, so this makes the pool right on its own. Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C27](known-kotlin-bugs.md) and the
 [x17 findings](wp/x17-findings.md).
+
+## D41 — A brief `offline` does not lose the device
+
+Kotlin disconnects a device at its first `offline`, so a transport that returns within a second ends a run on its last
+device. Native builds give a device with a running actor up to 10 s in `offline`, `connecting` or `authorizing`, with no
+configuration change. Meanwhile no batch starts on it and it takes no new work. A test running when the transport dropped is
+retried, as in any lost connection. A device that returns keeps its actor, with its logcat and reverse port forwards restored.
+
+- A device still passing through at 10 s is disconnected, as before but later.
+- A device that goes `offline` and then leaves the list has 3 s, since a real blip passes through an empty list for up to
+  a second. A killed emulator looks like this, so its retry path starts about 3.25 s after it dies, where it was immediate.
+- A device leaving the list directly from `device`, or reaching a state such as `unauthorized`, is disconnected at once.
+- A device that returns still booting went through a reboot, and is set up again as after any disconnect. One that has
+  finished a reboot by then, as from a quick snapshot, is taken for a blip and not prepared again.
+- A device has at most 5 of these per adb server per run. After that it is disconnected at its next `offline`.
+- During a grace `networkState` reads `DISCONNECTED` and `healthy` false in a per-test JSON written then, also if the device
+  returns. A return adds one `getprop` to the commands sent, and a device loss during a batch a `host:devices` in place of
+  D22's `host:version`. A healthy run sends the same commands and events.
+
+A server outage takes over from a grace, and a device still `offline` when the outage's window closes gets no further grace.
+Approved 2026-11-07 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N40](known-kotlin-bugs.md) and the [x19 findings](wp/x19-findings.md).
 
 ## D42 — A remote parse that fails short of its list is a failed attempt
 

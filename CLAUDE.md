@@ -7,7 +7,7 @@ A Rust rewrite of marathon, a test runner for Android, iOS and macOS. The source
 - **Behaviour parity.** The external interface stays exactly as it is: Marathonfile and Marathondevices formats, CLI, exit codes, output files, logs, and the commands sent to workers (PLAN.md §3).
   - Port what the Kotlin code *does*, including its bugs.
   - When you reproduce a Kotlin bug, add or update its row in `docs/known-kotlin-bugs.md`.
-  - The only intentional differences are D1–D40 and D42 (PLAN.md §3.11).
+  - The only intentional differences are D1–D42 (PLAN.md §3.11).
 - **Name the source.** Each ported module starts with `//! Port of <kotlin path relative to the marathon repo>`.
 - **Java semantics live in `jcompat`.** Use `JavaPriorityQueue`, never `BinaryHeap`, for test queues; use the jcompat regex wrapper over the Rust `regex` crate for user-supplied regexes (D6); use the jcompat formatters for anything that reaches an output file or log.
 - **Concurrency** follows `docs/design/lifecycle.md` once it exists (WP 0.6).

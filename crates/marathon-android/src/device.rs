@@ -1,8 +1,13 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamAndroidDevice.kt,
 //! BaseAndroidDevice.kt, AndroidDevice.kt and adam/LogcatManager.kt.
 use crate::{
-    models::*, remote_file_manager::RemoteFileManager, requests::*, services::AndroidRuntime, support::*,
-    tracker::DeviceStateTracker, version::AndroidVersion,
+    models::*,
+    remote_file_manager::RemoteFileManager,
+    requests::*,
+    services::AndroidRuntime,
+    support::*,
+    tracker::{DeviceStateTracker, is_passing},
+    version::AndroidVersion,
 };
 use jcompat::{
     logging::{Level, Logger},
@@ -10,7 +15,7 @@ use jcompat::{
 };
 use marathon_adb::client::{
     AndroidDebugBridgeClient, AsyncChannelRequest, ChannelStream, ComplexRequest, Feature,
-    device::{DeviceState, FetchDeviceFeaturesRequest},
+    device::{DeviceState, FetchDeviceFeaturesRequest, ListDevicesRequest},
     reverse::*,
     shell::v1::ShellCommandRequest,
 };
@@ -34,8 +39,11 @@ use std::{
     },
 };
 
-/// D22: how often `wait_out_server_outage` looks again until the tracker has heard of a lost server.
+/// D22: how often `wait_out_passing_loss` looks again until the tracker has heard of a lost server.
 const OUTAGE_POLL_MILLIS: i64 = 100;
+/// D41: the logcat stream's end and the list reporting the blip come over different sockets, so after a very short blip
+/// the stream may not have ended yet. It has in every real case seen, so this only limits the wait.
+const LOGCAT_END_WAIT_MILLIS: i64 = 1000;
 pub trait AndroidBatchExecutor: Send + Sync {
     fn execute<'a>(
         &'a self,
@@ -84,7 +92,7 @@ struct Inner {
     logcat_listeners: Mutex<Vec<Arc<dyn crate::logcat_listener::LogcatListener>>>,
     logcat: Mutex<Option<Arc<dyn VendorTask>>>,
     /// D22: the logcat stream has ended, as it does when the adb server goes away.
-    logcat_ended: AtomicBool,
+    logcat_ended: tokio::sync::watch::Sender<bool>,
     reverse: Mutex<Vec<RemotePortSpec>>,
     disposal: tokio::sync::Mutex<bool>,
     /// D24: this device object was disconnected. A reconnect makes a new object on the same tracker, whose
@@ -139,7 +147,7 @@ impl AndroidDevice {
                 line_listeners: Mutex::default(),
                 logcat_listeners: Mutex::default(),
                 logcat: Mutex::default(),
-                logcat_ended: AtomicBool::new(false),
+                logcat_ended: tokio::sync::watch::Sender::new(false),
                 reverse: Mutex::default(),
                 disposal: tokio::sync::Mutex::new(false),
                 lost: AtomicBool::new(false),
@@ -153,6 +161,14 @@ impl AndroidDevice {
     fn is_live(&self) -> bool {
         !self.inner.lost.load(Ordering::Acquire)
             && self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device)
+    }
+    /// D41: in its grace period, so listed as `device` to the rest of the run although adb says otherwise.
+    pub(crate) fn is_held(&self) -> bool {
+        self.inner.tracker.is_held(self.adb_serial())
+    }
+    /// D41: how many grace periods this serial has had on its adb server in this run.
+    pub fn grace_periods(&self) -> u32 {
+        self.inner.tracker.blips(self.adb_serial())
     }
     pub fn reference(&self) -> DeviceRef {
         let mut reference = lock(&self.inner.reference);
@@ -529,7 +545,7 @@ impl AndroidDevice {
             .map_err(adb_error)
     }
     fn start_logcat(&self) {
-        self.inner.logcat_ended.store(false, Ordering::Release);
+        self.inner.logcat_ended.send_replace(false);
         let device = self.clone();
         let task = self
             .runtime()
@@ -560,7 +576,7 @@ impl AndroidDevice {
                         Ok(())
                     }
                     .await;
-                    device.inner.logcat_ended.store(true, Ordering::Release);
+                    device.inner.logcat_ended.send_replace(true);
                     if let Err(e) = &result
                         && !matches!(e, VendorError::Cancelled(_))
                     {
@@ -605,7 +621,7 @@ impl AndroidDevice {
     /// lost connections is set up again: the logcat stream, and the reverse port forwards, which a restarted server
     /// has forgotten. Failures are logged; they do not make the device unusable.
     pub(crate) async fn resume_after_server_return(&self, context: VendorContext) -> VendorResult<()> {
-        if self.inner.logcat_ended.load(Ordering::Acquire) {
+        if *self.inner.logcat_ended.borrow() {
             self.stop_logcat().await;
             self.start_logcat();
         }
@@ -632,36 +648,88 @@ impl AndroidDevice {
         }
         Ok(())
     }
-    /// D22: a request failed because the adb server is away, not because of this device.
-    async fn server_is_away(&self, signal: Arc<dyn CancellationSignal>) -> bool {
-        self.request(marathon_adb::client::misc::GetAdbServerVersionRequest, None, signal)
-            .await
-            .is_err()
+    /// D41: this device came back within its grace period. If it restarted meanwhile it is still booting and has lost
+    /// what setup did, so it has to go through setup again: false, as it is if the device does not answer.
+    pub(crate) async fn finished_booting(&self, context: &VendorContext) -> VendorResult<bool> {
+        let props = timed(context, millis(self.timeouts().shell)?, |signal| {
+            Box::pin(self.bounded_request(GetPropRequest, signal))
+        })
+        .await;
+        match props {
+            Err(e @ VendorError::Cancelled(_)) => Err(e),
+            Err(e) => {
+                self.log(
+                    Level::Warn,
+                    "Unable to read a returned device's properties",
+                    Some(e.failure()),
+                );
+                Ok(false)
+            }
+            Ok(None) => Ok(false),
+            Ok(Some(props)) => Ok(props.contains_key("sys.boot_completed")),
+        }
     }
-    /// D22: after a failed request whose caller would retry at once, whether that failure was an outage of the adb
-    /// server, in which case this has waited it out and the caller has not used up a retry. It waits as batches do,
-    /// until the server is back or its devices have been given up; a device given up says false, so the caller's
-    /// retries run out and the run ends. The tracker hears of a dead server at about the same moment as the caller,
-    /// possibly just after: the probe covers that moment, for no longer than a server would get.
-    pub(crate) async fn wait_out_server_outage(&self, context: &VendorContext) -> VendorResult<bool> {
+    /// D41: this device came back, and keeps its actor. What adb closed with the transport comes back as in D22.
+    pub(crate) async fn resume_after_blip(&self, context: VendorContext) -> VendorResult<()> {
+        let mut ended = self.inner.logcat_ended.subscribe();
+        let wait = context
+            .clock
+            .delay(LOGCAT_END_WAIT_MILLIS, context.cancellation.clone());
+        tokio::select! {
+            _ = ended.wait_for(|ended| *ended) => {}
+            elapsed = wait => elapsed?,
+        }
+        self.resume_after_server_return(context).await
+    }
+    /// D22, D41: why a failed request does not count against this device: its adb server is away, or the transport is
+    /// passing through a brief `offline`. The tracker hears of either at about the same moment as the caller, possibly
+    /// just after, so this also asks the server, which takes one `host:devices`, only after a failure. A device on the
+    /// list as `device`, or no longer on it, gives `None`.
+    async fn passing_loss(&self, signal: Arc<dyn CancellationSignal>) -> Option<&'static str> {
+        const SERVER: &str = "the adb server is away";
+        const DEVICE: &str = "the device is briefly offline";
+        if !self.adb_server_available() {
+            return Some(SERVER);
+        }
+        if self.is_held() {
+            return Some(DEVICE);
+        }
+        match self.request(ListDevicesRequest, None, signal).await {
+            Err(_) => Some(SERVER),
+            Ok(devices) => devices
+                .iter()
+                .any(|d| d.serial == self.adb_serial() && is_passing(d.state))
+                .then_some(DEVICE),
+        }
+    }
+    fn is_gate_closed(&self) -> bool {
+        !self.adb_server_available() || self.is_held()
+    }
+    /// D22, D41: after a failed request whose caller would retry at once, whether that failure was an outage of the adb
+    /// server or a device's grace period, in which case this has waited it out and the caller has not used up a retry.
+    /// It waits as batches do, until the way is clear or the device has been given up; a device given up says false, so
+    /// the caller's retries run out and the run ends. The probe covers the moment until the tracker has heard, for no
+    /// longer than a server would get.
+    pub(crate) async fn wait_out_passing_loss(&self, context: &VendorContext) -> VendorResult<bool> {
         let limit = self.runtime().configuration.wait_for_devices_timeout_millis;
         let mut waited = 0;
-        while self.adb_server_available() {
+        while !self.is_gate_closed() {
             if !self.is_live()
                 || self.client().socket_factory().is_closed()
-                || !self.server_is_away(context.cancellation.clone()).await
+                || self.passing_loss(context.cancellation.clone()).await.is_none()
                 || waited >= limit
             {
                 return Ok(false);
             }
-            context
-                .clock
-                .delay(OUTAGE_POLL_MILLIS, context.cancellation.clone())
-                .await?;
+            let poll = context.clock.delay(OUTAGE_POLL_MILLIS, context.cancellation.clone());
+            tokio::select! {
+                elapsed = poll => elapsed?,
+                _ = self.inner.tracker.unavailable(self.adb_serial()) => {}
+            }
             waited += OUTAGE_POLL_MILLIS;
         }
         cancellable(context.cancellation.clone(), async {
-            self.inner.tracker.server_available().await;
+            self.inner.tracker.available(self.adb_serial()).await;
             Ok(())
         })
         .await?;
@@ -723,14 +791,15 @@ impl Device for AndroidDevice {
             },
             model: s.model.clone(),
             manufacturer: s.manufacturer.clone(),
-            // D24: Kotlin freezes CONNECTED at construction (N29).
-            network_state: if self.is_live() {
+            // D24: Kotlin freezes CONNECTED at construction (N29). D41: a device in its grace period is not connected
+            // now, whatever becomes of it, and an attempt ending then says so.
+            network_state: if self.is_live() && !self.is_held() {
                 NetworkState::Connected
             } else {
                 NetworkState::Disconnected
             },
             device_features: s.features.clone(),
-            healthy: self.is_live(),
+            healthy: self.is_live() && !self.is_held(),
         }
     }
     fn abi(&self) -> JavaString {
@@ -806,12 +875,13 @@ impl Device for AndroidDevice {
             context.cancellation.clone(),
             move |signal| {
                 Box::pin(async move {
-                    // D22: during an outage a batch waits, whether the server returns or its devices are given up.
+                    // D22, D41: during an outage or a grace period a batch waits, whatever comes of it.
                     cancellable(signal.clone(), async {
-                        device.inner.tracker.server_available().await;
+                        device.inner.tracker.available(device.adb_serial()).await;
                         Ok(())
                     })
                     .await?;
+                    let blips = device.inner.tracker.blips(device.adb_serial());
                     let outcome = device
                         .runtime()
                         .executor
@@ -827,19 +897,37 @@ impl Device for AndroidDevice {
                             },
                         )
                         .await;
+                    // D41: the actor asks for the next batch as this returns, and a batch given to a device that does
+                    // not come back goes back to the queue charged to its tests, which never ran. So it waits here. An
+                    // actor terminated meanwhile accounts for this batch as usual.
+                    if device.is_held() {
+                        cancellable(signal.clone(), async {
+                            device.inner.tracker.available(device.adb_serial()).await;
+                            Ok(())
+                        })
+                        .await?;
+                    }
                     match outcome {
-                        // D22: the device outlives a lost adb server, so only its batch fails: retiring the last
-                        // device of a pool would end the run before the server returns. The tracker's flag covers the
-                        // time until its list has settled: a server that returned fast already answers the probe.
-                        Err(VendorError::DeviceLost(failure))
-                            if !device.adb_server_available() || device.server_is_away(signal).await =>
-                        {
-                            device.log(
-                                Level::Warn,
-                                "Batch failed because the adb server is away; keeping the device",
-                                Some(&failure),
-                            );
-                            Err(VendorError::BatchExecution(failure))
+                        // D22, D41: the device outlives a lost adb server or a brief `offline`, so only its batch
+                        // fails: retiring the last device of a pool would end the run before it returns. A grace period
+                        // that began during the batch counts, as the server's answer no longer shows it.
+                        Err(VendorError::DeviceLost(failure)) => {
+                            let passing = if device.inner.tracker.blips(device.adb_serial()) != blips {
+                                Some("the device was briefly offline")
+                            } else {
+                                device.passing_loss(signal).await
+                            };
+                            match passing {
+                                Some(why) => {
+                                    device.log(
+                                        Level::Warn,
+                                        &format!("Batch failed because {why}; keeping the device"),
+                                        Some(&failure),
+                                    );
+                                    Err(VendorError::BatchExecution(failure))
+                                }
+                                None => Err(VendorError::DeviceLost(failure)),
+                            }
                         }
                         outcome => outcome,
                     }

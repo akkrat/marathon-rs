@@ -106,9 +106,9 @@ impl AmInstrumentTestParser {
                             self.log(Level::Warn, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_string_lossy(), JavaString(bundle.files.test_application.0.clone()).to_string_lossy(), logcat.to_string_lossy()), None);
                         } else {
                             self.log(Level::Debug, "Remote parsing failed. Retrying", Some(error.failure()));
-                            // D22: the retries have no delay, so an outage would use them all up within its first
-                            // moments, on a server that is about to return.
-                            if !server_is_not_in_question(&error) && device.wait_out_server_outage(&context).await? {
+                            // D22, D41: the retries have no delay, so an outage or a brief `offline` would use them all
+                            // up within its first moments, on a server or device that is about to return.
+                            if !server_is_not_in_question(&error) && device.wait_out_passing_loss(&context).await? {
                                 continue;
                             }
                         }

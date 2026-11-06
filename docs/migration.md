@@ -262,6 +262,9 @@ These fix bugs that Kotlin has, and need no configuration change.
   A server still away after `waitForDevicesTimeoutMillis` (30 s by default) loses its devices. Remote test parsing
   waits for the server too; if it never returns at that stage, the run fails with `NoDevicesException` when
   `deviceInitializationTimeoutMillis` has passed.
+- **A brief `offline` no longer loses a device**
+  ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)). A device gets up to 10 s, 3 s if it also leaves
+  the list, so a killed emulator takes about 3.25 s to reach the retry path, where it was immediate.
 - **A file sync push that never verifies fails after `pushFile`**
   ([D23](deviations.md#d23--waiting-for-a-pushed-file-has-a-limit)).
 - **`networkState` can read `DISCONNECTED`** in a lost device's per-test JSON

@@ -21,6 +21,9 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
 - A run survives an adb server restart: device tracking reconnects, a loopback server is started again, and batches
   wait, as does remote test parsing. A server still away after `waitForDevicesTimeoutMillis` loses its devices, so the
   run still ends (D22).
+- A device that goes `offline` for a moment is kept: it gets up to 10 s to return, with batches waiting, instead of
+  being disconnected at once, which ended a run on its last device. A killed emulator now reaches the retry path after
+  about 3 s instead of at once (D41).
 - A file sync push whose md5 never matches fails after `pushFile`, naming the file, instead of waiting for the
   batch timeout (D23).
 - A disconnected device can no longer be borrowed, and `networkState` reports `DISCONNECTED` once it is lost, which

@@ -353,7 +353,7 @@ Raw `am instrument` ends on API 33 and 36 are in `docs/wp/x18-findings.md`. Not 
 
 **Other observations.**
 
-- **A device going `offline` for a moment ends a run on its last device.** adbd killed in the emulator: `offline`, disconnected at once, run over with exit 1 at 7.5 s, the device back as `device` within 2 s. D22 covers the server going away, not this, so it is unchanged.
+- **A device going `offline` for a moment ends a run on its last device.** adbd killed in the emulator: `offline`, disconnected at once, run over with exit 1 at 7.5 s, the device back as `device` within 2 s. D22 covers the server going away, not this, so it is unchanged. Fixed since by D41 (`docs/wp/x19-findings.md`).
 - **Plain `fixed-size` batching never mixes test APKs**, as it locks a batch to one bundle: two APKs gave two ordinary batches. A mixed batch needed `class-name` batching and one class name in both APKs, so D28's fix applies to few configurations.
 - **Coverage of a mixed batch keeps the last instrumentation's file only:** 2,809 bytes against 11,928 for the first APK alone, the case listed under "Incidental bugs".
 - **D27 leaves an interrupted test's video on external storage, in normal runs too.** After the kill during a video, one `.mp4` stayed in `/sdcard` at the end of a run that exited 0, presumably the interrupted attempt's; its name was not recorded. The names hold a random batch id, so each interruption can add one and no later run removes it. The deviation documents this for aborted runs only. Not a failure, and small.

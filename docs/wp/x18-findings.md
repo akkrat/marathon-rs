@@ -78,7 +78,7 @@ the outer retry can pick it again, as in Kotlin.
 
 ## Parsing during an outage (D22)
 
-`AndroidDevice::wait_out_server_outage` runs after a failed attempt and says whether that failure was an outage it has now
+`AndroidDevice::wait_out_server_outage` (since D41 `wait_out_passing_loss`) runs after a failed attempt and says whether that failure was an outage it has now
 waited out; such an attempt does not count.
 
 - **Gate closed:** it waits at the gate batches use (`DeviceStateTracker::server_available`), with cancellation. The gate has the

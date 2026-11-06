@@ -114,6 +114,8 @@ pub struct Event {
     pub serial: String,
     /// D22: instead of a device event, the whole adb server goes away, returning after this real time if any.
     pub kill: Option<Option<Duration>>,
+    /// D41: instead of a device event, what adb reports for the serial changes; see `apply_state`.
+    pub state: Option<&'static str>,
 }
 
 /// The script with the fake's real-time behaviour removed: no timeline and no `delay_ms` on test runs.
@@ -150,6 +152,7 @@ fn load(name: &str) -> (Value, Vec<Event>, usize) {
                 .unwrap_or_default()
                 .to_owned(),
             kill: None,
+            state: None,
         })
         .collect();
     (script, events, 0)
@@ -293,8 +296,36 @@ fn run_outage(script: &str, at_ms: i64, restart_after: Option<Duration>) -> Obse
         connect: false,
         serial: String::new(),
         kill: Some(restart_after),
+        state: None,
     };
     run_loaded(vec![(script, vec![event], index)])
+}
+
+/// `missing` and `listed` take a device off adb's list and put it back, in the state it had.
+fn apply_state(server: &FakeAdbServer, serial: &str, state: &str) {
+    checked(match state {
+        "missing" => server.disconnect_device(serial),
+        "listed" => server.connect_device(serial),
+        state => server.set_device_state(serial, state),
+    });
+}
+
+/// One server from `script`, whose only events are these changes of what adb reports for emulator-5554.
+fn run_states(script: &str, states: &[(i64, &'static str)]) -> Observed {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (script, _, index) = load(script);
+    let events = states
+        .iter()
+        .map(|(at_ms, state)| Event {
+            server: 0,
+            at_ms: *at_ms,
+            connect: false,
+            serial: "emulator-5554".into(),
+            kill: None,
+            state: Some(state),
+        })
+        .collect();
+    run_loaded(vec![(script, events, index)])
 }
 
 fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
@@ -325,7 +356,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
             !loaded[*server]
                 .1
                 .iter()
-                .any(|event| !event.connect && event.kill.is_none() && event.serial == *serial)
+                .any(|event| !event.connect && event.kill.is_none() && event.state.is_none() && event.serial == *serial)
         })
         .map(|(server, serial)| (ports[*server], serial.clone()))
         .collect();
@@ -465,7 +496,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
                                 requests(&driven[*server], serial, "logcat -v long") >= *times
                             })
                         && (event.connect
-                            || (event.kill.is_some() && healthy_started())
+                            || ((event.kill.is_some() || event.state.is_some()) && healthy_started())
                             || (requests(&driven[event.server], &event.serial, HELD_NOW) >= 1 && healthy_started()));
                     if !ready {
                         assert!(
@@ -481,6 +512,11 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
                     let server = &driven[event.server];
                     if let Some(restart_after) = event.kill {
                         server.kill(restart_after);
+                        next_event += 1;
+                        continue;
+                    }
+                    if let Some(state) = event.state {
+                        apply_state(server, &event.serial, state);
                         next_event += 1;
                         continue;
                     }
@@ -813,6 +849,154 @@ fn a_run_ends_when_its_adb_server_never_returns_d22() {
         observed.virtual_millis
     );
     assert!(observed.received.iter().any(|r| !r.0));
+}
+
+/// D41, the whole run: the sequence a real emulator shows when adbd restarts, on the only device of the pool. Every test
+/// passes on the one actor, and no batch starts while the device is away. In Kotlin, and before D41, the first `offline`
+/// disconnects the device, which ends the pool and the run.
+#[test]
+fn a_run_survives_a_brief_offline_on_its_last_device_d41() {
+    let observed = run_states(
+        "same-server",
+        &[(6000, "offline"), (6250, "missing"), (7250, "listed"), (7300, "device")],
+    );
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert!(observed.received.iter().all(|r| r.0), "{:?}", observed.received);
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 1);
+    assert_eq!(pool_warnings(&observed), 0);
+    // A batch that started before the blip fails once; none starts during it, so none burns a retry there.
+    let during = |b: &&(usize, String, i64)| (6100..7250).contains(&b.2);
+    assert_eq!(
+        observed.batches.iter().filter(during).count(),
+        0,
+        "{:?}",
+        observed.batches
+    );
+    // Its logcat stream came back.
+    let streams = observed.transcripts[0]
+        .iter()
+        .filter(|r| r["type"] == "shell" && r["command"] == "logcat -v long")
+        .count();
+    assert_eq!(streams, 2);
+}
+
+/// D41: a device that stays offline is disconnected when its grace ends, not before, and the run ends. No batch runs on
+/// it meanwhile.
+#[test]
+fn a_device_that_stays_offline_is_disconnected_after_its_grace_d41() {
+    let observed = run_states("same-server", &[(6000, "offline")]);
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert!(
+        (16_000..30_000).contains(&observed.virtual_millis),
+        "{} virtual ms",
+        observed.virtual_millis
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    let during = |b: &&(usize, String, i64)| (6100..16_000).contains(&b.2);
+    assert_eq!(
+        observed.batches.iter().filter(during).count(),
+        0,
+        "{:?}",
+        observed.batches
+    );
+}
+
+/// D41: what a killed emulator shows, `offline` and then nothing. It has the shorter limit, and takes the normal route.
+#[test]
+fn a_killed_emulator_is_disconnected_soon_after_it_leaves_the_list_d41() {
+    let observed = run_states("same-server", &[(6000, "offline"), (6250, "missing")]);
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    // 3 s after it left the list, well before the 10 s of a device that is still listed.
+    assert!(
+        (9250..16_000).contains(&observed.virtual_millis),
+        "{} virtual ms",
+        observed.virtual_millis
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+}
+
+/// D41 with a second device. A batch on the device that goes away ends during its grace, and the actor asks for no next
+/// batch, because a batch given to a device that never returns goes back to the queue charged to its tests, which never
+/// ran. The real check found this: with quota 0 such a test failed without having run.
+#[test]
+fn a_device_in_its_grace_is_given_no_new_batch_d41() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    // Here this device is simply the second one, not the one the script holds in prepare.
+    script["devices"][1]["connected"] = json!(true);
+    script["devices"][1].as_object_mut().unwrap().remove("shell");
+    let event = Event {
+        server: 0,
+        at_ms: 6000,
+        connect: false,
+        serial: "emulator-5554".into(),
+        kill: None,
+        state: Some("offline"),
+    };
+    let observed = run_loaded(vec![(script, vec![event], index)]);
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    let on_it: Vec<_> = observed.batches.iter().filter(|b| b.1 == "emulator-5554").collect();
+    assert!(!on_it.is_empty(), "{:?}", observed.batches);
+    assert!(on_it.iter().all(|b| b.2 < 6000), "{:?}", observed.batches);
+    assert_eq!(actor_messages(&observed, "emulator-5554", "executeBatch "), on_it.len());
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+}
+
+/// D41: a device that vanishes while it is `device` is disconnected at once, as ever.
+#[test]
+fn a_device_that_vanishes_directly_has_no_grace_d41() {
+    let observed = run_states("same-server", &[(6000, "missing")]);
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert!(observed.virtual_millis < 9250, "{} virtual ms", observed.virtual_millis);
+}
+
+/// D41: flapping cannot keep a device, and so a run, going for ever on grace periods.
+#[test]
+fn a_flapping_device_runs_out_of_grace_d41() {
+    let mut states = Vec::new();
+    for flap in 0..20 {
+        states.push((6000 + flap * 2000, "offline"));
+        states.push((7000 + flap * 2000, "device"));
+    }
+    let observed = run_states("same-server", &states);
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    // The sixth `offline` at the latest.
+    assert!(
+        observed.virtual_millis < 20_000,
+        "{} virtual ms",
+        observed.virtual_millis
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
 }
 
 /// D25 (N38), a whole run: the first parse is cut off after one of the twenty tests. The run used to take that one for

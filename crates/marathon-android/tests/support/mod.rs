@@ -71,7 +71,22 @@ pub fn run(
     c: Configuration,
     body: impl FnOnce(Arc<AndroidRuntime>, VendorContext) -> VendorFuture<'static, ()> + Send + 'static,
 ) {
-    checked(CoreExecutor::run(move |core| {
+    checked(CoreExecutor::run(move |core| on_core(core, c, body)));
+}
+/// As [`run`], with a vendor clock that nothing advances: a test can hold a timer open as long as it needs, and a
+/// timer that something wrongly waits for hangs the test.
+pub fn run_with_stopped_clock(
+    c: Configuration,
+    body: impl FnOnce(Arc<AndroidRuntime>, VendorContext) -> VendorFuture<'static, ()> + Send + 'static,
+) {
+    checked(CoreExecutor::run_virtual(move |core, _replay| on_core(core, c, body)));
+}
+fn on_core(
+    core: std::rc::Rc<CoreExecutor>,
+    c: Configuration,
+    body: impl FnOnce(Arc<AndroidRuntime>, VendorContext) -> VendorFuture<'static, ()> + Send + 'static,
+) -> marathon_core::runtime::LocalFuture<'static, marathon_core::error::OperationResult<()>> {
+    {
         Box::pin(async move {
             let hooks = RuntimeHooks::live();
             let logging = core.logging();
@@ -118,7 +133,7 @@ pub fn run(
                 e => OperationError::Failed(e.failure().clone()),
             })
         })
-    }));
+    }
 }
 pub fn base_script(sdk: i32, features: Vec<&str>) -> Value {
     json!({"server":{"strict":true},"devices":[{"serial":"emulator-5554","features":features,"getprop":{"sys.boot_completed":"0","ro.product.cpu.abi":"x86","ro.build.version.sdk":sdk,"ro.build.version.codename":"REL","ro.product.model":"Android SDK built for x86","ro.product.manufacturer":"Google","ro.boot.serialno":"EMULATOR30X6X5X0"}}],"shell":[
