@@ -1000,7 +1000,8 @@ fn consume_with_stuck_stdout(
 
 /// How a close at the cap may end on the fake: at once, or by the client's 30 s bound expiring (D30). Its russh session
 /// can hold bytes past the window, and then defers the exit status and the CLOSE reply until they drain, which here is
-/// never (U153). OpenSSH answers at once, which `ssh_real_sshd.rs` asserts. Nothing else is accepted.
+/// never (U153). OpenSSH answers at once, which `ssh_real_sshd.rs` asserts. Nothing else is accepted. This can't tell a
+/// close that worked from one that never got a reply: the strict outcomes are only in those opt-in tests.
 fn assert_closed_or_close_wait_expired(result: Result<(), VendorError>) {
     if let Err(error) = result {
         assert_eq!(
@@ -1166,8 +1167,8 @@ async fn a_read_after_the_close_only_queues_an_adjust_that_russh_skips_d37() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_transport_that_dies_during_the_close_is_a_connection_failure_d36() {
-    // D30's KILL is written to a dead transport only to be rejected. The close ends at once with the connection
-    // failure, and the next command finds the connection gone: nothing here is a state error.
+    // The transport dies during D30's TERM wait, which then ends, so no KILL is attempted. The close ends at once with
+    // the connection failure, and the next command finds the connection gone: nothing here is a state error.
     let hanging = Action::Output {
         chunks: vec![],
         status: 0,

@@ -361,7 +361,8 @@ impl Inner {
     /// for ever if ssh is hung. TERM ends openrsync and its ssh. `sshpass` is another matter: it exits on TERM at once and
     /// leaves rsync and a real ssh running, so under it rsync gets the TERM too, and its step before KILL. A process group
     /// would be simpler, but it would keep rsync from a terminal's Ctrl-C on every send. On return the child is reaped, so
-    /// a retry cannot overlap it.
+    /// a retry cannot overlap it, except for an rsync under `sshpass` that ignores TERM when its identity can't be read
+    /// again: it gets no KILL.
     async fn stop_stalled_send(&self, child: &mut Child) -> VendorResult<ExitStatus> {
         use nix::{sys::signal, unistd::Pid};
         let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
