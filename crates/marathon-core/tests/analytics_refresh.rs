@@ -12,7 +12,7 @@ use marathon_core::{
         shared::{failure, requested},
     },
     model::*,
-    runtime::ServiceFuture,
+    runtime::{CancellationSignal, ServiceFuture},
     strategy::{BatchingStrategy, FlakinessStrategy, MetricsKey, MetricsLookup, SortingStrategy, TestQueue},
     wiring::MetricsProvider,
 };
@@ -360,6 +360,69 @@ fn the_runs_cancellation_ends_a_pending_refresh_without_a_query_or_a_log() {
         tokio::task::yield_now().await;
         assert_eq!(source.calls.lock().unwrap().len(), 3);
         assert!(h.logs.take().is_empty());
+    });
+}
+/// A run's signal that fires and then stops firing, which a real one never does, so that a test
+/// can see what a refresh the run cancelled leaves behind for a later failure. It reports no
+/// reason, so a prefetch still gets as far as starting a refresh.
+struct Refiring(tokio::sync::watch::Sender<bool>);
+impl CancellationSignal for Refiring {
+    fn reason(&self) -> Option<Cancellation> {
+        None
+    }
+    fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Cancellation> + Send + '_>> {
+        Box::pin(async move {
+            let _ = self.0.subscribe().wait_for(|fired| *fired).await;
+            requested("aborted")
+        })
+    }
+}
+/// The next failure starts a task of its own, and its rounds hold only its own key.
+async fn the_next_failure_starts_a_clean_refresh(h: &Harness, p: &Analytics, source: &Source, delays: usize) {
+    p.prefetch(&[key(90.0)]).await.unwrap();
+    assert_eq!(h.running.load(AtomicOrdering::SeqCst), 1);
+    h.clock.refresh_delay_started(delays + 1).await;
+    assert_eq!(h.clock.refresh_delays.lock().unwrap()[delays], 5000);
+    source.calls.lock().unwrap().clear();
+    h.clock.release_refreshes(1);
+    h.clock.refresh_delay_started(delays + 2).await;
+    assert_eq!(*source.calls.lock().unwrap(), vec![key(90.0)]);
+    p.close().await.unwrap();
+}
+fn refiring_harness() -> (Harness, Arc<Refiring>, Arc<Source>) {
+    let mut h = Harness::new();
+    let signal = Arc::new(Refiring(tokio::sync::watch::channel(false).0));
+    h.context.cancellation = signal.clone();
+    let source = Arc::new(Source {
+        failure: true,
+        ..Source::default()
+    });
+    (h, signal, source)
+}
+#[test]
+fn a_refresh_the_run_cancels_leaves_no_stale_handle_for_the_next_failure() {
+    run(async {
+        let (h, signal, source) = refiring_harness();
+        let p = h.provider(source.clone(), 300000, None);
+        p.prefetch(&[key(80.0)]).await.unwrap();
+        h.clock.refresh_delay_started(1).await;
+        signal.0.send_replace(true);
+        until_idle(&h).await;
+        signal.0.send_replace(false);
+        the_next_failure_starts_a_clean_refresh(&h, &p, &source, 1).await;
+    });
+}
+#[test]
+fn a_refresh_the_run_cancels_before_its_first_poll_leaves_no_stale_handle_either() {
+    run(async {
+        let (h, signal, source) = refiring_harness();
+        let p = h.provider(source.clone(), 300000, None);
+        signal.0.send_replace(true);
+        p.prefetch(&[key(80.0)]).await.unwrap();
+        until_idle(&h).await;
+        assert!(h.clock.refresh_delays.lock().unwrap().is_empty());
+        signal.0.send_replace(false);
+        the_next_failure_starts_a_clean_refresh(&h, &p, &source, 0).await;
     });
 }
 #[test]

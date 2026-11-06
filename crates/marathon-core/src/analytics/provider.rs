@@ -121,6 +121,23 @@ impl MetricsProviderImpl {
         Ok(())
     }
 }
+/// Clears a refresh that stops early, however it stops: at a cancelled await, or dropped by the
+/// run's cancellation, at an await or before its first poll. A stale `task` would stop the next
+/// failure starting a refresh. A refresh that runs out of keys disarms this under the lock, since
+/// by the time this drops, a new failure may have started the next task.
+struct RefreshEnd<'a> {
+    shared: &'a Shared,
+    armed: bool,
+}
+impl Drop for RefreshEnd<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let mut refresh = self.shared.refresh();
+            refresh.failed.clear();
+            refresh.task = None;
+        }
+    }
+}
 /// The history of one moment: what a comparator keeps for its queue's lifetime, and a batch
 /// or a flakiness pass for its own (D34). What a test observed in this run stays live.
 struct PinnedMetrics {
@@ -261,8 +278,13 @@ impl Shared {
             // On the vendor runtime, so replay's quiescence sees it like any other vendor work.
             refresh.task = Some(self.context.vendor.spawn_cancellable(Box::new(move |signal| {
                 Box::pin(async move {
+                    // Outside the race: the run's cancellation can win before `run_refresh` first runs.
+                    let mut end = RefreshEnd {
+                        shared: &shared,
+                        armed: true,
+                    };
                     let run = shared.context.cancellation.clone();
-                    race(run.cancelled(), shared.run_refresh(signal)).await;
+                    race(run.cancelled(), shared.run_refresh(signal, &mut end)).await;
                     Ok(())
                 })
             })));
@@ -270,37 +292,30 @@ impl Shared {
     }
     /// Rounds, not one timer per key: one query at a time, in an order that depends only on the
     /// order the keys failed in. The refresh ends once no key is left to retry.
-    async fn run_refresh(&self, signal: Arc<dyn CancellationSignal>) {
+    async fn run_refresh(&self, signal: Arc<dyn CancellationSignal>, end: &mut RefreshEnd<'_>) {
         for round in 0.. {
             let delay = REFRESH_DELAYS_MILLIS[round.min(REFRESH_DELAYS_MILLIS.len() - 1)];
             if self.context.clock.delay(delay, signal.clone()).await.is_err() {
-                break;
+                // Cancelled, or its clock failed.
+                return;
             }
             let keys: Vec<MetricsKey> = self.refresh().failed.iter().map(|(key, _)| *key).collect();
             for key in keys {
                 // One attempt: the delays above are the retries.
-                match self.fetch(key, 1, 0, signal.clone()).await {
-                    Ok(fetched) => self.refreshed(key, fetched),
-                    Err(_) => {
-                        // Cancelled, as in prefetch: nothing logged or cached. The key keeps its defaults.
-                        let mut refresh = self.refresh();
-                        refresh.failed.clear();
-                        refresh.task = None;
-                        return;
-                    }
-                }
+                let Ok(fetched) = self.fetch(key, 1, 0, signal.clone()).await else {
+                    // Cancelled, as in prefetch: nothing logged or cached. The key keeps its defaults.
+                    return;
+                };
+                self.refreshed(key, fetched);
             }
             // Under the lock a new failure registers under, so none is left without a task.
             let mut refresh = self.refresh();
             if refresh.failed.is_empty() {
                 refresh.task = None;
+                end.armed = false;
                 return;
             }
         }
-        // The delay was cancelled or its clock failed.
-        let mut refresh = self.refresh();
-        refresh.failed.clear();
-        refresh.task = None;
     }
     fn refreshed(&self, key: MetricsKey, fetched: Result<Vec<(JavaString, f64)>, Failure>) {
         let (_, description, _) = Self::describe(key);
