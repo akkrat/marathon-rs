@@ -35,6 +35,8 @@ const DEFAULT_MILLIS: f64 = 300000.0;
 
 /// A first query's retries pass at once, and a refresh delay lasts until the test advances the
 /// clock past it. The InfluxDB client's batch timer never fires, since nothing here is written.
+/// Nor does `close`'s bound: the test sees an answer as soon as it is published, so `close` can
+/// find the refresh still ending, and these clients always stop within it.
 struct Clock {
     refresh_delays: Mutex<Vec<i64>>,
     advances: tokio::sync::Semaphore,
@@ -58,7 +60,9 @@ impl VendorClock for Clock {
         Box::pin(async move {
             match millis {
                 RETRY_MILLIS => return Ok(()),
-                INFLUX_BATCH_TIMER_MILLIS => return Err(VendorError::Cancelled(cancellation.cancelled().await)),
+                INFLUX_BATCH_TIMER_MILLIS | CLOSE_BOUND_MILLIS => {
+                    return Err(VendorError::Cancelled(cancellation.cancelled().await));
+                }
                 _ => self.refresh_delays.lock().unwrap().push(millis),
             }
             tokio::select! {
