@@ -195,7 +195,7 @@ count such a batch.
 | `testOutputTimeoutMillis` | Per receive, unchanged |
 | Clearing data | Before each instrumentation, for its own packages. Two instrumentations of one application clear it twice, so the second cannot see the first's app state, as in Kotlin |
 | Ignored callbacks | Once, in the first instrumentation's scope, where a single-info batch has them |
-| `beforeTestRun` | Once, with the first info. The brief names only ignored callbacks and `afterTestRun`, but the log listener registers a line listener in `beforeTestRun` and removes one in `afterTestRun`, so a pair is needed, and file sync's would wipe the pull directories before the single pull |
+| `beforeTestRun` | Once, with the first instrumentation that reaches it (one can time out while its data is cleared). The brief names only ignored callbacks and `afterTestRun`, but the log listener registers a line listener in `beforeTestRun` and removes one in `afterTestRun`, so a pair is needed, and file sync's would wipe the pull directories before the single pull |
 | New internal callback | `before_next_instrumentation_in`, for file sync to prepare and later collect each application's app data. `afterTestRun` runs once, so it pulls every package |
 | A run failure, stuck output or batch timeout in one | Recorded; the next instrumentation runs |
 | A lost device, an error, cancellation in one | The batch ends: one `afterTestRun`, the rest uncompleted, the error returned |

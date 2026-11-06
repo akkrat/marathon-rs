@@ -834,6 +834,62 @@ fn a_stuck_instrumentation_does_not_stop_the_other_d28() {
         })
     });
 }
+/// D28: an instrumentation that times out while its data is cleared never got as far as beforeTestRun, so the next one
+/// gets it. The timeout only has to outlast the second instrumentation's few requests.
+#[test]
+fn before_test_run_goes_to_the_first_instrumentation_that_reaches_it_d28() {
+    let mut c = config();
+    c.test_batch_timeout_millis = 5000;
+    android(&mut c).application_pm_clear = true;
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut s = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+            let rules = s["shell"].as_array_mut().unwrap();
+            // Both bundles' application is com.example: only the first clear hangs.
+            rules.push(json!({"exact":"pm clear com.example","hang":true,"times":1}));
+            rules.push(json!({"prefix":"pm clear ","stdout":"Success\n"}));
+            rules.push(
+                json!({"regex":"^am instrument.* -e class pkg.Clazz#two ","stdout":completes("pkg.Clazz", "two")}),
+            );
+            let mut server = server(s).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let (one, two) = two_instrumentations(&runtime);
+            let events = Events::default();
+            AndroidDeviceTestRunner { device: &d }
+                .execute(
+                    runtime.dependencies.configuration.clone(),
+                    Arc::new(TestBatch {
+                        tests: vec![one, two],
+                        id: "batch".into(),
+                    }),
+                    &events,
+                    context,
+                )
+                .await?;
+            let values = events.values.lock().unwrap().clone();
+            assert_eq!(
+                values.iter().filter(|s| s.starts_with("before:")).count(),
+                1,
+                "{values:?}"
+            );
+            assert_eq!(
+                values.iter().filter(|s| s.starts_with("next:")).count(),
+                0,
+                "{values:?}"
+            );
+            assert_eq!(
+                values.first().map(String::as_str),
+                Some(format!("failed:{ERROR_STUCK}").as_str())
+            );
+            assert_eq!(values.last().map(String::as_str), Some("after"));
+            assert_eq!(values.iter().filter(|s| *s == "after").count(), 1, "{values:?}");
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
 /// D28: a lost device ends the batch: the later instrumentation does not run, its tests are uncompleted in the one result,
 /// and the loss still reaches the caller.
 #[test]

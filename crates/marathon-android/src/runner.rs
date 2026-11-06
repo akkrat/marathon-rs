@@ -349,6 +349,8 @@ impl AndroidDeviceTestRunner<'_> {
             }
         }
         let count = partitions.len();
+        // An instrumentation can time out before it gets as far as beforeTestRun, which the next one then owes.
+        let mut announced = false;
         for (index, (info, tests)) in partitions.into_iter().enumerate() {
             let first = index == 0;
             let batch = TestBatch {
@@ -359,6 +361,7 @@ impl AndroidDeviceTestRunner<'_> {
             let mut channel = None;
             let result = timed(&context, configuration.test_batch_timeout_millis, |signal| {
                 let channel = &mut channel;
+                let announced = &mut announced;
                 let info = &info;
                 let ignored = &ignored;
                 let configuration = &configuration;
@@ -371,10 +374,11 @@ impl AndroidDeviceTestRunner<'_> {
                         self.notify_ignored(ignored, listener, &child).await?;
                     }
                     self.clear_data(configuration, info, child.clone()).await?;
-                    if first {
-                        listener.before_test_run_in(Some(info), child.clone()).await?;
-                    } else {
+                    if *announced {
                         listener.before_next_instrumentation_in(info, child.clone()).await?;
+                    } else {
+                        listener.before_test_run_in(Some(info), child.clone()).await?;
+                        *announced = true;
                     }
                     self.device.log_named(
                         "AndroidDeviceTestRunner",
