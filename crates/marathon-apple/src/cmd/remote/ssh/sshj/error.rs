@@ -152,6 +152,7 @@ pub struct SshFailure {
     message: Option<String>,
     pub cause: Option<Box<SshFailure>>,
     pub suppressed: Vec<SshFailure>,
+    no_common_algorithm: bool,
 }
 impl SshFailure {
     pub fn new(class: &'static str, message: impl Into<String>) -> Self {
@@ -161,6 +162,7 @@ impl SshFailure {
             message: Some(message.into()),
             cause: None,
             suppressed: Vec::new(),
+            no_common_algorithm: false,
         }
     }
     pub fn with_reason(mut self, reason: DisconnectReason) -> Self {
@@ -179,10 +181,22 @@ impl SshFailure {
             message: None,
             cause: Some(Box::new(cause)),
             suppressed: Vec::new(),
+            no_common_algorithm: false,
         }
     }
     pub fn transport(reason: DisconnectReason, message: impl Into<String>) -> Self {
         Self::new(TRANSPORT_EXCEPTION, message).with_reason(reason)
+    }
+    /// A negotiation that found no common algorithm. D35: sshj's class, UNKNOWN reason and text stay as they are,
+    /// because they reach logs, and UNKNOWN also covers real network faults. Only the classifier reads the marker.
+    pub fn no_common_algorithm(message: impl Into<String>) -> Self {
+        Self {
+            no_common_algorithm: true,
+            ..Self::transport(DisconnectReason::Unknown, message)
+        }
+    }
+    pub fn is_no_common_algorithm(&self) -> bool {
+        self.no_common_algorithm
     }
     pub fn connection(reason: DisconnectReason, message: impl Into<String>) -> Self {
         Self::new(CONNECTION_EXCEPTION, message).with_reason(reason)

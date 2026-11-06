@@ -17,7 +17,10 @@ pub fn is_transient_connection_failure(error: &ConnectionError) -> bool {
         return true;
     };
     for _ in 0..16 {
+        // D35: a failed negotiation has reason UNKNOWN, like real network faults, but the Kotlin KDoc's "failed key
+        // exchange" will not heal by itself (A16).
         if (cause.is_instance(TRANSPORT_EXCEPTION)
+            && !cause.is_no_common_algorithm()
             && matches!(
                 cause.reason,
                 DisconnectReason::Unknown

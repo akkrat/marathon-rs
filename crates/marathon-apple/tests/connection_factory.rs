@@ -871,16 +871,32 @@ async fn reachability_reports_immediate_broadcast_and_multicast_failures_as_unre
 }
 
 #[test]
-fn a16_failed_kex_is_transient_despite_the_source_kdoc() {
-    let error = ConnectionError::Device(DeviceFailureException::new(
-        DeviceFailureReason::UnreachableHost,
-        None,
-        Some(SshFailure::transport(
-            DisconnectReason::Unknown,
-            "Unable to reach a settlement",
-        )),
-    ));
-    assert!(is_transient_connection_failure(&error));
+fn failed_kex_is_not_transient_but_other_unknown_faults_are_d35() {
+    let device = |cause| {
+        ConnectionError::Device(DeviceFailureException::new(
+            DeviceFailureReason::UnreachableHost,
+            None,
+            Some(cause),
+        ))
+    };
+    assert!(!is_transient_connection_failure(&device(
+        SshFailure::no_common_algorithm("Unable to reach a settlement")
+    )));
+    // The same class, reason and text without the marker stay transient: UNKNOWN is not demoted, and a message
+    // from the wire cannot pass for a negotiation failure.
+    assert!(is_transient_connection_failure(&device(SshFailure::transport(
+        DisconnectReason::Unknown,
+        "Unable to reach a settlement",
+    ))));
+    assert!(is_transient_connection_failure(&device(SshFailure::transport(
+        DisconnectReason::Unknown,
+        "Broken transport; encountered EOF",
+    ))));
+    // A network fault further down a negotiation failure's chain still counts.
+    assert!(is_transient_connection_failure(&device(
+        SshFailure::no_common_algorithm("Unable to reach a settlement")
+            .caused_by(SshFailure::new(SOCKET_EXCEPTION, "reset"))
+    )));
 }
 #[tokio::test]
 async fn local_create_registers_but_direct_local_and_repeated_disposal_only_warn() {

@@ -3,13 +3,17 @@
 mod support;
 use fake_worker::script::{Disconnect, Faults, Script};
 use jcompat::logging::Level;
-use marathon_apple::cmd::{
-    CommandExecutor, CommandRequest,
-    remote::ssh::sshj::{
-        SshAuthentication, SshFailure,
-        error::*,
-        known_hosts::{HostKeyVerifier, OpenSshKnownHosts, md5_fingerprint},
+use marathon_apple::{
+    cmd::{
+        CommandExecutor, CommandRequest,
+        remote::ssh::sshj::{
+            SshAuthentication, SshFailure,
+            error::*,
+            known_hosts::{HostKeyVerifier, OpenSshKnownHosts, md5_fingerprint},
+        },
     },
+    device::{connection_factory::ConnectionError, connection_failures::is_transient_connection_failure},
+    logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
 use marathon_core::error::VendorError;
 use russh::keys::{Algorithm, PrivateKey};
@@ -214,7 +218,7 @@ async fn disconnect_during_exec_fails_execute_with_the_wire_reason() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn no_common_kex_is_transport_unknown_after_four_attempts() {
+async fn no_common_kex_is_transport_unknown_after_four_attempts_and_not_transient_d35() {
     let fake = ssh::fake(
         faults(Faults {
             no_common_kex: true,
@@ -228,9 +232,19 @@ async fn no_common_kex_is_transport_unknown_after_four_attempts() {
         .await
         .err()
         .unwrap();
-    // T26 / A16: UNKNOWN, which 4.3's classifier calls transient. Algorithm lists are russh's, the shape sshj's.
+    // T26: what the user sees stays sshj's. Algorithm lists are russh's, the shape sshj's. D35 changes only what the
+    // classifier makes of it (A16), and every attempt still runs, as for an unverifiable host key.
     assert_eq!(error.class, TRANSPORT_EXCEPTION);
     assert_eq!(error.reason, DisconnectReason::Unknown);
+    assert!(error.is_no_common_algorithm());
+    assert!(
+        error
+            .java_to_string()
+            .starts_with(&format!("{TRANSPORT_EXCEPTION}: Unable to reach a settlement of "))
+    );
+    assert!(!is_transient_connection_failure(&ConnectionError::Device(
+        DeviceFailureException::new(DeviceFailureReason::UnreachableHost, None, Some(error.clone()))
+    )));
     let message = error.message().unwrap();
     assert!(
         message.starts_with("Unable to reach a settlement of KeyExchangeAlgorithms: ["),

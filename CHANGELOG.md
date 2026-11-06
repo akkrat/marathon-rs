@@ -51,6 +51,8 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
 - xcodebuild on an iOS or macOS worker runs with `NSUnbufferedIO=YES`, as was always intended, so its output arrives as
   it is produced and the output idle timeout measures real silence. The worker's command line now starts with
   `env NSUnbufferedIO=YES` (D32).
+- A worker that shares no key exchange, cipher, MAC or host key algorithm with marathon is no longer retried as if the
+  network had failed; the error text is unchanged and real network faults are still retried (D35).
 
 ## 0.11.0
 

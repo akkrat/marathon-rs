@@ -3,7 +3,12 @@ mod provider_support;
 mod recovery_support;
 mod simulator_support;
 mod support;
-use marathon_apple::apple_device::AppleDevice;
+use marathon_apple::{
+    apple_device::AppleDevice,
+    cmd::remote::ssh::sshj::{DisconnectReason, SshFailure},
+    device::connection_factory::ConnectionError,
+    logparser::parser::{DeviceFailureException, DeviceFailureReason},
+};
 use marathon_config::devices::{AppleTarget, Transport};
 use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred, vendor::DeviceProvider};
 use provider_support::*;
@@ -112,6 +117,46 @@ async fn authentication_and_configuration_errors_are_not_retried_also_when_they_
             p.connections.attempts(&worker("network"), true)
         ],
         [1, 1, 2]
+    );
+    p.balanced().await
+}
+#[tokio::test(start_paused = true)]
+async fn a_failed_key_exchange_is_not_retried_but_a_dropped_connection_is_d35() -> TestResult {
+    let p = RecoveryHarness::fast()?;
+    let device = |cause: &str, kex: bool| {
+        ConnectionError::Device(DeviceFailureException::new(
+            DeviceFailureReason::UnreachableHost,
+            None,
+            Some(if kex {
+                SshFailure::no_common_algorithm(cause)
+            } else {
+                SshFailure::transport(DisconnectReason::Unknown, cause)
+            }),
+        ))
+    };
+    p.answer(move |t, _, n| {
+        Box::pin(async move {
+            if t == worker("kex") {
+                Err(device("Unable to reach a settlement", true))
+            } else if n == 1 {
+                Err(device("Broken transport; encountered EOF", false))
+            } else {
+                Err(auth())
+            }
+        })
+    });
+    p.update_workers(vec![
+        (worker("kex"), targets(&["a"])),
+        (worker("network"), targets(&["b"])),
+    ])
+    .await?;
+    advance(500).await;
+    assert_eq!(
+        [
+            p.connections.attempts(&worker("kex"), true),
+            p.connections.attempts(&worker("network"), true)
+        ],
+        [1, 2]
     );
     p.balanced().await
 }

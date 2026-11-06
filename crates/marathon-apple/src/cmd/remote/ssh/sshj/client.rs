@@ -262,14 +262,11 @@ pub fn transport_failure(error: &RusshError) -> SshFailure {
                 russh::AlgorithmKind::Mac => "Client2ServerMACAlgorithms",
                 russh::AlgorithmKind::Compression => "Client2ServerCompressionAlgorithms",
             };
-            SshFailure::transport(
-                DisconnectReason::Unknown,
-                format!(
-                    "Unable to reach a settlement of {what}: [{}] and [{}]",
-                    ours.join(", "),
-                    theirs.join(", ")
-                ),
-            )
+            SshFailure::no_common_algorithm(format!(
+                "Unable to reach a settlement of {what}: [{}] and [{}]",
+                ours.join(", "),
+                theirs.join(", ")
+            ))
         }
         other => SshFailure::transport(DisconnectReason::Unknown, other.to_string()),
     }

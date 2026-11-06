@@ -451,6 +451,15 @@ re-query, and one line when the history returns or the attempts run out. No conf
 Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [C41](known-kotlin-bugs.md) and the [x15 findings](wp/x15-findings.md).
 
+## D35 — A failed key exchange is not retried as a network fault
+
+When a worker and marathon share no key exchange, cipher, MAC or host key algorithm, Kotlin calls the failure
+transient and keeps retrying a worker that cannot succeed until its configuration changes. Native builds stop, as
+they do for a rejected login or an unverifiable host key. The error text is the same, and network faults are still
+retried. The four immediate connection attempts remain. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A16](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
+
 ## D38 — A failed readiness probe means not running
 
 From runtime 16 on, Kotlin reads the output of `launchctl dumpstate` without checking its exit status, so a

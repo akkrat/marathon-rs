@@ -1,11 +1,16 @@
 //! Opt-in runs against a real OpenSSH server (orchestrator decision 5 and the real-host measurements): the generic
 //! executor suite, and T04, T07, T16, T30 and T32 as Linux and macOS OpenSSH profiles. Ignored by default; set
 //! `MARATHON_SSH_REAL=<host>:<port>:<user>:<private key path>` (a throwaway sshd, see docs/wp/4.2-findings.md) and
-//! run `cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1`.
+//! run `cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1`. The D35 case also needs
+//! `MARATHON_SSH_REAL_NO_KEX`, see its comment.
 mod support;
-use marathon_apple::cmd::{
-    CommandExecutor, CommandRequest,
-    remote::ssh::sshj::{SshAuthentication, SshCommandExecutor},
+use marathon_apple::{
+    cmd::{
+        CommandExecutor, CommandRequest,
+        remote::ssh::sshj::{DisconnectReason, SshAuthentication, SshCommandExecutor},
+    },
+    device::{connection_factory::ConnectionError, connection_failures::is_transient_connection_failure},
+    logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
 use std::time::{Duration, Instant};
 use support::{context, duration, executor_suite as suite, ssh};
@@ -312,4 +317,34 @@ async fn t32_ns_unbuffered_io_reaches_the_process_and_nothing_else_does() {
     );
     assert_ne!(result.stdout[1], "/tmp");
     println!("T32.result: exit=0 stdout=[{}, <home>]", result.stdout[0]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL_NO_KEX"]
+async fn d35_no_common_kex_on_a_real_sshd_is_not_transient() {
+    // MARATHON_SSH_REAL_NO_KEX=<host>:<port>: a throwaway sshd with `KexAlgorithms diffie-hellman-group1-sha1`,
+    // which the client does not offer. The exchange fails before authentication.
+    let target = std::env::var("MARATHON_SSH_REAL_NO_KEX").expect("MARATHON_SSH_REAL_NO_KEX=<host>:<port>");
+    let (host, port) = target.split_once(':').unwrap();
+    let (logging, _) = ssh::logging(false);
+    let auth = SshAuthentication::Password {
+        username: "unused".into(),
+        password: "unused".into(),
+    };
+    let error = ssh::factory(&logging)
+        .connect(host, port.parse().unwrap(), auth, None, false)
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.reason, DisconnectReason::Unknown);
+    assert!(
+        error
+            .message()
+            .unwrap()
+            .starts_with("Unable to reach a settlement of KeyExchangeAlgorithms: ["),
+        "{error}"
+    );
+    assert!(!is_transient_connection_failure(&ConnectionError::Device(
+        DeviceFailureException::new(DeviceFailureReason::UnreachableHost, None, Some(error))
+    )));
 }

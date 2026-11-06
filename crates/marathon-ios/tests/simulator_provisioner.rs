@@ -384,6 +384,7 @@ async fn unsupported_profiles_do_not_create_or_report_a_failure() -> TestResult 
 #[tokio::test(start_paused = true)]
 async fn unreachable_and_permanent_connection_errors_keep_their_source_classification() -> TestResult {
     use marathon_apple::{
+        cmd::remote::ssh::sshj::{DisconnectReason, SshFailure},
         device::connection_factory::ConnectionError,
         logparser::parser::{DeviceFailureException, DeviceFailureReason},
     };
@@ -397,6 +398,26 @@ async fn unreachable_and_permanent_connection_errors_keep_their_source_classific
             true,
         ),
         (ConnectionError::Vendor(error("permanent")), false),
+        // D35: both report TransportException[UNKNOWN], but only the network fault can heal.
+        (
+            ConnectionError::Device(DeviceFailureException::new(
+                DeviceFailureReason::UnreachableHost,
+                None,
+                Some(SshFailure::transport(
+                    DisconnectReason::Unknown,
+                    "Broken transport; encountered EOF",
+                )),
+            )),
+            true,
+        ),
+        (
+            ConnectionError::Device(DeviceFailureException::new(
+                DeviceFailureReason::UnreachableHost,
+                None,
+                Some(SshFailure::no_common_algorithm("Unable to reach a settlement")),
+            )),
+            false,
+        ),
     ] {
         let h = Harness::new();
         *h.connections.connect_error.lock().unwrap() = Some(err);
