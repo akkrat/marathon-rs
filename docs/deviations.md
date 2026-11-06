@@ -372,6 +372,10 @@ with Kotlin's error after at most 5 s more, with an error line starting `No repl
 resumes may still start the command: one that reads its input ends, and one that does not runs to its end, in its slot. See the
 [x21 findings](wp/x21-findings.md).
 
+**A channel open with no reply** is dealt with too since x21 (U157, approved 2026-11-07). The open still fails after sshj's 30 s with Kotlin's error, and an error line starts `No reply
+to opening`. Nothing can be closed until the worker confirms the channel, so if it answers later, that channel is closed then, where Kotlin would leave it holding a slot until the
+connection ends.
+
 ## D30 — Closing an SSH session has a limit
 
 Kotlin sends TERM, waits up to 30 s for the worker to close the channel and then fails, and a later close
@@ -419,6 +423,9 @@ Approved 2026-11-06 (user decision). See
 **A receive at its deadline** is stopped the same way since x21 (U155, approved 2026-11-07): TERM, 5 s, KILL, and under `sshpass` rsync gets them too.
 Kotlin's wrapper sends TERM to `sshpass` alone, which leaves rsync and ssh running, and then waits without a limit for a process that ignores it. The 30 s
 deadline itself and the receive's command line are unchanged. See the [x21 findings](wp/x21-findings.md).
+
+**A receive's output pipes** also have the send's limit since x21 (U158, approved 2026-11-07). A process that ended before the deadline, leaving a child that holds its pipes, such as a hung
+ssh, holds up the receive for at most 5 s more. The process's status decides the result, and that child is not stopped.
 
 ## D32 — xcodebuild on a worker runs unbuffered
 

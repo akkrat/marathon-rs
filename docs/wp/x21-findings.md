@@ -1,8 +1,8 @@
-# X21: the leftovers of x13 on Apple workers (U154, U155)
+# X21: the leftovers of x13 on Apple workers (U154, U155, U157, U158)
 
-The project owner approved these on 2026-11-07. Both come from the incidental bugs in `docs/wp/x13-findings.md`. No deviation number was
-assigned: U154 extends D29 and U155 extends D31, and those sections and PLAN rows say so. No configuration field, CLI option or exit code
-changed. One log line is new. The commands a healthy run sends are the same.
+The project owner approved these on 2026-11-07. U154 and U155 come from the incidental bugs in `docs/wp/x13-findings.md`, and U157 and U158 from
+this WP's own. No deviation number was assigned: U154 and U157 extend D29, U155 and U158 extend D31, and those sections and PLAN rows say so. No
+configuration field, CLI option or exit code changed. Two log lines are new. The commands a healthy run sends are the same.
 
 ## U154: an `exec` with no reply
 
@@ -36,11 +36,10 @@ gets through 2 times in 30 is not worth a new command on the wire, so it is gone
 
 **What is left.** A command that does not read its input, on a peer that stalls for the 30 s and then resumes, starts and runs to its end,
 in its slot. That is why the log line says so, and the connection is unaffected. A real fix would keep the channel past the caller's error, wait
-for the late reply and only then send TERM and CLOSE, so a task would outlive the caller's error. That is more than this brief asks, so it is
-for the owner to decide.
+for the late reply and only then send TERM and CLOSE. The owner decided on 2026-11-07 to leave this as documented.
 
 **How narrow the window is.** The stall has to begin between the peer's answer to the channel open and its answer to `exec`. A stall that
-begins earlier fails at the open, which has its own 30 s: see Incidental bugs. The first real test failed that way.
+begins earlier fails at the open, which has its own 30 s: see U157. The first real test failed that way.
 
 **Failure without it:** with the close removed, `an_exec_with_no_reply_fails_with_its_timeout_and_gives_its_slot_back_u154`,
 `an_exec_with_no_reply_from_a_peer_that_never_answers_close_still_returns_u154` and, on the real sshd,
@@ -92,16 +91,91 @@ reaps it. `stalled_receive_runs` polls for that, where `stalled_send_runs` asser
 **Comparators.** No allowance is needed. `deadlines.jsonl` stays the witness of the deadline, with the same test, and no host argv changed: a
 receive still has no `--timeout`.
 
+## U157: a channel open with no reply
+
+**What Kotlin and sshj do, from sshj 0.39.0's bytecode.** `PatchedSSHClient.startSession` calls `AbstractDirectChannel.open()`, which writes
+the request and does `openEvent.await(conn.getTimeoutMs(), MILLISECONDS)`. `ConnectionImpl` takes that from `TransportImpl`, whose default is 30,000,
+and the Kotlin code sets no other. The channel is attached to the connection in its constructor and stays attached after the expiry, so a late
+confirmation opens it and nothing closes it. The connect timeout covers only the socket, so it does not apply here, and the keep-alive only
+ends a connection that has died (60 s by default).
+
+**The bound.** It stays those 30 s, which `start_session` already had, and the error stays Kotlin's. So a slow worker fails nowhere it did not
+fail before (`a_slow_open_inside_its_30_s_still_works_u157`), and no new limit was needed.
+
+**Why nothing can be closed at the bound.** A CLOSE names the peer's channel number, and only the confirmation brings that. So at the bound there
+is nothing to close, and unlike U154 the caller does not wait for anything more: it returns at 30 s, with one new ERROR line:
+
+```
+No reply to opening chan#<n> in 30 s. If the worker answers later, that channel will be closed then
+```
+
+**The fix.** Dropping russh's future was what lost the channel, so the open now runs in a task of its own, which ends on the reply, the transport's
+death or the client's own close (`close_ends_the_wait_for_an_open_that_was_abandoned`). The caller takes the reply through a oneshot. If it has gone, because it
+timed out or its future was dropped (`a_caller_that_goes_away_during_an_open_leaves_no_channel_behind_u157`), the task owns the reply:
+
+| Late reply | What the task does |
+|---|---|
+| Confirmation | CLOSE, then drains until the peer's CLOSE or the transport's end, as the pump does, so that russh's queue does not hold up the connection |
+| Refusal | Takes its text off the queue. Otherwise the next refusal reads it as its own: `a_late_refusal_does_not_give_its_text_to_the_next_failure_u157` |
+| None | Nothing, until the connection ends |
+
+A reply that gets in at the very moment of the bound goes to the caller, and the task never sees it: the receiver is closed first and then read once.
+
+**One cost, and one thing it holds.** Each open now spawns a task, which ends with the reply. No wire order changes for sequential commands, and
+concurrent opens already had no fixed order on a multi-thread runtime. While it waits, the task holds the russh handle, so a client that is dropped
+without `close()` keeps its transport until the reply or the transport's end. The factory's clients are closed, so this needs a caller that forgets to.
+
+**Real sshd.** With its session process stopped before the open and resumed after the failure. `u157_an_open_with_no_reply_is_closed_when_the_peer_resumes`
+counts the slots free on the connection before and after, so it holds for any `MaxSessions`:
+
+| Run | Result |
+|---|---|
+| Fix, macOS sshd, `MaxSessions 1` | Failure at 30,003 ms, slot back (1 of 1 free) |
+| Fix, macOS sshd, default `MaxSessions` | Failure at 30,002 ms, 10 of 10 free |
+| No CLOSE from the task, macOS sshd, `MaxSessions 1` | **0 of 1 free**: the late channel holds the slot |
+
+**Failure without it**, with the task's CLOSE and the refusal's take removed: `an_open_with_no_reply_fails_with_its_timeout_and_a_late_reply_is_closed_u157`,
+`a_caller_that_goes_away_…`, `a_late_refusal_…` and the real test. `an_open_that_is_never_answered_still_returns_and_other_sessions_carry_on_u157` and the task-lifetime
+test pass either way: they guard the bound and the task.
+
+**The fake worker** has a new fault, `late_open`, documented in `docs/design/fake-worker.md`: the first open of a connection gets its reply late.
+
+**Comparators.** No allowance is needed: a healthy open is the same on the wire.
+
+## U158: a receive's pipes
+
+**Verified.** After a process that ended by itself before the deadline, `process` joined its pipe readers with no limit, because x13's bound was for sends
+only. A child that outlives it and holds a pipe could then hold up the receive for as long as it lived. The real case: rsync is killed, and the real ssh it
+started, hung on a silent peer, keeps rsync's stderr.
+
+**Fix.** The bound now applies to both directions: 5 s of real time after the process ended (`PROCESS_LIMIT`, rule 6 of `docs/testing.md`), then the readers are
+cancelled, as for sends. On a healthy exit the pipes close at once, so it adds nothing.
+
+| Stays as it was | How it is pinned |
+|---|---|
+| The process's status decides the result | `…succeeds…` returns `true`, `…fails…` returns `false` |
+| What was read by then, which the failure log prints | `…fails…` asserts `what rsync said` in the error line |
+| The `Timeout of 30 seconds reached` diagnostic, only when the deadline passes | The harness now asserts it for `stalled_receive_runs` and its absence for `early_exit_receive_runs` |
+
+**"The same stop" means the readers' stop.** The child that holds the pipes is not stopped, on a receive as on a send. Its parent has gone by then, so `pgrep -P` cannot find it,
+and it was never listed, since only a stop past a deadline or a stall lists children. So a real ssh in this state stays until it ends by itself. The tests assert that it is still
+up when the receive returns, which shows that the bound and not the end of the pipes let it return.
+
+**Failure without it**, with the bound back to sends only: all three `*_u158` tests, each at its 90 s catch. The real one is
+`the_real_ssh_holding_the_pipes_of_a_killed_rsync_does_not_hold_up_a_receive_u158`, at factor 1.
+
+**Comparators.** No allowance is needed: no argv or status changes.
+
 ## What was verified, and how
 
 | What | How | Result |
 |---|---|---|
-| `marathon-apple` and `fake-worker` on this Mac | `cargo test -p marathon-apple -p fake-worker`, under a load of 20–80 from other work | 502 passed, 0 failed, 18 ignored (the real-sshd suite, run separately) |
-| `ssh_real_sshd.rs` in full on this Mac's sshd | A throwaway `sshd -D -e -f <temp config>` on a loopback port, `--ignored --test-threads 1` | 18 passed |
-| On Linux with OpenSSH 10.2p1 and rsync 3.4.1, from a temp checkout with its own target directory, all removed afterwards | `rsync_file_bridge`, `ssh_session`, and the U154 test on a throwaway sshd there | 26, 30 and 1 passed. That box has no `sshpass`, so the two tests with the real one print their skip message |
+| `marathon-apple`, `fake-worker`, `marathon-ios`, `marathon-macos` on this Mac | `cargo test -p …`, under a load of about 35 from other work | 820 passed, 0 failed, 19 ignored (the real-sshd suite, run separately) |
+| `ssh_real_sshd.rs` in full on this Mac's sshd | A throwaway `sshd -D -e -f <temp config>` on a loopback port, `--ignored --test-threads 1` | 19 passed |
+| On Linux with OpenSSH 10.2p1 and rsync 3.4.1, from a temp checkout with its own target directory, all removed afterwards | `rsync_file_bridge`, `ssh_session`, `ssh_task_lifetime`, and the U154 and U157 tests on a throwaway sshd there | 30, 35, 4 and 2 passed, U157 at 30,000 ms with 10 of 10 free. That box has no `sshpass`, so the two tests with the real one print their skip message |
 | The real tools, at factor 1 | sshpass 1.06, openrsync (protocol 29), OpenSSH_10.5p1 on this Mac, against a silent listener, as the send's test does | Passed, nothing left behind |
 | Validators | `make_registry.py --check`, `test_evidence.py` | Clean, 66 tests |
-| A trial merge with x16 | `wp/x16-ssh-connection` merged into the fixes in a temporary worktree, removed afterwards | No conflict. The six `*_u155` and three `*_u154` tests pass on it, at factor 1 for the real tools |
+| A trial merge with x16 | `wp/x16-ssh-connection` merged into the fixes in a temporary worktree, removed afterwards | No conflict. The `*_u154`, `*_u155`, `*_u157` and `*_u158` tests and the abandoned-open task test pass on it, at factor 1 for the real tools |
 
 ## What was not verified
 
@@ -111,8 +185,4 @@ receive still has no `--timeout`.
 
 ## Incidental bugs
 
-- `SshConnection::start_session`: a channel open with no reply in 30 s drops russh's future and leaves the channel in russh's table. By
-  reading: on a peer that resumes, the channel opens with nobody to close it, and holds a slot until the connection ends. This was not
-  measured apart. It is U154's neighbour, and a stall is more likely to land here, since `exec` follows the open's reply at once.
-- `RsyncFileBridge::process`: a receive whose process exits by itself before its deadline joins its pipe readers with no limit, so a child
-  that outlived it and holds a pipe, such as a hung ssh, can still hold up the receive. D31 bounded this for sends only. By reading, not run.
+The two found while doing U154 and U155 were fixed here at the owner's request: U157 and U158 above. None is left open.
