@@ -620,7 +620,8 @@ fn run_stalled_send(run: StalledSend) {
             let pid = nix::unistd::Pid::from_raw(pid);
             // openrsync ends ssh on the bridge's TERM. rsync 3 exits by itself, and what becomes of a hung ssh is its affair,
             // so the bridge can only answer for rsync there.
-            let answers_for = file == "pid" || (file == "ssh-pid" && cfg!(target_os = "macos"));
+            let answers_for = file == "pid"
+                || (file == "ssh-pid" && cfg!(target_os = "macos") && child_test != "early_exit_receive_runs");
             if answers_for && nix::sys::signal::kill(pid, None).is_ok() {
                 survivors.push(file);
             }
@@ -630,6 +631,13 @@ fn run_stalled_send(run: StalledSend) {
     let output = std::fs::read_to_string(&log).unwrap_or_default();
     assert!(status.is_some_and(|status| status.success()), "{output}");
     assert_eq!(survivors, Vec::<&str>::new(), "{output}");
+    // Kotlin's diagnostic: it says the deadline passed, so it comes with that and not with a process that ended before it.
+    let diagnostic = "Timeout of 30 seconds reached, terminating process...";
+    if child_test == "stalled_receive_runs" {
+        assert!(output.contains(diagnostic), "{output}");
+    } else if child_test == "early_exit_receive_runs" {
+        assert!(!output.contains(diagnostic), "{output}");
+    }
 }
 fn script(path: &Path, text: &str) {
     std::fs::write(path, text).unwrap();
@@ -846,6 +854,37 @@ fn receive_past_its_deadline(root: &Path, body: &str, sshpass: bool, extra_path:
         ..StalledSend::new("hung", &program, root)
     });
 }
+/// A receive whose stand-in for rsync ends by itself and leaves a child holding its pipes, as a hung ssh would. Factor 1, because
+/// the bound on the pipes is real time and the receive must come back well before its real 30 s.
+fn receive_with_its_pipes_held(root: &Path, status: i32) {
+    let program = root.join("rsync");
+    script(
+        &program,
+        &format!(
+            "#!/bin/bash\necho $$ > \"$MRS_D31_ROOT/pid\"\n/bin/sleep 100037 &\necho $! > \"$MRS_D31_ROOT/held\"\necho 'what rsync said' >&2\nexit {status}\n"
+        ),
+    );
+    run_stalled_send(StalledSend {
+        factor: 1,
+        child: "early_exit_receive_runs",
+        ..StalledSend::new(if status == 0 { "held-ok" } else { "held-failed" }, &program, root)
+    });
+}
+#[test]
+fn a_receive_that_fails_while_a_child_holds_its_pipes_returns_with_its_text_u158() {
+    let dir = tempfile::tempdir().unwrap();
+    receive_with_its_pipes_held(dir.path(), 23);
+}
+#[test]
+fn a_receive_that_succeeds_while_a_child_holds_its_pipes_returns_u158() {
+    let dir = tempfile::tempdir().unwrap();
+    receive_with_its_pipes_held(dir.path(), 0);
+}
+#[test]
+fn the_real_ssh_holding_the_pipes_of_a_killed_rsync_does_not_hold_up_a_receive_u158() {
+    // The real rsync dies, and the real ssh it started stays, hung on a silent peer, with rsync's stderr.
+    real_rsync_with_a_hung_ssh(None, "early_exit_receive_runs");
+}
 const IGNORES_TERM: &str = "trap '' TERM\nwhile :; do /bin/sleep 0.05; done";
 #[test]
 fn a_receive_past_its_deadline_that_ignores_term_is_killed_u155() {
@@ -969,6 +1008,57 @@ async fn stalled_receive_runs() {
         !lines.iter().any(|(.., message)| message.contains("send error")),
         "{lines:?}"
     );
+    bridge.join_pending().await.unwrap();
+}
+/// U158: a receive whose process ended before its deadline returns within the pipes' bound, with that process's status and
+/// what it wrote. Mode `hung` kills a real rsync once its real ssh is up; the others are `receive_with_its_pipes_held`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn early_exit_receive_runs() {
+    let Ok(mode) = std::env::var("MRS_D31_MODE") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(std::env::var_os("MRS_D31_ROOT").unwrap());
+    let (logging, events) = ssh::logging(false);
+    let (bridge, _silent_peer) = stalled_bridge(logging).await;
+    let started = std::time::Instant::now();
+    if mode == "hung" {
+        let root = root.clone();
+        tokio::spawn(async move {
+            let read = |name: &str| std::fs::read_to_string(root.join(name)).ok();
+            while read("ssh-pid").is_none() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            let pid: i32 = read("pid").unwrap().trim().parse().unwrap();
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGKILL).unwrap();
+        });
+    }
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        bridge.receive("/tmp/marathon/stuck", &root.join("back")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, Ok(mode == "held-ok"));
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(25),
+        "{:?}",
+        started.elapsed()
+    );
+    // The child is still up, so it was the bound and not the end of the pipes that let this return.
+    let holder = if mode == "hung" { "ssh-pid" } else { "held" };
+    let holder: i32 = std::fs::read_to_string(root.join(holder))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(nix::sys::signal::kill(nix::unistd::Pid::from_raw(holder), None), Ok(()));
+    if mode == "held-failed" {
+        let lines = ssh::lines(&events);
+        assert!(
+            lines.iter().any(|(.., message)| message == "what rsync said\n"),
+            "{lines:?}"
+        );
+    }
     bridge.join_pending().await.unwrap();
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

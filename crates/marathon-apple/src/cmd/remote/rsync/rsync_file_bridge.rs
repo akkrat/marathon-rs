@@ -332,15 +332,13 @@ impl Inner {
         if timed_out || status.is_err() {
             readers.cancel(crate::cmd::cancelled("Process output timed out"));
         }
-        if !receive {
-            // D31: a hung ssh that outlived rsync may hold these pipes open.
-            let joined = async {
-                let _ = out_task.join().await;
-                let _ = err_task.join().await;
-            };
-            if tokio::time::timeout(PROCESS_LIMIT, joined).await.is_err() {
-                readers.cancel(crate::cmd::cancelled("Process output outlived the process"));
-            }
+        // D31, and U158 for a receive: a hung ssh that outlived rsync may hold these pipes open. What was read stays.
+        let joined = async {
+            let _ = out_task.join().await;
+            let _ = err_task.join().await;
+        };
+        if tokio::time::timeout(PROCESS_LIMIT, joined).await.is_err() {
+            readers.cancel(crate::cmd::cancelled("Process output outlived the process"));
         }
         let out_joined = out_task.join().await;
         let err_joined = err_task.join().await;
