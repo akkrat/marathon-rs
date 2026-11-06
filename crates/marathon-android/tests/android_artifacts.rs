@@ -214,6 +214,54 @@ mod file_sync_test_run_listener_test {
             })
         });
     }
+    /// D27: without the storage wipe, a folder left by a run cut short must not stay what the tests read.
+    #[test]
+    fn a_folder_push_removes_a_leftover_first_d27() {
+        let mut c = configuration();
+        let temp = output(&mut c);
+        let folder = temp.path().join("fixtures-dir");
+        checked(std::fs::create_dir(&folder));
+        checked(std::fs::write(folder.join("data.txt"), "fresh"));
+        android(&mut c).file_sync_configuration.push.push(FilePushEntry {
+            path: js(&folder.to_string_lossy()),
+            path_root: PathRoot::ExternalStorage,
+        });
+        run(c, move |runtime, context| {
+            Box::pin(async move {
+                let _temp = temp;
+                let mut script = base_script(27, vec![]);
+                shell(&mut script, "rm -r /sdcard/fixtures-dir", "");
+                script["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"prefix":"mkdir","stdout":""}));
+                let server = server(script).await;
+                let device = device(&server, runtime);
+                device.setup(context.clone()).await?;
+                let listener = FileSyncTestRunListener::new(artifacts(&device));
+                listener.before_test_run_in(None, context.clone()).await?;
+                let sent = commands(&server);
+                let about: Vec<_> = sent.iter().filter(|c| c.contains("fixtures-dir")).collect();
+                assert_eq!(
+                    about.first().map(|c| c.as_str()),
+                    Some("rm -r /sdcard/fixtures-dir"),
+                    "{about:?}"
+                );
+                assert!(about.len() > 1, "{about:?}");
+                assert_eq!(
+                    server
+                        .file("emulator-5554", "/sdcard/fixtures-dir/data.txt")
+                        .unwrap()
+                        .content
+                        .unwrap(),
+                    b"fresh"
+                );
+                listener.after_test_run_in(context).await?;
+                finish(server, device).await;
+                Ok(())
+            })
+        });
+    }
     #[test]
     fn test_pull() {
         pull(false)

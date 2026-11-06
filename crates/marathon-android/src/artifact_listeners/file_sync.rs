@@ -99,6 +99,12 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     None,
                 );
                 if directory {
+                    // D27: nothing else clears this any more. A leftover from a run cut short would stay what the tests
+                    // read, with this push one level inside it.
+                    device
+                        .file_manager()
+                        .remove_remote_path(&remote, true, context.clone())
+                        .await?;
                     device
                         .push_folder(&entry.path.to_string_lossy(), &remote, context.clone())
                         .await?;

@@ -314,7 +314,7 @@ fn md5_poll_is_bounded_by_the_push_timeout_d23() {
                 .as_array_mut()
                 .unwrap()
                 .push(json!({"exact":"md5 /mismatch","stdout":"wrong"}));
-            let server = server(script).await;
+            let mut server = server(script).await;
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
             let err = device
@@ -333,7 +333,9 @@ fn md5_poll_is_bounded_by_the_push_timeout_d23() {
                     device.serial_number().to_string_lossy()
                 )))
             );
-            finish(server, device).await;
+            // Not `finish`: the real timeout can cancel an md5 mid-exchange, which the server warns about.
+            checked(device.dispose().await);
+            checked(server.shutdown().await);
             Ok(())
         })
     });

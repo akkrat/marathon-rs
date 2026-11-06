@@ -336,7 +336,8 @@ still rejected with the same message. Approved 2026-11-06 (user decision). See
 
 Kotlin runs `rm -r $EXTERNAL_STORAGE` and `mkdir` on every device prepare, deleting everything
 under, for example, `/sdcard`. Native builds leave it alone. **This changes behaviour for existing
-users: a test suite that relies on an empty external storage must clear it itself.** A video can stay behind on
+users: a test suite that relies on an empty external storage must clear it itself.** A folder that file sync pushes is removed first, so
+a leftover from a run cut short isn't what the tests read. A video can stay behind on
 external storage: from an aborted run, and from a recording cut by a lost connection, in a run that still exits 0. See the
 [migration guide](migration.md#android-external-storage-is-no-longer-wiped). Approved 2026-11-06
 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
