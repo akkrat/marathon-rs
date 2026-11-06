@@ -118,6 +118,8 @@ pub struct TestRunnerRequest {
     pub output_log_path: Option<JavaString>,
     pub socket_idle_timeout: Option<i64>,
     transformer: InstrumentationResponseTransformer,
+    exit_code: Option<i32>,
+    ended_without_result: bool,
 }
 impl TestRunnerRequest {
     pub fn new(
@@ -139,6 +141,8 @@ impl TestRunnerRequest {
             output_log_path: None,
             socket_idle_timeout: Some(i64::MAX),
             transformer: InstrumentationResponseTransformer::new(),
+            exit_code: None,
+            ended_without_result: false,
         }
     }
     pub fn command(&self) -> JavaString {
@@ -176,6 +180,15 @@ impl TestRunnerRequest {
     pub fn take_warnings(&mut self) -> Vec<InstrumentationWarning> {
         self.transformer.take_warnings()
     }
+    /// D25: the stream closed before the instrumentation's end, so `close` gave no final events. Those would describe
+    /// the output so far as the whole of it, and for a run with every test reported, as a success.
+    pub fn ended_without_result(&self) -> bool {
+        self.ended_without_result
+    }
+    /// The exit code the shell reported; a v1 shell and a dropped connection report none.
+    pub fn exit_code(&self) -> Option<i32> {
+        self.exit_code
+    }
 }
 impl FallibleAsyncCompatShellCommandRequest for TestRunnerRequest {
     type Item = Vec<TestEvent>;
@@ -189,6 +202,8 @@ impl FallibleAsyncCompatShellCommandRequest for TestRunnerRequest {
         self.socket_idle_timeout
     }
     fn convert_chunk(&mut self, chunk: ShellCommandResultChunk) -> Result<Option<Self::Item>, AdbError> {
+        // The shell's stream carries it as one unsigned byte, which adam reads signed.
+        self.exit_code = chunk.exit_code.map(|code| code & 0xff).or(self.exit_code);
         chunk
             .stdout
             .map(|bytes| {
@@ -206,6 +221,9 @@ impl FallibleAsyncCompatShellCommandRequest for TestRunnerRequest {
             .map(Option::flatten)
     }
     async fn close(&mut self, send: &mut VecDeque<Self::Item>) {
-        send.extend(self.transformer.transform());
+        self.ended_without_result = self.transformer.ended_without_result();
+        if !self.ended_without_result {
+            send.extend(self.transformer.transform());
+        }
     }
 }

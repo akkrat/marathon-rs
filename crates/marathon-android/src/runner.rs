@@ -70,7 +70,11 @@ impl InstrumentationChannel {
                                 None => break,
                             }
                         }
-                        Ok(())
+                        // D25: a dropped connection ends the shell stream as normally as `am` does.
+                        match stream.request().filter(|r| r.ended_without_result()) {
+                            Some(request) => Err(stream_ended_early(request.exit_code())),
+                            None => Ok(()),
+                        }
                     }
                     .await;
                     stream.cancel();
@@ -94,8 +98,8 @@ impl InstrumentationChannel {
         // A closed channel is the end of the output; `take_failure` then tells whether it ended well.
         cancellable(context.cancellation.clone(), async { Ok(self.receiver.recv().await) }).await
     }
-    /// D25: the failure that ended the producer, once the channel has closed. A client closed by provider shutdown is
-    /// the end of the run, not a failure of this batch, and stays quiet (N19).
+    /// D25: the failure that ended the producer, or the stream's end before a result, once the channel has closed. A
+    /// client closed by provider shutdown is the end of the run, not a failure of this batch, and stays quiet (N19).
     pub fn take_failure(&self) -> Option<VendorError> {
         let failure = lock(&self.failure).take()?;
         (!self.device.client().socket_factory().is_closed()).then_some(failure)
@@ -297,6 +301,8 @@ impl AndroidDeviceTestRunner<'_> {
             &message.to_string_lossy(),
             Some(failure.failure()),
         );
+        // Before the event: a test in progress has no result of its own, so this text is the only reason it can give.
+        listener.on_stream_failed_in(&message, context.clone()).await?;
         listener
             .on_event_in(&TestEvent::TestRunFailed { error: message }, context.clone())
             .await?;
@@ -492,6 +498,14 @@ fn android_configuration(
         marathon_config::VendorConfiguration::Android(configuration) => Ok(configuration),
         _ => Err(other("java.lang.ClassCastException", "Android configuration required")),
     }
+}
+/// Not a device loss by itself: a device that really went is reported by its server's device list, as ever.
+fn stream_ended_early(exit_code: Option<i32>) -> VendorError {
+    let message = match exit_code {
+        Some(code) => format!("the instrumentation stream ended before a result, with exit code {code}"),
+        None => "the instrumentation stream ended before a result".to_owned(),
+    };
+    other("java.io.EOFException", message.as_str())
 }
 fn clone_error(error: &VendorError) -> VendorError {
     VendorError::Other(error.failure().clone())

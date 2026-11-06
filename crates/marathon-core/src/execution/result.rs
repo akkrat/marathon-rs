@@ -115,6 +115,8 @@ pub struct TestRunResultsAccumulator {
     run_failure_message: Option<JavaString>,
     /// D28 (Android): a failure from an earlier run of the same batch, which `test_run_started` does not clear.
     earlier_run_failure: Option<JavaString>,
+    /// D28 (Android): how many tests the earlier runs of the same batch reported.
+    tests_of_earlier_runs: usize,
     logs: Vec<LogRecord>,
 }
 impl TestRunResultsAccumulator {
@@ -136,6 +138,7 @@ impl TestRunResultsAccumulator {
             elapsed_time: 0,
             run_failure_message: None,
             earlier_run_failure: None,
+            tests_of_earlier_runs: 0,
             logs: Vec::new(),
         })
     }
@@ -188,6 +191,16 @@ impl TestRunResultsAccumulator {
     pub fn keep_run_failure(&mut self) {
         if let Some(message) = self.run_failure_message.clone() {
             self.earlier_run_failure = Some(message);
+        }
+        self.tests_of_earlier_runs = self.temporal_test_results.0.len();
+    }
+    /// D25 (Android): this run's output broke off, and that is why a test in progress never finished. Other run
+    /// failures leave such a test without a text, as in Kotlin.
+    pub fn explain_tests_in_progress(&mut self, reason: &JavaString) {
+        for (_, result) in self.temporal_test_results.0.iter_mut().skip(self.tests_of_earlier_runs) {
+            if result.status == TestStatus::Incomplete && result.stack_trace.is_none() {
+                result.stack_trace = Some(reason.clone());
+            }
         }
     }
     pub fn test_run_started(&mut self, name: JavaString, count: i32) {

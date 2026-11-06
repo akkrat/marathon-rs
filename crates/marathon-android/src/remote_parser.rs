@@ -190,6 +190,7 @@ impl AmInstrumentTestParser {
                     })?;
                     let Some(events) = events else {
                         // D25: otherwise the attempt would "succeed" with whatever tests had been listed so far (N38).
+                        // That includes a stream that merely stopped: a dropped connection looks like any other end.
                         if let Some(failure) = channel.take_failure() {
                             let mut error = failure_of_parse(device, &failure);
                             error.cause = Some(Box::new(failure.failure().clone()));

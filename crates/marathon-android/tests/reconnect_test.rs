@@ -815,6 +815,41 @@ fn a_run_ends_when_its_adb_server_never_returns_d22() {
     assert!(observed.received.iter().any(|r| !r.0));
 }
 
+/// D25 (N38), a whole run: the first parse is cut off after one of the twenty tests. The run used to take that one for
+/// the list and report success with nineteen tests never run.
+#[test]
+fn a_run_does_not_take_a_cut_off_parse_for_the_list_d25() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    let rules = script["shell"].as_array_mut().unwrap();
+    let parse = rules
+        .iter()
+        .position(|rule| rule["regex"].as_str().is_some_and(|r| r.ends_with("-e log true")))
+        .unwrap();
+    let output = rules[parse]["stdout"].as_str().unwrap().to_owned();
+    // Two status atoms of each test: its start and its end.
+    let end = output
+        .match_indices("INSTRUMENTATION_STATUS_CODE: ")
+        .nth(1)
+        .map(|(at, _)| at + output[at..].find('\n').unwrap() + 1)
+        .unwrap();
+    let cut = json!({"regex": rules[parse]["regex"], "times": 1, "stdout": &output[..end], "exit_code": 137});
+    rules.insert(parse, cut);
+    let observed = run_loaded(vec![(script, vec![], index)]);
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    let parses = observed.transcripts[0]
+        .iter()
+        .filter(|r| r["type"] == "request" && r["service"].as_str().is_some_and(|s| s.contains("-e log true")))
+        .count();
+    assert_eq!(parses, 2);
+    assert_eq!(observed.batches.len(), 20, "{:?}", observed.batches);
+}
+
 /// The Kotlin CLI's recording of the same scenario is the witness of the behaviour D18 replaced; it is not re-recorded.
 #[test]
 fn kotlin_witness_of_the_serial_only_device_map_is_unchanged() {

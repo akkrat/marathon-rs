@@ -195,6 +195,10 @@ fn timeout_has_three_inner_attempts_and_unregisters_every_attempt() {
                 clock: clock.clone(),
                 ..context
             };
+            let probes = |server: &marathon_adb::server::FakeAdbServer| {
+                request_services(server).iter().filter(|s| *s == "host:version").count()
+            };
+            let probes_before = probes(&server);
             let handshake = async {
                 for attempt in 1..=3 {
                     while commands(&server)
@@ -231,6 +235,8 @@ fn timeout_has_three_inner_attempts_and_unregisters_every_attempt() {
                     .count(),
                 3
             );
+            // D22: output gone silent says nothing about the server, and the Kotlin transcripts have no such request.
+            assert_eq!(probes(&server), probes_before);
             assert_eq!(d.listener_counts(), (0, 0));
             provider.terminate().await?;
             checked(server.shutdown().await);
@@ -343,6 +349,153 @@ fn producer_failure_fails_the_parsing_attempt_d25() {
             Ok(())
         })
     });
+}
+/// Over shell v1 a command's end and a dropped connection look alike, which is how the fake gives a dropped socket.
+fn v1_script(outputs: Vec<Value>) -> Value {
+    let mut s = base_script(30, vec!["cmd"]);
+    let list = s["shell"].as_array_mut().unwrap();
+    list.push(json!({"exact":"pm list packages","stdout":""}));
+    list.push(json!({"prefix":"cmd package install","service":"exec","stdout":"Success\n"}));
+    list.extend(outputs);
+    s
+}
+/// The output for these tests of the two the run has, with no end.
+fn listed(methods: &[&str]) -> String {
+    methods
+        .iter()
+        .map(|method| {
+            format!(
+                "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test={method}\nINSTRUMENTATION_STATUS: numtests=2\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test={method}\nINSTRUMENTATION_STATUS: numtests=2\nINSTRUMENTATION_STATUS_CODE: 0\n"
+            )
+        })
+        .collect()
+}
+fn whole() -> String {
+    format!("{}INSTRUMENTATION_CODE: -1\n", listed(&["one", "two"]))
+}
+/// What `extract` returns for this script, and how many `am instrument` it took.
+fn extracted(script: Value) -> (VendorResult<Vec<String>>, usize) {
+    let outcome = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let slot = outcome.clone();
+    run(config(), move |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(script).await;
+            let runtime = change_runtime(&runtime, &[server.port()]);
+            let provider = Arc::new(AdamDeviceProvider::new(runtime.clone())?);
+            provider.initialize(context.clone()).await?;
+            let reference = provider.borrow(context.clone()).await?;
+            let parser = AmInstrumentTestParser {
+                runtime,
+                provider: provider.clone(),
+            };
+            let tests = parser
+                .extract(reference, context)
+                .await
+                .map(|tests| tests.iter().map(|t| t.method.to_string_lossy()).collect());
+            let attempts = commands(&server)
+                .iter()
+                .filter(|s| s.starts_with("am instrument"))
+                .count();
+            *slot.lock().unwrap() = Some((tests, attempts));
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+    let outcome = outcome.lock().unwrap().take();
+    outcome.unwrap()
+}
+/// D25 (N38): the false green. A dropped socket used to end the attempt as a success with the tests listed so far, and
+/// the run went on with only those: with a filter that matched none of them, a green run of nothing. Every point of the
+/// cut is covered, down to a list that is in fact whole, as nothing can tell that without the instrumentation's end.
+#[test]
+fn a_stream_cut_off_is_retried_and_the_list_is_whole_d25() {
+    for cut in [
+        String::new(),
+        "INSTRUMENTATION_STATUS: numtests=2\nINSTRU".to_owned(),
+        listed(&["one"]),
+        format!("{}INSTRUMENTATION_STATUS: cla", listed(&["one"])),
+        listed(&["one", "two"]),
+    ] {
+        let (tests, attempts) = extracted(v1_script(vec![
+            json!({"prefix":"am instrument","stdout":cut,"times":1}),
+            json!({"prefix":"am instrument","stdout":whole()}),
+        ]));
+        assert_eq!(tests.unwrap(), ["one", "two"], "cut: {cut:?}");
+        assert_eq!(attempts, 2, "cut: {cut:?}");
+    }
+}
+/// D25: every attempt cut off is a parse failure with the cause, never the tests found so far.
+#[test]
+fn a_stream_cut_off_on_every_attempt_fails_and_gives_no_list_d25() {
+    let (tests, attempts) = extracted(v1_script(vec![
+        json!({"prefix":"am instrument","stdout":listed(&["one"])}),
+    ]));
+    let error = tests.unwrap_err();
+    assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
+    let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+    assert!(
+        message.ends_with(": java.io.EOFException: the instrumentation stream ended before a result"),
+        "{message}"
+    );
+    assert_eq!(attempts, 3);
+}
+/// `am` killed before it printed anything, as on a real device, ends with nothing but an exit code. The parse used to
+/// say that there are no tests.
+#[test]
+fn am_killed_before_any_output_is_retried_d25() {
+    let (tests, attempts) = extracted(script(vec![
+        json!({"prefix":"am instrument","exit_code":137,"times":1}),
+        json!({"prefix":"am instrument","stdout":whole()}),
+    ]));
+    assert_eq!(tests.unwrap(), ["one", "two"]);
+    assert_eq!(attempts, 2);
+}
+/// `am` killed on the device ends the stream with an exit code from the shell, and no result.
+#[test]
+fn a_killed_am_fails_the_attempt_with_its_exit_code_d25() {
+    let (tests, attempts) = extracted(script(vec![
+        json!({"prefix":"am instrument","stdout":listed(&["one"]),"exit_code":137}),
+    ]));
+    let error = tests.unwrap_err();
+    let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+    assert!(message.ends_with("before a result, with exit code 137"), "{message}");
+    assert_eq!(attempts, 3);
+}
+/// The ends that are no cut keep their one attempt and their result, as captured on real devices: `am` refusing to
+/// start, and output that never was the protocol. A non-zero session code is a normal end too, and keeps the tests it
+/// listed, as in Kotlin.
+#[test]
+fn ordinary_ends_are_not_retried_d25() {
+    let refused = "INSTRUMENTATION_STATUS: Error=Unable to find instrumentation info for: ComponentInfo{com.nope/com.nope.Runner}\nINSTRUMENTATION_STATUS: id=ActivityManagerService\nINSTRUMENTATION_STATUS_CODE: -1\nonError: commandError=true message=INSTRUMENTATION_FAILED: com.nope/com.nope.Runner\n";
+    for (name, built, expected) in [
+        (
+            "refused",
+            script(vec![json!({"prefix":"am instrument","stdout":refused,"exit_code":1})]),
+            vec![],
+        ),
+        (
+            "refused v1",
+            v1_script(vec![json!({"prefix":"am instrument","stdout":refused})]),
+            vec![],
+        ),
+        (
+            "not the protocol",
+            v1_script(vec![json!({"prefix":"am instrument","stdout":"sh: am: not found\n"})]),
+            vec![],
+        ),
+        (
+            "session code 0",
+            script(vec![
+                json!({"prefix":"am instrument","stdout":format!("{}INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n", listed(&["one"]))}),
+            ]),
+            vec!["one"],
+        ),
+    ] {
+        let (tests, attempts) = extracted(built);
+        assert_eq!(tests.unwrap(), expected, "{name}");
+        assert_eq!(attempts, 1, "{name}");
+    }
 }
 #[test]
 fn duplicate_test_retains_first_metadata_but_last_bundle_registration() {

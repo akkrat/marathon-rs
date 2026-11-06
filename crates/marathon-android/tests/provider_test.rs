@@ -11,7 +11,7 @@ use marathon_android::{
 use marathon_config::vendor::SerialStrategy;
 use marathon_core::{
     error::*,
-    vendor::{DeviceEvent, DeviceProvider},
+    vendor::{Device, DeviceEvent, DeviceProvider},
 };
 use std::collections::HashMap;
 use support::*;
@@ -430,6 +430,94 @@ fn a_batch_waits_for_a_lost_server_d22() {
                 Some(js("Android batch execution is supplied by WP 6.6a"))
             );
             logcat_streams(&[(&server, 2)]).await;
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+fn parse_configuration() -> marathon_config::Configuration {
+    let mut c = configuration();
+    let a = android(&mut c);
+    a.test_application_output = Some(JavaPath::from_text(
+        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    ));
+    a.test_parser_configuration = marathon_config::vendor::AndroidTestParserConfiguration::Remote {
+        instrumentation_args: vec![],
+    };
+    c.test_output_timeout_millis = 60_000;
+    c
+}
+/// D25 with a real kill: the batch runner's stream is cut with no exit from the shell, so the listener hears why.
+#[test]
+fn a_kill_during_a_test_tells_the_listener_why_and_keeps_the_device_d25() {
+    use marathon_android::{listeners::AndroidTestRunListener, runner::AndroidDeviceTestRunner};
+    use marathon_core::{model::TestBatch, runtime::VendorFuture};
+    #[derive(Default)]
+    struct Failures(std::sync::Mutex<Vec<String>>, std::sync::atomic::AtomicBool);
+    impl AndroidTestRunListener for Failures {
+        fn on_event<'a>(&'a self, event: &'a marathon_adb::testrunner::TestEvent) -> VendorFuture<'a, ()> {
+            use marathon_adb::testrunner::TestEvent as E;
+            match event {
+                E::TestRunFailed { error } => self.0.lock().unwrap().push(error.to_string_lossy()),
+                E::TestStarted { .. } => self.1.store(true, std::sync::atomic::Ordering::SeqCst),
+                _ => {}
+            }
+            Box::pin(async { Ok(()) })
+        }
+    }
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
+    run(parse_configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut script = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+            script["shell"].as_array_mut().unwrap().push(serde_json::json!({
+                "prefix":"am instrument",
+                "stdout":"INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=method\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n",
+                "hang":true
+            }));
+            let mut server = server(script).await;
+            let runtime = change_runtime(&runtime, &[server.port()]);
+            let provider = AdamDeviceProvider::new(runtime.clone())?;
+            provider.initialize(context.clone()).await?;
+            let DeviceEvent::Connected(reference) = event(&provider).await else {
+                panic!("connection")
+            };
+            let android = provider.android_device(&reference).unwrap();
+            let test = test();
+            runtime.identifier.put(&test, &runtime.bundles[0]);
+            let failures = Failures::default();
+            let killing = async {
+                checked(
+                    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                        while !failures.1.load(std::sync::atomic::Ordering::SeqCst) {
+                            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        }
+                    })
+                    .await,
+                );
+                server.kill(Some(std::time::Duration::from_millis(100)));
+            };
+            let runner = AndroidDeviceTestRunner { device: &android };
+            let (outcome, ()) = tokio::join!(
+                runner.execute(
+                    runtime.dependencies.configuration.clone(),
+                    std::sync::Arc::new(TestBatch {
+                        tests: vec![test],
+                        id: "batch".into(),
+                    }),
+                    &failures,
+                    context,
+                ),
+                killing
+            );
+            outcome?;
+            assert_eq!(
+                *failures.0.lock().unwrap(),
+                ["Instrumentation failed: java.io.EOFException: the instrumentation stream ended before a result"]
+            );
+            track_requests(&server, 2).await;
+            logcat_streams(&[(&server, 2)]).await;
+            assert!(android.info().healthy);
             provider.terminate().await?;
             checked(server.shutdown().await);
             Ok(())

@@ -42,6 +42,14 @@ pub trait AndroidTestRunListener: Send + Sync {
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
+    /// D25: the instrumentation's stream failed, for this reason; a `TestRunFailed` with the same text follows.
+    fn on_stream_failed_in<'a>(
+        &'a self,
+        _reason: &'a JavaString,
+        _context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
     fn on_event_in<'a>(
         &'a self,
         event: &'a TestEvent,
@@ -101,6 +109,18 @@ impl AndroidTestRunListener for CompositeTestRunListener {
         Box::pin(async move {
             for listener in &self.listeners {
                 listener.before_next_instrumentation_in(info, context.clone()).await?;
+            }
+            Ok(())
+        })
+    }
+    fn on_stream_failed_in<'a>(
+        &'a self,
+        reason: &'a JavaString,
+        context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            for listener in &self.listeners {
+                listener.on_stream_failed_in(reason, context.clone()).await?;
             }
             Ok(())
         })
@@ -294,6 +314,18 @@ impl AndroidTestRunListener for TestResultsListener {
         Box::pin(async move {
             self.accumulator.update(|a| {
                 a.keep_run_failure();
+                Ok(())
+            })
+        })
+    }
+    fn on_stream_failed_in<'a>(
+        &'a self,
+        reason: &'a JavaString,
+        _context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            self.accumulator.update(|a| {
+                a.explain_tests_in_progress(reason);
                 Ok(())
             })
         })

@@ -84,6 +84,11 @@ pub struct InstrumentationResponseTransformer {
     tests_executed: i32,
     test_metrics: MetricMap,
     warnings: Vec<InstrumentationWarning>,
+    /// An `INSTRUMENTATION_CODE` atom was parsed. Not `finish_reported`, which `transform` sets too.
+    session_ended: bool,
+    /// `am` said it could not start the instrumentation, see [`Self::ended_without_result`].
+    start_refused: bool,
+    test_started: bool,
 }
 
 impl InstrumentationResponseTransformer {
@@ -112,6 +117,8 @@ impl InstrumentationResponseTransformer {
         // Matching Java's count is an approved non-goal (WP 6.3 findings,
         // R1-sol-3); per-chunk lossy decoding stays.
         self.buffer.push_str(&String::from_utf8_lossy(bytes));
+        // Before the atoms below take the text away. Over the buffer, as a chunk can end inside the word.
+        self.start_refused |= find_slice(&self.buffer.0, "INSTRUMENTATION_FAILED").is_some();
 
         let mut result: Option<Vec<TestEvent>> = None;
         while let Some(atom) = self.find_atom() {
@@ -171,6 +178,27 @@ impl InstrumentationResponseTransformer {
         }
     }
 
+    /// D25: whether the output stopped before the instrumentation's end, which `transform` cannot say: it calls such a
+    /// stream failed only if it lacks tests, and fine otherwise (N38). `am instrument -r` ends every instrumentation
+    /// that ran, crashed or not, with `INSTRUMENTATION_CODE`, last of all, so a stream without one was cut off.
+    ///
+    /// Not cut off, and still answered by `transform`:
+    /// - `am` refusing to start the instrumentation, which prints `INSTRUMENTATION_FAILED` and no code. Real devices
+    ///   mix it with a status atom holding an `Error`, in either order. No test has started then;
+    /// - output that never was the protocol, which `No test results` then quotes.
+    ///
+    /// A final code line without its line break still counts, as a recording can end that way (adam's `log_13`).
+    pub fn ended_without_result(&self) -> bool {
+        let units = &self.buffer.0;
+        if self.session_ended
+            || (self.start_refused && !self.test_started)
+            || find_slice(units, TokenType::InstrumentationCode.name()).is_some()
+        {
+            return false;
+        }
+        self.start_reported || units.is_empty() || find_slice(units, "INSTRUMENTATION_").is_some()
+    }
+
     fn parse(&mut self, atom: &[JavaString]) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
         let last = &atom[atom.len() - 1];
         if starts_with(&last.0, TokenType::InstrumentationStatusCode.name()) {
@@ -195,6 +223,7 @@ impl InstrumentationResponseTransformer {
         let code = to_int_or_null(value_units);
         let status = Status::value_of(code);
         let parameters = to_map(atom, "INSTRUMENTATION_STATUS: ")?;
+        self.start_refused |= parameters.get_str("Error").is_some() && test_id(&parameters).is_none();
 
         let mut events: Vec<TestEvent> = Vec::new();
         if !self.start_reported {
@@ -219,6 +248,7 @@ impl InstrumentationResponseTransformer {
             }
             Status::Start => {
                 if let Some(id) = test_id(&parameters) {
+                    self.test_started = true;
                     events.push(TestEvent::TestStarted { id });
                 }
             }
@@ -302,6 +332,7 @@ impl InstrumentationResponseTransformer {
             .get(TokenType::InstrumentationCode.name().len() + 1..)
             .ok_or_else(|| InstrumentationError::MalformedAtom(last.clone()))?;
         let code = to_int_or_null(value_units);
+        self.session_ended = true;
         // Session result code -1 is Status.ERROR by value and means success.
         if Status::value_of(code) == Status::Error {
             let lines: Vec<JavaString> = atom.iter().filter(|line| *line != last).cloned().collect();
@@ -874,6 +905,119 @@ mod tests {
                 metrics: MetricMap::new()
             }]
         );
+    }
+
+    /// D25: every recording this repository has, by whether its stream reached the instrumentation's end. `log_1` and
+    /// `log_4` are adam's fixtures of output cut off, without a code; `started.txt` is the first lines of a stream, for
+    /// a test that hangs. Nothing else lacks the code, including crashes and non-zero session codes.
+    #[test]
+    fn recordings_end_with_their_code_except_the_ones_cut_off_d25() {
+        const FAKE: [(&str, &str, bool); 5] = [
+            (
+                "execution",
+                include_str!("../../../fixtures/fake-adb/android-runner-cli/script/execution.txt"),
+                true,
+            ),
+            (
+                "discovery",
+                include_str!("../../../fixtures/fake-adb/android-runner-cli/script/discovery.txt"),
+                true,
+            ),
+            (
+                "crash",
+                include_str!("../../../fixtures/fake-adb/android-runner-cli/script/crash.txt"),
+                true,
+            ),
+            (
+                "started",
+                include_str!("../../../fixtures/fake-adb/android-runner-cli/script/started.txt"),
+                false,
+            ),
+            (
+                "two-devices",
+                include_str!("../../../fixtures/fake-adb/android-two-devices/script/instrumentation.txt"),
+                true,
+            ),
+        ];
+        let adam = [
+            ("log_1", LOG_1_INPUT, false),
+            ("log_2", LOG_2_INPUT, true),
+            ("log_3", LOG_3_INPUT, true),
+            ("log_4", LOG_4_INPUT, false),
+            ("log_5", LOG_5_INPUT, true),
+            ("log_6", LOG_6_INPUT, true),
+            ("log_7", LOG_7_INPUT, true),
+            ("log_8", LOG_8_INPUT, true),
+            ("log_9", LOG_9_INPUT, true),
+            ("log_10", LOG_10_INPUT, true),
+            ("log_11", LOG_11_INPUT, true),
+            ("log_12", LOG_12_INPUT, true),
+            ("log_13", LOG_13_INPUT, true),
+        ];
+        for (name, input, complete) in FAKE.into_iter().chain(adam) {
+            let mut t = InstrumentationResponseTransformer::new();
+            t.process(input.as_bytes()).expect("process");
+            assert_eq!(t.ended_without_result(), !complete, "{name}");
+            // The transformer's own answer stays what adam's tests pin.
+            assert!(t.transform().is_some() || complete, "{name}");
+        }
+    }
+
+    /// The ends of `am instrument -w -r` seen on API 33 and 36 emulators, in `docs/wp/x18-findings.md`.
+    #[test]
+    fn real_refusals_and_crashes_are_not_a_stream_cut_off_d25() {
+        const REFUSED: &str = "INSTRUMENTATION_STATUS: Error=Unable to find instrumentation info for: ComponentInfo{com.nope/com.nope.Runner}\nINSTRUMENTATION_STATUS: id=ActivityManagerService\nINSTRUMENTATION_STATUS_CODE: -1\n";
+        const ON_ERROR: &str = "onError: commandError=true message=INSTRUMENTATION_FAILED: com.nope/com.nope.Runner\n";
+        let started = "INSTRUMENTATION_STATUS: class=C\nINSTRUMENTATION_STATUS: test=a\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n";
+        for (name, output) in [
+            ("refused, status first", format!("{REFUSED}{ON_ERROR}")),
+            ("refused, onError first", format!("{ON_ERROR}{REFUSED}")),
+            ("refused, target missing", ON_ERROR.to_owned()),
+            (
+                "crash",
+                format!("{started}INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n"),
+            ),
+            (
+                "code without its line break",
+                format!("{started}INSTRUMENTATION_CODE: -1"),
+            ),
+            ("not the protocol", "/system/bin/sh: am: not found\n".to_owned()),
+        ] {
+            let mut t = InstrumentationResponseTransformer::new();
+            t.process(output.as_bytes()).expect("process");
+            assert!(!t.ended_without_result(), "{name}");
+        }
+        // Split inside the word, which the first chunk's atom would otherwise take along.
+        let mut t = InstrumentationResponseTransformer::new();
+        t.process(b"onError: commandError=true message=INSTRUMENTATION_FA")
+            .expect("process");
+        t.process(b"ILED: x\n").expect("process");
+        assert!(!t.ended_without_result());
+    }
+
+    #[test]
+    fn streams_cut_off_are_told_apart_from_other_output_d25() {
+        let started = "INSTRUMENTATION_STATUS: class=C\nINSTRUMENTATION_STATUS: test=a\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n";
+        let cut = |output: &str| {
+            let mut t = InstrumentationResponseTransformer::new();
+            t.process(output.as_bytes()).expect("process");
+            t.ended_without_result()
+        };
+        // No output: a dropped connection, or `am` killed before it printed anything.
+        assert!(cut(""));
+        // Cut inside the first atom, before anything was parsed.
+        assert!(cut("INSTRUMENTATION_STATUS: numtests=2\nINSTRU"));
+        // A test in progress.
+        assert!(cut(started));
+        // Every test reported: `transform` would call that a success.
+        let finished = format!(
+            "{started}INSTRUMENTATION_STATUS: class=C\nINSTRUMENTATION_STATUS: test=a\nINSTRUMENTATION_STATUS_CODE: 0\n"
+        );
+        assert!(cut(&finished));
+        // A test printing the word that `am` uses for a refusal does not hide the stream's end.
+        assert!(cut(&format!(
+            "{started}INSTRUMENTATION_STATUS: stream=INSTRUMENTATION_FAILED: mine\nINSTRUMENTATION_STATUS_CODE: 2\n"
+        )));
     }
 
     #[test]

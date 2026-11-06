@@ -203,6 +203,63 @@ mod test_runner_request_test {
             }]
         );
     }
+    async fn ended(features: Vec<Feature>, stdout: &str, exit: i32) -> (Vec<TestEvent>, bool, Option<i32>) {
+        let cmd = request(features.clone()).cmd();
+        let script = json!({"server":{"strict":true},"devices":[{"serial":"serial"}],"shell":[{"exact":cmd,"stdout":stdout,"exit_code":exit}]});
+        let script = checked(checked(Script::from_yaml(&script.to_string())).compile(Path::new(".")));
+        let mut server = checked(FakeAdbServer::start(script, ServerOptions::default()).await);
+        let client = AndroidDebugBridgeClient::new(
+            server.addr().ip(),
+            server.port(),
+            Arc::new(SocketFactory::new(1000, 30000)),
+            None,
+        );
+        let mut stream = FallibleCompatShellStream::start(&client, request(features), Some("serial"));
+        let mut events = vec![];
+        while let Some(chunk) = stream.next().await {
+            events.extend(checked(chunk));
+        }
+        let request = stream.request().unwrap();
+        let outcome = (events, request.ended_without_result(), request.exit_code());
+        checked(server.shutdown().await);
+        outcome
+    }
+    /// D25: over shell v1 nothing says how a command ended, so a dropped connection looks like this. No final event
+    /// claims a result: `transform` would call this first one a success, every test having been reported.
+    #[tokio::test]
+    async fn a_stream_that_stops_before_its_code_has_no_final_events_d25() {
+        let cut = INPUT.split("INSTRUMENTATION_RESULT").next().unwrap();
+        let (events, ended, exit) = ended(vec![], cut, 0).await;
+        assert!(ended);
+        assert_eq!(exit, None);
+        assert_eq!(events, expected()[..3]);
+    }
+    /// `am` killed on the device: the shell reports it, and there is still no result.
+    #[tokio::test]
+    async fn a_killed_am_reports_its_exit_code_d25() {
+        let cut = INPUT.split("INSTRUMENTATION_RESULT").next().unwrap();
+        let (_, ended, exit) = ended(vec![Feature::ShellV2], cut, 137).await;
+        assert!(ended);
+        assert_eq!(exit, Some(137));
+    }
+    /// `am` killed before it printed anything is no ordinary end either: nothing but its exit code came.
+    #[tokio::test]
+    async fn no_output_at_all_is_no_result_d25() {
+        let (events, ended_early, exit) = ended(vec![Feature::ShellV2], "", 137).await;
+        assert!(events.is_empty());
+        assert!(ended_early);
+        assert_eq!(exit, Some(137));
+    }
+    /// A non-zero session code is an ordinary end, and stray output keeps its answer: the Kotlin test above.
+    #[tokio::test]
+    async fn a_crash_keeps_its_final_events_d25() {
+        let crash = "INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n";
+        let (events, ended_early, _) = ended(vec![Feature::ShellV2], crash, 0).await;
+        assert!(!ended_early);
+        assert!(events.contains(&TestEvent::TestRunFailed {
+            error: "Process crashed.".into()
+        }));
+    }
     #[tokio::test]
     async fn feature_matrix_uses_only_shell_v2() {
         for mask in 0..16 {

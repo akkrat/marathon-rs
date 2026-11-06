@@ -599,6 +599,324 @@ fn producer_failure_leaves_the_tests_uncompleted_with_the_cause_d25() {
         })
     });
 }
+/// Over shell v1 a command's end and a dropped connection look alike, which is how the fake gives a dropped socket.
+fn dropped(output: &str) -> Value {
+    let mut s = base_script(30, vec!["cmd", "abb_exec", "sendrecv_v2"]);
+    s["shell"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"prefix":"am instrument","stdout":output}));
+    s
+}
+const STREAM_ENDED: &str =
+    "Instrumentation failed: java.io.EOFException: the instrumentation stream ended before a result";
+/// D25: a dropped socket looks like a normal end, so this reached the listener as `Test run failed to complete` or
+/// `No test results` at best, and `TestRunEnded` at worst. It says what happened, and the device stays.
+#[test]
+fn a_stream_cut_off_fails_the_run_and_keeps_the_device_d25() {
+    for (cut, reported) in [("", vec![]), (stream(), vec!["run:AdamTestRun:1", "start:method"])] {
+        run(config(), move |runtime, context| {
+            Box::pin(async move {
+                let mut server = server(dropped(cut)).await;
+                let d = device(&server, runtime.clone());
+                d.setup(context.clone()).await?;
+                register(&runtime, &[test("method")]);
+                let e = Events::default();
+                AndroidDeviceTestRunner { device: &d }
+                    .execute(
+                        runtime.dependencies.configuration.clone(),
+                        Arc::new(TestBatch {
+                            tests: vec![test("method")],
+                            id: "batch".into(),
+                        }),
+                        &e,
+                        context,
+                    )
+                    .await?;
+                let failed = format!("failed:{STREAM_ENDED}");
+                let mut expected = vec!["before:com.example.test"];
+                expected.extend(reported);
+                expected.extend([failed.as_str(), "after"]);
+                assert_eq!(*e.values.lock().unwrap(), expected);
+                d.dispose().await?;
+                checked(server.shutdown().await);
+                Ok(())
+            })
+        });
+    }
+}
+/// D25: the report gives the reason, for the test in progress and for those that never started; a test that finished
+/// before the cut stays finished. With its run failure, the batch's rest takes the retry path.
+#[test]
+fn a_stream_cut_off_explains_the_unfinished_tests_and_keeps_the_finished_d25() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let cut = format!(
+                "{}INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=second\nINSTRUMENTATION_STATUS: numtests=3\nINSTRUMENTATION_STATUS_CODE: 1\n",
+                completes("pkg.Clazz", "first")
+                    .split("INSTRUMENTATION_CODE")
+                    .next()
+                    .unwrap()
+            );
+            let mut server = server(dropped(&cut)).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let tests = vec![test("first"), test("second"), test("third")];
+            register(&runtime, &tests);
+            let batch: BatchRef = Arc::new(TestBatch {
+                tests,
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            let results = deferred.completed().unwrap().unwrap();
+            assert_eq!(names(&results.finished), ["first"]);
+            assert!(results.failed.is_empty());
+            assert_eq!(names(&results.uncompleted), ["second", "third"]);
+            for result in &results.uncompleted {
+                assert_eq!(
+                    result.stacktrace.as_ref().map(|s| s.to_string_lossy()).as_deref(),
+                    Some(STREAM_ENDED),
+                    "{}",
+                    result.test.method.to_string_lossy()
+                );
+            }
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// A test can also finish with the stream cut just after it, in which case the batch's result is simply all finished.
+#[test]
+fn a_stream_cut_off_after_the_last_test_loses_no_result_d25() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let output = completes("pkg.Clazz", "method");
+            let cut = output.split("INSTRUMENTATION_CODE").next().unwrap();
+            let mut server = server(dropped(cut)).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            register(&runtime, &[test("method")]);
+            let batch: BatchRef = Arc::new(TestBatch {
+                tests: vec![test("method")],
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            let results = deferred.completed().unwrap().unwrap();
+            assert_eq!(names(&results.finished), ["method"]);
+            assert!(results.uncompleted.is_empty());
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// The ordinary ends stay what they were, as is their text: a crash leaves the test in progress without one (Kotlin);
+/// `am` refusing to start and output that is not the protocol keep the answer they had.
+#[test]
+fn ordinary_ends_are_not_called_a_stream_cut_off_d25() {
+    const GENERIC: &str =
+        "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed";
+    let refused = "INSTRUMENTATION_STATUS: Error=Unable to find instrumentation info for: ComponentInfo{com.nope/com.nope.Runner}\nINSTRUMENTATION_STATUS: id=ActivityManagerService\nINSTRUMENTATION_STATUS_CODE: -1\nonError: commandError=true message=INSTRUMENTATION_FAILED: com.nope/com.nope.Runner\n";
+    let crash = format!(
+        "{}INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n",
+        stream()
+    );
+    for (output, exit, first, second) in [
+        (crash, 0, None, "Process crashed."),
+        (refused.to_owned(), 1, Some(GENERIC), GENERIC),
+        (
+            "sh: am: not found\n".to_owned(),
+            127,
+            Some("No test results\nsh: am: not found"),
+            "No test results\nsh: am: not found",
+        ),
+    ] {
+        run(config(), move |runtime, context| {
+            Box::pin(async move {
+                let mut built = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+                built["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"prefix":"am instrument","stdout":output,"exit_code":exit}));
+                let mut server = server(built).await;
+                let d = device(&server, runtime.clone());
+                d.setup(context.clone()).await?;
+                let tests = vec![test("method"), test("other")];
+                register(&runtime, &tests);
+                let batch: BatchRef = Arc::new(TestBatch {
+                    tests,
+                    id: "batch".into(),
+                });
+                let deferred = Arc::new(SharedDeferred::default());
+                let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+                AndroidDeviceTestRunner { device: &d }
+                    .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                    .await?;
+                let results = deferred.completed().unwrap().unwrap();
+                let text = |method: &str| {
+                    results
+                        .uncompleted
+                        .iter()
+                        .find(|r| r.test.method.to_string_lossy() == method)
+                        .and_then(|r| r.stacktrace.as_ref())
+                        .map(|s| s.to_string_lossy())
+                };
+                assert_eq!(text("method").as_deref(), first, "{output}");
+                assert_eq!(text("other").as_deref(), Some(second), "{output}");
+                d.dispose().await?;
+                checked(server.shutdown().await);
+                Ok(())
+            })
+        });
+    }
+}
+/// D28: one instrumentation's cut stream fails its own tests only, and only they get its text.
+#[test]
+fn a_stream_cut_off_leaves_the_other_instrumentations_results_right_d25_d28() {
+    let in_progress = |method: &str| {
+        format!(
+            "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test={method}\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\n"
+        )
+    };
+    // The cut instrumentation either first or last; the other completes.
+    for (cut, good) in [("one", "two"), ("two", "one")] {
+        let output = in_progress(cut);
+        let other = completes("pkg.Clazz", good);
+        run(config(), move |runtime, context| {
+            Box::pin(async move {
+                let mut built = base_script(30, vec!["cmd", "abb_exec", "sendrecv_v2"]);
+                let rules = built["shell"].as_array_mut().unwrap();
+                rules.push(json!({"regex":format!("^am instrument.* -e class pkg.Clazz#{cut} "),"stdout":output}));
+                rules.push(json!({"regex":format!("^am instrument.* -e class pkg.Clazz#{good} "),"stdout":other}));
+                let mut server = server(built).await;
+                let d = device(&server, runtime.clone());
+                d.setup(context.clone()).await?;
+                let (one, two) = two_instrumentations(&runtime);
+                let batch: BatchRef = Arc::new(TestBatch {
+                    tests: vec![one, two],
+                    id: "batch".into(),
+                });
+                let deferred = Arc::new(SharedDeferred::default());
+                let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+                AndroidDeviceTestRunner { device: &d }
+                    .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                    .await?;
+                let results = deferred.completed().unwrap().unwrap();
+                assert_eq!(names(&results.finished), [good], "cut {cut}");
+                assert!(results.failed.is_empty());
+                assert_eq!(names(&results.uncompleted), [cut]);
+                assert_eq!(
+                    results.uncompleted[0]
+                        .stacktrace
+                        .as_ref()
+                        .map(|s| s.to_string_lossy())
+                        .as_deref(),
+                    Some(STREAM_ENDED)
+                );
+                assert_eq!(instrumentations(&server).len(), 2);
+                d.dispose().await?;
+                checked(server.shutdown().await);
+                Ok(())
+            })
+        });
+    }
+}
+/// D28: the text goes to the run it belongs to, not to an earlier run's test left in progress by a crash.
+#[test]
+fn a_stream_cut_off_does_not_explain_an_earlier_runs_crash_d25_d28() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let mut built = base_script(30, vec!["cmd", "abb_exec", "sendrecv_v2"]);
+            let rules = built["shell"].as_array_mut().unwrap();
+            let crash = "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=one\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n";
+            rules.push(json!({"regex":"^am instrument.* -e class pkg.Clazz#one ","stdout":crash}));
+            rules.push(json!({"regex":"^am instrument.* -e class pkg.Clazz#two ","stdout":""}));
+            let mut server = server(built).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let (one, two) = two_instrumentations(&runtime);
+            let batch: BatchRef = Arc::new(TestBatch {
+                tests: vec![one, two],
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            let results = deferred.completed().unwrap().unwrap();
+            let text = |method: &str| {
+                results
+                    .uncompleted
+                    .iter()
+                    .find(|r| r.test.method.to_string_lossy() == method)
+                    .unwrap()
+                    .stacktrace
+                    .as_ref()
+                    .map(|s| s.to_string_lossy())
+            };
+            assert_eq!(text("one"), None);
+            assert_eq!(text("two").as_deref(), Some(STREAM_ENDED));
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// N19: a client closed by provider shutdown ends the stream, which is the end of the run and not a failure of it.
+#[test]
+fn a_stream_ended_by_provider_shutdown_stays_quiet_d25() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(script(stream(), true)).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            register(&runtime, &[test("method")]);
+            let e = Events::default();
+            let closing = async {
+                checked(
+                    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                        while !e.values.lock().unwrap().iter().any(|v| v == "start:method") {
+                            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                        }
+                    })
+                    .await,
+                );
+                d.client().close();
+            };
+            let runner = AndroidDeviceTestRunner { device: &d };
+            let (outcome, ()) = tokio::join!(
+                runner.execute(
+                    runtime.dependencies.configuration.clone(),
+                    Arc::new(TestBatch {
+                        tests: vec![test("method")],
+                        id: "batch".into(),
+                    }),
+                    &e,
+                    context,
+                ),
+                closing
+            );
+            outcome?;
+            assert_eq!(
+                *e.values.lock().unwrap(),
+                vec!["before:com.example.test", "run:AdamTestRun:1", "start:method", "after"]
+            );
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
 /// Two tests of two instrumentations: `one` runs under `com.example.test`, `two` under the other bundle's.
 fn two_instrumentations(runtime: &Arc<marathon_android::services::AndroidRuntime>) -> (Test, Test) {
     let (one, two) = (test("one"), test("two"));
