@@ -21,7 +21,7 @@ records it: 3 calls, then none for the same key. The Rust provider copied this i
 | A key that fails during a refresh | Joins at the next round, at the delays still to come and then at 300 s, and has its own total of 8 |
 | A key that fails after the refresh ended | Starts a new one from the 5 s delay. Keys that ran out stay out |
 | After the last re-query | One warning. The defaults answer for the rest of the run, which is today's behaviour |
-| At the end of the run | `close` cancels and joins the task, then closes the source. Nothing waits for a delay or for a query in flight |
+| At the end of the run | `close` cancels and joins the task, then closes the source. Nothing waits for a delay or for a query in flight. The join has a bound of 3 s, for a source that blocks inside its future ([x22](x22-findings.md)) |
 
 5 s is late enough for a backend restart not to use up the early attempts, and early enough that a device connecting
 seconds into the run can get the history. Keeping the total small matters more than reaching a long outage: a run
@@ -68,10 +68,11 @@ With a failing backend, on top of the first query's lines, which are unchanged:
 | Event | Lines added |
 |---|---|
 | Each failed re-query | `Timings` INFO `… failed in N ms`, and `MetricsProviderImpl` WARN `Cannot fetch … from database` with its cause |
-| A re-query that answers | `Timings` INFO `… returned N tests in M ms`, the DEBUG list of rows for an execution time query, and INFO `… returned N tests after failing earlier. Queues built and batches composed from now on use it; a queue that already exists keeps its order` |
+| A re-query that answers | `Timings` INFO `… returned N tests in M ms`, the DEBUG list of rows for an execution time query, and INFO `… returned N tests after failing earlier. Queues built and batches composed from now on use it; a queue that already exists keeps its order`. For an answer of 0 tests that line ends `There is no history to use, so nothing changes` ([x22](x22-findings.md)) |
 | The 8th failed re-query | One more WARN: `… failed 8 more times. Tests without history use the defaults for the rest of this run` |
+| `close`, once per run, if a cancelled query has not stopped within 3 s | One WARN: `The history refresh did not stop within 3000 ms of being cancelled. Closing the analytics backend with its query still running` ([x22](x22-findings.md)) |
 
-So a key adds at most 17 INFO and WARN lines. A cancelled query logs nothing, as in `prefetch`. The per-test "No
+So a key adds at most 17 INFO and WARN lines, and `close` one more at most. A cancelled query logs nothing, as in `prefetch`. The per-test "No
 execution time found" and "No success rate found" lines stay once per test, and a recovery does not repeat them.
 
 Nothing else reads this cache: no output file, report or tracker. `report_execution_time_coverage` only logs, and
@@ -126,11 +127,11 @@ Each change was reverted temporarily, and these failed:
 ### Not verified
 
 No real InfluxDB or Graphite was used. The refresh goes through the same `RemoteDataSource` calls as the first query,
-whose transports `crates/marathon-analytics/tests` cover against fake peers, but no test takes a real or fake transport
-from failing to answering.
+whose transports `crates/marathon-analytics/tests` cover against fake peers. When this was written no test took a real or
+fake transport from failing to answering; `crates/marathon-analytics/tests/refresh.rs` now does ([x22](x22-findings.md)).
 
 `close` assumes that dropping a query future ends it. That holds for the HTTP clients here, which are async with no
-blocking section; a source that blocks inside its future would hold up `close`.
+blocking section. A source that blocks inside its future would have held up `close`; x22 bounds that wait.
 
 ## Incidental bugs
 
