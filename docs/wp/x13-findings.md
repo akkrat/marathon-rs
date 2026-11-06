@@ -206,7 +206,9 @@ one has already cost the wait. Silent stretches that a healthy send can have are
 | Peer silent before the session starts, where keep-alive does not run | Still running when `--timeout=8` reported, at 9 s | 300 s | 15 min |
 | Any stall with `keepAliveInterval` 0 | | 300 s | 15 min |
 
-So 15 minutes is the worst case and not the usual one for a dead link. A failed attempt on a dead link reports ssh's text through the
+**Correction (x25):** 15 minutes is the cost of the installer's three attempts, not the worst case for a worker. A failed install reaches the device's own retry (`with_retry(30, 10_000)`, `crates/marathon-core/src/execution/device/actor.rs:394`), so one simulator can spend 90 sends, about 7.6 hours, and sends to one worker run one at a time. See [x25-findings.md](x25-findings.md).
+
+For one install, 15 minutes is the worst case and not the usual one for a dead link. A failed attempt on a dead link reports ssh's text through the
 ordinary `send error:` line, since rsync exits with no stall report. The dead-link row's next attempts may also wait in ssh's connect, which
 the table does not count; that is the host's TCP timeout.
 

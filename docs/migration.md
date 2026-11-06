@@ -87,6 +87,34 @@ remain workload-dependent; recording may require tools such as `ffmpeg`.
 `version` and help require no worker or test configuration. A developer JDK for
 oracle generation is independent of runtime installation.
 
+## Changes that need action
+
+Most differences need nothing from you. These are the ones that can change what you see or what you must set. Each
+links to its entry in the [deviations guide](deviations.md).
+
+| If you… | What changed | Do |
+|---|---|---|
+| rely on an empty `/sdcard` ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)) | Prepare no longer runs `rm -r $EXTERNAL_STORAGE`. Videos from an aborted run, or cut short by a lost connection in a run that still exits 0, stay on the device. | Clear what your tests need in the tests or in your device setup. |
+| set `socketIdleTimeout` ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)) | It is now real milliseconds. It bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal of port forwards when a device is disposed. Kotlin read it as seconds, so `PT30S` lasted 30,000 s. | Remove it, or keep it at 30 s or more. `PT2S` now fails those requests on a slow adb server. |
+| have a forced command or wrapper on an iOS or macOS worker ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)) | xcodebuild is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`. Sends carry `--timeout=300`. On a host with rsync 3 the worker's `rsync --server` gets it too, and so does a wrapper set with `RSYNC4J_RSYNC`. | Match `env NSUnbufferedIO=YES xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND`, keep `env` on the worker's `PATH`, and accept the new flag. |
+| run iOS simulators on a slow host or link ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)) | A readiness probe returns about 20 MB, and a failed or timed-out probe now means "not running". It must arrive within `shell` (30 s by default). | Raise `shell`. The time a simulator can then spend is in [D38](deviations.md#d38--a-failed-readiness-probe-means-not-running). |
+| have UI tests that fail with a "Failed to terminate…" message ([D39](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch)) | After a prefix such as `XCTAssertTrue failed - ` the test fails and the batch goes on. A simulator is no longer dropped after 3 such batches in a row. | If a batch waits out its timeout, or a sick simulator keeps taking batches, read the failing line in the log and consider `maxBatchesWithoutProgress`. |
+| depend on a simulator being set up once ([D33](deviations.md#d33--a-simulator-whose-setup-failed-is-set-up-again)) | A simulator whose setup failed is set up again 30, 60 and 90 s after each failure, even on a removed worker's profile. | `attempts: 1` with `lateJoin: false` in `workerConnection` turns it off. |
+| have a worker with no algorithm in common with marathon ([D35](deviations.md#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | It is no longer retried. | Fix the worker's SSH configuration. |
+| pull slow artifacts from password-authenticated workers ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), U155) | A pull that takes more than 30 s is now really cut. Kotlin's rsync finished it in the background. | Nothing yet: there is no setting for the 30 s. Expect the file to be missing and `.rsync-partial/<name>` to be left in the output directory. |
+| have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
+| have a test or device that keeps failing | `uncompletedTestRetryQuota` defaults to `Integer.MAX_VALUE` and there is no overall run deadline. A test that keeps coming back uncompleted is repeated until something else stops the run. | Set finite values: `uncompletedTestRetryQuota` for every platform, and `maxBatchesWithoutProgress` (0, which is off, by default) for iOS. See below. |
+
+These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D23, D26, D28–D30, D34, D36, D37, D40 and D42. D2, D3,
+D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections below.
+
+**Finite values for `uncompletedTestRetryQuota` and `maxBatchesWithoutProgress`.** With the defaults, nothing ends a run in
+which a test keeps coming back uncompleted, for example because its device keeps failing. Choose a finite
+`uncompletedTestRetryQuota` that fits your suite, and on iOS a finite `maxBatchesWithoutProgress`, the number of batches in
+a row in which no test passed or failed after which a simulator is dropped. The trade-off: device loss uses the same quota.
+A small `uncompletedTestRetryQuota` turns an emulator restart or a lost worker into failed tests, so do not set it so low
+that the devices you have can exhaust it.
+
 ## Keep configuration and command placement
 
 Use your existing valid configuration and bundles; a stub-vendor Marathonfile
@@ -225,7 +253,7 @@ Documentation adds no new reproductions.
 
 | IDs | Consequence | Recorded status |
 |---|---|---|
-| A1 | Dynamic-provider EOF or errors other than connection refused stop updates permanently; this is distinct from recovery of an individual worker. | Seeded; read-side oracle evidence exists, but completed native provider parity is not claimed here. |
+| A1 | Dynamic-provider EOF or errors other than connection refused stop updates permanently; this is distinct from recovery of an individual worker. | Reproduced; read-side oracle evidence exists, but completed native provider parity is not claimed here. |
 | C1 / C2 | Batch filenames use `<batchId>.<batchId>`; webp/GIF screenshots carry a `jpg` suffix. Do not infer encoding solely from suffix. | Confirmed |
 | A6 / N1 | The result-to-original-test lookup compares class with package and usually loses original test metadata. | Confirmed |
 | F1 / F2 | An invalid execution-time `timeLimit` can report `bbb`; an invalid fixed-size batching limit silently becomes null. | Confirmed |
@@ -255,21 +283,24 @@ Native builds run neither ([D27](deviations.md#d27--prepare-no-longer-wipes-exte
 These fix bugs that Kotlin has, and need no configuration change.
 
 - **`socketIdleTimeout` is in real time** ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)). It
-  bounds only requests without a timeout of their own. A value picked with Kotlin's unit bug in mind is now taken
-  as written.
+  bounds only four requests without a timeout of their own (see the table above). A value picked with Kotlin's unit
+  bug in mind is now taken as written.
 - **An adb server restart no longer ends device tracking**
   ([D22](deviations.md#d22--a-run-survives-an-adb-server-restart)). A loopback server is started again.
   A server still away after `waitForDevicesTimeoutMillis` (30 s by default) loses its devices. Remote test parsing
   waits for the server too; if it never returns at that stage, the run fails with `NoDevicesException` when
-  `deviceInitializationTimeoutMillis` has passed.
+  `deviceInitializationTimeoutMillis` (180 s by default) has passed. An emulator that restarted during an outage is not
+  prepared again, so its batches fail on the missing APKs; with the default, unlimited `uncompletedTestRetryQuota` they
+  repeat until something else ends the run.
 - **A brief `offline` no longer loses a device**
   ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)). A device gets up to 10 s, 3 s if it also leaves
-  the list, so a killed emulator takes about 3.25 s to reach the retry path, where it was immediate.
+  the list, so a killed emulator takes about 3.25 s to reach the retry path, where it was immediate. A device has at most
+  5 of these per adb server per run, and the count is never reset.
 - **A file sync push that never verifies fails after `pushFile`**
   ([D23](deviations.md#d23--waiting-for-a-pushed-file-has-a-limit)).
-- **`networkState` can read `DISCONNECTED`** in a lost device's per-test JSON
+- **`networkState` can read `DISCONNECTED`** in a lost Android device's per-test JSON
   ([D24](deviations.md#d24--a-lost-android-device-stays-out-of-use-and-says-so)). A consumer that assumed it was
-  always `CONNECTED` should be checked.
+  always `CONNECTED` should be checked. iOS and macOS devices still report `CONNECTED`.
 - **Failed instrumentation streams are reported** with their cause
   ([D25](deviations.md#d25--a-failed-instrumentation-stream-is-reported)). Uncompleted tests may carry that text
   instead of the generic one, `No test results` or none, and a remote parse cut off by a lost connection is retried
@@ -291,14 +322,17 @@ These fix bugs that Kotlin has, and need no configuration change.
   ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)). Each probe returns about 20 MB of stdout. On a
   host or link too slow to deliver that within `shell` (30 s by default), every probe now times out, where Kotlin counted
   the marker once about 80% had arrived. A simulator then takes up to four setups of two `bootWait`s each, about 26 to
-  30 minutes per simulator with the defaults, before it is out of the run. Raise `shell` if that happens. A configured
+  30 minutes per simulator with the defaults, before it is out of the run. That holds while another simulator keeps the pool
+  alive, and leaves out the waits for shutdown and for the session to close. On the last device the run ends after about 6
+  to 13 minutes, with `remaining tests will not run`. Raise `shell` if that happens. A configured
   `onPrepare: [ERASE]` erases on each re-setup, as on any setup.
 - **A test's own text does not abort its batch**
   ([D39](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch)). A failure text in a test name, an activity line,
   a Swift Testing event or an application's log line no longer reports. In an assertion it reports only when the message
   starts with it, which is how a failure the framework records reads. That rule is reasoned from Xcode's formats, not
   recorded. After a prefix such as `XCTAssertTrue failed - `, that test fails and the batch goes on. If a batch now waits
-  for its timeout, or a sick simulator keeps taking batches, look at the failing line: the
+  for its timeout (`testOutputTimeoutMillis`, 300 s by default, once per batch, and the simulator is then never recycled with
+  the default settings), or a sick simulator keeps taking batches, look at the failing line: the
   [deviations guide](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch) lists the known misses.
 
 ## Other Apple worker behaviour changes
@@ -313,13 +347,17 @@ These fix bugs that Kotlin has, and need no configuration change.
 - **Closing a session takes at most 30 s, and can kill the process**
   ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 20 s. A
   server that ignores signals can leave it running; an error line starting `Abandoning session` then names the command.
+  On iOS an abandoned session retires its simulator, which ends a pool whose last device it was.
 - **An rsync send that stops moving fails after 300 s**
   ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails)). If you wrap rsync with `RSYNC4J_RSYNC`, the wrapper now
   also gets `--timeout=300` on sends. On a host with rsync 3, so does the worker's `rsync --server`: check any forced
   command or wrapper there that matches that string. A worker that is silent for more than 5 minutes during a send now fails
-  that send. A dead worker fails an install in up to 15 minutes. With a link that dies during a send and the default keep-alive, the
-  first attempt ends after about 60 s, but attempts 2 and 3 then wait in ssh's connect for the host's TCP timeout, because
-  `--rsh` sets no `ConnectTimeout`.
+  that send. One stalled send takes 300 s. The installer makes three attempts and the
+  device retries a failed install up to 30 times, so one simulator can spend about 7.6 hours on a worker that never answers,
+  and N simulators on one worker about N times that, because sends to one worker run one at a time. A second worker that
+  finishes the queue ends the run. With a link that dies during a send and the default keep-alive, each send ends after
+  about 60 s, which is still about 1.6 hours per simulator, and later attempts can also wait in ssh's connect for the host's
+  TCP timeout, because `--rsh` sets no `ConnectTimeout`. Kotlin waits for ever.
   An rsync that reports the stall in other words than `poll: timeout` or `io timeout after`, with a hung ssh, still waits.
   A process left holding a receive's output can hold it up for at most 5 s.
 - **On a password-authenticated worker, a pull that takes over 30 s is now really cut**
@@ -328,6 +366,13 @@ These fix bugs that Kotlin has, and need no configuration change.
   that result, so a video or device log that took over 30 s to pull still turned up in the report. Now it is missing, with `.rsync-partial/<name>` left in the output
   directory. Key authentication has always behaved this way. The 30 s is not configurable. If videos or device logs go missing on such a worker, look for
   that file: the cure is a faster link or smaller files.
+- **A connection lost after login is a connection failure**
+  ([D36](deviations.md#d36--a-connection-lost-after-login-is-a-connection-failure)). On iOS the simulator is
+  reconnected; on macOS the device leaves the run. For a registered iOS simulator whose worker stays down, the reconnect
+  has no limit and goes on until the run ends, as in Kotlin.
+- **One unread output stream no longer kills the connection**
+  ([D37](deviations.md#d37--one-unread-output-stream-no-longer-kills-the-connection)). The command blocks until its
+  output is read, times out or is closed.
 - **xcodebuild's command line on a worker starts with `env NSUnbufferedIO=YES`**
   ([D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)). Check anything on the worker that matches the command, such
   as a forced command. Output arrives as it is produced, so `testOutputTimeoutMillis` measures real silence.

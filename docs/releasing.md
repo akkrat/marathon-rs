@@ -7,8 +7,11 @@ assets follow the user decisions in `docs/wp/7.3.md` and `docs/wp/7.3b.md`.
 
 ## Cutting a release
 
-1. **Changelog.** Add a `## <version>` section to `CHANGELOG.md` through a normal
-   WP. It becomes the top of the release notes. Merge it to `main`.
+1. **Changelog.** Rename the `## Unreleased` section of `CHANGELOG.md` to
+   `## <version>`, and carry its *Evidence* and *Known limits* sections forward,
+   changing them to what is true for this release. Reword the first sentence of
+   `README.md`, which names the first public release. It becomes the top of the
+   release notes. Merge it to `main`.
 2. **CI green on main.** The `CI` workflow on the commit to release has passed,
    including its `musl-package` job.
 3. **Dry run.** This runs the gate, both asset builds and the Alpine proof, and
@@ -118,7 +121,7 @@ always built on the GitHub-hosted runners named above.
 
 With no Kotlin source checkout the gate explicitly skips source inventory, parity
 and copied-fixture validation. Offline committed oracle validation and the Rust
-workspace gate still run. Full local and Linux orchestrator gates with the reference
+workspace gate still run. Full local and Linux gates with the reference
 checkout are still required before merge.
 
 The offline tests in `scripts/release/test_release.py` record the exact `gh` command

@@ -4,77 +4,144 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-Fixes of bugs the Kotlin fork has, each an approved difference. See the
-[deviations guide](docs/deviations.md) and the [migration guide](docs/migration.md).
+This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D42). Most Kotlin bugs remain; the
+[bug ledger](docs/known-kotlin-bugs.md) marks the ones that are fixed. Read
+[Changes that need action](docs/migration.md#changes-that-need-action) before you upgrade, and the
+[deviations guide](docs/deviations.md) for each change in full.
 
-### Behaviour change to check
+### Check before you upgrade
 
-- **Device preparation no longer wipes external storage** (D27). Kotlin deleted everything under, for example,
-  `/sdcard` on every prepare. A test suite that relies on an empty external storage must now clear it itself. Videos
-  left behind by an aborted run, or by a recording that a lost connection cut short, are no longer removed by the next
-  one.
+- **Device preparation no longer wipes external storage** (D27). Kotlin deleted everything under, for example, `/sdcard`
+  on every prepare. A test suite that relies on an empty external storage must now clear it itself. Videos left behind
+  by an aborted run, or by a recording that a lost connection cut short in a run that still exits 0, are no longer
+  removed by the next one.
+- **`socketIdleTimeout` is now real milliseconds** (D21). Kotlin read it as seconds, so `PT30S` lasted 30,000 s. It now
+  bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal
+  of port forwards at dispose. Remove the setting, or keep it at 30 s or more; `PT2S` now fails those on a slow adb server.
+- **xcodebuild on an iOS or macOS worker is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`** (D32), and sends carry
+  `--timeout=300` (D31). On a host with rsync 3 the worker's `rsync --server` gets the flag too, and so does a wrapper set
+  with `RSYNC4J_RSYNC`. A forced command or wrapper on the worker must match `env NSUnbufferedIO=YES xcrun xcodebuild`
+  at the start of `SSH_ORIGINAL_COMMAND`, `env` must be on its `PATH`, and the flag must be accepted.
+- **iOS simulators on a slow host or link:** a readiness probe returns about 20 MB and must arrive within `shell` (30 s by
+  default), or the probe counts as failed (D38). Raise `shell`.
+- **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
+  report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the
+  background. Key authentication has always behaved this way.
+- **Set `uncompletedTestRetryQuota` and, on iOS, `maxBatchesWithoutProgress` to finite values.** The first defaults to
+  `Integer.MAX_VALUE` and no deadline ends a run, so a test that keeps coming back uncompleted repeats until something else
+  stops it. Device loss uses the same quota, so a small value turns lost devices into failed tests.
 
-### Fixed
+### Android
 
-- `socketIdleTimeout` counts milliseconds, not seconds, and bounds only requests with no timeout of their own, so a
-  silent screen recording or install still works (D21).
-- A run survives an adb server restart: device tracking reconnects, a loopback server is started again, and batches
-  wait, as does remote test parsing. A server still away after `waitForDevicesTimeoutMillis` loses its devices, so the
-  run still ends (D22).
-- A device that goes `offline` for a moment is kept: it gets up to 10 s to return, with batches waiting, instead of
-  being disconnected at once, which ended a run on its last device. A killed emulator now reaches the retry path after
-  about 3 s instead of at once (D41).
-- A file sync push whose md5 never matches fails after `pushFile`, naming the file, instead of waiting for the
-  batch timeout (D23).
-- A disconnected device can no longer be borrowed, and `networkState` reports `DISCONNECTED` once it is lost, which
-  can show in that device's per-test JSON (D24).
-- An instrumentation stream that fails, or stops before its result as it does when the adb connection drops, is
-  reported as a test-run failure with its cause and retried, without retiring a healthy device. A remote parsing attempt
-  fails and is retried instead of returning only the tests found so far, which could give a passing run with tests
-  missing (D25).
-- A remote parse whose instrumentation fails before it has listed every test it announced is retried, and fails the run
-  with the reason if it keeps failing, instead of running only the tests listed so far. A failing exit code on a complete
-  list is still accepted (D42).
+- `socketIdleTimeout` counts milliseconds, not seconds, and bounds only requests with no timeout of their own, so a silent
+  screen recording or install still works (D21).
+- A run survives an adb server restart: device tracking reconnects, a loopback server is started again, and batches wait,
+  as does remote test parsing. A server still away after `waitForDevicesTimeoutMillis` loses its devices, so the run still
+  ends (D22).
+- A device that goes `offline` for a moment is kept: it gets up to 10 s to return, with batches waiting, instead of being
+  disconnected at once, which ended a run on its last device. A killed emulator now reaches the retry path after about
+  3 s instead of at once. A device gets at most 5 of these per adb server in a run, and the count is never reset (D41).
+- A file sync push whose md5 never matches fails after `pushFile`, naming the file, instead of waiting for the batch
+  timeout (D23).
+- A disconnected Android device can no longer be borrowed, and `networkState` reports `DISCONNECTED` once it is lost, which
+  can show in that device's per-test JSON. iOS devices still report `CONNECTED` (D24).
+- An instrumentation stream that fails, or stops before its result as it does when the adb connection drops, is reported
+  as a test-run failure with its cause and retried, without retiring a healthy device. A remote parsing attempt fails and
+  is retried instead of returning only the tests found so far, which could give a passing run with tests missing (D25).
+- A remote parse whose instrumentation fails before it has listed every test it announced is retried, and fails the run with
+  the reason if it keeps failing. A failing exit code on a complete list is still accepted (D42).
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
-- In a batch that mixes test APKs, each instrumentation runs only its own tests, and the batch reports one result
-  (D28).
-- An iOS simulator whose setup failed is set up again, up to three times, 30, 60 and 90 s after each failure, instead of
-  being out for the whole run. `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
-- A history query that fails is no longer final for the run: it is retried in the background a limited number of times,
-  and queues built and batches composed afterwards use the history it finds. A run never waits for this. With a
-  failing analytics backend the log has more warnings and timing lines. If a query is stuck inside a blocking call, the
-  run moves on after 3 s and writes its reports, but the process ends only when that call returns, which may be never
-  (D34).
-- A failed or timed-out simulator readiness probe now means the simulator is not running yet, on every iOS runtime
-  (D38).
-- A test name, a test's own assertion text or an application's log line that contains a device failure text, such as
-  `Failed to terminate`, no longer aborts the batch (D39).
-- A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40).
-- A command that an iOS or macOS worker rejects no longer holds one of the worker's SSH session slots until the
-  connection ends (D29).
-- Closing an SSH session on an iOS or macOS worker takes at most 30 s: TERM, then KILL, then the session is abandoned
-  with an error line, whatever the worker does. A server that ignores signals may leave the process running (D30).
-- An rsync send that makes no progress for 300 s is stopped and fails with a clear error, instead of blocking that
-  worker's sends for ever. A large bundle over a slow link is unaffected while it keeps moving (D31).
-- A command on an iOS or macOS worker that gets no reply in 30 s now gives its SSH session slot back where it can, and an
-  error line names it. It fails after at most 35 s (D29).
-- A session channel that an iOS or macOS worker opens after its 30 s are up is now closed, instead of holding a session
-  slot until the connection ends (D29).
-- An rsync receive at its 30 s deadline no longer leaves rsync and ssh running under `sshpass`, and can no longer wait for ever
-  on a process that ignores TERM. **On a password-authenticated worker a video or device log that takes over 30 s to pull is now
-  missing from the report, with `.rsync-partial/<name>` left in the output directory**, where Kotlin's rsync finished it in the background.
-  Key authentication has always behaved this way. One that ended before the deadline can no longer be held up for ever by a child holding
-  its output, such as a hung ssh (D31).
-- xcodebuild on an iOS or macOS worker runs with `NSUnbufferedIO=YES`, as was always intended, so its output arrives as
-  it is produced and the output idle timeout measures real silence. The worker's command line now starts with
-  `env NSUnbufferedIO=YES` (D32).
+- In a batch that mixes test APKs, each instrumentation runs only its own tests, the batch reports one result, and a test
+  that a later instrumentation did not report no longer carries an earlier one's failure text (D28, U151).
+- A folder left on the device by a run that was cut short is removed before a file sync push, so the first batch does not
+  read the previous run's files (U159).
+
+### iOS and macOS workers
+
+- A command that a worker rejects no longer holds one of its SSH session slots until the connection ends. A command that
+  gets no reply in 30 s, or a channel the worker opens after its 30 s are up, is closed too, with an error line that names
+  it (D29, U154, U157).
+- Closing an SSH session takes at most 30 s: TERM, then KILL, then the session is abandoned with an error line, whatever the
+  worker does. A server that ignores signals may leave the process running. On iOS an abandoned session retires its
+  simulator (D30).
+- An rsync send that makes no progress for 300 s is stopped and fails with a clear error, instead of blocking that worker's
+  sends for ever. A large bundle over a slow link is unaffected while it keeps moving (D31).
+- An rsync receive at its 30 s deadline no longer leaves rsync and ssh running under `sshpass`, and can no longer wait for
+  ever on a process that ignores TERM. A receive whose process ended can be held up by a child holding its output, such as
+  a hung ssh, for at most 5 s (D31, U155, U158).
+- xcodebuild on a worker runs with `NSUnbufferedIO=YES`, as was always intended, so its output arrives as it is produced and
+  the output idle timeout measures real silence (D32).
 - A worker that shares no key exchange, cipher, MAC or host key algorithm with marathon is no longer retried as if the
-  network had failed; the error text is unchanged and real network faults are still retried (D35).
-- A worker that drops the connection right after login is handled as a lost connection: commands that may fail return
-  no result instead of aborting with `IllegalStateException: Not connected`. On iOS the usual reconnect takes over;
-  macOS has no reconnect, so the device leaves the run, as for any lost connection (D36).
+  network had failed. The error text is unchanged (D35).
+- A worker that drops the connection right after login is handled as a lost connection instead of aborting with
+  `IllegalStateException: Not connected`. On iOS the usual reconnect takes over; macOS has no reconnect, so the device leaves
+  the run (D36).
 - A command that floods one output stream while the other is being read no longer overflows a buffer and loses the
   connection for every command on that worker; the command blocks until it is read, times out or is closed (D37).
+
+### iOS simulators
+
+- A simulator whose setup failed is set up again, up to three times, 30, 60 and 90 s after each failure, instead of being out
+  for the whole run. `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
+- A failed or timed-out readiness probe means the simulator is not running yet, on every iOS runtime (D38).
+- A test name, a test's own assertion text or an application's log line that contains a device failure text, such as
+  `Failed to terminate`, no longer aborts the batch. After a prefix such as `XCTAssertTrue failed - ` that test fails and the
+  batch goes on, and a simulator is no longer dropped after 3 such batches in a row (D39).
+- A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40). No
+  known path triggers this, so you are unlikely to have met it.
+
+### All platforms
+
+- A history query that fails is no longer final for the run: it is retried in the background a limited number of times, at
+  5, 10, 20 s and so on counted from the first failure, so a query that fails later joins the next round. Queues built and
+  batches composed afterwards use the history it finds. A run never waits for this. With a failing analytics backend the log
+  has more warnings and timing lines. If a query is stuck inside a blocking call, the run moves on after 3 s and writes its
+  reports, but the process may not end until that call returns, which may be never (D34).
+
+### Evidence for these changes
+
+- Everything was tested against fakes and against the recorded behaviour of the Kotlin program.
+- D21–D28, D41, D42 and the stream-end fix of D25 also ran on Android emulators (API 33 and 36; D41 and D42 on API 36 only),
+  with no real USB or TCP device. The merged Android fixes then ran together on emulators: 41 runs with adb server, adbd and
+  emulator kills, reboots, a stale pushed folder and silent video, with no run exiting 0 with tests missing and no hang.
+- D29–D32 and D35–D37 ran against real OpenSSH on loopback.
+- D38 was measured on iOS 18.6, 26.4 and 27.0. D30's TERM timing was measured on one Mac only.
+- D33, D34 and D40 had no real simulator, worker or analytics backend.
+- D39's rule is reasoned from Xcode's formats and is not recorded from a real run.
+- The comparisons on real devices and private farms predate D21–D42.
+
+### Known limits
+
+- There is no Windows, Intel Mac, Linux on ARM or universal build. The macOS binary requests macOS 11.0 or later; versions
+  older than the build and test hosts are not tested.
+- The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
+  [migration guide](docs/migration.md#install-the-native-entry-point).
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container. The real Android runs
+  recorded in this repository used a glibc build, and musl's allocator and DNS resolver differ from glibc's, so try it on
+  your workload.
+- The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
+  stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
+  licence does not cover it.
+- The real macOS UI XCTest scenario could not be completed on macOS 27 and is not part of that evidence
+  ([U103](docs/found-bugs.md)).
+- No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
+  JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
+- With the default, unlimited `uncompletedTestRetryQuota`, an emulator that restarted during an adb outage (D22) repeats its
+  failing batches until something else ends the run.
+- A stalled rsync send costs 300 s, and a failed install is retried, so one simulator can spend about 7.6 hours on a worker
+  that never answers, and N simulators on one worker about N times that. With the default keep-alive a dead link still costs
+  about 1.6 hours per simulator. Another worker that finishes the queue ends the run. Kotlin waits for ever (D31, U163).
+- A registered iOS simulator whose connection is lost is reconnected every 16 ms with no limit until the run ends. Kotlin does
+  the same (D36, U164).
+- A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
+  On the last device the run ends after about 6 to 13 minutes with "remaining tests will not run". If only the probe hangs and
+  needs KILL it takes about 33 minutes, and if every command hangs about 50 (D38).
+- A failed xcodebuild close retires its simulator, which ends a pool whose last device it was (D30).
+- A real failure that D39 now misses ends in a 300 s output timeout per batch, and with the default settings the simulator is
+  then never recycled (D39, U165).
+- A batch that D22's hold kept waiting is charged an attempt when its server is given up, so with `uncompletedTestRetryQuota: 0`
+  tests can fail without having run (U160). After SIGINT with `debug: true`, tests may bounce back and add false INCOMPLETE
+  results to that run's reports (U161). A write error to Graphite ends the queue, where Kotlin swallowed it (U167).
 
 ## 0.11.0
 

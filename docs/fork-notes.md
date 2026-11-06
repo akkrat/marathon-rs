@@ -14,10 +14,10 @@ does not establish that these contracts have passed their release gates.
 See the [README](../README.md) for the current status and
 [release readiness](releasing.md#release-readiness) for what the evidence covers.
 
-Known Kotlin bugs are deliberately retained unless an approved exception says
-otherwise. The [bug ledger](known-kotlin-bugs.md) distinguishes confirmed ports
-from seeded source evidence; its entries are a future fix backlog, not a promise
-that migration fixes them. [Deviations](deviations.md) explains each approved
+Most Kotlin bugs are deliberately retained; the approved exceptions fix the ones
+they name. The [bug ledger](known-kotlin-bugs.md) distinguishes confirmed ports
+from seeded source evidence and marks the fixed rows; the other entries are a
+future fix backlog, not a promise that migration fixes them. [Deviations](deviations.md) explains each approved
 PLAN §3.11 exception. PLAN §3.10 separately permits library parse-error wording,
 thread names and internal stack-trace differences. WP-local approved
 simplifications remain in their owning findings until integrated into the plan.

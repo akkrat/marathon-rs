@@ -44,9 +44,10 @@ client replacement does not itself disable writes or require a service migration
 
 ## D5 — Retained defects
 
-Kotlin defects remain in v1, including metadata lookup, dynamic-provider EOF
-and CI detection quirks. Migration is not a bug-fix release. Consult the
-[ledger and its per-row status](known-kotlin-bugs.md) and the
+Most Kotlin defects remain, including metadata lookup, dynamic-provider EOF and
+CI detection quirks. D14–D19 and D21–D42 fix the ones described in this guide, and
+the [ledger](known-kotlin-bugs.md) marks the rows they fix as fixed. Consult the
+ledger and its per-row status, and the
 [migration shortlist](migration.md#retained-behavior-to-account-for).
 
 ## D6 — Regular expressions
@@ -215,20 +216,6 @@ expect fewer spurious setup and parsing failures on busy workers.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A100](known-kotlin-bugs.md) and [x9 findings](wp/x9-findings.md).
 
-## Other accepted text differences and synchronization
-
-[PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)
-separately permits Jackson-internal parse-error wording, thread names and JVM
-frames in internal traces. Custom validation messages and configuration wrappers
-retain their contract; external xcodebuild, xcresult and instrumentation traces
-remain unchanged. These allowances are not additional numbered deviations.
-
-An integration that approves or amends a deviation must update this guide in the
-same change or leave an explicit WP 7.4 handoff. Compare both ID sets **and full
-entry meanings** at review and again in WP 7.5 on the release SHA. Later iOS or
-differential work may add approved IDs; do not promote pending proposals here.
-The [documentation findings](wp/7.4-findings.md) record this comparison.
-
 ## D20 — The `xctest` parser library is supplied by you
 
 Kotlin marathon ships five copies of `libxctest-parser.dylib` in its resources
@@ -256,10 +243,12 @@ builds count milliseconds. Requests that a configured timeout already bounds (sh
 commands, screen recording, installs, file transfers, screen capture, port forwards) and
 streams that are silent by nature (device tracking, logcat, instrumentation, perfetto) have
 no idle limit, so a silent 180 s screen recording still works and the idle limit
-cannot fire before their own timeout. `socketIdleTimeout` now bounds the few requests with no
-timeout of their own, such as asking the adb server's version. No configuration
-change is needed. A value you chose assuming seconds is now taken as written.
-Approved 2026-11-06 (user decision). See
+cannot fire before their own timeout. `socketIdleTimeout` now bounds the four requests with no
+timeout of their own: the adb server's version, a device's features, the property reads after boot and the removal of port
+forwards when a device is disposed. A value you chose assuming seconds is now taken as written: `PT30S` used to last
+30,000 s and now lasts 30 s, and `PT2S` now fails those requests on a slow adb server. Remove the setting, or keep it at
+30 s or more.
+Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N12](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
 
@@ -272,15 +261,16 @@ and new batches wait. A test running when the server went away fails as uncomple
 Once the server is back, a device still listed carries on, with its logcat and reverse port
 forwards restored; one not listed within `waitForDevicesTimeoutMillis` is disconnected. An emulator
 that itself restarted during the outage looks the same when it is listed again under the same serial:
-it is not prepared again, so its batches fail on the missing APKs until their retries run out or it
-really disconnects. A plain adb server restart does not restart emulators. A server
+it is not prepared again, so its batches fail on the missing APKs. With the default `uncompletedTestRetryQuota`,
+which is unlimited, they repeat until something else ends the run or the device really disconnects; a finite quota
+ends them when it runs out, and with a small one they fail the tests. This is a known limit. A plain adb server restart does not restart emulators. A server
 that does not return within `waitForDevicesTimeoutMillis` has its devices disconnected, so the
 run ends as it does when devices are lost, and other servers are not affected. If adb restarts
 take longer on your hosts, raise that value.
 Remote test parsing waits in the same way: an outage does not use up its attempts. If the server never
 returns at that stage, the run fails with `NoDevicesException` when `deviceInitializationTimeoutMillis`
-has passed, as no device is left to parse on.
-Approved 2026-11-06 (user decision). See
+(180 s by default) has passed, as no device is left to parse on.
+Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N16](known-kotlin-bugs.md) and the [x12](wp/x12-findings.md) and [x18](wp/x18-findings.md) findings.
 
@@ -289,7 +279,7 @@ Approved 2026-11-06 (user decision). See
 With verification on, Kotlin polls a pushed file's md5 with no limit of its own, so a
 file sync push whose checksum never matches waits for the whole batch timeout. Native builds
 stop after `timeoutConfiguration.pushFile` with an error that names the file. The legacy install
-keeps its `Timeout transferring` message. Approved 2026-11-06 (user decision). See
+keeps its `Timeout transferring` message. Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and
 [N5](known-kotlin-bugs.md).
 
@@ -299,7 +289,8 @@ Kotlin keeps disconnected devices in its map, so remote test parsing can borrow 
 and reports `networkState: CONNECTED` for ever. Native builds drop the device from the map and
 report `DISCONNECTED` once it is lost, also after its serial returns as a new device. The change
 reaches output only for a device lost by then: `networkState` in its per-test
-`test_result` JSON. Approved 2026-11-06 (user decision). See
+`test_result` JSON. iOS and macOS devices still report `CONNECTED`
+([A72](known-kotlin-bugs.md)). Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N27 and N29](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
 
@@ -319,8 +310,7 @@ request. A remote parsing attempt fails, and is retried, and never returns a par
 
 Test crashes and non-zero exits are unchanged, and so are the two ends without the code that are not a cut stream: `am`
 refusing to start the instrumentation, and output that never was the protocol. What a failing session code means for
-a remote parse is [D42](#d42--a-remote-parse-that-fails-short-of-its-list-is-a-failed-attempt). Approved 2026-11-06 (user
-decision).
+a remote parse is [D42](#d42--a-remote-parse-that-fails-short-of-its-list-is-a-failed-attempt). Approved 2026-11-06 (project owner's decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N38](known-kotlin-bugs.md) and the [x12](wp/x12-findings.md) and [x18](wp/x18-findings.md) findings.
 
@@ -328,7 +318,7 @@ See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 
 Kotlin's parser rejects test APKs newer than DEX 039 with `Invalid dexMagic`. Native builds accept
 040 and 041, including 041 containers of several images, and find every class in them. Anything newer is
-still rejected with the same message. Approved 2026-11-06 (user decision). See
+still rejected with the same message. Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and
 [N10](known-kotlin-bugs.md).
 
@@ -340,7 +330,7 @@ users: a test suite that relies on an empty external storage must clear it itsel
 a leftover from a run cut short isn't what the tests read. A video can stay behind on
 external storage: from an aborted run, and from a recording cut by a lost connection, in a run that still exits 0. See the
 [migration guide](migration.md#android-external-storage-is-no-longer-wiped). Approved 2026-11-06
-(user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+(project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N4](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
 
 ## D28 — Each instrumentation runs only its own tests
@@ -353,7 +343,7 @@ batch, and its unrun tests are retried. `testBatchTimeoutMillis`, `testOutputTim
 package data apply to each instrumentation. Batches of one instrumentation are unchanged. Few configurations mix
 test APKs in a batch: `fixed-size` batching never does, so it takes `class-name` batching and the same class name in
 both APKs.
-Approved 2026-11-06 (user decision). See
+Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N35](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
 
@@ -363,16 +353,16 @@ When a worker rejects an `exec` request, Kotlin fails the command with `Request 
 session channel open, so on a shared connection each rejected command holds one of the worker's
 `MaxSessions` slots until the connection ends, and later commands fail to open a channel. Native
 builds close the rejected channel. The command still fails with `Request failed`, after the worker's reply
-or at most 5 s. No configuration change is needed. Approved 2026-11-06 (user decision). See
+or at most 5 s. No configuration change is needed. Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A33](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
 
-**An `exec` with no reply** gets the same since x21 (U154, approved 2026-11-07). After its 30 s the channel is closed, and the command fails
+**An `exec` with no reply** gets the same (U154, approved 2026-11-07). After its 30 s the channel is closed, and the command fails
 with Kotlin's error after at most 5 s more, with an error line starting `No reply to exec` that names the command. A worker that stalls and later
 resumes may still start the command: one that reads its input ends, and one that does not runs to its end, in its slot. See the
 [x21 findings](wp/x21-findings.md).
 
-**A channel open with no reply** is dealt with too since x21 (U157, approved 2026-11-07). The open still fails after sshj's 30 s with Kotlin's error, and an error line starts `No reply
+**A channel open with no reply** is dealt with too (U157, approved 2026-11-07). The open still fails after sshj's 30 s with Kotlin's error, and an error line starts `No reply
 to opening`. Nothing can be closed until the worker confirms the channel, so if it answers later, that channel is closed then, where Kotlin would leave it holding a slot until the
 connection ends.
 
@@ -381,7 +371,8 @@ connection ends.
 Kotlin sends TERM, waits up to 30 s for the worker to close the channel and then fails, and a later close
 can wait without any limit. It never sends KILL. Native builds send TERM, give the process up to 20 s to end,
 send KILL if it did not, close the channel and give the worker up to 10 s more. After that the session is
-abandoned and the run carries on, so no close takes more than 30 s. The close fails with the same error
+abandoned, so no close takes more than 30 s, and the run carries on. On iOS an abandoned session retires its
+simulator, so when that simulator was the last device of the pool, the pool ends and so does the run. The close fails with the same error
 as Kotlin's, and one error line names the command.
 
 **A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
@@ -389,9 +380,11 @@ do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect
 run going. An abandoned process may keep running on the worker and hold one of its `MaxSessions` slots until it ends
 or the connection does; the connection is shared with other sessions and stays up. If the error line appears, look at
 that process on the worker. On a server that ignores signals, the channel of such a process is now closed after 20 s
-instead of at once. How long a real xcodebuild takes from TERM to its exit, against those 20 s, has not been measured.
+instead of at once. Measured on Xcode 27.2 with iOS 18.6, 26.4 and 27.0 simulators, xcodebuild ended within 5–16 ms of TERM, and at most 3.06 s
+with parallel clones, in 46 runs, so 20 s is ample. A UI test's app under test stays running for at least 90 s after that,
+until the next run. This was measured on one Mac only; see the [x25 findings](wp/x25-findings.md).
 
-No configuration change is needed, and the durations are not configurable. Approved 2026-11-06 (user decision). See
+No configuration change is needed, and the durations are not configurable. Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A14](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
 
@@ -403,12 +396,16 @@ error starting `send error: no progress in 300 s`. It is a limit on progress, no
 link is unaffected for as long as it keeps moving. Receives keep Kotlin's 30 s total deadline. No configuration change is
 needed, and the limit is not configurable.
 
-**How long a dead worker takes.** The installer makes three attempts, so 15 minutes is the worst case. It applies to a process
-wedged behind an sshd that still answers, to a peer that accepts the connection and says nothing, and to any stall with
-`keepAliveInterval` set to 0. With the default `keepAliveInterval` of 15 s and `keepAliveMaxCount` of 4, a dead link or a frozen
-peer ends ssh, and so that attempt, after about 60 s, with ssh's `Timeout, server … not responding` in the error. On a link that stays
-dead, attempts 2 and 3 then wait in ssh's connect for the host's TCP timeout, because `--rsh` sets no `ConnectTimeout`, so the install
-takes longer than the three minutes those 60 s suggest.
+**How long a dead worker takes.** One stalled send takes 300 s. The installer makes three attempts, and when it fails the
+device's own retry runs it again, up to 30 times, 10 s apart. One simulator can therefore spend 90 sends, about 7.6 hours,
+before it is given up. Sends to one worker and destination run one at a time, so N simulators on one worker take about N
+times that. A second worker that finishes the queue ends the run. Kotlin waits for ever here.
+
+This applies to a process wedged behind an sshd that still answers, to a peer that accepts the connection and says nothing,
+and to any stall with `keepAliveInterval` set to 0. With the default `keepAliveInterval` of 15 s and `keepAliveMaxCount` of 4,
+a dead link or a frozen peer ends ssh, and so that send, after about 60 s, with ssh's `Timeout, server … not responding` in
+the error. That still costs about 1.6 hours per simulator. Attempts after the first can also wait in ssh's connect for the
+host's TCP timeout, because `--rsh` sets no `ConnectTimeout`, which makes it longer.
 
 **What a worker sees.** On a host with rsync 3, the flag also reaches the worker in `rsync --server … --timeout=300 …`, so a forced
 command or wrapper there that matches that string sees a new flag. openrsync, which macOS hosts have, does not pass it on.
@@ -416,11 +413,11 @@ command or wrapper there that matches that string sees a new flag. openrsync, wh
 **What stays unbounded.** The bridge recognises a stall from what rsync prints: `poll: timeout` from openrsync, `io timeout after`
 from rsync. An rsync that words it differently, and then waits on a hung ssh, keeps Kotlin's wait.
 
-Approved 2026-11-06 (user decision). See
+Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A3](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
 
-**A receive at its deadline** is stopped the same way since x21 (U155, approved 2026-11-07): TERM, 5 s, KILL, and under `sshpass` rsync gets them too.
+**A receive at its deadline** is stopped the same way (U155, approved 2026-11-07): TERM, 5 s, KILL, and under `sshpass` rsync gets them too.
 Kotlin's wrapper sends TERM to `sshpass` alone, which leaves rsync and ssh running, and then waits without a limit for a process that ignores it. The 30 s
 deadline itself and the receive's command line are unchanged. See the [x21 findings](wp/x21-findings.md).
 
@@ -429,7 +426,7 @@ deadline itself and the receive's command line are unchanged. See the [x21 findi
 missing, and `.rsync-partial/<name>` is left in the output directory. That is what key authentication has always done. Measured with real `sshpass`, openrsync and sshd, 24 MiB at
 1 MiB/s, TERM at 5 s: TERM to `sshpass` alone, and the file was complete 27.4 s later; TERM to rsync too, or key authentication, and it never was.
 
-**A receive's output pipes** also have the send's limit since x21 (U158, approved 2026-11-07). A process that ended before the deadline, leaving a child that holds its pipes, such as a hung
+**A receive's output pipes** also have the send's limit (U158, approved 2026-11-07). A process that ended before the deadline, leaving a child that holds its pipes, such as a hung
 ssh, holds up the receive for at most 5 s more. The process's status decides the result, and that child is not stopped.
 
 ## D32 — xcodebuild on a worker runs unbuffered
@@ -443,7 +440,7 @@ not passed over SSH ([A2](known-kotlin-bugs.md)), and a local run sets the varia
 
 The worker receives a different command line, so a script or a forced command (`ForceCommand`, `command=` in
 `authorized_keys`) that matches `xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND` must allow for the prefix. `env` has
-to be on the worker's `PATH`, as it is by default on macOS. Approved 2026-11-06 (user decision). See
+to be on the worker's `PATH`, as it is by default on macOS. Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x13 findings](wp/x13-findings.md).
 
 ## D33 — A simulator whose setup failed is set up again
@@ -461,7 +458,7 @@ admitted to the run like a late one. An unreachable worker keeps its own
 connection retry. A refused connection, a simulator the worker doesn't have and an unavailable profile are not
 retried. There is no new setting: `attempts: 1` with `lateJoin: false` turns the retries off. `simctl` commands and
 log lines increase only when a setup fails. The macOS provider is not affected.
-Approved 2026-11-06 (user decision). See
+Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A81](known-kotlin-bugs.md) and the [x14 findings](wp/x14-findings.md).
 
@@ -469,7 +466,8 @@ Approved 2026-11-06 (user decision). See
 
 Kotlin caches a history query that fails three times as empty for the whole run, so a short backend outage
 at the start costs the run its history. Native builds answer with the defaults, as Kotlin does, and query
-again in the background: after 5, 10, 20, 40, 80, 160, 300 and 300 seconds, at most 8 times per query. An empty answer
+again in the background, at most 8 times per query. The delays 5, 10, 20, 40, 80, 160, 300 and 300 seconds count from the
+first failure of any query, not from each query's own: a query that fails later joins the next round. An empty answer
 counts as an answer and is not repeated. A queue already built keeps its order, so new history reaches
 queues built later and batches composed later, so with a failing backend the order of tests can depend on when its answer arrives. A run never waits for this, and it stops when the run ends. With
 a healthy backend nothing changes. With a failing one the log gains one failed timing line and one warning per
@@ -477,7 +475,7 @@ re-query, and one line when the history returns or the attempts run out. An empt
 that nothing changes. Closing the provider cancels a re-query at once. The HTTP clients stop there, and a query that blocks
 its thread gets 3 seconds and one warning, and the backend is then closed anyway. The reports are still written, but the
 process ends only when that call returns. No configuration change is needed.
-Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [C41](known-kotlin-bugs.md), the [x15 findings](wp/x15-findings.md) and the [x22 findings](wp/x22-findings.md).
 
 ## D35 — A failed key exchange is not retried as a network fault
@@ -485,20 +483,32 @@ Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate
 When a worker and marathon share no key exchange, cipher, MAC or host key algorithm, Kotlin calls the failure
 transient and keeps retrying a worker that cannot succeed until its configuration changes. Native builds stop, as
 they do for a rejected login or an unverifiable host key. The error text is the same, and network faults are still
-retried. The four immediate connection attempts remain. Approved 2026-11-06 (user decision). See
+retried. The four immediate connection attempts remain. Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A16](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
+
+**Migration action:** none. If a worker has no algorithm in common with marathon, fix its SSH configuration; the run no longer keeps retrying it.
 
 ## D36 — A connection lost after login is a connection failure
 
 When a worker drops the connection right after authentication, Kotlin's next command throws
 `IllegalStateException: Not connected`, past the handling that commands which may fail rely on. Native builds report
 a `ConnectionException` with the same text and the reason as its cause, so such a command returns no result, an error
-log says so, and marathon handles the device as it does any lost connection: on iOS it reconnects within the configured
-retry limits, and on macOS, which has no reconnect, the device leaves the run. Using a live connection after marathon
-closed it is still an `IllegalStateException`. Approved 2026-11-06 (user decision).
+log says so, and marathon handles the device as it does any lost connection: on iOS it reconnects, and on macOS, which has no reconnect,
+the device leaves the run. Using a live connection after marathon
+closed it is still an `IllegalStateException`.
+
+**Known limit: the iOS reconnect has no end.** Every 16 ms the provider looks for lost simulators and starts a recovery for
+each one that is not already being recovered. After a lost connection that recovery has no attempt limit, so a registered
+simulator whose worker stays down is tried again for as long as the run lasts, each attempt as long as its own connect takes.
+The configured retry limits apply only to a simulator lost while its connection stays up. Kotlin has the same shape
+([A101](known-kotlin-bugs.md), [U164](found-bugs.md)).
+
+Approved 2026-11-06 (project owner's decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A17](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
+
+**Migration action:** none. If a worker keeps dropping connections after login, look at the worker; an iOS run keeps reconnecting to it until the run ends.
 
 ## D37 — One unread output stream no longer kills the connection
 
@@ -507,8 +517,10 @@ unread (or the reverse) can overflow the 16 MiB buffer and lose the connection, 
 Native builds stop giving the worker more window, so it blocks instead and the connection and its other commands
 carry on. While it is blocked the other stream stops too, until that output is read, the command's timeout or idle
 timeout ends it, or the session is closed. Commands whose output is read promptly behave as before. Approved 2026-11-06
-(user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+(project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A32](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
+
+**Migration action:** none.
 
 ## D38 — A failed readiness probe means not running
 
@@ -518,11 +530,15 @@ Native builds treat a failed or timed-out probe as not running on every runtime.
 measured on iOS 18.6, 26.4 and 27.0, while runtimes 16, 17 and other 26.x were not measured. One failed probe costs
 one more poll. A probe that fails for the whole of `bootWait` costs up to four setups of two boot waits each, about 26
 to 30 minutes of booting and shutting down per simulator with the defaults, and then the simulator is out of the run.
+That figure holds while another simulator keeps the pool alive, and leaves out the waits for shutdown and for the session to
+close. On the last device the run ends sooner, after about 6 to 13 minutes, with `remaining tests will not run`. When only the
+probe hangs and needs KILL it takes about 33 minutes, and with every command hung about 50.
 Each probe returns about 20 MB, so a host or link too slow to deliver that within `shell` now takes this path, where
 Kotlin counted the marker once about 80% of it had arrived. No probe result erases a simulator; a configured
-`onPrepare: [ERASE]` erases on each re-setup, as on any setup. The commands are unchanged. Approved 2026-11-06 (user
-decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+`onPrepare: [ERASE]` erases on each re-setup, as on any setup. The commands are unchanged. Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A41](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
+
+**Migration action:** none on a normal host. On a slow host or link, raise `shell` (30 s by default) so that a probe that returns about 20 MB can arrive in time.
 
 ## D39 — A test's own text does not abort its batch
 
@@ -536,8 +552,18 @@ still leaves after three such batches, as in Kotlin. After an XCTest prefix such
 `failed - ` the text is the test's own: that test fails and the batch goes on. This split is reasoned from Xcode's known
 formats, and no recording holds a raw framework failure.
 
-Every other line matches as before, including `xcodebuild`, `simctl` and test runner logs. A raw `print` holding a
-failure text still aborts, since it cannot be told from a real failure.
+Every other line matches as before, including `xcodebuild`, `simctl` and test runner logs. These still abort the batch
+although the text is a test's own (false alarms):
+
+- A raw `print` holding a failure text, since it cannot be told from a real failure.
+- A test's own text that starts an assertion with a failure text and has no prefix, as `record(XCTIssue(…))` can.
+- The later lines of a multi-line assertion message.
+- A test name in xcodebuild's final `Failing tests:` summary.
+- An application logging exactly one of XCTest's three sentences.
+- A line that misses the form checks, for example with a trailing `\r`. A CRLF stream therefore switches the exemption off
+  for every assertion and activity line; the SSH exec path has no terminal, so this is not expected.
+
+The [x17 findings](wp/x17-findings.md) list the rest.
 
 Some real failures are now missed:
 
@@ -548,17 +574,26 @@ Some real failures are now missed:
 - One logged with a date header by a process other than `xcodebuild`, `simctl` or a test runner, apart from XCTest's own
   three sentences. The batch waits for its timeout if the runner has died.
 
-Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+A missed failure ends when xcodebuild's output has been silent for `testOutputTimeoutMillis` (300 s by default), once per
+batch. Such a timeout does not count towards the three batch failures in a row, so with the default settings the simulator is
+never recycled for it, however often it repeats ([U165](found-bugs.md)). `maxBatchesWithoutProgress` (0, which is off, by
+default) does count batches in which no test passed or failed, timeouts included. In Kotlin the failure text itself counted as a batch failure.
+
+Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A48](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
+
+**Migration action:** none unless a batch waits out its timeout or a sick simulator keeps taking batches. Then read the failing line in the log, and consider setting `maxBatchesWithoutProgress`.
 
 ## D40 — A stale disconnect leaves a device's replacement alone
 
 Kotlin removes a device from its pool by serial alone, so a delayed disconnect for an old device could remove its
 replacement with the same serial. Native builds compare the device instance, as readiness and termination already do.
 The old device has already been told to terminate by then, and its batch comes back. No provider path found today sends
-that order, so this makes the pool right on its own. Approved 2026-11-06 (user decision). See
+that order, so this makes the pool right on its own. Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C27](known-kotlin-bugs.md) and the
 [x17 findings](wp/x17-findings.md).
+
+**Migration action:** none; no known path triggers it.
 
 ## D41 — A brief `offline` does not lose the device
 
@@ -573,14 +608,19 @@ retried, as in any lost connection. A device that returns keeps its actor, with 
 - A device leaving the list directly from `device`, or reaching a state such as `unauthorized`, is disconnected at once.
 - A device that returns still booting went through a reboot, and is set up again as after any disconnect. One that has
   finished a reboot by then, as from a quick snapshot, is taken for a blip and not prepared again.
-- A device has at most 5 of these per adb server per run. After that it is disconnected at its next `offline`.
+- A device has at most 5 of these per adb server per run. The count is never reset, not even when the device comes back
+  healthy or its serial returns as a new device. From the sixth `offline` on, the device is disconnected at once, as in
+  Kotlin, with the log line `Device <serial> went offline too often; disconnecting it`, so a device that blips more often
+  than that in one run is lost for good and its tests are retried elsewhere.
 - During a grace `networkState` reads `DISCONNECTED` and `healthy` false in a per-test JSON written then, also if the device
   returns. A return adds one `getprop` to the commands sent, and a device loss during a batch a `host:devices` in place of
   D22's `host:version`. A healthy run sends the same commands and events.
 
 A server outage takes over from a grace, and a device still `offline` when the outage's window closes gets no further grace.
-Approved 2026-11-07 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+Approved 2026-11-07 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N40](known-kotlin-bugs.md) and the [x19 findings](wp/x19-findings.md).
+
+**Migration action:** none; no configuration is needed. A killed emulator reaches the retry path about 3.25 s after it dies, not at once.
 
 ## D42 — A remote parse that fails short of its list is a failed attempt
 
@@ -597,6 +637,19 @@ that way on a whole list, and a retry would only repeat it. A session with no co
 Code -1 is success as before, even with fewer tests than announced, unless the stream was cut inside that last line, which
 has no line break then. `Process crashed` still means the test annotation
 producer, with the same fallback. `am` refusing to start and output that never was the protocol are unchanged, and so is
-the batch runner's handling of the same endings. Approved 2026-11-07 (user decision). See
+the batch runner's handling of the same endings. Approved 2026-11-07 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [N38](known-kotlin-bugs.md) and the
 [x20 findings](wp/x20-findings.md).
+
+**Migration action:** none for a normal test APK. A custom runner that stops listing its tests early and exits with a failing code now fails the run with its text, where it used to run the tests it had listed.
+
+## Other accepted text differences
+
+[PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)
+separately permits Jackson-internal parse-error wording, thread names and JVM
+frames in internal traces. Custom validation messages and configuration wrappers
+retain their contract; external xcodebuild, xcresult and instrumentation traces
+remain unchanged. These allowances are not additional numbered deviations.
+
+This guide is updated in the same change that approves or amends a deviation.
+Proposals that are still pending are not listed here.
