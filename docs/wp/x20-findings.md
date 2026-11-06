@@ -63,7 +63,7 @@ and wider than the brief's sentence, on purpose.** The brief's own trap asks wha
 `log_6` and the real run show it exists. Nothing is lost: a list that reached its count is not partial.
 
 The count is `TestRunStartedEvent`, from `numtests` in the first status atom, against `TestEnded` events, counting a test
-reported twice, as `numtests` would.
+reported twice. `numtests` counts distinct tests, so a re-report can hide a missing one: a runner announcing 3 and sending A, A, A with a failing code passes as whole, and a class-level `test=null` atom inflates the count the same way. Counting distinct tests instead could fail duplicate-named Cucumber outlines, so this stays.
 
 **The failing code's other route.** A last line with no line break, the shape of `log_13`, isn't an atom, so the transformer
 never reads its code. If the list is short it answers `Test run failed to complete`, and that used to keep the list too.
@@ -82,6 +82,8 @@ com.malinskiy.marathon.exceptions.TestParsingException: Unable to parse test lis
 
 A `TestRunFailing` in the same session adds its text, for example `Unexpected INSTRUMENTATION_CODE: 0: Bad argument, tests
 listed: 0`. There is no underlying exception to carry as a `cause`: the session's text is the reason, and the message holds it.
+
+**Limits, from review, nothing reproduced.** `extract_remotely` (`marathon.rs:535-575`) puts all bundles and all 9 attempts inside one `deviceInitializationTimeoutMillis` scope, and the outer retry restarts at bundle 1. If the scope expires first, the result is `NoDevicesException` with no D42 text, as with D25. A runner whose `numtests` disagrees with what it lists fails every attempt if its code isn't -1. One bundle with a failing code and nothing announced now fails a multi-bundle parse that the others would have carried; an APK with no tests probably ends with code -1, which isn't affected, though no device confirmed that.
 
 **D22.** No outage wait and no `host:version` probe follow such a failure. The session reached its code through that server,
 so it says nothing against it, and it would otherwise add a request to the transcript. `output_went_silent` became

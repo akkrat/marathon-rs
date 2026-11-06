@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D40; implementation availability
+canonical. This guide covers D1–D40 and D42; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -544,11 +544,14 @@ In Kotlin, a remote parsing session that ends with a failing `INSTRUMENTATION_CO
 whatever it says, unless the text is `Process crashed`. A run can then go on with part of its tests and pass.
 
 Native builds treat such a session as a failed attempt. It takes the existing retries, and if it fails the same way each
-time, the run fails with `Unable to parse test list using <serial>: <what the session said>, tests listed: 1 of 20`.
+time, the run fails with `Unable to parse test list using <serial>: <what the session said>, tests listed: 1 of 20`. All
+bundles and attempts share `deviceInitializationTimeoutMillis` (180 s by default), so a slow parse can end in
+`NoDevicesException` instead, with no such text.
 
 A session that listed every test its `numtests` announced keeps its list, whatever its code and message: some sessions end
 that way on a whole list, and a retry would only repeat it. A session with no count to reach has shown nothing and fails.
-Code -1 is success as before, even with fewer tests than announced. `Process crashed` still means the test annotation
+Code -1 is success as before, even with fewer tests than announced, unless the stream was cut inside that last line, which
+has no line break then. `Process crashed` still means the test annotation
 producer, with the same fallback. `am` refusing to start and output that never was the protocol are unchanged, and so is
 the batch runner's handling of the same endings. Approved 2026-11-07 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [N38](known-kotlin-bugs.md) and the
