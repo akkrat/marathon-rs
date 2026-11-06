@@ -315,6 +315,68 @@ mod file_sync_test_run_listener_test {
         });
     }
 }
+/// D28: the storage is prepared once and pulled once, after every instrumentation ran: a second wipe would lose what the
+/// first left there for the only pull. Each instrumentation's app data is prepared and collected.
+#[test]
+fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
+    let temp = checked(tempfile::tempdir());
+    let mut c = configuration();
+    c.output_dir = JavaPath::from_text(&temp.path().to_string_lossy());
+    for (name, root) in [("fixture3", PathRoot::ExternalStorage), ("fixture4", PathRoot::AppData)] {
+        android(&mut c).file_sync_configuration.pull.push(FileSyncEntry {
+            relative_path: js(name),
+            path_root: root,
+            aggregation_mode: AggregationMode::DeviceAndPool,
+        });
+    }
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let tar = |package: &str| {
+                format!(
+                    "mkdir -p /data/local/tmp/fixture4 && run-as {package} sh -c 'cd /data/data/{package}/fixture4 && tar cf - .' | tar xvf - -C /data/local/tmp/fixture4 && run-as {package} rm -R /data/data/{package}/fixture4"
+                )
+            };
+            let expected = vec![
+                "rm -r /sdcard/fixture3".to_owned(),
+                "mkdir /sdcard/fixture3".to_owned(),
+                "rm -r /data/local/tmp/fixture4".to_owned(),
+                "mkdir /data/local/tmp/fixture4".to_owned(),
+                "run-as com.example rm -R /data/data/com.example/fixture4".to_owned(),
+                "run-as com.example mkdir /data/data/com.example/fixture4".to_owned(),
+                "run-as other.app rm -R /data/data/other.app/fixture4".to_owned(),
+                "run-as other.app mkdir /data/data/other.app/fixture4".to_owned(),
+                "ls -l /sdcard/fixture3".to_owned(),
+                tar("com.example"),
+                tar("other.app"),
+                "ls -l /data/local/tmp/fixture4".to_owned(),
+            ];
+            let mut script = base_script(27, vec![]);
+            for command in &expected {
+                shell(&mut script, command, "");
+            }
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = FileSyncTestRunListener::new(artifacts(&device));
+            let first = info();
+            let second = marathon_dex::apk_parser::InstrumentationInfo {
+                application_package: js("other.app"),
+                ..info()
+            };
+            listener.before_test_run_in(Some(&first), context.clone()).await?;
+            // The same package again adds nothing.
+            listener.before_next_instrumentation_in(&first, context.clone()).await?;
+            listener
+                .before_next_instrumentation_in(&second, context.clone())
+                .await?;
+            listener.after_test_run_in(context).await?;
+            assert_eq!(commands(&server)[6..], expected);
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
 mod screen_recorder_test_run_listener_test {
     use super::*;
     #[test]

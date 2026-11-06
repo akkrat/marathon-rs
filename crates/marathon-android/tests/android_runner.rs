@@ -103,6 +103,19 @@ impl AndroidTestRunListener for Events {
             Ok(())
         })
     }
+    fn before_next_instrumentation_in<'a>(
+        &'a self,
+        info: &'a marathon_dex::apk_parser::InstrumentationInfo,
+        _: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            self.values
+                .lock()
+                .unwrap()
+                .push(format!("next:{}", info.instrumentation_package.to_string_lossy()));
+            Ok(())
+        })
+    }
     fn on_event<'a>(&'a self, event: &'a E) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let value = match event {
@@ -586,28 +599,82 @@ fn producer_failure_leaves_the_tests_uncompleted_with_the_cause_d25() {
         })
     });
 }
+/// Two tests of two instrumentations: `one` runs under `com.example.test`, `two` under the other bundle's.
+fn two_instrumentations(runtime: &Arc<marathon_android::services::AndroidRuntime>) -> (Test, Test) {
+    let (one, two) = (test("one"), test("two"));
+    runtime.identifier.put(&one, &runtime.bundles[0]);
+    let second = Arc::new(marathon_android::models::AndroidTestBundle::new(
+        marathon_android::dex_test_parser::DexTestBundleFiles {
+            application: None,
+            test_application: JavaPath::from_text(&fixture("dex/mutants/manifest-relative-bare.apk").to_string_lossy()),
+            extra_applications: vec![],
+            split_apks: vec![],
+        },
+        &JavaPath::from_text("/"),
+    ));
+    runtime.identifier.put(&two, &second);
+    (one, two)
+}
+fn instrumentations(server: &marathon_adb::server::FakeAdbServer) -> Vec<String> {
+    commands(server)
+        .into_iter()
+        .filter(|s| s.starts_with("am instrument"))
+        .collect()
+}
+/// The real results listener over one batch: what the pool gets.
+fn results_listener(
+    device: &marathon_android::device::AndroidDevice,
+    runtime: &Arc<marathon_android::services::AndroidRuntime>,
+    batch: &BatchRef,
+    deferred: Arc<SharedDeferred<TestBatchResults>>,
+) -> VendorResult<TestResultsListener> {
+    let accumulator = marathon_core::execution::result::TestRunResultsAccumulator::new(
+        runtime.dependencies.timer.clone(),
+        Arc::new(marathon_core::logging::host_millis),
+    )
+    .unwrap();
+    Ok(TestResultsListener {
+        accumulator: AccumulatingResultTestRunListener {
+            result: Mutex::new(accumulator),
+            logs: Arc::new(|_| {}),
+        },
+        batch: batch.clone(),
+        device: device.reference(),
+        deferred,
+        attachments: TestResultsListener::collector(&[])?,
+        log: Arc::new(|_, _| {}),
+    })
+}
+fn completes(class: &str, method: &str) -> String {
+    format!(
+        "INSTRUMENTATION_STATUS: class={class}\nINSTRUMENTATION_STATUS: test={method}\nINSTRUMENTATION_STATUS: numtests=1\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: class={class}\nINSTRUMENTATION_STATUS: test={method}\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"
+    )
+}
+fn names(results: &[TestResult]) -> Vec<String> {
+    results.iter().map(|r| r.test.method.to_string_lossy()).collect()
+}
+/// D28 (N35): the JVM rows `runner:multiple-services` and `runner:multiple-events` witness the old behaviour.
 #[test]
-fn multiple_instrumentations_each_receive_the_entire_nonignored_batch() {
+fn each_instrumentation_receives_only_its_own_tests_d28() {
+    let services = oracle("runner:multiple-services");
+    assert!(
+        services[0]
+            .as_str()
+            .unwrap()
+            .contains("-e class pkg.One#one,pkg.Two#two")
+    );
+    assert!(
+        services[1]
+            .as_str()
+            .unwrap()
+            .contains("-e class pkg.One#one,pkg.Two#two")
+    );
     run(config(), |runtime, context| {
         Box::pin(async move {
             let mut server = server(script("INSTRUMENTATION_CODE: -1\n", false)).await;
             let d = device(&server, runtime.clone());
             d.setup(context.clone()).await?;
-            let one = test("one");
-            let two = test("two");
-            runtime.identifier.put(&one, &runtime.bundles[0]);
-            let second = Arc::new(marathon_android::models::AndroidTestBundle::new(
-                marathon_android::dex_test_parser::DexTestBundleFiles {
-                    application: None,
-                    test_application: JavaPath::from_text(
-                        &fixture("dex/mutants/manifest-relative-bare.apk").to_string_lossy(),
-                    ),
-                    extra_applications: vec![],
-                    split_apks: vec![],
-                },
-                &JavaPath::from_text("/"),
-            ));
-            runtime.identifier.put(&two, &second);
+            let (one, two) = two_instrumentations(&runtime);
             let events = Events::default();
             AndroidDeviceTestRunner { device: &d }
                 .execute(
@@ -620,25 +687,181 @@ fn multiple_instrumentations_each_receive_the_entire_nonignored_batch() {
                     context,
                 )
                 .await?;
-            let commands: Vec<_> = commands(&server)
-                .into_iter()
-                .filter(|s| s.starts_with("am instrument"))
-                .collect();
+            let commands = instrumentations(&server);
             assert_eq!(commands.len(), 2);
             assert_ne!(commands[0], commands[1]);
-            for command in commands {
-                assert!(command.contains(" -e class pkg.Clazz#one,pkg.Clazz#two "));
-            }
+            assert!(commands[0].contains(" -e class pkg.Clazz#one "), "{}", commands[0]);
+            assert!(commands[1].contains(" -e class pkg.Clazz#two "), "{}", commands[1]);
+            let values = events.values.lock().unwrap().clone();
             assert_eq!(
-                events
-                    .values
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter(|s| s.as_str() == "ignored:ignored")
-                    .count(),
-                2
+                values.iter().filter(|s| *s == "ignored:ignored").count(),
+                1,
+                "{values:?}"
             );
+            assert_eq!(values.iter().filter(|s| *s == "after").count(), 1, "{values:?}");
+            assert_eq!(
+                values.iter().filter(|s| s.starts_with("before:")).count(),
+                1,
+                "{values:?}"
+            );
+            assert_eq!(
+                values.iter().filter(|s| s.starts_with("next:")).count(),
+                1,
+                "{values:?}"
+            );
+            assert_eq!(values.last().map(String::as_str), Some("after"));
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D28: the results of both instrumentations reach the one result, none of them counted as uncompleted because the
+/// other had not run. The first completed result used to win.
+#[test]
+fn results_aggregate_over_all_instrumentations_d28() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let mut s = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+            for (method, stdout) in [
+                ("one", completes("pkg.Clazz", "one")),
+                ("two", completes("pkg.Clazz", "two")),
+            ] {
+                s["shell"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({"regex":format!("^am instrument.* -e class pkg.Clazz#{method} "),"stdout":stdout}));
+            }
+            let mut server = server(s).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let (one, two) = two_instrumentations(&runtime);
+            let batch: BatchRef = Arc::new(TestBatch {
+                tests: vec![one, two],
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            let results = deferred.completed().unwrap().unwrap();
+            assert_eq!(names(&results.finished), ["one", "two"]);
+            assert!(results.failed.is_empty() && results.uncompleted.is_empty());
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D28: one instrumentation's failure leaves the other to run. Its tests are uncompleted with its own cause, which the
+/// next run's start does not erase, whichever of the two failed.
+#[test]
+fn a_failed_instrumentation_does_not_stop_the_other_d28() {
+    for failing_first in [true, false] {
+        run(config(), move |runtime, context| {
+            Box::pin(async move {
+                let mut s = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+                let (bad, good) = if failing_first { ("one", "two") } else { ("two", "one") };
+                let rules = s["shell"].as_array_mut().unwrap();
+                rules.push(json!({"regex":format!("^am instrument.* -e class pkg.Clazz#{bad} "),"stdout":"INSTRUMENTATION_STATUS: numtests=many\nINSTRUMENTATION_STATUS_CODE: 1\n"}));
+                rules.push(json!({"regex":format!("^am instrument.* -e class pkg.Clazz#{good} "),"stdout":completes("pkg.Clazz", good)}));
+                let mut server = server(s).await;
+                let d = device(&server, runtime.clone());
+                d.setup(context.clone()).await?;
+                let (one, two) = two_instrumentations(&runtime);
+                let batch: BatchRef = Arc::new(TestBatch {
+                    tests: vec![one, two],
+                    id: "batch".into(),
+                });
+                let deferred = Arc::new(SharedDeferred::default());
+                let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+                AndroidDeviceTestRunner { device: &d }
+                    .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                    .await?;
+                assert_eq!(instrumentations(&server).len(), 2);
+                let results = deferred.completed().unwrap().unwrap();
+                assert_eq!(names(&results.finished), [good]);
+                assert_eq!(names(&results.uncompleted), [bad]);
+                assert_eq!(
+                    results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy(),
+                    "Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\""
+                );
+                d.dispose().await?;
+                checked(server.shutdown().await);
+                Ok(())
+            })
+        });
+    }
+}
+/// D28: testOutputTimeout applies to each instrumentation: a stuck first one fails with the usual text and the second
+/// still runs.
+#[test]
+fn a_stuck_instrumentation_does_not_stop_the_other_d28() {
+    let mut c = config();
+    c.test_output_timeout_millis = 300;
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut s = base_script(30, vec!["shell_v2", "cmd", "abb_exec", "sendrecv_v2"]);
+            let rules = s["shell"].as_array_mut().unwrap();
+            rules.push(json!({"regex":"^am instrument.* -e class pkg.Clazz#one ","hang":true}));
+            rules.push(
+                json!({"regex":"^am instrument.* -e class pkg.Clazz#two ","stdout":completes("pkg.Clazz", "two")}),
+            );
+            let mut server = server(s).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let (one, two) = two_instrumentations(&runtime);
+            let batch: BatchRef = Arc::new(TestBatch {
+                tests: vec![one, two],
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            let results = deferred.completed().unwrap().unwrap();
+            assert_eq!(names(&results.finished), ["two"]);
+            assert_eq!(names(&results.uncompleted), ["one"]);
+            assert_eq!(
+                results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy(),
+                ERROR_STUCK
+            );
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D28: a lost device ends the batch: the later instrumentation does not run, its tests are uncompleted in the one result,
+/// and the loss still reaches the caller.
+#[test]
+fn a_lost_device_ends_the_batch_with_one_result_d28() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(script("INSTRUMENTATION_CODE: -1\n", false)).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let (one, two) = two_instrumentations(&runtime);
+            checked(server.disconnect_device("emulator-5554"));
+            let batch: BatchRef = Arc::new(TestBatch {
+                tests: vec![one, two],
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let listener = results_listener(&d, &runtime, &batch, deferred.clone())?;
+            let error = AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await
+                .unwrap_err();
+            assert!(matches!(
+                marathon_android::execution_error(error),
+                VendorError::DeviceLost(_)
+            ));
+            assert!(instrumentations(&server).is_empty());
+            let results = deferred.completed().unwrap().unwrap();
+            assert_eq!(names(&results.uncompleted), ["one", "two"]);
             d.dispose().await?;
             checked(server.shutdown().await);
             Ok(())

@@ -7,13 +7,14 @@ use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;
 pub struct FileSyncTestRunListener {
     pub artifacts: ArtifactContext,
-    package: Mutex<Option<String>>,
+    /// The batch's application packages, one per instrumentation in the usual case of one.
+    packages: Mutex<Vec<String>>,
 }
 impl FileSyncTestRunListener {
     pub fn new(artifacts: ArtifactContext) -> Self {
         Self {
             artifacts,
-            package: Mutex::new(None),
+            packages: Mutex::default(),
         }
     }
     fn path(&self, root: PathRoot, relative: &str) -> String {
@@ -44,7 +45,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
         Box::pin(async move {
             let device = &self.artifacts.device;
             let package = info.map(|i| i.application_package.to_string_lossy());
-            *lock(&self.package) = package.clone();
+            *lock(&self.packages) = package.iter().cloned().collect();
             // The provider owns the effective user + Allure + coverage set (6.5 P3).
             for entry in &device.runtime().file_sync.pull {
                 let relative = entry.relative_path.to_string_lossy();
@@ -108,10 +109,41 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
             Ok(())
         })
     }
+    /// D28: the storage is shared and was prepared once, and the one afterTestRun pulls it after every instrumentation
+    /// ran. Only this instrumentation's app data remains to prepare, and to be collected at the end.
+    fn before_next_instrumentation_in<'a>(
+        &'a self,
+        info: &'a InstrumentationInfo,
+        context: VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            let device = &self.artifacts.device;
+            let package = info.application_package.to_string_lossy();
+            {
+                let mut packages = lock(&self.packages);
+                if packages.contains(&package) {
+                    return Ok(());
+                }
+                packages.push(package.clone());
+            }
+            for entry in &device.runtime().file_sync.pull {
+                if entry.path_root == PathRoot::AppData {
+                    let from = join(&format!("/data/data/{package}"), &entry.relative_path.to_string_lossy());
+                    device
+                        .safe_execute_shell_command(&format!("run-as {package} rm -R {from}"), "", context.clone())
+                        .await?;
+                    device
+                        .safe_execute_shell_command(&format!("run-as {package} mkdir {from}"), "", context.clone())
+                        .await?;
+                }
+            }
+            Ok(())
+        })
+    }
     fn after_test_run_in(&self, context: VendorContext) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             let device = &self.artifacts.device;
-            let package = lock(&self.package).clone();
+            let packages = lock(&self.packages).clone();
             for entry in &device.runtime().file_sync.pull {
                 let pool = matches!(
                     entry.aggregation_mode,
@@ -156,9 +188,11 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                 );
                 let remote = self.path(entry.path_root, &relative);
                 if entry.path_root == PathRoot::AppData {
-                    if let Some(package) = &package {
-                        let from = join(&format!("/data/data/{package}"), &relative);
-                        device.safe_execute_shell_command(&format!("mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote} && run-as {package} rm -R {from}"),"",context.clone()).await?;
+                    if !packages.is_empty() {
+                        for package in &packages {
+                            let from = join(&format!("/data/data/{package}"), &relative);
+                            device.safe_execute_shell_command(&format!("mkdir -p {remote} && run-as {package} sh -c 'cd {from} && tar cf - .' | tar xvf - -C {remote} && run-as {package} rm -R {from}"),"",context.clone()).await?;
+                        }
                     } else {
                         let aggregation = match entry.aggregation_mode {
                             AggregationMode::Device => "DEVICE",
@@ -185,7 +219,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                         .await?;
                 }
             }
-            *lock(&self.package) = None;
+            lock(&self.packages).clear();
             Ok(())
         })
     }

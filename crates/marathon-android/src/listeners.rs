@@ -33,6 +33,15 @@ pub trait AndroidTestRunListener: Send + Sync {
     ) -> VendorFuture<'a, ()> {
         self.before_test_run(info)
     }
+    /// D28: the batch's next instrumentation is about to start; `before_test_run_in` told of the first. Not called for
+    /// a batch of one instrumentation.
+    fn before_next_instrumentation_in<'a>(
+        &'a self,
+        _info: &'a InstrumentationInfo,
+        _context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
     fn on_event_in<'a>(
         &'a self,
         event: &'a TestEvent,
@@ -80,6 +89,18 @@ impl AndroidTestRunListener for CompositeTestRunListener {
         Box::pin(async move {
             for listener in &self.listeners {
                 listener.before_test_run_in(info, context.clone()).await?;
+            }
+            Ok(())
+        })
+    }
+    fn before_next_instrumentation_in<'a>(
+        &'a self,
+        info: &'a InstrumentationInfo,
+        context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            for listener in &self.listeners {
+                listener.before_next_instrumentation_in(info, context.clone()).await?;
             }
             Ok(())
         })
@@ -264,6 +285,19 @@ impl TestResultsListener {
     }
 }
 impl AndroidTestRunListener for TestResultsListener {
+    /// D28: the next run's start must not erase why this one failed, which is the text of its uncompleted tests.
+    fn before_next_instrumentation_in<'a>(
+        &'a self,
+        _info: &'a InstrumentationInfo,
+        _context: marathon_core::vendor::VendorContext,
+    ) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            self.accumulator.update(|a| {
+                a.keep_run_failure();
+                Ok(())
+            })
+        })
+    }
     fn on_event<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
         self.accumulator.on_event(event)
     }

@@ -113,6 +113,8 @@ pub struct TestRunResultsAccumulator {
     expected_test_count: i32,
     elapsed_time: i64,
     run_failure_message: Option<JavaString>,
+    /// D28 (Android): a failure from an earlier run of the same batch, which `test_run_started` does not clear.
+    earlier_run_failure: Option<JavaString>,
     logs: Vec<LogRecord>,
 }
 impl TestRunResultsAccumulator {
@@ -133,6 +135,7 @@ impl TestRunResultsAccumulator {
             expected_test_count: 0,
             elapsed_time: 0,
             run_failure_message: None,
+            earlier_run_failure: None,
             logs: Vec::new(),
         })
     }
@@ -180,6 +183,12 @@ impl TestRunResultsAccumulator {
     }
     pub fn has_failed_tests(&mut self) -> bool {
         self.num_all_failed_tests() > 0
+    }
+    /// Another run of the same batch follows: the failure so far stays the text of tests that do not complete.
+    pub fn keep_run_failure(&mut self) {
+        if let Some(message) = self.run_failure_message.clone() {
+            self.earlier_run_failure = Some(message);
+        }
     }
     pub fn test_run_started(&mut self, name: JavaString, count: i32) {
         self.name = name;
@@ -320,7 +329,7 @@ impl TestRunResultsAccumulator {
             .max()
             .unwrap_or(self.creation_time);
         let trace = || {
-            self.run_failure_message.clone().unwrap_or_else(|| {
+            self.run_failure_message.clone().or_else(|| self.earlier_run_failure.clone()).unwrap_or_else(|| {
                 "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed"
                     .into()
             })

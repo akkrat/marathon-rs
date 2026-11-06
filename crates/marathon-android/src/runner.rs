@@ -332,19 +332,29 @@ impl AndroidDeviceTestRunner<'_> {
                 .await?;
             return listener.after_test_run_in(context).await;
         }
-        let mut infos = vec![];
+        // D28: each instrumentation runs only its own tests, in first-seen order; Kotlin gives each of them the whole
+        // batch and repeats the ignored callbacks and afterTestRun (N35). testBatchTimeout and testOutputTimeout apply to
+        // each instrumentation as they do to one, and each clears its own packages' data first. One listener collects
+        // the whole batch, so it sees one beforeTestRun, one afterTestRun and, in between, a run per instrumentation.
+        let mut partitions: Vec<(InstrumentationInfo, Vec<Test>)> = vec![];
         for test in &batch.tests {
             let bundle = self.device.runtime().identifier.android_bundle(test)?;
             let info = blocking(self.device.runtime().dependencies.io.as_ref(), move || {
                 bundle.instrumentation_info()
             })
             .await?;
-            if !infos.contains(&info) {
-                infos.push(info);
+            match partitions.iter_mut().find(|(known, _)| *known == info) {
+                Some((_, tests)) => tests.push(test.clone()),
+                None => partitions.push((info, vec![test.clone()])),
             }
         }
-        for info in infos {
-            // N35: each instrumentation receives the entire nonignored batch.
+        let count = partitions.len();
+        for (index, (info, tests)) in partitions.into_iter().enumerate() {
+            let first = index == 0;
+            let batch = TestBatch {
+                tests,
+                id: batch.id.clone(),
+            };
             let request = self.prepare_request(&configuration, &info, &batch)?;
             let mut channel = None;
             let result = timed(&context, configuration.test_batch_timeout_millis, |signal| {
@@ -357,9 +367,15 @@ impl AndroidDeviceTestRunner<'_> {
                     ..context.clone()
                 };
                 Box::pin(async move {
-                    self.notify_ignored(ignored, listener, &child).await?;
+                    if first {
+                        self.notify_ignored(ignored, listener, &child).await?;
+                    }
                     self.clear_data(configuration, info, child.clone()).await?;
-                    listener.before_test_run_in(Some(info), child.clone()).await?;
+                    if first {
+                        listener.before_test_run_in(Some(info), child.clone()).await?;
+                    } else {
+                        listener.before_next_instrumentation_in(info, child.clone()).await?;
+                    }
                     self.device.log_named(
                         "AndroidDeviceTestRunner",
                         Level::Debug,
@@ -446,12 +462,21 @@ impl AndroidDeviceTestRunner<'_> {
                 }
                 Err(e) => Err(e),
             };
+            // A run failure leaves the later instrumentations to run. An error, a lost device or a cancellation does
+            // not, and their tests are then the uncompleted ones of the batch's single result.
+            if result.is_ok() && index + 1 < count {
+                if let Some(channel) = &mut channel {
+                    channel.cancel_and_join().await;
+                }
+                continue;
+            }
             let after = listener.after_test_run_in(context.clone()).await;
             if let Some(channel) = &mut channel {
                 channel.cancel_and_join().await;
             }
             after?;
             result?;
+            break;
         }
         Ok(())
     }
