@@ -371,3 +371,14 @@ a healthy backend nothing changes. With a failing one the log gains one failed t
 re-query, and one line when the history returns or the attempts run out. No configuration change is needed.
 Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [C41](known-kotlin-bugs.md) and the [x15 findings](wp/x15-findings.md).
+
+## D38 — A failed readiness probe means not running
+
+From runtime 16 on, Kotlin reads the output of `launchctl dumpstate` without checking its exit status, so a
+failed or timed-out probe whose output already names a started SpringBoard service counts as running.
+Native builds treat a failed or timed-out probe as not running on every runtime. A healthy simulator exits 0:
+measured on iOS 18.6 and 27.0, while runtimes 16, 17 and 26 were not measured. One failed probe costs one more
+poll. Only a probe that fails for the whole of `bootWait` shuts the simulator down, boots it once more and takes it
+out of its pool, and no probe result erases a simulator. The commands are unchanged. Approved 2026-11-06 (user
+decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A41](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).

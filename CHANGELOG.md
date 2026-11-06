@@ -5,6 +5,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## Unreleased
 
 Fixes of bugs the Kotlin fork has, each an approved difference. See the
+Android and Apple fixes of bugs the Kotlin fork has, each an approved difference. See the
 [deviations guide](docs/deviations.md) and the [migration guide](docs/migration.md).
 
 ### Behaviour change to check
@@ -33,6 +34,8 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
 - A history query that fails is no longer final for the run: it is retried in the background a limited number of times,
   and queues built and batches composed afterwards use the history it finds. A run never waits for this. With a
   failing analytics backend the log has more warnings and timing lines (D34).
+- A failed or timed-out simulator readiness probe now means the simulator is not running yet, on every iOS runtime
+  (D38).
 
 ## 0.11.0
 

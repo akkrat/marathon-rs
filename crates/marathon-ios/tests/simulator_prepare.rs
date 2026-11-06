@@ -1,13 +1,16 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/StartupPhasesTest.kt
 mod simulator_support;
 mod support;
-use marathon_apple::cmd::cancelled;
+use marathon_apple::cmd::{CommandResult, cancelled};
 use marathon_core::{
     error::{LeavePoolReason, VendorError},
     vendor::Device,
 };
 use simulator_support::*;
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use support::duration;
 #[tokio::test(start_paused = true)]
 async fn a_boot_that_takes_longer_than_the_former_30_checks_but_finishes_within_boot_wait_prepares_the_simulator()
@@ -31,6 +34,64 @@ async fn a_boot_that_takes_longer_than_the_former_30_checks_but_finishes_within_
         1
     );
     h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+/// A booted simulator (state 3) whose readiness probe prints a started SpringBoard service with the
+/// given exit status, for the first `failures` probes, and then succeeds.
+fn probe_fails(h: &Harness, failures: usize, exit_code: Option<i32>) -> Arc<AtomicUsize> {
+    let probes = Arc::new(AtomicUsize::new(0));
+    let count = probes.clone();
+    let plan = h.boot.clone();
+    *h.worker.before.lock().unwrap() = Arc::new(move |c| {
+        let reply = if c.get(5).is_some_and(|s| s == "dumpstate") {
+            let failed = count.fetch_add(1, Ordering::SeqCst) < failures;
+            Some(CommandResult {
+                stdout: vec!["0x4e03 M A com.apple.springboard.services".to_owned()],
+                stderr: vec![],
+                exit_code: if failed { exit_code } else { Some(0) },
+            })
+        } else {
+            plan.answer(&c)
+        };
+        Box::pin(async move { Ok(reply) })
+    });
+    h.boot.state.store(3, Ordering::SeqCst);
+    probes
+}
+#[tokio::test(start_paused = true)]
+async fn one_failed_or_timed_out_probe_costs_one_more_poll_and_no_new_boot_d38() -> TestResult {
+    for exit_code in [Some(1), None] {
+        let h = Harness::new(|_| {})?;
+        let d = h.device().await?;
+        let probes = probe_fails(&h, 1, exit_code);
+        assert!(d.boot(&h.services.context).await.unwrap());
+        assert_eq!(probes.load(Ordering::SeqCst), 2);
+        assert_eq!(h.boot.boots.load(Ordering::SeqCst), 0);
+        assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 0);
+        h.finish(&[d]).await;
+    }
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_probe_that_never_succeeds_is_bounded_by_boot_wait_and_erases_nothing_d38() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let d = h.device().await?;
+    probe_fails(&h, usize::MAX, None);
+    let e = h.prepare(&d).await.unwrap_err();
+    assert!(matches!(
+        e,
+        VendorError::LeavePool {
+            reason: LeavePoolReason::NotBooted,
+            ..
+        }
+    ));
+    // The worst a persistently failing probe does: one boot wait, a shutdown, one fresh boot, a second
+    // boot wait, a shutdown, and the simulator leaves its pool. It is never erased.
+    assert_eq!(h.boot.boots.load(Ordering::SeqCst), 1);
+    assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 2);
+    let commands = h.worker.commands.lock().unwrap().clone();
+    assert!(!commands.iter().any(|c| c.iter().any(|arg| arg == "erase")));
+    h.finish(&[d]).await;
     Ok(())
 }
 #[tokio::test(start_paused = true)]

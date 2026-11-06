@@ -98,32 +98,29 @@ impl SimulatorService {
     ) -> VendorResult<bool> {
         Ok(self.service.critical_exec(timeout, args, context).await?.successful())
     }
-    /// From runtime 16 on the readiness probe's exit status is not checked (A41).
+    /// D38: a failed or timed-out probe is not running on every runtime. Kotlin skips the exit
+    /// check from runtime 16 on (A41), but a healthy simulator exits 0 there as well: measured on
+    /// iOS 18.6 and 27.0, see docs/wp/x17-findings.md.
     pub async fn is_running(&self, udid: &str, runtime_version: &str, context: &VendorContext) -> VendorResult<bool> {
         // Approved P1: ASCII digits only.
         let major = kt::substring_before(runtime_version, ".").parse::<i32>().ok();
         let timeout = self.service.timeouts().shell;
-        let result = match major {
-            Some(major) if major >= 16 => {
-                let args = argv([
-                    "spawn",
-                    udid,
-                    "launchctl",
-                    "dumpstate",
-                    "user/foreground/com.apple.SpringBoard",
-                ]);
-                self.service.safe_execute(timeout, args, context).await?
-            }
-            _ => {
-                let args = argv(["spawn", udid, "launchctl", "print", "system"]);
-                let result = self.service.safe_execute(timeout, args, context).await?;
-                if !result.as_ref().is_some_and(|result| result.successful()) {
-                    return Ok(false);
-                }
-                result
-            }
+        let args = match major {
+            Some(major) if major >= 16 => argv([
+                "spawn",
+                udid,
+                "launchctl",
+                "dumpstate",
+                "user/foreground/com.apple.SpringBoard",
+            ]),
+            _ => argv(["spawn", udid, "launchctl", "print", "system"]),
         };
-        let Some(result) = result else {
+        let Some(result) = self
+            .service
+            .safe_execute(timeout, args, context)
+            .await?
+            .filter(|result| result.successful())
+        else {
             return Ok(false);
         };
         // A: started, D: starting.

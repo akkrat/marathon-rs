@@ -273,6 +273,12 @@ These fix bugs that Kotlin has, and need no configuration change.
   ([D28](deviations.md#d28--each-instrumentation-runs-only-its-own-tests)). This only matters for batches
   that mix test APKs.
 
+## Other Apple behaviour changes
+
+- **A failed readiness probe means not running**
+  ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)). On a host so slow that the probe times out for
+  the whole of `bootWait`, a simulator is now booted once more and then leaves its pool. Raise `shell` if that happens.
+
 ## Trial and rollback
 
 Retain the previous executable and its configuration, inputs and state snapshots.

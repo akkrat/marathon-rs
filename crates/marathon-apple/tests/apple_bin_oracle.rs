@@ -2,7 +2,7 @@
 //! Additional oracle tests (no Kotlin matrix rows): every case of fixtures/oracle/apple-bin/probes.jsonl, which
 //! tools/oracle/apple-bin-probes ran against the frozen Kotlin wrappers, replayed here. Each case compares the
 //! argv, timeouts, env and workdir of every request (before executor quoting), the return value or error, and
-//! the log events. The few approved differences (P1, P2) are listed in `deviation`.
+//! the log events. The few approved differences (P1, P2, D38) are listed in `deviation`.
 mod support;
 use jcompat::{
     jtime::Duration,
@@ -605,7 +605,25 @@ fn deviation(case: &str, kotlin: &Value) -> Option<Value> {
         }
         return Some(value);
     }
+    // D38: a failed or timed-out dumpstate probe is not running. Only the return value changes.
+    if d38_row(case, kotlin) {
+        let mut value = kotlin.clone();
+        value["outcome"] = json!({"return": false});
+        return Some(value);
+    }
     None
+}
+
+/// The JVM rows that stay the witness of A41: a dumpstate probe that names a started SpringBoard
+/// service, reported as running although it failed or has no exit status.
+fn d38_row(case: &str, kotlin: &Value) -> bool {
+    let dumpstate = kotlin["requests"][0]["argv"][5] == json!("dumpstate");
+    // The non-ASCII digit rows run the older probe here, under P1.
+    case.starts_with("sim.running/")
+        && !case.starts_with("sim.running/１６")
+        && (case.ends_with("/fail") || case.ends_with("/nul"))
+        && dumpstate
+        && kotlin["outcome"] == json!({"return": true})
 }
 
 fn plain(value: &Value) -> Value {
@@ -687,6 +705,40 @@ async fn every_probed_wrapper_call_matches_kotlin() {
         mismatches.join("\n")
     );
     assert_eq!(checked, 409);
+}
+
+#[test]
+fn d38_allowance_covers_only_failed_dumpstate_probes_that_kotlin_reported_as_running() {
+    let rows = rows();
+    let mut covered: Vec<&str> = rows
+        .iter()
+        .filter(|(case, kotlin)| d38_row(case, kotlin))
+        .map(|(case, _)| case.as_str())
+        .collect();
+    covered.sort_unstable();
+    assert_eq!(
+        covered,
+        [
+            "sim.running/+16.1/fail",
+            "sim.running/+16.1/nul",
+            "sim.running/16.0/fail",
+            "sim.running/16.0/nul",
+            "sim.running/16/fail",
+            "sim.running/16/nul",
+        ]
+    );
+    let row = |case: &str| rows.iter().find(|(c, _)| c == case).map(|(_, kotlin)| kotlin).unwrap();
+    // A healthy probe, a starting one and the older runtime's probe stay exactly as recorded.
+    for case in ["sim.running/16.0/ok", "sim.running/16.0/D", "sim.running/15.9/fail"] {
+        assert!(deviation(case, row(case)).is_none(), "{case}");
+    }
+    // The allowance needs both the dumpstate request and Kotlin's old answer.
+    let mut print = row("sim.running/16.0/fail").clone();
+    print["requests"][0]["argv"][5] = json!("print");
+    assert!(!d38_row("sim.running/16.0/fail", &print));
+    let mut not_running = row("sim.running/16.0/fail").clone();
+    not_running["outcome"] = json!({"return": false});
+    assert!(!d38_row("sim.running/16.0/fail", &not_running));
 }
 
 #[test]
