@@ -64,9 +64,9 @@ with no retry, though the next attempt would have worked. No captured normal end
 
 An attempt whose stream has no marker fails with `Unable to parse test list using <serial>: java.io.EOFException: the
 instrumentation stream ended before a result`, through D25's path, and takes the existing retries. `extract_inner` adds
-tests to its result only from an attempt that succeeded, so a partial list cannot leave it. The kept Kotlin behaviour:
-a stream with a marker keeps its tests even if the session failed (`INSTRUMENTATION_CODE: 0` with another message). That is
-a normal end, not a broken stream.
+tests to its result only from an attempt that succeeded, so a partial list cannot leave it. A stream with a marker kept its
+tests even if the session failed (`INSTRUMENTATION_CODE: 0` with another message), as in Kotlin: a normal end, not a broken
+stream. D42 (WP x20) has since made a session that fails short of its count a failed attempt.
 
 **Do attempts move to another device? Yes, by the outer retry**, which is how Kotlin works too, so nothing was redesigned.
 There are two levels: `AmInstrumentTestParser.extract` retries three times per bundle on its one device (`withRetry(3, 0)`),
@@ -175,7 +175,7 @@ A second-model review of `7546d8b8` found no blocker and ran its own prefix swee
 
 - **Fixed:** a stream cut inside the protocol's first word, or after a lone line break, was still read as output that never was the protocol. Remote parsing then gave an empty list with no retry, and with several bundles a run could go green without that bundle's tests. Now blank output, or an unfinished last line that could still become the protocol's first word, counts as cut. A first version required text to end in a whole line; the gate refused it, since adam's `test_returns_content_on_failure` pins `something-something` with no line break as ordinary output.
 - **Left, as a limit:** other text followed by a cut can't be told from "never the protocol" on a v1 shell. A v2 stream with no exit packet could be told apart, but no such output has been seen and the first write normally arrives whole.
-- **Left, Kotlin's behaviour, for the owner:** a session that ends with code 0 and a message other than `Process crashed` keeps its partial list (`ordinary_ends_are_not_retried_d25`). It isn't a broken stream, so it's out of this WP's scope, and it is the remaining way a parse can come back short.
+- **Left, Kotlin's behaviour, for the owner:** a session that ends with code 0 and a message other than `Process crashed` kept its partial list (`ordinary_ends_are_not_retried_d25`). It isn't a broken stream, so it was out of this WP's scope, and it was the remaining way a parse could come back short. The owner approved fixing it as D42, by WP x20.
 - **Noted:** `remote_parsing_waits_out_an_outage_and_it_uses_up_no_attempt_d22` needs the parser to reach the gate before the tracker has closed and reopened it, a window of the reconnect backoff plus the list settling. A stall longer than that would fail the test. Not seen. U151 could also carry the cut-stream text to a later instrumentation's unreported test; that was text only, and WP x20 fixed it.
 
 ## Incidental bugs

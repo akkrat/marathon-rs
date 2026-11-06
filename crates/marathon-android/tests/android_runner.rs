@@ -1369,7 +1369,8 @@ fn an_instrumentation_that_never_reached_before_test_run_keeps_its_text_u151() {
     assert_eq!(text_of(&results, "d"), GENERIC_TEXT);
 }
 /// U151 leaves a batch of one instrumentation alone. These are the texts of every kind of end, and this test passes
-/// unchanged on the code before the fix.
+/// unchanged on the code before the fix. D42 changes remote parsing only, so a failing code here stays one
+/// `am instrument`, with its tests kept.
 #[test]
 fn a_batch_of_one_instrumentation_keeps_its_texts_u151() {
     for (output, expected) in [

@@ -850,6 +850,77 @@ fn a_run_does_not_take_a_cut_off_parse_for_the_list_d25() {
     assert_eq!(observed.batches.len(), 20, "{:?}", observed.batches);
 }
 
+/// The recorded scenario, with parsing sessions that stop after the first of the twenty tests and end with `end`: this
+/// many of them before the recorded whole list, or all of them.
+fn parse_ending_with(end: &str, times: Option<u64>) -> (Value, Vec<Event>, usize) {
+    let (mut script, events, index) = load("same-server");
+    let rules = script["shell"].as_array_mut().unwrap();
+    let parse = rules
+        .iter()
+        .position(|rule| rule["regex"].as_str().is_some_and(|r| r.ends_with("-e log true")))
+        .unwrap();
+    // The script's atoms all say `numtests=1`; a real session states the whole count.
+    let output = rules[parse]["stdout"]
+        .as_str()
+        .unwrap()
+        .replace("numtests=1\n", "numtests=20\n");
+    // Three status atoms to the test: its start, its annotations and its end.
+    let at = output
+        .match_indices("INSTRUMENTATION_STATUS_CODE: ")
+        .nth(2)
+        .map(|(at, _)| at + output[at..].find('\n').unwrap() + 1)
+        .unwrap();
+    let mut short = json!({"regex": rules[parse]["regex"], "stdout": format!("{}{end}", &output[..at])});
+    if let Some(times) = times {
+        short["times"] = json!(times);
+    }
+    rules.insert(parse, short);
+    (script, events, index)
+}
+fn parses(observed: &Observed) -> usize {
+    observed.transcripts[0]
+        .iter()
+        .filter(|r| r["type"] == "request" && r["service"].as_str().is_some_and(|s| s.contains("-e log true")))
+        .count()
+}
+/// D42, a whole run: a parse whose session failed after one of the twenty tests used to be the list, and the run passed
+/// with nineteen tests never run. The retry gets the whole list.
+#[test]
+fn a_run_does_not_take_a_parse_that_failed_short_for_the_list_d42() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (script, _, index) = parse_ending_with(
+        "INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n",
+        Some(1),
+    );
+    let observed = run_loaded(vec![(script, vec![], index)]);
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "{:?}",
+        observed.virtual_millis
+    );
+    assert_eq!(parses(&observed), 2);
+    assert_eq!(observed.batches.len(), 20, "{:?}", observed.batches);
+}
+/// D42, a whole run: a parse that fails the same way every time ends the run, rather than looping or running part of the
+/// tests: three attempts on the device, three times around (as `extract_remotely` retries), then the error with its reason.
+#[test]
+fn a_run_ends_on_a_parse_that_keeps_failing_short_d42() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (script, _, index) = parse_ending_with(
+        "INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n",
+        None,
+    );
+    let observed = run_loaded(vec![(script, vec![], index)]);
+    let Some(Err(error)) = &observed.result else {
+        panic!("{:?}", observed.result.as_ref().map(|r| r.is_ok()));
+    };
+    let text = error.failure().to_java_string().to_string_lossy();
+    assert!(text.contains("TestParsingException"), "{text}");
+    assert!(text.contains("Other, tests listed: 1 of 20"), "{text}");
+    assert_eq!(parses(&observed), 9);
+    assert!(observed.batches.is_empty(), "{:?}", observed.batches);
+}
+
 /// The Kotlin CLI's recording of the same scenario is the witness of the behaviour D18 replaced; it is not re-recorded.
 #[test]
 fn kotlin_witness_of_the_serial_only_device_map_is_unchanged() {

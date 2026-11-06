@@ -472,38 +472,185 @@ fn a_stream_cut_inside_its_first_word_is_retried_d25() {
     }
 }
 /// The ends that are no cut keep their one attempt and their result, as captured on real devices: `am` refusing to
-/// start, and output that never was the protocol. A non-zero session code is a normal end too, and keeps the tests it
-/// listed, as in Kotlin.
+/// start, and output that never was the protocol. What a failing session code means for its list is D42's, below.
 #[test]
 fn ordinary_ends_are_not_retried_d25() {
     let refused = "INSTRUMENTATION_STATUS: Error=Unable to find instrumentation info for: ComponentInfo{com.nope/com.nope.Runner}\nINSTRUMENTATION_STATUS: id=ActivityManagerService\nINSTRUMENTATION_STATUS_CODE: -1\nonError: commandError=true message=INSTRUMENTATION_FAILED: com.nope/com.nope.Runner\n";
-    for (name, built, expected) in [
+    for (name, built) in [
         (
             "refused",
             script(vec![json!({"prefix":"am instrument","stdout":refused,"exit_code":1})]),
-            vec![],
         ),
         (
             "refused v1",
             v1_script(vec![json!({"prefix":"am instrument","stdout":refused})]),
-            vec![],
         ),
         (
             "not the protocol",
             v1_script(vec![json!({"prefix":"am instrument","stdout":"sh: am: not found\n"})]),
-            vec![],
-        ),
-        (
-            "session code 0",
-            script(vec![
-                json!({"prefix":"am instrument","stdout":format!("{}INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n", listed(&["one"]))}),
-            ]),
-            vec!["one"],
         ),
     ] {
         let (tests, attempts) = extracted(built);
-        assert_eq!(tests.unwrap(), expected, "{name}");
+        assert!(tests.unwrap().is_empty(), "{name}");
         assert_eq!(attempts, 1, "{name}");
+    }
+}
+fn ended(end: &str) -> String {
+    format!("{}{end}", listed(&["one"]))
+}
+/// D42: a session whose code says it failed, and that stopped short of what it announced, used to return the tests so
+/// far, and the run went on with only those. It now takes the retry path. Each message and code ends the same way.
+#[test]
+fn a_session_that_fails_short_of_its_count_is_retried_and_the_list_is_whole_d42() {
+    for end in [
+        "INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n",
+        "INSTRUMENTATION_RESULT: shortMsg=java.lang.RuntimeException\nINSTRUMENTATION_RESULT: longMsg=boom\nINSTRUMENTATION_CODE: 0\n",
+        "INSTRUMENTATION_CODE: 0\n",
+        "INSTRUMENTATION_CODE: 1\n",
+        "INSTRUMENTATION_CODE: odd\n",
+        // No line break: the transformer can't read these, and says the run failed to complete.
+        "INSTRUMENTATION_CODE: 0",
+        "INSTRUMENTATION_CODE: -1",
+    ] {
+        let (tests, attempts) = extracted(script(vec![
+            json!({"prefix":"am instrument","stdout":ended(end),"times":1}),
+            json!({"prefix":"am instrument","stdout":whole()}),
+        ]));
+        assert_eq!(tests.unwrap(), ["one", "two"], "{end:?}");
+        assert_eq!(attempts, 2, "{end:?}");
+    }
+}
+/// D42: a failure that repeats ends the attempts, with what the session said and how far it got. A session that got
+/// through to its code says nothing against the server, so this asks it nothing more.
+#[test]
+fn a_session_that_keeps_failing_ends_in_a_parsing_error_with_its_reason_d42() {
+    let outcome = Arc::new(std::sync::Mutex::new(None));
+    let slot = outcome.clone();
+    run(config(), move |runtime, context| {
+        Box::pin(async move {
+            let output = ended("INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n");
+            let mut server = server(script(vec![json!({"prefix":"am instrument","stdout":output})])).await;
+            let runtime = change_runtime(&runtime, &[server.port()]);
+            let provider = Arc::new(AdamDeviceProvider::new(runtime.clone())?);
+            provider.initialize(context.clone()).await?;
+            let reference = provider.borrow(context.clone()).await?;
+            let serial = provider.android_device(&reference).unwrap().serial_number();
+            let probes = |server: &marathon_adb::server::FakeAdbServer| {
+                request_services(server).iter().filter(|s| *s == "host:version").count()
+            };
+            let before = probes(&server);
+            let parser = AmInstrumentTestParser {
+                runtime,
+                provider: provider.clone(),
+            };
+            let error = parser.extract(reference, context).await.unwrap_err();
+            assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
+            assert_eq!(
+                error.failure().class,
+                js("com.malinskiy.marathon.exceptions.TestParsingException")
+            );
+            let attempts = commands(&server)
+                .iter()
+                .filter(|s| s.starts_with("am instrument"))
+                .count();
+            *slot.lock().unwrap() = Some((
+                error.failure().message.clone(),
+                serial,
+                attempts,
+                probes(&server) - before,
+            ));
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+    let (message, serial, attempts, probes) = outcome.lock().unwrap().take().unwrap();
+    assert_eq!(
+        message.unwrap().to_string_lossy(),
+        format!(
+            "Unable to parse test list using {}: Other, tests listed: 1 of 2",
+            serial.to_string_lossy()
+        )
+    );
+    assert_eq!(attempts, 3);
+    assert_eq!(probes, 0);
+}
+/// D42: a failing code on a whole list is no reason to fail, and would fail every time. adam's `log_6` is such a session,
+/// from a real device. The list stands on its first attempt, whatever the message, as in Kotlin.
+#[test]
+fn a_failing_code_on_a_whole_list_keeps_the_list_d42() {
+    let recording = checked(std::fs::read_to_string(fixture("adam/instrumentation/log_6.input")));
+    assert!(recording.trim_end().ends_with("INSTRUMENTATION_CODE: 0"));
+    let (tests, attempts) = extracted(script(vec![json!({"prefix":"am instrument","stdout":recording})]));
+    assert_eq!(tests.unwrap().len(), 9);
+    assert_eq!(attempts, 1);
+    for end in [
+        "INSTRUMENTATION_CODE: 0\n",
+        "INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n",
+    ] {
+        let output = format!("{}{end}", listed(&["one", "two"]));
+        let (tests, attempts) = extracted(script(vec![json!({"prefix":"am instrument","stdout":output})]));
+        assert_eq!(tests.unwrap(), ["one", "two"], "{end:?}");
+        assert_eq!(attempts, 1, "{end:?}");
+    }
+}
+/// D42: with no count to reach, nothing shows that the list is whole. Each of these ended with a failing code and no
+/// `numtests`, which only the first status atom can state.
+#[test]
+fn a_failing_code_with_no_count_fails_the_attempt_d42() {
+    let no_count = "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=one\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=one\nINSTRUMENTATION_STATUS_CODE: 0\n";
+    for (end, reason) in [
+        (
+            "INSTRUMENTATION_RESULT: shortMsg=Other\nINSTRUMENTATION_CODE: 0\n".to_owned(),
+            "Other, tests listed: 0",
+        ),
+        (
+            "INSTRUMENTATION_CODE: 0\n".to_owned(),
+            "Unexpected INSTRUMENTATION_CODE: 0, tests listed: 0",
+        ),
+        (
+            format!("{no_count}INSTRUMENTATION_CODE: 0\n"),
+            "Unexpected INSTRUMENTATION_CODE: 0, tests listed: 1",
+        ),
+        (
+            "INSTRUMENTATION_STATUS: numtests=0\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_CODE: 0\n".to_owned(),
+            "Unexpected INSTRUMENTATION_CODE: 0, tests listed: 0 of 0",
+        ),
+        (
+            "INSTRUMENTATION_STATUS: stream=Bad argument\nINSTRUMENTATION_STATUS: stack=trace\nINSTRUMENTATION_STATUS_CODE: -1\nINSTRUMENTATION_CODE: 0\n".to_owned(),
+            "Unexpected INSTRUMENTATION_CODE: 0: Bad argument, tests listed: 0",
+        ),
+    ] {
+        let (tests, attempts) = extracted(script(vec![json!({"prefix":"am instrument","stdout":end})]));
+        let error = tests.unwrap_err();
+        let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+        assert!(message.ends_with(&format!(": {reason}")), "{message}");
+        assert_eq!(attempts, 3, "{reason}");
+    }
+}
+/// D42 leaves code -1 alone: it is success, even with the list short of its count, and the end of a run needs no message.
+#[test]
+fn code_minus_one_stays_success_on_a_short_list_d42() {
+    let output = format!("{}INSTRUMENTATION_CODE: -1\n", listed(&["one"]));
+    let (tests, attempts) = extracted(script(vec![json!({"prefix":"am instrument","stdout":output})]));
+    assert_eq!(tests.unwrap(), ["one"]);
+    assert_eq!(attempts, 1);
+}
+/// D42 leaves `Process crashed` alone: it means the test annotation producer, and the next attempt drops that listener,
+/// as in Kotlin, with or without a whole list.
+#[test]
+fn process_crashed_stays_the_fallback_path_d42() {
+    for tests in [&["one"][..], &["one", "two"][..]] {
+        let crash = format!(
+            "{}INSTRUMENTATION_RESULT: shortMsg=Process crashed.\nINSTRUMENTATION_CODE: 0\n",
+            listed(tests)
+        );
+        let (tests, attempts) = extracted(script(vec![
+            json!({"regex":"^am instrument.*-e listener ","stdout":crash}),
+            json!({"prefix":"am instrument","stdout":whole()}),
+        ]));
+        assert_eq!(tests.unwrap(), ["one", "two"]);
+        assert_eq!(attempts, 2);
     }
 }
 #[test]

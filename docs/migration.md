@@ -272,6 +272,10 @@ These fix bugs that Kotlin has, and need no configuration change.
   instead of the generic one, `No test results` or none, and a remote parse cut off by a lost connection is retried
   instead of giving a shorter test list. A run that used to pass with tests silently missing can now run them all, or
   fail.
+- **A remote parse that fails short of its list is a failed attempt**
+  ([D42](deviations.md#d42--a-remote-parse-that-fails-short-of-its-list-is-a-failed-attempt)). A session whose
+  `INSTRUMENTATION_CODE` isn't -1, which lists fewer tests than its `numtests`, is retried, and fails the run with its
+  text if it keeps doing so. A custom runner that stops listing early and exits this way used to run the part it listed.
 - **DEX 040 and 041 test APKs are accepted**
   ([D26](deviations.md#d26--dex-040-and-041-test-apks)).
 - **Each instrumentation runs only its own tests**

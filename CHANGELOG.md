@@ -29,6 +29,9 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
   reported as a test-run failure with its cause and retried, without retiring a healthy device. A remote parsing attempt
   fails and is retried instead of returning only the tests found so far, which could give a passing run with tests
   missing (D25).
+- A remote parse whose instrumentation fails before it has listed every test it announced is retried, and fails the run
+  with the reason if it keeps failing, instead of running only the tests listed so far. A failing exit code on a complete
+  list is still accepted (D42).
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
 - In a batch that mixes test APKs, each instrumentation runs only its own tests, and the batch reports one result
   (D28).

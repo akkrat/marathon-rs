@@ -108,7 +108,7 @@ impl AmInstrumentTestParser {
                             self.log(Level::Debug, "Remote parsing failed. Retrying", Some(error.failure()));
                             // D22: the retries have no delay, so an outage would use them all up within its first
                             // moments, on a server that is about to return.
-                            if !output_went_silent(&error) && device.wait_out_server_outage(&context).await? {
+                            if !server_is_not_in_question(&error) && device.wait_out_server_outage(&context).await? {
                                 continue;
                             }
                         }
@@ -174,6 +174,7 @@ impl AmInstrumentTestParser {
             channel = Some(InstrumentationChannel::start(device, request));
             let mut tests = vec![];
             let mut observed = false;
+            let mut session = SessionEnd::default();
             if let Some(channel) = channel.as_mut() {
                 loop {
                     let events = timed(
@@ -203,11 +204,16 @@ impl AmInstrumentTestParser {
                             error.cause = Some(Box::new(failure.failure().clone()));
                             return Err(VendorError::TestParsing(error).into());
                         }
+                        if let Some(reason) = session.short_list() {
+                            return Err(VendorError::TestParsing(failure_of_session(device, &reason)).into());
+                        }
                         break;
                     };
                     for event in events {
                         match event {
+                            TestEvent::TestRunStartedEvent { test_count } => session.announced = Some(test_count),
                             TestEvent::TestEnded { id, metrics } => {
+                                session.listed += 1;
                                 let annotations = TestAnnotationParser::new().extract_annotations(&metrics);
                                 observed |= !annotations.is_empty();
                                 let test = TestIdentifier {
@@ -238,7 +244,13 @@ impl AmInstrumentTestParser {
                                         logcat: logs,
                                     });
                                 }
+                                match event {
+                                    TestEvent::TestRunFailing { ref error, .. } => session.failing = Some(error.clone()),
+                                    _ => session.failed = Some(error.clone()),
+                                }
                             }
+                            // The transformer follows a failed run with this only when the session reached its code.
+                            TestEvent::TestRunEnded { .. } => session.code_failure = session.failed.take(),
                             _ => {}
                         }
                     }
@@ -264,10 +276,60 @@ impl AmInstrumentTestParser {
         result
     }
 }
-/// The one parse failure with no cause. A lost server ends the stream at once, so this does not suggest an outage, and
-/// the transcripts of a silent device stay as they are.
-fn output_went_silent(error: &VendorError) -> bool {
+/// D42: how a session ended, as far as it tells whether the list is whole. Kotlin keeps whatever was listed, whatever
+/// the end, unless the text says `Process crashed`.
+#[derive(Default)]
+struct SessionEnd {
+    /// `numtests`, which a session states before its first test.
+    announced: Option<i32>,
+    /// Tests reported as ended, counting one reported twice, as `numtests` does.
+    listed: i32,
+    failing: Option<JavaString>,
+    failed: Option<JavaString>,
+    /// The text of an `INSTRUMENTATION_CODE` other than -1, which is success.
+    code_failure: Option<JavaString>,
+}
+impl SessionEnd {
+    /// Why the list is short, if it is. A session can end with a failing code on a whole list, which a retry would only
+    /// repeat: adam's `log_6` lists 9 of 9 and ends with code 0 and no message, and a listener can fail after the last
+    /// test. So a list that reached the count it announced stands. One with no count to reach proves nothing and doesn't.
+    ///
+    /// A run failure with no such code, past D25's check for a cut stream, and after a count, comes from a last line with
+    /// no line break: the transformer can't read that code, whatever it says, and calls the run incomplete. `am` ends its
+    /// lines, so a list this short counts as cut. With no count it is `am` refusing to start or output that never was the
+    /// protocol, which stay as they are.
+    fn short_list(&self) -> Option<JavaString> {
+        let failure = self
+            .code_failure
+            .as_ref()
+            .or(self.failed.as_ref().filter(|_| self.announced.is_some()))?;
+        if self.announced.is_some_and(|count| count > 0 && self.listed >= count) {
+            return None;
+        }
+        let mut reason = failure.clone();
+        if let Some(failing) = &self.failing {
+            reason.push_str(": ");
+            reason.append(failing.clone());
+        }
+        reason.push_str(&format!(", tests listed: {}", self.listed));
+        if let Some(count) = self.announced {
+            reason.push_str(&format!(" of {count}"));
+        }
+        Some(reason)
+    }
+}
+/// The parse failures with no cause, which do not suggest an outage. Output gone silent: a lost server ends the stream at
+/// once, and the transcripts of a silent device stay as they are. A session cut short (D42): it reached its result code
+/// over that same server.
+fn server_is_not_in_question(error: &VendorError) -> bool {
     matches!(error, VendorError::TestParsing(failure) if failure.cause.is_none())
+}
+fn failure_of_session(device: &AndroidDevice, reason: &JavaString) -> Failure {
+    let mut message = JavaString::from("Unable to parse test list using ");
+    message.append(device.serial_number());
+    message.push_str(": ");
+    message.append(reason.clone());
+    self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
 }
 fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {
     let mut message = JavaString::from("Unable to parse test list using ");

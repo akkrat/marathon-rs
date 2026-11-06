@@ -318,7 +318,9 @@ that finished before the cut stays finished. A device is retired only for a fail
 request. A remote parsing attempt fails, and is retried, and never returns a partial list.
 
 Test crashes and non-zero exits are unchanged, and so are the two ends without the code that are not a cut stream: `am`
-refusing to start the instrumentation, and output that never was the protocol. Approved 2026-11-06 (user decision).
+refusing to start the instrumentation, and output that never was the protocol. What a failing session code means for
+a remote parse is [D42](#d42--a-remote-parse-that-fails-short-of-its-list-is-a-failed-attempt). Approved 2026-11-06 (user
+decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N38](known-kotlin-bugs.md) and the [x12](wp/x12-findings.md) and [x18](wp/x18-findings.md) findings.
 
@@ -535,3 +537,19 @@ The old device has already been told to terminate by then, and its batch comes b
 that order, so this makes the pool right on its own. Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C27](known-kotlin-bugs.md) and the
 [x17 findings](wp/x17-findings.md).
+
+## D42 — A remote parse that fails short of its list is a failed attempt
+
+In Kotlin, a remote parsing session that ends with a failing `INSTRUMENTATION_CODE`, usually 0, keeps the tests it listed,
+whatever it says, unless the text is `Process crashed`. A run can then go on with part of its tests and pass.
+
+Native builds treat such a session as a failed attempt. It takes the existing retries, and if it fails the same way each
+time, the run fails with `Unable to parse test list using <serial>: <what the session said>, tests listed: 1 of 20`.
+
+A session that listed every test its `numtests` announced keeps its list, whatever its code and message: some sessions end
+that way on a whole list, and a retry would only repeat it. A session with no count to reach has shown nothing and fails.
+Code -1 is success as before, even with fewer tests than announced. `Process crashed` still means the test annotation
+producer, with the same fallback. `am` refusing to start and output that never was the protocol are unchanged, and so is
+the batch runner's handling of the same endings. Approved 2026-11-07 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [N38](known-kotlin-bugs.md) and the
+[x20 findings](wp/x20-findings.md).
