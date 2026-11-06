@@ -4,7 +4,7 @@ mod support;
 use marathon_apple::{apple_device::AppleDevice, cmd::CommandResult, model::Arch};
 use marathon_core::{model::DeviceFeature, vendor::Device};
 use simulator_support::*;
-use std::sync::Arc;
+use std::sync::{Arc, atomic::Ordering};
 #[tokio::test(start_paused = true)]
 async fn setup_probe_order_fallbacks_and_fresh_info_are_preserved() -> TestResult {
     let h = Harness::new(|_| {})?;
@@ -183,5 +183,38 @@ async fn construction_does_no_io_and_partial_setup_disposal_keeps_lateinit_failu
     assert_eq!(disposed["commands"], 0);
     assert_eq!(disposed["disposed"], d.disposed());
     h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn setup_on_a_lost_connection_fails_instead_of_describing_the_simulator_with_defaults_d36() -> TestResult {
+    use marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION;
+    let h = Harness::new(|_| {})?;
+    let d = h.device().await?;
+    // Lost after the home and the descriptor were read: safeExecute answers the remaining probes with null (A17),
+    // and each of them has a default.
+    h.worker.connected.store(false, Ordering::SeqCst);
+    let plan = h.boot.clone();
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let reply = if cmd.last().is_some_and(|s| s == "HOME") {
+            Some(marathon_test_support::apple::fake_simulator_worker::ok([
+                "/Users/worker/Library/Developer/CoreSimulator/Devices/a/data",
+            ]))
+        } else if cmd.iter().any(|arg| arg == "getenv") {
+            None
+        } else {
+            plan.answer(&cmd)
+        };
+        Box::pin(async move { Ok(reply) })
+    });
+    let error = d.setup(&h.services.context).await.unwrap_err();
+    assert_eq!(
+        (
+            error.failure().class.to_string_lossy(),
+            error.failure().message.as_ref().unwrap().to_string_lossy()
+        ),
+        (CONNECTION_EXCEPTION.to_owned(), "Not connected".to_owned())
+    );
+    h.worker.connected.store(true, Ordering::SeqCst);
+    h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }

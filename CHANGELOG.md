@@ -53,6 +53,8 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
   `env NSUnbufferedIO=YES` (D32).
 - A worker that shares no key exchange, cipher, MAC or host key algorithm with marathon is no longer retried as if the
   network had failed; the error text is unchanged and real network faults are still retried (D35).
+- A worker that drops the connection right after login is handled as a lost connection: commands that may fail return
+  no result instead of aborting with `IllegalStateException: Not connected`, and the usual reconnect takes over (D36).
 
 ## 0.11.0
 

@@ -345,3 +345,26 @@ async fn wrong_state_type_after_failed_boot_warns_without_sending_shutdown() -> 
     }
     Ok(())
 }
+#[tokio::test(start_paused = true)]
+async fn a_connection_lost_during_prepare_is_not_a_failed_boot_d36() -> TestResult {
+    use marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION;
+    let h = Harness::new(|_| {})?;
+    let d = h.device().await?;
+    // Only what reaches the worker changes: the safe probes answer null, critical commands fail.
+    h.worker.connected.store(false, Ordering::SeqCst);
+    *h.worker.before.lock().unwrap() = Arc::new(|_| Box::pin(async { Ok(None) }));
+    let e = h.prepare(&d).await.unwrap_err();
+    assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
+    assert_eq!(e.failure().class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(h.boot.boots.load(Ordering::SeqCst), 0);
+    assert!(
+        !h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, _, message, _)| message.contains("failed to boot"))
+    );
+    h.worker.connected.store(true, Ordering::SeqCst);
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}

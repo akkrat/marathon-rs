@@ -73,6 +73,7 @@ pub struct ConnectionShared {
     death: Mutex<Option<SshFailure>>,
     dead: watch::Sender<bool>,
     received_disconnect: AtomicBool,
+    closed_locally: AtomicBool,
     authenticated: AtomicBool,
     host_key_rejection: Mutex<Option<SshFailure>>,
     open_failures: Mutex<VecDeque<String>>,
@@ -86,6 +87,7 @@ impl ConnectionShared {
             death: Mutex::new(None),
             dead: watch::channel(false).0,
             received_disconnect: AtomicBool::new(false),
+            closed_locally: AtomicBool::new(false),
             authenticated: AtomicBool::new(false),
             host_key_rejection: Mutex::new(None),
             open_failures: Mutex::new(VecDeque::new()),
@@ -746,6 +748,7 @@ impl KeepAliveConnection for KeepAlivePort {
 /// `TransportImpl.disconnect(BY_APPLICATION, "")`: channels get TransportException[BY_APPLICATION]("Disconnected").
 async fn disconnect_locally(shared: Option<&ConnectionShared>, handle: &Handle<ClientHandler>) {
     if let Some(shared) = shared {
+        shared.closed_locally.store(true, Ordering::SeqCst);
         shared.set_death(
             SshFailure::transport(DisconnectReason::ByApplication, "Disconnected"),
             false,
@@ -777,10 +780,15 @@ impl SshConnection {
     pub fn scope(&self) -> Arc<SessionScope> {
         self.scope.clone()
     }
-    /// `PatchedSSHClient.startSession`: the A17 checks, then a session channel opened under sshj's 30 s reply timeout.
+    /// `PatchedSSHClient.startSession`: the checks, then a session channel opened under sshj's 30 s reply timeout.
+    /// D36: a transport that died is a connection failure (A17); only our own `close()` leaves the state error.
     pub async fn start_session(&self) -> Result<Arc<ExecChannel>, SshFailure> {
         if !self.is_connected() {
-            return Err(SshFailure::not_connected());
+            return Err(if self.shared.closed_locally.load(Ordering::SeqCst) {
+                SshFailure::not_connected()
+            } else {
+                SshFailure::connection_gone(&self.shared.channel_failure_cause())
+            });
         }
         if !self.shared.authenticated.load(Ordering::SeqCst) {
             return Err(SshFailure::new(ILLEGAL_STATE_EXCEPTION, "Not authenticated"));

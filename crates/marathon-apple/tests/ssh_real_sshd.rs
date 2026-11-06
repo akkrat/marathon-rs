@@ -348,3 +348,27 @@ async fn d35_no_common_kex_on_a_real_sshd_is_not_transient() {
         DeviceFailureException::new(DeviceFailureReason::UnreachableHost, None, Some(error))
     )));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn d36_a_killed_server_session_makes_safe_execute_return_null() {
+    // Ends this connection's own sshd session process, the nearest one above the command, as a dropping server does.
+    let executor = connect().await;
+    let script = "p=$PPID; while [ \"$p\" -gt 1 ]; do case \"$(ps -o comm= -p $p)\" in *sshd*) kill -9 $p; break;; esac; p=$(ps -o ppid= -p $p | tr -d \" \"); done";
+    let _ = executor
+        .safe_execute(request(&["sh", "-c", script], 10_000), context())
+        .await;
+    let started = Instant::now();
+    while executor.connected() && started.elapsed() < Duration::from_secs(60) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(!executor.connected());
+    for _ in 0..3 {
+        assert_eq!(
+            executor
+                .safe_execute(request(&["echo", "hello"], 5000), context())
+                .await,
+            Ok(None)
+        );
+    }
+}

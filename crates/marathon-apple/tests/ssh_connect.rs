@@ -7,13 +7,24 @@ use marathon_apple::{
     cmd::{
         CommandExecutor, CommandRequest,
         remote::ssh::sshj::{
-            SshAuthentication, SshFailure,
+            SshAuthentication, SshCommandExecutor, SshFailure,
+            config::SshLogging,
             error::*,
             known_hosts::{HostKeyVerifier, OpenSshKnownHosts, md5_fingerprint},
         },
     },
-    device::{connection_factory::ConnectionError, connection_failures::is_transient_connection_failure},
+    device::{
+        connection_factory::{
+            AddressProbe, ConnectionError, ConnectionFactory, ConnectionFuture, Connector,
+            DEFAULT_MAX_CONCURRENT_CONNECTS, Executor, PreparedConnection,
+        },
+        connection_failures::is_transient_connection_failure,
+    },
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
+};
+use marathon_config::{
+    devices::Transport,
+    vendor::{RsyncConfiguration, SshConfiguration},
 };
 use marathon_core::error::VendorError;
 use russh::keys::{Algorithm, PrivateKey};
@@ -113,41 +124,157 @@ async fn disconnect_before_kex_is_retried_four_times_with_the_wire_reason() {
     }
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn disconnect_after_auth_makes_execute_throw_not_connected() {
-    let fake = ssh::fake(
-        faults(Faults {
-            after_auth: Some(Disconnect {
-                reason: 11,
-                message: "fixture disconnect 11".into(),
-            }),
-            ..Default::default()
-        }),
-        4,
-    )
-    .await;
-    let executor = ssh::connect(&fake).await;
-    for _ in 0..500 {
+async fn wait_disconnected(executor: &SshCommandExecutor) {
+    for _ in 0..6000 {
         if !executor.connected() {
-            break;
+            return;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    assert!(!executor.connected());
-    // A17: not a ConnectionException or TransportException, so safeExecute propagates it.
-    let error = executor
-        .safe_execute(CommandRequest::new(["echo", "hello"], duration(5000)), context())
-        .await
-        .err()
-        .unwrap();
-    let expected = evidence("after_auth-11.stdout");
-    assert_eq!(
-        error,
-        VendorError::Other(SshFailure::not_connected().to_failure()),
-        "{expected}"
+    panic!("the connection did not end");
+}
+fn drops_after_auth() -> Script {
+    faults(Faults {
+        after_auth: Some(Disconnect {
+            reason: 11,
+            message: "fixture disconnect 11".into(),
+        }),
+        ..Default::default()
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn disconnect_after_auth_makes_safe_execute_return_null_d36() {
+    let fake = ssh::fake(drops_after_auth(), 4).await;
+    let (logging, events) = ssh::logging(false);
+    let executor = ssh::connect_with(&fake, &ssh::factory(&logging), false).await.unwrap();
+    wait_disconnected(&executor).await;
+    let request = || CommandRequest::new(["echo", "hello"], duration(5000));
+    assert_eq!(executor.safe_execute(request(), context()).await, Ok(None));
+    let safe_logged = (
+        "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor".to_owned(),
+        Level::Error,
+        "Unable to start a remote shell session [echo, hello]".to_owned(),
     );
-    assert_eq!(expected["value"][0]["message"], "Not connected");
+    assert!(ssh::lines(&events).contains(&safe_logged), "{:?}", ssh::lines(&events));
+    // The failure keeps Kotlin's text, says why, and is a class every caller already treats as a lost connection.
+    let error = executor.connection().start_session().await.err().unwrap();
+    assert_eq!(
+        chain(&error),
+        [
+            (
+                "ConnectionException".into(),
+                Some("Not connected".into()),
+                Some("UNKNOWN")
+            ),
+            (
+                "TransportException".into(),
+                Some("fixture disconnect 11".into()),
+                Some("BY_APPLICATION")
+            ),
+        ]
+    );
+    let Err(VendorError::Other(failure)) = executor.execute(request(), context()).await else {
+        panic!("execute must fail");
+    };
+    assert_eq!(failure, error.to_failure());
+    assert!(is_transient_connection_failure(&ConnectionError::Device(
+        DeviceFailureException::new(DeviceFailureReason::UnreachableHost, None, Some(error))
+    )));
+    // The JVM recording stays as the witness of what A17 was.
+    let kotlin = evidence("after_auth-11.stdout");
+    assert_eq!(kotlin["value"][0]["class"], "IllegalStateException");
+    assert_eq!(kotlin["value"][0]["message"], "Not connected");
     assert_eq!(connections(&fake).await, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_that_always_drops_after_auth_costs_one_connection_per_acquire_d36() {
+    // No path may turn a null into a reconnect storm: the executor never reconnects by itself, however often a
+    // command is refused, and the factory replaces a dead shared connection once per acquire.
+    let fake = ssh::fake(drops_after_auth(), 4).await;
+    let (logging, _) = ssh::logging(false);
+    let factory = ConnectionFactory::with_seams(
+        false,
+        SshConfiguration {
+            authentication: Some(marathon_config::vendor::SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }),
+            known_hosts_path: None,
+            keep_alive_interval: duration(0),
+            keep_alive_max_count: 4,
+            debug: false,
+            share_worker_connection: true,
+        },
+        RsyncConfiguration {
+            remote_path: "/usr/bin/rsync".into(),
+        },
+        duration(5000),
+        DEFAULT_MAX_CONCURRENT_CONNECTS,
+        Arc::new(support::Runtime),
+        Arc::new(support::Clock::default()),
+        logging.clone(),
+        Arc::new(FakeConnector(fake.port(), logging)),
+        Arc::new(NoProbe),
+    )
+    .unwrap();
+    let worker = Transport::Ssh {
+        addr: "127.0.0.1".into(),
+        port: i32::from(fake.port()),
+        authentication: None,
+        check_reachability: false,
+    };
+    let mut acquired = Vec::new();
+    for round in 1..=5 {
+        let (executor, _) = factory.create_or_throw(worker.clone(), context()).await.unwrap();
+        for _ in 0..3 {
+            for _ in 0..6000 {
+                if !executor.connected() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            assert_eq!(
+                executor
+                    .safe_execute(CommandRequest::new(["echo", "hello"], duration(5000)), context())
+                    .await,
+                Ok(None)
+            );
+        }
+        acquired.push(executor);
+        assert_eq!(connections(&fake).await, round);
+    }
+    for executor in acquired {
+        factory.dispose(executor).await.unwrap();
+    }
+    assert_eq!(connections(&fake).await, 5);
+}
+struct FakeConnector(u16, SshLogging);
+impl Connector for FakeConnector {
+    fn prepare(&self, _: Transport) -> ConnectionFuture<'_, PreparedConnection> {
+        let (port, logging) = (self.0, self.1.clone());
+        Box::pin(async move {
+            Ok(Box::new(move || {
+                Box::pin(async move {
+                    let auth = SshAuthentication::Password {
+                        username: "fixture".into(),
+                        password: "fake-password".into(),
+                    };
+                    let executor = ssh::factory(&logging)
+                        .connect("127.0.0.1", port, auth, None, false)
+                        .await?;
+                    Ok(Arc::new(executor) as Executor)
+                }) as ConnectionFuture<'static, Executor>
+            }) as PreparedConnection)
+        })
+    }
+}
+struct NoProbe;
+impl AddressProbe for NoProbe {
+    fn check(&self, _: Transport, _: jcompat::jtime::Duration) -> ConnectionFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -207,12 +334,12 @@ async fn disconnect_during_exec_fails_execute_with_the_wire_reason() {
                 )
             )
         );
-        // ConnectionException: safeExecute turns it into null with the 4.1 log line.
+        // D36: the next command finds the transport gone, and safeExecute turns that into null too.
         assert_eq!(
             executor
                 .safe_execute(CommandRequest::new(["echo", "hello"], duration(5000)), context())
                 .await,
-            Err(VendorError::Other(SshFailure::not_connected().to_failure()))
+            Ok(None)
         );
     }
 }

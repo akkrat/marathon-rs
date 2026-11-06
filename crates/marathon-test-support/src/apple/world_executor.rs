@@ -11,7 +11,7 @@ use jcompat::logging::{Logger, MarathonLogging};
 use marathon_apple::cmd::{
     BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, FileBridge, SessionControl,
     line_buffer::LineBuffer,
-    remote::ssh::sshj::{error::SshFailure, executor::shell_command},
+    remote::ssh::sshj::{DisconnectReason, error::SshFailure, executor::shell_command},
 };
 use marathon_core::{
     error::VendorError,
@@ -198,8 +198,12 @@ impl CommandExecutor for WorldExecutor {
             if let Some(result) = before(request.command.clone()).await? {
                 return Ok(CommandSession::finished(self.runtime.clone(), result));
             }
-            if !self.connected() {
+            if self.connection.stop.is_cancelled() {
                 return Err(SshFailure::not_connected().into_vendor());
+            }
+            if !self.connected() {
+                let lost = SshFailure::transport(DisconnectReason::Unknown, "Broken transport; encountered EOF");
+                return Err(SshFailure::connection_gone(&lost).into_vendor());
             }
             let raw = shell_command(&request.command);
             let parsed = Request::parse(raw.as_bytes()).map_err(harness_error)?;

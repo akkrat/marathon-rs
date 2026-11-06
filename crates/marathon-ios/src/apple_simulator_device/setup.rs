@@ -3,7 +3,7 @@
 use super::*;
 use crate::device::worker_provisioning_context::WorkerFacts;
 use marathon_apple::{
-    cmd::{CommandResult, failure},
+    cmd::{CommandResult, failure, remote::ssh::sshj::error::CONNECTION_EXCEPTION},
     plist::worker_descriptor,
 };
 use marathon_core::model::DeviceFeature;
@@ -130,6 +130,9 @@ impl AppleSimulatorDevice {
         let runtime_version = self.simple_env("SIMULATOR_RUNTIME_VERSION", "Unknown", context).await?;
         self.state().runtime_version = Some(runtime_version);
         let version = self.simple_env("SIMULATOR_VERSION_INFO", "Unknown", context).await?;
+        // D36: on a lost connection the probes above answer null, which reads as "use the default". A simulator
+        // described that way must not register: the provider retries the connection instead (A17).
+        self.connection_alive()?;
         let mut state = self.state();
         state.version = version;
         state.abi = facts.arch.clone();
@@ -238,13 +241,20 @@ impl AppleSimulatorDevice {
         if path.is_empty() {
             return Err(uninitialized("devicePlistPath"));
         }
-        let descriptor = self
-            .read_textfile(&path, context)
-            .await?
-            .map(|s| worker_descriptor(s.as_bytes()))
-            .transpose()?;
+        let text = self.read_textfile(&path, context).await?;
+        // D36: without this a lost connection reads as state UNKNOWN, and the simulator as one that failed to boot.
+        if text.is_none() {
+            self.connection_alive()?;
+        }
+        let descriptor = text.map(|s| worker_descriptor(s.as_bytes())).transpose()?;
         self.state().descriptor = descriptor;
         Ok(())
+    }
+    fn connection_alive(&self) -> VendorResult<()> {
+        if self.executor.connected() {
+            return Ok(());
+        }
+        Err(VendorError::Other(failure(CONNECTION_EXCEPTION, "Not connected")))
     }
 }
 

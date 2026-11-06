@@ -29,6 +29,7 @@ pub const SOCKET_TIMEOUT_EXCEPTION: &str = "java.net.SocketTimeoutException";
 pub const UNKNOWN_HOST_EXCEPTION: &str = "java.net.UnknownHostException";
 pub const FILE_NOT_FOUND_EXCEPTION: &str = "java.io.FileNotFoundException";
 pub const PATTERN_SYNTAX_EXCEPTION: &str = "java.util.regex.PatternSyntaxException";
+const NOT_CONNECTED: &str = "Not connected";
 
 /// Direct superclasses of every class this module creates.
 const SUPERCLASS: &[(&str, &str)] = &[
@@ -152,7 +153,15 @@ pub struct SshFailure {
     message: Option<String>,
     pub cause: Option<Box<SshFailure>>,
     pub suppressed: Vec<SshFailure>,
-    no_common_algorithm: bool,
+    origin: Origin,
+}
+/// What the classifier must know that sshj's class, reason and text do not say (D35, D36). Never shown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Origin {
+    #[default]
+    Reported,
+    NoCommonAlgorithm,
+    ConnectionGone,
 }
 impl SshFailure {
     pub fn new(class: &'static str, message: impl Into<String>) -> Self {
@@ -162,7 +171,7 @@ impl SshFailure {
             message: Some(message.into()),
             cause: None,
             suppressed: Vec::new(),
-            no_common_algorithm: false,
+            origin: Origin::Reported,
         }
     }
     pub fn with_reason(mut self, reason: DisconnectReason) -> Self {
@@ -181,7 +190,7 @@ impl SshFailure {
             message: None,
             cause: Some(Box::new(cause)),
             suppressed: Vec::new(),
-            no_common_algorithm: false,
+            origin: Origin::Reported,
         }
     }
     pub fn transport(reason: DisconnectReason, message: impl Into<String>) -> Self {
@@ -191,12 +200,23 @@ impl SshFailure {
     /// because they reach logs, and UNKNOWN also covers real network faults. Only the classifier reads the marker.
     pub fn no_common_algorithm(message: impl Into<String>) -> Self {
         Self {
-            no_common_algorithm: true,
+            origin: Origin::NoCommonAlgorithm,
             ..Self::transport(DisconnectReason::Unknown, message)
         }
     }
     pub fn is_no_common_algorithm(&self) -> bool {
-        self.no_common_algorithm
+        self.origin == Origin::NoCommonAlgorithm
+    }
+    /// D36: a command needs a transport that died, `cause` being why. Kotlin's `IllegalStateException` escaped
+    /// `safeExecute` (A17); this is a `ConnectionException`, which keeps the text and adds the reason.
+    pub fn connection_gone(cause: &SshFailure) -> Self {
+        Self {
+            origin: Origin::ConnectionGone,
+            ..Self::connection(DisconnectReason::Unknown, NOT_CONNECTED).caused_by(cause.clone())
+        }
+    }
+    pub fn is_connection_gone(&self) -> bool {
+        self.origin == Origin::ConnectionGone
     }
     pub fn connection(reason: DisconnectReason, message: impl Into<String>) -> Self {
         Self::new(CONNECTION_EXCEPTION, message).with_reason(reason)
@@ -224,8 +244,9 @@ impl SshFailure {
             Self::new(TIMEOUT_EXCEPTION, format!("Timeout expired: {timeout}")),
         )
     }
+    /// Use of a client after its own `close()`: the caller's mistake, not a connection fault.
     pub fn not_connected() -> Self {
-        Self::new(ILLEGAL_STATE_EXCEPTION, "Not connected")
+        Self::new(ILLEGAL_STATE_EXCEPTION, NOT_CONNECTED)
     }
     pub fn is_ssh(&self) -> bool {
         is_instance(self.class, SSH_EXCEPTION)

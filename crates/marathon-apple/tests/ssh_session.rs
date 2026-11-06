@@ -1008,7 +1008,14 @@ async fn executor_close_disconnects_and_fails_live_channels() {
             .err()
             .unwrap(),
     );
+    // D36 is about a transport that died: using a client after its own close stays a state error, past safeExecute.
     assert_eq!(error, SshFailure::not_connected().to_failure());
+    assert_eq!(
+        executor
+            .safe_execute(request(&["echo", "hello"], 5000), context())
+            .await,
+        Err(VendorError::Other(error))
+    );
     let ends = fake.events_at_least("connection_end", 1).await;
     assert_eq!(ends.len(), 1);
 }

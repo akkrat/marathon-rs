@@ -460,6 +460,16 @@ retried. The four immediate connection attempts remain. Approved 2026-11-06 (use
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A16](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
 
+## D36 — A connection lost after login is a connection failure
+
+When a worker drops the connection right after authentication, Kotlin's next command throws
+`IllegalStateException: Not connected`, past the handling that commands which may fail rely on. Native builds report
+a `ConnectionException` with the same text and the reason as its cause, so such a command returns no result, an error
+log says so, and marathon handles the device as it does any lost connection. Retries keep their configured limits.
+Using a connection after marathon closed it is still an `IllegalStateException`. Approved 2026-11-06 (user decision).
+See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A17](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
+
 ## D38 — A failed readiness probe means not running
 
 From runtime 16 on, Kotlin reads the output of `launchctl dumpstate` without checking its exit status, so a
