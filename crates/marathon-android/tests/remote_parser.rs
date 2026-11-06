@@ -306,6 +306,44 @@ fn other_run_failure_returns_partial_tests_and_wrong_device_is_configuration_err
         })
     });
 }
+/// D25 (N38): a producer failure used to end the attempt as a success with whatever tests it had found so far; the run
+/// would then silently leave the rest out. It now fails the attempt, with the cause, and the retries apply.
+#[test]
+fn producer_failure_fails_the_parsing_attempt_d25() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let response = "INSTRUMENTATION_STATUS: numtests=many\nINSTRUMENTATION_STATUS_CODE: 1\n";
+            let mut server = server(script(vec![json!({"prefix":"am instrument","stdout":response})])).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let provider = Arc::new(AdamDeviceProvider::new(runtime.clone())?);
+            let parser = AmInstrumentTestParser {
+                runtime: runtime.clone(),
+                provider,
+            };
+            let error = parser
+                .parse_tests(&d, runtime.bundles[0].clone(), false, context)
+                .await
+                .unwrap_err();
+            assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
+            assert_eq!(
+                error.failure().message,
+                Some(
+                    format!(
+                        "Unable to parse test list using {}: java.lang.NumberFormatException: For input string: \"many\"",
+                        d.serial_number().to_string_lossy()
+                    )
+                    .as_str()
+                    .into()
+                )
+            );
+            assert_eq!(d.listener_counts(), (0, 0));
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
 #[test]
 fn duplicate_test_retains_first_metadata_but_last_bundle_registration() {
     let mut c = config();

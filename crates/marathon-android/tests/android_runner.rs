@@ -425,7 +425,7 @@ fn explicitly_removed_enabled_listener_fails() {
     });
 }
 #[test]
-fn producer_parser_failure_is_not_execution_failure() {
+fn producer_parser_failure_fails_the_run_and_keeps_the_device_d25() {
     run(config(), |runtime, context| {
         Box::pin(async move {
             let mut server = server(script(
@@ -448,7 +448,138 @@ fn producer_parser_failure_is_not_execution_failure() {
                     context,
                 )
                 .await?;
-            assert_eq!(*e.values.lock().unwrap(), vec!["before:com.example.test", "after"]);
+            // The JVM row `runner:handshake-eof-events` shows no failure at all (N38).
+            assert_eq!(
+                *e.values.lock().unwrap(),
+                vec![
+                    "before:com.example.test",
+                    "failed:Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\"",
+                    "after"
+                ]
+            );
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D25: a rejected handshake reaches the listener with its cause and then means what it means in a synchronous request:
+/// the device is lost, through `execution_error`.
+#[test]
+fn producer_handshake_rejection_fails_the_run_and_loses_the_device_d25() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(script("INSTRUMENTATION_CODE: -1\n", false)).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            register(&runtime, &[test("method")]);
+            checked(server.disconnect_device("emulator-5554"));
+            let e = Events::default();
+            let error = AndroidDeviceTestRunner { device: &d }
+                .execute(
+                    runtime.dependencies.configuration.clone(),
+                    Arc::new(TestBatch {
+                        tests: vec![test("method")],
+                        id: "batch".into(),
+                    }),
+                    &e,
+                    context,
+                )
+                .await
+                .unwrap_err();
+            let values = e.values.lock().unwrap().clone();
+            assert_eq!(values.len(), 3, "{values:?}");
+            assert!(
+                values[1].starts_with(
+                    "failed:Instrumentation failed: com.malinskiy.adam.exception.RequestRejectedException: "
+                ),
+                "{values:?}"
+            );
+            assert_eq!(values[2], "after");
+            assert!(matches!(
+                marathon_android::execution_error(error),
+                VendorError::DeviceLost(_)
+            ));
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D25: a refused connection is an I/O failure, which fails the run and leaves the device, as a synchronous one does.
+#[test]
+fn producer_connection_failure_fails_the_run_and_keeps_the_device_d25() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(script("INSTRUMENTATION_CODE: -1\n", false)).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            register(&runtime, &[test("method")]);
+            logcat_streams(&[(&server, 1)]).await;
+            checked(server.shutdown().await);
+            let e = Events::default();
+            AndroidDeviceTestRunner { device: &d }
+                .execute(
+                    runtime.dependencies.configuration.clone(),
+                    Arc::new(TestBatch {
+                        tests: vec![test("method")],
+                        id: "batch".into(),
+                    }),
+                    &e,
+                    context,
+                )
+                .await?;
+            let values = e.values.lock().unwrap().clone();
+            assert_eq!(values.len(), 3, "{values:?}");
+            assert!(values[1].contains("Connection refused"), "{values:?}");
+            d.dispose().await?;
+            Ok(())
+        })
+    });
+}
+/// D25: what the run's accounting does with it: the unfinished test is uncompleted, carrying the real cause.
+#[test]
+fn producer_failure_leaves_the_tests_uncompleted_with_the_cause_d25() {
+    run(config(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(script(
+                "INSTRUMENTATION_STATUS: numtests=many\nINSTRUMENTATION_STATUS_CODE: 1\n",
+                false,
+            ))
+            .await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            register(&runtime, &[test("method")]);
+            let batch = Arc::new(TestBatch {
+                tests: vec![test("method")],
+                id: "batch".into(),
+            });
+            let deferred = Arc::new(SharedDeferred::default());
+            let accumulator = marathon_core::execution::result::TestRunResultsAccumulator::new(
+                runtime.dependencies.timer.clone(),
+                Arc::new(marathon_core::logging::host_millis),
+            )
+            .unwrap();
+            let listener = TestResultsListener {
+                accumulator: AccumulatingResultTestRunListener {
+                    result: Mutex::new(accumulator),
+                    logs: Arc::new(|_| {}),
+                },
+                batch: batch.clone(),
+                device: d.reference(),
+                deferred: deferred.clone(),
+                attachments: TestResultsListener::collector(&[])?,
+                log: Arc::new(|_, _| {}),
+            };
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            let results = deferred.completed().unwrap().unwrap();
+            assert_eq!(results.uncompleted.len(), 1);
+            assert_eq!(
+                results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy(),
+                "Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\""
+            );
             d.dispose().await?;
             checked(server.shutdown().await);
             Ok(())

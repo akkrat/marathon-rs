@@ -49,11 +49,14 @@ pub(crate) fn throwable(t: JavaThrowable) -> Failure {
 pub fn adb_error(e: AdbError) -> VendorError {
     VendorError::Other(throwable(e.to_throwable()))
 }
-pub fn execution_error(e: VendorError) -> VendorError {
+/// What `execution_error` turns into a lost device: the adb server refused the device or the connection went.
+pub(crate) fn means_device_loss(e: &VendorError) -> bool {
     let class = &e.failure().class;
-    if *class == "com.malinskiy.adam.exception.RequestRejectedException".into()
+    *class == "com.malinskiy.adam.exception.RequestRejectedException".into()
         || *class == "com.malinskiy.marathon.android.exception.CommandRejectedException".into()
-    {
+}
+pub fn execution_error(e: VendorError) -> VendorError {
+    if means_device_loss(&e) {
         let mut f = failure(
             "com.malinskiy.marathon.exceptions.DeviceLostException",
             e.failure().to_java_string(),

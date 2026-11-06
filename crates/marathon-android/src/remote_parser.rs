@@ -189,6 +189,12 @@ impl AmInstrumentTestParser {
                         ))
                     })?;
                     let Some(events) = events else {
+                        // D25: otherwise the attempt would "succeed" with whatever tests had been listed so far (N38).
+                        if let Some(failure) = channel.take_failure() {
+                            let mut error = failure_of_parse(device, &failure);
+                            error.cause = Some(Box::new(failure.failure().clone()));
+                            return Err(VendorError::TestParsing(error).into());
+                        }
                         break;
                     };
                     for event in events {
@@ -249,6 +255,13 @@ impl AmInstrumentTestParser {
         }
         result
     }
+}
+fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {
+    let mut message = JavaString::from("Unable to parse test list using ");
+    message.append(device.serial_number());
+    message.push_str(": ");
+    message.append(failure.failure().to_java_string());
+    self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
 }
 impl RemoteTestParser for AmInstrumentTestParser {
     fn extract(&self, reference: DeviceRef, context: VendorContext) -> VendorFuture<'_, Vec<Test>> {

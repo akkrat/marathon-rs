@@ -18,7 +18,7 @@ use marathon_adb::{
 use marathon_config::{Configuration, vendor::PathRoot};
 use marathon_core::{error::*, executor::shared::requested, model::*, runtime::*, vendor::*};
 use marathon_dex::apk_parser::InstrumentationInfo;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub const ERROR_STUCK: &str = "Test got stuck. You can increase the timeout in settings if it's too strict";
 /// Device-scoped producer, independent of the execute job, as in adam. The owner
@@ -26,11 +26,16 @@ pub const ERROR_STUCK: &str = "Test got stuck. You can increase the timeout in s
 pub struct InstrumentationChannel {
     receiver: tokio::sync::mpsc::Receiver<Vec<TestEvent>>,
     task: Arc<dyn VendorTask>,
+    device: AndroidDevice,
+    /// D25: why the producer stopped, set before the channel closes. Kotlin discards it (N38).
+    failure: Arc<Mutex<Option<VendorError>>>,
 }
 impl InstrumentationChannel {
     pub fn start(device: &AndroidDevice, request: TestRunnerRequest) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         let owned = device.clone();
+        let failure = Arc::new(Mutex::new(None));
+        let producer_failure = failure.clone();
         let task = device
             .runtime()
             .dependencies
@@ -69,16 +74,31 @@ impl InstrumentationChannel {
                     }
                     .await;
                     stream.cancel();
+                    if let Err(error) = &result
+                        && !matches!(error, VendorError::Cancelled(_))
+                    {
+                        *lock(&producer_failure) = Some(clone_error(error));
+                    }
                     // Consumed produce failures do not invoke Kotlin's exception handler.
                     result
                 })
             }));
-        Self { receiver, task }
+        Self {
+            receiver,
+            task,
+            device: device.clone(),
+            failure,
+        }
     }
     pub async fn receive(&mut self, context: &VendorContext) -> VendorResult<Option<Vec<TestEvent>>> {
-        // receiveCatching().getOrNull() discards the producer's close cause. Its
-        // failure remains on the independent task, never a fake empty success event.
+        // A closed channel is the end of the output; `take_failure` then tells whether it ended well.
         cancellable(context.cancellation.clone(), async { Ok(self.receiver.recv().await) }).await
+    }
+    /// D25: the failure that ended the producer, once the channel has closed. A client closed by provider shutdown is
+    /// the end of the run, not a failure of this batch, and stays quiet (N19).
+    pub fn take_failure(&self) -> Option<VendorError> {
+        let failure = lock(&self.failure).take()?;
+        (!self.device.client().socket_factory().is_closed()).then_some(failure)
     }
     pub async fn cancel_and_join(&mut self) {
         self.receiver.close();
@@ -261,6 +281,30 @@ impl AndroidDeviceTestRunner<'_> {
         }
         Ok(())
     }
+    /// D25: the run failed, with the batch's unfinished tests on the usual retry path. The device is lost only if the
+    /// same failure in a synchronous request would have made it so, so a parser exception cannot retire a healthy device.
+    async fn on_producer_failure(
+        &self,
+        failure: VendorError,
+        listener: &dyn AndroidTestRunListener,
+        context: &VendorContext,
+    ) -> VendorResult<()> {
+        let mut message = JavaString::from("Instrumentation failed: ");
+        message.append(failure.failure().to_java_string());
+        self.device.log_named(
+            "AndroidDeviceTestRunner",
+            Level::Error,
+            &message.to_string_lossy(),
+            Some(failure.failure()),
+        );
+        listener
+            .on_event_in(&TestEvent::TestRunFailed { error: message }, context.clone())
+            .await?;
+        if means_device_loss(&failure) {
+            return Err(failure);
+        }
+        Ok(())
+    }
     pub async fn execute(
         &self,
         configuration: Arc<Configuration>,
@@ -374,7 +418,10 @@ impl AndroidDeviceTestRunner<'_> {
                         )
                         .await
                 }
-                Ok(Some(())) => Ok(()),
+                Ok(Some(())) => match channel.as_ref().and_then(InstrumentationChannel::take_failure) {
+                    Some(failure) => self.on_producer_failure(failure, listener, &context).await,
+                    None => Ok(()),
+                },
                 Err(error) if is_io_exception(&error) => {
                     let mut message = JavaString::from("adb error while running tests ");
                     message.append(
@@ -416,6 +463,9 @@ fn android_configuration(
         marathon_config::VendorConfiguration::Android(configuration) => Ok(configuration),
         _ => Err(other("java.lang.ClassCastException", "Android configuration required")),
     }
+}
+fn clone_error(error: &VendorError) -> VendorError {
+    VendorError::Other(error.failure().clone())
 }
 fn is_io_exception(error: &VendorError) -> bool {
     [
