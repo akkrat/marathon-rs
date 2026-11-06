@@ -138,7 +138,7 @@ async fn open_failure_is_a_connection_exception_and_safe_execute_returns_null() 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn exec_rejection_is_request_failed_and_leaves_the_channel_open() {
+async fn exec_rejection_is_request_failed_and_closes_the_channel_d29() {
     let fake = ssh::fake(
         fake_worker::script::Script {
             faults: Faults {
@@ -169,22 +169,70 @@ async fn exec_rejection_is_request_failed_and_leaves_the_channel_open() {
         Level::Error,
         "<<chan#0 / chanreq for exec>> woke to: net.schmizz.sshj.connection.ConnectionException: Request failed".into()
     )));
-    // A33: Kotlin never closes the rejected channel (the Kotlin "reject" transcript has no client_close), so it
-    // keeps its session slot: with MaxSessions 1 the next command cannot open a channel.
-    let next = other(
+    // D29 (A33): Kotlin never closes the rejected channel, so with MaxSessions 1 the next command could not open one
+    // (the Kotlin "reject" transcript has no client_close). Here the slot is free, and the worker rejects it in turn.
+    for _ in 0..3 {
+        let next = other(
+            executor
+                .execute(request(&["echo", "hello"], 5000), context())
+                .await
+                .err()
+                .unwrap(),
+        );
+        assert_eq!(
+            class_chain(&next),
+            [(CONNECTION_EXCEPTION.into(), Some("Request failed".into()))]
+        );
+    }
+    assert_eq!(fake.events_at_least("client_close", 4).await.len(), 4);
+    assert!(executor.connected());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exec_rejection_by_a_peer_that_never_answers_close_is_still_request_failed_d29() {
+    let fake = ssh::fake(
+        fake_worker::script::Script {
+            faults: Faults {
+                reject_exec: true,
+                withhold_close: true,
+                ..Default::default()
+            },
+            ..ssh::suite_script()
+        },
+        4,
+    )
+    .await;
+    // 5 s in compressed time (factor 100).
+    let (executor, events) = executor_with(&fake, 100, 0).await;
+    let started = Instant::now();
+    let failure = other(
         executor
             .execute(request(&["echo", "hello"], 5000), context())
             .await
             .err()
             .unwrap(),
     );
-    assert_eq!(next.class, OPEN_FAIL_EXCEPTION.into());
-    let events = fake.transcript().await;
     assert!(
-        ssh::channel_events(&events, 1)
-            .iter()
-            .all(|(_, event)| event != "client_close")
+        started.elapsed() >= Duration::from_millis(50),
+        "{:?}",
+        started.elapsed()
     );
+    // The bound on the CLOSE does not replace the rejection, and only the rejection's own line is logged.
+    assert_eq!(
+        class_chain(&failure),
+        [(CONNECTION_EXCEPTION.into(), Some("Request failed".into()))]
+    );
+    let woke: Vec<_> = ssh::lines(&events)
+        .into_iter()
+        .filter(|(logger, ..)| logger == "Promise")
+        .map(|(.., message)| message)
+        .collect();
+    assert_eq!(
+        woke,
+        ["<<chan#0 / chanreq for exec>> woke to: net.schmizz.sshj.connection.ConnectionException: Request failed"]
+    );
+    assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
+    assert!(executor.connected());
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -31,6 +31,9 @@ const ADJUST_THRESHOLD: u32 = if MAX_PACKET_SIZE * 20 < WINDOW_SIZE / 4 {
 };
 /// `ConfigImpl.maxCircularBufferSize`: each stream's buffer cap, which bounds the window adjustments.
 const MAX_BUFFER: usize = 16 * 1024 * 1024;
+/// D29: how long a rejected `exec` waits for the peer's reply to its CLOSE. No process runs behind a rejected request,
+/// so a healthy peer answers within a round trip, and the slot is free before the caller's next command.
+const REJECTED_CLOSE_WAIT_MILLIS: i64 = 5_000;
 
 #[derive(Default)]
 struct State {
@@ -142,7 +145,8 @@ impl ExecChannel {
     pub fn local_win_size(&self) -> u32 {
         self.read(|s| s.window)
     }
-    /// `exec` with want-reply under the 30 s request timeout; a CHANNEL_FAILURE is `Request failed` (T23).
+    /// `exec` with want-reply under the 30 s request timeout; a CHANNEL_FAILURE is `Request failed` (T23), and D29
+    /// closes the channel the request was sent on, so that it does not hold a `MaxSessions` slot.
     pub async fn exec(&self, command: String) -> Result<(), SshFailure> {
         let promise = format!("chan#{} / chanreq for exec", self.number);
         if self.ops.send(Op::Exec(command)).is_err() || self.shared.is_dead() {
@@ -160,13 +164,28 @@ impl ExecChannel {
             }),
         )
         .await;
-        let error = match reply {
+        let (error, rejected) = match reply {
             Some(Ok(true)) => return Ok(()),
-            Some(Ok(false)) => SshFailure::connection(DisconnectReason::Unknown, "Request failed"),
-            Some(Err(error)) => error,
+            Some(Ok(false)) => (
+                SshFailure::connection(DisconnectReason::Unknown, "Request failed"),
+                true,
+            ),
+            Some(Err(error)) => (error, false),
             None => return Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT)),
         };
         self.shared.loggers.woke_to(&promise, &error);
+        if rejected {
+            // The caller gets the rejection whatever becomes of the CLOSE: its outcome is deliberately unused.
+            self.request_close();
+            let closing = self.wait_for(|s| s.closed.clone());
+            let _ = within(
+                self.clock.as_ref(),
+                self.scope.clone(),
+                REJECTED_CLOSE_WAIT_MILLIS,
+                closing,
+            )
+            .await;
+        }
         Err(error)
     }
     /// `signal(sig)`: no want-reply and no state check, like sshj; a dead transport rejects the write.
@@ -361,9 +380,10 @@ async fn pump(
             _ = shared.wait_dead() => None,
             message = read.wait() => message,
         };
-        // A rejected exec leaves its channel open on the peer (A33): keep draining until the transport ends.
+        // A peer that has not answered the CLOSE of a dropped channel may still send: keep draining until it answers
+        // or the transport ends, so that russh's queue never holds up the connection.
         let Some(target) = channel.upgrade() else {
-            if message.is_none() {
+            if matches!(message, None | Some(ChannelMsg::Close)) {
                 return Ok(());
             }
             continue;

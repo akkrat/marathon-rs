@@ -294,6 +294,14 @@ These fix bugs that Kotlin has, and need no configuration change.
   for its timeout, or a sick simulator keeps taking batches, look at the failing line: the
   [deviations guide](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch) lists the known misses.
 
+## Other Apple worker behaviour changes
+
+These fix bugs that Kotlin has, and need no configuration change.
+
+- **A rejected command frees its SSH session slot**
+  ([D29](deviations.md#d29--a-rejected-command-gives-its-session-slot-back)). The command still fails with
+  `Request failed`; the commands after it no longer fail for want of a slot.
+
 ## Trial and rollback
 
 Retain the previous executable and its configuration, inputs and state snapshots.

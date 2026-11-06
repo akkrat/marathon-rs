@@ -5,6 +5,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## Unreleased
 
 Fixes of bugs the Kotlin fork has, each an approved difference. See the
+Android, SSH and rsync fixes of bugs the Kotlin fork has, each an approved difference. See the
 [deviations guide](docs/deviations.md) and the [migration guide](docs/migration.md).
 
 ### Behaviour change to check
@@ -42,6 +43,8 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
 - A test name, a test's own assertion text or an application's log line that contains a device failure text, such as
   `Failed to terminate`, no longer aborts the batch (D39).
 - A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40).
+- A command that an iOS or macOS worker rejects no longer holds one of the worker's SSH session slots until the
+  connection ends (D29).
 
 ## 0.11.0
 

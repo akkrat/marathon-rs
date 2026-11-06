@@ -434,3 +434,13 @@ The old device has already been told to terminate by then, and its batch comes b
 that order, so this makes the pool right on its own. Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C27](known-kotlin-bugs.md) and the
 [x17 findings](wp/x17-findings.md).
+
+## D29 — A rejected command gives its session slot back
+
+When a worker rejects an `exec` request, Kotlin fails the command with `Request failed` and leaves the
+session channel open, so on a shared connection each rejected command holds one of the worker's
+`MaxSessions` slots until the connection ends, and later commands fail to open a channel. Native
+builds close the rejected channel. The command still fails with `Request failed`, after the worker's reply
+or at most 5 s. No configuration change is needed. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A33](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
