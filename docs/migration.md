@@ -304,7 +304,8 @@ These fix bugs that Kotlin has, and need no configuration change.
 
 - **A rejected command frees its SSH session slot**
   ([D29](deviations.md#d29--a-rejected-command-gives-its-session-slot-back)). The command still fails with
-  `Request failed`; the commands after it no longer fail for want of a slot.
+  `Request failed`; the commands after it no longer fail for want of a slot. A command with no reply in 30 s is closed the same way, and
+  an error line starting `No reply to exec` names it.
 - **Closing a session takes at most 30 s, and can kill the process**
   ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 20 s. A
   server that ignores signals can leave it running; an error line starting `Abandoning session` then names the command.
@@ -316,6 +317,7 @@ These fix bugs that Kotlin has, and need no configuration change.
   first attempt ends after about 60 s, but attempts 2 and 3 then wait in ssh's connect for the host's TCP timeout, because
   `--rsh` sets no `ConnectTimeout`.
   An rsync that reports the stall in other words than `poll: timeout` or `io timeout after`, with a hung ssh, still waits.
+  A receive keeps its 30 s deadline, and at it is now stopped the same way, so it leaves nothing running under `sshpass`.
 - **xcodebuild's command line on a worker starts with `env NSUnbufferedIO=YES`**
   ([D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)). Check anything on the worker that matches the command, such
   as a forced command. Output arrives as it is produced, so `testOutputTimeoutMillis` measures real silence.

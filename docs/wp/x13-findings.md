@@ -20,7 +20,7 @@ could reach the peer first. The wait's result is unused, so neither a dead trans
 open. It is still needed: a peer may never answer the CLOSE, and russh's queue must not hold up the connection. It now
 also ends on the peer's late CLOSE, so that a task does not outlive the channel until the end of the connection.
 
-**Not changed.** An `exec` that gets no reply in 30 s still leaves its channel open: see Incidental bugs.
+**Not changed.** An `exec` that gets no reply in 30 s still leaves its channel open: see Incidental bugs. (x21 fixed this later: U154.)
 
 **Comparators.** No allowance is needed. `vendor_transport.ssh` compares `exec`, output and exit rows, not `client_close`,
 and no whole-vendor case rejects an `exec`. The Kotlin evidence under `fixtures/fake-worker/evidence/*/reject` is untouched
@@ -340,10 +340,10 @@ the same flag the deviations guide warns about for forced commands on real worke
 ## Incidental bugs
 
 - `ExecChannel::exec`: an `exec` request that gets no reply within its 30 s also leaves the channel open on the peer. The
-  brief covers rejection only, so this stays as it is, in Kotlin too.
+  brief covers rejection only, so this stays as it is, in Kotlin too. Fixed later by x21 (U154).
 - `RsyncFileBridge::process`, receive: after its 30 s the wrapper sends TERM and then waits for the process without a limit. With
   openrsync that TERM ends it, and ssh; a receive under `sshpass` has the problem D31 solved for sends, because TERM ends only
   `sshpass`. Kotlin's wrapper does the same, and the brief covers sends only. The receive's reader tasks are cancelled, so it
-  returns once `sshpass` has gone, and the rsync and ssh it leaves behind wait until ssh ends.
+  returns once `sshpass` has gone, and the rsync and ssh it leaves behind wait until ssh ends. Fixed later by x21 (U155).
 - `tests/ssh_real_sshd.rs::test_stderr` fails on any host whose login shell's startup prints to stderr, as the 4.2 findings say. It
   passes on this host.

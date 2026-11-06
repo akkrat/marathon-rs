@@ -367,6 +367,11 @@ or at most 5 s. No configuration change is needed. Approved 2026-11-06 (user dec
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A33](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
 
+**An `exec` with no reply** gets the same since x21 (U154, approved 2026-11-07). After its 30 s the channel is closed, and the command fails
+with Kotlin's error after at most 5 s more, with an error line starting `No reply to exec` that names the command. A worker that stalls and later
+resumes may still start the command: one that reads its input ends, and one that does not runs to its end, in its slot. See the
+[x21 findings](wp/x21-findings.md).
+
 ## D30 — Closing an SSH session has a limit
 
 Kotlin sends TERM, waits up to 30 s for the worker to close the channel and then fails, and a later close
@@ -410,6 +415,10 @@ from rsync. An rsync that words it differently, and then waits on a hung ssh, ke
 Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A3](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+
+**A receive at its deadline** is stopped the same way since x21 (U155, approved 2026-11-07): TERM, 5 s, KILL, and under `sshpass` rsync gets them too.
+Kotlin's wrapper sends TERM to `sshpass` alone, which leaves rsync and ssh running, and then waits without a limit for a process that ignores it. The 30 s
+deadline itself and the receive's command line are unchanged. See the [x21 findings](wp/x21-findings.md).
 
 ## D32 — xcodebuild on a worker runs unbuffered
 

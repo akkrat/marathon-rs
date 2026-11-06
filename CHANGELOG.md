@@ -53,6 +53,10 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
   with an error line, whatever the worker does. A server that ignores signals may leave the process running (D30).
 - An rsync send that makes no progress for 300 s is stopped and fails with a clear error, instead of blocking that
   worker's sends for ever. A large bundle over a slow link is unaffected while it keeps moving (D31).
+- A command on an iOS or macOS worker that gets no reply in 30 s now gives its SSH session slot back where it can, and an
+  error line names it. It fails after at most 35 s (D29).
+- An rsync receive at its 30 s deadline no longer leaves rsync and ssh running under `sshpass`, and can no longer wait for ever
+  on a process that ignores TERM (D31).
 - xcodebuild on an iOS or macOS worker runs with `NSUnbufferedIO=YES`, as was always intended, so its output arrives as
   it is produced and the output idle timeout measures real silence. The worker's command line now starts with
   `env NSUnbufferedIO=YES` (D32).
