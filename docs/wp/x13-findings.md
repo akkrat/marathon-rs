@@ -43,29 +43,30 @@ server that treats it as a protocol error would take the shared connection with 
 
 | Step | Wire | Waits for | Up to |
 |---|---|---|---|
-| 1 | TERM (if open) | The peer's exit report or CLOSE | 10 s |
+| 1 | TERM (if open) | The peer's exit report or CLOSE | 20 s |
 | 2 | KILL, only if step 1 expired | Nothing | |
-| 3 | CLOSE | The peer's CLOSE | 20 s |
+| 3 | CLOSE | The peer's CLOSE | 10 s |
 | 4 | Nothing | Abandoned: one ERROR line, the close fails | |
 
-**Durations.** They are not configurable, and they add up to sshj's 30 s, so no close takes longer than Kotlin's first wait
-and `Timeout expired: 30000 MILLISECONDS` stays true. 10 s before KILL is short because of what it costs: on a server that
-ignores signals, CLOSE may be all that stops the process, and it now goes out 10 s later than in Kotlin. The slowest process
-measured to end on TERM took 8 s (T15t), so T07 and T15t stay as they were. 20 s for the reply is the rest, and only a peer
-that has really stalled uses it.
+**Durations (the owner's decision, 2026-11-06, in review).** They are not configurable, and they add up to sshj's 30 s, so no close
+takes longer than Kotlin's first wait and `Timeout expired: 30000 MILLISECONDS` stays true. 20 s before KILL gives xcodebuild most
+of the time Kotlin gave it. The only argument for less was servers that ignore signals, where CLOSE may be all that stops the process
+and it goes out that much later than in Kotlin, and the spike says marathon cannot drive a worker through those anyway. 10 s is plenty
+for the reply, which after KILL needs only a reap. A real xcodebuild's time from TERM to exit is unmeasured; the owner measures it after
+the merge. The slowest process measured to end on TERM is a `sleep` of 8 s (T15t).
 
 **An ordinary fast exit is not slower.** The exit report ends step 1, so CLOSE follows within a round trip, and a process that
 ends on TERM sees no KILL (`a_fast_exit_on_term_closes_at_once_and_sends_no_kill_d30`).
 
-| Real sshd | Kotlin (4.2 findings) | Now, macOS sshd, local | Now, Linux OpenSSH 10.2p1, through a forward |
+| Real sshd | Kotlin (4.2 findings) | Now, macOS sshd, local | Now, Linux OpenSSH 10.2p1, local |
 |---|---|---|---|
-| T07 close, a process that ignores TERM for 4 s | 3996–4005 ms | 4013 ms | 3940 ms |
-| T15t, a process that ignores TERM for 8 s, timeout branch | 8078 ms | 8021 ms | 7942 ms |
-| T14 close during an output flood | 38 ms | 2 ms | **881 ms** |
-| T30, a process that TERM never ends | Failure after 30 s, process running | 10,004 ms, nothing left | 10,016 ms, nothing left |
+| T07 close, a process that ignores TERM for 4 s | 3996–4005 ms | 4016 ms | 4003 ms |
+| T15t, a process that ignores TERM for 8 s, timeout branch | 8078 ms | 8031 ms | 8020 ms |
+| T14 close during an output flood | 38 ms, through a forward | 2 ms | 3 ms; **881 ms** through a forward |
+| T30, a process that TERM never ends | Failure after 30 s, process running | 20,003 ms, nothing left | 20,002 ms, nothing left |
 
 The one real cost is the flood: CLOSE no longer goes out with TERM, so the exit report has to come through the output already in
-flight. That is a session closed in the middle of heavy output, which means a cancelled batch, and step 1 bounds it at 10 s.
+flight. That is a session closed in the middle of heavy output, which means a cancelled batch, and step 1 bounds it at 20 s.
 
 **Who pays for the later CLOSE.** Only `Xcodebuild::test_without_building` hands out a live session
 (`bin/xcrun/xcodebuild.rs`); other commands are awaited and never closed. So a session is closed with its process still
@@ -109,9 +110,9 @@ null: they do not hang. The connection is not closed, because other sessions may
 and with no reader the window stops refilling after at most 2 MiB, so that output cannot grow without limit.
 
 **KILL on the real sshd.** `session_signal_req: signal KILL, killpg(…, 9)` is in both sshds' logs, so it reaches the whole process
-group, and a child that inherits the ignored TERM dies too (`t30_kill_ends_a_process_that_ignores_term`). sshd answers when the
-session's own process is reaped, and the rest of the group can take a moment longer: one run saw them just after the close, so the
-test polls.
+group, and a child that inherits the ignored TERM dies too (`t30_kill_ends_a_process_that_ignores_term`). The test's probe matches
+command lines. Two runs seemed to show survivors, and neither did: the probe had matched the shell of whoever ran the suite, whose
+command line held the same text. The probe's number is now unique to the run.
 
 **Failure without it**, by temporary revert of one thing at a time, on `ssh_session.rs`:
 
@@ -142,7 +143,7 @@ worker. The `--timeout` flag can:
 | Hung ssh, before the greeting | `error: poll: timeout` after 3 s of `--timeout=3` | `[sender] io timeout after 2 seconds -- exiting`, exit 30, after 3 s of `--timeout=2` |
 | Stall in the greeting and in the middle of a file | The same report | Not measured apart |
 | What it does next, if ssh sees the end of its input and exits | Exits with ssh's status | Exits by itself |
-| What it does next, if ssh does not | **Waits in `wait4` for ever** | Exits by itself, and ssh is gone |
+| What it does next, if ssh does not | **Waits in `wait4` for ever** | Exits by itself, exit 30, and ssh is gone, with a stand-in and with the real ssh on a silent peer |
 | TERM at that point | rsync exits with status 20, and ssh is gone too | |
 | 15 or 30 MiB at about 1 MiB/s, moving but slow, with `--timeout=2` | Exit 0 after 83.6 s, identical bytes | Exit 0 after 16 s, identical bytes |
 
@@ -155,18 +156,59 @@ the two reports. Text is fragile, so this is arranged so that a miss costs littl
 words its report differently keeps Kotlin's unbounded wait for a hung ssh only, not for a dead link that ends ssh. A false match
 needs a stderr line with `poll: timeout` in it, on a send that is therefore already failing.
 
-**Stopping.** After a report: 5 s for rsync to exit by itself (a healthy ssh takes a moment over its input's end), TERM, 5 s,
-KILL, then the reap. These are short because they only have to outlast a process on its way out. A process group would have been
-the simple way to reach everything, but it would take rsync away from a terminal's Ctrl-C on every send. So TERM goes to the
-child and the children `pgrep -P` finds. That matters under `sshpass`, measured with the real one: TERM ends it at once, while
-rsync, in the session of `sshpass`'s pty, stays in `wait4` with its hung ssh, both alive 2 s later. Those children get KILL
-after the second wait, whatever became of `sshpass`. No `pgrep` only means the signals reach the child alone, and the send
-still returns.
+**Stopping.** After a report: 5 s for rsync to exit by itself (a healthy ssh takes a moment over its input's end), TERM, 5 s, KILL to
+what is still alive, then the reap. The steps only have to outlast a process on its way out. A process group would have been the simple
+way to reach everything, but it would take rsync away from a terminal's Ctrl-C on every send.
+
+**`sshpass`.** With password authentication the child is `sshpass`, and rsync runs under it, in the session of its pty. TERM to `sshpass`
+alone is not enough. Re-measured in review, because the reviewer could not reproduce the first measurement. Each row is `sshpass -p x
+/usr/bin/rsync --recursive --timeout=2 --rsh 'ssh …' src/ 127.0.0.1:/tmp/none/`, with sshpass 1.06, openrsync (protocol 29, macOS 27.2)
+and OpenSSH_10.5p1, TERM sent to `sshpass` 2 s after the report:
+
+| ssh | Peer | `sshpass` | rsync and ssh, 0.2 s and 2.2 s later |
+|---|---|---|---|
+| The real one | Accepts the connection, says nothing | Reaped at once, status -15 | **Both alive** |
+| The real one | A real sshd, session up, remote process wedged | Reaped at once, status -15 | **Both alive** |
+| A Python script in `time.sleep` | None | Reaped at once, status -15 | Both alive |
+| A shell script doing `exec /bin/sleep` | None | Reaped at once, status -15 | **Both gone** |
+| The real one, no `sshpass`, TERM to rsync | Either of the above | | Both gone (rsync exits 20) |
+
+So the finding holds for the real ssh. The reviewer's result is the fourth row, which is what my "real" test used then: with the step
+reverted it still passed, because the stand-in dies on the pty's hangup where the real ssh does not. Why the real ssh survives was not
+established. The real-tool tests now run the real ssh against a listener that never answers, and that test fails with the step reverted.
+
+The code changed in three ways. Only under `sshpass` does it list children, so a key-authenticated send never runs `pgrep`. After `sshpass`
+exits it polls the listed pids for up to the step, so rsync gets the 5 s the first version took from it
+(`rsync_under_sshpass_gets_its_step_after_term_d31`: a handler that needs 0.5 s now finishes). And KILL goes only to those still alive. Those
+pids were listed a step earlier, so one could be another process's only if pids wrapped around within those seconds; there is no stronger
+check, because rsync's parent has gone and `pgrep -P` can no longer find it. No `pgrep` means the signals reach the child alone, and the send
+still returns, with rsync and ssh left behind.
+
+**Timing in the code and the tests.** `pgrep` and the output pipes' last bytes depend on how soon another process gets scheduled, so their
+5 s bounds are real time, off the vendor clock that tests compress: at a factor of 100 they had 50 ms, which lost to a loaded machine (rule
+6 of `docs/testing.md`). A `pgrep` slowed by 1 s now passes. The bridge's two stop steps stay on the vendor clock. Tests whose outcome
+depends on them run at factor 1, which is the real-tool tests, because a KILL that came too early would orphan ssh, and the handler test.
+Scripted stand-ins stay at 100, where a step that expires early changes nothing they check.
 
 **300 s.** It is long because a false positive is worse than a late one: a healthy send that fails costs a device, while a dead
 one has already cost the wait. Silent stretches that a healthy send can have are the worker's `--delete` scan and its
-`--delay-updates` renames, both of which take longer the more it is under load, as it is when booting simulators. With the
-installer's three attempts a dead worker fails in up to 15 minutes, and not never.
+`--delay-updates` renames, both of which take longer the more it is under load, as it is when booting simulators.
+
+**How long a dead worker takes**, measured with the real ssh and `ServerAliveInterval=1`, `ServerAliveCountMax=2`, and scaled to the default
+15 s and 4, which `--rsh` carries:
+
+| Stall | Measured | With the defaults, per attempt | Over the installer's three attempts |
+|---|---|---|---|
+| Dead link or frozen peer (sshd stopped with SIGSTOP), session up | ssh exits after 2.6 s: `Timeout, server … not responding`, rsync exit 255 | About 60 s | About 3 min |
+| Remote process wedged, sshd answers keep-alives | Still running after 25 s | 300 s | 15 min |
+| Peer silent before the session starts, where keep-alive does not run | Still running when `--timeout=8` reported, at 9 s | 300 s | 15 min |
+| Any stall with `keepAliveInterval` 0 | | 300 s | 15 min |
+
+So 15 minutes is the worst case and not the usual one for a dead link. A failed attempt on a dead link reports ssh's text through the
+ordinary `send error:` line, since rsync exits with no stall report. The dead-link row's next attempts may also wait in ssh's connect, which
+the table does not count; that is the host's TCP timeout.
+
+**What stays unbounded.** An rsync that words its report differently, with a hung ssh. See the trap above.
 
 **Serialisation.** A stuck send held the per-bridge mutex for ever. It now holds it until it is reaped, and the next send then
 runs (`stalled_send_runs` asserts the order). Receives never took that mutex. **Retries:** the send returns only after the reap,
@@ -177,19 +219,25 @@ retry cannot reach that worker either.
 **Reader bound.** `process` joined its pipe readers without a limit, and a surviving ssh inherits stderr. A send now waits at most
 5 s for them after the process ended. On a healthy exit the pipes close at once, so this adds nothing.
 
-**Transcript and comparators.** `--timeout=300` shows in the host argv only on macOS hosts. `vendor_transport.host_argv` gives a
-send of a JVM or pinned native record exactly this flag after `--times`, so a new native run must have it there. See
+**Transcript and comparators.** `--timeout=300` is in the host argv on every host. On an rsync 3 host it is also in the worker's
+`rsync --server` string, which `{protocol-options}` covers for the comparator, but which a forced command or wrapper on the worker would
+see; the deviations guide says so. `vendor_transport.host_argv` gives a send of a JVM or pinned native record exactly this flag after `--times`, so a new native run must have it there. See
 `test_d31_*`: a missing flag, another value, another place or a flag on a receive all differ, and an older record that already
 has it is refused. The exec string needs nothing, because `{protocol-options}` covers rsync's server options.
 
-**Failure without it**, by temporary revert:
+**Re-pinning.** Both allowances refuse a pinned native record that already has the flag or the prefix: "D31 flag in a record from before
+it", "D32 prefix in a record from before it". That is what the next re-pin of a native record will hit. Failing loudly is deliberate, and the
+fix is to scope these two allowances to the records from before them, not to `may_withhold`. The note beside them says the same.
+
+**Failure without it**, by temporary revert. This table is current: it was re-run after the review's changes.
 
 | Reverted | Fails |
 |---|---|
-| The flag | Every `*_d31` test (the fake rsync refuses to run) and the argv tests |
-| Stopping on the report | `a_stalled_send_that_waits_for_a_hung_ssh_is_stopped_on_term_d31`, `a_stalled_send_that_also_ignores_term_is_killed_d31`, `the_real_rsync_gives_up_on_a_hung_ssh_d31` (each at its 60 s catch) |
+| The flag | Every `*_d31` test (the fake rsync refuses to run, and the real rsync never reports a stall) and both argv tests |
+| Stopping on the report | `a_stalled_send_that_waits_for_a_hung_ssh_is_stopped_on_term_d31`, `a_stalled_send_that_also_ignores_term_is_killed_d31`, `a_stalled_send_under_sshpass_also_stops_rsync_d31`, `rsync_under_sshpass_gets_its_step_after_term_d31`, `the_real_rsync_gives_up_on_a_hung_ssh_d31`, `the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31` (each at its 60 s catch) |
 | KILL after TERM | `a_stalled_send_that_also_ignores_term_is_killed_d31` |
-| TERM to the child's children | `a_stalled_send_under_sshpass_also_stops_rsync_d31`, `the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31` |
+| TERM to rsync under `sshpass` | `a_stalled_send_under_sshpass_also_stops_rsync_d31`, `rsync_under_sshpass_gets_its_step_after_term_d31`, `the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31` |
+| The wait for rsync after `sshpass` exits | `rsync_under_sshpass_gets_its_step_after_term_d31` |
 | The bound on the readers | `a_stalled_send_that_exits_while_ssh_holds_its_stderr_returns_d31` |
 
 ## D32 / the `NSUnbufferedIO` part of A2
@@ -265,19 +313,27 @@ temp directory on that box, also removed.
 
 | What | How | Result |
 |---|---|---|
-| `ssh_real_sshd.rs` in full, 17 tests, against macOS's sshd and Linux OpenSSH 10.2p1 | `MARATHON_SSH_REAL=… cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1` | 17 passed on each |
+| `ssh_real_sshd.rs` in full, 17 tests, against macOS's sshd and Linux OpenSSH 10.2p1, after the review's changes | `MARATHON_SSH_REAL=… cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1` | 17 passed on each |
+| `marathon-apple` and `fake-worker` on Linux, for the first time with these changes, from a temp checkout with its own target directory | `cargo test -p marathon-apple -p fake-worker` | 485 passed, 0 failed, 17 ignored (the real-sshd suite, run separately). rsync 3.4.1; the box has no `sshpass`, so that one real test prints its skip message |
 | Durations and exit codes against Kotlin's real-host rows | T07, T14, T15t, T16 in that suite | The table under D30; T16's exit codes unchanged |
 | rsync on macOS and Linux | Fake ssh shims, from a hang before the greeting to a slow link | The table under D31 |
 
 ## What was not verified
 
 - **A real worker's real xcodebuild** under any of the four. In particular whether xcodebuild's output is in fact less bursty with
-  the variable, and how long a real xcodebuild takes on TERM, against the 10 s before KILL. The 10 s comes from a measured `sleep`, not
-  from xcodebuild.
+  the variable, and how long a real xcodebuild takes from TERM to exit, against the 20 s before KILL. The owner measures that after the
+  merge.
 - **SSH servers that ignore signals.** The escalation's behaviour is shown only on a fake peer that ignores TERM and KILL. Tailscale
   SSH was not run: per the spike, marathon cannot drive a worker through it anyway. Old OpenSSH without signal support was not run.
 - **rsync 2.6.9 from samba**, which old macOS hosts ship: the flag and the report's wording come from its source history, not a run.
 - **fish** as a login shell.
+
+## A failure the first Linux run found
+
+Sends failed on Linux in `real_rsync_roundtrip_with_awaited_worker_shutdown`, which the x13 branch would have failed at the gate. rsync 3
+passes `--timeout=300` on to `rsync --server`, and the fake worker's `router.rs::rsync_args` refuses server options it does not know. Its
+list now has exactly `--timeout=300` (`rsync_server_takes_only_the_send_timeout_the_bridge_passes_d31`: other values are refused). This is
+the same flag the deviations guide warns about for forced commands on real workers.
 
 ## Incidental bugs
 

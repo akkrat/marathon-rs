@@ -5,7 +5,6 @@ The section for a version becomes the text of its GitHub release, which carries 
 ## Unreleased
 
 Fixes of bugs the Kotlin fork has, each an approved difference. See the
-Android, SSH and rsync fixes of bugs the Kotlin fork has, each an approved difference. See the
 [deviations guide](docs/deviations.md) and the [migration guide](docs/migration.md).
 
 ### Behaviour change to check

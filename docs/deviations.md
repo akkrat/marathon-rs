@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D28, D33, D34 and D38–D40; implementation availability
+canonical. This guide covers D1–D34 and D38–D40; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -354,6 +354,72 @@ Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N35](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
 
+## D29 — A rejected command gives its session slot back
+
+When a worker rejects an `exec` request, Kotlin fails the command with `Request failed` and leaves the
+session channel open, so on a shared connection each rejected command holds one of the worker's
+`MaxSessions` slots until the connection ends, and later commands fail to open a channel. Native
+builds close the rejected channel. The command still fails with `Request failed`, after the worker's reply
+or at most 5 s. No configuration change is needed. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A33](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+
+## D30 — Closing an SSH session has a limit
+
+Kotlin sends TERM, waits up to 30 s for the worker to close the channel and then fails, and a later close
+can wait without any limit. It never sends KILL. Native builds send TERM, give the process up to 20 s to end,
+send KILL if it did not, close the channel and give the worker up to 10 s more. After that the session is
+abandoned and the run carries on, so no close takes more than 30 s. The close fails with the same error
+as Kotlin's, and one error line names the command.
+
+**A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
+do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
+run going. An abandoned process may keep running on the worker and hold one of its `MaxSessions` slots until it ends
+or the connection does; the connection is shared with other sessions and stays up. If the error line appears, look at
+that process on the worker. On a server that ignores signals, the channel of such a process is now closed after 20 s
+instead of at once. How long a real xcodebuild takes from TERM to its exit, against those 20 s, has not been measured.
+
+No configuration change is needed, and the durations are not configurable. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A14](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+
+## D31 — An rsync send that stops moving fails
+
+Kotlin's rsync send has no timeout, so a send to a worker that has stopped answering waits for ever, and the other sends of
+that worker wait behind it. Native builds pass `--timeout=300`: a send with no I/O for 300 s is stopped and fails with an
+error starting `send error: no progress in 300 s`. It is a limit on progress, not on the total, so a large bundle over a slow
+link is unaffected for as long as it keeps moving. Receives keep Kotlin's 30 s total deadline. No configuration change is
+needed, and the limit is not configurable.
+
+**How long a dead worker takes.** The installer makes three attempts, so 15 minutes is the worst case. It applies to a process
+wedged behind an sshd that still answers, to a peer that accepts the connection and says nothing, and to any stall with
+`keepAliveInterval` set to 0. With the default `keepAliveInterval` of 15 s and `keepAliveMaxCount` of 4, a dead link or a frozen
+peer ends ssh, and so the send, after about 60 s, with ssh's `Timeout, server … not responding` in the error.
+
+**What a worker sees.** On a host with rsync 3, the flag also reaches the worker in `rsync --server … --timeout=300 …`, so a forced
+command or wrapper there that matches that string sees a new flag. openrsync, which macOS hosts have, does not pass it on.
+
+**What stays unbounded.** The bridge recognises a stall from what rsync prints: `poll: timeout` from openrsync, `io timeout after`
+from rsync. An rsync that words it differently, and then waits on a hung ssh, keeps Kotlin's wait.
+
+Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A3](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+
+## D32 — xcodebuild on a worker runs unbuffered
+
+Kotlin sets `NSUnbufferedIO=YES` for xcodebuild, but over SSH it drops every environment variable, so on a worker
+xcodebuild buffers its output, and the output idle timeout can see silence where a test is in fact progressing. Native builds run
+`env NSUnbufferedIO=YES xcrun xcodebuild test-without-building …` on a worker. Output now arrives as it is produced, in smaller
+pieces, and the idle timeout measures xcodebuild's real silence. A `testOutputTimeoutMillis` chosen to allow for
+the buffering may be more generous than you now need. Other environment variables and the working directory are still
+not passed over SSH ([A2](known-kotlin-bugs.md)), and a local run sets the variable as before.
+
+The worker receives a different command line, so a script or a forced command (`ForceCommand`, `command=` in
+`authorized_keys`) that matches `xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND` must allow for the prefix. `env` has
+to be on the worker's `PATH`, as it is by default on macOS. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x13 findings](wp/x13-findings.md).
+
 ## D33 — A simulator whose setup failed is set up again
 
 In Kotlin a simulator whose setup fails stays tracked as connected. Nothing sets it up again, so it
@@ -434,57 +500,3 @@ The old device has already been told to terminate by then, and its batch comes b
 that order, so this makes the pool right on its own. Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C27](known-kotlin-bugs.md) and the
 [x17 findings](wp/x17-findings.md).
-
-## D29 — A rejected command gives its session slot back
-
-When a worker rejects an `exec` request, Kotlin fails the command with `Request failed` and leaves the
-session channel open, so on a shared connection each rejected command holds one of the worker's
-`MaxSessions` slots until the connection ends, and later commands fail to open a channel. Native
-builds close the rejected channel. The command still fails with `Request failed`, after the worker's reply
-or at most 5 s. No configuration change is needed. Approved 2026-11-06 (user decision). See
-[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
-[A33](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
-
-## D30 — Closing an SSH session has a limit
-
-Kotlin sends TERM, waits up to 30 s for the worker to close the channel and then fails, and a later close
-can wait without any limit. It never sends KILL. Native builds send TERM, give the process up to 10 s to end,
-send KILL if it did not, close the channel and give the worker up to 20 s more. After that the session is
-abandoned and the run carries on, so no close takes more than 30 s. The close fails with the same error
-as Kotlin's, and one error line names the command.
-
-**A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
-do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
-run going. An abandoned process may keep running on the worker and hold one of its `MaxSessions` slots until it ends
-or the connection does; the connection is shared with other sessions and stays up. If the error line appears, look at
-that process on the worker. On a server that ignores signals, the channel of such a process is now closed after 10 s
-instead of at once.
-
-No configuration change is needed, and the durations are not configurable. Approved 2026-11-06 (user decision). See
-[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
-[A14](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
-
-## D31 — An rsync send that stops moving fails
-
-Kotlin's rsync send has no timeout, so a send to a worker that has stopped answering waits for ever, and the other sends of
-that worker wait behind it. Native builds pass `--timeout=300`: a send with no I/O for 300 s is stopped and fails with an
-error starting `send error: no progress in 300 s`. It is a limit on progress, not on the total, so a large bundle over a slow
-link is unaffected for as long as it keeps moving. The installer's three attempts mean a dead worker can take up to 15 minutes
-to fail. Receives keep Kotlin's 30 s total deadline. No configuration change is needed, and the limit is not configurable.
-Approved 2026-11-06 (user decision). See
-[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
-[A3](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
-
-## D32 — xcodebuild on a worker runs unbuffered
-
-Kotlin sets `NSUnbufferedIO=YES` for xcodebuild, but over SSH it drops every environment variable, so on a worker
-xcodebuild buffers its output, and the output idle timeout can see silence where a test is in fact progressing. Native builds run
-`env NSUnbufferedIO=YES xcrun xcodebuild test-without-building …` on a worker. Output now arrives as it is produced, in smaller
-pieces, and the idle timeout measures xcodebuild's real silence. A `testOutputTimeoutMillis` chosen to allow for
-the buffering may be more generous than you now need. Other environment variables and the working directory are still
-not passed over SSH ([A2](known-kotlin-bugs.md)), and a local run sets the variable as before.
-
-The worker receives a different command line, so a script or a forced command (`ForceCommand`, `command=` in
-`authorized_keys`) that matches `xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND` must allow for the prefix. `env` has
-to be on the worker's `PATH`, as it is by default on macOS. Approved 2026-11-06 (user decision). See
-[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x13 findings](wp/x13-findings.md).

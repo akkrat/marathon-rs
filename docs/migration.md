@@ -302,11 +302,14 @@ These fix bugs that Kotlin has, and need no configuration change.
   ([D29](deviations.md#d29--a-rejected-command-gives-its-session-slot-back)). The command still fails with
   `Request failed`; the commands after it no longer fail for want of a slot.
 - **Closing a session takes at most 30 s, and can kill the process**
-  ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 10 s. A
+  ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 20 s. A
   server that ignores signals can leave it running; an error line starting `Abandoning session` then names the command.
 - **An rsync send that stops moving fails after 300 s**
   ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails)). If you wrap rsync with `RSYNC4J_RSYNC`, the wrapper now
-  also gets `--timeout=300` on sends. A worker that is silent for more than 5 minutes during a send now fails that send.
+  also gets `--timeout=300` on sends. On a host with rsync 3, so does the worker's `rsync --server`: check any forced
+  command or wrapper there that matches that string. A worker that is silent for more than 5 minutes during a send now fails
+  that send. A dead worker fails an install in up to 15 minutes, and in about 3 with a dead link and the default keep-alive.
+  An rsync that reports the stall in other words than `poll: timeout` or `io timeout after`, with a hung ssh, still waits.
 - **xcodebuild's command line on a worker starts with `env NSUnbufferedIO=YES`**
   ([D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)). Check anything on the worker that matches the command, such
   as a forced command. Output arrives as it is produced, so `testOutputTimeoutMillis` measures real silence.
