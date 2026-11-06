@@ -300,7 +300,7 @@ impl Inner {
                 result = child.wait() => result.map_err(io_error),
                 result = self.clock.delay(30_000, scope) => {
                     let mut early = result.err();
-                    if early.is_none() {
+                    let status = if early.is_none() {
                         timed_out = true;
                         let diagnostic = jcompat::writers::JavaString::from("Timeout of 30 seconds reached, terminating process...\n").to_utf8_bytes();
                         early = blocking(self.runtime.as_ref(), move || {
@@ -308,12 +308,12 @@ impl Inner {
                             let _ = std::io::stderr().write_all(&diagnostic);
                             Ok(())
                         }).await.err();
-                        if let Some(pid) = child.id() {
-                            let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGTERM);
-                        }
-                    }
-                    // processoutput4j calls destroy(), then still waits unbounded for the child.
-                    let status = child.wait().await.map_err(io_error);
+                        // U155: processoutput4j calls destroy() and then waits without a limit, and TERM to `sshpass` leaves
+                        // rsync and ssh behind, so this stops the transfer as a stalled send is stopped.
+                        self.stop_process(&mut child).await
+                    } else {
+                        child.wait().await.map_err(io_error)
+                    };
                     early.map_or(status, Err)
                 }
             }
@@ -364,12 +364,18 @@ impl Inner {
     /// a retry cannot overlap it, except for an rsync under `sshpass` that ignores TERM when its identity can't be read
     /// again: it gets no KILL.
     async fn stop_stalled_send(&self, child: &mut Child) -> VendorResult<ExitStatus> {
-        use nix::{sys::signal, unistd::Pid};
         let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
         let clock = self.clock.as_ref();
         if let Some(status) = within(clock, scope.clone(), STOP_STEP_MILLIS, child.wait()).await {
             return status.map_err(io_error);
         }
+        self.stop_process(child).await
+    }
+    /// [`Self::stop_stalled_send`] from the TERM on, which a receive at its deadline also goes through (U155).
+    async fn stop_process(&self, child: &mut Child) -> VendorResult<ExitStatus> {
+        use nix::{sys::signal, unistd::Pid};
+        let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
+        let clock = self.clock.as_ref();
         let alive = |pid: i32| signal::kill(Pid::from_raw(pid), None).is_ok();
         let mut under_sshpass = Vec::new();
         if let Some(pid) = child.id() {

@@ -542,6 +542,8 @@ struct StalledSend<'a> {
     sshpass: Option<&'a Path>,
     factor: i64,
     silent_peer: bool,
+    /// The child test to run: a stalled send by default, or a receive past its deadline (U155).
+    child: &'a str,
 }
 impl<'a> StalledSend<'a> {
     fn new(mode: &'a str, program: &'a Path, root: &'a Path) -> Self {
@@ -553,6 +555,7 @@ impl<'a> StalledSend<'a> {
             sshpass: None,
             factor: 100,
             silent_peer: false,
+            child: "stalled_send_runs",
         }
     }
 }
@@ -571,10 +574,11 @@ fn run_stalled_send(run: StalledSend) {
         sshpass,
         factor,
         silent_peer,
+        child: child_test,
     } = run;
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command
-        .args(["--exact", "stalled_send_runs", "--nocapture"])
+        .args(["--exact", child_test, "--nocapture"])
         .env("MRS_D31_MODE", mode)
         .env("MRS_D31_ROOT", root)
         .env("MRS_D31_FACTOR", factor.to_string())
@@ -747,7 +751,7 @@ fn real_tool(name: &str) -> Option<std::path::PathBuf> {
 /// The report's wording and the wait after it are the installed rsync's own, and what TERM and a hangup do to ssh is the real
 /// ssh's: a stand-in such as `sleep` dies on the hangup where ssh does not, which would hide what `sshpass` leaves behind.
 /// The bridge's steps are real here, because a KILL that comes too early would orphan ssh.
-fn real_rsync_with_a_hung_ssh(sshpass: Option<&Path>) {
+fn real_rsync_with_a_hung_ssh(sshpass: Option<&Path>, child: &str) {
     let (Some(rsync), Some(ssh)) = (real_tool("rsync"), real_tool("ssh")) else {
         eprintln!("skipped: this host has no rsync or ssh to run");
         return;
@@ -790,23 +794,182 @@ exec {} "${{args[@]}}"
         sshpass,
         factor: 1,
         silent_peer: true,
+        child,
         ..StalledSend::new("hung", &program, dir.path())
     });
 }
 #[test]
 fn the_real_rsync_gives_up_on_a_hung_ssh_d31() {
-    real_rsync_with_a_hung_ssh(None);
+    real_rsync_with_a_hung_ssh(None, "stalled_send_runs");
+}
+fn real_sshpass() -> Option<&'static Path> {
+    ["/opt/homebrew/bin/sshpass", "/usr/bin/sshpass"]
+        .into_iter()
+        .map(Path::new)
+        .find(|path| path.exists())
 }
 #[test]
 fn the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31() {
-    let sshpass = ["/opt/homebrew/bin/sshpass", "/usr/bin/sshpass"]
-        .into_iter()
-        .map(Path::new)
-        .find(|path| path.exists());
-    match sshpass {
-        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(sshpass)),
+    match real_sshpass() {
+        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(sshpass), "stalled_send_runs"),
         None => eprintln!("skipped: no sshpass on this host"),
     }
+}
+#[test]
+fn the_real_rsync_is_stopped_at_a_receives_deadline_u155() {
+    real_rsync_with_a_hung_ssh(None, "stalled_receive_runs");
+}
+#[test]
+fn the_real_rsync_under_the_real_sshpass_is_stopped_at_a_receives_deadline_u155() {
+    match real_sshpass() {
+        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(sshpass), "stalled_receive_runs"),
+        None => eprintln!("skipped: no sshpass on this host"),
+    }
+}
+/// A stand-in for rsync on a receive, which has no `--timeout`, that records its pid and does `body`. With a real 3 s for the
+/// deadline, at the factor these use, so that it has started by then on a loaded machine.
+fn receive_past_its_deadline(root: &Path, body: &str, sshpass: bool, extra_path: Option<&Path>) {
+    let program = root.join("rsync");
+    script(
+        &program,
+        &format!(
+            "#!/bin/bash\ncase \"$*\" in *--timeout*) echo unexpected timeout >&2; exit 99;; esac\necho $$ > \"$MRS_D31_ROOT/pid\"\n{body}\n"
+        ),
+    );
+    let fake_sshpass = root.join("sshpass");
+    script(&fake_sshpass, FAKE_SSHPASS);
+    run_stalled_send(StalledSend {
+        sshpass: sshpass.then_some(fake_sshpass.as_path()),
+        extra_path,
+        factor: 10,
+        child: "stalled_receive_runs",
+        ..StalledSend::new("hung", &program, root)
+    });
+}
+const IGNORES_TERM: &str = "trap '' TERM\nwhile :; do /bin/sleep 0.05; done";
+#[test]
+fn a_receive_past_its_deadline_that_ignores_term_is_killed_u155() {
+    let dir = tempfile::tempdir().unwrap();
+    receive_past_its_deadline(dir.path(), IGNORES_TERM, false, None);
+}
+#[test]
+fn a_receive_past_its_deadline_under_sshpass_also_stops_rsync_u155() {
+    let dir = tempfile::tempdir().unwrap();
+    receive_past_its_deadline(dir.path(), "exec /bin/sleep 100037", true, None);
+}
+#[test]
+fn rsync_that_ignores_term_at_a_receives_deadline_under_sshpass_is_killed_u155() {
+    let dir = tempfile::tempdir().unwrap();
+    receive_past_its_deadline(dir.path(), IGNORES_TERM, true, None);
+}
+/// `pgrep` that leaves a mark in the run's directory, for the tests of when children are listed.
+fn recording_pgrep(root: &Path) -> std::path::PathBuf {
+    let real = real_tool("pgrep").expect("the bridge lists children with pgrep");
+    let bin = root.join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    script(
+        &bin.join("pgrep"),
+        &format!(
+            "#!/bin/sh\ntouch \"$MRS_D31_ROOT/pgrep-ran\"\nexec {} \"$@\"\n",
+            real.display()
+        ),
+    );
+    bin
+}
+#[test]
+fn only_a_receive_under_sshpass_lists_children_u155() {
+    for (sshpass, listed) in [(false, false), (true, true)] {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = recording_pgrep(dir.path());
+        receive_past_its_deadline(dir.path(), "exec /bin/sleep 100037", sshpass, Some(&bin));
+        assert_eq!(
+            dir.path().join("pgrep-ran").exists(),
+            listed,
+            "under sshpass: {sshpass}"
+        );
+    }
+}
+/// The bridge of a child test, as `run_stalled_send`'s environment describes it, and the silent peer it may point at, which
+/// the caller holds for the whole run: the kernel accepts the connection, and nothing ever answers it.
+async fn stalled_bridge(
+    logging: marathon_apple::cmd::remote::ssh::sshj::config::SshLogging,
+) -> (RsyncFileBridge, Option<std::net::TcpListener>) {
+    let silent_peer =
+        std::env::var_os("MRS_D31_SILENT_PEER").map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+    let port = silent_peer
+        .as_ref()
+        .map_or(22, |peer| i32::from(peer.local_addr().unwrap().port()));
+    let factor = std::env::var("MRS_D31_FACTOR").unwrap().parse().unwrap();
+    let bridge = RsyncFileBridge::new(
+        RsyncTarget {
+            addr: "127.0.0.1".into(),
+            port,
+        },
+        false,
+        SshConfiguration {
+            authentication: None,
+            known_hosts_path: None,
+            keep_alive_interval: duration(0),
+            keep_alive_max_count: 4,
+            debug: false,
+            share_worker_connection: false,
+        },
+        RsyncConfiguration {
+            remote_path: "/usr/bin/rsync".into(),
+        },
+        Some(if std::env::var_os("MRS_D31_PASSWORD").is_some() {
+            SshAuthentication::Password {
+                username: "fixture".into(),
+                password: "fake-password".into(),
+            }
+        } else {
+            key("/fixture/key")
+        }),
+        Arc::new(Runtime),
+        Arc::new(ssh::ScaledClock::new(factor)),
+        logging,
+    )
+    .await
+    .unwrap();
+    (bridge, silent_peer)
+}
+/// U155: the receive fails at its deadline and no sooner, and the process it started is gone when it returns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stalled_receive_runs() {
+    if std::env::var_os("MRS_D31_MODE").is_none() {
+        return;
+    }
+    let root = std::path::PathBuf::from(std::env::var_os("MRS_D31_ROOT").unwrap());
+    let (logging, events) = ssh::logging(false);
+    let (bridge, _silent_peer) = stalled_bridge(logging).await;
+    let factor: u64 = std::env::var("MRS_D31_FACTOR").unwrap().parse().unwrap();
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(90),
+        bridge.receive("/tmp/marathon/stuck", &root.join("back")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, Ok(false));
+    let deadline = std::time::Duration::from_millis(30_000 / factor);
+    assert!(started.elapsed() >= deadline, "{:?}", started.elapsed());
+    // At once if it is the child, which is reaped. An rsync killed under `sshpass` was orphaned, and init reaps it soon after.
+    let pid = std::fs::read_to_string(root.join("pid")).unwrap();
+    let pid = nix::unistd::Pid::from_raw(pid.trim().parse().unwrap());
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while nix::sys::signal::kill(pid, None) != Err(nix::errno::Errno::ESRCH) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // Whatever rsync said before the stop is its own text, as on any failed receive, with no word of a send.
+    let lines = ssh::lines(&events);
+    assert!(
+        !lines.iter().any(|(.., message)| message.contains("send error")),
+        "{lines:?}"
+    );
+    bridge.join_pending().await.unwrap();
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stalled_send_runs() {
@@ -817,46 +980,8 @@ async fn stalled_send_runs() {
     let source = root.join("source");
     std::fs::write(&source, b"payload").unwrap();
     let (logging, events) = ssh::logging(false);
-    // Held for the whole run: the kernel accepts the connection, and nothing ever answers it.
-    let silent_peer =
-        std::env::var_os("MRS_D31_SILENT_PEER").map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
-    let port = silent_peer
-        .as_ref()
-        .map_or(22, |peer| i32::from(peer.local_addr().unwrap().port()));
-    let factor = std::env::var("MRS_D31_FACTOR").unwrap().parse().unwrap();
-    let bridge = Arc::new(
-        RsyncFileBridge::new(
-            RsyncTarget {
-                addr: "127.0.0.1".into(),
-                port,
-            },
-            false,
-            SshConfiguration {
-                authentication: None,
-                known_hosts_path: None,
-                keep_alive_interval: duration(0),
-                keep_alive_max_count: 4,
-                debug: false,
-                share_worker_connection: false,
-            },
-            RsyncConfiguration {
-                remote_path: "/usr/bin/rsync".into(),
-            },
-            Some(if std::env::var_os("MRS_D31_PASSWORD").is_some() {
-                SshAuthentication::Password {
-                    username: "fixture".into(),
-                    password: "fake-password".into(),
-                }
-            } else {
-                key("/fixture/key")
-            }),
-            Arc::new(Runtime),
-            Arc::new(ssh::ScaledClock::new(factor)),
-            logging,
-        )
-        .await
-        .unwrap(),
-    );
+    let (bridge, _silent_peer) = stalled_bridge(logging).await;
+    let bridge = Arc::new(bridge);
     let first = {
         let (bridge, source) = (bridge.clone(), source.clone());
         tokio::spawn(async move { bridge.send(&source, "/tmp/marathon/stuck").await })
