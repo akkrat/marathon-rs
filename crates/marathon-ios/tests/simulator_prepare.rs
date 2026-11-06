@@ -368,3 +368,44 @@ async fn a_connection_lost_during_prepare_is_not_a_failed_boot_d36() -> TestResu
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+#[tokio::test(start_paused = true)]
+async fn a_null_readiness_probe_on_a_lost_connection_is_not_a_failed_boot_d36_d38() -> TestResult {
+    use marathon_apple::cmd::{failure, remote::ssh::sshj::error::CONNECTION_EXCEPTION};
+    let h = Harness::new(|_| {})?;
+    h.boot.state.store(3, Ordering::SeqCst);
+    h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
+    let d = h.device().await?;
+    // D38 reads the null of the readiness probe as "not running", so state 3 stays Booting. The connection is gone by
+    // then, and only the next descriptor read can tell that from a simulator that is slow to boot.
+    let plan = h.boot.clone();
+    let worker = Arc::downgrade(&h.worker);
+    *h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let lost = || VendorError::Other(failure(CONNECTION_EXCEPTION, "Not connected"));
+        let worker = worker.upgrade();
+        let gone = worker.as_ref().is_some_and(|w| !w.connected.load(Ordering::SeqCst));
+        if cmd.iter().any(|arg| arg == "launchctl") {
+            if let Some(worker) = worker {
+                worker.connected.store(false, Ordering::SeqCst);
+            }
+            return Box::pin(async move { Err(lost()) });
+        }
+        if gone && cmd.first().is_some_and(|c| c == "cat") {
+            return Box::pin(async move { Err(lost()) });
+        }
+        let reply = plan.answer(&cmd);
+        Box::pin(async move { Ok(reply) })
+    });
+    let e = h.prepare(&d).await.unwrap_err();
+    assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
+    assert_eq!(e.failure().class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert!(
+        !h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, _, message, _)| message.contains("failed to boot"))
+    );
+    h.worker.connected.store(true, Ordering::SeqCst);
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}

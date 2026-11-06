@@ -535,3 +535,42 @@ async fn d37_at_the_cap_close_returns_on_a_real_sshd() {
         ["hello"]
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn d37_at_the_cap_kill_ends_a_process_that_ignores_term_on_a_real_sshd() {
+    // D30 after D37: the close waits its 20 s, KILL goes out with the window closed, and the close still succeeds.
+    let executor = connect().await;
+    let script = format!("trap \"\" TERM; {FLOOD_REACHING_THE_CAP}");
+    let session = Arc::new(
+        executor
+            .execute(request(&["sh", "-c", &script], 600_000), context())
+            .await
+            .unwrap(),
+    );
+    let consumed = session.clone();
+    let consumer = tokio::spawn(async move {
+        consume_output(
+            &consumed.base,
+            &context(),
+            |_| std::future::pending(),
+            |_| std::future::ready(Ok(())),
+        )
+        .await
+    });
+    ssh::wait_for_the_cap(&executor).await;
+    let started = Instant::now();
+    let closed = tokio::time::timeout(Duration::from_secs(60), session.close())
+        .await
+        .unwrap();
+    let close_ms = started.elapsed().as_millis();
+    println!("D37.info.real_kill_close_ms: {close_ms}");
+    assert_eq!(closed, Ok(()));
+    assert!((19_000..29_000).contains(&close_ms), "{close_ms}");
+    consumer.abort();
+    assert!(executor.connected());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 60_000).await.unwrap().stdout,
+        ["hello"]
+    );
+}

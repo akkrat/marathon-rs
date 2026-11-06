@@ -165,7 +165,7 @@ consumes at all. Then:
 | The consumer resumes | A read that returns data grants credit up to the cap again; nothing is lost | - | All data, exit 7 (`d37_reading_only_stderr_…`) | All data, exit 0 (`reading_only_stderr_blocks_at_the_cap_…_d37`) |
 | Command timeout | `exit_code` sends TERM, then CLOSE, with a null exit code. Every command has a finite timeout (`Durations.INFINITE` is 7 days) | No | Exit null (`d37_at_the_cap_other_sessions_flow_and_the_command_timeout_ends_it_…`) | TERM sent; exit null, or the 30 s close wait expires (`a_stuck_consumer_at_the_cap_is_ended_by_the_command_timeout_d37`) |
 | Idle timeout | The other stream's reader is not blocked. It sees no data, so its idle check fires and fails the consumer | No | `TimeoutException` (`d37_at_the_cap_the_idle_timeout_ends_it_…`) | `TimeoutException` (`a_stuck_consumer_at_the_cap_is_ended_by_the_idle_timeout_d37`) |
-| Session close | TERM, CLOSE, then the line channels are cancelled, which frees a producer stuck on a full one | No | Returns in 0 ms (`d37_at_the_cap_close_returns_…`) | TERM sent; returns, or the 30 s close wait expires (`a_session_blocked_at_the_cap_can_be_closed_d37`) |
+| Session close | TERM, KILL after 20 s if the process has not ended (D30), CLOSE, then the line channels are cancelled, which frees a producer stuck on a full one | No | Returns in 0 ms (`d37_at_the_cap_close_returns_…`); 20,004 ms and `Ok` for a process that ignores TERM (`d37_at_the_cap_kill_ends_…`) | TERM sent; returns, or the 30 s bound expires (`a_session_blocked_at_the_cap_can_be_closed_d37`); TERM and KILL sent (`kill_at_the_cap_does_not_turn_a_close_into_another_error_d37`) |
 | Cancellation | Producers and consumers select on it | No | - | Existing session tests |
 
 **How these tests know they reached the cap.** They would otherwise block on the initial window, as an earlier version of
@@ -215,6 +215,48 @@ channel directly, since the fake honours the window, and memory stops at the cap
 `a_session_blocked_at_the_cap_can_be_closed_d37` fail on the fake, and all four `d37_*` tests fail on real OpenSSH: the
 connection is lost, at 16,760,832 unread bytes for the three that use a session.
 `both_streams_read_promptly_deliver_everything_d37` passes on both, as it should.
+
+## Combined with x13 (D29–D32) and x17 (D38)
+
+Rebased on main after both were merged, and checked against them.
+
+**`channel.rs`: a read after CLOSE, and x13's rejected session.** A read after CLOSE still grants credit and queues an
+adjust. `Encrypted::close` has already forgotten the channel on the client, which never holds pending data, and
+`grow_window_size` does nothing for a channel it no longer knows, so the adjust goes nowhere and is no error
+(`a_read_after_the_close_only_queues_an_adjust_that_russh_skips_d37`, which then runs another command on the connection). A
+rejected `exec` never reads, so `take` grants nothing for it; if `ExecChannel` has been dropped the pump drains without
+buffering, so `receive` and the cap are not involved. The unit tests build `ExecChannel` directly, and x13's new fields
+take their defaults.
+
+**`session.rs`: x13's close at the cap.** It does not take 20 s when TERM works, and it is right that it does when TERM does
+not:
+
+| Process at the cap | Close on OpenSSH 10.5p1 | Why |
+|---|---|---|
+| Ends on TERM | 0 ms, `Ok` | Its exit status is a channel request, which needs no window, so the wait for the process ends at once |
+| Ignores TERM | 20,004 ms, `Ok` | D30's wait, then KILL and CLOSE. Same as T30 without the flood (20,005 ms) |
+
+KILL does not turn a clean close into an error: it is only sent when the 20 s have passed, and the process it ends answers as
+usual. On the fake, the deferred exit status and CLOSE of U153 make the same close end in D30's 30 s bound instead, whose
+error text is unchanged, so `assert_closed_or_close_wait_expired` still holds, for D30's reasons now. The D37 tests that
+close stay at factor 1, because they accept either outcome and assert no successful close; the one that must wait out
+D30's steps, `kill_at_the_cap_…`, runs at factor 5. The real tests run at factor 1.
+
+**D36's error classes against KILL on a dead transport.** A dead transport rejects the KILL (`let _ = self.signal(Sig::KILL)`),
+and in fact the close never gets that far: the pump has failed the channel, so the wait for the process ends first. The close
+ends at once with `ConnectionException` over the death, and the next `safe_execute` returns null
+(`a_transport_that_dies_during_the_close_is_a_connection_failure_d36`). No state error appears.
+
+**D32's `env NSUnbufferedIO=YES`.** More small stderr packets mean more reads that can grant, so the cap comes sooner. That is
+what D37 is for: `stderr_in_small_packets_reaches_the_cap_without_losing_the_connection_d37` floods with stderr every 16 KiB
+and stops at exactly 16,777,215. Finer is only slower, because each packet costs the fake a transcript line. The real run has
+no xcodebuild; the variable changes only when a process writes, which the flood scripts control directly.
+
+**D38: a null `is_running` on a dead connection.** Confirmed, and now pinned: `boot.rs` reads the null as "not running", so state
+3 stays `Booting`. Its loop starts with the next `simulator_state`, whose descriptor read fails on the guard in
+`fetch_device_descriptor`, before the deadline is looked at, so the simulator is not reported as failing to boot
+(`a_null_readiness_probe_on_a_lost_connection_is_not_a_failed_boot_d36_d38`). That guard is the only thing that prevents it:
+without it this test and `a_connection_lost_during_prepare_is_not_a_failed_boot_d36` fail.
 
 ## What was run
 

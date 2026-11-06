@@ -998,9 +998,9 @@ fn consume_with_stuck_stdout(
     })
 }
 
-/// How a close at the cap may end on the fake: at once, or by the client's 30 s wait expiring. Its russh session can
-/// hold bytes past the window and then defers the CLOSE reply until they drain, which here is never (U153). OpenSSH
-/// answers at once, which `ssh_real_sshd.rs` asserts. Nothing else is accepted.
+/// How a close at the cap may end on the fake: at once, or by the client's 30 s bound expiring (D30). Its russh session
+/// can hold bytes past the window, and then defers the exit status and the CLOSE reply until they drain, which here is
+/// never (U153). OpenSSH answers at once, which `ssh_real_sshd.rs` asserts. Nothing else is accepted.
 fn assert_closed_or_close_wait_expired(result: Result<(), VendorError>) {
     if let Err(error) = result {
         assert_eq!(
@@ -1083,6 +1083,134 @@ async fn a_session_blocked_at_the_cap_can_be_closed_d37() {
     assert!(executor.connected());
     consumer.abort();
     executor.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn kill_at_the_cap_does_not_turn_a_close_into_another_error_d37() {
+    // A process that ignores TERM, at the cap: D30's KILL goes out with the window closed, and the close either
+    // succeeds or ends in the bound the fake can force (U153). Factor 5 keeps D30's 20 s from dominating the suite.
+    let line = format!("{}\n", "x".repeat(1023));
+    let mut chunks = Vec::new();
+    for _ in 0..512 {
+        chunks.push(ssh::chunk(&line.repeat(64)));
+        chunks.push(ssh::err_chunk("e\n"));
+    }
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", hang_with(chunks, &["TERM"], false))]), 4).await;
+    let (executor, _) = executor_with(&fake, 5, 0).await;
+    let session = Arc::new(start(&executor, &["flood"], 600_000).await);
+    let consumer = consume_with_stuck_stdout(session.clone(), Arc::new(tokio::sync::Notify::new()));
+    ssh::wait_for_the_cap(&executor).await;
+    let closed = tokio::time::timeout(Duration::from_secs(60), session.close())
+        .await
+        .unwrap();
+    assert_closed_or_close_wait_expired(closed);
+    let signals: Vec<_> = fake
+        .events_at_least("signal", 2)
+        .await
+        .iter()
+        .map(|e| e["detail"]["signal"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(signals, ["TERM", "KILL"]);
+    assert!(executor.connected());
+    consumer.abort();
+    executor.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stderr_in_small_packets_reaches_the_cap_without_losing_the_connection_d37() {
+    // D32's `env NSUnbufferedIO=YES`: xcodebuild writes as it goes, so stderr comes in many small packets, each read
+    // of which can grant credit. That reaches the cap sooner, and it must stop there all the same.
+    let line = format!("{}\n", "x".repeat(1023));
+    let mut chunks = Vec::new();
+    // Every 16 KiB: each packet costs the fake a transcript line, and finer than this only makes the test slow.
+    for _ in 0..2048 {
+        chunks.push(ssh::chunk(&line.repeat(16)));
+        chunks.push(ssh::err_chunk("e\n"));
+    }
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", ssh::output(chunks, 0))]), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let session = Arc::new(start(&executor, &["flood"], 600_000).await);
+    let consumer = consume_with_stuck_stdout(session.clone(), Arc::new(tokio::sync::Notify::new()));
+    ssh::wait_for_the_cap(&executor).await;
+    consumer.abort();
+    executor.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_after_the_close_only_queues_an_adjust_that_russh_skips_d37() {
+    // D30's CLOSE makes russh forget the channel, and D19 still drains what arrived. A read then grants credit as ever:
+    // the adjust must reach nothing, least of all the connection. The initial window only, so no grant ran before (U153).
+    use tokio::io::AsyncReadExt;
+    let flood = ssh::output(vec![ssh::chunk(&"x".repeat(8 * 1024 * 1024))], 0);
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", flood)]), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let channel = executor.connection().start_session().await.unwrap();
+    channel.exec("flood".into()).await.unwrap();
+    wait_for_channel_state(&channel, "initial window did not drain", || {
+        !executor.connected() || channel.local_win_size() == 0
+    })
+    .await;
+    channel.signal(russh::Sig::TERM).unwrap();
+    channel.close_escalating().await.unwrap();
+    let window = channel.local_win_size();
+    let mut bytes = vec![0; 64 * 1024];
+    let read = channel.reader(Stream::Stdout).read(&mut bytes).await.unwrap();
+    assert_eq!(read, bytes.len());
+    assert!(channel.local_win_size() > window, "the read granted credit");
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 60_000).await.unwrap().stdout,
+        ["hello"]
+    );
+    assert!(executor.connected());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_transport_that_dies_during_the_close_is_a_connection_failure_d36() {
+    // D30's KILL is written to a dead transport only to be rejected. The close ends at once with the connection
+    // failure, and the next command finds the connection gone: nothing here is a state error.
+    let hanging = Action::Output {
+        chunks: vec![],
+        status: 0,
+        signal: None,
+        hang: true,
+        ignore_signals: vec!["TERM".into()],
+        eof_before_exit: false,
+        close_before_eof: false,
+        withhold_close: false,
+    };
+    let fake = ssh::fake(rules(vec![ssh::exact("stubborn", hanging)]), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let session = start(&executor, &["stubborn"], 600_000).await;
+    let (closed, ()) = tokio::join!(session.close(), async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        executor.connection().shared.die(SshFailure::transport(
+            DisconnectReason::ConnectionLost,
+            "fixture transport loss",
+        ));
+    });
+    assert_eq!(
+        class_chain(&other(closed.unwrap_err())),
+        [
+            (CONNECTION_EXCEPTION.into(), Some("fixture transport loss".into())),
+            (TRANSPORT_EXCEPTION.into(), Some("fixture transport loss".into())),
+        ]
+    );
+    assert!(!executor.connected());
+    assert!(executor.connection().shared.is_dead());
+    assert_eq!(
+        executor
+            .safe_execute(request(&["echo", "hello"], 5000), context())
+            .await,
+        Ok(None)
+    );
+    let error = other(
+        executor
+            .execute(request(&["echo", "hello"], 5000), context())
+            .await
+            .err()
+            .unwrap(),
+    );
+    assert_eq!(error.class.to_string_lossy(), CONNECTION_EXCEPTION);
 }
 
 #[tokio::test(flavor = "multi_thread")]
