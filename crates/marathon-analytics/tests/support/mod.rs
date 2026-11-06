@@ -200,7 +200,16 @@ impl Reply {
             headers: vec![],
         }
     }
+    /// The connection ends with no response at all: a transport failure, not an HTTP one.
+    pub fn dropped() -> Self {
+        Self {
+            status: NO_RESPONSE,
+            body: String::new(),
+            headers: vec![],
+        }
+    }
 }
+const NO_RESPONSE: u16 = 0;
 pub struct Peer {
     pub url: String,
     pub requests: Arc<Mutex<Vec<Request>>>,
@@ -266,6 +275,9 @@ impl Peer {
                 let reply = respond(&request);
                 saved.lock().unwrap().push(request);
                 notify.notify_waiters();
+                if reply.status == NO_RESPONSE {
+                    continue;
+                }
                 let mut header = format!(
                     "HTTP/1.1 {} Reply\r\nContent-Length: {}\r\nConnection: close\r\n",
                     reply.status,
