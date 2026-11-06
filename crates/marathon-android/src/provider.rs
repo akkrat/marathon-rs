@@ -11,8 +11,8 @@ use jcompat::{
     logging::{Level, Logger},
 };
 use marathon_adb::client::{
-    AdamLogging, AndroidDebugBridgeClient, SocketFactory,
-    device::{AsyncDeviceMonitorRequest, Device as AdbDevice, ListDevicesRequest},
+    AdamLogging, AdbError, AndroidDebugBridgeClient, ChannelStream, SocketFactory,
+    device::{AsyncDeviceMonitorRequest, Device as AdbDevice, DeviceState, ListDevicesRequest},
     misc::GetAdbServerVersionRequest,
 };
 use marathon_core::{
@@ -123,23 +123,7 @@ impl AdamDeviceProvider {
             });
             let client = AndroidDebugBridgeClient::new(ip, port, self.inner.factory.clone(), Some(logging))
                 .with_host_name(&host);
-            let connectable = match self.version(&client, &context).await {
-                Ok(()) => true,
-                Err(e) if is_connect(&e) => {
-                    if ip.is_loopback()
-                        && start_adb(runtime.configuration.android_sdk.as_ref(), port, context.clone()).await?
-                    {
-                        match self.version(&client, &context).await {
-                            Ok(()) => true,
-                            Err(e) if is_connect(&e) => false,
-                            Err(e) => return Err(e),
-                        }
-                    } else {
-                        false
-                    }
-                }
-                Err(e) => return Err(e),
-            };
+            let connectable = self.reachable(&client, &context).await?;
             if connectable {
                 clients.push(client)
             } else {
@@ -208,6 +192,26 @@ impl AdamDeviceProvider {
         *lock(&self.inner.provider) = Some(task);
         Ok(())
     }
+    /// `isConnectable`: asks for the version and, if a loopback server refuses the connection, starts it and asks
+    /// again. Initial setup and the reconnect after an outage (D22) share this path.
+    async fn reachable(&self, client: &AndroidDebugBridgeClient, context: &VendorContext) -> VendorResult<bool> {
+        match self.version(client, context).await {
+            Ok(()) => Ok(true),
+            Err(e) if is_connect(&e) => {
+                let sdk = self.inner.runtime.configuration.android_sdk.as_ref();
+                if client.host().is_loopback() && start_adb(sdk, client.port(), context.clone()).await? {
+                    match self.version(client, context).await {
+                        Ok(()) => Ok(true),
+                        Err(e) if is_connect(&e) => Ok(false),
+                        Err(e) => Err(e),
+                    }
+                } else {
+                    Ok(false)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
     async fn version(&self, client: &AndroidDebugBridgeClient, context: &VendorContext) -> VendorResult<()> {
         let version = cancellable(context.cancellation.clone(), async {
             client
@@ -224,12 +228,13 @@ impl AdamDeviceProvider {
         Ok(())
     }
     async fn monitor(&self, context: VendorContext) -> VendorResult<()> {
-        let (tx, mut rx) =
-            tokio::sync::mpsc::unbounded_channel::<VendorResult<(AndroidDebugBridgeClient, Vec<AdbDevice>)>>();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<VendorResult<Tracked>>();
         let mut monitors = Vec::new();
         let clients = lock(&self.inner.clients).clone();
         for client in clients {
             let tx = tx.clone();
+            let this = self.clone();
+            let context = context.clone();
             let task = self
                 .inner
                 .runtime
@@ -237,28 +242,12 @@ impl AdamDeviceProvider {
                 .io
                 .spawn_cancellable(Box::new(move |signal| {
                     Box::pin(async move {
-                        let result = async {
-                            let mut stream = client
-                                .execute_channel(AsyncDeviceMonitorRequest, None)
-                                .map_err(adb_error)?;
-                            loop {
-                                let devices = cancellable(signal.clone(), async {
-                                    stream.next().await.transpose().map_err(adb_error)
-                                })
-                                .await?;
-                                match devices {
-                                    Some(devices) => {
-                                        if tx.send(Ok((client.clone(), devices))).is_err() {
-                                            break;
-                                        }
-                                    }
-                                    None => break,
-                                }
-                            }
-                            Ok(())
-                        }
-                        .await;
-                        if let Err(e) = result {
+                        let context = VendorContext {
+                            cancellation: signal,
+                            ..context
+                        };
+                        // Each server keeps its own state: a failure here never reaches another server's task (D18).
+                        if let Err(e) = this.track_server(client, &tx, context).await {
                             let _ = tx.send(Err(e));
                         }
                         Ok(())
@@ -271,7 +260,13 @@ impl AdamDeviceProvider {
             loop {
                 let event = cancellable(context.cancellation.clone(), async { Ok(rx.recv().await) }).await?;
                 let Some(event) = event else { return Ok(()) };
-                let (client, devices) = event?;
+                let (client, devices) = match event? {
+                    Tracked::Devices(client, devices) => (client, devices),
+                    Tracked::Handled(done) => {
+                        let _ = done.send(());
+                        continue;
+                    }
+                };
                 let server = server_name(&client);
                 for (serial, update) in self.inner.trackers.update(&client, &devices) {
                     match update {
@@ -403,7 +398,6 @@ impl AdamDeviceProvider {
             }
         }
         .await;
-        // N16: failure of the merged producer ends providerJob; do not reconnect.
         for task in &monitors {
             task.cancel(requested("device monitor ended"));
         }
@@ -411,6 +405,208 @@ impl AdamDeviceProvider {
             let _ = task.join().await;
         }
         result
+    }
+    /// D22: follows one adb server's device list for the whole run, across outages. Kotlin's loop means to survive
+    /// `adb kill-server`, but a failed track-devices stream cancels it (N16).
+    ///
+    /// During an outage the devices stay as they are and their batches wait (`AndroidDevice::execute`):
+    /// a pool ends with its last device, so removing and adding a device across the outage would end the run. A server
+    /// gets `waitForDevicesTimeoutMillis` to return, and its devices the same again to be listed once it has, which is
+    /// what a restarted server needs; those not back by then go through the normal disconnect. That bound is what ends
+    /// a run whose server never returns.
+    async fn track_server(
+        &self,
+        client: AndroidDebugBridgeClient,
+        tx: &TrackedSender,
+        context: VendorContext,
+    ) -> VendorResult<()> {
+        let tracker = self.inner.trackers.tracker(&client);
+        let wait = self.inner.runtime.configuration.wait_for_devices_timeout_millis;
+        let name = server_name(&client);
+        let clock = context.clock.clone();
+        let mut stream = client
+            .execute_channel(AsyncDeviceMonitorRequest, None)
+            .map_err(adb_error)?;
+        let mut settling: Option<Settling<'_>> = None;
+        loop {
+            let step = cancellable(context.cancellation.clone(), async {
+                match settling.as_mut() {
+                    Some(window) => tokio::select! {
+                        next = stream.next() => Ok(TrackStep::Next(next)),
+                        elapsed = &mut window.timer => elapsed.map(|()| TrackStep::Settled),
+                    },
+                    None => Ok(TrackStep::Next(stream.next().await)),
+                }
+            })
+            .await?;
+            let cause = match step {
+                TrackStep::Next(Some(Ok(devices))) => {
+                    settling = self.on_device_list(&client, devices, settling, tx, &context).await?;
+                    continue;
+                }
+                TrackStep::Settled => {
+                    if let Some(window) = settling.take() {
+                        self.finish_outage(&client, window.kept, window.latest, tx, &context)
+                            .await?;
+                    }
+                    continue;
+                }
+                TrackStep::Next(Some(Err(e))) => Some(adb_error(e)),
+                TrackStep::Next(None) => None,
+            };
+            // N19: a closed client is the end of the run, not an outage.
+            if client.socket_factory().is_closed() {
+                return Ok(());
+            }
+            self.log(
+                Level::Warn,
+                &format!("Lost device tracking on adb server {name}; reconnecting"),
+                cause.as_ref().map(VendorError::failure),
+            );
+            tracker.set_server_available(false);
+            handled(tx, context.cancellation.clone()).await?;
+            let kept = tracker.device_serials();
+            let recovered = timed(&context, wait, |signal| {
+                let context = VendorContext {
+                    cancellation: signal,
+                    ..context.clone()
+                };
+                let client = &client;
+                Box::pin(async move { self.reconnect(client, context).await })
+            })
+            .await?;
+            let (new_stream, devices) = match recovered {
+                Some(recovered) => {
+                    self.log(Level::Info, &format!("adb server {name} is back"), None);
+                    settling = Some(Settling {
+                        kept,
+                        latest: vec![],
+                        timer: clock.delay(wait, context.cancellation.clone()),
+                    });
+                    recovered
+                }
+                None => {
+                    self.log(
+                        Level::Error,
+                        &format!("adb server {name} did not return in {wait} ms; disconnecting its devices"),
+                        None,
+                    );
+                    send(tx, Tracked::Devices(client.clone(), vec![]))?;
+                    tracker.set_server_available(true);
+                    settling = None;
+                    self.reconnect(&client, context.clone()).await?
+                }
+            };
+            stream = new_stream;
+            settling = self.on_device_list(&client, devices, settling, tx, &context).await?;
+        }
+    }
+    /// A list from the stream. While the window after a reconnect is open, a device that was there before the outage
+    /// counts as present: a restarted server lists it late, often `offline` first.
+    async fn on_device_list<'a>(
+        &self,
+        client: &AndroidDebugBridgeClient,
+        devices: Vec<AdbDevice>,
+        settling: Option<Settling<'a>>,
+        tx: &TrackedSender,
+        context: &VendorContext,
+    ) -> VendorResult<Option<Settling<'a>>> {
+        let Some(mut window) = settling else {
+            send(tx, Tracked::Devices(client.clone(), devices))?;
+            return Ok(None);
+        };
+        let listed = |serial: &String| {
+            devices
+                .iter()
+                .any(|d| d.serial == *serial && d.state == DeviceState::Device)
+        };
+        let missing: Vec<String> = window.kept.iter().filter(|s| !listed(s)).cloned().collect();
+        if missing.is_empty() {
+            self.finish_outage(client, window.kept, devices, tx, context).await?;
+            return Ok(None);
+        }
+        let mut held: Vec<AdbDevice> = devices
+            .iter()
+            .filter(|d| !missing.contains(&d.serial))
+            .cloned()
+            .collect();
+        held.extend(missing.into_iter().map(|serial| AdbDevice {
+            serial,
+            state: DeviceState::Device,
+        }));
+        send(tx, Tracked::Devices(client.clone(), held))?;
+        window.latest = devices;
+        Ok(Some(window))
+    }
+    /// The real list decides now: a device not on it is disconnected the normal way. A device whose setup the outage
+    /// interrupted never had an actor, so it goes through the connect path again. The others keep theirs, with no event,
+    /// so no serial ever has two actors.
+    async fn finish_outage(
+        &self,
+        client: &AndroidDebugBridgeClient,
+        kept: Vec<String>,
+        devices: Vec<AdbDevice>,
+        tx: &TrackedSender,
+        context: &VendorContext,
+    ) -> VendorResult<()> {
+        handled(tx, context.cancellation.clone()).await?;
+        let server = server_name(client);
+        let (interrupted, resumed) = {
+            let provided = lock(&self.inner.devices);
+            let mine = || provided.iter().filter(|((s, _), _)| *s == server);
+            let interrupted: Vec<String> = mine()
+                .filter(|((_, serial), p)| kept.contains(serial) && !p.ready.load(Ordering::Acquire))
+                .map(|((_, serial), _)| serial.clone())
+                .collect();
+            let resumed: Vec<AndroidDevice> = mine()
+                .filter(|(_, p)| p.ready.load(Ordering::Acquire))
+                .map(|(_, p)| p.device.clone())
+                .collect();
+            (interrupted, resumed)
+        };
+        if !interrupted.is_empty() {
+            let without = devices
+                .iter()
+                .filter(|d| !interrupted.contains(&d.serial))
+                .cloned()
+                .collect();
+            send(tx, Tracked::Devices(client.clone(), without))?;
+        }
+        send(tx, Tracked::Devices(client.clone(), devices))?;
+        handled(tx, context.cancellation.clone()).await?;
+        for device in resumed {
+            if device.info().healthy {
+                device.resume_after_server_return(context.clone()).await?;
+            }
+        }
+        self.inner.trackers.tracker(client).set_server_available(true);
+        Ok(())
+    }
+    /// Until the server answers and its track-devices stream gives a first list, with a capped backoff on the
+    /// vendor clock. An error here only means the server is not back yet.
+    async fn reconnect(
+        &self,
+        client: &AndroidDebugBridgeClient,
+        context: VendorContext,
+    ) -> VendorResult<(ChannelStream<AsyncDeviceMonitorRequest>, Vec<AdbDevice>)> {
+        let mut backoff = RECONNECT_MIN_MILLIS;
+        loop {
+            context.clock.delay(backoff, context.cancellation.clone()).await?;
+            backoff = (backoff * 2).min(RECONNECT_MAX_MILLIS);
+            match self.reachable(client, &context).await {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(e @ VendorError::Cancelled(_)) => return Err(e),
+                Err(_) => continue,
+            }
+            let mut stream = client
+                .execute_channel(AsyncDeviceMonitorRequest, None)
+                .map_err(adb_error)?;
+            let first = cancellable(context.cancellation.clone(), async { Ok(stream.next().await) }).await?;
+            if let Some(Ok(devices)) = first {
+                return Ok((stream, devices));
+            }
+        }
     }
     async fn terminate_inner(&self) -> VendorResult<()> {
         let mut closed = self.inner.shutdown.lock().await;
@@ -504,6 +700,40 @@ impl DeviceProvider for AdamDeviceProvider {
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>> {
         self.inner.channel.clone()
     }
+}
+/// D22: the wait between attempts to reach a lost adb server.
+const RECONNECT_MIN_MILLIS: i64 = 1000;
+const RECONNECT_MAX_MILLIS: i64 = 8000;
+type TrackedSender = tokio::sync::mpsc::UnboundedSender<VendorResult<Tracked>>;
+/// What the per-server tracking tasks send to the one loop that owns the device events.
+enum Tracked {
+    Devices(AndroidDebugBridgeClient, Vec<AdbDevice>),
+    /// Answered once everything sent before it has been handled.
+    Handled(tokio::sync::oneshot::Sender<()>),
+}
+enum TrackStep {
+    Next(Option<Result<Vec<AdbDevice>, AdbError>>),
+    Settled,
+}
+/// The window after a reconnect, in which devices from before the outage may still appear.
+struct Settling<'a> {
+    kept: Vec<String>,
+    latest: Vec<AdbDevice>,
+    timer: VendorFuture<'a, ()>,
+}
+fn send(tx: &TrackedSender, message: Tracked) -> VendorResult<()> {
+    tx.send(Ok(message))
+        .map_err(|_| VendorError::Cancelled(requested("device monitor ended")))
+}
+/// Cancellable: the loop that answers joins this task before it drops the question, so it may never answer.
+async fn handled(tx: &TrackedSender, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+    let (done, wait) = tokio::sync::oneshot::channel();
+    send(tx, Tracked::Handled(done))?;
+    cancellable(signal, async {
+        wait.await
+            .map_err(|_| VendorError::Cancelled(requested("device monitor ended")))
+    })
+    .await
 }
 fn is_connect(e: &VendorError) -> bool {
     [

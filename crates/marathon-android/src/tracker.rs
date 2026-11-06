@@ -23,11 +23,41 @@ impl TrackingUpdate {
         }
     }
 }
-#[derive(Default)]
 pub struct DeviceStateTracker {
     devices: Mutex<Vec<(String, DeviceState)>>,
+    /// D22: false while this tracker's adb server is away, so that batches wait instead of burning their
+    /// retries on connections that cannot work.
+    server_available: tokio::sync::watch::Sender<bool>,
+}
+impl Default for DeviceStateTracker {
+    fn default() -> Self {
+        Self {
+            devices: Mutex::default(),
+            server_available: tokio::sync::watch::Sender::new(true),
+        }
+    }
 }
 impl DeviceStateTracker {
+    pub(crate) fn set_server_available(&self, available: bool) {
+        self.server_available.send_replace(available);
+    }
+    pub(crate) fn is_server_available(&self) -> bool {
+        *self.server_available.borrow()
+    }
+    /// Returns at once while the server is there, as it always is outside an outage.
+    pub(crate) async fn server_available(&self) {
+        let mut available = self.server_available.subscribe();
+        // The sender lives in self, so this can only end by finding `true`.
+        let _ = available.wait_for(|available| *available).await;
+    }
+    /// The serials currently in state `device`.
+    pub(crate) fn device_serials(&self) -> Vec<String> {
+        lock(&self.devices)
+            .iter()
+            .filter(|(_, state)| *state == DeviceState::Device)
+            .map(|(serial, _)| serial.clone())
+            .collect()
+    }
     pub fn update(&self, devices: &[Device]) -> Vec<(String, TrackingUpdate)> {
         let mut states = lock(&self.devices);
         let mut updates = Vec::new();

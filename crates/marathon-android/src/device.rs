@@ -81,6 +81,8 @@ struct Inner {
     line_listeners: Mutex<Vec<Arc<dyn LineListener>>>,
     logcat_listeners: Mutex<Vec<Arc<dyn crate::logcat_listener::LogcatListener>>>,
     logcat: Mutex<Option<Arc<dyn VendorTask>>>,
+    /// D22: the logcat stream has ended, as it does when the adb server goes away.
+    logcat_ended: AtomicBool,
     reverse: Mutex<Vec<RemotePortSpec>>,
     disposal: tokio::sync::Mutex<bool>,
     /// D24: this device object was disconnected. A reconnect makes a new object on the same tracker, whose
@@ -135,6 +137,7 @@ impl AndroidDevice {
                 line_listeners: Mutex::default(),
                 logcat_listeners: Mutex::default(),
                 logcat: Mutex::default(),
+                logcat_ended: AtomicBool::new(false),
                 reverse: Mutex::default(),
                 disposal: tokio::sync::Mutex::new(false),
                 lost: AtomicBool::new(false),
@@ -173,6 +176,10 @@ impl AndroidDevice {
     }
     pub fn client(&self) -> &AndroidDebugBridgeClient {
         &self.inner.client
+    }
+    /// D22: false while the adb server is away, when batches wait.
+    pub fn adb_server_available(&self) -> bool {
+        self.inner.tracker.is_server_available()
     }
     /// D21: the client for work whose caller has a timeout of its own, which the socket's idle limit must not
     /// beat. See the request audit in `docs/wp/x12-findings.md`.
@@ -520,6 +527,7 @@ impl AndroidDevice {
             .map_err(adb_error)
     }
     fn start_logcat(&self) {
+        self.inner.logcat_ended.store(false, Ordering::Release);
         let device = self.clone();
         let task = self
             .runtime()
@@ -550,6 +558,7 @@ impl AndroidDevice {
                         Ok(())
                     }
                     .await;
+                    device.inner.logcat_ended.store(true, Ordering::Release);
                     if let Err(e) = &result
                         && !matches!(e, VendorError::Cancelled(_))
                     {
@@ -589,6 +598,43 @@ impl AndroidDevice {
             listener.on_line(line).await?;
         }
         Ok(())
+    }
+    /// D22: this device is still listed after its adb server came back, and keeps its actor. What lived on the
+    /// lost connections is set up again: the logcat stream, and the reverse port forwards, which a restarted server
+    /// has forgotten. Failures are logged; they do not make the device unusable.
+    pub(crate) async fn resume_after_server_return(&self, context: VendorContext) -> VendorResult<()> {
+        if self.inner.logcat_ended.load(Ordering::Acquire) {
+            self.stop_logcat().await;
+            self.start_logcat();
+        }
+        let rules = lock(&self.inner.reverse).clone();
+        for local in rules {
+            let RemotePortSpec::Tcp(port) = local else { continue };
+            let result = timed(&context, millis(self.timeouts().port_forward)?, |signal| {
+                Box::pin(self.bounded_request(
+                    ReversePortForwardRequest {
+                        local: RemotePortSpec::Tcp(port),
+                        remote: LocalPortSpec::Tcp(port),
+                        mode: PortForwardingMode::Default,
+                    },
+                    signal,
+                ))
+            })
+            .await;
+            match result {
+                Ok(Some(_)) => {}
+                Err(e @ VendorError::Cancelled(_)) => return Err(e),
+                Ok(None) => self.log(Level::Warn, "Timed out restoring reverse port forward", None),
+                Err(e) => self.log(Level::Warn, "Unable to restore reverse port forward", Some(e.failure())),
+            }
+        }
+        Ok(())
+    }
+    /// D22: a request failed because the adb server is away, not because of this device.
+    async fn server_is_away(&self, signal: Arc<dyn CancellationSignal>) -> bool {
+        self.request(marathon_adb::client::misc::GetAdbServerVersionRequest, None, signal)
+            .await
+            .is_err()
     }
     pub(crate) async fn stop_logcat(&self) {
         let task = lock(&self.inner.logcat).take();
@@ -733,7 +779,13 @@ impl Device for AndroidDevice {
             context.cancellation.clone(),
             move |signal| {
                 Box::pin(async move {
-                    device
+                    // D22: during an outage a batch waits, whether the server returns or its devices are given up.
+                    cancellable(signal.clone(), async {
+                        device.inner.tracker.server_available().await;
+                        Ok(())
+                    })
+                    .await?;
+                    let outcome = device
                         .runtime()
                         .executor
                         .execute(
@@ -743,11 +795,24 @@ impl Device for AndroidDevice {
                             batch,
                             result,
                             VendorContext {
-                                cancellation: signal,
+                                cancellation: signal.clone(),
                                 ..context
                             },
                         )
-                        .await
+                        .await;
+                    match outcome {
+                        // D22: the device outlives a lost adb server, so only its batch fails: retiring the last
+                        // device of a pool would end the run before the server returns.
+                        Err(VendorError::DeviceLost(failure)) if device.server_is_away(signal).await => {
+                            device.log(
+                                Level::Warn,
+                                "Batch failed because the adb server is away; keeping the device",
+                                Some(&failure),
+                            );
+                            Err(VendorError::BatchExecution(failure))
+                        }
+                        outcome => outcome,
+                    }
                 })
             },
         ))

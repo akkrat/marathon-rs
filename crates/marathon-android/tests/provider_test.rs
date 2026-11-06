@@ -190,37 +190,398 @@ fn disconnect_before_setup_has_no_connected_event() {
         })
     });
 }
+/// Waits (the deadline only catches a hang) until the server has answered `count` track-devices requests.
+async fn track_requests(server: &marathon_adb::server::FakeAdbServer, count: usize) {
+    checked(
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            while request_services(server)
+                .iter()
+                .filter(|s| *s == "host:track-devices")
+                .count()
+                < count
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await,
+    );
+}
+/// An event already waiting, without waiting for one.
+async fn pending_event(provider: &AdamDeviceProvider) -> Option<DeviceEvent> {
+    let channel = provider.subscribe();
+    tokio::time::timeout(std::time::Duration::ZERO, channel.receive())
+        .await
+        .ok()
+        .and_then(checked)
+}
+/// D22 (N16). The Kotlin provider's job ends with the failed stream (the JVM probe's `subscriptions=1`). Here tracking
+/// resumes; a device still listed keeps its object with no event at all, so it can have no second actor, and what lived
+/// on the lost connections comes back: its logcat stream.
 #[test]
-fn track_eof_ends_loop_without_reconnect() {
+fn track_eof_resumes_tracking_and_keeps_a_listed_device_d22() {
     let _ports = shared_ports();
     run(configuration(), |runtime, context| {
         Box::pin(async move {
+            assert!(
+                include_str!("../../../fixtures/oracle/android-provider-probes.jsonl")
+                    .contains("completed=true|cancelled=true|subscriptions=1")
+            );
+            let mut server = server(base_script(27, vec![])).await;
+            let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
+            provider.initialize(context).await?;
+            let DeviceEvent::Connected(first) = event(&provider).await else {
+                panic!("connection")
+            };
+            logcat_streams(&[(&server, 1)]).await;
+            server.kill(Some(std::time::Duration::from_millis(20)));
+            track_requests(&server, 2).await;
+            // The device's logcat comes back after the reconcile, so no event can still be on its way by then.
+            logcat_streams(&[(&server, 2)]).await;
+            assert!(pending_event(&provider).await.is_none());
+            assert!(first.0.info().healthy);
+            // The new stream really drives events, with the same device object.
+            checked(server.disconnect_device("emulator-5554"));
+            let DeviceEvent::Disconnected(gone) = event(&provider).await else {
+                panic!("disconnect")
+            };
+            assert_eq!(gone, first);
+            checked(server.connect_device("emulator-5554"));
+            let DeviceEvent::Connected(again) = event(&provider).await else {
+                panic!("reconnect")
+            };
+            assert_ne!(again, first);
+            logcat_streams(&[(&server, 3)]).await;
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D22: after the window, a device the returned server does not list is disconnected the normal way, and one that
+/// joined meanwhile connects, once.
+#[test]
+fn returned_server_reconciles_its_device_list_d22() {
+    let _ports = shared_ports();
+    let mut c = configuration();
+    android(&mut c).wait_for_devices_timeout_millis = 1500;
+    run(c, |runtime, context| {
+        Box::pin(async move {
             let mut script = base_script(27, vec![]);
-            script["devices"][0]["state"] = serde_json::json!("offline");
+            let mut other = script["devices"][0].clone();
+            other["serial"] = serde_json::json!("emulator-5556");
+            other["connected"] = serde_json::json!(false);
+            script["devices"].as_array_mut().unwrap().push(other);
             let mut server = server(script).await;
             let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
             provider.initialize(context).await?;
-            for _ in 0..100 {
-                if request_services(&server).contains(&"host:track-devices".into()) {
-                    break;
+            let DeviceEvent::Connected(first) = event(&provider).await else {
+                panic!("connection")
+            };
+            logcat_streams(&[(&server, 1)]).await;
+            server.kill(Some(std::time::Duration::from_millis(500)));
+            // The list must change while nothing is listening, or the live stream would report it.
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while !server.transcript().iter().any(|r| r["event"] == "server_killed") {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            checked(server.disconnect_device("emulator-5554"));
+            checked(server.connect_device("emulator-5556"));
+            track_requests(&server, 2).await;
+            let mut connected = 0;
+            let mut disconnected = 0;
+            for _ in 0..2 {
+                match event(&provider).await {
+                    DeviceEvent::Connected(d) => {
+                        assert!(d.0.info().serial_number.to_string_lossy().ends_with("emulator-5556"));
+                        connected += 1;
+                    }
+                    DeviceEvent::Disconnected(d) => {
+                        assert_eq!(d, first);
+                        assert_eq!(
+                            d.0.info().network_state,
+                            marathon_core::model::NetworkState::Disconnected
+                        );
+                        disconnected += 1;
+                    }
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
-            server.kill(Some(std::time::Duration::from_millis(20)));
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            assert_eq!((connected, disconnected), (1, 1));
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D22 with D18: an outage on one server leaves the other alone, and a server that never returns loses its own devices
+/// only, by the bound that also lets the run end. Terminating the provider then ends its retry loop.
+#[test]
+fn a_server_that_never_returns_loses_only_its_own_devices_d22() {
+    let _ports = shared_ports();
+    let mut c = configuration();
+    android(&mut c).wait_for_devices_timeout_millis = 1500;
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut dying = server(base_script(27, vec![])).await;
+            let mut healthy = server(base_script(27, vec![])).await;
+            let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[dying.port(), healthy.port()]))?;
+            provider.initialize(context).await?;
+            let (DeviceEvent::Connected(a), DeviceEvent::Connected(b)) =
+                (event(&provider).await, event(&provider).await)
+            else {
+                panic!("connections")
+            };
+            logcat_streams(&[(&dying, 1), (&healthy, 1)]).await;
+            let dying_prefix = format!("127.0.0.1:{}:", dying.port());
+            let (on_dying, on_healthy) = if a.0.info().serial_number.to_string_lossy().starts_with(&dying_prefix) {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            dying.kill(None);
+            let DeviceEvent::Disconnected(gone) = event(&provider).await else {
+                panic!("the dead server's device")
+            };
+            assert_eq!(gone, on_dying);
+            assert!(on_healthy.0.info().healthy);
+            // The healthy server's stream was never interrupted and still drives events.
             assert_eq!(
-                request_services(&server)
+                request_services(&healthy)
                     .iter()
                     .filter(|s| *s == "host:track-devices")
                     .count(),
                 1
             );
-            assert!(
-                include_str!("../../../fixtures/oracle/android-provider-probes.jsonl")
-                    .contains("completed=true|cancelled=true|subscriptions=1")
+            checked(healthy.disconnect_device("emulator-5554"));
+            let DeviceEvent::Disconnected(gone) = event(&provider).await else {
+                panic!("the healthy server's device")
+            };
+            assert_eq!(gone, on_healthy);
+            checked(tokio::time::timeout(std::time::Duration::from_secs(60), provider.terminate()).await)?;
+            checked(dying.shutdown().await);
+            checked(healthy.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D22: during an outage a batch waits for the server rather than failing at once, which would burn its retries
+/// (`uncompletedTestRetryQuota`) until the server is back. Once the server is back, the batch runs.
+#[test]
+fn a_batch_waits_for_a_lost_server_d22() {
+    let _ports = shared_ports();
+    use marathon_core::{
+        executor::shared::SharedDeferred,
+        model::{DevicePoolId, TestBatch},
+    };
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
+            provider.initialize(context.clone()).await?;
+            let DeviceEvent::Connected(device) = event(&provider).await else {
+                panic!("connection")
+            };
+            logcat_streams(&[(&server, 1)]).await;
+            let android = provider.android_device(&device).unwrap();
+            assert!(android.adb_server_available());
+            server.kill(Some(std::time::Duration::from_secs(2)));
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while android.adb_server_available() {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
             );
+            let batch = {
+                let device = device.clone();
+                let configuration = runtime.dependencies.configuration.clone();
+                tokio::spawn(async move {
+                    device
+                        .0
+                        .execute(
+                            configuration,
+                            DevicePoolId { name: "pool".into() },
+                            std::sync::Arc::new(TestBatch {
+                                tests: vec![],
+                                id: "batch".into(),
+                            }),
+                            std::sync::Arc::new(SharedDeferred::default()),
+                            context,
+                        )
+                        .await
+                })
+            };
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            if !android.adb_server_available() {
+                assert!(!batch.is_finished(), "the batch did not wait for the server");
+            }
+            // The test's executor refuses every batch, which shows that this one got that far.
+            let outcome = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), batch).await,
+            ));
+            assert!(android.adb_server_available());
+            assert_eq!(
+                outcome.unwrap_err().failure().message,
+                Some(js("Android batch execution is supplied by WP 6.6a"))
+            );
+            logcat_streams(&[(&server, 2)]).await;
             provider.terminate().await?;
             checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D22: a batch's device loss while the adb server is away fails only the batch, because a pool ends with its last
+/// device; with the server there, it stays a device loss.
+#[test]
+fn device_loss_counts_only_while_the_server_is_there_d22() {
+    let _ports = shared_ports();
+    use marathon_android::{
+        device::{AndroidBatchExecutor, AndroidDevice},
+        services::AndroidRuntime,
+    };
+    use marathon_core::{
+        executor::shared::SharedDeferred,
+        model::{BatchRef, DevicePoolId, TestBatch, TestBatchResults},
+        runtime::{Deferred, VendorFuture},
+        vendor::VendorContext,
+    };
+    use std::sync::Arc;
+    #[derive(Default)]
+    struct Lost(tokio::sync::Notify);
+    impl AndroidBatchExecutor for Lost {
+        fn execute<'a>(
+            &'a self,
+            _: &'a AndroidDevice,
+            _: Arc<marathon_config::Configuration>,
+            _: DevicePoolId,
+            _: BatchRef,
+            _: Arc<dyn Deferred<TestBatchResults>>,
+            _: VendorContext,
+        ) -> VendorFuture<'a, ()> {
+            Box::pin(async move {
+                self.0.notified().await;
+                Err(VendorError::DeviceLost(Failure {
+                    class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
+                    message: Some(js("lost")),
+                    cause: None,
+                    stacktrace: None,
+                }))
+            })
+        }
+    }
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let lost = Arc::new(Lost::default());
+            let changed = change_runtime(&runtime, &[server.port()]);
+            let changed = Arc::new(AndroidRuntime {
+                dependencies: changed.dependencies.clone(),
+                configuration: changed.configuration.clone(),
+                file_sync: changed.file_sync.clone(),
+                bundles: changed.bundles.clone(),
+                identifier: changed.identifier.clone(),
+                executor: lost.clone(),
+                log: changed.log.clone(),
+            });
+            let provider = AdamDeviceProvider::new(changed)?;
+            provider.initialize(context.clone()).await?;
+            let DeviceEvent::Connected(device) = event(&provider).await else {
+                panic!("connection")
+            };
+            logcat_streams(&[(&server, 1)]).await;
+            let batch = || {
+                let device = device.clone();
+                let configuration = runtime.dependencies.configuration.clone();
+                let context = context.clone();
+                tokio::spawn(async move {
+                    device
+                        .0
+                        .execute(
+                            configuration,
+                            DevicePoolId { name: "pool".into() },
+                            Arc::new(TestBatch {
+                                tests: vec![],
+                                id: "batch".into(),
+                            }),
+                            Arc::new(SharedDeferred::default()),
+                            context,
+                        )
+                        .await
+                })
+            };
+            let running = batch();
+            lost.0.notify_one();
+            let outcome = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), running).await,
+            ));
+            assert!(matches!(outcome, Err(VendorError::DeviceLost(_))), "{outcome:?}");
+            let running = batch();
+            server.kill(Some(std::time::Duration::from_secs(2)));
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while !server.transcript().iter().any(|r| r["event"] == "server_killed") {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            lost.0.notify_one();
+            let outcome = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), running).await,
+            ));
+            assert!(matches!(outcome, Err(VendorError::BatchExecution(_))), "{outcome:?}");
+            logcat_streams(&[(&server, 2)]).await;
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D22: a loopback server that refuses the connection is restarted through the path initial setup uses.
+#[test]
+fn a_lost_loopback_server_is_started_again_through_the_setup_path_d22() {
+    let _ports = shared_ports();
+    use std::os::unix::fs::PermissionsExt;
+    let temp = checked(tempfile::tempdir());
+    checked(std::fs::create_dir(temp.path().join("platform-tools")));
+    let binary = temp.path().join("platform-tools/adb");
+    let argv = temp.path().join("argv");
+    checked(std::fs::write(
+        &binary,
+        format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\n", argv.display()),
+    ));
+    checked(std::fs::set_permissions(
+        &binary,
+        std::fs::Permissions::from_mode(0o755),
+    ));
+    let mut c = configuration();
+    android(&mut c).android_sdk = Some(JavaPath::from_text(&temp.path().to_string_lossy()));
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let port = server.port();
+            let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[port]))?;
+            provider.initialize(context).await?;
+            assert!(matches!(event(&provider).await, DeviceEvent::Connected(_)));
+            logcat_streams(&[(&server, 1)]).await;
+            // Long enough that the first reconnect attempt, one second in, finds the port closed.
+            server.kill(Some(std::time::Duration::from_millis(1500)));
+            track_requests(&server, 2).await;
+            assert!(pending_event(&provider).await.is_none());
+            let started = checked(tokio::fs::read_to_string(&argv).await);
+            assert!(
+                started.lines().all(|l| l == format!("-P {port} start-server")) && !started.is_empty(),
+                "{started}"
+            );
+            logcat_streams(&[(&server, 2)]).await;
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            drop(temp);
             Ok(())
         })
     });

@@ -99,7 +99,8 @@ impl ComplexRequest for ListDevicesRequest {
 ///
 /// When the server goes away, reading the next message fails with
 /// `RequestRejectedException("Unexpected string length: ")`, so the stream ends in an error rather than
-/// cleanly (known bug N16); it cancels marathon's provider job without restarting (WP 6.5 JVM probe).
+/// cleanly (known bug N16). Kotlin's provider job is cancelled by it without restarting (WP 6.5 JVM probe);
+/// the provider here reconnects (D22).
 #[derive(Clone, Debug, Default)]
 pub struct AsyncDeviceMonitorRequest;
 

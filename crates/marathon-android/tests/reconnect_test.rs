@@ -110,6 +110,8 @@ pub struct Event {
     pub at_ms: i64,
     pub connect: bool,
     pub serial: String,
+    /// D22: instead of a device event, the whole adb server goes away, returning after this real time if any.
+    pub kill: Option<Option<Duration>>,
 }
 
 /// The script with the fake's real-time behaviour removed: no timeline and no `delay_ms` on test runs.
@@ -135,6 +137,7 @@ fn load(name: &str) -> (Value, Vec<Event>, usize) {
                 .or(e["disconnect"].as_str())
                 .unwrap_or_default()
                 .to_owned(),
+            kill: None,
         })
         .collect();
     (script, events, 0)
@@ -260,7 +263,23 @@ impl EventChannel<DeviceEvent> for TappedChannel {
 
 /// Runs one scenario (one script per adb server) to completion in virtual time.
 pub fn run_scenario(scripts: &[&str]) -> Observed {
-    let loaded: Vec<_> = scripts.iter().map(|name| load(name)).collect();
+    run_loaded(scripts.iter().map(|name| load(name)).collect())
+}
+
+/// One server from `script`, whose only event is an adb server outage at virtual `at_ms`.
+fn run_outage(script: &str, at_ms: i64, restart_after: Option<Duration>) -> Observed {
+    let (script, _, index) = load(script);
+    let event = Event {
+        server: 0,
+        at_ms,
+        connect: false,
+        serial: String::new(),
+        kill: Some(restart_after),
+    };
+    run_loaded(vec![(script, vec![event], index)])
+}
+
+fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
     let runtime = checked(tokio::runtime::Builder::new_multi_thread().enable_all().build());
     let mut servers = Vec::new();
     for (script, _, _) in &loaded {
@@ -288,7 +307,7 @@ pub fn run_scenario(scripts: &[&str]) -> Observed {
             !loaded[*server]
                 .1
                 .iter()
-                .any(|event| !event.connect && event.serial == *serial)
+                .any(|event| !event.connect && event.kill.is_none() && event.serial == *serial)
         })
         .map(|(server, serial)| (ports[*server], serial.clone()))
         .collect();
@@ -428,6 +447,7 @@ pub fn run_scenario(scripts: &[&str]) -> Observed {
                                 requests(&driven[*server], serial, "logcat -v long") >= *times
                             })
                         && (event.connect
+                            || (event.kill.is_some() && healthy_started())
                             || (requests(&driven[event.server], &event.serial, ":rm ") >= 1 && healthy_started()));
                     if !ready {
                         assert!(
@@ -441,6 +461,11 @@ pub fn run_scenario(scripts: &[&str]) -> Observed {
                         break;
                     }
                     let server = &driven[event.server];
+                    if let Some(restart_after) = event.kill {
+                        server.kill(restart_after);
+                        next_event += 1;
+                        continue;
+                    }
                     checked(if event.connect {
                         server.connect_device(&event.serial)
                     } else {
@@ -713,6 +738,48 @@ fn same_adb_serial_on_two_servers_keeps_the_healthy_device_working_d18() {
     assert_eq!(ran["server2/emulator-5556"], (true, false));
     // Two actors were initialized for A's serial (the dropped one and its replacement), one for B's.
     assert_eq!(actor_messages(&observed, "emulator-5556", "initialize "), 3);
+}
+
+/// D22 (N16), the whole run: the adb server of the only pool goes away while tests run and returns. The pool keeps its
+/// devices, as removing the last one would end the run; the batches wait for the server; every test passes. In Kotlin
+/// the provider's job is over by then (its JVM probe: `subscriptions=1`).
+#[test]
+fn a_run_survives_an_adb_server_restart_d22() {
+    let observed = run_outage("same-server", 6000, Some(Duration::from_millis(300)));
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    // Tracking resumed, with no device event for a device that stayed listed.
+    let tracks = observed.transcripts[0]
+        .iter()
+        .filter(|r| r["type"] == "request" && r["service"] == "host:track-devices")
+        .count();
+    assert_eq!(tracks, 2);
+    assert!(observed.received.iter().all(|r| r.0), "{:?}", observed.received);
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 1);
+    assert_eq!(pool_warnings(&observed), 0);
+}
+
+/// D22: a server that never returns does not keep the run alive. Its devices are disconnected after
+/// `waitForDevicesTimeoutMillis`, the pool ends with them, and the run reports the tests it could not run.
+#[test]
+fn a_run_ends_when_its_adb_server_never_returns_d22() {
+    let observed = run_outage("same-server", 6000, None);
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert!(
+        observed.virtual_millis < LIMIT_MILLIS,
+        "{} virtual ms",
+        observed.virtual_millis
+    );
+    assert!(observed.received.iter().any(|r| !r.0));
 }
 
 /// The Kotlin CLI's recording of the same scenario is the witness of the behaviour D18 replaced; it is not re-recorded.
