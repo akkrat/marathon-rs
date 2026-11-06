@@ -32,6 +32,7 @@ pub struct Recovery {
     pub fail_termination: std::sync::atomic::AtomicBool,
     pub ticks: AtomicUsize,
     pub missing: Mutex<Vec<Vec<AppleTarget>>>,
+    pub failed: Mutex<Vec<Vec<AppleTarget>>>,
 }
 impl ProviderRecovery for Recovery {
     fn connect_worker(
@@ -70,6 +71,11 @@ impl ProviderRecovery for Recovery {
     ) -> VendorFuture<'_, ()> {
         Box::pin(async move { Err(error.into_vendor()) })
     }
+    fn setup_failed(&self, _: Transport, targets: Vec<AppleTarget>, _: i64) -> VendorFuture<'_, ()> {
+        self.failed.lock().unwrap().push(targets);
+        Box::pin(async { Ok(()) })
+    }
+    fn forget_setup(&self, _: &jcompat::writers::JavaString) {}
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async {
             if self.fail_termination.load(Ordering::SeqCst) {

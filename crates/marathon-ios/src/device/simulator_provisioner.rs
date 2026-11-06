@@ -95,22 +95,43 @@ pub enum FailedSetup {
     Existing {
         udid: String,
         unreachable: bool,
+        /// The simulator's own connection failed for a reason that a retry doesn't change, such as authentication.
+        refused: bool,
     },
     Created {
         profile: SimulatorProfile,
         unreachable: bool,
+        refused: bool,
     },
 }
 impl FailedSetup {
     fn with_unreachable(self, value: bool) -> Self {
         match self {
-            Self::Existing { udid, .. } => Self::Existing {
+            Self::Existing { udid, refused, .. } => Self::Existing {
                 udid,
                 unreachable: value,
+                refused,
             },
-            Self::Created { profile, .. } => Self::Created {
+            Self::Created { profile, refused, .. } => Self::Created {
                 profile,
                 unreachable: value,
+                refused,
+            },
+        }
+    }
+    fn refused(self) -> Self {
+        match self {
+            Self::Existing { udid, unreachable, .. } => Self::Existing {
+                udid,
+                unreachable,
+                refused: true,
+            },
+            Self::Created {
+                profile, unreachable, ..
+            } => Self::Created {
+                profile,
+                unreachable,
+                refused: true,
             },
         }
     }
@@ -264,10 +285,12 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             .map(|udid| FailedSetup::Existing {
                 udid,
                 unreachable: false,
+                refused: false,
             })
             .chain(plan.needs_provisioning.into_iter().map(|profile| FailedSetup::Created {
                 profile,
                 unreachable: false,
+                refused: false,
             }));
         let results = join_all(operations.map(|failure| {
             let semaphore = semaphore.clone(); let caller = caller.clone(); let siblings = siblings.clone(); let cycle = cycle.clone(); let bin = bin.clone(); let transport = transport.clone();
@@ -282,7 +305,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     match &failure {
                         FailedSetup::Existing { udid, .. } => {
                             let outcome = self.setup(udid, &transport, cycle, &caller).await?;
-                            Ok(match outcome { Outcome::SetUp | Outcome::Dropped => None, Outcome::Unreachable => Some(failure.clone().with_unreachable(true)), Outcome::Failed => Some(failure.clone()) })
+                            Ok(match outcome { Outcome::SetUp | Outcome::Dropped => None, Outcome::Unreachable => Some(failure.clone().with_unreachable(true)), Outcome::Failed => Some(failure.clone().refused()) })
                         },
                         FailedSetup::Created { profile, .. } => match bin {
                             Some(bin) => self.create(profile, &transport, &bin, cycle, &caller).await,
@@ -466,6 +489,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                 return Ok(Some(FailedSetup::Created {
                     profile: profile.clone(),
                     unreachable: false,
+                    refused: false,
                 }));
             };
             cycle.refresh(bin, caller).await?;
@@ -476,6 +500,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                 Outcome::Failed | Outcome::Unreachable => Some(FailedSetup::Created {
                     profile: profile.clone(),
                     unreachable: outcome == Outcome::Unreachable,
+                    refused: outcome == Outcome::Failed,
                 }),
             })
         }

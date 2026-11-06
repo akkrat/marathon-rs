@@ -175,7 +175,8 @@ async fn failed_new_simulator_is_deleted_while_healthy_profiles_finish() -> Test
         failed,
         vec![FailedSetup::Created {
             profile: profile(),
-            unreachable: false
+            unreachable: false,
+            refused: false,
         }]
     );
     assert_eq!(h.registered(), 2);
@@ -201,7 +202,8 @@ async fn new_simulator_is_deleted_if_no_connection_can_be_acquired() -> TestResu
         h.profiles(1).await?,
         vec![FailedSetup::Created {
             profile: profile(),
-            unreachable: true
+            unreachable: true,
+            refused: false,
         }]
     );
     assert_eq!(h.registered(), 0);
@@ -417,11 +419,13 @@ async fn unreachable_and_permanent_connection_errors_keep_their_source_classific
             vec![
                 FailedSetup::Existing {
                     udid: "a".into(),
-                    unreachable
+                    unreachable,
+                    refused: !unreachable
                 },
                 FailedSetup::Existing {
                     udid: "b".into(),
-                    unreachable
+                    unreachable,
+                    refused: !unreachable
                 }
             ]
         );
@@ -451,7 +455,8 @@ async fn disconnected_setup_is_checked_before_release_and_delete_failure_preserv
         failed,
         vec![FailedSetup::Existing {
             udid: "bad".into(),
-            unreachable: true
+            unreachable: true,
+            refused: false,
         }]
     );
     assert_eq!(h.connections.released.load(Ordering::SeqCst), 1);
@@ -470,7 +475,8 @@ async fn disconnected_setup_is_checked_before_release_and_delete_failure_preserv
         h.profiles(1).await?,
         vec![FailedSetup::Created {
             profile: profile(),
-            unreachable: false
+            unreachable: false,
+            refused: false,
         }]
     );
     // At default ERROR, WARN is suppressed; turning the registry on is covered separately by timing/logger tests.
@@ -494,7 +500,8 @@ async fn a4_empty_udid_is_non_null_and_is_released_and_deleted_on_failure() -> T
         h.profiles(1).await?,
         vec![FailedSetup::Created {
             profile: profile(),
-            unreachable: true
+            unreachable: true,
+            refused: false,
         }]
     );
     assert!(
@@ -544,7 +551,8 @@ async fn release_failure_replaces_disposal_and_registration_errors_in_the_finall
         failed,
         vec![FailedSetup::Existing {
             udid: "a".into(),
-            unreachable: false
+            unreachable: false,
+            refused: false,
         }]
     );
     assert!(logs.lock().unwrap().iter().any(|(_, _, _, e)| {

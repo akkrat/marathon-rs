@@ -88,7 +88,7 @@ async fn a80_borrow_returns_the_same_removed_disposed_allocation() -> TestResult
     Ok(())
 }
 #[tokio::test(start_paused = true)]
-async fn a81_failed_setup_is_not_retried_by_an_unchanged_snapshot() -> TestResult {
+async fn a81_an_unchanged_snapshot_leaves_a_failed_setup_to_its_timed_retry() -> TestResult {
     let p = ProviderHarness::new(|_| {})?;
     let boot = p.h.boot.clone();
     *p.h.worker.before.lock().unwrap() = Arc::new(move |cmd| {
@@ -110,6 +110,13 @@ async fn a81_failed_setup_is_not_retried_by_an_unchanged_snapshot() -> TestResul
             .unwrap() as usize
     );
     assert_eq!(p.provider.subscribe().state().queued, 0);
+    // D33: Kotlin's witness above still holds for the snapshot; the failure goes to the retry policy instead of nowhere.
+    assert_eq!(
+        *p.recovery.failed.lock().unwrap(),
+        [vec![marathon_config::devices::AppleTarget::Simulator {
+            udid: "a".into()
+        }]]
+    );
     p.finish().await
 }
 #[tokio::test(start_paused = true)]

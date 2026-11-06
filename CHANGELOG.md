@@ -28,6 +28,8 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
 - In a batch that mixes test APKs, each instrumentation runs only its own tests, and the batch reports one result
   (D28).
+- An iOS simulator whose setup failed is set up again, up to three times, 30, 60 and 90 s after each failure, instead of
+  being out for the whole run. `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
 - A history query that fails is no longer final for the run: it is retried in the background a limited number of times,
   and queues built and batches composed afterwards use the history it finds. A run never waits for this. With a
   failing analytics backend the log has more warnings and timing lines (D34).

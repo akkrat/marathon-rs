@@ -11,7 +11,7 @@ use super::{
     provisioning_plan::{CurrentDevices, PlanCalculator},
     simulator_factory::{BinaryFactory, ConstructedSimulator, SimulatorCreating},
     simulator_provisioner::{FailedSetup, ProvisioningConnections, SimulatorProvisioner},
-    timing::{ProvisioningTiming, local_transport_identity, transport_text},
+    timing::{ProvisioningTiming, local_transport_identity, profile_text, transport_text},
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use crate::apple_simulator_device::AppleSimulatorDevice;
@@ -39,7 +39,10 @@ use marathon_core::{
     runtime::{Deferred, EventChannel, VendorFuture, VendorRuntime, VendorTask},
     vendor::{DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
 };
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex, MutexGuard, Weak},
+};
 
 pub type Simulator = Arc<AppleSimulatorDevice>;
 /// Original retry/reconnect call boundaries. A production caller must supply the 5.5b policy.
@@ -73,7 +76,30 @@ pub trait ProviderRecovery: Send + Sync {
         error: ProvisioningError,
         caller: VendorContext,
     ) -> VendorFuture<'_, ()>;
+    /// D33: targets whose setup failed while their worker stayed reachable.
+    fn setup_failed(&self, transport: Transport, targets: Vec<AppleTarget>, started: i64) -> VendorFuture<'_, ()>;
+    /// D33: a snapshot removed this simulator, so a retry waiting for it is void.
+    fn forget_setup(&self, id: &JavaString);
     fn terminate(&self) -> VendorFuture<'_, ()>;
+}
+/// Which of the provider's setup cycles is running, for its timing line.
+#[derive(Clone, Copy)]
+enum SetupCycle {
+    First,
+    Late {
+        attempt: i32,
+        connected: i64,
+    },
+    /// D33: a timed retry of targets whose setup failed.
+    Retried,
+}
+/// What a setup cycle couldn't set up, by who takes it from there.
+#[derive(Default)]
+struct UnfinishedSetup {
+    /// The worker couldn't be reached: its connection retry (5.5b) owns these.
+    missing: Vec<AppleTarget>,
+    /// The worker answered and setup failed: D33's bounded retry owns these.
+    failed: Vec<AppleTarget>,
 }
 #[derive(Clone)]
 pub struct ProviderServices {
@@ -113,9 +139,15 @@ pub struct AppleSimulatorProvider {
     updates: tokio::sync::Mutex<()>,
     lifecycle: tokio::sync::Mutex<()>,
     update_tasks: RetainedTasks,
+    /// D33: one plan-and-provision per worker at a time, so that a timed retry can't plan a simulator another cycle
+    /// is setting up, or shut it down as unused. Other workers don't share a gate.
+    setup_gates: Mutex<IndexMap<Transport, Arc<tokio::sync::Mutex<()>>>>,
     provisioner: SimulatorProvisioner<Simulator>,
     planner: PlanCalculator,
     channel: Arc<SharedChannel<DeviceEvent>>,
+    /// D33: events leave in the order they were raised, whatever order their tasks run in. A retry can register a
+    /// simulator while a snapshot removes it, and its connect must not arrive after its disconnect.
+    outbox: Arc<Mutex<VecDeque<DeviceEvent>>>,
     monitor_cancel: Arc<Signal>,
     events: RetainedTasks,
     operations: RetainedTasks,
@@ -172,9 +204,11 @@ impl AppleSimulatorProvider {
             updates: tokio::sync::Mutex::new(()),
             lifecycle: tokio::sync::Mutex::new(()),
             update_tasks: RetainedTasks::default(),
+            setup_gates: Mutex::default(),
             provisioner,
             planner,
             channel: SharedChannel::new(),
+            outbox: Arc::default(),
             monitor_cancel: Signal::new(),
             events: RetainedTasks::default(),
             operations: RetainedTasks::default(),
@@ -222,10 +256,18 @@ impl AppleSimulatorProvider {
         self.state().skipped_removed.contains(id)
     }
     fn notify(&self, event: DeviceEvent) {
+        self.outbox.lock().unwrap_or_else(|e| e.into_inner()).push_back(event);
+        self.publish();
+    }
+    fn publish(&self) {
+        let outbox = self.outbox.clone();
         let channel = self.channel.clone();
         let logging = self.services.logging.clone();
         let logger = self.logger.clone();
         self.events.spawn(self.services.runtime.as_ref(), async move {
+            let Some(event) = outbox.lock().unwrap_or_else(|e| e.into_inner()).pop_front() else {
+                return Ok(());
+            };
             channel.try_send(event).map_err(|e| {
                 let detail = e.cause.unwrap_or_else(|| {
                     failure(
@@ -274,22 +316,31 @@ impl AppleSimulatorProvider {
             {
                 state.replaced.push(previous.handle.clone());
             }
+            self.services.registry.register(device.handle.clone());
+            if previous.is_none() {
+                // A removal that sees this device in the map raises its disconnect after this connect.
+                self.outbox
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push_back(DeviceEvent::Connected(device.device.clone()));
+            }
             previous
         };
-        self.services.registry.register(device.handle.clone());
-        if let Some(previous) = previous {
-            self.services.registry.remove(&previous.device);
-            if self.services.logging.enabled(&self.logger, Level::Error) {
-                let previous_text = self.object_text(&previous.handle)?;
-                let current_text = self.object_text(&device.handle)?;
-                self.log(
-                    Level::Error,
-                    || format!("replaced existing device {previous_text} with new {current_text}."),
-                    None,
-                );
-            }
-            previous.device.0.dispose().await?;
+        let Some(previous) = previous else {
+            self.publish();
+            return Ok(());
+        };
+        self.services.registry.remove(&previous.device);
+        if self.services.logging.enabled(&self.logger, Level::Error) {
+            let previous_text = self.object_text(&previous.handle)?;
+            let current_text = self.object_text(&device.handle)?;
+            self.log(
+                Level::Error,
+                || format!("replaced existing device {previous_text} with new {current_text}."),
+                None,
+            );
         }
+        previous.device.0.dispose().await?;
         self.notify(DeviceEvent::Connected(device.device));
         Ok(())
     }
@@ -365,6 +416,7 @@ impl AppleSimulatorProvider {
                             state.removed.insert(id.clone());
                             state.devices.get(&id).cloned()
                         };
+                        self.services.recovery.forget_setup(&id);
                         if let Some(device) = device {
                             removals.push(device);
                         }
@@ -481,15 +533,35 @@ impl AppleSimulatorProvider {
             }
         };
         let result = self
-            .setup(&transport, executor.clone(), &targets, started, None, caller.clone())
+            .setup(
+                &transport,
+                executor.clone(),
+                &targets,
+                started,
+                SetupCycle::First,
+                caller.clone(),
+            )
             .await;
         // Planning lease is independent of each device lease, even after a failed plan.
         self.services.connections.release(executor).await?;
-        let missing = result?;
-        if !missing.is_empty() {
+        let unfinished = match result {
+            Ok(unfinished) => unfinished,
+            Err(error) if error.is_cancelled() => return Err(error),
+            Err(error) => {
+                self.services.recovery.setup_failed(transport, targets, started).await?;
+                return Err(error);
+            }
+        };
+        if !unfinished.missing.is_empty() {
             self.services
                 .recovery
-                .missing(transport, missing, started, caller)
+                .missing(transport.clone(), unfinished.missing, started, caller)
+                .await?;
+        }
+        if !unfinished.failed.is_empty() {
+            self.services
+                .recovery
+                .setup_failed(transport, unfinished.failed, started)
                 .await?;
         }
         Ok(())
@@ -500,10 +572,22 @@ impl AppleSimulatorProvider {
         executor: marathon_apple::device::connection_factory::Executor,
         targets: &[AppleTarget],
         started: i64,
-        late: Option<(i32, i64)>,
+        kind: SetupCycle,
         caller: VendorContext,
-    ) -> ProvisioningResult<Vec<AppleTarget>> {
+    ) -> ProvisioningResult<UnfinishedSetup> {
         let connected = self.services.timing.elapsed()?;
+        let gate = self
+            .setup_gates
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(transport.clone())
+            .or_default()
+            .clone();
+        // The lock comes first: an uncontended gate changes nothing, even for a caller that is being cancelled.
+        let _gate = tokio::select! { biased;
+            gate = gate.lock() => gate,
+            reason = caller.cancellation.cancelled() => return Err(VendorError::Cancelled(reason).into()),
+        };
         let bin = (self.services.binaries)(executor.clone());
         let cycle = Arc::new(WorkerProvisioningContext::new(transport.clone(), caller.hooks.clone()));
         let plan = self
@@ -540,11 +624,14 @@ impl AppleSimulatorProvider {
                     },
                     None,
                 );
-                return Ok(targets
-                    .iter()
-                    .filter(|t| matches!(t, AppleTarget::Simulator { .. } | AppleTarget::SimulatorProfile(_)))
-                    .cloned()
-                    .collect());
+                return Ok(UnfinishedSetup {
+                    missing: targets
+                        .iter()
+                        .filter(|t| matches!(t, AppleTarget::Simulator { .. } | AppleTarget::SimulatorProfile(_)))
+                        .cloned()
+                        .collect(),
+                    failed: Vec::new(),
+                });
             }
         };
         let planned = self.services.timing.elapsed()?;
@@ -552,37 +639,53 @@ impl AppleSimulatorProvider {
             .provisioner
             .provision(plan.clone(), transport.clone(), bin, cycle, caller)
             .await?;
-        if let Some((attempt, connected_late)) = late {
-            self.services.timing.info(|| Ok(format!("Worker {}: connected late on attempt {attempt} in {} ms, planned {} simulators in {} ms, provisioned them in {} ms", transport.id().to_string_lossy(), connected_late.wrapping_sub(started), plan.existing_simulators.len() + plan.needs_provisioning.len(), planned.wrapping_sub(connected_late), self.services.timing.elapsed()?.wrapping_sub(planned))))?;
-        } else {
-            self.services.timing.cycle(
+        match kind {
+            SetupCycle::Late { attempt, connected: connected_late } => self.services.timing.info(|| Ok(format!("Worker {}: connected late on attempt {attempt} in {} ms, planned {} simulators in {} ms, provisioned them in {} ms", transport.id().to_string_lossy(), connected_late.wrapping_sub(started), plan.existing_simulators.len() + plan.needs_provisioning.len(), planned.wrapping_sub(connected_late), self.services.timing.elapsed()?.wrapping_sub(planned))))?,
+            SetupCycle::Retried => self.services.timing.info(|| Ok(format!("Worker {}: set up again after a failed setup, planned {} simulators in {} ms, provisioned them in {} ms", transport.id().to_string_lossy(), plan.existing_simulators.len() + plan.needs_provisioning.len(), planned.wrapping_sub(connected), self.services.timing.elapsed()?.wrapping_sub(planned))))?,
+            SetupCycle::First => self.services.timing.cycle(
                 transport,
                 connected.wrapping_sub(started),
                 planned.wrapping_sub(connected),
                 plan.existing_simulators.len() + plan.needs_provisioning.len(),
                 planned,
-            )?;
+            )?,
         }
         let lost = !executor.connected();
-        Ok(failures
-            .into_iter()
-            .filter_map(|failure| match failure {
-                FailedSetup::Existing { udid, unreachable } if unreachable || lost => targets
-                    .iter()
-                    .find(|t| matches!(t, AppleTarget::Simulator { udid: id } if id.to_string_lossy() == udid))
-                    .cloned()
-                    .or_else(|| {
-                        plan.reused_profiles
-                            .get(&udid)
-                            .cloned()
-                            .map(AppleTarget::SimulatorProfile)
-                    }),
-                FailedSetup::Created { profile, unreachable } if unreachable || lost => {
-                    Some(AppleTarget::SimulatorProfile(profile))
-                }
-                _ => None,
-            })
-            .collect())
+        let mut unfinished = UnfinishedSetup::default();
+        for failure in failures {
+            let (target, unreachable, refused) = match failure {
+                FailedSetup::Existing {
+                    udid,
+                    unreachable,
+                    refused,
+                } => (
+                    targets
+                        .iter()
+                        .find(|t| matches!(t, AppleTarget::Simulator { udid: id } if id.to_string_lossy() == udid))
+                        .cloned()
+                        .or_else(|| {
+                            plan.reused_profiles
+                                .get(&udid)
+                                .cloned()
+                                .map(AppleTarget::SimulatorProfile)
+                        }),
+                    unreachable,
+                    refused,
+                ),
+                FailedSetup::Created {
+                    profile,
+                    unreachable,
+                    refused,
+                } => (Some(AppleTarget::SimulatorProfile(profile)), unreachable, refused),
+            };
+            let Some(target) = target else { continue };
+            if unreachable || lost {
+                unfinished.missing.push(target);
+            } else if !refused {
+                unfinished.failed.push(target);
+            }
+        }
+        Ok(unfinished)
     }
     pub fn current(&self, transport: &Transport) -> ProvisioningResult<CurrentDevices> {
         let mut current = CurrentDevices {

@@ -12,6 +12,8 @@ use marathon_apple::device::{
 use marathon_core::runtime::CancellationSignal;
 use tokio::sync::Semaphore;
 
+mod setup_retry;
+
 #[derive(Default)]
 struct PolicyState {
     provider: Weak<AppleSimulatorProvider>,
@@ -19,6 +21,7 @@ struct PolicyState {
     losses: IndexMap<JavaString, i32>,
     awaiting_admission: IndexSet<JavaString>,
     closed: Option<String>,
+    setup: setup_retry::SetupRetries,
 }
 /// One supervised retry root per run, independent of monitoring's recovery children.
 pub struct SimulatorRecovery {
@@ -252,14 +255,17 @@ impl SimulatorRecovery {
                     let Some(targets) = pending.take() else { return Ok(false); };
                     let targets: Vec<_> = targets.into_iter().filter(|target| !matches!(target, AppleTarget::Simulator { udid } if provider.state().removed.contains(&apple_id(udid, transport)))).collect();
                     if targets.is_empty() { continue; }
-                    let missing = match provider.setup(transport, executor.clone(), &targets, started, Some((attempt, connected)), caller.clone()).await {
-                        Ok(missing) => missing,
+                    let unfinished = match provider.setup(transport, executor.clone(), &targets, started, SetupCycle::Late { attempt, connected }, caller.clone()).await {
+                        Ok(unfinished) => unfinished,
                         Err(error) if error.is_cancelled() => return Err(error.into_vendor()),
                         Err(error) => {
                             provider.log(Level::Error, || format!("Failed to initialize worker {worker}"), Some(error.output_failure()));
+                            self.schedule_setup_retry(provider, transport, targets, started)?;
                             return Ok(false);
                         }
                     };
+                    self.schedule_setup_retry(provider, transport, unfinished.failed, started)?;
+                    let missing = unfinished.missing;
                     if missing.is_empty() { continue; }
                     last = missing_failure(missing.len());
                     provider.log(Level::Warn, || format!("Worker {worker}: {} devices could not connect, retrying", missing.len()), None);
@@ -498,9 +504,22 @@ impl ProviderRecovery for SimulatorRecovery {
             Ok(())
         })
     }
+    fn setup_failed(&self, transport: Transport, targets: Vec<AppleTarget>, started: i64) -> VendorFuture<'_, ()> {
+        Box::pin(async move {
+            let provider = self.provider()?;
+            self.schedule_setup_retry(&provider, &transport, targets, started)
+        })
+    }
+    fn forget_setup(&self, id: &JavaString) {
+        self.state().setup.forget(id);
+    }
     fn admit(&self, id: &JavaString, device: &Simulator) -> ProvisioningResult<()> {
         let provider = self.provider()?;
-        let late = self.state().pending.contains_key(device.transport()) && !provider.state().devices.contains_key(id);
+        // D33: a retried simulator joins as late as one of a late worker, under the same cut-off.
+        let late = {
+            let state = self.state();
+            state.pending.contains_key(device.transport()) || state.setup.running(device.transport())
+        } && !provider.state().devices.contains_key(id);
         if late || self.state().awaiting_admission.contains(id) {
             if let Some(reason) = self.late_join_cutoff()? {
                 if let Some(previous) = provider.state().devices.get(id) {
