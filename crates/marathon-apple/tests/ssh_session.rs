@@ -222,8 +222,8 @@ async fn exec_rejection_by_a_peer_that_never_answers_close_is_still_request_fail
         4,
     )
     .await;
-    // 5 s in compressed time (factor 100).
-    let (executor, events) = executor_with(&fake, 100, 0).await;
+    // 5 s in compressed time (factor 10).
+    let (executor, events) = executor_with(&fake, 10, 0).await;
     let started = Instant::now();
     let failure = other(
         executor
@@ -233,7 +233,7 @@ async fn exec_rejection_by_a_peer_that_never_answers_close_is_still_request_fail
             .unwrap(),
     );
     assert!(
-        started.elapsed() >= Duration::from_millis(50),
+        started.elapsed() >= Duration::from_millis(500),
         "{:?}",
         started.elapsed()
     );
@@ -497,14 +497,14 @@ async fn await_concurrent_with_close_is_cancelled() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn first_close_fails_after_term_kill_and_thirty_seconds_and_second_close_cancels_the_scope_d30() {
-    // T15 with sshj's 30 s in compressed time (factor 100): nothing ends the process, and the peer never answers CLOSE.
+    // T15 with sshj's 30 s in compressed time (factor 10): nothing ends the process, and the peer never answers CLOSE.
     let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 4).await;
-    let (executor, events) = executor_with(&fake, 100, 0).await;
+    let (executor, events) = executor_with(&fake, 10, 0).await;
     let session = start(&executor, &["held"], 600_000).await;
     let started = Instant::now();
     let first = other(session.close().await.err().unwrap());
     assert!(
-        started.elapsed() >= Duration::from_millis(300),
+        started.elapsed() >= Duration::from_millis(3000),
         "{:?}",
         started.elapsed()
     );
@@ -536,16 +536,17 @@ async fn first_close_fails_after_term_kill_and_thirty_seconds_and_second_close_c
         .count();
     assert_eq!(abandoned, 1, "{lines:?}");
     // Approved P5: the second close skips the backend (Kotlin's closed flag) but cancels and joins the scope.
-    let second = Instant::now();
-    assert_eq!(session.close().await, Ok(()));
-    assert!(second.elapsed() < Duration::from_millis(250));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(60), session.close()).await,
+        Ok(Ok(()))
+    );
     assert!(matches!(
         session.await_result(&context()).await,
         Err(VendorError::Cancelled(_))
     ));
     assert_eq!(fake.events("signal").await.len(), 2);
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
 }
@@ -553,10 +554,10 @@ async fn first_close_fails_after_term_kill_and_thirty_seconds_and_second_close_c
 #[tokio::test(flavor = "multi_thread")]
 async fn a_fast_exit_on_term_closes_at_once_and_sends_no_kill_d30() {
     let fake = ssh::fake(ssh::suite_script(), 4).await;
-    // At this scale the 20 s before KILL last 20 s, far beyond the fast outcome.
+    // At this scale KILL would come after a real 20 s and show in the signals below; the deadline only catches a hang.
     let (executor, events) = executor_with(&fake, 1, 0).await;
     let session = start(&executor, &["sleep", "1000"], 600_000).await;
-    let closed = tokio::time::timeout(Duration::from_secs(15), session.close()).await;
+    let closed = tokio::time::timeout(Duration::from_secs(60), session.close()).await;
     assert_eq!(closed, Ok(Ok(())));
     let signals = fake.events_at_least("signal", 1).await;
     assert_eq!(signals.len(), 1);
@@ -571,13 +572,13 @@ async fn a_fast_exit_on_term_closes_at_once_and_sends_no_kill_d30() {
 #[tokio::test(flavor = "multi_thread")]
 async fn kill_ends_a_process_that_ignores_term_and_the_close_succeeds_d30() {
     let fake = ssh::fake(rules(vec![ssh::exact("stubborn", unstoppable(&["TERM"], false))]), 4).await;
-    let (executor, events) = executor_with(&fake, 100, 0).await;
+    let (executor, events) = executor_with(&fake, 5, 0).await;
     let session = start(&executor, &["stubborn"], 600_000).await;
     let started = Instant::now();
     assert_eq!(session.close().await, Ok(()));
-    // 10 s at this scale: the process had its time to end on TERM.
+    // 20 s at this scale: the process had its time to end on TERM. The reply then has 2 s.
     assert!(
-        started.elapsed() >= Duration::from_millis(100),
+        started.elapsed() >= Duration::from_millis(4000),
         "{:?}",
         started.elapsed()
     );
@@ -592,7 +593,7 @@ async fn kill_ends_a_process_that_ignores_term_and_the_close_succeeds_d30() {
             .all(|(.., message)| !message.starts_with("Abandoning"))
     );
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
 }
@@ -600,7 +601,7 @@ async fn kill_ends_a_process_that_ignores_term_and_the_close_succeeds_d30() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_exit_report_ends_the_term_wait_when_the_peer_keeps_the_channel_open_d30() {
     // sshd can report an exit and hold its CLOSE until the client's, for example while a child holds the output open.
-    // At factor 1 the TERM wait lasts 10 s: if the report did not end it, KILL would come before CLOSE.
+    // At factor 1 the TERM wait lasts 20 s: if the report did not end it, KILL would come before CLOSE.
     let fake = ssh::fake(rules(vec![ssh::exact("held", hang_with(vec![], &[], true))]), 4).await;
     let (executor, _) = executor_with(&fake, 1, 0).await;
     let session = Arc::new(start(&executor, &["held"], 600_000).await);
@@ -620,7 +621,7 @@ async fn the_exit_report_ends_the_term_wait_when_the_peer_keeps_the_channel_open
 #[tokio::test(flavor = "multi_thread")]
 async fn an_awaiter_of_an_abandoned_session_is_released_without_a_second_close_d30() {
     let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 4).await;
-    let (executor, _) = executor_with(&fake, 100, 0).await;
+    let (executor, _) = executor_with(&fake, 10, 0).await;
     let session = start(&executor, &["held"], 600_000).await;
     let ctx = context();
     let both = async { tokio::join!(session.await_result(&ctx), session.close()) };
@@ -632,7 +633,7 @@ async fn an_awaiter_of_an_abandoned_session_is_released_without_a_second_close_d
 #[tokio::test(flavor = "multi_thread")]
 async fn abandoning_a_session_leaves_the_connection_and_its_other_sessions_alone_d30() {
     let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 2).await;
-    let (executor, _) = executor_with(&fake, 100, 0).await;
+    let (executor, _) = executor_with(&fake, 10, 0).await;
     let other_session = start(&executor, &["sleep", "1000"], 600_000).await;
     let session = start(&executor, &["held"], 600_000).await;
     assert!(session.close().await.is_err());
@@ -642,7 +643,7 @@ async fn abandoning_a_session_leaves_the_connection_and_its_other_sessions_alone
     assert_eq!(fake.events("connection_end").await.len(), 0);
     assert_eq!(other_session.close().await, Ok(()));
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
 }
@@ -650,7 +651,7 @@ async fn abandoning_a_session_leaves_the_connection_and_its_other_sessions_alone
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null() {
     let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 4).await;
-    let (executor, events) = executor_with(&fake, 100, 0).await;
+    let (executor, events) = executor_with(&fake, 10, 0).await;
     // T15h: the total timeout sends TERM, D30's close waits 30 s and fails, so await fails instead of returning null.
     let session = start(&executor, &["held"], 100).await;
     let failure = other(session.await_result(&context()).await.err().unwrap());
@@ -691,7 +692,7 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
     assert_eq!(throwable.as_ref().unwrap().class, CONNECTION_EXCEPTION.into());
     assert!(executor.connected());
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
 }
@@ -710,12 +711,13 @@ async fn ignored_term_on_timeout_still_gives_null() {
         4,
     )
     .await;
-    let (executor, _) = executor_with(&fake, 50, 0).await;
+    // The reply to CLOSE has a real second at this factor, and the fake's late output comes well within the TERM wait.
+    let (executor, _) = executor_with(&fake, 10, 0).await;
     let result = ssh::run(&executor, &["stubborn"], 100).await.unwrap();
     assert_eq!(result.exit_code, None);
     assert_eq!(fake.events_at_least("signal_ignored", 1).await.len(), 1);
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
 }

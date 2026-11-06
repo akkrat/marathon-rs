@@ -36,12 +36,12 @@ const MAX_BUFFER: usize = 16 * 1024 * 1024;
 /// D29: how long a rejected `exec` waits for the peer's reply to its CLOSE. No process runs behind a rejected request,
 /// so a healthy peer answers within a round trip, and the slot is free before the caller's next command.
 const REJECTED_CLOSE_WAIT_MILLIS: i64 = 5_000;
-/// D30: how long a process gets to end on TERM before KILL and CLOSE. It is the time a server that ignores signals
-/// delays the CLOSE that may be all that stops the process there, so it is short; the slowest process measured to end on
-/// TERM took 8 s (T15t).
-const TERM_WAIT_MILLIS: i64 = 10_000;
-/// D30: how long the peer gets to answer CLOSE. With [`TERM_WAIT_MILLIS`] this is sshj's 30 s, so no close takes longer
-/// than Kotlin's first wait, and `Timeout expired: 30000 MILLISECONDS` stays true.
+/// D30: how long a process gets to end on TERM before KILL and CLOSE. Most of Kotlin's 30 s, so xcodebuild has room to
+/// finish its cancellation (how long that takes on a real worker is unmeasured). A server that ignores signals gets its
+/// CLOSE this much later, but marathon cannot drive a worker through such a server anyway.
+const TERM_WAIT_MILLIS: i64 = 20_000;
+/// D30: how long the peer gets to answer CLOSE, which after KILL needs only a reap. With [`TERM_WAIT_MILLIS`] this is
+/// sshj's 30 s, so no close takes longer than Kotlin's first wait, and `Timeout expired: 30000 MILLISECONDS` stays true.
 const CLOSE_WAIT_MILLIS: i64 = TIMEOUT_MILLIS - TERM_WAIT_MILLIS;
 
 #[derive(Default)]

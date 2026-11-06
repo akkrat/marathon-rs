@@ -258,25 +258,33 @@ async fn t15t_timeout_on_a_process_that_ignores_term() {
 #[ignore = "needs MARATHON_SSH_REAL"]
 async fn t30_kill_ends_a_process_that_ignores_term() {
     let executor = connect().await;
-    // No `exec`: the child, which inherits the ignored TERM, must die too.
-    let ignoring = ["sh", "-c", "trap \"\" TERM; sleep 1037; echo survived"];
+    // No `exec`: the child, which inherits the ignored TERM, must die too. The duration is this run's, because the probe
+    // below matches command lines, and any other process that mentions a fixed number would match as well.
+    let seconds = 100_000 + std::process::id();
+    let body = format!("trap \"\" TERM; sleep {seconds}; echo survived");
+    let ignoring = ["sh", "-c", body.as_str()];
     let session = executor.execute(request(&ignoring, 600_000), context()).await.unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
     let started = Instant::now();
     assert_eq!(session.close().await, Ok(()));
     let close_ms = started.elapsed().as_millis();
-    assert!((9_000..29_000).contains(&close_ms), "{close_ms}");
-    // sshd answers when the session's own process is reaped; the rest of its group may need another moment.
-    let left = ["sh", "-c", "pgrep -fl \"[s]leep 1037\""];
-    let mut gone = false;
+    assert!((19_000..29_000).contains(&close_ms), "{close_ms}");
+    // sshd answers when the session's own process is reaped, so give the rest of its group a moment.
+    let probe = format!("pgrep -fl \"[s]leep {seconds}\"");
+    let left = ["sh", "-c", probe.as_str()];
+    let mut found = Vec::new();
     for _ in 0..600 {
-        if ssh::run(&executor, &left, 10_000).await.unwrap().stdout.is_empty() {
-            gone = true;
+        found = ssh::run(&executor, &left, 10_000).await.unwrap().stdout;
+        if found.is_empty() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert!(gone, "a process of the session's group survived KILL");
+    assert_eq!(
+        found,
+        Vec::<String>::new(),
+        "a process of the session's group survived KILL"
+    );
     println!("T30.info.close_ms: {close_ms}");
 }
 
