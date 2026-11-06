@@ -700,7 +700,7 @@ fn lookups_on_another_thread_see_one_value_or_the_other_while_refreshes_land() {
                     if seen.last() != Some(&value) {
                         seen.push(value);
                     }
-                    std::thread::yield_now();
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                 }
                 seen
             })

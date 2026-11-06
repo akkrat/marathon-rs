@@ -451,15 +451,15 @@ The prefetch goes through the run-wide memoising MetricsProvider, deduplicated b
 `MetricsKey` with single-flight across concurrent pool builds: one query and
 TimingLog line per key per run, as in Kotlin (whose coverage report at
 `Marathon.kt:180–181` already queries the ExecutionTime keys before any pool
-exists). See PLAN §3.11 D13 for the two residual cases.
+exists). See PLAN §3.11 D13 for the two residual cases. Outside queue
+construction, retain source first-touch timing. Do not turn a failed query
+into an arbitrary Ordering. Validate lookup order against the oracle; record
+residual query/log differences in the owning WP findings.
+
 D34 (2026-11-06): a query that fails is refreshed by one task on the vendor runtime, never by a lookup, so core still
 reads memory only. A strategy reads through `MetricsLookup::view`, an immutable snapshot: a comparator's lasts as long as
 its queue, and a batch's or a flakiness pass's as long as that read. A refresh that lands later reaches only later
 snapshots, and `MetricsProvider::close` cancels and joins it before closing the source. See `docs/wp/x15-findings.md`.
- Outside queue
-construction, retain source first-touch timing. Do not turn a failed query
-into an arbitrary Ordering. Validate lookup order against the oracle; record
-residual query/log differences in the owning WP findings.
 
 Finish is guarded **before** the first close (`Marathon.kt:243–249`):
 analytics.close → provider.terminate → tracker.close (report generation) →
