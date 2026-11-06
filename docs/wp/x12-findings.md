@@ -268,9 +268,89 @@ A second review of `0a9b1266` tried to break the fixes with throwaway tests, on 
 - **Reasoning only:** remote test parsing has no D22 gate and retries three times without delay, so an outage landing exactly there could use all its attempts. Kills at 50–600 virtual ms with a restart all passed; the case was not produced.
 - **Not reached:** the D24 races (disconnect during `borrow`, setup or a handed-out batch; repeated reconnects); a never-matching md5 through legacy install and file sync; cancellation while polling; prepare over stale files; silent-server runs for streaming, split and legacy install, `host:devices`, and `getprop` during boot; provider termination in the middle of an outage at whole-run level; flapping with a low `uncompletedTestRetryQuota`.
 
+## Real emulator checks
+
+The native release binary of `d744b672`, on a Linux host with KVM, on 2026-11-06, about 50 minutes of machine time. Android emulator 37.1.11, adb 1.0.41, a private adb server on a high port, no physical device (USB guard passed).
+
+| Image | API | `screenrecord` path | Used for |
+|---|---|---|---|
+| `google_apis` x86_64, Android 16 | 36 | v2, one file per test | D22, D24, D25, a video run |
+| `default` x86_64, Android 13 | 33 | v1, 180 s chunks | D21, D24, D25, D26, D27, D28 |
+
+The sample app was built from the frozen source, with one added test class that logs a line per second for 5 to 200 s and prints nothing to instrumentation. D28's second test APK comes from the same sample with another test package.
+
+**One bug found (the first row below), not a regression:** an outage during remote test parsing can give a green run with tests missing. Everything else held, apart from what is listed as not checked.
+
+| Check | Outcome | Evidence |
+|---|---|---|
+| **D25 / N38: stream ending during remote parsing** | **BUG.** A real EOF is not a producer failure, so `remote_parser.rs` takes `take_failure() == None`, leaves its loop and returns the tests found so far. D25's retry never runs. See below | Of 11 kills around parsing: 8 runs ended at once with `NoTestCasesFoundException`, exit 1; **1 run parsed 1 of 67 tests, scheduled 0 and exited 0**; 2 came too late to cut the list short |
+| D22: real server's restart | **Well inside the 30 s window** | `kill-server`, then `start-server` by hand, 3 times: `device` in the first list, 0.45 s. Under marathon, from gone to `device`: 1.30–1.57 s over 6 runs, 1 s of it the backoff. `offline` never seen |
+| D22 (a): kill during a test | Pass, exit 0 | `sleep20a` INCOMPLETE at 8.06 s, then PASSED in 20.01 s after the restart; other tests unaffected; 1 incomplete, quota 3 |
+| D22 (b): kill between batches | Pass, exit 0 | Killed on the line reporting the previous test. The next batch had just started: INCOMPLETE at 38 ms, retried, PASSED. 3 of 3 passed |
+| D22 (c): kill during prepare | Pass, exit 0, at each of 3 points | During the app's install and the test APK's: `InstallException` logged, the device connected again, the install ran again. Just after installation: `Could not clear logcat` logged, and the run went on. No test used quota |
+| D22: kill during a video | Pass, exit 0 | `Unable to start screenrecord` logged, test retried, a video for each passed test. One `.mp4` stayed in `/sdcard`: see below |
+| D22: a retried test really runs | Yes | 20 of 20 log lines and the full duration in the retry's logcat file |
+| D22: logcat after the restart | Resumes, no duplicates | 0 duplicated lines in any per-test file of any kill run. A per-test file can lack the test's first line, also in fault-free runs (44 of 45), so that is attribution at the test's start and not the outage |
+| D22: quota | Holds | With quota 0: one FAILURE and no retry, exit 1 |
+| D22 (d): server cannot return | Pass, exit 1, no hang | `androidSdk` with no `adb`, and with a fake `adb` exiting 0: run ends 30.0 s after the kill with `did not return in 30000 ms; disconnecting its devices`, total 34.4 s |
+| D21: silent v1 `screenrecord` on API 33 | **Pass: the known risk does not occur** | Silent 200 s test, default `socketIdleTimeout`: first chunk `exit code=0` after 180.3 s, second after 19.9 s, both pulled, test PASSED |
+| D21: API 36 video, silent tests | Pass | 45 s and 70 s silent tests PASSED with recordings of about that length. `FilePushTest#testExternalFolderPresent` fails as the sample always has (7.2) |
+| D21: `pm clear` | Pass | Marker in app data gone after a run with it, present after a control run without it |
+| D21: install | Pass | Sample APKs 0.1–0.2 s. 505 MB APK 2.5 s: the disk here is too fast to make the install silent for long, so this does not show a silence over 30 s |
+| D21: perfetto | Pass | API 33, 45 s test: trace written (1,187,402 bytes) and pulled as `.profile` |
+| D24: `networkState` | Pass | Emulator killed with quota 0 and a second emulator: the lost device's `test_result` JSON reads `DISCONNECTED`, `healthy: false`; the survivor's reads `CONNECTED`. With retries left, no JSON is written for the lost device, as the retry's result is the final one |
+| D25: killing an emulator mid-test | Run behaves, text absent | With a second emulator: disconnected within 60 ms, test retried on the survivor, 6 of 6 passed, exit 0. See the route below |
+| D27: marker in `/sdcard` | Pass | Marker and a nested file survive two runs; both exit 0; 3 videos each, none stale; no video left on the device |
+| D27: sync paths | Pass | A nested pull directory or one that cannot be created (external storage, local tmp, app data) gives an empty local folder and a passing run |
+| D26: real APKs | Pass | The real test APK re-dexed by stable d8 8.10.9 (build-tools 36.0.0), to 039, 040 and 041, the last two by its system properties. `marathon parse` lists the same tests for the original (035) and all three |
+| D26: real 040 run | Pass, exit 0 | The 040 APK on API 33: 2 of 2 passed. 041 was parsed only |
+| D23: normal pushes | Pass | Pushes with verification `synced in` 21–28 ms. A never-matching md5 was not forced |
+| D28: a real mixed batch | Pass | One `executeBatch`, two `am instrument`, each with its own tests; 3 passed and the intended failure failed, exit 1; the test APK identifies itself correctly in a test |
+
+**The false green.** `AmInstrumentTestParser` needs only a closed channel to call an attempt finished. D25 turned a *failed* producer into a parse failure, but none of the routes below is one, as a dropped socket ends the shell stream normally. So when the connection goes during parsing:
+
+- No test reported yet: 0 tests, `NoTestCasesFoundException`, exit 1, with no retry although the D22 restart succeeds moments later.
+- Some tests reported: a partial list, taken as complete. The run seen had a filter that matched none of them, so it scheduled nothing and exited 0, printing only `Parsed 1 tests`. Without a filter it would be expected to run that part only; this was not run.
+- An emulator killed during parsing, with another healthy one: exit 1 after 1.3 s, and the other device is not tried. Killing `am` on the device: the same.
+
+The window is the parse at the start of a run, about 2 s here, and only with the remote parser. Kotlin has the same behaviour (N38), so this is not a regression, but D25's statement that an attempt "fails, and is retried, instead of returning only the tests found so far" holds for fewer cases than it says. A fix would treat a stream with no instrumentation result as a failed attempt.
+
+**The route of a real EOF, D25's question.** `Instrumentation failed` appeared in none of the runs.
+
+| Fault | Route | Text a final failure carries |
+|---|---|---|
+| Emulator killed | `host:track-devices` reports it first, the disconnect cancels the batch | None: `<failure></failure>` |
+| adbd killed in the emulator | The same route | None seen: the test stayed incomplete, as the run ended |
+| adb server killed during a test | Stream ends early | None |
+| adb server killed as a batch starts | Stream ends early, no test started | `No test results` |
+| `am` killed on the device | Stream ends early | None |
+
+So on real faults the report does not show the cause; the log does (`Lost device tracking…`, `changed state to DISCONNECTED`). This matches D25's row "a stream that ends early: unchanged", and no test is lost, but the failure text stays as uninformative as in Kotlin for these faults. D25's text is for rejected handshakes and refused connections, which the D22 gate makes rare; none occurred here.
+
+**Other observations.**
+
+- **A device going `offline` for a moment ends a run on its last device.** adbd killed in the emulator: `offline`, disconnected at once, run over with exit 1 at 7.5 s, the device back as `device` within 2 s. D22 covers the server going away, not this, so it is unchanged.
+- **Plain `fixed-size` batching never mixes test APKs**, as it locks a batch to one bundle: two APKs gave two ordinary batches. A mixed batch needed `class-name` batching and one class name in both APKs, so D28's fix applies to few configurations.
+- **Coverage of a mixed batch keeps the last instrumentation's file only:** 2,809 bytes against 11,928 for the first APK alone, the case listed under "Incidental bugs".
+- **D27 leaves an interrupted test's video on external storage, in normal runs too.** After the kill during a video, one `.mp4` stayed in `/sdcard` at the end of a run that exited 0, presumably the interrupted attempt's; its name was not recorded. The names hold a random batch id, so each interruption can add one and no later run removes it. The deviation documents this for aborted runs only. Not a failure, and small.
+- **A pull directory sharing its name with a pushed folder.** In this configuration the pulled file is at `external-folder/external-folder/external-file-2`, which suggests the pushed folder lands one level deeper because the pull directory exists first, and so `testExternalFolderPresent` fails; 7.2 saw that failure on both sides. The layout on the device was not inspected.
+- **Once a freshly booted API 36 emulator answered `cmd: Can't find service: package`** during install; setup's retry recovered in about 12 s and the run passed. The previous run on it had been the invalid two-serial run below, so this says little.
+
+**Not checked.**
+
+| Item | Why |
+|---|---|
+| D22: reverse forwards returning | Emulators with an `emulator-` serial never get one (`is_local_emulator`). A device reached by `adb connect` does, but an emulator re-registers with a restarted server under its own serial as well, so one VM became two devices; that one run was invalid (`Process crashed`) and proves nothing. Separating them means an emulator with another adb port, outside the rules for this check. A physical device or a TCP device on a farm is the way |
+| D23: a never-matching md5 | Hard to force on a real device, as expected |
+| D21: an install silent for over 30 s | The storage is too fast; a 505 MB APK took 2.5 s |
+| Aborted runs leaving videos (D27) | Documented behaviour; not exercised |
+| D28 with a failing or timed-out instrumentation, D28 with Allure pulled from two applications | The batch held one application. The Allure pull ran and results were written for all tests |
+| An emulator that restarts during an outage | Known and documented in the review above |
+| JVM comparison | Not needed for any answer. The statements on Kotlin come from N38 and 7.2 |
+
 ## Incidental bugs
 
-Our own code: U151 in `docs/found-bugs.md`, from the review above. Kotlin behaviour seen nearby and left alone:
+Our own code: U151 in `docs/found-bugs.md`, from the review above, and the remote parsing false green under "Real emulator checks", which is N38 not fully covered by D25 and has no U number yet. Kotlin behaviour seen nearby and left alone:
 
 - **Coverage of two instrumentations of one application.** `coverage-<batch>.ec` has the same path, so the second overwrites the first. D28 makes this no worse than before, and it is rare.
 - **Profiling with several instrumentations.** `ProfilingRunListener` takes `pidof` from the bundle of the batch's first test, so a later instrumentation's trace targets the wrong package.
