@@ -11,7 +11,7 @@ use marathon_android::{
 use marathon_config::vendor::SerialStrategy;
 use marathon_core::{
     error::*,
-    vendor::{Device, DeviceEvent, DeviceProvider},
+    vendor::{Device, DeviceEvent, DeviceProvider, RemoteTestParser},
 };
 use std::collections::HashMap;
 use support::*;
@@ -436,6 +436,31 @@ fn a_batch_waits_for_a_lost_server_d22() {
         })
     });
 }
+/// The remote parser's outage tests: a script whose first `failing` instrumentations hang after a test, so that killing
+/// the server cuts them off, and the parse that a config for the remote parser runs over it.
+fn parse_script(failing: usize) -> serde_json::Value {
+    let test = |code| {
+        format!(
+            "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=one\nINSTRUMENTATION_STATUS: numtests=2\nINSTRUMENTATION_STATUS_CODE: {code}\n"
+        )
+    };
+    let two = format!(
+        "{}{}{}{}INSTRUMENTATION_CODE: -1\n",
+        test(1),
+        test(0),
+        test(1).replace("test=one", "test=two"),
+        test(0).replace("test=one", "test=two")
+    );
+    let mut s = base_script(30, vec!["shell_v2", "cmd"]);
+    let rules = s["shell"].as_array_mut().unwrap();
+    rules.push(serde_json::json!({"exact":"pm list packages","stdout":""}));
+    rules.push(serde_json::json!({"prefix":"cmd package install","service":"exec","stdout":"Success\n"}));
+    if failing > 0 {
+        rules.push(serde_json::json!({"prefix":"am instrument","stdout":format!("{}{}", test(1), test(0)),"hang":true,"times":failing}));
+    }
+    rules.push(serde_json::json!({"prefix":"am instrument","stdout":two}));
+    s
+}
 fn parse_configuration() -> marathon_config::Configuration {
     let mut c = configuration();
     let a = android(&mut c);
@@ -447,6 +472,112 @@ fn parse_configuration() -> marathon_config::Configuration {
     };
     c.test_output_timeout_millis = 60_000;
     c
+}
+async fn instruments(server: &marathon_adb::server::FakeAdbServer, wanted: usize) {
+    checked(
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            while commands(server)
+                .iter()
+                .filter(|s| s.starts_with("am instrument"))
+                .count()
+                < wanted
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await,
+    );
+}
+/// D22 and D25: the kills of the real check. Remote parsing has three attempts with no delay, which an outage would use
+/// up in its first moments, ending the run on a server that returns just after. Here four attempts run: each of the
+/// three outages costs one, and none of them counts.
+#[test]
+fn remote_parsing_waits_out_an_outage_and_it_uses_up_no_attempt_d22() {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
+    run(parse_configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(parse_script(3)).await;
+            let runtime = change_runtime(&runtime, &[server.port()]);
+            let provider = std::sync::Arc::new(AdamDeviceProvider::new(runtime.clone())?);
+            provider.initialize(context.clone()).await?;
+            let DeviceEvent::Connected(device) = event(&provider).await else {
+                panic!("connection")
+            };
+            let parser = marathon_android::remote_parser::AmInstrumentTestParser {
+                runtime,
+                provider: provider.clone(),
+            };
+            let parse = tokio::spawn({
+                let (device, context) = (device.clone(), context.clone());
+                async move { parser.extract(device, context).await }
+            });
+            for attempt in 1..=3 {
+                instruments(&server, attempt).await;
+                // The output so far has reached the fake's client when it asks no more; the kill cuts the stream.
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                server.kill(Some(std::time::Duration::from_millis(300)));
+                track_requests(&server, attempt + 1).await;
+            }
+            let tests = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), parse).await,
+            ))?;
+            let names: Vec<_> = tests.iter().map(|t| t.method.to_string_lossy()).collect();
+            assert_eq!(names, ["one", "two"]);
+            assert_eq!(
+                commands(&server)
+                    .iter()
+                    .filter(|s| s.starts_with("am instrument"))
+                    .count(),
+                4
+            );
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+/// D22: a server that never returns ends the parse with a failure, after its bound. Its device is given up, the
+/// parser's attempts then run out and do not wait again.
+#[test]
+fn remote_parsing_fails_when_the_server_never_returns_d22() {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
+    let mut c = parse_configuration();
+    android(&mut c).wait_for_devices_timeout_millis = 1500;
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(parse_script(1)).await;
+            let runtime = change_runtime(&runtime, &[server.port()]);
+            let provider = std::sync::Arc::new(AdamDeviceProvider::new(runtime.clone())?);
+            provider.initialize(context.clone()).await?;
+            let DeviceEvent::Connected(device) = event(&provider).await else {
+                panic!("connection")
+            };
+            let android = provider.android_device(&device).unwrap();
+            let parser = marathon_android::remote_parser::AmInstrumentTestParser {
+                runtime,
+                provider: provider.clone(),
+            };
+            let parse = tokio::spawn({
+                let (device, context) = (device.clone(), context.clone());
+                async move { parser.extract(device, context).await }
+            });
+            instruments(&server, 1).await;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            server.kill(None);
+            let outcome = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), parse).await,
+            ));
+            assert!(outcome.is_err(), "{outcome:?}");
+            assert!(!android.info().healthy, "the device had been given up");
+            assert!(
+                matches!(event(&provider).await, DeviceEvent::Disconnected(gone) if gone == device),
+                "the device had been disconnected"
+            );
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
 }
 /// D25 with a real kill: the batch runner's stream is cut with no exit from the shell, so the listener hears why.
 #[test]

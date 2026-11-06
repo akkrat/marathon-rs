@@ -34,6 +34,8 @@ use std::{
     },
 };
 
+/// D22: how often `wait_out_server_outage` looks again until the tracker has heard of a lost server.
+const OUTAGE_POLL_MILLIS: i64 = 100;
 pub trait AndroidBatchExecutor: Send + Sync {
     fn execute<'a>(
         &'a self,
@@ -635,6 +637,35 @@ impl AndroidDevice {
         self.request(marathon_adb::client::misc::GetAdbServerVersionRequest, None, signal)
             .await
             .is_err()
+    }
+    /// D22: after a failed request whose caller would retry at once, whether that failure was an outage of the adb
+    /// server, in which case this has waited it out and the caller has not used up a retry. It waits as batches do,
+    /// until the server is back or its devices have been given up; a device given up says false, so the caller's
+    /// retries run out and the run ends. The tracker hears of a dead server at about the same moment as the caller,
+    /// possibly just after: the probe covers that moment, for no longer than a server would get.
+    pub(crate) async fn wait_out_server_outage(&self, context: &VendorContext) -> VendorResult<bool> {
+        let limit = self.runtime().configuration.wait_for_devices_timeout_millis;
+        let mut waited = 0;
+        while self.adb_server_available() {
+            if !self.is_live()
+                || self.client().socket_factory().is_closed()
+                || !self.server_is_away(context.cancellation.clone()).await
+                || waited >= limit
+            {
+                return Ok(false);
+            }
+            context
+                .clock
+                .delay(OUTAGE_POLL_MILLIS, context.cancellation.clone())
+                .await?;
+            waited += OUTAGE_POLL_MILLIS;
+        }
+        cancellable(context.cancellation.clone(), async {
+            self.inner.tracker.server_available().await;
+            Ok(())
+        })
+        .await?;
+        Ok(self.is_live())
     }
     pub(crate) async fn stop_logcat(&self) {
         let task = lock(&self.inner.logcat).take();

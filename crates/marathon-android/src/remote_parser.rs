@@ -76,7 +76,8 @@ impl AmInstrumentTestParser {
         let mut result = vec![];
         let mut fallback = false;
         for bundle in &self.runtime.bundles {
-            for attempt in 0..3 {
+            let mut failed_attempts = 0;
+            loop {
                 match self
                     .parse_attempt(&device, bundle.clone(), fallback, context.clone())
                     .await
@@ -105,8 +106,14 @@ impl AmInstrumentTestParser {
                             self.log(Level::Warn, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_string_lossy(), JavaString(bundle.files.test_application.0.clone()).to_string_lossy(), logcat.to_string_lossy()), None);
                         } else {
                             self.log(Level::Debug, "Remote parsing failed. Retrying", Some(error.failure()));
+                            // D22: the retries have no delay, so an outage would use them all up within its first
+                            // moments, on a server that is about to return.
+                            if !output_went_silent(&error) && device.wait_out_server_outage(&context).await? {
+                                continue;
+                            }
                         }
-                        if attempt == 2 {
+                        failed_attempts += 1;
+                        if failed_attempts == 3 {
                             return Err(error);
                         }
                         context.clock.delay(0, context.cancellation.clone()).await?;
@@ -256,6 +263,11 @@ impl AmInstrumentTestParser {
         }
         result
     }
+}
+/// The one parse failure with no cause. A lost server ends the stream at once, so this does not suggest an outage, and
+/// the transcripts of a silent device stay as they are.
+fn output_went_silent(error: &VendorError) -> bool {
+    matches!(error, VendorError::TestParsing(failure) if failure.cause.is_none())
 }
 fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {
     let mut message = JavaString::from("Unable to parse test list using ");
