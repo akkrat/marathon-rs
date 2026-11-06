@@ -949,7 +949,7 @@ async fn reading_only_stderr_blocks_at_the_cap_without_losing_the_connection_d37
     assert!(!ssh::lines(&events).iter().any(|(_, _, line)| line.contains("Dying")));
 
     // A command on the same connection while blocked is checked on real OpenSSH only (`ssh_real_sshd.rs`): the fake's
-    // russh session can hold back every channel in this state, which OpenSSH does not (U152).
+    // russh session can hold back every channel in this state, which OpenSSH does not (U153).
 
     // Once its consumer resumes, nothing was lost.
     let (mut stdout, mut stderr) = (channel.reader(Stream::Stdout), channel.reader(Stream::Stderr));
@@ -999,7 +999,7 @@ fn consume_with_stuck_stdout(
 }
 
 /// How a close at the cap may end on the fake: at once, or by the client's 30 s wait expiring. Its russh session can
-/// hold bytes past the window and then defers the CLOSE reply until they drain, which here is never (U152). OpenSSH
+/// hold bytes past the window and then defers the CLOSE reply until they drain, which here is never (U153). OpenSSH
 /// answers at once, which `ssh_real_sshd.rs` asserts. Nothing else is accepted.
 fn assert_closed_or_close_wait_expired(result: Result<(), VendorError>) {
     if let Err(error) = result {

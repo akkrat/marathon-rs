@@ -185,7 +185,7 @@ queue without ever waiting for a consumer (it only appends to `State`), and wind
 channel's own writer task. `reading_only_stderr_blocks_at_the_cap_…_d37` runs a command on the same connection while
 blocked, and `stalled_consumer_blocks_only_its_own_channel` also has the keep-alive answered.
 
-russh does have one shared stall, and the fake's server side shows it (U152): with data held past the window, its session
+russh does have one shared stall, and the fake's server side shows it (U153): with data held past the window, its session
 loop takes no message from any channel's handle, and the reply to CLOSE waits too. The client's loop has the same gate
 (`client/mod.rs`, `can_receive_outbound`), so this was checked: `pending_data` only holds a side's own channel data, and
 the executor never sends any; EOF is not sent either. Window adjustments, exec, signals and CLOSE are not data. So a
@@ -207,7 +207,7 @@ channel directly, since the fake honours the window, and memory stops at the cap
 | stderr bytes read | 15 | Below 32 | Below 32 | 15–16 |
 | stdout buffered | 16,744,448 | Above 8 MiB | Within 64 bytes of the cap | 16,777,215 |
 | Connection | Lost | Lost | **Alive** | **Alive** |
-| Next command on it, while blocked | Fails | Fails | Not asserted (U152) | Works |
+| Next command on it, while blocked | Fails | Fails | Not asserted (U153) | Works |
 | After reading stdout | - | - | All 32 MiB, 32 stderr bytes, exit 0 | All 32 MiB, 32 stderr bytes, exit 7 |
 
 **Fails without it:** with the credit computed from the read stream again, all four of
@@ -237,7 +237,7 @@ reverted temporarily to see its tests fail. For the D37 tests: 25 runs on the fa
   with no newline grows marathon's memory, whatever the window does: `both_streams_read_promptly_…_d37` runs on the
   oracle's newline-free script and holds 32 MiB there. D37 keeps the limit it was asked to keep, on the channel's
   buffers, and this is left alone.
-- Vendored russh 0.64.1, server side, seen through the fake only: U152 in `docs/found-bugs.md`. Patching it would let
+- Vendored russh 0.64.1, server side, seen through the fake only: U153 in `docs/found-bugs.md`. Patching it would let
   the fake assert the strict outcomes too. That is a change to a vendored crate, so it is left for the owner to decide.
 - `docs/research/ssh.md` still says that a failed key exchange is transient (T26/A16). It records what was found at the
   time, so it was not edited.
