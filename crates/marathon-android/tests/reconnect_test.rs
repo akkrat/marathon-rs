@@ -59,6 +59,8 @@ const SETTLE: Duration = Duration::from_millis(4);
 const LIMIT_MILLIS: i64 = 400_000;
 /// A scripted event may wait this long (virtual) for the state it needs before the scenario fails.
 const MAX_LATE_MILLIS: i64 = 3000;
+const HELD_IN_KOTLIN: &str = "rm ";
+const HELD_NOW: &str = "logcat -c";
 const RUN_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long (real time) a due event may hold the virtual clock while its state is not reached.
 const HOLD: Duration = Duration::from_secs(20);
@@ -119,6 +121,16 @@ fn load(name: &str) -> (Value, Vec<Event>, usize) {
     let path = fixture(&format!("fake-adb/android-reconnect/script/{name}.json"));
     let mut script: Value = checked(serde_json::from_str(&checked(std::fs::read_to_string(path))));
     let events = std::mem::replace(&mut script["events"], json!([]));
+    // D27: the scripts hang a device in prepare's first `rm`, the `rm -r /sdcard` that the JVM runs and this port no longer does. The
+    // scripts stay as the Kotlin runs used them; here the hold moves to the next step of prepare.
+    for device in script["devices"].as_array_mut().into_iter().flatten() {
+        let rules = device.get_mut("shell").and_then(Value::as_array_mut);
+        for rule in rules.into_iter().flatten() {
+            if rule["prefix"] == HELD_IN_KOTLIN {
+                rule["prefix"] = json!(HELD_NOW);
+            }
+        }
+    }
     for rule in script["shell"].as_array_mut().into_iter().flatten() {
         if rule["delay_ms"].as_i64().is_some_and(|d| d == TEST_MILLIS) {
             rule.as_object_mut().map(|r| r.remove("delay_ms"));
@@ -428,7 +440,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
                 // An event is applied once it is due and the run has reached the state the scenario needs:
                 // the provider's earlier events have reached the scheduler, every listed device has finished
                 // setup (its logcat stream is open), and a device about to drop is in the hung step of prepare
-                // (`rm`) while the devices that are never dropped have started a batch. Until then virtual time is held (for
+                // (`logcat -c`) while the devices that are never dropped have started a batch. Until then virtual time is held (for
                 // `HOLD`, then it keeps stepping), so an event is applied at its time, late only on a stall, never early.
                 while next_event < events.len() && events[next_event].at_ms <= now {
                     let event = &events[next_event];
@@ -448,7 +460,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
                             })
                         && (event.connect
                             || (event.kill.is_some() && healthy_started())
-                            || (requests(&driven[event.server], &event.serial, ":rm ") >= 1 && healthy_started()));
+                            || (requests(&driven[event.server], &event.serial, HELD_NOW) >= 1 && healthy_started()));
                     if !ready {
                         assert!(
                             now - event.at_ms <= MAX_LATE_MILLIS,

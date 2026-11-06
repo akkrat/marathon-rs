@@ -736,11 +736,7 @@ impl Device for AndroidDevice {
                     crate::installer::AndroidAppInstaller::new(installation)
                         .prepare_installation(&device, context.clone())
                         .await?;
-                    device.file_manager().remove_remote_directory(context.clone()).await?;
-                    device
-                        .file_manager()
-                        .create_remote_directory(None, context.clone())
-                        .await?;
+                    // D27: Kotlin runs `rm -r $EXTERNAL_STORAGE` and `mkdir` here, wiping the user's data (N4).
                     device
                         .safe_execute_shell_command(
                             "logcat -c",

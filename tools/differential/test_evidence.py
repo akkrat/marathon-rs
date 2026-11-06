@@ -587,6 +587,31 @@ class VendorEvidenceTests(unittest.TestCase):
         (destination / 'evidence.json').write_bytes(e.encoded(record))
         return destination
 
+    def test_d27_only_the_root_wipe_of_a_jvm_record_is_left_out(self):
+        import vendor_transport as t
+        def transcript(*commands):
+            rows = []
+            for conn,command in enumerate(commands,1):
+                rows.append(dict(type='shell',conn=conn,serial='s',command=command))
+                rows.append(dict(type='output',conn=conn,stream='stdout',bytes=[120]))
+            rows.append(dict(type='event',event='server_stopped'))
+            return b''.join(json.dumps(r).encode()+b'\n' for r in rows)
+        def commands(data,ran_the_wipe):
+            return [row['command'] for row in t.adb(data,ran_the_wipe)['device:s']]
+        wipe = transcript('rm -r /sdcard','mkdir /sdcard','pm list packages')
+        self.assertEqual(commands(wipe,True),['pm list packages'])
+        # A native run of today's code that wipes again keeps the commands, so it differs from the recording.
+        self.assertEqual(commands(wipe,False),['rm -r /sdcard','mkdir /sdcard','pm list packages'])
+        others = ['rm -r /sdcard/fixture','mkdir /sdcard/fixture','rm -r /storage/emulated/0','rm /sdcard','rm -r /','rm -r /sdcard ']
+        self.assertEqual(commands(transcript(*others),True),others)
+
+    def test_d27_a_new_native_record_never_counts_as_having_run_the_wipe(self):
+        # The digest pin that scopes D20 scopes this too: only committed records from before D27 qualify.
+        record = dict(implementation='native')
+        (self.root / 'evidence.json').write_bytes(b'{}')
+        self.assertFalse(e.may_withhold(self.root,record))
+        self.assertTrue(e.may_withhold(self.root,dict(implementation='jvm')))
+
     def test_d20_stand_in_matches_the_withheld_library_and_nothing_else_does(self):
         self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
         contract = DRIVER['contract']('macos-smoke')

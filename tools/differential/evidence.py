@@ -510,7 +510,7 @@ def normalized(directory, contract):
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(data,record['identities'])
                 else:
-                    content = vendor_transport.ssh(data,contract['vendor']) if contract['transport'] == 'ssh' else vendor_transport.adb(data)
+                    content = vendor_transport.ssh(data,contract['vendor']) if contract['transport'] == 'ssh' else vendor_transport.adb(data,may_withhold(directory,record))
             elif mode == 'allure-json':
                 require(name.startswith('reports/allure-results/') and name.endswith('.json'), 'Allure scope')
                 # Numeric lexemes remain exact, arrays ordered, null distinct from omission.

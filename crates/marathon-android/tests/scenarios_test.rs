@@ -31,6 +31,37 @@ fn transcript_commands(rows: &[Value]) -> BTreeMap<String, Vec<String>> {
     }
     out
 }
+/// D27: what a Kotlin recording runs in prepare and this port does not. Applied to the recordings only, so a native
+/// run that wiped the storage again would differ from them.
+const D27_WIPE: [&str; 2] = ["shell:rm -r /sdcard;echo x$?", "shell:mkdir /sdcard;echo x$?"];
+fn kotlin_commands(rows: &[Value]) -> BTreeMap<String, Vec<String>> {
+    let mut commands = transcript_commands(rows);
+    for list in commands.values_mut() {
+        list.retain(|service| !D27_WIPE.contains(&service.as_str()));
+    }
+    commands
+}
+#[test]
+fn the_d27_allowance_covers_only_the_root_wipe() {
+    let row = |service: &str| serde_json::json!({"type":"request","serial":"s","service":service});
+    let rows = [
+        row("shell:rm -r /sdcard;echo x$?"),
+        row("shell:mkdir /sdcard;echo x$?"),
+        row("shell:rm -r /sdcard/screenshots;echo x$?"),
+        row("shell:mkdir /sdcard/screenshots;echo x$?"),
+        row("shell:rm -r /storage/emulated/0;echo x$?"),
+        row("shell:rm /sdcard;echo x$?"),
+    ];
+    assert_eq!(
+        kotlin_commands(&rows)["s"],
+        [
+            "shell:rm -r /sdcard/screenshots;echo x$?",
+            "shell:mkdir /sdcard/screenshots;echo x$?",
+            "shell:rm -r /storage/emulated/0;echo x$?",
+            "shell:rm /sdcard;echo x$?",
+        ]
+    );
+}
 fn expected(path: &str) -> Vec<Value> {
     checked(std::fs::read_to_string(fixture(path)))
         .lines()
@@ -78,10 +109,7 @@ fn kotlin_install_matrix() {
             provider.terminate().await?;
             checked(server.shutdown().await);
             assert_eq!(server.warnings(), 0);
-            assert_eq!(
-                transcript_commands(&server.transcript()),
-                transcript_commands(&expected)
-            );
+            assert_eq!(transcript_commands(&server.transcript()), kotlin_commands(&expected));
             for row in expected.iter().filter(|r| r["type"] == "sync" && r["op"] == "SEND") {
                 assert!(server.transcript().iter().any(|r| r["type"] == "sync"
                     && r["op"] == row["op"]
@@ -128,7 +156,7 @@ fn kotlin_two_devices_setup_and_install_subset() {
             provider.terminate().await?;
             checked(server.shutdown().await);
             let actual = transcript_commands(&server.transcript());
-            let expected = transcript_commands(&original);
+            let expected = kotlin_commands(&original);
             for (serial, commands) in actual {
                 let expected = &expected[&serial];
                 let through_clear = expected.iter().position(|s| s == "shell:logcat -c;echo x$?").unwrap();

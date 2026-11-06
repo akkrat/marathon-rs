@@ -200,14 +200,24 @@ def host_argv(data, values):
     return dict(lanes)
 
 
-def adb(data):
+# D27: the root wipe that prepare runs on the fake's external storage in a JVM record and in a native record pinned from
+# before D27, and that today's program does not. Exactly these commands, and only in those records (the caller decides,
+# by `evidence.may_withhold`): a native run of today's code that wiped the storage again differs from them.
+D27_WIPE = frozenset(['rm -r /sdcard', 'mkdir /sdcard'])
+
+
+def adb(data, ran_the_wipe=False):
     rows = records(data)
     e.require(rows[-1] == dict(type='event',event='server_stopped'),'incomplete ADB shutdown')
-    sessions, lanes = {}, defaultdict(list)
+    sessions, lanes, wiped = {}, defaultdict(list), set()
     for row in rows:
         kind = row['type']
         e.require(kind != 'warning','unmatched ADB request')
-        if kind == 'shell':
+        if kind == 'shell' and ran_the_wipe and row.get('command') in D27_WIPE:
+            wiped.add(row['conn'])
+        elif kind == 'output' and row['conn'] in wiped:
+            pass
+        elif kind == 'shell':
             e.require(row['conn'] not in sessions,'duplicate ADB shell')
             value = {k:v for k,v in row.items() if k not in ('conn','type')}
             value.update(stdout=b'',stderr=b'')

@@ -172,15 +172,15 @@ fn test_clean_split_installation() {
     });
 }
 #[test]
-fn prepare_keeps_external_storage_wipe_order() {
+fn prepare_leaves_external_storage_alone_d27() {
     run(configuration(), |runtime, context| {
         Box::pin(async move {
             let mut script = base_script(27, vec![]);
-            script["shell"].as_array_mut().unwrap().extend([
-                json!({"exact":"rm -r /sdcard","stdout":""}),
-                json!({"exact":"mkdir /sdcard","stdout":""}),
-                json!({"exact":"logcat -c","stdout":""}),
-            ]);
+            // A strict fake with no rule for `rm -r /sdcard` or `mkdir /sdcard`.
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"exact":"logcat -c","stdout":""}));
             let server = server(script).await;
             let device = device(&server, runtime.clone());
             device.setup(context.clone()).await?;
@@ -189,7 +189,7 @@ fn prepare_keeps_external_storage_wipe_order() {
                 .await?;
             let commands = commands(&server);
             expect_setup(&commands);
-            assert_eq!(commands[6..], ["rm -r /sdcard", "mkdir /sdcard", "logcat -c"]);
+            assert_eq!(commands[6..], ["logcat -c"]);
             finish(server, device).await;
             Ok(())
         })
