@@ -318,8 +318,13 @@ These fix bugs that Kotlin has, and need no configuration change.
   first attempt ends after about 60 s, but attempts 2 and 3 then wait in ssh's connect for the host's TCP timeout, because
   `--rsh` sets no `ConnectTimeout`.
   An rsync that reports the stall in other words than `poll: timeout` or `io timeout after`, with a hung ssh, still waits.
-  A receive keeps its 30 s deadline, and at it is now stopped the same way, so it leaves nothing running under `sshpass`. A process left
-  holding a receive's output can hold it up for at most 5 s.
+  A process left holding a receive's output can hold it up for at most 5 s.
+- **On a password-authenticated worker, a pull that takes over 30 s is now really cut**
+  ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails)). Kotlin's TERM at the 30 s deadline reached only `sshpass`, so rsync
+  carried on in the background and the file arrived in the end, although the pull had returned `false`. The video and device log listeners ignore
+  that result, so a video or device log that took over 30 s to pull still turned up in the report. Now it is missing, with `.rsync-partial/<name>` left in the output
+  directory. Key authentication has always behaved this way. The 30 s is not configurable. If videos or device logs go missing on such a worker, look for
+  that file: the cure is a faster link or smaller files.
 - **xcodebuild's command line on a worker starts with `env NSUnbufferedIO=YES`**
   ([D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)). Check anything on the worker that matches the command, such
   as a forced command. Output arrives as it is produced, so `testOutputTimeoutMillis` measures real silence.

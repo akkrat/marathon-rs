@@ -69,8 +69,40 @@ existing code:
 | Reap | | |
 
 A receive that ends after the stop still returns `false`, and its deadline, diagnostic and log lines are as they were. TERM is as prompt as it was
-on key authentication; under `sshpass` it follows the listing. So a receive takes at most about 40 s now, instead of having no limit. Its reader
-tasks were already cancelled once the deadline passed, and that is unchanged.
+on key authentication; under `sshpass` it follows the listing. So a receive past its deadline, which had no limit, now takes at most:
+
+| | Deadline | Listing, real time | TERM's step | x16's `ps` before KILL, real time | Total |
+|---|---|---|---|---|---|
+| Key authentication | 30 s | None | 5 s | None | About 35 s |
+| `sshpass`, on this branch | 30 s | Up to 5 s | 5 s | None | About 40 s |
+| `sshpass`, with x16's check | 30 s | Up to 5 s | 5 s | Up to 5 s for each survivor | About 45 s, 50 s with two survivors |
+
+Its reader tasks were already cancelled once the deadline passed, and that is unchanged.
+
+**What this costs on a password-authenticated worker.** In Kotlin the deadline did not stop a pull there. TERM reached `sshpass` alone, and rsync went on and finished. The pull returned `false`,
+but its file arrived. Now it is cut, with `.rsync-partial/<name>` left, as key authentication has always done. What a user sees depends on the caller, none of which retries:
+
+| Caller | Uses the result | Over 30 s under `sshpass`, Kotlin | Now |
+|---|---|---|---|
+| `crates/marathon-ios/src/listener/video.rs:136` | No | The video turns up in the report | Missing |
+| `crates/marathon-ios/src/listener/device_log.rs:90` | No | The log turns up in the report | Missing |
+| `result_bundle_run_listener.rs:186`, `apple_simulator_device/worker.rs:340` | Yes | Already treated as failed, though the files arrived | Treated as failed, files missing |
+
+Measured with sshpass 1.06, openrsync and a throwaway sshd behind a loopback throttle, 24 MiB at 1 MiB/s, TERM at 5 s. The review measured the first two rows the same way, with the file complete 21.3 s later.
+
+| | Child's status | Afterwards |
+|---|---|---|
+| `sshpass`, TERM to it alone (Kotlin) | -15 | Complete 27.4 s after the TERM |
+| Key authentication, TERM to rsync (Kotlin and now) | 20 | Never complete, 3.8 MB in `.rsync-partial/video.bin` |
+| `sshpass`, TERM to both (now) | -15 | Never complete, 3.8 MB in `.rsync-partial/video.bin` |
+
+**For the owner: a no-progress limit on receives instead.** The 30 s is a total, so it also cuts a pull that is moving. Whether it should become a limit like D31's is the owner's decision. The behaviour here is unchanged. It would take:
+
+- The flag on a receive's argv, as sends have, with a duration to choose. A pull has no installer's three attempts, but listeners pull one after another at the end of a batch, so a dead worker costs this much per pull, where it costs 30 s now. The keep-alive ends a dead link in about 60 s, but not a wedged process.
+- Stall detection on a receive: `read_stderr` gets `reported`, and the deadline branch in `process` becomes the `stall.notified()` one. That is little code, since `stop_stalled_send` exists.
+- A new deviation, as this changes what the worker sees: on an rsync 3 host the flag reaches `rsync --server`, and the fake worker's `rsync_args` allows only `--timeout=300`.
+- A comparator allowance in `vendor_transport.host_argv`. `test_d31_*` pins that a flag on a receive differs, and `the_receive_deadline_match_kotlin` would change, with `deadlines.jsonl` staying the witness.
+- It would help key authentication too, which has lost these files since Kotlin.
 
 **Combining with x16.** x16 adds a `ps -o lstart=` check to the listing and the KILL in the same function, and edits its doc comment. So this
 change leaves that comment and the signature where they are, and the receive gets the check with no more work. See the table below.
@@ -84,9 +116,11 @@ reaps it. `stalled_receive_runs` polls for that, where `stalled_send_runs` asser
 |---|---|
 | `a_receive_past_its_deadline_under_sshpass_also_stops_rsync_u155` | rsync survives |
 | `only_a_receive_under_sshpass_lists_children_u155` | Its `sshpass` round: rsync survives |
-| `the_real_rsync_under_the_real_sshpass_is_stopped_at_a_receives_deadline_u155` | Real rsync and ssh survive |
+| `the_real_rsync_under_the_real_sshpass_is_stopped_at_a_receives_deadline_u155` | **Fails intermittently, so it is no proof of the fix.** Sometimes real rsync and ssh survive. Under this revert it failed in the first run here, among other tests at high load, passed 4 of 4 alone at a load of 4–8, and passed 6 of 8 at high load in the review, with both already gone when the receive returned. The cause is not established |
 | `a_receive_past_its_deadline_that_ignores_term_is_killed_u155`, `rsync_that_ignores_term_at_a_receives_deadline_under_sshpass_is_killed_u155` | The process is not killed |
 | `the_real_rsync_is_stopped_at_a_receives_deadline_u155` | Passes: TERM has always ended openrsync and its ssh. It pins that this path stays right |
+
+These runs have a silent peer, unlike the measured pull above, where rsync carried on after `sshpass` had gone. The deterministic proof is the four stand-in tests above: `…under_sshpass_also_stops_rsync_u155`, `only_a_receive_under_sshpass_lists_children_u155` and the two `…ignores_term…` tests. The send's test, `the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31`, has the same shape, so x13's table may overstate it in the same way. That was not run here.
 
 **Comparators.** No allowance is needed. `deadlines.jsonl` stays the witness of the deadline, with the same test, and no host argv changed: a
 receive still has no `--timeout`.
@@ -135,8 +169,8 @@ counts the slots free on the connection before and after, so it holds for any `M
 | No CLOSE from the task, macOS sshd, `MaxSessions 1` | **0 of 1 free**: the late channel holds the slot |
 
 **Failure without it**, with the task's CLOSE and the refusal's take removed: `an_open_with_no_reply_fails_with_its_timeout_and_a_late_reply_is_closed_u157`,
-`a_caller_that_goes_away_…`, `a_late_refusal_…` and the real test. `an_open_that_is_never_answered_still_returns_and_other_sessions_carry_on_u157` and the task-lifetime
-test pass either way: they guard the bound and the task.
+`a_caller_that_goes_away_…`, `a_late_refusal_…` and the real test. `an_open_that_is_never_answered_still_returns_u157`, `other_sessions_keep_working_while_an_open_waits_for_a_reply_u157` and
+the task-lifetime test pass either way: they guard the bound, the connection and the task.
 
 **The fake worker** has a new fault, `late_open`, documented in `docs/design/fake-worker.md`: the first open of a connection gets its reply late.
 
@@ -170,9 +204,9 @@ up when the receive returns, which shows that the bound and not the end of the p
 
 | What | How | Result |
 |---|---|---|
-| `marathon-apple`, `fake-worker`, `marathon-ios`, `marathon-macos` on this Mac | `cargo test -p …`, under a load of about 35 from other work | 820 passed, 0 failed, 19 ignored (the real-sshd suite, run separately) |
+| `marathon-apple`, `fake-worker`, `marathon-ios`, `marathon-macos` on this Mac | `cargo test -p …`, under load from other work | 821 passed, 0 failed, 19 ignored (the real-sshd suite, run separately) |
 | `ssh_real_sshd.rs` in full on this Mac's sshd | A throwaway `sshd -D -e -f <temp config>` on a loopback port, `--ignored --test-threads 1` | 19 passed |
-| On Linux with OpenSSH 10.2p1 and rsync 3.4.1, from a temp checkout with its own target directory, all removed afterwards | `rsync_file_bridge`, `ssh_session`, `ssh_task_lifetime`, and the U154 and U157 tests on a throwaway sshd there | 30, 35, 4 and 2 passed, U157 at 30,000 ms with 10 of 10 free. That box has no `sshpass`, so the two tests with the real one print their skip message |
+| On Linux with OpenSSH 10.2p1 and rsync 3.4.1, from a temp checkout with its own target directory, all removed afterwards | `rsync_file_bridge`, `ssh_session`, `ssh_task_lifetime`, and the U154 and U157 tests on a throwaway sshd there | 30, 35, 4 and 2 passed, U157 at 30,000 ms with 10 of 10 free. That box has no `sshpass`, so the two tests with the real one print their skip message. This run came before the review's changes to test timing, and was not repeated |
 | The real tools, at factor 1 | sshpass 1.06, openrsync (protocol 29), OpenSSH_10.5p1 on this Mac, against a silent listener, as the send's test does | Passed, nothing left behind |
 | Validators | `make_registry.py --check`, `test_evidence.py` | Clean, 66 tests |
 | A trial merge with x16 | `wp/x16-ssh-connection` merged into the fixes in a temporary worktree, removed afterwards | No conflict. The `*_u154`, `*_u155`, `*_u157` and `*_u158` tests and the abandoned-open task test pass on it, at factor 1 for the real tools |

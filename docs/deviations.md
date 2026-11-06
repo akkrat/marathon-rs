@@ -424,6 +424,11 @@ Approved 2026-11-06 (user decision). See
 Kotlin's wrapper sends TERM to `sshpass` alone, which leaves rsync and ssh running, and then waits without a limit for a process that ignores it. The 30 s
 deadline itself and the receive's command line are unchanged. See the [x21 findings](wp/x21-findings.md).
 
+**This loses files on a password-authenticated worker.** In Kotlin, rsync went on after `sshpass` had gone, and finished the pull in the background, so a pull over 30 s returned
+`false` and its file still arrived. The video and device log listeners ignore the result, so those files still turned up in the report. Now the pull is really cut: the file is
+missing, and `.rsync-partial/<name>` is left in the output directory. That is what key authentication has always done. Measured with real `sshpass`, openrsync and sshd, 24 MiB at
+1 MiB/s, TERM at 5 s: TERM to `sshpass` alone, and the file was complete 27.4 s later; TERM to rsync too, or key authentication, and it never was.
+
 **A receive's output pipes** also have the send's limit since x21 (U158, approved 2026-11-07). A process that ended before the deadline, leaving a child that holds its pipes, such as a hung
 ssh, holds up the receive for at most 5 s more. The process's status decides the result, and that child is not stopped.
 

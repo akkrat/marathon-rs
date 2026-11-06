@@ -58,7 +58,9 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
 - A session channel that an iOS or macOS worker opens after its 30 s are up is now closed, instead of holding a session
   slot until the connection ends (D29).
 - An rsync receive at its 30 s deadline no longer leaves rsync and ssh running under `sshpass`, and can no longer wait for ever
-  on a process that ignores TERM. One that ended before the deadline can no longer be held up for ever by a child holding
+  on a process that ignores TERM. **On a password-authenticated worker a video or device log that takes over 30 s to pull is now
+  missing from the report, with `.rsync-partial/<name>` left in the output directory**, where Kotlin's rsync finished it in the background.
+  Key authentication has always behaved this way. One that ended before the deadline can no longer be held up for ever by a child holding
   its output, such as a hung ssh (D31).
 - xcodebuild on an iOS or macOS worker runs with `NSUnbufferedIO=YES`, as was always intended, so its output arrives as
   it is produced and the output idle timeout measures real silence. The worker's command line now starts with
