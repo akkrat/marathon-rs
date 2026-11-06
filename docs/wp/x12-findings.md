@@ -141,7 +141,7 @@ even if setup never emitted Connected), as it is not a consequence of this fix.
 | Connection refused, other I/O | Vanishes likewise | `TestRunFailed` with cause, logged; device kept, as a synchronous I/O error keeps it |
 | Client closed by provider shutdown (N19) | Quiet | Quiet: the factory is closed, so `take_failure` returns nothing |
 | Cancellation of the batch or the channel | Quiet | Quiet: not recorded |
-| Test crash, `Process crashed`, non-zero `INSTRUMENTATION_CODE`, a stream that ends early | Handled by the transformer, no producer failure | Unchanged |
+| Test crash, `Process crashed`, non-zero `INSTRUMENTATION_CODE`, a stream that ends early | Handled by the transformer, no producer failure | Unchanged at first. WP x18 made a stream that ends without `INSTRUMENTATION_CODE` a failure as well |
 | Remote parsing, any of the failing rows | Attempt "succeeds" with the tests found so far | `TestParsingException` with cause; the existing retries apply. Not named by the brief's listener wording, but the ledger row covers `AmInstrumentTestParser`, and silently parsing fewer tests is the worst form of this bug |
 
 The message is `Instrumentation failed: <class>: <message>`. The synchronous path's `adb error while running tests [...]`
@@ -279,7 +279,7 @@ The native release binary of `d744b672`, on a Linux host with KVM, on 2026-11-06
 
 The sample app was built from the frozen source, with one added test class that logs a line per second for 5 to 200 s and prints nothing to instrumentation. D28's second test APK comes from the same sample with another test package.
 
-**One bug found (the first row below), not a regression:** an outage during remote test parsing can give a green run with tests missing. Everything else held, apart from what is listed as not checked.
+**One bug found (the first row below), not a regression, since fixed by WP x18 (see "Re-check after the fix"):** an outage during remote test parsing can give a green run with tests missing. Everything else held, apart from what is listed as not checked.
 
 | Check | Outcome | Evidence |
 |---|---|---|
@@ -327,6 +327,30 @@ The window is the parse at the start of a run, about 2 s here, and only with the
 
 So on real faults the report does not show the cause; the log does (`Lost device tracking…`, `changed state to DISCONNECTED`). This matches D25's row "a stream that ends early: unchanged", and no test is lost, but the failure text stays as uninformative as in Kotlin for these faults. D25's text is for rejected handshakes and refused connections, which the D22 gate makes rare; none occurred here.
 
+**Re-check after the fix (WP x18).** The native release binary of the x18 branch head, the same way: same emulator, adb and images,
+on a private adb port, USB guard passed, about an hour of machine time including builds. API 36 alone unless stated; this sample has 63
+tests, as the added class is smaller. Each parsing run has a filter for two tests, as the run that gave the false green had.
+
+| Check | Runs | Outcome |
+|---|---|---|
+| **`adb kill-server` around parsing, the same points and more** | 15 | **No run exited 0 with tests missing.** All exit 0, 63 of 63 parsed, both tests passed. 11 cut the stream: one failed attempt, retried once the server was back, parse finished 3.2–4.2 s after the kill. 1 came during install, where the installer's own retry recovered. 3 came after parsing had finished |
+| Two kills in one parse, the second in the next attempt | 2 | Exit 0, 63 of 63, in about 8 s. Two failed attempts, then success |
+| Server back after a kill, over all these runs | 20 outages | 1.36–1.47 s from `Lost device tracking` to `is back`, inside the wait |
+| `am` killed on the device during parsing: before any output, and during the listing | 2 | Exit 0, 63 of 63, one failed attempt each. Before the fix: `NoTestCasesFoundException` |
+| **Emulator killed during parsing, with a healthy second** | 1 | Exit 0. Three failed attempts on the dead one, about 2 s each, then 63 of 63 on API 33 and both tests passed. Before the fix: exit 1 at 1.3 s, the other not tried |
+| Server that cannot return, during parsing (adb hidden after the kill; `deviceInitializationTimeoutMillis` 60 s) | 1 | Exit 1, no hang. `did not return in 30000 ms` at 31.9 s, two more attempts fail, `NoDevicesException: Timed out waiting for a temporary device…` at 60.0 s |
+| Kill during a test, quota 3 | 1 | Exit 0. `sleep20a` INCOMPLETE, then PASSED in the retry; the other test passed |
+| Kill during a test, quota 0: **the report's text** | 1 | Exit 1. `Instrumentation failed: java.io.EOFException: the instrumentation stream ended before a result` in the JUnit `<failure>` and the JSON. Before: empty |
+| Kill as a batch starts, quota 0 | 1 | Exit 1, the same text. Before: `No test results` |
+| Kill with a finished test in the batch, quota 0 | 1 | Exit 1. `sleep05a` stays PASSED; `sleep20a` FAILURE with the text |
+| `am` killed during a test, quota 0 | 1 | Exit 1, the text with `, with exit code 137` |
+| Crash, quota 0 (control) | 1 | Exit 1, FAILURE with an empty text, as before and as in Kotlin |
+| Failing test (control) | 1 | Exit 1, its stack trace; the other test passed |
+| **Normal runs: remote parsing** | 2 | Exit 0, 63 of 63, no failed attempt |
+| **Normal runs: a batch** | 2 | Exit 0, 3 of 3 |
+
+Raw `am instrument` ends on API 33 and 36 are in `docs/wp/x18-findings.md`. Not rerun: everything else in this section, which x18 does not touch.
+
 **Other observations.**
 
 - **A device going `offline` for a moment ends a run on its last device.** adbd killed in the emulator: `offline`, disconnected at once, run over with exit 1 at 7.5 s, the device back as `device` within 2 s. D22 covers the server going away, not this, so it is unchanged.
@@ -350,7 +374,7 @@ So on real faults the report does not show the cause; the log does (`Lost device
 
 ## Incidental bugs
 
-Our own code: U151 in `docs/found-bugs.md`, from the review above, and the remote parsing false green under "Real emulator checks", which is N38 not fully covered by D25 and has no U number yet. Kotlin behaviour seen nearby and left alone:
+Our own code: U151 in `docs/found-bugs.md`, from the review above, and the remote parsing false green under "Real emulator checks", which is N38 not fully covered by D25: U152, fixed by WP x18. Kotlin behaviour seen nearby and left alone:
 
 - **Coverage of two instrumentations of one application.** `coverage-<batch>.ec` has the same path, so the second overwrites the first. D28 makes this no worse than before, and it is rare.
 - **Profiling with several instrumentations.** `ProfilingRunListener` takes `pidof` from the bundle of the batch's first test, so a later instrumentation's trace targets the wrong package.

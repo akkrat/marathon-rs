@@ -245,9 +245,10 @@ Native builds run neither ([D27](deviations.md#d27--prepare-no-longer-wipes-exte
   or fail on leftovers, clear what they need yourself, in the tests or in your device setup.
 - **What marathon still cleans:** each file sync pull entry is removed and recreated before every batch, and
   file sync pushes are replaced and then removed after the batch. Videos are removed after each test.
-- **What can now accumulate:** videos left on the device by a run that was aborted. Their names hold that
-  run's batch id, which a later run cannot know, and marathon does not delete by pattern, because that could
-  hit your data. Clear them with your device setup if your devices are long-lived.
+- **What can now accumulate:** videos left on the device by a run that was aborted, or by a recording that a lost
+  connection cut short, in a run that still exits 0. Their names hold that run's batch id, which a later run
+  cannot know, and marathon does not delete by pattern, because that could hit your data. Clear them with your
+  device setup if your devices are long-lived.
 
 ## Other Android behaviour changes
 
@@ -258,7 +259,9 @@ These fix bugs that Kotlin has, and need no configuration change.
   as written.
 - **An adb server restart no longer ends device tracking**
   ([D22](deviations.md#d22--a-run-survives-an-adb-server-restart)). A loopback server is started again.
-  A server still away after `waitForDevicesTimeoutMillis` (30 s by default) loses its devices.
+  A server still away after `waitForDevicesTimeoutMillis` (30 s by default) loses its devices. Remote test parsing
+  waits for the server too; if it never returns at that stage, the run fails with `NoDevicesException` when
+  `deviceInitializationTimeoutMillis` has passed.
 - **A file sync push that never verifies fails after `pushFile`**
   ([D23](deviations.md#d23--waiting-for-a-pushed-file-has-a-limit)).
 - **`networkState` can read `DISCONNECTED`** in a lost device's per-test JSON
@@ -266,12 +269,14 @@ These fix bugs that Kotlin has, and need no configuration change.
   always `CONNECTED` should be checked.
 - **Failed instrumentation streams are reported** with their cause
   ([D25](deviations.md#d25--a-failed-instrumentation-stream-is-reported)). Uncompleted tests may carry that text
-  instead of the generic one.
+  instead of the generic one, `No test results` or none, and a remote parse cut off by a lost connection is retried
+  instead of giving a shorter test list. A run that used to pass with tests silently missing can now run them all, or
+  fail.
 - **DEX 040 and 041 test APKs are accepted**
   ([D26](deviations.md#d26--dex-040-and-041-test-apks)).
 - **Each instrumentation runs only its own tests**
   ([D28](deviations.md#d28--each-instrumentation-runs-only-its-own-tests)). This only matters for batches
-  that mix test APKs.
+  that mix test APKs, which takes `class-name` batching and the same class name in both.
 
 ## Other Apple behaviour changes
 

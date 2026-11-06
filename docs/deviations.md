@@ -277,9 +277,12 @@ really disconnects. A plain adb server restart does not restart emulators. A ser
 that does not return within `waitForDevicesTimeoutMillis` has its devices disconnected, so the
 run ends as it does when devices are lost, and other servers are not affected. If adb restarts
 take longer on your hosts, raise that value.
+Remote test parsing waits in the same way: an outage does not use up its attempts. If the server never
+returns at that stage, the run fails with `NoDevicesException` when `deviceInitializationTimeoutMillis`
+has passed, as no device is left to parse on.
 Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
-[N16](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+[N16](known-kotlin-bugs.md) and the [x12](wp/x12-findings.md) and [x18](wp/x18-findings.md) findings.
 
 ## D23 — Waiting for a pushed file has a limit
 
@@ -304,13 +307,20 @@ reaches output only for a device lost by then: `networkState` in its per-test
 
 In Kotlin, an instrumentation stream that fails (a rejected handshake, a closed connection, output
 the parser refuses) looks like a normal end: tests go missing with a generic text and
-nothing says why. Native builds report a test-run failure with the cause and log it, so those
-tests are retried and their reports carry the real reason. A device is retired only
-for a failure that retires it in any other adb request. A remote parsing attempt now fails, and is retried, instead of
-returning only the tests found so far. Test crashes and non-zero exits are unchanged. Approved
-2026-11-06 (user decision). See
-[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
-[N38](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+nothing says why. So does one that merely stops, which is what a dropped adb connection looks like: remote
+parsing then takes the tests listed so far for the whole list, and a run can pass with tests missing.
+
+Native builds treat a stream without `INSTRUMENTATION_CODE`, which `am instrument -r` prints last for every
+instrumentation that ran, crashed or not, as failed too. They report a test-run failure with the cause and log it, so
+the unfinished tests are retried and their reports carry the real reason, for example `Instrumentation failed:
+java.io.EOFException: the instrumentation stream ended before a result`. That includes the test in progress. A test
+that finished before the cut stays finished. A device is retired only for a failure that retires it in any other adb
+request. A remote parsing attempt fails, and is retried, and never returns a partial list.
+
+Test crashes and non-zero exits are unchanged, and so are the two ends without the code that are not a cut stream: `am`
+refusing to start the instrumentation, and output that never was the protocol. Approved 2026-11-06 (user decision).
+See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N38](known-kotlin-bugs.md) and the [x12](wp/x12-findings.md) and [x18](wp/x18-findings.md) findings.
 
 ## D26 — DEX 040 and 041 test APKs
 
@@ -324,7 +334,8 @@ still rejected with the same message. Approved 2026-11-06 (user decision). See
 
 Kotlin runs `rm -r $EXTERNAL_STORAGE` and `mkdir` on every device prepare, deleting everything
 under, for example, `/sdcard`. Native builds leave it alone. **This changes behaviour for existing
-users: a test suite that relies on an empty external storage must clear it itself.** See the
+users: a test suite that relies on an empty external storage must clear it itself.** A video can stay behind on
+external storage: from an aborted run, and from a recording cut by a lost connection, in a run that still exits 0. See the
 [migration guide](migration.md#android-external-storage-is-no-longer-wiped). Approved 2026-11-06
 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N4](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
@@ -336,7 +347,9 @@ batch, repeats the ignored-test callbacks and the end-of-run step, and keeps onl
 Native builds run each instrumentation on its own tests, in the order first seen, and report one result
 for the batch. If one instrumentation fails or times out the others still run; a lost device ends the
 batch, and its unrun tests are retried. `testBatchTimeoutMillis`, `testOutputTimeoutMillis` and clearing
-package data apply to each instrumentation. Batches of one instrumentation are unchanged.
+package data apply to each instrumentation. Batches of one instrumentation are unchanged. Few configurations mix
+test APKs in a batch: `fixed-size` batching never does, so it takes `class-name` batching and the same class name in
+both APKs.
 Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [N35](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).

@@ -11,20 +11,24 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
 
 - **Device preparation no longer wipes external storage** (D27). Kotlin deleted everything under, for example,
   `/sdcard` on every prepare. A test suite that relies on an empty external storage must now clear it itself. Videos
-  left behind by an aborted run are no longer removed by the next one.
+  left behind by an aborted run, or by a recording that a lost connection cut short, are no longer removed by the next
+  one.
 
 ### Fixed
 
 - `socketIdleTimeout` counts milliseconds, not seconds, and bounds only requests with no timeout of their own, so a
   silent screen recording or install still works (D21).
 - A run survives an adb server restart: device tracking reconnects, a loopback server is started again, and batches
-  wait. A server still away after `waitForDevicesTimeoutMillis` loses its devices, so the run still ends (D22).
+  wait, as does remote test parsing. A server still away after `waitForDevicesTimeoutMillis` loses its devices, so the
+  run still ends (D22).
 - A file sync push whose md5 never matches fails after `pushFile`, naming the file, instead of waiting for the
   batch timeout (D23).
 - A disconnected device can no longer be borrowed, and `networkState` reports `DISCONNECTED` once it is lost, which
   can show in that device's per-test JSON (D24).
-- An instrumentation stream that fails is reported as a test-run failure with its cause and retried, without retiring a
-  healthy device; a remote parsing attempt fails instead of returning only the tests found so far (D25).
+- An instrumentation stream that fails, or stops before its result as it does when the adb connection drops, is
+  reported as a test-run failure with its cause and retried, without retiring a healthy device. A remote parsing attempt
+  fails and is retried instead of returning only the tests found so far, which could give a passing run with tests
+  missing (D25).
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
 - In a batch that mixes test APKs, each instrumentation runs only its own tests, and the batch reports one result
   (D28).
