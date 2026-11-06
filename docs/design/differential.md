@@ -6,6 +6,14 @@ contracts and 15 whole-vendor CLI scenarios. The vendor scenarios compare a
 fresh private fake-worker or scripted-ADB world against independent JVM evidence
 from frozen `e47352f2`. There are no source/parity rows assigned to 7.1a/7.1b.
 
+## The external-storage wipe (D27)
+
+Kotlin's prepare runs `rm -r /sdcard` and `mkdir /sdcard` on the fake's storage; the native program does not.
+`vendor_transport.adb` leaves out exactly those two commands of a JVM record and of a native record pinned by digest
+from before D27, the same scope as D20's (`evidence.may_withhold`). A native run of today's code that wiped again would
+keep them and differ. `test_evidence.py` (`test_d27_*`) proves that no other `rm` or `mkdir` is affected, and the
+scoped owner contract `scenarios_test.rs` applies the same rule to its recordings.
+
 ## The third-party parser library (D20)
 
 The macOS cases are the only ones that push `libxctest-parser.dylib`. A JVM run pushes its own

@@ -233,7 +233,44 @@ Documentation adds no new reproductions.
 | F4 | Marathondevices relative keys are opened relative to process cwd. | Confirmed |
 | F6 | macOS logical validation omits `MacosConfiguration.validate()`; successful validation is not proof that SSH/bundle settings are usable. | Confirmed |
 | C3 | TeamCity auto-detection searches environment **values** for `TEAMCITY_VERSION`, rather than checking the key. A normally named variable alone does not ensure detection. | Confirmed |
-| N4 | Android preparation clears the whole external-storage root, for example `/sdcard`. Use dedicated test devices/state. | Confirmed |
+| N4 | Kotlin's Android preparation clears the whole external-storage root, for example `/sdcard`. Native builds do not ([D27](#android-external-storage-is-no-longer-wiped)). | Fixed by D27 |
+
+## Android external storage is no longer wiped
+
+Kotlin's prepare step runs `rm -r $EXTERNAL_STORAGE` and `mkdir $EXTERNAL_STORAGE` on every device.
+Native builds run neither ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)).
+
+- **Action for you:** if your tests rely on an empty external storage, for example because they count files
+  or fail on leftovers, clear what they need yourself, in the tests or in your device setup.
+- **What marathon still cleans:** each file sync pull entry is removed and recreated before every batch, and
+  file sync pushes are replaced and then removed after the batch. Videos are removed after each test.
+- **What can now accumulate:** videos left on the device by a run that was aborted. Their names hold that
+  run's batch id, which a later run cannot know, and marathon does not delete by pattern, because that could
+  hit your data. Clear them with your device setup if your devices are long-lived.
+
+## Other Android behaviour changes
+
+These fix bugs that Kotlin has, and need no configuration change.
+
+- **`socketIdleTimeout` is in real time** ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)). It
+  bounds only requests without a timeout of their own. A value picked with Kotlin's unit bug in mind is now taken
+  as written.
+- **An adb server restart no longer ends device tracking**
+  ([D22](deviations.md#d22--a-run-survives-an-adb-server-restart)). A loopback server is started again.
+  A server still away after `waitForDevicesTimeoutMillis` (30 s by default) loses its devices.
+- **A file sync push that never verifies fails after `pushFile`**
+  ([D23](deviations.md#d23--waiting-for-a-pushed-file-has-a-limit)).
+- **`networkState` can read `DISCONNECTED`** in a lost device's per-test JSON
+  ([D24](deviations.md#d24--a-lost-android-device-stays-out-of-use-and-says-so)). A consumer that assumed it was
+  always `CONNECTED` should be checked.
+- **Failed instrumentation streams are reported** with their cause
+  ([D25](deviations.md#d25--a-failed-instrumentation-stream-is-reported)). Uncompleted tests may carry that text
+  instead of the generic one.
+- **DEX 040 and 041 test APKs are accepted**
+  ([D26](deviations.md#d26--dex-040-and-041-test-apks)).
+- **Each instrumentation runs only its own tests**
+  ([D28](deviations.md#d28--each-instrumentation-runs-only-its-own-tests)). This only matters for batches
+  that mix test APKs.
 
 ## Trial and rollback
 

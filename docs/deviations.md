@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D20; implementation availability
+canonical. This guide covers D1–D28; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -247,3 +247,93 @@ that selects `xctest` needs action; see the
 [migration guide](migration.md#the-xctest-parser-needs-a-library-you-supply).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
 [x11 findings](wp/x11-findings.md).
+
+## D21 — `socketIdleTimeout` means what it says
+
+Kotlin's adb client hands the idle timeout in milliseconds to a library that counts
+seconds, so the default of 30 s lasted 30,000 s and nothing ever timed out. Native
+builds count milliseconds. Requests that a configured timeout already bounds (shell
+commands, screen recording, installs, file transfers, screen capture, port forwards) and
+streams that are silent by nature (device tracking, logcat, instrumentation, perfetto) have
+no idle limit, so a silent 180 s screen recording still works and the idle limit
+cannot fire before their own timeout. `socketIdleTimeout` now bounds the few requests with no
+timeout of their own, such as asking the adb server's version. No configuration
+change is needed. A value you chose assuming seconds is now taken as written.
+Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N12](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+
+## D22 — A run survives an adb server restart
+
+Kotlin stops following devices for good when `host:track-devices` fails because the
+adb server went away. Native builds reconnect, with a backoff of up to 8 s, and start a
+loopback server again the way startup does. Devices keep their work during an outage,
+and new batches wait. A test running when the server went away fails as uncompleted and is retried.
+Once the server is back, a device still listed carries on, with its logcat and reverse port
+forwards restored; one not listed within `waitForDevicesTimeoutMillis` is disconnected. A server
+that does not return within `waitForDevicesTimeoutMillis` has its devices disconnected, so the
+run ends as it does when devices are lost, and other servers are not affected. If adb restarts
+take longer on your hosts, raise that value.
+Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N16](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+
+## D23 — Waiting for a pushed file has a limit
+
+With verification on, Kotlin polls a pushed file's md5 with no limit of its own, so a
+file sync push whose checksum never matches waits for the whole batch timeout. Native builds
+stop after `timeoutConfiguration.pushFile` with an error that names the file. The legacy install
+keeps its `Timeout transferring` message. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and
+[N5](known-kotlin-bugs.md).
+
+## D24 — A lost Android device stays out of use and says so
+
+Kotlin keeps disconnected devices in its map, so remote test parsing can borrow a disposed one,
+and reports `networkState: CONNECTED` for ever. Native builds drop the device from the map and
+report `DISCONNECTED` once it is lost, also after its serial returns as a new device. The change
+reaches output only for a device lost by then: `networkState` in its per-test
+`test_result` JSON. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N27 and N29](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+
+## D25 — A failed instrumentation stream is reported
+
+In Kotlin, an instrumentation stream that fails (a rejected handshake, a closed connection, output
+the parser refuses) looks like a normal end: tests go missing with a generic text and
+nothing says why. Native builds report a test-run failure with the cause and log it, so those
+tests are retried and their reports carry the real reason. A device is retired only
+for a failure that retires it in any other adb request. A remote parsing attempt now fails, and is retried, instead of
+returning only the tests found so far. Test crashes and non-zero exits are unchanged. Approved
+2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N38](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+
+## D26 — DEX 040 and 041 test APKs
+
+Kotlin's parser rejects test APKs newer than DEX 039 with `Invalid dexMagic`. Native builds accept
+040 and 041, including 041 containers of several images, and find every class in them. Anything newer is
+still rejected with the same message. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and
+[N10](known-kotlin-bugs.md).
+
+## D27 — Prepare no longer wipes external storage
+
+Kotlin runs `rm -r $EXTERNAL_STORAGE` and `mkdir` on every device prepare, deleting everything
+under, for example, `/sdcard`. Native builds leave it alone. **This changes behaviour for existing
+users: a test suite that relies on an empty external storage must clear it itself.** See the
+[migration guide](migration.md#android-external-storage-is-no-longer-wiped). Approved 2026-11-06
+(user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N4](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).
+
+## D28 — Each instrumentation runs only its own tests
+
+With test APKs of different instrumentations in one batch, Kotlin gives each instrumentation the whole
+batch, repeats the ignored-test callbacks and the end-of-run step, and keeps only the first result.
+Native builds run each instrumentation on its own tests, in the order first seen, and report one result
+for the batch. If one instrumentation fails or times out the others still run; a lost device ends the
+batch, and its unrun tests are retried. `testBatchTimeoutMillis`, `testOutputTimeoutMillis` and clearing
+package data apply to each instrumentation. Batches of one instrumentation are unchanged.
+Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[N35](known-kotlin-bugs.md) and the [x12 findings](wp/x12-findings.md).

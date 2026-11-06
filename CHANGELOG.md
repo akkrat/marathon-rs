@@ -2,6 +2,33 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+Android fixes of bugs the Kotlin fork has, each an approved difference. See the
+[deviations guide](docs/deviations.md) and the [migration guide](docs/migration.md).
+
+### Behaviour change to check
+
+- **Device preparation no longer wipes external storage** (D27). Kotlin deleted everything under, for example,
+  `/sdcard` on every prepare. A test suite that relies on an empty external storage must now clear it itself. Videos
+  left behind by an aborted run are no longer removed by the next one.
+
+### Fixed
+
+- `socketIdleTimeout` counts milliseconds, not seconds, and bounds only requests with no timeout of their own, so a
+  silent screen recording or install still works (D21).
+- A run survives an adb server restart: device tracking reconnects, a loopback server is started again, and batches
+  wait. A server still away after `waitForDevicesTimeoutMillis` loses its devices, so the run still ends (D22).
+- A file sync push whose md5 never matches fails after `pushFile`, naming the file, instead of waiting for the
+  batch timeout (D23).
+- A disconnected device can no longer be borrowed, and `networkState` reports `DISCONNECTED` once it is lost, which
+  can show in that device's per-test JSON (D24).
+- An instrumentation stream that fails is reported as a test-run failure with its cause and retried, without retiring a
+  healthy device; a remote parsing attempt fails instead of returning only the tests found so far (D25).
+- Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
+- In a batch that mixes test APKs, each instrumentation runs only its own tests, and the batch reports one result
+  (D28).
+
 ## 0.11.0
 
 The first public release of marathon-rs, a native Rust rewrite of the marathon test
