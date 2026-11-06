@@ -1,5 +1,5 @@
 //! Execute, streams, exit wait, close and keep-alive of the SSH executor on the fake worker: the spike checklist
-//! (T08, T09, T14-T16, T22-T25), D7, D29, D30, D32, U154, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
+//! (T08, T09, T14-T16, T22-T25), D7, D29, D30, D32, U154, U157, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
 mod support;
 use fake_worker::script::{Action, Chunk, Faults, Keepalive};
 use jcompat::logging::Level;
@@ -383,6 +383,136 @@ async fn other_sessions_keep_working_while_an_exec_waits_for_a_reply_u154() {
         ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
         ["hello"]
     );
+}
+
+/// A script where the first open of a connection is answered this late, in real time. These run at factor 10, so the open's
+/// 30 s are 3 s here.
+fn late_open_script(delay_millis: u64, reject: bool) -> fake_worker::script::Script {
+    fake_worker::script::Script {
+        faults: Faults {
+            late_open: Some(fake_worker::script::LateOpen { delay_millis, reject }),
+            ..Default::default()
+        },
+        ..ssh::suite_script()
+    }
+}
+const NO_OPEN_REPLY_LINE: &str =
+    "No reply to opening chan#0 in 30 s. If the worker answers later, that channel will be closed then";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_with_no_reply_fails_with_its_timeout_and_a_late_reply_is_closed_u157() {
+    // One slot, so that the channel the late reply opens would keep the next command from running.
+    let fake = ssh::fake(late_open_script(4_000, false), 1).await;
+    let (executor, events) = executor_with(&fake, 10, 0).await;
+    let started = Instant::now();
+    let failure = other(
+        executor
+            .execute(request(&["echo", "hello"], 5000), context())
+            .await
+            .err()
+            .unwrap(),
+    );
+    assert!(started.elapsed() >= Duration::from_secs(3), "{:?}", started.elapsed());
+    assert_is_the_exec_timeout(&failure);
+    let lines = ssh::lines(&events);
+    let logged: Vec<_> = lines.iter().filter(|(_, level, _)| *level == Level::Error).collect();
+    assert_eq!(logged.len(), 1, "{lines:?}");
+    assert_eq!(logged[0].2, NO_OPEN_REPLY_LINE);
+    // The reply comes after the caller has gone, and the channel it opens is closed, exec-less.
+    assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
+    assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
+    assert!(fake.events("exec").await.is_empty());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ["hello"]
+    );
+    assert!(executor.connected());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slow_open_inside_its_30_s_still_works_u157() {
+    let fake = ssh::fake(late_open_script(1_000, false), 1).await;
+    let (executor, events) = executor_with(&fake, 10, 0).await;
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ["hello"]
+    );
+    assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
+    let lines = ssh::lines(&events);
+    assert!(!lines.iter().any(|(_, level, _)| *level == Level::Error), "{lines:?}");
+    assert_eq!(fake.events("exec").await.len(), 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_caller_that_goes_away_during_an_open_leaves_no_channel_behind_u157() {
+    let fake = ssh::fake(late_open_script(500, false), 1).await;
+    let (executor, _) = executor_with(&fake, 10, 0).await;
+    let open = executor.connection().start_session();
+    assert!(tokio::time::timeout(Duration::from_millis(100), open).await.is_err());
+    assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_late_refusal_does_not_give_its_text_to_the_next_failure_u157() {
+    let fake = ssh::fake(late_open_script(4_000, true), 1).await;
+    let (executor, _) = executor_with(&fake, 10, 0).await;
+    let failure = other(
+        executor
+            .execute(request(&["echo", "hello"], 5000), context())
+            .await
+            .err()
+            .unwrap(),
+    );
+    assert_is_the_exec_timeout(&failure);
+    assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
+    // Its text reaches the client a moment after the event, and is off the queue a moment after that.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let held = start(&executor, &["sleep", "1000"], 600_000).await;
+    let refused = other(
+        executor
+            .execute(request(&["echo", "hello"], 5000), context())
+            .await
+            .err()
+            .unwrap(),
+    );
+    assert_eq!(
+        class_chain(&refused),
+        [(OPEN_FAIL_EXCEPTION.into(), Some("Resource shortage".into()))]
+    );
+    held.terminate().unwrap();
+    held.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_that_is_never_answered_still_returns_and_other_sessions_carry_on_u157() {
+    let fake = ssh::fake(late_open_script(3_600_000, false), 4).await;
+    let (executor, _) = executor_with(&fake, 10, 0).await;
+    let waiting_request = request(&["echo", "hello"], 5000);
+    let waiting_context = context();
+    let waiting = executor.execute(waiting_request, waiting_context);
+    tokio::pin!(waiting);
+    // This one must be the first open, which is the one the fault holds back.
+    tokio::select! {
+        _ = &mut waiting => panic!("the held open returned"),
+        _ = fake.events_at_least("session_open", 1) => {}
+    }
+    let mut answered = 0;
+    let failure = loop {
+        tokio::select! {
+            result = &mut waiting => break result.err().unwrap(),
+            result = ssh::run(&executor, &["echo", "hello"], 60_000) => {
+                assert_eq!(result.unwrap().stdout, ["hello"]);
+                answered += 1;
+            }
+        }
+    };
+    assert_is_the_exec_timeout(&other(failure));
+    assert!(answered > 0);
+    assert!(executor.connected());
 }
 
 #[tokio::test(flavor = "multi_thread")]

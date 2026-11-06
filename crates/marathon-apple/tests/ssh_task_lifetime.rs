@@ -82,6 +82,31 @@ async fn close_leaves_no_vendor_task() {
     assert_eq!(runtime.settled().await, 0);
 }
 
+/// U157: the task that waits for the reply to an abandoned open is gone with the connection, even if no reply ever comes.
+#[tokio::test(flavor = "multi_thread")]
+async fn close_ends_the_wait_for_an_open_that_was_abandoned() {
+    let fake = ssh::fake(
+        Script {
+            faults: Faults {
+                late_open: Some(fake_worker::script::LateOpen {
+                    delay_millis: 3_600_000,
+                    reject: false,
+                }),
+                ..Default::default()
+            },
+            ..ssh::suite_script()
+        },
+        4,
+    )
+    .await;
+    let runtime = Counting::default();
+    let executor = ssh::connect_with(&fake, &runtime.factory(), false).await.unwrap();
+    let open = executor.connection().start_session();
+    assert!(tokio::time::timeout(Duration::from_millis(100), open).await.is_err());
+    executor.connection().close().await.unwrap();
+    assert_eq!(runtime.settled().await, 0);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn transport_death_ends_the_keep_alive() {
     let fake = ssh::fake(

@@ -129,10 +129,19 @@ pub struct Faults {
     pub reject_exec: bool,
     /// An `exec` whose string contains this gets no reply and starts nothing, and its session keeps its slot until closed.
     pub silent_exec: Option<String>,
+    /// The first session open of a connection gets its reply this late.
+    pub late_open: Option<LateOpen>,
     pub before_kex: Option<Disconnect>,
     pub after_auth: Option<Disconnect>,
     pub during_exec: Option<Disconnect>,
     pub no_common_kex: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LateOpen {
+    pub delay_millis: u64,
+    /// Refuse rather than accept. Only an accepted one holds a slot while it waits.
+    pub reject: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Disconnect {

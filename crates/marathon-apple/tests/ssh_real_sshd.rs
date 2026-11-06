@@ -362,6 +362,72 @@ async fn u154_an_exec_with_no_reply_is_closed_when_the_peer_resumes() {
     println!("U154.info.waited_ms: {waited_ms}");
 }
 
+/// How many session channels this connection can hold at once, which is the worker's `MaxSessions` less any it already holds.
+async fn free_slots(executor: &SshCommandExecutor) -> usize {
+    let mut open = Vec::new();
+    // `MaxSessions` is 10 by default, and each open past it is refused at once.
+    while open.len() < 64 {
+        match executor.connection().start_session().await {
+            Ok(channel) => open.push(channel),
+            Err(_) => break,
+        }
+    }
+    let free = open.len();
+    for channel in open {
+        channel.close().await.unwrap();
+    }
+    free
+}
+
+/// U157 on a real sshd, with its session process stopped before the open as U154's is before the exec. When it resumes it
+/// confirms the open, after the caller has gone, and only then can that channel be closed. Without that it holds a slot until
+/// the connection ends, on any `MaxSessions`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn u157_an_open_with_no_reply_is_closed_when_the_peer_resumes() {
+    let (stalled, other) = (connect().await, connect().await);
+    let find = "p=$$; while [ \"$p\" -gt 1 ]; do case \"$(ps -o comm= -p \"$p\")\" in *sshd*) echo \"$p\"; exit 0;; esac; p=$(ps -o ppid= -p \"$p\" | tr -d \" \"); done; exit 1";
+    let found = ssh::run(&stalled, &["sh", "-c", find], 10_000).await.unwrap();
+    assert_eq!(found.exit_code, Some(0), "{found:?}");
+    let pid = found.stdout[0].clone();
+    let slots = free_slots(&stalled).await;
+    assert!(slots > 0);
+    assert_eq!(
+        ssh::run(&other, &["kill", "-STOP", pid.as_str()], 10_000)
+            .await
+            .unwrap()
+            .exit_code,
+        Some(0)
+    );
+    let started = Instant::now();
+    let result = stalled.connection().start_session().await;
+    let waited_ms = started.elapsed().as_millis();
+    // Before any assertion: a failed one must not leave the session process stopped.
+    let resumed = ssh::run(&other, &["kill", "-CONT", pid.as_str()], 10_000)
+        .await
+        .unwrap();
+    assert_eq!(resumed.exit_code, Some(0));
+    // The open's own 30 s, as in Kotlin: nothing can be closed yet, so nothing more is waited for.
+    assert!((30_000..35_000).contains(&waited_ms), "{waited_ms}");
+    let error = format!("{:?}", result.err().unwrap());
+    assert!(error.contains("Timeout expired: 30000 MILLISECONDS"), "{error}");
+    let mut free = 0;
+    for _ in 0..100 {
+        free = free_slots(&stalled).await;
+        if free == slots {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(free, slots, "the late channel still holds its slot");
+    assert_eq!(
+        ssh::run(&stalled, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
+    );
+    assert!(stalled.connected());
+    println!("U157.info.waited_ms: {waited_ms} slots: {slots}");
+}
+
 /// D32 against a real login shell and sshd: the variable reaches the process, while F and the workdir still do not (A2).
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs MARATHON_SSH_REAL"]

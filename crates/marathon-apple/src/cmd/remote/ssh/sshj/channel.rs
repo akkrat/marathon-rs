@@ -10,7 +10,6 @@ use super::client::{
 };
 use super::error::{CIRCULAR_BUFFER_EXCEPTION, CONNECTION_EXCEPTION, DisconnectReason, SshFailure};
 use crate::cmd::SessionScope;
-use jcompat::logging::Level;
 use marathon_core::runtime::{VendorClock, VendorRuntime};
 use russh::{ChannelId, ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Sig, client};
 use std::{
@@ -191,7 +190,7 @@ impl ExecChannel {
             Some(Err(error)) => (error, false),
             None => {
                 let command = self.read(|s| s.command.clone());
-                self.log_error(format!(
+                self.shared.log_executor_error(format!(
                     "No reply to exec `{command}` in 30 s: closing its channel. If the worker gets to the request later, the command may still start, and hold its session slot until it ends"
                 ));
                 // No TERM ahead of the CLOSE: on a peer that resumes, sshd takes both in one go and its `killpg` beats the new
@@ -218,13 +217,6 @@ impl ExecChannel {
             closing,
         )
         .await;
-    }
-    fn log_error(&self, message: String) {
-        let loggers = &self.shared.loggers;
-        let logger = loggers
-            .logging
-            .logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor");
-        loggers.logging.log(&logger, Level::Error, || message, None);
     }
     /// `signal(sig)`: no want-reply and no state check, like sshj; a dead transport rejects the write.
     pub fn signal(&self, signal: Sig) -> Result<(), SshFailure> {
@@ -304,7 +296,7 @@ impl ExecChannel {
                 s.abandoned = true;
                 s.command.clone()
             });
-            self.log_error(format!(
+            self.shared.log_executor_error(format!(
                 "Abandoning session `{command}`: no reply to TERM, KILL and CLOSE in 30 s. The process may still run on the worker and hold its session slot"
             ));
         }

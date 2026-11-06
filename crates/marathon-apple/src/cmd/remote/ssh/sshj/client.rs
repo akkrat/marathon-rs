@@ -14,7 +14,7 @@ use crate::cmd::{SessionScope, cancelled};
 use jcompat::logging::Level;
 use marathon_core::runtime::{CancellationSignal, VendorClock, VendorRuntime, VendorTask};
 use russh::{
-    ChannelId, Disconnect, Error as RusshError,
+    Channel, ChannelId, ChannelMsg, Disconnect, Error as RusshError,
     client::{self, AuthResult, Handle, KeyboardInteractiveAuthResponse},
     keys::{Algorithm, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate},
 };
@@ -28,7 +28,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
-use tokio::sync::{Notify, watch};
+use tokio::sync::{Notify, oneshot, watch};
 
 pub type SshFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, SshFailure>> + Send + 'a>>;
 
@@ -148,6 +148,14 @@ impl ConnectionShared {
                 SshFailure::transport(DisconnectReason::Unknown, "Broken transport; encountered EOF")
             }),
         )
+    }
+    /// One line on the executor's logger for what the failure a caller gets cannot say.
+    pub(crate) fn log_executor_error(&self, message: String) {
+        let logger = self
+            .loggers
+            .logging
+            .logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor");
+        self.loggers.logging.log(&logger, Level::Error, || message, None);
     }
     /// A dead transport rejects writes, as sshj's closed socket does.
     pub fn write_failure(&self) -> SshFailure {
@@ -725,6 +733,47 @@ impl HandleRef {
     }
 }
 
+/// One channel open. Kotlin's `open()` gives up after sshj's 30 s and the channel stays attached, so a late confirmation
+/// opens a channel that nobody ever closes, in a `MaxSessions` slot (U157). A CLOSE needs the peer's channel number, which only
+/// the confirmation brings, so nothing can be sent before it: when no caller is left for the reply, this waits for it and
+/// closes what it opened. A late refusal takes its text off the queue, where the next refusal would read it as its own.
+/// Holding the handle keeps the transport up, but only until the reply, the transport's death or the client's own close.
+async fn open_session(
+    handle: Arc<Handle<ClientHandler>>,
+    shared: Arc<ConnectionShared>,
+    reply: oneshot::Sender<Result<Channel<client::Msg>, RusshError>>,
+) -> marathon_core::error::VendorResult<()> {
+    let opened = tokio::select! {
+        biased;
+        opened = handle.channel_open_session() => opened,
+        _ = shared.wait_dead() => return Ok(()),
+    };
+    drop(handle);
+    match reply.send(opened) {
+        Ok(()) | Err(Err(RusshError::Disconnect)) => {}
+        Err(Err(RusshError::ChannelOpenFailure(_))) => {
+            shared.take_open_failure().await;
+        }
+        Err(Err(_)) => {}
+        Err(Ok(channel)) => {
+            let (mut read, write) = channel.split();
+            let _ = write.close().await;
+            // As the pump does for a dropped channel, so that russh's queue never holds up the connection.
+            loop {
+                let message = tokio::select! {
+                    biased;
+                    _ = shared.wait_dead() => None,
+                    message = read.wait() => message,
+                };
+                if matches!(message, None | Some(ChannelMsg::Close)) {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 struct KeepAlivePort {
     shared: Arc<ConnectionShared>,
     handle: HandleRef,
@@ -813,11 +862,20 @@ impl SshConnection {
         }
         let number = self.shared.next_channel_number();
         let promise = format!("chan#{number} / open");
+        // U157: in a task of its own, because the open must outlive this wait to deal with a reply that comes after it.
+        let (reply, mut replied) = oneshot::channel();
+        self.runtime
+            .spawn(Box::pin(open_session(self.handle.clone(), self.shared.clone(), reply)));
         let opened = tokio::select! {
             biased;
-            opened = within(self.clock.as_ref(), self.scope.clone(), TIMEOUT_MILLIS, self.handle.channel_open_session()) => opened,
+            opened = within(self.clock.as_ref(), self.scope.clone(), TIMEOUT_MILLIS, &mut replied) => {
+                opened.map(|reply| reply.unwrap_or(Err(RusshError::Disconnect)))
+            }
             _ = self.shared.wait_dead() => Some(Err(RusshError::Disconnect)),
         };
+        // From here the task sees that nobody is waiting. A reply that got in just before this is still the caller's.
+        replied.close();
+        let opened = opened.or_else(|| replied.try_recv().ok());
         let channel = match opened {
             Some(Ok(channel)) => channel,
             Some(Err(RusshError::ChannelOpenFailure(reason))) => {
@@ -832,7 +890,12 @@ impl SshConnection {
                 self.shared.loggers.woke_to(&promise, &failure);
                 return Err(failure);
             }
-            None => return Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT)),
+            None => {
+                self.shared.log_executor_error(format!(
+                    "No reply to opening chan#{number} in 30 s. If the worker answers later, that channel will be closed then"
+                ));
+                return Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT));
+            }
         };
         Ok(ExecChannel::start(number, channel, self))
     }

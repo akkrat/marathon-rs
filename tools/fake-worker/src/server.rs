@@ -291,6 +291,7 @@ async fn connection(
         channel_stops: HashMap::new(),
         limit: Arc::new(Semaphore::new(shared.config.max_sessions)),
         withheld: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
+        late_open_taken: false,
     };
     let running = tokio::select! {_ =stop.cancelled()=>return Ok(()),r=tokio::time::timeout(Duration::from_secs(10),russh::server::run_stream(ssh,stream,handler))=>r};
     let result = match running {
@@ -334,6 +335,7 @@ struct Connection {
     slots: HashMap<ChannelId, std::sync::Weak<tokio::sync::Mutex<Option<OwnedSemaphorePermit>>>>,
     limit: Arc<Semaphore>,
     withheld: Arc<tokio::sync::Mutex<HashSet<ChannelId>>>,
+    late_open_taken: bool,
 }
 impl Drop for Connection {
     fn drop(&mut self) {
@@ -348,6 +350,25 @@ impl Connection {
         self.event(None, "auth", json!({"user":user,"method":method,"accepted":accepted}))
             .await?;
         Ok(if accepted { Auth::Accept } else { Auth::reject() })
+    }
+    /// The fault's reply, in a task so that the connection goes on meanwhile. A connection that ends drops it unanswered.
+    fn answer_late(&self, ch: ChannelId, late: crate::script::LateOpen, reply: ChannelOpenHandle) {
+        let (shared, id, stop) = (self.shared.clone(), self.id, self.stop.clone());
+        self.shared.tasks.spawn(async move {
+            tokio::select! {
+                _ = stop.cancelled() => return,
+                _ = tokio::time::sleep(Duration::from_millis(late.delay_millis)) => {}
+            }
+            let detail = json!({"rejected":late.reject});
+            let _ = shared.log.event(id, Some(ch.into()), "late_open_reply", detail).await;
+            if late.reject {
+                reply
+                    .reject(russh::ChannelOpenFailure::AdministrativelyProhibited)
+                    .await;
+            } else {
+                reply.accept().await;
+            }
+        });
     }
     async fn reject(&mut self, ch: ChannelId, kind: &str, session: &mut Session) -> Result<()> {
         self.event(Some(ch), "request", json!({"kind":kind,"accepted":false}))
@@ -446,11 +467,24 @@ impl russh::server::Handler for Connection {
         let id = channel.id();
         self.slots.retain(|_, slot| slot.strong_count() > 0);
         self.channel_stops.retain(|id, _| self.slots.contains_key(id));
+        let late = match &self.shared.config.script.faults.late_open {
+            Some(late) if !self.late_open_taken => Some(late.clone()),
+            _ => None,
+        };
+        self.late_open_taken = true;
+        if let Some(late) = late.clone().filter(|late| late.reject) {
+            self.event(Some(id), "late_open_request", json!({})).await?;
+            self.answer_late(id, late, reply);
+            return Ok(());
+        }
         match self.limit.clone().try_acquire_owned() {
             Ok(permit) => {
                 self.event(Some(id), "session_open", json!({})).await?;
                 self.sessions.insert(id, Open { channel, permit });
-                reply.accept().await;
+                match late {
+                    Some(late) => self.answer_late(id, late, reply),
+                    None => reply.accept().await,
+                }
             }
             Err(_) => {
                 self.event(
