@@ -258,9 +258,19 @@ A cross-family review of `92854034` found no false-green, lost-test or unbounded
 - **Accepted: a first partition that times out before `beforeTestRun` loses its failure text** (D28). Its tests still count as uncompleted and are retried, with the generic message.
 - **Accepted: a crafted DEX 041 container costs O(images × file) in table allocation.** No panic or overflow; each image's tables are bounded by the file rather than by its own `file_size`. The input is the user's own test APK.
 
+A second review of `0a9b1266` tried to break the fixes with throwaway tests, on the fake adb. Nothing blocked:
+
+- **D28 with D25:** 12 scenarios over three instrumentations through the real runner and listener, with exactly one final state per test and none reported passed that did not run. A single-instrumentation batch against `d4d842cb`: 16 of 18 cases identical, and the other two are D25's intended changes.
+- **D22:** whole runs through the core scheduler: flapping, a device `offline` first or for ever, two servers sharing a serial with overlapping outages, kills at 11 points, and servers that never return. Every run ended, with no duplicate actors and no test requested twice.
+- **D21:** a proxy silencing the fake server confirmed the audit for the kinds it reached.
+- **D26:** 39,444 mutated inputs over the four fixtures, with no panic or hang and no large allocation.
+- **Found:** a test that a later instrumentation did not report can show an earlier instrumentation's failure text (U151). Only the text is wrong.
+- **Reasoning only:** remote test parsing has no D22 gate and retries three times without delay, so an outage landing exactly there could use all its attempts. Kills at 50–600 virtual ms with a restart all passed; the case was not produced.
+- **Not reached:** the D24 races (disconnect during `borrow`, setup or a handed-out batch; repeated reconnects); a never-matching md5 through legacy install and file sync; cancellation while polling; prepare over stale files; silent-server runs for streaming, split and legacy install, `host:devices`, and `getprop` during boot; provider termination in the middle of an outage at whole-run level; flapping with a low `uncompletedTestRetryQuota`.
+
 ## Incidental bugs
 
-No new bug in our own code outside this work. Kotlin behaviour seen nearby and left alone:
+Our own code: U151 in `docs/found-bugs.md`, from the review above. Kotlin behaviour seen nearby and left alone:
 
 - **Coverage of two instrumentations of one application.** `coverage-<batch>.ec` has the same path, so the second overwrites the first. D28 makes this no worse than before, and it is rare.
 - **Profiling with several instrumentations.** `ProfilingRunListener` takes `pidof` from the bundle of the batch's first test, so a later instrumentation's trace targets the wrong package.
