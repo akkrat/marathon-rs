@@ -574,10 +574,19 @@ pub fn state_changes(lines: &[Line]) -> Vec<String> {
 /// and serial, whether a batch started before that server's first drop and after the connect that follows it.
 pub fn ran_on(observed: &Observed) -> (usize, BTreeMap<String, (bool, bool)>) {
     let mut out = BTreeMap::new();
+    let mut total = 0;
     for (server, serial, start) in &observed.batches {
         let mine = observed.events.iter().filter(|e| e.server == *server);
         let drop = mine.clone().find(|e| !e.connect).map(|e| e.at_ms);
         let back = drop.and_then(|d| mine.clone().find(|e| e.connect && e.at_ms > d).map(|e| e.at_ms));
+        // D27: the step that now holds the dropped device in prepare, `logcat -c`, only logs its failure, where the
+        // JVM's `rm -r` fails prepare. So the drop that ends the hold can finish prepare first, and one batch can start
+        // on a device whose Disconnected is on its way. It is returned at once and runs again elsewhere.
+        let dropped = mine.clone().any(|e| !e.connect && e.serial == *serial);
+        if dropped && drop.is_some_and(|d| *start >= d) && back.is_some_and(|b| *start < b) {
+            continue;
+        }
+        total += 1;
         let entry = out
             .entry(format!("server{}/{serial}", server + 1))
             .or_insert((false, false));
@@ -587,7 +596,7 @@ pub fn ran_on(observed: &Observed) -> (usize, BTreeMap<String, (bool, bool)>) {
             entry.1 = true;
         }
     }
-    (observed.batches.len(), out)
+    (total, out)
 }
 
 pub fn oracle(scenario: &str) -> Value {
