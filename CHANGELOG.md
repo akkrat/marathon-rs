@@ -55,6 +55,8 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
   network had failed; the error text is unchanged and real network faults are still retried (D35).
 - A worker that drops the connection right after login is handled as a lost connection: commands that may fail return
   no result instead of aborting with `IllegalStateException: Not connected`, and the usual reconnect takes over (D36).
+- A command that floods one output stream while the other is being read no longer overflows a buffer and loses the
+  connection for every command on that worker; the command blocks until it is read, times out or is closed (D37).
 
 ## 0.11.0
 

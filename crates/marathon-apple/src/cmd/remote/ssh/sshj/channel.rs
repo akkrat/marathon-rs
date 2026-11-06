@@ -357,9 +357,9 @@ impl ExecChannel {
     }
     /// Data after EOF or close is dropped: PatchedExecChannel mutes "Getting data on EOF'ed stream".
     ///
-    /// `CircularBuffer.ensureCapacity`: a stream buffer holds at most `MAX_BUFFER - 1` bytes. Reads on the other
-    /// stream refill the shared window regardless, so an unread stream can overflow; sshj's reader thread then dies
-    /// with the exception and takes the whole connection with it. The rejected packet is not buffered.
+    /// `CircularBuffer.ensureCapacity`: a stream buffer holds at most `MAX_BUFFER - 1` bytes. `window_credit` keeps a
+    /// peer that honours the window from getting here (D37). One that does not is still stopped, as in sshj: the
+    /// connection dies with the exception, and the rejected packet is not buffered.
     fn receive(&self, stream: Stream, data: &[u8]) {
         let overflow = self.update(|s| {
             s.window = s.window.saturating_sub(data.len() as u32);
@@ -388,9 +388,7 @@ impl ExecChannel {
             }
         })
     }
-    /// `ChannelInputStream.read` + `checkWindow`: either stream's read refills the shared window once it is low,
-    /// by no more than the read stream's buffer can still take (`maxPossibleRemainingCapacity - window`), so a
-    /// slow consumer of one stream holds at most `MAX_BUFFER - 1` unread bytes; `receive` enforces the cap.
+    /// `ChannelInputStream.read` + `checkWindow`: either stream's read refills the shared window once it is low.
     fn take(&self, stream: Stream, buf: &mut ReadBuf<'_>) -> usize {
         let (count, adjustment) = {
             let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -404,18 +402,10 @@ impl ExecChannel {
             buf.put_slice(&head[..first]);
             buf.put_slice(&tail[..count - first]);
             source.drain(..count);
-            let available = source.len();
-            let needed = if s.window <= ADJUST_THRESHOLD {
-                WINDOW_SIZE - s.window
-            } else {
-                0
-            };
-            // CircularBuffer.maxPossibleRemainingCapacity: `maxSize - available - 1`.
-            let capacity = MAX_BUFFER as i64 - available as i64 - 1;
-            let bytes = (needed as i64).min(capacity - s.window as i64);
+            let bytes = window_credit(s.window, s.stdout.len().max(s.stderr.len()));
             let adjustment = (count > 0 && bytes > 0).then(|| {
-                s.window += bytes as u32;
-                bytes as u32
+                s.window += bytes;
+                bytes
             });
             (count, adjustment)
         };
@@ -424,6 +414,22 @@ impl ExecChannel {
         }
         count
     }
+}
+
+/// How far a read may grow the window. D37: the peer may spend the window on either stream, so it is capped by the
+/// fuller one, not by the stream just read (A32). When that stream is unread the window runs out, the worker blocks
+/// and the other stream stops too. What ends that: a read of that stream, the command's timeout or an idle timeout,
+/// or the session's close, since TERM and CLOSE need no window. The cap only bites above `MAX_BUFFER - WINDOW_SIZE`
+/// unread bytes; below it every grant is what sshj's would be.
+fn window_credit(window: u32, fullest: usize) -> u32 {
+    let needed = if window <= ADJUST_THRESHOLD {
+        WINDOW_SIZE - window
+    } else {
+        0
+    };
+    // CircularBuffer.maxPossibleRemainingCapacity: `maxSize - available - 1`.
+    let capacity = MAX_BUFFER as i64 - fullest as i64 - 1;
+    (needed as i64).min(capacity - window as i64).max(0) as u32
 }
 
 fn signal_text(signal: &Sig) -> String {
@@ -514,5 +520,128 @@ impl AsyncRead for ChannelReader {
             return Poll::Pending;
         }
         Poll::Ready(Ok(()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::config::{PerformanceDefaultConfig, SshLogging};
+    use super::super::error::is_instance;
+    use super::*;
+    use jcompat::logging::MarathonLogging;
+    use marathon_core::runtime::{CancellationSignal, VendorFuture, VendorTimeoutBody};
+
+    /// sshj's grant, which looked only at the stream just read.
+    fn sshj_credit(window: u32, read_stream: usize) -> u32 {
+        let needed = if window <= ADJUST_THRESHOLD {
+            WINDOW_SIZE - window
+        } else {
+            0
+        };
+        (needed as i64)
+            .min(MAX_BUFFER as i64 - read_stream as i64 - 1 - window as i64)
+            .max(0) as u32
+    }
+
+    #[test]
+    fn grants_are_unchanged_while_neither_stream_is_near_its_cap_d37() {
+        let last_ordinary = MAX_BUFFER - WINDOW_SIZE as usize - 1;
+        for window in (0..=WINDOW_SIZE)
+            .step_by(4096)
+            .chain([ADJUST_THRESHOLD, ADJUST_THRESHOLD + 1])
+        {
+            for fullest in (0..=last_ordinary).step_by(64 * 1024).chain([last_ordinary]) {
+                for read_stream in [0, fullest / 2, fullest] {
+                    assert_eq!(
+                        window_credit(window, fullest),
+                        sshj_credit(window, read_stream),
+                        "window {window}, fullest {fullest}, read stream {read_stream}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn grants_never_let_the_unread_stream_overflow_d37() {
+        let cap = MAX_BUFFER as u64 - 1;
+        for unread in [
+            cap - 1,
+            cap - 100,
+            cap - ADJUST_THRESHOLD as u64,
+            cap - WINDOW_SIZE as u64 + 1,
+        ] {
+            let unread = unread as usize;
+            // Everything already granted may still arrive on the unread stream.
+            let window = (cap - unread as u64).min(ADJUST_THRESHOLD as u64) as u32;
+            let credit = window_credit(window, unread);
+            assert!(unread as u64 + u64::from(window) + u64::from(credit) <= cap);
+            // sshj's grant for a read of the other, empty stream goes past the cap.
+            assert!(unread as u64 + u64::from(window) + u64::from(sshj_credit(window, 0)) > cap);
+        }
+        assert_eq!(window_credit(0, MAX_BUFFER - 1), 0);
+        assert_eq!(
+            window_credit(0, MAX_BUFFER - 1 - 16_384),
+            16_384,
+            "reading it reopens the window"
+        );
+        assert_eq!(window_credit(0, 0), WINDOW_SIZE);
+    }
+
+    struct NoClock;
+    impl VendorClock for NoClock {
+        fn delay(&self, _: i64, _: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
+            Box::pin(std::future::pending())
+        }
+        fn with_timeout<'a>(
+            &'a self,
+            _: Arc<dyn CancellationSignal>,
+            _: i64,
+            _: VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, ()> {
+            Box::pin(std::future::pending())
+        }
+        fn with_timeout_or_null<'a>(
+            &'a self,
+            _: Arc<dyn CancellationSignal>,
+            _: i64,
+            _: VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, Option<()>> {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    #[test]
+    fn a_peer_that_ignores_the_window_still_hits_the_cap() {
+        // A conforming peer cannot reach this any more, and the fake honours the window, so the channel is driven
+        // directly: memory stays bounded and the failure stays sshj's.
+        let logging = SshLogging::new(
+            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(|_, _, _, _| {}),
+        );
+        let shared = ConnectionShared::new(PerformanceDefaultConfig::new(false, logging).loggers());
+        let channel = ExecChannel {
+            number: 0,
+            state: Mutex::new(State {
+                window: WINDOW_SIZE,
+                ..Default::default()
+            }),
+            changed: watch::channel(0).0,
+            ops: mpsc::unbounded_channel().0,
+            shared: shared.clone(),
+            clock: Arc::new(NoClock),
+            scope: Arc::new(SessionScope::default()),
+        };
+        let packet = vec![b'x'; MAX_PACKET_SIZE as usize];
+        let fit = (MAX_BUFFER - 1) / packet.len();
+        for _ in 0..fit {
+            channel.receive(Stream::Stdout, &packet);
+        }
+        assert!(!shared.is_dead());
+        channel.receive(Stream::Stdout, &packet);
+        assert_eq!(channel.available(Stream::Stdout), fit * packet.len(), "not buffered");
+        let death = shared.death().unwrap();
+        assert!(is_instance(death.class, CIRCULAR_BUFFER_EXCEPTION));
+        assert_eq!(death.message().as_deref(), Some("Attempted overflow"));
     }
 }

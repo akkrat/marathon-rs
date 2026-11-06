@@ -470,6 +470,16 @@ Using a connection after marathon closed it is still an `IllegalStateException`.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A17](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
 
+## D37 — One unread output stream no longer kills the connection
+
+stdout and stderr share one SSH receive window. In Kotlin, a command whose stderr is read while its stdout is left
+unread (or the reverse) can overflow the 16 MiB buffer and lose the connection, failing every command on that worker.
+Native builds stop giving the worker more window, so it blocks instead and the connection and its other commands
+carry on. While it is blocked the other stream stops too, until that output is read, the command's timeout or idle
+timeout ends it, or the session is closed. Commands whose output is read promptly behave as before. Approved 2026-11-06
+(user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A32](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
+
 ## D38 — A failed readiness probe means not running
 
 From runtime 16 on, Kotlin reads the output of `launchctl dumpstate` without checking its exit status, so a

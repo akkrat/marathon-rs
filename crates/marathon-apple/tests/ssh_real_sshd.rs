@@ -6,13 +6,16 @@
 mod support;
 use marathon_apple::{
     cmd::{
-        CommandExecutor, CommandRequest,
-        remote::ssh::sshj::{DisconnectReason, SshAuthentication, SshCommandExecutor},
+        CommandExecutor, CommandRequest, CommandSession, consume_output,
+        remote::ssh::sshj::{DisconnectReason, SshAuthentication, SshCommandExecutor, channel::Stream},
     },
     device::{connection_factory::ConnectionError, connection_failures::is_transient_connection_failure},
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use support::{context, duration, executor_suite as suite, ssh};
 
 async fn connect() -> SshCommandExecutor {
@@ -371,4 +374,120 @@ async fn d36_a_killed_server_session_makes_safe_execute_return_null() {
             Ok(None)
         );
     }
+}
+
+/// A flood of `rounds` MiB on stdout, a stderr byte after each, then exit 7.
+fn flood_script(rounds: u32) -> String {
+    format!("i=0; while [ $i -lt {rounds} ]; do yes | head -c 1048576; printf e >&2; i=$((i+1)); done; exit 7")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn d37_reading_only_stderr_keeps_the_connection_on_a_real_sshd() {
+    // The scenario of fixtures/oracle/ssh/flood.jsonl on OpenSSH: stderr only, then the other session, then stdout.
+    use tokio::io::AsyncReadExt;
+    const CAP: usize = 16 * 1024 * 1024;
+    const ADJUST_THRESHOLD: u32 = 512 * 1024;
+    let executor = connect().await;
+    let channel = executor.connection().start_session().await.unwrap();
+    channel.exec(flood_script(32)).await.unwrap();
+    let mut stderr = channel.reader(Stream::Stderr);
+    let mut err = 0;
+    let started = Instant::now();
+    while executor.connected() && started.elapsed() < Duration::from_secs(60) {
+        let window = channel.local_win_size();
+        if window <= ADJUST_THRESHOLD && channel.available(Stream::Stderr) > 0 {
+            err += stderr.read(&mut [0u8; 1]).await.unwrap();
+        } else if window == 0 {
+            break;
+        } else {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    assert!(executor.connected(), "the connection must survive");
+    assert_eq!(channel.local_win_size(), 0, "not blocked within 60 s");
+    let buffered = channel.available(Stream::Stdout);
+    assert!(buffered < CAP, "{buffered}");
+    println!("D37.info.real: stderr read {err}, stdout buffered {buffered}");
+
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
+    );
+    assert_eq!(channel.available(Stream::Stdout), buffered);
+
+    let mut stdout = channel.reader(Stream::Stdout);
+    let mut out = 0;
+    let mut bytes = vec![0; 64 * 1024];
+    let started = Instant::now();
+    while (out < 32 * 1024 * 1024 || err < 32) && started.elapsed() < Duration::from_secs(60) {
+        if channel.available(Stream::Stdout) > 0 {
+            out += stdout.read(&mut bytes).await.unwrap();
+        } else if channel.available(Stream::Stderr) > 0 {
+            err += stderr.read(&mut bytes).await.unwrap();
+        } else {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    assert_eq!((out, err), (32 * 1024 * 1024, 32));
+    tokio::time::timeout(Duration::from_secs(60), channel.close_escalating())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(channel.exit_status(), Some(7));
+    assert!(executor.connected());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn d37_a_stuck_consumer_is_ended_by_timeout_and_close_on_a_real_sshd() {
+    // What guarantees progress when a consumer has stopped, on a worker that blocks behind the closed window.
+    let executor = connect().await;
+    let stuck = |session: Arc<CommandSession>| {
+        tokio::spawn(async move {
+            consume_output(
+                &session.base,
+                &context(),
+                |_| std::future::pending(),
+                |_| std::future::ready(Ok(())),
+            )
+            .await
+        })
+    };
+    let script = flood_script(256);
+    let timed = Arc::new(
+        executor
+            .execute(request(&["sh", "-c", &script], 3000), context())
+            .await
+            .unwrap(),
+    );
+    let consumer = stuck(timed.clone());
+    let exit = tokio::time::timeout(Duration::from_secs(60), timed.base.exit_code.wait())
+        .await
+        .unwrap();
+    assert_eq!(exit, Ok(None));
+    consumer.abort();
+    timed.close().await.unwrap();
+    assert!(executor.connected());
+
+    let closed = Arc::new(
+        executor
+            .execute(request(&["sh", "-c", &script], 600_000), context())
+            .await
+            .unwrap(),
+    );
+    let consumer = stuck(closed.clone());
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let started = Instant::now();
+    tokio::time::timeout(Duration::from_secs(60), closed.close())
+        .await
+        .unwrap()
+        .unwrap();
+    println!("D37.info.real_close_ms: {}", started.elapsed().as_millis());
+    consumer.abort();
+    assert!(executor.connected());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
+    );
 }

@@ -4,7 +4,7 @@ mod support;
 use fake_worker::script::{Action, Chunk, Faults, Keepalive};
 use jcompat::logging::Level;
 use marathon_apple::cmd::{
-    CommandExecutor, CommandRequest, CommandSession, cancelled,
+    CommandExecutor, CommandRequest, CommandSession, cancelled, consume_output,
     remote::ssh::sshj::{
         SshCommandExecutor, SshFailure,
         channel::{ExecChannel, Stream},
@@ -859,13 +859,62 @@ async fn slow_consumer_receive_window_stays_within_the_buffer_cap() {
     assert_eq!(buffered, CAP - 1, "reads should refill the buffer up to sshj's cap");
 }
 
+/// The script of `fixtures/oracle/ssh/flood.jsonl`: 32 MiB of stdout with a stderr byte after each MiB.
+fn stderr_flood() -> Action {
+    let mut chunks = Vec::new();
+    for _ in 0..32 {
+        chunks.push(ssh::chunk(&"x".repeat(1024 * 1024)));
+        chunks.push(ssh::err_chunk("e"));
+    }
+    ssh::output(chunks, 0)
+}
+/// The same amount in lines, which a line consumer can stall on: `LineBuffer` holds a line until it ends.
+fn stderr_flood_in_lines() -> Action {
+    let line = format!("{}\n", "x".repeat(1023));
+    let mut chunks = Vec::new();
+    for _ in 0..32 {
+        chunks.push(ssh::chunk(&line.repeat(1024)));
+        chunks.push(ssh::err_chunk("e\n"));
+    }
+    ssh::output(chunks, 0)
+}
+/// Reads stderr only, until nothing more can arrive: the window is spent and stderr empty. Returns the bytes read.
+///
+/// A read grants credit only while the window is at or below sshj's adjust threshold (`Window.Local`:
+/// min(32 KiB * 20, 2 MiB / 4)), so a read that comes earlier leaves the flood blocked well below the cap. Each read
+/// here waits for a spent window, a timing that also overflowed sshj's buffer. It has a second reason: credit granted
+/// with nothing in flight keeps the fake's russh session from queueing data past the window, and while it holds such
+/// data it serves no other channel, which OpenSSH does not do (`ssh_real_sshd.rs` reads at the threshold).
+async fn read_stderr_until_blocked(channel: &Arc<ExecChannel>, executor: &SshCommandExecutor) -> usize {
+    use tokio::io::AsyncReadExt;
+    let mut stderr = channel.reader(Stream::Stderr);
+    let mut consumed = 0;
+    let result = tokio::time::timeout(Duration::from_secs(60), async {
+        while executor.connected() {
+            if channel.local_win_size() > 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            } else if channel.available(Stream::Stderr) > 0 {
+                consumed += stderr.read(&mut [0u8; 1]).await.unwrap();
+            } else {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(
+        result.is_ok(),
+        "still flowing after 60 s: window {}, stdout {}, read {consumed}",
+        channel.local_win_size(),
+        channel.available(Stream::Stdout)
+    );
+    consumed
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn reading_only_stderr_overflows_unread_stdout_and_kills_the_connection() {
-    // R2-sol-1: stderr reads refill the shared window regardless of stdout, so unread stdout reaches
-    // CircularBuffer's hard cap; sshj's reader thread dies with CircularBufferException and takes the whole
-    // connection. Oracle: fixtures/oracle/ssh/flood.jsonl (`tools/oracle/ssh-probes/run.sh flood`), the same
-    // script read through stderr only on the Kotlin factory's client. Its consumed/buffered counts are
-    // timing-dependent, so they are bounded here; the failure chain and the Dying line are compared exactly.
+async fn reading_only_stderr_blocks_at_the_cap_without_losing_the_connection_d37() {
+    // A32: on sshj, stderr reads refilled the shared window regardless of stdout, unread stdout reached
+    // CircularBuffer's cap, and the reader thread died and took the connection. Oracle, kept as the witness:
+    // fixtures/oracle/ssh/flood.jsonl (`tools/oracle/ssh-probes/run.sh flood`), this script through stderr only.
     use tokio::io::AsyncReadExt;
     const CAP: usize = 16 * 1024 * 1024;
     let oracle: serde_json::Value = {
@@ -875,73 +924,166 @@ async fn reading_only_stderr_overflows_unread_stdout_and_kills_the_connection() 
     };
     assert_eq!(oracle["case"], "flood_stderr_only");
     assert_eq!(oracle["connected"], false);
-    let mut chunks = Vec::new();
-    for _ in 0..32 {
-        chunks.push(ssh::chunk(&"x".repeat(1024 * 1024)));
-        chunks.push(ssh::err_chunk("e"));
-    }
-    let fake = ssh::fake(rules(vec![ssh::exact("flood", ssh::output(chunks, 0))]), 4).await;
+    assert_eq!(oracle["read_error"][0]["message"], "Attempted overflow");
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", stderr_flood())]), 4).await;
     let (logging, events) = ssh::logging(false);
     let executor = ssh::connect_with(&fake, &ssh::factory(&logging), false).await.unwrap();
     let channel = executor.connection().start_session().await.unwrap();
     channel.exec("flood".into()).await.unwrap();
-    let mut stderr = channel.reader(Stream::Stderr);
-    // A read grants credit only while the window is at or below sshj's adjust threshold (`Window.Local`:
-    // min(32 KiB * 20, 2 MiB / 4)). One that returns while granted bytes are still in flight grants none, and the
-    // next stderr byte then sits behind a megabyte of stdout the fake may not send: the oracle's 100 ms sleep
-    // stands in for that, and on a loaded box it lost the race. Each read waits for the window instead.
-    const ADJUST_THRESHOLD: u32 = 512 * 1024;
-    let mut consumed = 0;
-    for _ in 0..32 {
-        wait_for_channel_state(&channel, "no window drain", || {
-            !executor.connected() || channel.local_win_size() <= ADJUST_THRESHOLD
-        })
-        .await;
-        if !executor.connected() {
-            break;
-        }
-        match tokio::time::timeout(Duration::from_secs(30), stderr.read(&mut [0u8; 1])).await {
-            Ok(Ok(1)) => consumed += 1,
-            Ok(_) => break,
-            Err(_) => panic!("stderr read stalled after {consumed} bytes"),
-        }
-    }
-    wait_for_channel_state(&channel, "no overflow", || !executor.connected()).await;
-    assert!(!executor.connected(), "the overflow must kill the whole connection");
-    assert!(consumed < 32, "all 32 stderr bytes were consumed: no overflow happened");
+
+    let consumed = read_stderr_until_blocked(&channel, &executor).await;
+    assert!(executor.connected(), "the connection must survive");
+    assert!(consumed < 32, "all 32 stderr bytes arrived: nothing was held back");
     let buffered = channel.available(Stream::Stdout);
-    assert!(buffered < CAP, "{buffered} unread bytes exceed the buffer cap");
+    assert!(buffered < CAP, "{buffered} unread bytes reach the buffer cap");
     assert!(
-        buffered > CAP / 2,
-        "{buffered} unread: death came before the cap was approached"
+        buffered > CAP - 64,
+        "{buffered} unread: the window closed before the cap"
     );
-    let error = channel.close_escalating().await.err().unwrap();
-    assert_eq!(error.class, CONNECTION_EXCEPTION);
+    assert!(channel.is_open());
+    assert!(!ssh::lines(&events).iter().any(|(_, _, line)| line.contains("Dying")));
+
+    // The stalled channel holds nothing but its own output: the transport still serves other sessions.
     assert_eq!(
-        error.cause.as_deref().map(|cause| (cause.class, cause.message())),
-        Some((CIRCULAR_BUFFER_EXCEPTION, Some("Attempted overflow".into())))
+        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
     );
-    let chain: Vec<(String, Option<String>)> = std::iter::successors(Some(&error), |f| f.cause.as_deref())
-        .map(|f| (f.class.to_owned(), f.message()))
-        .collect();
-    let expected: Vec<(String, Option<String>)> = oracle["join_error"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|link| {
-            (
-                link["class"].as_str().unwrap().to_owned(),
-                link["message"].as_str().map(str::to_owned),
-            )
-        })
-        .collect();
-    assert_eq!(chain, expected);
-    assert!(ssh::lines(&events).contains(&(
-        "TransportImpl".into(),
-        Level::Error,
-        "Dying because - Attempted overflow".into()
-    )));
+    assert_eq!(channel.available(Stream::Stdout), buffered);
+
+    // Once its consumer resumes, nothing was lost.
+    let (mut stdout, mut stderr) = (channel.reader(Stream::Stdout), channel.reader(Stream::Stderr));
+    let (mut out, mut err) = (0, consumed);
+    let mut bytes = vec![0; 64 * 1024];
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while out < 32 * 1024 * 1024 || err < 32 {
+            if channel.available(Stream::Stdout) > 0 {
+                out += stdout.read(&mut bytes).await.unwrap();
+            } else if channel.available(Stream::Stderr) > 0 {
+                err += stderr.read(&mut bytes).await.unwrap();
+            } else {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!((out, err), (32 * 1024 * 1024, 32));
+    channel.close_escalating().await.unwrap();
+    assert_eq!(channel.exit_status(), Some(0));
+    assert!(executor.connected());
     executor.close().await.unwrap();
+}
+
+/// A session whose stdout consumer has stopped for good while its stderr consumer keeps going, as a stuck callback
+/// does. `released` lets the stuck callback go.
+fn consume_with_stuck_stdout(
+    session: Arc<CommandSession>,
+    released: Arc<tokio::sync::Notify>,
+) -> tokio::task::JoinHandle<Result<Option<i32>, VendorError>> {
+    tokio::spawn(async move {
+        consume_output(
+            &session.base,
+            &context(),
+            move |_| {
+                let released = released.clone();
+                async move {
+                    released.notified().await;
+                    Ok(())
+                }
+            },
+            |_| async { Ok(()) },
+        )
+        .await
+    })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stuck_consumer_is_ended_by_the_command_timeout_d37() {
+    // What guarantees progress with no idle limit: TERM and CLOSE need no window, so the command timeout still works
+    // on a worker blocked behind a closed window.
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", stderr_flood_in_lines())]), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let session = Arc::new(start(&executor, &["flood"], 3000).await);
+    let released = Arc::new(tokio::sync::Notify::new());
+    let consumer = consume_with_stuck_stdout(session.clone(), released.clone());
+    let exit = tokio::time::timeout(Duration::from_secs(60), session.base.exit_code.wait())
+        .await
+        .unwrap();
+    assert_eq!(exit, Ok(None), "expired: no exit status");
+    assert!(executor.connected());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
+    );
+    consumer.abort();
+    session.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stuck_consumer_is_ended_by_the_idle_timeout_d37() {
+    // The other stream's reader is not blocked. It sees no data once the window is closed, so its idle check fires.
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", stderr_flood_in_lines())]), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let mut flood = request(&["flood"], 600_000);
+    flood.idle_timeout = duration(500);
+    let session = Arc::new(executor.execute(flood, context()).await.unwrap());
+    let consumer = consume_with_stuck_stdout(session.clone(), Arc::new(tokio::sync::Notify::new()));
+    let error = tokio::time::timeout(Duration::from_secs(60), consumer)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error.failure().class.to_string_lossy(),
+        "java.util.concurrent.TimeoutException"
+    );
+    assert!(executor.connected());
+    session.close().await.unwrap();
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_blocked_at_the_cap_closes_d37() {
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", stderr_flood_in_lines())]), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let session = Arc::new(start(&executor, &["flood"], 600_000).await);
+    let consumer = consume_with_stuck_stdout(session.clone(), Arc::new(tokio::sync::Notify::new()));
+    let flood_channel = fake.events_at_least("exec", 1).await[0]["channel"].clone();
+    // Blocked: it has sent the initial window at least, and it can't have finished, with a line consumer stuck.
+    let initial_packets = (WINDOW_SIZE / MAX_PACKET_SIZE) as usize;
+    assert!(fake.events_at_least("output", initial_packets).await.len() >= initial_packets);
+    assert!(
+        !fake
+            .transcript()
+            .await
+            .iter()
+            .any(|e| e["event"] == "exit_status" && e["channel"] == flood_channel)
+    );
+    tokio::time::timeout(Duration::from_secs(60), session.close())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(executor.connected());
+    consumer.abort();
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 10_000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn both_streams_read_promptly_deliver_everything_d37() {
+    // The ordinary case on the wire; `channel::tests` shows that its grants are exactly sshj's.
+    let fake = ssh::fake(rules(vec![ssh::exact("flood", stderr_flood())]), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let result = ssh::run(&executor, &["flood"], 60_000).await.unwrap();
+    assert_eq!(result.exit_code, Some(0));
+    assert_eq!(result.stdout.concat().len(), 32 * 1024 * 1024);
+    assert_eq!(result.stderr.concat().len(), 32);
+    assert!(executor.connected());
 }
 
 #[tokio::test(flavor = "multi_thread")]

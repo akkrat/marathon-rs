@@ -81,7 +81,7 @@ pub struct ConnectionShared {
     next_channel: AtomicU32,
 }
 impl ConnectionShared {
-    fn new(loggers: SshLoggers) -> Arc<Self> {
+    pub(super) fn new(loggers: SshLoggers) -> Arc<Self> {
         Arc::new(Self {
             loggers,
             death: Mutex::new(None),
