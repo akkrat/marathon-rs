@@ -301,6 +301,9 @@ These fix bugs that Kotlin has, and need no configuration change.
 - **A rejected command frees its SSH session slot**
   ([D29](deviations.md#d29--a-rejected-command-gives-its-session-slot-back)). The command still fails with
   `Request failed`; the commands after it no longer fail for want of a slot.
+- **Closing a session takes at most 30 s, and can kill the process**
+  ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 10 s. A
+  server that ignores signals can leave it running; an error line starting `Abandoning session` then names the command.
 
 ## Trial and rollback
 

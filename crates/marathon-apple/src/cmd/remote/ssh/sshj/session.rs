@@ -2,7 +2,7 @@
 
 use super::channel::ExecChannel;
 use super::error::SshFailure;
-use crate::cmd::{SessionControl, SessionScope};
+use crate::cmd::{SessionControl, SessionScope, cancelled};
 use russh::Sig;
 use std::sync::{
     Arc,
@@ -12,7 +12,7 @@ use std::sync::{
 /// The backend half of an SSH session; `CommandSession` adds BaseCommand's await/drain and scope close.
 pub(crate) fn session_control(
     command: Arc<ExecChannel>,
-    _scope: Arc<SessionScope>,
+    scope: Arc<SessionScope>,
     closing: Arc<AtomicBool>,
 ) -> SessionControl {
     // A11: `override val isAlive = command.isOpen`, evaluated once.
@@ -28,6 +28,7 @@ pub(crate) fn session_control(
             let command = command.clone();
             let closed = closed.clone();
             let closing = closing.clone();
+            let scope = scope.clone();
             Box::pin(async move {
                 // A14: only the first call does anything, and the flag is set before the work. A later call after
                 // a failed close skips this but still cancels and joins the session scope (approved P5).
@@ -35,12 +36,20 @@ pub(crate) fn session_control(
                     return Ok(());
                 }
                 closing.store(true, Ordering::SeqCst);
-                if command.is_open() {
-                    command.signal(Sig::TERM).map_err(SshFailure::into_vendor)?;
+                let result = async {
+                    if command.is_open() && !command.is_closing() {
+                        command.signal(Sig::TERM)?;
+                    }
+                    // TERM, KILL, CLOSE and at most 30 s in all (D30).
+                    command.close_escalating().await
                 }
-                // Up to 30 s for the peer's CLOSE, failing before the join; then an unbounded join. No KILL.
-                command.close().await.map_err(SshFailure::into_vendor)?;
-                command.join().await.map_err(SshFailure::into_vendor)
+                .await;
+                // Nothing may wait on an abandoned session: since `closing` keeps the exit code to the session's
+                // cancellation (P2), an awaiter would otherwise wait for a later close that may never come.
+                if result.is_err() {
+                    scope.cancel(cancelled("Session closed"));
+                }
+                result.map_err(SshFailure::into_vendor)
             })
         }),
     }

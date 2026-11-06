@@ -1,5 +1,5 @@
 //! Execute, streams, exit wait, close and keep-alive of the SSH executor on the fake worker: the spike checklist
-//! (T08, T09, T14-T16, T22-T25), D7, A2, A11, A14, A32, A33, approved P2/P5 and shared-connection flow control.
+//! (T08, T09, T14-T16, T22-T25), D7, D29, D30, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
 mod support;
 use fake_worker::script::{Action, Chunk, Faults, Keepalive};
 use jcompat::logging::Level;
@@ -53,6 +53,25 @@ fn hang_with(chunks: Vec<Chunk>, ignore: &[&str], withhold_close: bool) -> Actio
         close_before_eof: false,
         withhold_close,
     }
+}
+/// A process that TERM does not end, or nothing does, on a peer that answers CLOSE or never does.
+fn unstoppable(ignore: &[&str], withhold_close: bool) -> Action {
+    Action::Output {
+        chunks: vec![],
+        status: 0,
+        signal: None,
+        hang: true,
+        ignore_signals: ignore.iter().map(|s| s.to_string()).collect(),
+        eof_before_exit: false,
+        close_before_eof: false,
+        withhold_close,
+    }
+}
+fn signal_names(signals: &[serde_json::Value]) -> Vec<&str> {
+    signals
+        .iter()
+        .map(|s| s["detail"]["signal"].as_str().unwrap())
+        .collect()
 }
 fn signalled(signal: &str) -> Action {
     Action::Output {
@@ -436,10 +455,10 @@ async fn await_concurrent_with_close_is_cancelled() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn first_close_fails_after_thirty_seconds_and_second_close_cancels_the_scope() {
-    // T15 with sshj's 30 s in compressed time (factor 100): the peer never answers CLOSE.
-    let fake = ssh::fake(rules(vec![ssh::exact("held", hang_with(vec![], &[], true))]), 4).await;
-    let (executor, _) = executor_with(&fake, 100, 0).await;
+async fn first_close_fails_after_term_kill_and_thirty_seconds_and_second_close_cancels_the_scope_d30() {
+    // T15 with sshj's 30 s in compressed time (factor 100): nothing ends the process, and the peer never answers CLOSE.
+    let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 4).await;
+    let (executor, events) = executor_with(&fake, 100, 0).await;
     let session = start(&executor, &["held"], 600_000).await;
     let started = Instant::now();
     let first = other(session.close().await.err().unwrap());
@@ -460,8 +479,21 @@ async fn first_close_fails_after_thirty_seconds_and_second_close_cancels_the_sco
         ),
     ];
     assert_eq!(class_chain(&first), expected);
-    let signals: Vec<_> = fake.events("signal").await;
-    assert_eq!(signals.len(), 1, "one TERM before CLOSE, no KILL");
+    // D30: Kotlin sends one TERM before CLOSE and no KILL. KILL goes before CLOSE, which russh ends the channel with.
+    let transcript = fake.transcript().await;
+    let order: Vec<_> = ssh::channel_events(&transcript, 1)
+        .into_iter()
+        .map(|(_, event)| event)
+        .filter(|event| event == "signal" || event == "client_close")
+        .collect();
+    assert_eq!(order, ["signal", "signal", "client_close"]);
+    assert_eq!(signal_names(&fake.events("signal").await), ["TERM", "KILL"]);
+    let lines = ssh::lines(&events);
+    let abandoned = lines
+        .iter()
+        .filter(|(_, level, message)| *level == Level::Error && message.starts_with("Abandoning session `held`:"))
+        .count();
+    assert_eq!(abandoned, 1, "{lines:?}");
     // Approved P5: the second close skips the backend (Kotlin's closed flag) but cancels and joins the scope.
     let second = Instant::now();
     assert_eq!(session.close().await, Ok(()));
@@ -470,7 +502,104 @@ async fn first_close_fails_after_thirty_seconds_and_second_close_cancels_the_sco
         session.await_result(&context()).await,
         Err(VendorError::Cancelled(_))
     ));
-    assert_eq!(fake.events("signal").await.len(), 1);
+    assert_eq!(fake.events("signal").await.len(), 2);
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fast_exit_on_term_closes_at_once_and_sends_no_kill_d30() {
+    let fake = ssh::fake(ssh::suite_script(), 4).await;
+    // At this scale the 20 s before KILL last 20 s, far beyond the fast outcome.
+    let (executor, events) = executor_with(&fake, 1, 0).await;
+    let session = start(&executor, &["sleep", "1000"], 600_000).await;
+    let closed = tokio::time::timeout(Duration::from_secs(15), session.close()).await;
+    assert_eq!(closed, Ok(Ok(())));
+    let signals = fake.events_at_least("signal", 1).await;
+    assert_eq!(signals.len(), 1);
+    assert_eq!(signals[0]["detail"]["signal"], "TERM");
+    assert!(
+        ssh::lines(&events)
+            .iter()
+            .all(|(.., message)| !message.starts_with("Abandoning"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn kill_ends_a_process_that_ignores_term_and_the_close_succeeds_d30() {
+    let fake = ssh::fake(rules(vec![ssh::exact("stubborn", unstoppable(&["TERM"], false))]), 4).await;
+    let (executor, events) = executor_with(&fake, 100, 0).await;
+    let session = start(&executor, &["stubborn"], 600_000).await;
+    let started = Instant::now();
+    assert_eq!(session.close().await, Ok(()));
+    // 10 s at this scale: the process had its time to end on TERM.
+    assert!(
+        started.elapsed() >= Duration::from_millis(100),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(signal_names(&fake.events("signal").await), ["TERM", "KILL"]);
+    assert_eq!(
+        fake.events_at_least("exit_signal", 1).await[0]["detail"]["signal"],
+        "KILL"
+    );
+    assert!(
+        ssh::lines(&events)
+            .iter()
+            .all(|(.., message)| !message.starts_with("Abandoning"))
+    );
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_exit_report_ends_the_term_wait_when_the_peer_keeps_the_channel_open_d30() {
+    // sshd can report an exit and hold its CLOSE until the client's, for example while a child holds the output open.
+    // At factor 1 the TERM wait lasts 10 s: if the report did not end it, KILL would come before CLOSE.
+    let fake = ssh::fake(rules(vec![ssh::exact("held", hang_with(vec![], &[], true))]), 4).await;
+    let (executor, _) = executor_with(&fake, 1, 0).await;
+    let session = Arc::new(start(&executor, &["held"], 600_000).await);
+    let closing = session.clone();
+    let close = tokio::spawn(async move { closing.close().await });
+    tokio::time::timeout(Duration::from_secs(60), async {
+        while fake.events("client_close").await.is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(signal_names(&fake.events("signal").await), ["TERM"]);
+    close.abort();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_awaiter_of_an_abandoned_session_is_released_without_a_second_close_d30() {
+    let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 4).await;
+    let (executor, _) = executor_with(&fake, 100, 0).await;
+    let session = start(&executor, &["held"], 600_000).await;
+    let ctx = context();
+    let both = async { tokio::join!(session.await_result(&ctx), session.close()) };
+    let (awaited, closed) = tokio::time::timeout(Duration::from_secs(60), both).await.unwrap();
+    assert!(closed.is_err());
+    assert!(matches!(awaited, Err(VendorError::Cancelled(_))), "{awaited:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn abandoning_a_session_leaves_the_connection_and_its_other_sessions_alone_d30() {
+    let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 2).await;
+    let (executor, _) = executor_with(&fake, 100, 0).await;
+    let other_session = start(&executor, &["sleep", "1000"], 600_000).await;
+    let session = start(&executor, &["held"], 600_000).await;
+    assert!(session.close().await.is_err());
+    assert_eq!(session.close().await, Ok(()));
+    // The session is gone locally, and the other one and the connection are untouched.
+    assert!(executor.connected());
+    assert_eq!(fake.events("connection_end").await.len(), 0);
+    assert_eq!(other_session.close().await, Ok(()));
     assert_eq!(
         ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
         ["hello"]
@@ -479,9 +608,9 @@ async fn first_close_fails_after_thirty_seconds_and_second_close_cancels_the_sco
 
 #[tokio::test(flavor = "multi_thread")]
 async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null() {
-    let fake = ssh::fake(rules(vec![ssh::exact("held", hang_with(vec![], &[], true))]), 4).await;
+    let fake = ssh::fake(rules(vec![ssh::exact("held", unstoppable(&["TERM", "KILL"], true))]), 4).await;
     let (executor, events) = executor_with(&fake, 100, 0).await;
-    // T15h: the total timeout sends TERM, close() waits 30 s and fails, so await fails instead of returning null.
+    // T15h: the total timeout sends TERM, D30's close waits 30 s and fails, so await fails instead of returning null.
     let session = start(&executor, &["held"], 100).await;
     let failure = other(session.await_result(&context()).await.err().unwrap());
     assert_eq!(
@@ -491,9 +620,22 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
             Some("Timeout expired: 30000 MILLISECONDS".into())
         )
     );
-    // The later session close skips TERM and close() (not open) and joins without bound: still waiting at 60 s.
-    let joined = tokio::time::timeout(Duration::from_millis(600), session.close()).await;
-    assert!(joined.is_err(), "the later join is unbounded");
+    // D30: Kotlin's later session close joins without bound. Here the timeout branch has already given up, so the close
+    // fails at once with no new signal, and the one after it (approved P5) cancels and joins the scope.
+    assert_eq!(fake.events_at_least("signal", 2).await.len(), 2);
+    let later = other(
+        tokio::time::timeout(Duration::from_secs(60), session.close())
+            .await
+            .expect("the later close is bounded")
+            .err()
+            .unwrap(),
+    );
+    assert_eq!(later.class, CONNECTION_EXCEPTION.into());
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(60), session.close()).await,
+        Ok(Ok(()))
+    );
+    assert_eq!(fake.events("signal").await.len(), 2);
     // safeExecute turns the same failure into null and logs it with its throwable.
     assert_eq!(
         executor.safe_execute(request(&["held"], 100), context()).await,
@@ -730,7 +872,7 @@ async fn reading_only_stderr_overflows_unread_stdout_and_kills_the_connection() 
         buffered > CAP / 2,
         "{buffered} unread: death came before the cap was approached"
     );
-    let error = channel.join().await.err().unwrap();
+    let error = channel.close_escalating().await.err().unwrap();
     assert_eq!(error.class, CONNECTION_EXCEPTION);
     assert_eq!(
         error.cause.as_deref().map(|cause| (cause.class, cause.message())),

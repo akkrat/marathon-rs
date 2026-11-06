@@ -45,6 +45,8 @@ Android, SSH and rsync fixes of bugs the Kotlin fork has, each an approved diffe
 - A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40).
 - A command that an iOS or macOS worker rejects no longer holds one of the worker's SSH session slots until the
   connection ends (D29).
+- Closing an SSH session on an iOS or macOS worker takes at most 30 s: TERM, then KILL, then the session is abandoned
+  with an error line, whatever the worker does. A server that ignores signals may leave the process running (D30).
 
 ## 0.11.0
 

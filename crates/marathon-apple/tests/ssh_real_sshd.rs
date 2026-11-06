@@ -251,3 +251,23 @@ async fn t15t_timeout_on_a_process_that_ignores_term() {
     );
     println!("T15t.info.await_ms: {await_ms}");
 }
+
+/// What the fake cannot show: on OpenSSH, KILL ends a process that ignores TERM and its whole group (`killpg`), and the
+/// close then succeeds. Without KILL the close would fail after 30 s.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn t30_kill_ends_a_process_that_ignores_term() {
+    let executor = connect().await;
+    // No `exec`: the child, which inherits the ignored TERM, must die too.
+    let ignoring = ["sh", "-c", "trap \"\" TERM; sleep 1037; echo survived"];
+    let session = executor.execute(request(&ignoring, 600_000), context()).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let started = Instant::now();
+    assert_eq!(session.close().await, Ok(()));
+    let close_ms = started.elapsed().as_millis();
+    assert!((9_000..29_000).contains(&close_ms), "{close_ms}");
+    let left = ["sh", "-c", "pgrep -fl \"[s]leep 1037\""];
+    let left = ssh::run(&executor, &left, 10_000).await.unwrap();
+    assert_eq!(left.stdout, Vec::<String>::new());
+    println!("T30.info.close_ms: {close_ms}");
+}

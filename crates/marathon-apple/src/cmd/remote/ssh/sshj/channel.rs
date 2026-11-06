@@ -10,10 +10,12 @@ use super::client::{
 };
 use super::error::{CIRCULAR_BUFFER_EXCEPTION, CONNECTION_EXCEPTION, DisconnectReason, SshFailure};
 use crate::cmd::SessionScope;
+use jcompat::logging::Level;
 use marathon_core::runtime::{VendorClock, VendorRuntime};
 use russh::{ChannelId, ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Sig, client};
 use std::{
     collections::VecDeque,
+    future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll},
@@ -34,6 +36,13 @@ const MAX_BUFFER: usize = 16 * 1024 * 1024;
 /// D29: how long a rejected `exec` waits for the peer's reply to its CLOSE. No process runs behind a rejected request,
 /// so a healthy peer answers within a round trip, and the slot is free before the caller's next command.
 const REJECTED_CLOSE_WAIT_MILLIS: i64 = 5_000;
+/// D30: how long a process gets to end on TERM before KILL and CLOSE. It is the time a server that ignores signals
+/// delays the CLOSE that may be all that stops the process there, so it is short; the slowest process measured to end on
+/// TERM took 8 s (T15t).
+const TERM_WAIT_MILLIS: i64 = 10_000;
+/// D30: how long the peer gets to answer CLOSE. With [`TERM_WAIT_MILLIS`] this is sshj's 30 s, so no close takes longer
+/// than Kotlin's first wait, and `Timeout expired: 30000 MILLISECONDS` stays true.
+const CLOSE_WAIT_MILLIS: i64 = TIMEOUT_MILLIS - TERM_WAIT_MILLIS;
 
 #[derive(Default)]
 struct State {
@@ -41,6 +50,12 @@ struct State {
     stderr: VecDeque<u8>,
     eof: bool,
     close_requested: bool,
+    /// D30: a [`ExecChannel::close_escalating`] has begun; later callers wait for it instead of repeating it.
+    escalating: bool,
+    /// D30: the escalation gave up on the peer. A late CLOSE still sets `closed`.
+    abandoned: bool,
+    /// The exec string, for the line that reports an abandoned session.
+    command: String,
     /// `closeEvent`: set by the peer's CLOSE, or failed with the transport's error.
     closed: Option<Result<(), SshFailure>>,
     exit_status: Option<i32>,
@@ -149,6 +164,7 @@ impl ExecChannel {
     /// closes the channel the request was sent on, so that it does not hold a `MaxSessions` slot.
     pub async fn exec(&self, command: String) -> Result<(), SshFailure> {
         let promise = format!("chan#{} / chanreq for exec", self.number);
+        self.update(|s| s.command = command.clone());
         if self.ops.send(Op::Exec(command)).is_err() || self.shared.is_dead() {
             return Err(self.shared.write_failure());
         }
@@ -227,18 +243,80 @@ impl ExecChannel {
             let _ = self.ops.send(Op::Close);
         }
     }
-    /// `join()`: no timeout.
-    pub async fn join(&self) -> Result<(), SshFailure> {
-        let error = match self.read(|s| s.closed.clone()) {
-            Some(result) => return result,
-            None => self.wait_for(|s| s.closed.clone()).await,
-        };
-        if let Err(error) = &error {
-            self.shared
-                .loggers
-                .woke_to(&format!("chan#{} / close", self.number), error);
+    /// D30, replacing `close()` and `join()` on the way out of a session (A14). The caller has sent TERM. The process
+    /// gets [`TERM_WAIT_MILLIS`] to end, then KILL; then CLOSE, and [`CLOSE_WAIT_MILLIS`] for the peer's reply, after which
+    /// the session is abandoned and this fails like Kotlin's `close()` did.
+    ///
+    /// KILL comes before CLOSE because russh forgets a channel when it sends CLOSE, and drops any later signal. Signals are
+    /// advisory (some SSH servers ignore them), so only this bound guarantees progress.
+    ///
+    /// A later or concurrent call never starts over and waits no longer than the bound, and a dead transport ends any wait
+    /// at once. An abandoned channel stays open on the peer, in its slot, until the process ends or the connection does:
+    /// the connection is shared with other sessions, so it is left alone.
+    pub async fn close_escalating(&self) -> Result<(), SshFailure> {
+        if let Some(result) = self.read(|s| s.closed.clone()) {
+            return result;
         }
-        error
+        if self.update(|s| std::mem::replace(&mut s.escalating, true)) {
+            let settled = self.wait_for(|s| match (&s.closed, s.abandoned) {
+                (Some(result), _) => Some(Some(result.clone())),
+                (None, true) => Some(None),
+                (None, false) => None,
+            });
+            return self.close_outcome(self.bounded(TIMEOUT_MILLIS, settled).await.flatten());
+        }
+        let ended =
+            self.wait_for(|s| (s.closed.is_some() || s.exit_status.is_some() || s.exit_signal.is_some()).then_some(()));
+        if self.bounded(TERM_WAIT_MILLIS, ended).await.is_none() {
+            // A dead transport rejects the write, and the wait below ends with its error.
+            let _ = self.signal(Sig::KILL);
+        }
+        if self.read(|s| s.closed.is_none()) {
+            self.request_close();
+        }
+        let closed = self
+            .bounded(CLOSE_WAIT_MILLIS, self.wait_for(|s| s.closed.clone()))
+            .await;
+        if closed.is_none() {
+            let command = self.update(|s| {
+                s.abandoned = true;
+                s.command.clone()
+            });
+            let loggers = &self.shared.loggers;
+            let logger = loggers
+                .logging
+                .logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor");
+            loggers.logging.log(
+                &logger,
+                Level::Error,
+                || {
+                    format!(
+                        "Abandoning session `{command}`: no reply to TERM, KILL and CLOSE in 30 s. The process may still run on the worker and hold its session slot"
+                    )
+                },
+                None,
+            );
+        }
+        self.close_outcome(closed)
+    }
+    /// D30: a close has begun, so its TERM has been sent.
+    pub fn is_closing(&self) -> bool {
+        self.read(|s| s.escalating)
+    }
+    async fn bounded<T>(&self, millis: i64, future: impl Future<Output = T>) -> Option<T> {
+        within(self.clock.as_ref(), self.scope.clone(), millis, future).await
+    }
+    fn close_outcome(&self, closed: Option<Result<(), SshFailure>>) -> Result<(), SshFailure> {
+        match closed {
+            Some(Ok(())) => Ok(()),
+            Some(Err(error)) => {
+                self.shared
+                    .loggers
+                    .woke_to(&format!("chan#{} / close", self.number), &error);
+                Err(error)
+            }
+            None => Err(SshFailure::timeout_expired(CONNECTION_EXCEPTION, TIMEOUT_TEXT)),
+        }
     }
     /// `join(1, NANOSECONDS)`.
     pub fn join_poll(&self) -> Result<(), SshFailure> {

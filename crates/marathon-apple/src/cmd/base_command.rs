@@ -273,9 +273,10 @@ impl CommandSession {
                             base.close().await
                         }
                         .await;
-                        // SSH may time out during close; a later explicit close must retry instead of replaying
-                        // that error. Only this attempt's own entry is released, after all of its work, so a
-                        // retry never overlaps it (the SSH backend itself acts only on the first call, A14).
+                        // SSH may time out during close (at most 30 s, D30); a later explicit close must retry
+                        // instead of replaying that error. Only this attempt's own entry is released, after all of
+                        // its work, so a retry never overlaps it (the SSH backend itself acts only on the first
+                        // call, A14; the retry then cancels and joins the session scope, approved P5).
                         if result.is_err() {
                             let mut slot = closing.lock().unwrap_or_else(|e| e.into_inner());
                             if slot.task.as_ref().is_some_and(|(owner, _)| *owner == attempt) {

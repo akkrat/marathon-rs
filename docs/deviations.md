@@ -444,3 +444,22 @@ builds close the rejected channel. The command still fails with `Request failed`
 or at most 5 s. No configuration change is needed. Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A33](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+
+## D30 — Closing an SSH session has a limit
+
+Kotlin sends TERM, waits up to 30 s for the worker to close the channel and then fails, and a later close
+can wait without any limit. It never sends KILL. Native builds send TERM, give the process up to 10 s to end,
+send KILL if it did not, close the channel and give the worker up to 20 s more. After that the session is
+abandoned and the run carries on, so no close takes more than 30 s. The close fails with the same error
+as Kotlin's, and one error line names the command.
+
+**A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
+do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
+run going. An abandoned process may keep running on the worker and hold one of its `MaxSessions` slots until it ends
+or the connection does; the connection is shared with other sessions and stays up. If the error line appears, look at
+that process on the worker. On a server that ignores signals, the channel of such a process is now closed after 10 s
+instead of at once.
+
+No configuration change is needed, and the durations are not configurable. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A14](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).

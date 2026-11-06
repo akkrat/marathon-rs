@@ -188,7 +188,7 @@ async fn execute(
         Ok(value) => value,
         Err(error) => {
             let _ = channel.signal(Sig::TERM);
-            let _ = channel.close().await;
+            let _ = channel.close_escalating().await;
             return Err(error);
         }
     };
@@ -273,9 +273,10 @@ async fn exit_code(
                 ))),
             },
             None => {
-                // The expired wait left the channel alone. TERM, then close(), whose 30 s wait may fail (T15h).
+                // The expired wait left the channel alone. TERM, then the bounded close, which gives a process that TERM
+                // does not end KILL, and fails if the peer never answers (T15h, D30).
                 channel.signal(Sig::TERM).map_err(SshFailure::into_vendor)?;
-                channel.close().await.map_err(SshFailure::into_vendor)?;
+                channel.close_escalating().await.map_err(SshFailure::into_vendor)?;
                 Ok(None)
             }
         }
