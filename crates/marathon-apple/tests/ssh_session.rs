@@ -405,7 +405,7 @@ const NO_OPEN_REPLY_LINE: &str =
 #[tokio::test(flavor = "multi_thread")]
 async fn an_open_with_no_reply_fails_with_its_timeout_and_a_late_reply_is_closed_u157() {
     // One slot, so that the channel the late reply opens would keep the next command from running.
-    let fake = ssh::fake(late_open_script(4_000, false), 1).await;
+    let fake = ssh::fake(late_open_script(12_000, false), 1).await;
     let (executor, events) = executor_with(&fake, 10, 0).await;
     let started = Instant::now();
     let failure = other(
@@ -465,7 +465,7 @@ async fn a_caller_that_goes_away_during_an_open_leaves_no_channel_behind_u157() 
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_late_refusal_does_not_give_its_text_to_the_next_failure_u157() {
-    let fake = ssh::fake(late_open_script(4_000, true), 1).await;
+    let fake = ssh::fake(late_open_script(12_000, true), 1).await;
     let (executor, _) = executor_with(&fake, 10, 0).await;
     let failure = other(
         executor
@@ -477,7 +477,7 @@ async fn a_late_refusal_does_not_give_its_text_to_the_next_failure_u157() {
     assert_is_the_exec_timeout(&failure);
     assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
     // Its text reaches the client a moment after the event, and is off the queue a moment after that.
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
     let held = start(&executor, &["sleep", "1000"], 600_000).await;
     let refused = other(
         executor
