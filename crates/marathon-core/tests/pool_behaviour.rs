@@ -3,6 +3,7 @@
 mod support;
 use marathon_core::{
     execution::{DevicePoolMessage, FromDevice, FromQueue, FromScheduler, queue::QueueMessage},
+    logging::LogRecord,
     model::*,
     runtime::*,
     vendor::Device,
@@ -64,10 +65,21 @@ fn stale_disconnect_leaves_the_replacement_d40() {
                 h.run_current().await;
                 assert!(!completed(&replacement));
                 assert!(!pool.terminated());
+                let mismatch = |logs: Vec<LogRecord>| {
+                    logs.iter()
+                        .filter(|r| {
+                            r.message.to_string_lossy()
+                                == "device same: another instance is in this pool, nothing to remove"
+                        })
+                        .count()
+                };
+                assert_eq!(mismatch(h.logs()), 1);
                 pool.remove(&new);
                 h.run_current().await;
                 assert!(completed(&replacement));
                 assert!(!pool.terminated());
+                // A device that was the current one, or is gone altogether, is no mismatch.
+                assert_eq!(mismatch(h.logs()), 1);
                 pool.send(terminate());
                 h.await_pool_termination().await;
             })

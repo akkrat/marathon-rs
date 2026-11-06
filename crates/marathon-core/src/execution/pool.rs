@@ -552,12 +552,19 @@ impl DevicePoolActor {
         // D40: a replacement under the same serial is another instance. An older instance is out
         // of this map only after its actor was told to terminate or has terminated, so a stale
         // disconnect has nothing left to do for it (C27).
-        let current = self.devices.get(&serial).is_some_and(|actor| actor.device == device);
-        let actor = if current {
+        let current = self.devices.get(&serial).map(|actor| actor.device == device);
+        let actor = if current == Some(true) {
             self.devices.shift_remove(&serial)
         } else {
             None
         };
+        if current == Some(false) {
+            self.debug(&[
+                S("device "),
+                J(&serial),
+                S(": another instance is in this pool, nothing to remove"),
+            ]);
+        }
         if let Some(actor) = &actor {
             self.terminating_devices.push(actor.device.clone());
             self.release_device(&actor.device);
