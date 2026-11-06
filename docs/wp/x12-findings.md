@@ -227,6 +227,8 @@ Every path that can reach `start_adb` was checked. `tests/support/mod.rs` and `r
 its own `./sdk`, and its fake outlives the run. `run_outcome.rs` does not run the provider. `real_adb.rs` is existing, and
 drives only the fake on a private port. The ANDROID_HOME fallback in `start_adb` is not reached by any test.
 
+A fake server that is killed listens on the same port again, and a provider retries a port whose server never returned, so the tests that kill a server hold a lock exclusively (`docs/testing.md`, rule 3). Before this, a test sharing the binary could take the port: `track_eof_resumes_tracking_and_keeps_a_listed_device_d22` failed once in eight runs. After it, `provider_test` passed 20 of 20 and `reconnect_test` 6 of 6 on this Mac.
+
 ## What was not verified
 
 No real emulator, device or farm. On a real emulator, the orchestrator should check:

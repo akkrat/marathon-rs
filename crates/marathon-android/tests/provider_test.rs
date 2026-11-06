@@ -17,7 +17,8 @@ use std::collections::HashMap;
 use support::*;
 /// The loopback test releases a free port and expects it to stay free until the provider has
 /// asked it for a version; other tests here bind ephemeral ports and could take it meanwhile.
-/// It holds this lock exclusively; the others share it.
+/// A test that kills a fake server has the same need: the server listens on that port again, and until then the
+/// provider retries it. They hold this lock exclusively; the others share it.
 static PORTS: std::sync::RwLock<()> = std::sync::RwLock::new(());
 fn shared_ports() -> std::sync::RwLockReadGuard<'static, ()> {
     PORTS.read().unwrap_or_else(|e| e.into_inner())
@@ -219,7 +220,7 @@ async fn pending_event(provider: &AdamDeviceProvider) -> Option<DeviceEvent> {
 /// on the lost connections comes back: its logcat stream.
 #[test]
 fn track_eof_resumes_tracking_and_keeps_a_listed_device_d22() {
-    let _ports = shared_ports();
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     run(configuration(), |runtime, context| {
         Box::pin(async move {
             assert!(
@@ -261,7 +262,7 @@ fn track_eof_resumes_tracking_and_keeps_a_listed_device_d22() {
 /// joined meanwhile connects, once.
 #[test]
 fn returned_server_reconciles_its_device_list_d22() {
-    let _ports = shared_ports();
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     let mut c = configuration();
     android(&mut c).wait_for_devices_timeout_millis = 1500;
     run(c, |runtime, context| {
@@ -320,7 +321,7 @@ fn returned_server_reconciles_its_device_list_d22() {
 /// only, by the bound that also lets the run end. Terminating the provider then ends its retry loop.
 #[test]
 fn a_server_that_never_returns_loses_only_its_own_devices_d22() {
-    let _ports = shared_ports();
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     let mut c = configuration();
     android(&mut c).wait_for_devices_timeout_millis = 1500;
     run(c, |runtime, context| {
@@ -371,7 +372,7 @@ fn a_server_that_never_returns_loses_only_its_own_devices_d22() {
 /// (`uncompletedTestRetryQuota`) until the server is back. Once the server is back, the batch runs.
 #[test]
 fn a_batch_waits_for_a_lost_server_d22() {
-    let _ports = shared_ports();
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     use marathon_core::{
         executor::shared::SharedDeferred,
         model::{DevicePoolId, TestBatch},
@@ -439,7 +440,7 @@ fn a_batch_waits_for_a_lost_server_d22() {
 /// device; with the server there, it stays a device loss.
 #[test]
 fn device_loss_counts_only_while_the_server_is_there_d22() {
-    let _ports = shared_ports();
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     use marathon_android::{
         device::{AndroidBatchExecutor, AndroidDevice},
         services::AndroidRuntime,
@@ -545,7 +546,7 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
 /// D22: a loopback server that refuses the connection is restarted through the path initial setup uses.
 #[test]
 fn a_lost_loopback_server_is_started_again_through_the_setup_path_d22() {
-    let _ports = shared_ports();
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     use std::os::unix::fs::PermissionsExt;
     let temp = checked(tempfile::tempdir());
     checked(std::fs::create_dir(temp.path().join("platform-tools")));

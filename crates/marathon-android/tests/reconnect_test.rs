@@ -274,12 +274,18 @@ impl EventChannel<DeviceEvent> for TappedChannel {
 }
 
 /// Runs one scenario (one script per adb server) to completion in virtual time.
+/// A killed fake server listens on its port again, and until then the provider retries that port, so nothing else here
+/// may bind it (`docs/testing.md`, rule 3). An outage holds this exclusively; the other scenarios share it.
+static PORTS: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
 pub fn run_scenario(scripts: &[&str]) -> Observed {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
     run_loaded(scripts.iter().map(|name| load(name)).collect())
 }
 
 /// One server from `script`, whose only event is an adb server outage at virtual `at_ms`.
 fn run_outage(script: &str, at_ms: i64, restart_after: Option<Duration>) -> Observed {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
     let (script, _, index) = load(script);
     let event = Event {
         server: 0,
