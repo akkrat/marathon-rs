@@ -36,8 +36,9 @@ Fixes of bugs the Kotlin fork has, each an approved difference. See the
   being out for the whole run. `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
 - A history query that fails is no longer final for the run: it is retried in the background a limited number of times,
   and queues built and batches composed afterwards use the history it finds. A run never waits for this. With a
-  failing analytics backend the log has more warnings and timing lines, and the end of a run waits at most 3 s for a
-  query stuck inside a blocking call (D34).
+  failing analytics backend the log has more warnings and timing lines. If a query is stuck inside a blocking call, the
+  run moves on after 3 s and writes its reports, but the process ends only when that call returns, which may be never
+  (D34).
 - A failed or timed-out simulator readiness probe now means the simulator is not running yet, on every iOS runtime
   (D38).
 - A test name, a test's own assertion text or an application's log line that contains a device failure text, such as

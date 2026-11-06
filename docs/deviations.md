@@ -451,7 +451,8 @@ queues built later and batches composed later, so with a failing backend the ord
 a healthy backend nothing changes. With a failing one the log gains one failed timing line and one warning per
 re-query, and one line when the history returns or the attempts run out. An empty answer gets that line too, and it says
 that nothing changes. Closing the provider cancels a re-query at once. The HTTP clients stop there, and a query that blocks
-its thread gets 3 seconds and one warning, and the backend is then closed anyway. No configuration change is needed.
+its thread gets 3 seconds and one warning, and the backend is then closed anyway. The reports are still written, but the
+process ends only when that call returns. No configuration change is needed.
 Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [C41](known-kotlin-bugs.md), the [x15 findings](wp/x15-findings.md) and the [x22 findings](wp/x22-findings.md).
 

@@ -70,6 +70,7 @@ With a failing backend, on top of the first query's lines, which are unchanged:
 | Each failed re-query | `Timings` INFO `… failed in N ms`, and `MetricsProviderImpl` WARN `Cannot fetch … from database` with its cause |
 | A re-query that answers | `Timings` INFO `… returned N tests in M ms`, the DEBUG list of rows for an execution time query, and INFO `… returned N tests after failing earlier. Queues built and batches composed from now on use it; a queue that already exists keeps its order`. For an answer of 0 tests that line ends `There is no history to use, so nothing changes` ([x22](x22-findings.md)) |
 | The 8th failed re-query | One more WARN: `… failed 8 more times. Tests without history use the defaults for the rest of this run` |
+| A re-query that panics, once per refresh | One WARN: `The history refresh panicked, so its failed queries are not tried again. Tests without history use the defaults`. Its keys get no more lines ([x22](x22-findings.md)) |
 | `close`, once per run, if a cancelled query has not stopped within 3 s | One WARN: `The history refresh did not stop within 3000 ms of being cancelled. Closing the analytics backend with its query still running` ([x22](x22-findings.md)) |
 
 So a key adds at most 17 INFO and WARN lines, and `close` one more at most. A cancelled query logs nothing, as in `prefetch`. The per-test "No
