@@ -172,11 +172,11 @@ const D39_REAL_FORMS: &[(&str, &str)] = &[
         "Terminating since there is no system app",
     ),
     (
-        "2026-11-06 12:08:08.118250+0300 Tests-Runner[27239:2608175] Terminating since there is no system app.",
+        "2018-09-15 01:08:49.715033+0700 Tests-Runner[1000:2000] Terminating since there is no system app.",
         "Terminating since there is no system app",
     ),
     (
-        "2026-11-06 12:08:08.118250+0300 Some App[27239:2608175] Terminating since there is no system app.",
+        "2018-09-15 01:08:49.715033+0700 Some App[1000:2000] Terminating since there is no system app.",
         "Terminating since there is no system app",
     ),
     (
@@ -184,7 +184,7 @@ const D39_REAL_FORMS: &[(&str, &str)] = &[
         "Exiting because the workspace server has disconnected",
     ),
     (
-        "2026-11-06 12:08:08.118 Some App[27239:a3f] Exiting because the workspace server has disconnected.",
+        "2018-09-15 01:08:51.148 Some App[1000:a3f] Exiting because the workspace server has disconnected.",
         "Exiting because the workspace server has disconnected",
     ),
     (
@@ -204,11 +204,11 @@ const D39_REAL_FORMS: &[(&str, &str)] = &[
         "Connection peer refused channel request",
     ),
     (
-        "2026-11-06 12:08:08.118250+0300 xcodebuild[1:2] Connection peer refused channel request for \"x\"; channel canceled <DTXChannel: 0x1>",
+        "2018-09-15 01:08:49.715033+0700 xcodebuild[1:2] Connection peer refused channel request for \"x\"; channel canceled <DTXChannel: 0x1>",
         "Connection peer refused channel request",
     ),
     (
-        "2026-11-06 12:08:08.118250+0300 Some App[1:2] Connection peer refused channel request for \"x\"; channel canceled <DTXChannel: 0x1>",
+        "2018-09-15 01:08:49.715033+0700 Some App[1:2] Connection peer refused channel request for \"x\"; channel canceled <DTXChannel: 0x1>",
         "Connection peer refused channel request",
     ),
     (
@@ -243,7 +243,7 @@ const D39_REAL_FORMS: &[(&str, &str)] = &[
     // A test's name is not a shelter: what follows it on the line can be xcodebuild's own text.
     ("Test Case '-[p.C m]' started.Test runner exited", "Test runner exited"),
     (
-        "Test Suite 'All tests' started at 2026-11-06 12:08:08.118. Test runner exited",
+        "Test Suite 'All tests' started at 2018-09-15 01:08:51.148. Test runner exited",
         "Test runner exited",
     ),
 ];
@@ -268,10 +268,10 @@ fn every_real_failure_form_is_detected_d39() {
             format!("{literal}."),
             format!("\t{literal}."),
             format!("prefix: {literal}: suffix"),
-            format!("2026-11-06 12:08:08.118250+0300 xcodebuild[1:2] [MT] {literal}"),
-            format!("2026-11-06 12:08:08.118250+0300 simctl[1:2] {literal}"),
-            format!("2026-11-06 12:08:08.118250+0300 Tests-Runner[1:2] {literal}"),
-            format!("2026-11-06 12:08:08.118250+0300 XCTRunner[1:2] {literal}"),
+            format!("2018-09-15 01:08:49.715033+0700 xcodebuild[1:2] [MT] {literal}"),
+            format!("2018-09-15 01:08:49.715033+0700 simctl[1:2] {literal}"),
+            format!("2018-09-15 01:08:49.715033+0700 Tests-Runner[1:2] {literal}"),
+            format!("2018-09-15 01:08:49.715033+0700 XCTRunner[1:2] {literal}"),
             format!("Some App[1:2] {literal}"),
         ] {
             assert!(literal_of(&line).is_some(), "{line}");
@@ -290,22 +290,33 @@ fn a_test_name_an_assertion_or_an_app_log_line_is_not_a_failure_d39() -> Result<
                 "Test Case '-[p.C {literal}]' exceeded execution time allowance of 1 minute. The test may have hung; check Xcode's test report for additional diagnostics."
             ),
             format!("Test Case '-[{literal} m]' started."),
-            format!("Test Suite '{literal}' started at 2026-11-06 12:08:08.118."),
-            format!("Test Suite '{literal}.xctest' passed at 2026-11-06 12:08:08.118."),
-            format!("Test Suite '{literal}' failed at 2026-11-06 12:08:08.118."),
+            format!("Test Suite '{literal}' started at 2018-09-15 01:08:51.148."),
+            format!("Test Suite '{literal}.xctest' passed at 2018-09-15 01:08:51.148."),
+            format!("Test Suite '{literal}' failed at 2018-09-15 01:08:51.148."),
             format!("/a/T.swift:33: error: -[p.C m] : XCTAssertTrue failed - {literal}"),
             format!("<unknown>:0: error: -[p.C m] : failed: caught \"E\", \"{literal}\""),
-            format!("    t =     4.20s Assertion Failure: T.swift:33: {literal}"),
+            format!("    t =     4.20s Assertion Failure: T.swift:33: XCTAssertTrue failed - {literal}"),
+            format!("    t =     4.20s Assertion Failure: failed - {literal}"),
             format!("    t =     4.20s Tap \"{literal}\" Button"),
+            format!("    t =     4.20s {literal}"),
+            format!("/a/T.swift:33: error: -[p.C m] : failed - [a b] : {literal}"),
+            format!("/a/T.swift:33: error: -[p.C m] : failed - x: error: -[p.D n] : {literal}"),
+            format!(
+                "/a/T.swift:33: error: -[Module.C test()] : XCTAssertEqual failed: (\"{literal}\") is not equal to (\"x\")"
+            ),
+            format!("/a/T.swift:33: error: +[p.C m] : failed - {literal}"),
+            format!("<unknown>:0: error: -[p.C m] : failed: caught error: \"{literal}\""),
+            format!("⚠\u{fe0e} Test \"{literal}\" recorded a warning."),
+            format!("✔\u{fe0e} Test \"{literal}\" passed."),
             format!("◇ Test \"{literal}\" started."),
             format!("\u{200b}✔ Test \"{literal}\" passed after 0.001 seconds."),
             format!("✘ Test m() recorded an issue at T.swift:1:2: Expectation failed: \"{literal}\""),
             format!("↳ {literal}"),
             format!("\u{200b}\u{200b}➜ Test \"{literal}\" skipped."),
-            format!("2026-11-06 12:08:08.118250+0300 Some App[27239:2608175] [general] {literal} process: E"),
-            format!("2026-11-06 12:08:08.118250+0300 Some App[27239:2608175] {literal} process: E"),
-            format!("2026-11-06 12:08:08.118250+0300 xctest[27239:2608175] note: {literal}"),
-            format!("2026-11-06 12:08:08.118 App[1:a3f] {literal} because of a user action"),
+            format!("2018-09-15 01:08:49.715033+0700 Some App[1000:2000] [general] {literal} process: E"),
+            format!("2018-09-15 01:08:49.715033+0700 Some App[1000:2000] {literal} process: E"),
+            format!("2018-09-15 01:08:49.715033+0700 xctest[1000:2000] note: {literal}"),
+            format!("2018-09-15 01:08:51.148 App[1:a3f] {literal} because of a user action"),
         ] {
             assert_eq!(literal_of(&line), None, "{line}");
         }
@@ -320,7 +331,7 @@ fn a_test_name_an_assertion_or_an_app_log_line_is_not_a_failure_d39() -> Result<
     let mut p = XctestEventProducer::new(parser("target"));
     p.process("Test Case '-[p.C m]' started.")?;
     assert!(
-        p.process("/a/T.swift:33: error: -[p.C m] : Test runner exited")?
+        p.process("/a/T.swift:33: error: -[p.C m] : XCTAssertTrue failed - Test runner exited")?
             .is_none()
     );
     let events = p
@@ -373,11 +384,45 @@ fn every_failure_line_in_the_recordings_is_still_detected_d39() -> Result<(), Bo
     assert_eq!(counts, [(307, 1), (44, 0), (2, 0), (3, 0)]);
     Ok(())
 }
+/// A failure the UI test framework records itself appears raw in the message, unlike a test's own
+/// text, and has to keep recycling a sick simulator. Reasoned from Xcode's formats: no recording
+/// holds a raw one.
+#[test]
+fn a_raw_framework_failure_in_an_assertion_is_a_failure_d39() {
+    for (literal, _) in FAILURE_PATTERNS {
+        for line in [
+            format!("/a/T.swift:33: error: -[p.C m] : {literal}"),
+            format!("/a/T.swift:33: error: -[p.C m] : {literal} com.example.app:1234"),
+            format!("/a/T.swift:33: error: -[Module.C test()] : {literal}"),
+            format!("/a b/T.swift:33: error: +[p.C m] :   {literal}"),
+            format!("<unknown>:0: error: -[p.C m] : {literal}"),
+            format!("    t =     4.20s Assertion Failure: T.swift:33: {literal}"),
+            format!("    t =     4.20s     Assertion Failure: <unknown>:0: {literal}"),
+            format!("    t =     4.20s Assertion Failure: {literal}"),
+            format!("    t =     4.20s Assertion Failure: {literal} com.example.app:1: x"),
+        ] {
+            assert!(literal_of(&line).is_some(), "{line}");
+        }
+    }
+    // Which literal reports follows the list, as it does on any other line.
+    assert_eq!(
+        literal_of("/a/T.swift:33: error: -[p.C m] : Test runner exited: Terminating since there is no system app.")
+            .as_deref(),
+        Some("Terminating since there is no system app")
+    );
+    // A test name or path holding a literal is no reason to report a test's own text.
+    for line in [
+        "/a/Failed to terminate/T.swift:33: error: -[p.C m] : XCTAssertTrue failed - x",
+        "/a/T.swift:33: error: -[p.C Failed to terminate] : XCTAssertTrue failed - x",
+    ] {
+        assert_eq!(literal_of(line), None, "{line}");
+    }
+}
 #[test]
 fn a_recorded_app_log_line_is_not_a_failure_d39() {
     // The shape of real lines in an application's xcodebuild log, which name a framework's failure to
     // terminate an extension process.
-    let line = "2026-11-06 12:08:08.118250+0300 Some App[27239:2608175] [general] Failed to terminate process: Error Domain=com.apple.extensionKit.errorDomain Code=18 \"(null)\"";
+    let line = "2018-09-15 01:08:49.715033+0700 Some App[1000:2000] [general] Failed to terminate process: Error Domain=com.apple.extensionKit.errorDomain Code=18 \"(null)\"";
     assert_eq!(literal_of(line), None);
     // The same text printed with no log header could be xcodebuild's own, so it still reports.
     assert_eq!(

@@ -36,10 +36,23 @@ pub const FAILURE_PATTERNS: &[(&str, DeviceFailureReason)] = &[
 // Fixed forms for D39, spelled like the other fixed patterns: Java's dot excludes five line terminators.
 static ACTIVITY_LINE: LazyLock<JavaRegex> = LazyLock::new(|| {
     JavaRegex::compile(
-        r"[ \t]+t = +[0-9]+\.[0-9]+s [^\n\r\x{85}\x{2028}\x{2029}]*",
+        r"[ \t]+t = +[0-9]+\.[0-9]+s ([^\n\r\x{85}\x{2028}\x{2029}]*)",
         "XCTEST_ACTIVITY_LINE",
     )
     .expect("tested fixed marathon pattern")
+});
+// FAILING_TEST with lazy groups: its greedy ones run to the last `error:` and the last `] :` on the
+// line, both of which a test's own message can hold.
+static ASSERTION_HEAD: LazyLock<JavaRegex> = LazyLock::new(|| {
+    JavaRegex::compile(
+        r"^(?:/[^\n\r\x{85}\x{2028}\x{2029}]+?|<unknown>:[0-9]+):[ \t\n\x0B\f\r]error:[ \t\n\x0B\f\r][+\-]\[[^\n\r\x{85}\x{2028}\x{2029}]*?[ \t\n\x0B\f\r][^\n\r\x{85}\x{2028}\x{2029}]*?\][ \t\n\x0B\f\r]:[ \t\n\x0B\f\r]",
+        "XCTEST_ASSERTION_HEAD",
+    )
+    .expect("tested fixed marathon pattern")
+});
+static ACTIVITY_LOCATION: LazyLock<JavaRegex> = LazyLock::new(|| {
+    JavaRegex::compile(r"^[^:\n\r\x{85}\x{2028}\x{2029}]+:[0-9]+: ", "XCTEST_ACTIVITY_LOCATION")
+        .expect("tested fixed marathon pattern")
 });
 static LOG_HEADER: LazyLock<JavaRegex> = LazyLock::new(|| {
     JavaRegex::compile(
@@ -70,9 +83,20 @@ fn failure_text(line: &str) -> Option<&str> {
     {
         return Some(&name[end..]);
     }
-    // An assertion's message and a UI test's activity belong to a test in progress: its runner is
-    // alive and reports that test's result, so no batch waits for a timeout here.
-    if FAILING_TEST.matches(line) || ACTIVITY_LINE.matches(line) || is_swift_testing_event(line) {
+    if FAILING_TEST.matches(line) {
+        let head = ASSERTION_HEAD.find(line)?;
+        return framework_recorded(&line[head.get(0)?.end()..]);
+    }
+    if ACTIVITY_LINE.matches(line) {
+        let activity = ACTIVITY_LINE.find(line)?.get(1)?.as_str();
+        let message = activity.trim_start().strip_prefix("Assertion Failure: ")?;
+        // Tried before the location, which `Failed to terminate com.example:1: x` would resemble.
+        return framework_recorded(message).or_else(|| {
+            let location = ACTIVITY_LOCATION.find(message)?;
+            framework_recorded(&message[location.get(0)?.end()..])
+        });
+    }
+    if is_swift_testing_event(line) {
         return None;
     }
     if let Some(header) = LOG_HEADER.find(line) {
@@ -87,10 +111,25 @@ fn failure_text(line: &str) -> Option<&str> {
     Some(line)
 }
 
+/// An assertion's message, when it can report a failure. XCTest puts a prefix before a test's own
+/// text (`XCTAssertTrue failed - `, `XCTAssertEqual failed: `, `failed - `, `failed: caught error `),
+/// while a failure the framework records itself appears raw, so only a message that starts with a
+/// literal reports. This is reasoned from those formats: no recording holds a raw one. A sick
+/// simulator depends on it, since a failed test counts as progress and never reaches
+/// BatchFailurePolicy's limit.
+fn framework_recorded(message: &str) -> Option<&str> {
+    let message = message.trim_start();
+    FAILURE_PATTERNS
+        .iter()
+        .any(|(p, _)| message.starts_with(p))
+        .then_some(message)
+}
+
 /// `◇ Test "name" started.`, recorded with leading zero-width spaces too. Swift Testing's display
-/// names and issue comments are free text. Its macOS symbols are in the private use plane.
+/// names and issue comments are free text. Its macOS symbols are in the private use plane, and
+/// some of its others carry a variation selector.
 fn is_swift_testing_event(line: &str) -> bool {
-    let mut chars = line.trim_start_matches('\u{200b}').chars();
+    let mut chars = line.trim_start_matches('\u{200b}').chars().filter(|c| *c != '\u{fe0e}');
     let symbol = chars.next();
     chars.next() == Some(' ')
         && symbol.is_some_and(|c| matches!(c, '◇' | '✔' | '✘' | '➜' | '↳' | '⚠') || c >= '\u{100000}')

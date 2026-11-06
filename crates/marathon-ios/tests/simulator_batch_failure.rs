@@ -59,10 +59,10 @@ fn test_text() -> Vec<String> {
         .iter()
         .flat_map(|(literal, _)| {
             [
-                format!("Test Suite '{literal}' started at 2026-11-06 12:08:08.118."),
+                format!("Test Suite '{literal}' started at 2018-09-15 01:08:51.148."),
                 format!("/a/T.swift:33: error: -[Suite test1] : XCTAssertTrue failed - {literal}"),
                 format!("    t =     4.20s Tap \"{literal}\" Button"),
-                format!("2026-11-06 12:08:08.118250+0300 Some App[27239:2608175] [general] {literal}: E"),
+                format!("2018-09-15 01:08:49.715033+0700 Some App[1000:2000] [general] {literal}: E"),
             ]
         })
         .collect()
@@ -91,7 +91,7 @@ async fn a_real_failure_after_a_tests_own_text_still_ends_the_batch_d39() -> Tes
     let (d, s) = prepared(&h).await?;
     let mut lines = test_text();
     lines.extend(passed(1));
-    lines.push("2026-11-06 12:08:08.118250+0300 Tests-Runner[1:2] Terminating since there is no system app.".into());
+    lines.push("2018-09-15 01:08:49.715033+0700 Tests-Runner[1:2] Terminating since there is no system app.".into());
     lines.extend(passed(2));
     s.output(lines);
     let (r, results) = run(&h, &d).await;
@@ -101,5 +101,61 @@ async fn a_real_failure_after_a_tests_own_text_still_ends_the_batch_d39() -> Tes
     assert_eq!(results.uncompleted.len(), 1);
     assert!(d.retired());
     h.finish(&[d]).await;
+    Ok(())
+}
+/// Five batches of the two tests on a simulator where every test reports `message` as its assertion,
+/// also in an activity line. Returns what each batch did until the device is lost.
+async fn five_batches(
+    h: &Harness,
+    d: &marathon_ios::apple_simulator_device::AppleSimulatorDevice,
+    s: &BatchScript,
+    message: &str,
+) -> Vec<(usize, usize, bool)> {
+    let mut outcomes = Vec::new();
+    for _ in 0..5 {
+        let mut lines = Vec::new();
+        for test in 1..=2 {
+            lines.push(format!("Test Case '-[Suite test{test}]' started."));
+            lines.push(format!("/a/T.swift:33: error: -[Suite test{test}] : {message}"));
+            lines.push(format!("    t =     4.20s Assertion Failure: T.swift:33: {message}"));
+            lines.push(format!("Test Case '-[Suite test{test}]' failed (0.100 seconds)."));
+        }
+        s.output(lines);
+        let (r, results) = run(h, d).await;
+        let results = results.unwrap();
+        outcomes.push((results.failed.len(), results.uncompleted.len(), r.is_err()));
+        if r.is_err() {
+            break;
+        }
+    }
+    outcomes
+}
+#[tokio::test(start_paused = true)]
+async fn a_framework_failure_in_an_assertion_loses_a_sick_simulator_d39() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    let outcomes = five_batches(&h, &d, &s, "Failed to terminate com.example.app:1234").await;
+    // As in Kotlin: nothing fails, everything is uncompleted, and the third such batch loses it.
+    assert_eq!(outcomes, [(0, 2, false), (0, 2, false), (0, 2, true)]);
+    assert!(d.retired() || d.lost());
+    h.finish(&[d]).await;
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_tests_own_text_in_an_assertion_fails_only_the_test_d39() -> TestResult {
+    for message in [
+        "failed - Failed to launch app with identifier: com.example.app",
+        "XCTAssertTrue failed - Failed to terminate com.example.app:1234",
+        "XCTAssertEqual failed: (\"Failed to terminate\") is not equal to (\"x\")",
+        "failed: caught error: \"Test runner exited\"",
+    ] {
+        let h = Harness::new(|_| {})?;
+        let (d, s) = prepared(&h).await?;
+        let outcomes = five_batches(&h, &d, &s, message).await;
+        assert_eq!(outcomes, [(2, 0, false); 5], "{message}");
+        assert!(!d.lost());
+        assert!(!d.retired());
+        h.finish(&[d]).await;
+    }
     Ok(())
 }
