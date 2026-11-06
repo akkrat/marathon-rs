@@ -209,15 +209,38 @@ impl AndroidDevice {
             .hooks
             .millis("android.BaseAndroidDevice.waitForRemoteFile")
             .map_err(|e| other("ReplayError", e.message))?;
-        loop {
-            let response = self
-                .safe_execute_shell_command(&format!("{command} {remote}"), "", context.clone())
-                .await?;
-            // The delay occurs even after the matching hash (N5).
-            context.clock.delay(10, context.cancellation.clone()).await?;
-            if response.is_some_and(|r| r.output.to_string_lossy().contains(md5)) {
-                break;
-            }
+        // D23: the push timeout bounds the wait for every caller; Kotlin's loop has no bound of its own (N5), and a
+        // file sync push has no other. Legacy install's enclosing timeout has the same length and started earlier, so
+        // it fires first and keeps its message.
+        let timeout = millis(self.runtime().configuration.timeout_configuration.push_file)?;
+        let synced = timed(&context, timeout, |signal| {
+            let context = VendorContext {
+                cancellation: signal,
+                ..context.clone()
+            };
+            let command = &command;
+            Box::pin(async move {
+                loop {
+                    let response = self
+                        .safe_execute_shell_command(&format!("{command} {remote}"), "", context.clone())
+                        .await?;
+                    // The delay occurs even after the matching hash.
+                    context.clock.delay(10, context.cancellation.clone()).await?;
+                    if response.is_some_and(|r| r.output.to_string_lossy().contains(md5)) {
+                        return Ok(());
+                    }
+                }
+            })
+        })
+        .await?;
+        if synced.is_none() {
+            return Err(transfer(
+                format!(
+                    "Remote file {remote} on device {} did not reach md5 {md5} within {timeout} ms",
+                    self.serial_number().to_string_lossy()
+                )
+                .as_str(),
+            ));
         }
         let elapsed = context
             .hooks

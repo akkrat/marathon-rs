@@ -302,6 +302,65 @@ fn md5_poll_is_cancelled_by_its_caller() {
         })
     });
 }
+/// D23 (N5): the md5 poll has a bound of its own, the push timeout, and the failure names the file.
+#[test]
+fn md5_poll_is_bounded_by_the_push_timeout_d23() {
+    let mut c = configuration();
+    android(&mut c).timeout_configuration.push_file = jcompat::jtime::duration_of(0, 200_000_000).unwrap();
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"exact":"md5 /mismatch","stdout":"wrong"}));
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let err = device
+                .wait_for_remote_file_sync("expected", "/mismatch", context)
+                .await
+                .unwrap_err();
+            assert!(matches!(err, VendorError::Transfer(_)), "{err:?}");
+            assert_eq!(
+                err.failure().class,
+                js("com.malinskiy.marathon.exceptions.TransferException")
+            );
+            assert_eq!(
+                err.failure().message,
+                Some(js(&format!(
+                    "Remote file /mismatch on device {} did not reach md5 expected within 200 ms",
+                    device.serial_number().to_string_lossy()
+                )))
+            );
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
+/// D23: legacy install's own timeout around the push keeps its message when the md5 never matches.
+#[test]
+fn legacy_install_keeps_its_message_when_the_md5_never_matches_d23() {
+    let mut c = configuration();
+    android(&mut c).timeout_configuration.push_file = jcompat::jtime::duration_of(0, 500_000_000).unwrap();
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"exact":"md5 /data/local/tmp/sample-fake.apk","stdout":"wrong"}));
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let path = fixture("adam/fixture/sample-fake.apk").to_string_lossy().to_string();
+            let err = device.install_package(&path, true, &[], context).await.unwrap_err();
+            assert_eq!(err.failure().message, Some(js(&format!("Timeout transferring {path}"))));
+            finish(server, device).await;
+            Ok(())
+        })
+    });
+}
 #[test]
 fn install_timeout_messages() {
     for streaming in [false, true] {
