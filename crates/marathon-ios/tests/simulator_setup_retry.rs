@@ -630,6 +630,49 @@ async fn a_removal_during_a_predecessor_s_disposal_follows_the_replacement_s_con
     assert!(matches!(&second, Some(DeviceEvent::Disconnected(d)) if *d == device));
     p.finish().await
 }
+/// The id comes back with a new instance while the removed replacement still waits for the disposal. The pool never
+/// saw the removed one, so nothing of it may follow: it has the new instance's serial.
+#[tokio::test(start_paused = true)]
+async fn a_replacement_superseded_during_a_predecessor_s_disposal_raises_no_event() -> TestResult {
+    use marathon_ios::device::{
+        simulator_factory::SimulatorCreating, simulator_provisioner::ProvisioningConnections,
+        worker_provisioning_context::WorkerProvisioningContext,
+    };
+    let p = ProviderHarness::new(|_| {})?;
+    p.h.worker.add(["b"]);
+    p.update(&["a"]).await?;
+    let old = p.connected(1).await.remove(0);
+    let gate = SharedDeferred::new();
+    let (script, job) = batch(&p.h, old, Some(gate.clone())).await;
+    p.connections
+        .connect(Transport::Local, p.h.services.context.clone())
+        .await
+        .map_err(test_error)?;
+    let waiting =
+        p.h.factory()
+            .create(
+                Transport::Local,
+                p.h.worker.clone(),
+                Arc::new(support::BridgeMock),
+                "a".into(),
+                Arc::new(WorkerProvisioningContext::new(Transport::Local, p.h.clock.clone())),
+                p.h.services.context.clone(),
+            )
+            .await?;
+    let provider = p.provider.clone();
+    let registration = tokio::spawn(async move { provider.register("a@local".into(), waiting).await });
+    script.closing.wait().await.map_err(test_error)?;
+    p.update(&["b"]).await?;
+    assert_eq!(p.connected(1).await[0].udid(), "b");
+    p.update(&["a", "b"]).await?;
+    let newest = p.connected(1).await.remove(0);
+    assert_eq!(newest.udid(), "a");
+    gate.complete(Ok(()));
+    registration.await??;
+    let _ = job.await?;
+    assert_eq!(p.provider.subscribe().state().queued, 0);
+    p.finish().await
+}
 #[tokio::test(start_paused = true)]
 async fn a_lost_device_s_disconnect_doesn_t_overtake_its_queued_connect() -> TestResult {
     use marathon_ios::device::{

@@ -516,8 +516,8 @@ impl ProviderRecovery for SimulatorRecovery {
     fn admit(&self, id: &JavaString, device: &Simulator) -> ProvisioningResult<()> {
         let provider = self.provider()?;
         // D33: a retried simulator joins as late as one of a late worker, under the same cut-off.
-        let late = (self.state().pending.contains_key(device.transport()) || setup_retry::in_retried_setup())
-            && !provider.state().devices.contains_key(id);
+        let joining = self.state().pending.contains_key(device.transport()) || setup_retry::in_retried_setup();
+        let late = joining && !provider.state().devices.contains_key(id);
         if late || self.state().awaiting_admission.contains(id) {
             if let Some(reason) = self.late_join_cutoff()? {
                 if let Some(previous) = provider.state().devices.get(id) {

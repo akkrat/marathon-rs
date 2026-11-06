@@ -75,12 +75,15 @@ profile of N costs at most N × 4 setups.
   device, so a removal that sees the device raises its disconnect later.
 - **Removal while a replacement waits for its predecessor's disposal.** The connect has to wait for the disposal, as in
   Kotlin. Publishing the disconnect first would let the later `AddDevice` put a removed, disposed simulator into a pool
-  that other devices keep alive, and D33 reaches this path for every eligible disposed simulator. So the replacement
-  is marked as pending inside the same critical section. A removal in the window only flags it, and the connect and
-  disconnect go out together when the disposal ends, also if the disposal fails (then only the disconnect). This
-  gives `AddDevice` then `RemoveDevice` for the same instance, which doesn't depend on how the pool matches a removal
-  (by serial today, by instance under WP x17). Only that device's disconnect waits, so another device's events aren't
-  held behind a slow disposal. The recovery scan skips a pending replacement until the next tick, for the same order.
+  that other devices keep alive. Plans replace only simulators whose disposal has completed, so in production the window
+  is the gap between the two critical sections on a multi-threaded runtime; a slow disposal is only reached by calling
+  `register` directly, as the tests do. So the replacement is marked as pending inside the same critical section. A
+  removal in the window only flags it, and the connect and disconnect go out together when the disposal step ends. If
+  that step fails (only the identity text can fail it, as `dispose` itself reports no error), only the disconnect goes
+  out. This gives `AddDevice` then `RemoveDevice` for the same instance. If another instance holds the id by then, this
+  one raises neither: the pool never saw it, and its events carry the newer device's serial. Only that device's
+  disconnect waits, so another device's events aren't held up. The recovery scan skips a pending replacement until the
+  next tick, for the same order.
 - **Admission.** A retried simulator is admitted as a late one. The mark is a task-local around the retry attempt's
   setup, since registration runs in that task. It isn't a transport, which would make a healthy simulator of a
   snapshot late while a retry waits at the gate, and it isn't an id, as a profile's simulator has none until the attempt

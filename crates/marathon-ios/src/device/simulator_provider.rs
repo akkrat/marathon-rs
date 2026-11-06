@@ -347,7 +347,7 @@ impl AppleSimulatorProvider {
                 .into());
             }
             state.skipped_removed.shift_remove(&id);
-            let previous = state.devices.insert(id, device.clone());
+            let previous = state.devices.insert(id.clone(), device.clone());
             if let Some(previous) = &previous
                 && !state.recovering.iter().any(|d| Arc::ptr_eq(d, &previous.handle))
             {
@@ -391,14 +391,22 @@ impl AppleSimulatorProvider {
                 .iter()
                 .position(|pending| Arc::ptr_eq(&pending.handle, &device.handle))
                 .is_some_and(|index| state.connecting.swap_remove(index).disconnect);
-            if replaced.is_ok() {
+            // Another instance holds the id by now, and the pool has never seen this one. Its events would carry the
+            // same serial and could only harm the newer device.
+            let superseded = state
+                .devices
+                .get(&id)
+                .is_some_and(|current| !Arc::ptr_eq(&current.handle, &device.handle));
+            let connect = replaced.is_ok() && !superseded;
+            let disconnect = disconnect && !superseded;
+            if connect {
                 self.outbox.push(DeviceEvent::Connected(device.device.clone()));
             }
             // Under the same lock: a removal arriving from here on publishes after these.
             if disconnect {
                 self.outbox.push(DeviceEvent::Disconnected(device.device.clone()));
             }
-            usize::from(replaced.is_ok()) + usize::from(disconnect)
+            usize::from(connect) + usize::from(disconnect)
         };
         for _ in 0..events {
             self.publish();

@@ -311,7 +311,7 @@ fn no_devices_with_failing_setups(pause: i64, finished_retries: bool) -> TestRes
     Ok(())
 }
 #[test]
-fn every_device_failing_ends_in_no_devices_at_the_timeout_after_its_retries_have_run_out() -> TestResult {
+fn every_device_failing_ends_in_no_devices_no_earlier_than_the_timeout() -> TestResult {
     no_devices_with_failing_setups(10, true)
 }
 #[test]
