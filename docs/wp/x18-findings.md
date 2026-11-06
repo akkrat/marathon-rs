@@ -169,6 +169,15 @@ server back within the window gave a correct run.
 - **Whole-run JVM comparison** of these faults: Kotlin's behaviour here is N38, the bug being fixed.
 - `scripts/check.sh`, `scripts/remote-check.sh` and the workspace test suite were not run, by the brief. The orchestrator runs the gates.
 
+## Review
+
+A second-model review of `7546d8b8` found no blocker and ran its own prefix sweep over 16 recordings, and every split of them, with no complete stream called cut.
+
+- **Fixed:** a stream cut inside the protocol's first word, or after a lone line break, was still read as output that never was the protocol. Remote parsing then gave an empty list with no retry, and with several bundles a run could go green without that bundle's tests. Now blank output, or an unfinished last line that could still become the protocol's first word, counts as cut. A first version required text to end in a whole line; the gate refused it, since adam's `test_returns_content_on_failure` pins `something-something` with no line break as ordinary output.
+- **Left, as a limit:** other text followed by a cut can't be told from "never the protocol" on a v1 shell. A v2 stream with no exit packet could be told apart, but no such output has been seen and the first write normally arrives whole.
+- **Left, Kotlin's behaviour, for the owner:** a session that ends with code 0 and a message other than `Process crashed` keeps its partial list (`ordinary_ends_are_not_retried_d25`). It isn't a broken stream, so it's out of this WP's scope, and it is the remaining way a parse can come back short.
+- **Noted:** `remote_parsing_waits_out_an_outage_and_it_uses_up_no_attempt_d22` needs the parser to reach the gate before the tracker has closed and reopened it, a window of the reconnect backoff plus the list settling. A stall longer than that would fail the test. Not seen. U151 can now also carry the cut-stream text to a later instrumentation's unreported test; that is text only.
+
 ## Incidental bugs
 
 No new bug in our own code beyond U152, which is what this WP fixes. Seen nearby and left alone:

@@ -462,6 +462,15 @@ fn a_killed_am_fails_the_attempt_with_its_exit_code_d25() {
     assert!(message.ends_with("before a result, with exit code 137"), "{message}");
     assert_eq!(attempts, 3);
 }
+/// A stream cut inside the first word of the protocol has failed, and it would otherwise read as an empty list.
+#[test]
+fn a_stream_cut_inside_its_first_word_is_retried_d25() {
+    for cut in ["I", "INSTRUMENTATION", "\n", "a warning\nINSTRU"] {
+        let (tests, attempts) = extracted(v1_script(vec![json!({"prefix":"am instrument","stdout":cut})]));
+        assert!(tests.is_err(), "{cut:?}");
+        assert_eq!(attempts, 3, "{cut:?}");
+    }
+}
 /// The ends that are no cut keep their one attempt and their result, as captured on real devices: `am` refusing to
 /// start, and output that never was the protocol. A non-zero session code is a normal end too, and keeps the tests it
 /// listed, as in Kotlin.

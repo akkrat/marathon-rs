@@ -185,7 +185,9 @@ impl InstrumentationResponseTransformer {
     /// Not cut off, and still answered by `transform`:
     /// - `am` refusing to start the instrumentation, which prints `INSTRUMENTATION_FAILED` and no code. Real devices
     ///   mix it with a status atom holding an `Error`, in either order. No test has started then;
-    /// - output that never was the protocol, which `No test results` then quotes.
+    /// - output that never was the protocol, which `No test results` then quotes. An unfinished last line that could
+    ///   still become the protocol's first word doesn't count: `I` or `INSTRUMENTATION` was cut. Other text followed by
+    ///   a cut can't be told from this on a v1 shell.
     ///
     /// A final code line without its line break still counts, as a recording can end that way (adam's `log_13`).
     pub fn ended_without_result(&self) -> bool {
@@ -196,7 +198,15 @@ impl InstrumentationResponseTransformer {
         {
             return false;
         }
-        self.start_reported || units.is_empty() || find_slice(units, "INSTRUMENTATION_").is_some()
+        let blank = units.iter().all(|&unit| matches!(unit, 0x20 | 0x09 | 0x0a | 0x0d));
+        let unfinished = units.rsplit(|&unit| unit == 0x0a).next().unwrap_or_default();
+        let first_word = !unfinished.is_empty()
+            && unfinished.len() <= "INSTRUMENTATION_".len()
+            && unfinished
+                .iter()
+                .copied()
+                .eq("INSTRUMENTATION_".encode_utf16().take(unfinished.len()));
+        self.start_reported || blank || first_word || find_slice(units, "INSTRUMENTATION_").is_some()
     }
 
     fn parse(&mut self, atom: &[JavaString]) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
@@ -982,6 +992,7 @@ mod tests {
                 format!("{started}INSTRUMENTATION_CODE: -1"),
             ),
             ("not the protocol", "/system/bin/sh: am: not found\n".to_owned()),
+            ("not the protocol, no line break", "something-something".to_owned()),
         ] {
             let mut t = InstrumentationResponseTransformer::new();
             t.process(output.as_bytes()).expect("process");
@@ -1005,6 +1016,17 @@ mod tests {
         };
         // No output: a dropped connection, or `am` killed before it printed anything.
         assert!(cut(""));
+        // Cut inside the first word, or before it.
+        for output in [
+            "I",
+            "INSTRU",
+            "INSTRUMENTATION",
+            "\n",
+            "\r\n",
+            "a warning\nINSTRUMENTATION",
+        ] {
+            assert!(cut(output), "{output:?}");
+        }
         // Cut inside the first atom, before anything was parsed.
         assert!(cut("INSTRUMENTATION_STATUS: numtests=2\nINSTRU"));
         // A test in progress.
