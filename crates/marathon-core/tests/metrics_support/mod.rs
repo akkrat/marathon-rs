@@ -39,8 +39,14 @@ pub struct Clock {
     pub refresh_delays: Mutex<Vec<i64>>,
     refreshes: tokio::sync::Semaphore,
     refresh_started: tokio::sync::Notify,
+    /// How many times `close` has started waiting for a cancelled refresh.
+    pub close_bounds: AtomicUsize,
+    close_bound: tokio::sync::Semaphore,
 }
 const RETRY_DELAY_MILLIS: i64 = 50;
+/// `close`'s wait for a cancelled refresh, which only [`Clock::expire_close_bound`] ends. Its value
+/// is not in the refresh schedule, so this clock can tell the two apart.
+const CLOSE_BOUND_MILLIS: i64 = 3_000;
 impl Default for Clock {
     fn default() -> Self {
         Self {
@@ -50,12 +56,17 @@ impl Default for Clock {
             refresh_delays: Mutex::default(),
             refreshes: tokio::sync::Semaphore::new(0),
             refresh_started: tokio::sync::Notify::new(),
+            close_bounds: AtomicUsize::new(0),
+            close_bound: tokio::sync::Semaphore::new(0),
         }
     }
 }
 impl Clock {
     pub fn release_refreshes(&self, rounds: usize) {
         self.refreshes.add_permits(rounds);
+    }
+    pub fn expire_close_bound(&self) {
+        self.close_bound.add_permits(1);
     }
     /// Waits until `count` refresh delays have started.
     pub async fn refresh_delay_started(&self, count: usize) {
@@ -77,6 +88,16 @@ impl VendorClock for Clock {
         Box::pin(async move {
             if let Some(reason) = cancellation.reason() {
                 return Err(VendorError::Cancelled(reason));
+            }
+            if millis == CLOSE_BOUND_MILLIS {
+                self.close_bounds.fetch_add(1, Ordering::SeqCst);
+                let permit = self.close_bound.acquire();
+                let cancelled = cancellation.cancelled();
+                tokio::select! {
+                    permit = permit => permit.expect("never closed").forget(),
+                    reason = cancelled => return Err(VendorError::Cancelled(reason)),
+                }
+                return Ok(());
             }
             if millis != RETRY_DELAY_MILLIS {
                 self.refresh_delays.lock().unwrap().push(millis);

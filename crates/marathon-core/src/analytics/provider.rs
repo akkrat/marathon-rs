@@ -3,6 +3,7 @@ use super::*;
 use crate::{
     error::OperationError,
     executor::{
+        Signal,
         retry::with_retry_send,
         shared::{race, requested},
     },
@@ -10,6 +11,7 @@ use crate::{
     runtime::VendorTask,
 };
 use crossbeam_skiplist::SkipMap;
+use futures_util::future::Either;
 use jcompat::jnum::double_to_string;
 use marathon_config::Defaults;
 use std::{
@@ -28,6 +30,10 @@ const FIRST_QUERY_RETRY_DELAY_MILLIS: i64 = 50;
 /// how many re-queries a failed key gets. A key that fails while rounds are running gets the
 /// same number, at the delays still to come and then at the last one.
 const REFRESH_DELAYS_MILLIS: [i64; 8] = [5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000];
+/// D34: how long `close` waits for a cancelled refresh. An async query ends at its next await, at
+/// once, so only a source that blocks inside its future takes this long. Waiting too little
+/// costs a warning, and a close under a query that can no longer log or publish.
+const CLOSE_JOIN_BOUND_MILLIS: i64 = 3_000;
 
 #[derive(Clone, Default)]
 struct State {
@@ -360,7 +366,8 @@ impl Shared {
         }
     }
     /// Joined so that nothing queries the source once it closes. Cancelling drops any query in
-    /// flight at its next await, so this does not wait for the backend.
+    /// flight at its next await, so this does not wait for the backend. A source that blocks
+    /// inside its future never reaches an await, so the wait has a bound of its own.
     async fn stop_refresh(&self) {
         let task = {
             let mut refresh = self.refresh();
@@ -368,9 +375,27 @@ impl Shared {
             refresh.failed.clear();
             refresh.task.take()
         };
-        if let Some(task) = task {
-            task.cancel(requested("The metrics provider is closed"));
-            let _ = task.join().await;
+        let Some(task) = task else {
+            return;
+        };
+        task.cancel(requested("The metrics provider is closed"));
+        // Not the run's signal: its cancellation must not end this wait early.
+        let bound = self.context.clock.delay(CLOSE_JOIN_BOUND_MILLIS, Signal::new());
+        match race(task.join(), bound).await {
+            Either::Left(_) => {}
+            Either::Right(Ok(())) => self.context.log(
+                "MetricsProviderImpl",
+                Level::Warn,
+                format!(
+                    "The history refresh did not stop within {CLOSE_JOIN_BOUND_MILLIS} ms of being cancelled. Closing the analytics backend with its query still running"
+                )
+                .into(),
+                None,
+            ),
+            // A failed clock cannot bound anything, and only a replay has one that fails.
+            Either::Right(Err(_)) => {
+                let _ = task.join().await;
+            }
         }
     }
     fn measurement<'a>(&self, state: &'a State, key: MetricsKey) -> Option<&'a BTreeMap<JavaString, f64>> {

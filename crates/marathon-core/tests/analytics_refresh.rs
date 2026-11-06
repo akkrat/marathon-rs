@@ -319,6 +319,91 @@ fn close_drops_a_refresh_query_in_flight_before_the_source_closes() {
         assert!(h.logs.take().is_empty());
     });
 }
+/// Fails its first query, and then blocks its worker thread inside the future, where no
+/// cancellation reaches it, until released.
+struct Blocking {
+    calls: AtomicUsize,
+    blocked: AtomicBool,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+    closed: AtomicBool,
+}
+impl RemoteDataSource for Blocking {
+    fn request_all_success_rates(&self, _: Instant) -> ServiceFuture<'_, Vec<SuccessRate>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+    fn request_all_execution_times(&self, _: f64, _: Instant) -> ServiceFuture<'_, Vec<ExecutionTime>> {
+        Box::pin(async {
+            if self.calls.fetch_add(1, AtomicOrdering::SeqCst) < 3 {
+                return Err(down());
+            }
+            self.blocked.store(true, AtomicOrdering::SeqCst);
+            let _ = self
+                .release
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(60));
+            Ok(vec![time_row(&default_test(), 7000.0)])
+        })
+    }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async {
+            self.closed.store(true, AtomicOrdering::SeqCst);
+            Ok(())
+        })
+    }
+}
+#[test]
+fn close_stops_waiting_for_a_source_that_blocks_inside_its_future() {
+    // Two workers, as the vendor runtime has: the source holds one, and close runs on the other.
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let h = Harness::new();
+        let (release, released) = std::sync::mpsc::channel();
+        let source = Arc::new(Blocking {
+            calls: AtomicUsize::new(0),
+            blocked: AtomicBool::new(false),
+            release: Mutex::new(released),
+            closed: AtomicBool::new(false),
+        });
+        let p = Arc::new(h.provider(source.clone(), 300000, None));
+        p.prefetch(&[key(80.0)]).await.unwrap();
+        h.clock.release_refreshes(1);
+        until("the query blocking", || source.blocked.load(AtomicOrdering::SeqCst)).await;
+        let closing = {
+            let p = p.clone();
+            tokio::spawn(async move { p.close().await })
+        };
+        // Until the bound, close waits: the source is not closed under a query that may still end.
+        until("close waiting", || {
+            h.clock.close_bounds.load(AtomicOrdering::SeqCst) == 1
+        })
+        .await;
+        assert!(!closing.is_finished());
+        assert!(!source.closed.load(AtomicOrdering::SeqCst));
+        assert_eq!(lines_with(&h, Level::Warn, "did not stop"), 0);
+
+        h.clock.expire_close_bound();
+        tokio::time::timeout(std::time::Duration::from_secs(60), closing)
+            .await
+            .expect("close must get past a source that blocks")
+            .unwrap()
+            .unwrap();
+        assert!(source.closed.load(AtomicOrdering::SeqCst));
+        assert_eq!(lines_with(&h, Level::Warn, "did not stop within 3000 ms"), 1);
+        assert_eq!(h.running.load(AtomicOrdering::SeqCst), 1);
+
+        // When the query does end, it is too late for it to log or publish.
+        h.logs.take();
+        release.send(()).unwrap();
+        until_idle(&h).await;
+        assert!(h.logs.take().is_empty());
+        assert_eq!(p.lookup().execution_time(&default_test(), 80.0, limit()), 300000.0);
+    });
+}
 #[test]
 fn a_hung_refresh_blocks_neither_lookups_nor_prefetches_of_other_keys() {
     run(async {
