@@ -86,7 +86,24 @@ def check_new_native_transfer(data):
     check_stream_bound(rows,keys)
 
 
-def ssh(data, name=None):
+# D32: what today's program puts before the one command that has the variable, and a JVM record or a native record pinned
+# from before D32 does not. As with D31, those records get exactly this prefix on exactly this command, so a native run
+# without it, or with it elsewhere, differs from them.
+D32_PREFIX = 'env NSUnbufferedIO=YES '
+D32_COMMAND = 'xcrun xcodebuild test-without-building '
+
+
+def with_d32_prefix(wire):
+    e.require(not wire.startswith(D32_PREFIX),'D32 prefix in a record from before it')
+    return D32_PREFIX + wire if wire.startswith(D32_COMMAND) else wire
+
+
+def without_d32_prefix(wire):
+    """The form the command catalogue describes."""
+    return wire.removeprefix(D32_PREFIX) if wire.startswith(D32_PREFIX + D32_COMMAND) else wire
+
+
+def ssh(data, name=None, before_d32=False):
     rows = records(data)
     e.require([r['seq'] for r in rows] == list(range(len(rows))),'truncated/reordered SSH transcript')
     e.require(rows[-1]['event'] == 'cleanup' and rows[-1]['detail']['outcome'] == 'completed'
@@ -101,6 +118,7 @@ def ssh(data, name=None):
         if event == 'exec':
             e.require(key not in sessions,'duplicate exec')
             wire = payload(detail).decode()
+            wire = with_d32_prefix(wire) if before_d32 else wire
             sessions[key] = dict(wire=wire,stdout=b'',stderr=b'',stdin=b'',exit=None,end=None,seq=row['seq'])
         elif event in ('output','stdin') and key in sessions:
             e.require(sessions[key]['end'] is None,'payload after SSH channel completion')

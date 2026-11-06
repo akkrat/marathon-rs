@@ -1,5 +1,5 @@
 //! Opt-in runs against a real OpenSSH server (orchestrator decision 5 and the real-host measurements): the generic
-//! executor suite, and T04, T07 and T16 as Linux and macOS OpenSSH profiles. Ignored by default; set
+//! executor suite, and T04, T07, T16, T30 and T32 as Linux and macOS OpenSSH profiles. Ignored by default; set
 //! `MARATHON_SSH_REAL=<host>:<port>:<user>:<private key path>` (a throwaway sshd, see docs/wp/4.2-findings.md) and
 //! run `cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1`.
 mod support;
@@ -266,8 +266,42 @@ async fn t30_kill_ends_a_process_that_ignores_term() {
     assert_eq!(session.close().await, Ok(()));
     let close_ms = started.elapsed().as_millis();
     assert!((9_000..29_000).contains(&close_ms), "{close_ms}");
+    // sshd answers when the session's own process is reaped; the rest of its group may need another moment.
     let left = ["sh", "-c", "pgrep -fl \"[s]leep 1037\""];
-    let left = ssh::run(&executor, &left, 10_000).await.unwrap();
-    assert_eq!(left.stdout, Vec::<String>::new());
+    let mut gone = false;
+    for _ in 0..600 {
+        if ssh::run(&executor, &left, 10_000).await.unwrap().stdout.is_empty() {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(gone, "a process of the session's group survived KILL");
     println!("T30.info.close_ms: {close_ms}");
+}
+
+/// D32 against a real login shell and sshd: the variable reaches the process, while F and the workdir still do not (A2).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs MARATHON_SSH_REAL"]
+async fn t32_ns_unbuffered_io_reaches_the_process_and_nothing_else_does() {
+    let executor = connect().await;
+    let mut request = request(
+        &["sh", "-c", "echo NS=${NSUnbufferedIO-unset} F=${F-unset}; pwd"],
+        10_000,
+    );
+    request.env = [
+        ("NSUnbufferedIO".to_owned(), "YES".to_owned()),
+        ("F".to_owned(), "1".to_owned()),
+    ]
+    .into();
+    request.workdir = Some("/tmp".into());
+    let session = executor.execute(request, context()).await.unwrap();
+    let result = session.await_result(&context()).await.unwrap();
+    session.close().await.unwrap();
+    assert_eq!(
+        (result.exit_code, result.stdout[0].as_str()),
+        (Some(0), "NS=YES F=unset")
+    );
+    assert_ne!(result.stdout[1], "/tmp");
+    println!("T32.result: exit=0 stdout=[{}, <home>]", result.stdout[0]);
 }

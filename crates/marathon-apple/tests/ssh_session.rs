@@ -1,5 +1,5 @@
 //! Execute, streams, exit wait, close and keep-alive of the SSH executor on the fake worker: the spike checklist
-//! (T08, T09, T14-T16, T22-T25), D7, D29, D30, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
+//! (T08, T09, T14-T16, T22-T25), D7, D29, D30, D32, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
 mod support;
 use fake_worker::script::{Action, Chunk, Faults, Keepalive};
 use jcompat::logging::Level;
@@ -10,6 +10,7 @@ use marathon_apple::cmd::{
         channel::{ExecChannel, Stream},
         client::{MAX_PACKET_SIZE, WINDOW_SIZE},
         error::*,
+        executor::exec_string,
     },
 };
 use marathon_core::error::{Failure, VendorError};
@@ -268,6 +269,46 @@ async fn env_and_workdir_are_ignored() {
     let events = fake.transcript().await;
     let exec: Vec<_> = events.iter().filter(|e| e["event"] == "exec").collect();
     assert_eq!(exec[0]["detail"]["base64"], "ZWNobyBoZWxsbw==");
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["event"] == "request" && e["detail"]["kind"] == "env")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn only_ns_unbuffered_io_reaches_the_worker_in_the_exec_string_d32() {
+    let fake = ssh::fake(ssh::suite_script(), 4).await;
+    let executor = ssh::connect(&fake).await;
+    let variants = [
+        (
+            &[("NSUnbufferedIO", "YES"), ("F", "1")][..],
+            "env NSUnbufferedIO=YES echo hello",
+        ),
+        (&[("NSUnbufferedIO", "NO")][..], "echo hello"),
+        (&[("SIMCTL_CHILD_A", "YES")][..], "echo hello"),
+    ];
+    for (env, wire) in variants {
+        let mut request = request(&["echo", "hello"], 5000);
+        request.env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        request.workdir = Some("/tmp".into());
+        assert_eq!(exec_string(&request), wire);
+    }
+    let mut unbuffered = request(&["sh", "-c", "echo $0"], 5000);
+    unbuffered.env = BTreeMap::from([("NSUnbufferedIO".into(), "YES".into())]);
+    // The quoting of what follows the prefix is the command's own.
+    assert_eq!(exec_string(&unbuffered), "env NSUnbufferedIO=YES sh -c 'echo $0'");
+    let mut rejected = unbuffered.clone();
+    rejected.command = vec!["echo".into(), "hello".into()];
+    let session = executor.execute(rejected, context()).await.unwrap();
+    let _ = session.await_result(&context()).await;
+    session.close().await.unwrap();
+    let events = fake.transcript().await;
+    let exec: Vec<_> = events.iter().filter(|e| e["event"] == "exec").collect();
+    assert_eq!(
+        exec[0]["detail"]["base64"],
+        "ZW52IE5TVW5idWZmZXJlZElPPVlFUyBlY2hvIGhlbGxv"
+    );
     assert!(
         !events
             .iter()

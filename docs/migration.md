@@ -307,6 +307,9 @@ These fix bugs that Kotlin has, and need no configuration change.
 - **An rsync send that stops moving fails after 300 s**
   ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails)). If you wrap rsync with `RSYNC4J_RSYNC`, the wrapper now
   also gets `--timeout=300` on sends. A worker that is silent for more than 5 minutes during a send now fails that send.
+- **xcodebuild's command line on a worker starts with `env NSUnbufferedIO=YES`**
+  ([D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)). Check anything on the worker that matches the command, such
+  as a forced command. Output arrives as it is produced, so `testOutputTimeoutMillis` measures real silence.
 
 ## Trial and rollback
 

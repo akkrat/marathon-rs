@@ -584,6 +584,16 @@ class VendorEvidenceTests(unittest.TestCase):
         (directory / 'blobs' / row['sha256']).unlink()
         row.update(sha256=e.sha(data), size=len(data))
         e.save_payload(directory, row['sha256'], data, record)
+        row = next(r for r in record['entries'] if r['path'] == 'transcript.jsonl')
+        rows = [json.loads(line) for line in e.payload(directory, row, record).splitlines()]
+        for event in rows:
+            if event['event'] == 'exec':
+                wire = t.with_d32_prefix(base64.b64decode(event['detail']['base64']).decode()).encode()
+                event['detail'].update(base64=base64.b64encode(wire).decode(), sha256=e.sha(wire), size=len(wire))
+        data = b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
+        (directory / 'blobs' / row['sha256']).unlink()
+        row.update(sha256=e.sha(data), size=len(data))
+        e.save_payload(directory, row['sha256'], data, record)
 
     def parser_copy(self, source, name, content=None, mode=None, **fields):
         """A copy of a committed macOS record whose parser entry holds `content` or is rewritten by `fields`."""
@@ -658,6 +668,47 @@ class VendorEvidenceTests(unittest.TestCase):
     def test_d31_leaves_the_ssh_form_of_an_older_record_alone(self):
         ssh = ['-l','u','-p','1','127.0.0.1','/usr/bin/rsync','--server','--times','.','/tmp/marathon/x']
         self.assertEqual(self.d31_argv(('ssh',ssh))(True),self.d31_argv(('ssh',ssh))(False))
+
+    @staticmethod
+    def d32_control_lane(*wires, before=False):
+        import vendor_transport as t
+        rows = []
+        for channel,wire in enumerate(wires):
+            data = wire.encode()
+            rows.append(dict(event='exec',connection=1,channel=channel,detail=dict(base64=base64.b64encode(data).decode(),sha256=e.sha(data),size=len(data))))
+            rows.append(dict(event='exit_status',connection=1,channel=channel,detail=dict(status=0)))
+            rows.append(dict(event='channel_end',connection=1,channel=channel,detail=dict(outcome='completed')))
+        rows.append(dict(event='connection_end',connection=1,channel=None,detail={}))
+        rows.append(dict(event='cleanup',connection=None,channel=None,detail=dict(outcome='completed',active_processes=[])))
+        for seq,row in enumerate(rows):
+            row['seq'] = seq
+        data = b''.join(json.dumps(row).encode()+b'\n' for row in rows)
+        return [session['wire'] for session in t.ssh(data,None,before)['control']]
+
+    def test_d32_only_the_xcodebuild_test_command_of_an_older_record_gets_the_prefix(self):
+        test = 'xcrun xcodebuild test-without-building -xctestrun /tmp/marathon/m.xctestrun'
+        others = ['xcrun xcodebuild -version','xcrun simctl boot U','sh -c "xcrun xcodebuild test-without-building"',' ' + test]
+        prefix = 'env NSUnbufferedIO=YES '
+        old = self.d32_control_lane(test,*others,before=True)
+        self.assertEqual(old,[prefix + test,*others])
+        # Today's native run compares equal to the JVM's.
+        self.assertEqual(old,self.d32_control_lane(prefix + test,*others))
+        # No prefix, another form of it, or the prefix on another command: all differ.
+        for wire,rest in [(test,others),('NSUnbufferedIO=YES ' + test,others),('env NSUnbufferedIO=NO ' + test,others),
+                          (prefix + test,[prefix + others[0],*others[1:]])]:
+            with self.subTest(wire):
+                self.assertNotEqual(old,self.d32_control_lane(wire,*rest))
+
+    def test_d32_an_older_record_that_already_has_the_prefix_is_refused(self):
+        with self.assertRaisesRegex(e.Invalid,'D32 prefix'):
+            self.d32_control_lane('env NSUnbufferedIO=YES xcrun xcodebuild test-without-building -x',before=True)
+
+    def test_d32_the_catalogue_form_loses_the_prefix_on_this_command_only(self):
+        import vendor_transport as t
+        test = 'xcrun xcodebuild test-without-building -x'
+        self.assertEqual(t.without_d32_prefix('env NSUnbufferedIO=YES ' + test),test)
+        for other in [test,'env NSUnbufferedIO=YES xcrun xcodebuild -version','env NSUnbufferedIO=NO ' + test]:
+            self.assertEqual(t.without_d32_prefix(other),other)
 
     def test_d20_stand_in_matches_the_withheld_library_and_nothing_else_does(self):
         self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))

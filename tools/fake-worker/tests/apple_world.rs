@@ -386,6 +386,42 @@ async fn missing_xctestrun_products_fail_without_starting_a_session() -> Result<
     Ok(())
 }
 #[tokio::test]
+async fn the_unbuffered_prefix_routes_only_on_the_xcodebuild_test_command_d32() -> Result<()> {
+    let world = world("ios-smoke")?;
+    let dir = tempfile::tempdir()?;
+    let fs = VirtualFs::create(dir.path().join("root")).await?;
+    // The command with the prefix is the command without it: the same validation fails it the same way.
+    let command = format!(
+        "xcrun xcodebuild test-without-building -xctestrun /tmp/marathon/missing.xctestrun -destination 'platform=iOS Simulator,id={UDID}'"
+    );
+    let plain = world
+        .route(&Request::parse(command.as_bytes())?, &fs)
+        .await
+        .err()
+        .map(|e| e.to_string());
+    let prefixed = format!("env NSUnbufferedIO=YES {command}");
+    let prefixed = world
+        .route(&Request::parse(prefixed.as_bytes())?, &fs)
+        .await
+        .err()
+        .map(|e| e.to_string());
+    assert!(plain.is_some());
+    assert_eq!(plain, prefixed);
+    // On anything else, or in another form, it is no known command: unmatched or deferred, either of which fails a run.
+    for other in [
+        "env NSUnbufferedIO=YES xcrun xcodebuild -version".to_owned(),
+        format!("env NSUnbufferedIO=NO {command}"),
+        format!("NSUnbufferedIO=YES {command}"),
+    ] {
+        let deferred = || -> Result<usize> { Ok(world.snapshot()?["deferred"].as_array().map_or(0, Vec::len)) };
+        let before = deferred()?;
+        let action = world.route(&Request::parse(other.as_bytes())?, &fs).await?;
+        assert!(action.is_none() || deferred()? == before + 1, "{other}");
+    }
+    assert_eq!(world.snapshot()?["calls"]["batch"], 0);
+    Ok(())
+}
+#[tokio::test]
 async fn initial_device_lifecycles_are_isolated_by_udid() -> Result<()> {
     let mut scenario: Scenario = serde_json::from_str(include_str!(
         "../../../fixtures/fake-worker/apple/ios-smoke/script/world.json"

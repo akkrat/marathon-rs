@@ -168,6 +168,37 @@ async fn idle_output_is_closed_with_an_idle_timeout() {
     assert!((221..=240).contains(&clock.now()), "{}", clock.now());
     reader.stop().await;
 }
+/// D32: unbuffered xcodebuild output comes in small writes. Each one holds off the idle limit, a line split over them is
+/// delivered whole, and the limit still fires once the writes stop.
+#[tokio::test(start_paused = true)]
+async fn small_writes_of_unbuffered_output_hold_off_the_idle_limit_and_keep_lines_whole_d32() {
+    let clock = Arc::new(Clock::default());
+    let mut ctx = context();
+    ctx.clock = clock.clone();
+    ctx.hooks = clock.clone();
+    let reader = Reader::new(ctx, 200, Arc::new(AtomicI64::new(0)));
+    let line = "Test Case '-[Tests testA]' passed (0.001 seconds).\n";
+    // Well past the limit in all, and well inside it between writes.
+    for piece in line.as_bytes().chunks(5) {
+        advance(100).await;
+        reader.stream.write(std::str::from_utf8(piece).unwrap());
+    }
+    assert!(clock.now() > 200 * 4, "{}", clock.now());
+    assert_eq!(
+        reader.output.receive().await,
+        Ok(Some("Test Case '-[Tests testA]' passed (0.001 seconds).".to_owned()))
+    );
+    let written = clock.now();
+    assert_eq!(
+        collect(&reader.output).await,
+        Err(VendorError::Other(failure(
+            "java.util.concurrent.TimeoutException",
+            "idle timeout PT0.2S reached"
+        )))
+    );
+    assert!(clock.now() - written >= 200, "{} after {written}", clock.now());
+    reader.stop().await;
+}
 // Review witness: close-before-drain loses the partial suffix (A24).
 #[tokio::test(start_paused = true)]
 async fn idle_timeout_discards_tail_and_await_retains_cancellation_control_flow() {

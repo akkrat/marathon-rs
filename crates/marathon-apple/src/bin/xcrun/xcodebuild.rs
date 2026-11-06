@@ -106,6 +106,7 @@ impl Xcodebuild {
             || format!("Running {}", command.join(" ")),
             None,
         );
+        // A local executor sets this in the process's environment, and SSH puts it in the exec string (D32).
         let request = self.tools.request_with(
             command,
             java_duration_of_millis(self.test_batch_timeout_millis),

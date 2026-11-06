@@ -861,6 +861,15 @@ impl Handler for World {
     }
     fn route<'a>(&'a self, r: &'a Request, fs: &'a VirtualFs) -> HandlerFuture<'a> {
         Box::pin(async move {
+            // D32: this prefix, on this one command, is no part of what the scenarios describe. The transcript keeps the
+            // bytes as they came.
+            let unprefixed = r
+                .raw
+                .strip_prefix(UNBUFFERED_PREFIX)
+                .filter(|rest| rest.starts_with(b"xcrun xcodebuild test-without-building "))
+                .map(Request::parse)
+                .transpose()?;
+            let r = unprefixed.as_ref().unwrap_or(r);
             // Counts commit only once routing completed. No state guard survives an await.
             let mut reservation = self.reserve(r)?;
             let action = self.answer(r, fs).await?;
@@ -999,6 +1008,8 @@ fn catalogue_deferral(command: &str) -> Result<bool> {
             .any(|f| f.reachability == "deferred" && crate::script::glob(f.wire_pattern.as_bytes(), command.as_bytes()))
     }))
 }
+
+const UNBUFFERED_PREFIX: &[u8] = b"env NSUnbufferedIO=YES ";
 
 fn default_devices() -> Vec<String> {
     vec![UDID.into()]

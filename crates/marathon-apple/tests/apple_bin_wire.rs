@@ -143,3 +143,35 @@ async fn wrappers_send_these_exec_strings_over_ssh() {
     worker.shutdown().await.unwrap();
     drop(dir);
 }
+
+/// D32: the exec string of the one command with the variable, as a worker receives it.
+#[tokio::test(flavor = "multi_thread")]
+async fn xcodebuild_runs_on_the_worker_with_the_unbuffered_prefix_d32() {
+    let wire = "env NSUnbufferedIO=YES xcrun xcodebuild test-without-building -xctestrun /tmp/marathon/U/marathon.xctestrun -enableCodeCoverage NO -destination-timeout 30 -destination 'platform=iOS Simulator,id=U'";
+    let fake = fake(script(vec![exact(wire, output(vec![chunk("done\n")], 0))]), 1).await;
+    let executor = Arc::new(connect(&fake).await);
+    let tools = Tools {
+        executor: executor.clone(),
+        timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
+        runtime: Arc::new(Runtime),
+        logging: SshLogging::new(
+            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(|_, _, _, _| {}),
+        ),
+    };
+    let env = AppleBinaryEnvironment::with_tools(tools, 1_800_000, 300_000);
+    let c = &context();
+    let request =
+        marathon_apple::test::TestRequest::new("/tmp/marathon/U", "/tmp/marathon/U/marathon.xctestrun", false);
+    let session = env
+        .xcrun
+        .xcodebuild
+        .test_without_building("U", marathon_apple::model::Sdk::IphoneSimulator, &request, &[], c)
+        .await
+        .unwrap();
+    assert_eq!(session.await_result(c).await.unwrap().stdout, ["done"]);
+    session.close().await.unwrap();
+    let events = fake.events("exec").await;
+    assert_eq!(events.len(), 1);
+    assert!(fake.events("warning").await.is_empty(), "the rule did not match");
+}

@@ -156,3 +156,29 @@ async fn xcodebuild_runs_tests_with_the_arguments_of_the_workers_xcode() {
         assert_eq!(*executor.commands.lock().unwrap(), vec![expected], "Xcode {xcode}");
     }
 }
+
+/// D32 happens in the SSH executor: the request a local executor gets keeps the plain command and the env map, so a local
+/// process gets the variable once, from its environment.
+#[tokio::test]
+async fn the_request_keeps_the_variable_in_its_env_and_out_of_its_command_d32() {
+    let (xcodebuild, executor) = xcodebuild(CommandResult {
+        stdout: vec![],
+        stderr: vec![],
+        exit_code: Some(0),
+    });
+    let request = TestRequest::new("/tmp/marathon/udid", "/tmp/marathon/udid/marathon.xctestrun", false);
+    xcodebuild
+        .test_without_building("udid", Sdk::IphoneSimulator, &request, &[], &context())
+        .await
+        .unwrap();
+    assert_eq!(
+        executor.commands.lock().unwrap()[0][..2],
+        args(&["xcrun", "xcodebuild"])
+    );
+    assert_eq!(
+        executor.envs.lock().unwrap()[0]
+            .get("NSUnbufferedIO")
+            .map(String::as_str),
+        Some("YES")
+    );
+}

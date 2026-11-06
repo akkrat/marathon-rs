@@ -1,8 +1,8 @@
 # X13: SSH and rsync bugs fixed (D29–D32)
 
 The project owner asked on 2026-11-06 for these fixes to bugs the port had kept for parity. Each is an approved
-deviation in PLAN §3.11. No configuration field or exit code changed; the only CLI-visible change is the log lines stated
-below.
+deviation in PLAN §3.11. No configuration field, CLI option or exit code changed. The log lines that are new are stated
+below, as is the one command line that workers now receive differently.
 
 ## D29 / A33: the rejected channel
 
@@ -181,7 +181,101 @@ has it is refused. The exec string needs nothing, because `{protocol-options}` c
 | TERM to the child's children | `a_stalled_send_under_sshpass_also_stops_rsync_d31`, `the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31` |
 | The bound on the readers | `a_stalled_send_that_exits_while_ssh_holds_its_stderr_returns_d31` |
 
+## D32 / the `NSUnbufferedIO` part of A2
+
+**Ledger row verified.** `execute` built the exec string from `request.command` alone. `bin/xcrun/xcodebuild.rs:113` is the only
+place that sets `NSUnbufferedIO`. Others set env too, such as `simctl boot`'s `SIMCTL_CHILD_*`; those stay dropped, and so does the
+workdir.
+
+**The exec string, from the real path** (`xcodebuild_runs_on_the_worker_with_the_unbuffered_prefix_d32`):
+
+```
+env NSUnbufferedIO=YES xcrun xcodebuild test-without-building -xctestrun /tmp/marathon/U/marathon.xctestrun -enableCodeCoverage NO -destination-timeout 30 -destination 'platform=iOS Simulator,id=U'
+```
+
+It is one simple command, not `a && b` or a `sh -c` wrapper, so the variable reaches `xcrun`. `xcrun` passes its environment on to
+the tool it starts (measured: `env NSUnbufferedIO=YES xcrun env` prints it). A user's argument cannot make it compound, because
+`shell_command` quotes the special characters.
+
+**`env` against a prefix**, each shell's `-c`, as sshd starts a login shell:
+
+| Login shell | `env NSUnbufferedIO=YES printenv NSUnbufferedIO` | `NSUnbufferedIO=YES printenv NSUnbufferedIO` |
+|---|---|---|
+| sh, bash, zsh, dash | `YES` | `YES` |
+| csh, tcsh | `YES` | `NSUnbufferedIO=YES: Command not found.` |
+| fish | Not installed here; `env` is an ordinary program there too | Not run |
+
+So `env`. The cost is that `env` must be on the worker's `PATH`, which it is by default on macOS.
+
+**Real sshd** (the throwaway one that `ssh_real_sshd.rs` uses, on this Mac, zsh login shell):
+`t32_ns_unbuffered_io_reaches_the_process_and_nothing_else_does` gives `NS=YES F=unset`, and the home directory rather than the
+workdir. With the prefix reverted it gives `NS=unset F=unset`.
+
+**Local executions** are unchanged: the prefix is in the SSH executor. The request keeps the plain command and the env map
+(`the_request_keeps_the_variable_in_its_env_and_out_of_its_command_d32`), and `local_executor.rs` already shows env reaching a local
+process, so the variable arrives once.
+
+**What unbuffered output changes downstream.** I read the path for it, and nothing needs changing:
+
+| Where | Effect |
+|---|---|
+| `produce_lines_manually` | Each write now wakes it; it already copes with any chunk size, and `last_output` moves on each read |
+| `LineBuffer` | Holds partial lines and partial UTF-8 until complete (D10); under buffering a chunk boundary fell in mid-line too, more often |
+| The idle timeout | Fires later, as it should, on real silence. With buffering, a test that printed little could look silent until a block filled (`small_writes_of_unbuffered_output_hold_off_the_idle_limit_and_keep_lines_whole_d32`) |
+| D19 | Reads what arrived with EOF, whatever the chunk size |
+| The xcodebuild parsers | Get whole lines from the channel, as before |
+
+Real xcodebuild output timing was not measured: see below.
+
+**Fixtures and comparators.** The prefix is new on the wire, and the recordings stay as they are.
+
+| Place | What it does | Tests |
+|---|---|---|
+| `vendor_transport.ssh` | Gives a JVM or pinned native record's `xcrun xcodebuild test-without-building ` exactly the prefix, so a new native must have it | `test_d32_*`: no prefix, `VAR=x` form, another value, prefix on another command all differ; an older record that has it is refused |
+| `tools/fake-worker/src/apple.rs` | Routes the prefixed command as the command it precedes, keeping the raw bytes in the transcript | `the_unbuffered_prefix_routes_only_on_the_xcodebuild_test_command_d32` |
+| `apple_evidence.py::command_counts` | Counts it as its catalogued form; `command-catalogue.json` is unchanged | `test_d32_a_prefixed_batch_counts_as_the_catalogued_form` |
+| `test_evidence.py::as_live_native` | A test that changes a pinned native record makes it "a run of today's code", which must hold what today's code sends | The `test_d20_*` tests that use it |
+
+The Apple whole-vendor cases, run natively through the real SSH executor and the fake worker against their JVM goldens (`ios-smoke`,
+`macos-smoke`, `ios-media`, `ios-screenshot`, `ios-pass`, `macos-pass`, `ios-ignore`, `ios-parse`, `macos-ignore`, `macos-parse`):
+all ten equal. With the prefix reverted, `ios-smoke` differs at `/control/14/wire`, which shows that the allowance does not hide a
+missing prefix. The steps are those of `tools/differential/run native-vendors`, in a throwaway driver for these ten cases only, with
+no JDK; the five Android cases were left out as no Android code changed.
+
+**Failure without it:** `only_ns_unbuffered_io_reaches_the_worker_in_the_exec_string_d32`,
+`xcodebuild_runs_on_the_worker_with_the_unbuffered_prefix_d32` and `t32_…` fail.
+
+## What was verified, and how
+
+Everything below ran on this Mac unless it says otherwise. The real sshd was throwaway: `sshd -D -e -f <temp config>` as the normal
+user, on a random high loopback port, with its own host key and one temporary client key, removed afterwards; no system file was
+touched. The Linux rsync measurements ran over SSH on a Linux box, in a temp directory that was removed.
+
+| What | How | Result |
+|---|---|---|
+| `ssh_real_sshd.rs` in full, 17 tests | `MARATHON_SSH_REAL=… cargo test -p marathon-apple --test ssh_real_sshd -- --ignored --test-threads 1` | See the final report for the last run |
+| Durations and exit codes against Kotlin's real-host rows | T07, T14, T15t, T16 in that suite | Match, within the milliseconds of earlier rows |
+| rsync on macOS and Linux | Fake ssh shims, from a hang before the greeting to a slow link | The table under D31 |
+
+## What was not verified
+
+- **A real worker's real xcodebuild** under any of the four. In particular whether xcodebuild's output is in fact less bursty with
+  the variable, and how long a real xcodebuild takes on TERM, against the 10 s before KILL. The 10 s comes from a measured `sleep`, not
+  from xcodebuild.
+- **SSH servers that ignore signals.** The escalation's behaviour is shown only on a fake peer that ignores TERM and KILL. Tailscale
+  SSH was not run: per the spike, marathon cannot drive a worker through it anyway. Old OpenSSH without signal support was not run.
+- **What D30's `KILL` does on OpenSSH on Linux.** `killpg` was seen in the log of the macOS build's sshd only. The Kotlin evidence
+  rows for Linux are unaffected, but the suite was not re-run against Linux OpenSSH.
+- **rsync 2.6.9 from samba**, which old macOS hosts ship: the flag and the report's wording come from its source history, not a run.
+- **fish** as a login shell.
+
 ## Incidental bugs
 
 - `ExecChannel::exec`: an `exec` request that gets no reply within its 30 s also leaves the channel open on the peer. The
   brief covers rejection only, so this stays as it is, in Kotlin too.
+- `RsyncFileBridge::process`, receive: after its 30 s the wrapper sends TERM and then waits for the process without a limit. With
+  openrsync that TERM ends it, and ssh; a receive under `sshpass` has the problem D31 solved for sends, because TERM ends only
+  `sshpass`. Kotlin's wrapper does the same, and the brief covers sends only. The receive's reader tasks are cancelled, so it
+  returns once `sshpass` has gone, and the rsync and ssh it leaves behind wait until ssh ends.
+- `tests/ssh_real_sshd.rs::test_stderr` fails on any host whose login shell's startup prints to stderr, as the 4.2 findings say. It
+  passes on this host.

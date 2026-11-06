@@ -72,6 +72,18 @@ pub fn shell_command(command: &[String]) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+/// The exec string for `request`: its command line (A2: env and workdir never reach the worker), except for D32's one
+/// variable, which goes in the string because no env request is sent. `env` rather than a `VAR=x` prefix because a login
+/// shell can be csh, where `VAR=x cmd` is a syntax error. The command is `xcrun xcodebuild …`, not a compound one, so the
+/// variable reaches xcodebuild; `xcrun` passes its environment on.
+pub fn exec_string(request: &CommandRequest) -> String {
+    let command = shell_command(&request.command);
+    if request.env.get("NSUnbufferedIO").is_some_and(|value| value == "YES") {
+        format!("env NSUnbufferedIO=YES {command}")
+    } else {
+        command
+    }
+}
 /// Verifies only fully escaped strings without verifying special characters.
 fn is_shellscaped(arg: &str) -> bool {
     (arg.starts_with('\'') && arg.ends_with('\'')) || (arg.starts_with('"') && arg.ends_with('"'))
@@ -172,9 +184,8 @@ async fn execute(
         return Err(VendorError::Cancelled(reason));
     }
     let runtime = connection.runtime.clone();
-    // A2: env and workdir never reach the worker.
     let channel = connection.start_session().await.map_err(SshFailure::into_vendor)?;
-    let command = shell_command(&request.command);
+    let command = exec_string(&request);
     let channel_logger = config.logger_for_class(Some("PatchedExecChannel"));
     config.logging.log(
         &channel_logger,

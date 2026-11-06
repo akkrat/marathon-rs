@@ -106,7 +106,7 @@ def command_counts(transcript):
     for event in transcript:
         if event['event']!='exec':
             continue
-        command=base64.b64decode(event['detail']['base64'],validate=True).decode()
+        command=vendor_transport().without_d32_prefix(base64.b64decode(event['detail']['base64'],validate=True).decode())
         matches=[f for f in catalogue if f['reachability']!='deferred' and glob(f['wire_pattern'],command)]
         assert matches, 'uncatalogued command: '+command[:180]
         if ' --id ' in command:

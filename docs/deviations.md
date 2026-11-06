@@ -474,3 +474,17 @@ to fail. Receives keep Kotlin's 30 s total deadline. No configuration change is 
 Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A3](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+
+## D32 — xcodebuild on a worker runs unbuffered
+
+Kotlin sets `NSUnbufferedIO=YES` for xcodebuild, but over SSH it drops every environment variable, so on a worker
+xcodebuild buffers its output, and the output idle timeout can see silence where a test is in fact progressing. Native builds run
+`env NSUnbufferedIO=YES xcrun xcodebuild test-without-building …` on a worker. Output now arrives as it is produced, in smaller
+pieces, and the idle timeout measures xcodebuild's real silence. A `testOutputTimeoutMillis` chosen to allow for
+the buffering may be more generous than you now need. Other environment variables and the working directory are still
+not passed over SSH ([A2](known-kotlin-bugs.md)), and a local run sets the variable as before.
+
+The worker receives a different command line, so a script or a forced command (`ForceCommand`, `command=` in
+`authorized_keys`) that matches `xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND` must allow for the prefix. `env` has
+to be on the worker's `PATH`, as it is by default on macOS. Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the [x13 findings](wp/x13-findings.md).

@@ -9,7 +9,10 @@ use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex},
+};
 
 pub struct FakeCommandExecutor {
     runtime: Arc<dyn VendorRuntime>,
@@ -17,6 +20,7 @@ pub struct FakeCommandExecutor {
     host: CommandHost,
     logger: Logger,
     pub commands: Mutex<Vec<Vec<String>>>,
+    pub envs: Mutex<Vec<BTreeMap<String, String>>>,
     pub timeout: Mutex<Option<Duration>>,
 }
 impl FakeCommandExecutor {
@@ -27,6 +31,7 @@ impl FakeCommandExecutor {
             host: KotlinProcessHost::host(),
             logger: logging.logger("com.malinskiy.marathon.apple.cmd.FakeCommandExecutor", None),
             commands: Mutex::new(Vec::new()),
+            envs: Mutex::new(Vec::new()),
             timeout: Mutex::new(None),
         }
     }
@@ -45,6 +50,7 @@ impl CommandExecutor for FakeCommandExecutor {
     fn execute(&self, request: CommandRequest, _: VendorContext) -> VendorFuture<'_, CommandSession> {
         Box::pin(async move {
             *self.timeout.lock().unwrap_or_else(|e| e.into_inner()) = Some(request.timeout);
+            self.envs.lock().unwrap_or_else(|e| e.into_inner()).push(request.env);
             self.commands
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())

@@ -191,6 +191,15 @@ class Evidence(unittest.TestCase):
             s=e.load(w/'state.json');s['calls']['batch']=0;e.save(w/'state.json',s)
         self.check_mutation(mutate)
 
+    def test_d32_a_prefixed_batch_counts_as_the_catalogued_form(self):
+        command="xcrun xcodebuild test-without-building -xctestrun /tmp/marathon/m.xctestrun -destination 'platform=iOS Simulator,id=AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE'"
+        def counts(wire):
+            detail=dict(base64=base64.b64encode(wire.encode()).decode())
+            return e.command_counts([dict(event='exec',detail=detail)])
+        self.assertEqual(counts('env NSUnbufferedIO=YES '+command),counts(command))
+        with self.assertRaises(AssertionError):
+            counts('env NSUnbufferedIO=NO '+command)
+
     def test_catalogue_quotes_and_deferred_coverage(self):
         forms=e.load(e.ROOT/'fixtures/fake-worker/apple/command-catalogue.json')['forms']
         self.assertEqual(len({f['id'] for f in forms}),len(forms))
