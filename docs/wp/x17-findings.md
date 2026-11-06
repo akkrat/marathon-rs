@@ -19,18 +19,20 @@ and has not changed since. So the probe was measured before any code changed:
 | iOS 27.0 | Same | Booted, 6 probes up to 20 s after it settled | **0** | 142,448 to 170,066 lines (19 MB) | Empty | `0x4e03 M A com.apple.springboard.services` |
 | iOS 27.0 | Same | Shutdown again | **149** | Empty | 4 lines | None |
 | iOS 18.6, Xcode 26.6 | Already booted, on a second Mac, read-only | Booted, 1 probe | **0** | 145,192 lines | Empty | `0x4703 M A com.apple.springboard.services` |
+| iOS 26.4 | Throwaway, measured by the project owner | Booting | **0** | Not recorded | Not recorded | State `D` |
+| iOS 26.4 | Same | Booted, 6 probes | **0** | 146,000 to 161,000 lines | Not recorded | State `A` |
 
 Each output has a second marker line, `"com.apple.springboard.services" = {`, whose last token is blank, so it never
 counts. On iOS 27.0 the older probe, `launchctl print system`, exits 0 with 232 lines and no marker, which is why the
 runtime branch has to stay.
 
-So **the ledger row's description is right**: a healthy simulator exits 0, on both runtimes measured and in every phase
-of the boot. The check is safe to add, and a failed or timed-out probe is not running, as below runtime 16.
+So **the ledger row's description is right**: a healthy simulator exits 0, on all three runtimes measured and in every
+phase of the boot measured. The check is safe to add, and a failed or timed-out probe is not running, as below runtime 16.
 
-**Not measured:** runtimes 16, 17 and 26. No simulator of them was booted, because the brief allows one throwaway
-simulator here and nothing booted on the second Mac. Runtimes either side (18.6 and 27.0) agree, but a runtime that
-exits non-zero on a healthy simulator would never count as booted, and each of its simulators would take the bound
-below and leave its pool.
+**Not measured:** runtimes 16, 17 and other 26.x. No simulator of them was booted, because the brief allows one
+throwaway simulator here and nothing booted on the second Mac. The measured runtimes agree, but a runtime that exits
+non-zero on a healthy simulator would never count as booted, and each of its simulators would take the bound below and
+end up out of the run.
 
 The throwaway simulator was created with `simctl create`, shut down, deleted, and confirmed gone from `simctl list
 devices`. No other simulator was touched.
@@ -49,17 +51,40 @@ means `Booting`, nothing else.
 | `erase_device` | Shuts down, then erases | Shuts down, then erases | None |
 | `wait_for_state` | Only ever waits for `Shutdown` | Same | None |
 
-**The bound.** No path from `false` erases a simulator. One failed probe costs one more poll, shown by
-`one_failed_or_timed_out_probe_costs_one_more_poll_and_no_new_boot_d38`. Only a probe that fails for the whole of
-`bootWait` (180 s by default) reaches the failure path: the simulator is shut down, after a 10 s pause it is booted
-once more, and after a second `bootWait` it leaves its pool with `NotBooted`. A probe in progress at the deadline may
-overrun it by up to `shell` (30 s). `a_probe_that_never_succeeds_is_bounded_by_boot_wait_and_erases_nothing_d38` shows
-this path: one boot, two shutdowns, no erase.
+**The bound.** No probe result erases a simulator. One failed probe costs one more poll, shown by
+`one_failed_or_timed_out_probe_costs_one_more_poll_and_no_new_boot_d38`.
 
-**How much is new.** Kotlin already takes this path for a probe that times out before it prints the marker, which sits
-about 55% of the way through the output (line 93,060 of 170,066). The new cases are a probe killed after the marker,
-and a non-zero exit with the marker in stdout. Locally a probe took 0.3 to 1.8 s, so reaching the 30 s limit on the
-whole of `bootWait` takes a far slower host or link than measured here.
+A probe that fails for the whole of `bootWait` (180 s by default) fails one attempt: the simulator is shut down, after a
+10 s pause it is booted once more, and after a second `bootWait` it is shut down again. That ends one setup with
+`NotBooted`, shown by `a_probe_that_never_succeeds_is_bounded_by_boot_wait_and_erases_nothing_d38`.
+
+`prepare.rs` then marks the simulator lost, so the provider sets it up again, up to `max_recoveries` (3) more times.
+**The whole bound is up to four setups of two boot waits each**, ending with `has been lost 4 times`. A review caught
+this: the first version of this text stopped at one setup, a factor of four too small.
+
+| With the defaults | Time |
+|---|---|
+| 4 setups × (2 × 180 s + 10 s) | 1,480 s |
+| Recovery pauses of 0, 30 and 60 s | 90 s |
+| **Without overruns** | **about 26 minutes** |
+| A probe in progress at each of the 8 deadlines, up to `shell` (30 s) | up to 240 s |
+| **With overruns** | **about 30 minutes** |
+
+This is per simulator, of booting and shutting down. It takes 8 shutdowns. The number of boots depends on the state each
+setup finds: the review's run saw 4, and a temporary run here saw 7, 1 in the first setup, which found the simulator
+booted, and 2 in each of the others, which found it shut down. A real simulator stays shut down, so expect 7.
+
+A user's `onPrepare: [ERASE]` erases on each re-setup, as on any setup. Nothing else does.
+
+**How much is new.** Each probe returns about 20 MB (20,359,735 bytes, 19 MiB, on iOS 27.0). Kotlin takes this path too,
+for a probe that times out before it prints the marker. The first marker sits 55% of the way through by lines (line
+93,060 of 170,066), but **80.5% by bytes** (16.4 MB), and bytes are what a link carries. The new cases are a probe killed
+after the marker, and a non-zero exit with the marker in stdout.
+
+So **a slow link now fails where it worked, not only a slow host**. Within the default 30 s, Kotlin needs about 4.4
+Mbit/s to reach the marker, while the whole output needs about 5.4 Mbit/s. A link between the two worked and now takes
+the bound above. Locally a probe took 0.3 to 1.8 s. The probe command stays as it is, since commands sent to workers are
+part of the external interface; see "Incidental bugs".
 
 ### Tests
 
@@ -119,11 +144,11 @@ these lines. Each is a form recorded in the real log or in `fixtures/`:
 |---|---|---|
 | Test case | `Test Case '-[C name]' started.`, also finished and timeout | What follows the name |
 | Test suite | `Test Suite 'name' started at …` | What follows the name |
-| Assertion (`FAILING_TEST`) | `/a/T.swift:33: error: -[C m] : message` | Nothing |
-| UI test activity | `    t =     4.20s Tap "text" Button` | Nothing |
+| Assertion (`FAILING_TEST`) | `/a/T.swift:33: error: -[C m] : message` | A message that starts with a literal, see below |
+| UI test activity | `    t =     4.20s Tap "text" Button` | `Assertion Failure:` whose message starts with a literal, see below |
 | Swift Testing event | `◇ Test "name" started.`, `✔`, `➜`, `↳`, with zero-width spaces before them | Nothing |
-| Log line of an application | `2026-11-06 12:08:08.118250+0300 App[1:2] [general] text` | Only XCTest's own sentences, see below |
-| Log line of `xcodebuild`, `simctl`, `…Runner` | `… xcodebuild[1:2] [MT] text` | The whole line |
+| Log line of an application | `2018-09-15 01:08:49.715033+0700 App[1000:2000] [general] text` | Only XCTest's own sentences, see below |
+| Log line of `xcodebuild`, `simctl`, `…Runner` | `… xcodebuild[1000:2000] [MT] text` | The whole line |
 | Anything else | | The whole line, as in Kotlin |
 
 Besides the application under test, those are the tools expected to write into this stream. **This list is reasoned,
@@ -134,34 +159,66 @@ and `Connection peer refused channel request for "` still count when they are th
 
 `✘` and `⚠` are not in the real log, which had no failing Swift Testing event, nor are the macOS symbols in the private
 use plane. They are included because they belong to the same set of markers and a failed test's line carries its
-message.
+message. Some markers carry a variation selector (`⚠︎`), which is skipped.
+
+**Assertions: reasoned, not recorded.** A review showed that exempting every assertion regressed a sick simulator: with
+`-[C m] : Failed to terminate com.example.app:1234` in each of five batches of two tests, the base gives 0 failed, 2
+uncompleted and loses the simulator at batch 3, while the first version of this fix gave 2 failed per batch and never
+lost it, since a failed test counts as progress and `BatchFailurePolicy` resets its counters.
+
+So an assertion's message, and an `Assertion Failure:` activity's message after its optional `<file>:<line>: `, report
+when they **start with** a literal. XCTest puts a prefix before a test's own text (`XCTAssertTrue failed - `,
+`XCTAssertEqual failed: `, `failed - `, `failed: caught error `), so `XCTFail("Failed to launch app …")` renders as
+`failed - Failed to launch…` and stays exempt, while a failure the framework records itself appears raw.
+
+**This rests on reasoning from Xcode's known formats.** The recordings hold `XCTAssertTrue failed - ` in both forms
+(`fixtures/vendor-apple-base/fixtures/test_output/`), but no recording holds a raw framework failure, nor proves that
+every framework failure is raw. The message is found with lazy groups, because `FAILING_TEST`'s greedy ones run to the
+last `: error:` and the last `] : ` on the line, both of which a test's own message can hold. A relative path is not
+`FAILING_TEST`, so such a line is searched whole, as in Kotlin.
+
+A Swift Testing issue stays exempt even with no prefix (`✘ Test m() recorded an issue at T.swift:1:2: text`), because
+`Issue.record` takes free text. The UI test framework is not expected to report through it, which is also reasoned.
 
 **Still a false alarm, and flagged:**
 
 - A raw `print` from a hosted test or application with no log header: it cannot be told from an unknown form.
+- A test's own text that starts an assertion with a literal and has no prefix, as `record(XCTIssue(…))` can.
 - The later lines of a multi-line assertion message, for the same reason.
 - A test name in xcodebuild's final `Failing tests:` summary.
 - An application logging exactly one of XCTest's three sentences.
 
-**Behaviour to know about:** `<unknown>:0: error: -[C m] : Failed to launch app with identifier: …`, or the same in a
-`t =` line, used to end the batch as a batch-level failure. Now that test fails with this text as its trace, the runner
-goes on, and the next test may fail the same way. No batch waits for a timeout here, as the runner is alive and reports
-each result, but such a batch takes longer, and retries follow the test's failure and not the batch's.
+**Real failures now missed:**
+
+- One appended to an unterminated assertion, activity or application log line. This is unlikely, since those lines are
+  written whole.
+- A framework failure behind an XCTest prefix, or in an activity line other than `Assertion Failure:`. That test fails
+  and the runner goes on, so the simulator keeps taking batches, which is the behaviour the review found, in a narrower
+  case.
+- One logged with a date header by a process other than `xcodebuild`, `simctl` or `…Runner`, apart from XCTest's three
+  sentences. See the list above.
 
 The check runs only on a line holding a literal, so ordinary lines cost what they did.
 
 ### Both directions over the corpus
 
-| Corpus | Result |
-|---|---|
-| `oracle/apple-logparser/probes.jsonl` | 307 strings detected (the 153 failure lines and their recorded events), 1 changed: the witness below |
-| `oracle/simulator-device/events.jsonl` | 44 detected, none changed |
-| `oracle/simulator-device/tests.jsonl` | 2 detected, none changed |
-| `oracle/test-runner/probes.jsonl` | 3 detected, none changed |
-| Forms from the table above, rendered | 21 detected, in `every_real_failure_form_is_detected_d39` |
-| All 17 literals × 9 reporting forms | 153 detected |
-| All 17 literals × 22 test and app forms | 374 not detected, in `a_test_name_an_assertion_or_an_app_log_line_is_not_a_failure_d39` |
-| Real xcodebuild log, one temporary run, not committed | 15,804 lines, 5 held a literal, all `App[…] [general] Failed to terminate process: …`, 0 now detected. **Kotlin's parser reports a failure at the first of them** |
+**These counts prove no regression on bare text, not on real forms.** No recording holds a real device failure in
+xcodebuild's stdout.
+
+| Corpus | Result | What it is |
+|---|---|---|
+| `oracle/apple-logparser/probes.jsonl` | 307 strings detected, 1 changed: the witness below | 153 synthetic bare lines and 154 recorded output events |
+| `oracle/simulator-device/events.jsonl` | 44 detected, none changed | Bare text, 12 of marathon's own log messages and exception messages |
+| `oracle/simulator-device/tests.jsonl` | 2 detected, none changed | Test names of Kotlin's parameterized test |
+| `oracle/test-runner/probes.jsonl` | 3 detected, none changed | Exception messages |
+| Forms from the table above | 21 detected, in `every_real_failure_form_is_detected_d39` | Rendered by hand from format strings and Kotlin tests |
+| 17 literals × 9 reporting forms | 153 detected | **Generated** |
+| 17 literals × 9 raw framework forms | 153 detected, in `a_raw_framework_failure_in_an_assertion_is_a_failure_d39` | **Generated** |
+| 17 literals × 31 test and app forms | 527 not detected, in `a_test_name_an_assertion_or_an_app_log_line_is_not_a_failure_d39` | **Generated** |
+| Real xcodebuild log, one temporary run, not committed | 15,804 lines, 5 held a literal, all `App[…] [general] Failed to terminate process: …`, 0 now detected | **Real**, but false alarms only. Kotlin's parser reports a failure at the first of them |
+
+Of the 356 strings detected in the four recordings, 154 are output events, 12 are marathon's own log messages, and the
+other 190 are bare text and exception messages.
 
 The only JVM row that changes is `Test Case '-[p.C Test runner exited]' started.` in `failure-literals`: recorded as
 `TestRunFailed`, it now reaches the progress parser. `jvm_streams_replay_events_errors_and_debug_lines` names that one
@@ -174,6 +231,13 @@ progress parser claims too, with the literal after the name. On device level,
 result, and `a_tests_own_text_does_not_end_the_batch_d39` runs it to the end. With the rule temporarily removed, those
 two, the corpus test, the JVM replay and both `_d39` line tests fail.
 
+On five batches of two tests, `a_framework_failure_in_an_assertion_loses_a_sick_simulator_d39` gives 0 failed, 2
+uncompleted and the simulator lost at batch 3, as on the base, and
+`a_tests_own_text_in_an_assertion_fails_only_the_test_d39` gives 2 failed per batch and no loss, for four prefixes. The
+first failed against the first version of this fix, with 2 failed per batch and no loss. With assertions exempt again,
+`a_raw_framework_failure_in_an_assertion_is_a_failure_d39` fails; with `FAILING_TEST`'s greedy groups for the message,
+the negative line test fails.
+
 ## D40 / C27: removing a device compares identity
 
 ### Which identity
@@ -182,8 +246,10 @@ The instance, `DeviceRef`, compared by pointer as readiness and termination do. 
 that comes back has the same udid and serial, and an Android device the same `host:port:serial`, so a stale event would
 still match. The actor is not needed: the pool's map holds one actor per device, and `RemoveDevice` carries the device.
 
-`remove_device` now removes only if the map's actor belongs to that instance. Its logs are unchanged, and a stale event
-still evaluates `no_active_devices`, as any removal of an unknown device does in Kotlin.
+`remove_device` now removes only if the map's actor belongs to that instance. A stale event still evaluates
+`no_active_devices`, as any removal of an unknown device does in Kotlin. Its logs are unchanged but for one new debug
+line when the serial is present under another instance, `device <serial>: another instance is in this pool, nothing to
+remove`, so that a future identity mismatch can be diagnosed.
 
 ### Removing the old device still does what it must
 
@@ -238,7 +304,8 @@ Kotlin behaviour seen nearby and left alone:
 
 - **The readiness probe is huge.** Each `launchctl dumpstate` returns 145,000 to 170,000 lines (19 MB on iOS 27.0), and
   `boot_failure` holds it all in memory to read one line, once per poll. Over SSH it also counts against the flow
-  control x16 changes.
+  control x16 changes. **Follow-up:** a cheaper probe, which D38 also makes more valuable, since a slow link now fails.
+  It would change a command sent to workers, so it is left alone here, and no candidate was measured.
 - **A replacement seen before the old device's disconnect is dropped for the run.** `add_device` warns and returns, as
   in Kotlin, so the pool never gets the new device (`duplicate_serial_add_keeps_the_original_device`). The iOS and macOS
   `register` paths can do this by disposing a previous device with no `Disconnected`. The tracker only connects an absent

@@ -100,7 +100,7 @@ impl SimulatorService {
     }
     /// D38: a failed or timed-out probe is not running on every runtime. Kotlin skips the exit
     /// check from runtime 16 on (A41), but a healthy simulator exits 0 there as well: measured on
-    /// iOS 18.6 and 27.0, see docs/wp/x17-findings.md.
+    /// iOS 18.6, 26.4 and 27.0, see docs/wp/x17-findings.md.
     pub async fn is_running(&self, udid: &str, runtime_version: &str, context: &VendorContext) -> VendorResult<bool> {
         // Approved P1: ASCII digits only.
         let major = kt::substring_before(runtime_version, ".").parse::<i32>().ok();

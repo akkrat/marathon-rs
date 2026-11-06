@@ -276,11 +276,18 @@ These fix bugs that Kotlin has, and need no configuration change.
 ## Other Apple behaviour changes
 
 - **A failed readiness probe means not running**
-  ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)). On a host so slow that the probe times out for
-  the whole of `bootWait`, a simulator is now booted once more and then leaves its pool. Raise `shell` if that happens.
+  ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)). Each probe returns about 20 MB of stdout. On a
+  host or link too slow to deliver that within `shell` (30 s by default), every probe now times out, where Kotlin counted
+  the marker once about 80% had arrived. A simulator then takes up to four setups of two `bootWait`s each, about 26 to
+  30 minutes per simulator with the defaults, before it is out of the run. Raise `shell` if that happens. A configured
+  `onPrepare: [ERASE]` erases on each re-setup, as on any setup.
 - **A test's own text does not abort its batch**
-  ([D39](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch)). A failure text inside an assertion now fails
-  that test and not the batch, so a batch whose application cannot launch may run longer, test by test.
+  ([D39](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch)). A failure text in a test name, an activity line,
+  a Swift Testing event or an application's log line no longer reports. In an assertion it reports only when the message
+  starts with it, which is how a failure the framework records reads. That rule is reasoned from Xcode's formats, not
+  recorded. After a prefix such as `XCTAssertTrue failed - `, that test fails and the batch goes on. If a batch now waits
+  for its timeout, or a sick simulator keeps taking batches, look at the failing line: the
+  [deviations guide](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch) lists the known misses.
 
 ## Trial and rollback
 

@@ -85,8 +85,9 @@ async fn a_probe_that_never_succeeds_is_bounded_by_boot_wait_and_erases_nothing_
             ..
         }
     ));
-    // The worst a persistently failing probe does: one boot wait, a shutdown, one fresh boot, a second
-    // boot wait, a shutdown, and the simulator leaves its pool. It is never erased.
+    // One setup's worst for a persistently failing probe: one boot wait, a shutdown, one fresh boot, a
+    // second boot wait, a shutdown, and the simulator leaves its pool, unerased. It is marked lost, so
+    // the provider can repeat this: see "The bound" in docs/wp/x17-findings.md.
     assert_eq!(h.boot.boots.load(Ordering::SeqCst), 1);
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 2);
     let commands = h.worker.commands.lock().unwrap().clone();

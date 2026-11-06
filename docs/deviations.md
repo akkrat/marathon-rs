@@ -377,9 +377,12 @@ Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate
 From runtime 16 on, Kotlin reads the output of `launchctl dumpstate` without checking its exit status, so a
 failed or timed-out probe whose output already names a started SpringBoard service counts as running.
 Native builds treat a failed or timed-out probe as not running on every runtime. A healthy simulator exits 0:
-measured on iOS 18.6 and 27.0, while runtimes 16, 17 and 26 were not measured. One failed probe costs one more
-poll. Only a probe that fails for the whole of `bootWait` shuts the simulator down, boots it once more and takes it
-out of its pool, and no probe result erases a simulator. The commands are unchanged. Approved 2026-11-06 (user
+measured on iOS 18.6, 26.4 and 27.0, while runtimes 16, 17 and other 26.x were not measured. One failed probe costs
+one more poll. A probe that fails for the whole of `bootWait` costs up to four setups of two boot waits each, about 26
+to 30 minutes of booting and shutting down per simulator with the defaults, and then the simulator is out of the run.
+Each probe returns about 20 MB, so a host or link too slow to deliver that within `shell` now takes this path, where
+Kotlin counted the marker once about 80% of it had arrived. No probe result erases a simulator; a configured
+`onPrepare: [ERASE]` erases on each re-setup, as on any setup. The commands are unchanged. Approved 2026-11-06 (user
 decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A41](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
 
@@ -387,12 +390,28 @@ decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-
 
 Kotlin looks for its device failure texts anywhere in xcodebuild's output, so a test named after one, an
 assertion message or an application's log line holding one aborts the batch. Native builds ignore these texts in
-test and suite names, assertion lines, UI test activity lines, Swift Testing events and an application's log lines.
-Every other line matches as before, including `xcodebuild`, `simctl` and test runner logs, so no real failure should
-be missed. A failure text inside an assertion now fails that test, not the batch, and later tests go on. A raw `print`
-holding one still aborts, since it cannot be told from a real failure. Approved 2026-11-06 (user decision). See
-[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [A48](known-kotlin-bugs.md) and the
-[x17 findings](wp/x17-findings.md).
+test and suite names, UI test activity lines, Swift Testing events and an application's log lines.
+
+An assertion line, or an `Assertion Failure:` activity line, still reports when its message starts with a failure text.
+That is how a failure the UI test framework records itself reads, so a simulator that cannot terminate its application
+still leaves after three such batches, as in Kotlin. After an XCTest prefix such as `XCTAssertTrue failed - ` or
+`failed - ` the text is the test's own: that test fails and the batch goes on. This split is reasoned from Xcode's known
+formats, and no recording holds a raw framework failure.
+
+Every other line matches as before, including `xcodebuild`, `simctl` and test runner logs. A raw `print` holding a
+failure text still aborts, since it cannot be told from a real failure.
+
+Some real failures are now missed:
+
+- One appended to an unterminated assertion, activity or application log line. This is unlikely, since those lines are
+  written whole.
+- A framework failure behind an XCTest prefix, or in an activity line other than `Assertion Failure:`. The test fails,
+  and the simulator keeps taking batches.
+- One logged with a date header by a process other than `xcodebuild`, `simctl` or a test runner, apart from XCTest's own
+  three sentences. The batch waits for its timeout if the runner has died.
+
+Approved 2026-11-06 (user decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A48](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
 
 ## D40 — A stale disconnect leaves a device's replacement alone
 
