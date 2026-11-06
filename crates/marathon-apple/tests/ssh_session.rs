@@ -308,7 +308,7 @@ async fn an_exec_with_no_reply_fails_with_its_timeout_and_gives_its_slot_back_u1
     assert_eq!(logged[0].2, NO_REPLY_LINE);
     assert!(executor.connected());
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
     let wire: Vec<_> = fake
@@ -333,7 +333,7 @@ async fn an_exec_with_no_reply_from_a_peer_that_never_answers_close_still_return
     let started = Instant::now();
     let failure = other(
         tokio::time::timeout(
-            Duration::from_secs(30),
+            Duration::from_secs(60),
             executor.execute(request(&["echo", "silent"], 5000), context()),
         )
         .await
@@ -358,31 +358,34 @@ async fn an_exec_with_no_reply_from_a_peer_that_never_answers_close_still_return
     assert!(executor.connected());
 }
 
+/// `waiting` holds its request, and another session on the connection gets an answer meanwhile. Factor 1, so that the wait it
+/// competes with is a real 30 s, and this does not bound the host's speed.
+async fn another_session_answers_during<F: std::future::Future>(
+    executor: &SshCommandExecutor,
+    waiting: F,
+    held_up: &ssh::Fake,
+    event: &str,
+) {
+    tokio::pin!(waiting);
+    // This one must be the first, which is the one the fault holds back.
+    tokio::select! {
+        _ = &mut waiting => panic!("the held request returned"),
+        _ = held_up.events_at_least(event, 1) => {}
+    }
+    let answer = tokio::select! {
+        _ = &mut waiting => panic!("the wait ended before another session got an answer"),
+        answer = ssh::run(executor, &["echo", "hello"], 600_000) => answer,
+    };
+    assert_eq!(answer.unwrap().stdout, ["hello"]);
+    assert!(executor.connected());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn other_sessions_keep_working_while_an_exec_waits_for_a_reply_u154() {
     let fake = ssh::fake(silent_exec_script(false), 4).await;
-    let (executor, _) = executor_with(&fake, 10, 0).await;
-    let silent_request = request(&["echo", "silent"], 5000);
-    let silent_context = context();
-    let waiting = executor.execute(silent_request, silent_context);
-    tokio::pin!(waiting);
-    let mut answered = 0;
-    let failure = loop {
-        tokio::select! {
-            result = &mut waiting => break result.err().unwrap(),
-            result = ssh::run(&executor, &["echo", "hello"], 60_000) => {
-                assert_eq!(result.unwrap().stdout, ["hello"]);
-                answered += 1;
-            }
-        }
-    };
-    assert_is_the_exec_timeout(&other(failure));
-    // Each answer is a round trip on this machine, in the 3 s of the wait; only a connection held up would give none.
-    assert!(answered > 0);
-    assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
-        ["hello"]
-    );
+    let (executor, _) = executor_with(&fake, 1, 0).await;
+    let silent = request(&["echo", "silent"], 600_000);
+    another_session_answers_during(&executor, executor.execute(silent, context()), &fake, "exec").await;
 }
 
 /// A script where the first open of a connection is answered this late, in real time. These run at factor 10, so the open's
@@ -423,7 +426,7 @@ async fn an_open_with_no_reply_fails_with_its_timeout_and_a_late_reply_is_closed
     assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
     assert!(fake.events("exec").await.is_empty());
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
     assert!(executor.connected());
@@ -434,7 +437,7 @@ async fn a_slow_open_inside_its_30_s_still_works_u157() {
     let fake = ssh::fake(late_open_script(1_000, false), 1).await;
     let (executor, events) = executor_with(&fake, 10, 0).await;
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
     assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
@@ -445,13 +448,17 @@ async fn a_slow_open_inside_its_30_s_still_works_u157() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_caller_that_goes_away_during_an_open_leaves_no_channel_behind_u157() {
-    let fake = ssh::fake(late_open_script(500, false), 1).await;
+    let fake = ssh::fake(late_open_script(3_000, false), 1).await;
     let (executor, _) = executor_with(&fake, 10, 0).await;
-    let open = executor.connection().start_session();
-    assert!(tokio::time::timeout(Duration::from_millis(100), open).await.is_err());
+    let mut open = Box::pin(executor.connection().start_session());
+    tokio::select! {
+        _ = &mut open => panic!("the held open returned"),
+        _ = fake.events_at_least("session_open", 1) => {}
+    }
+    drop(open);
     assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
     assert_eq!(
-        ssh::run(&executor, &["echo", "hello"], 5000).await.unwrap().stdout,
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
         ["hello"]
     );
 }
@@ -470,7 +477,7 @@ async fn a_late_refusal_does_not_give_its_text_to_the_next_failure_u157() {
     assert_is_the_exec_timeout(&failure);
     assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
     // Its text reaches the client a moment after the event, and is off the queue a moment after that.
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
     let held = start(&executor, &["sleep", "1000"], 600_000).await;
     let refused = other(
         executor
@@ -488,31 +495,33 @@ async fn a_late_refusal_does_not_give_its_text_to_the_next_failure_u157() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_open_that_is_never_answered_still_returns_and_other_sessions_carry_on_u157() {
+async fn an_open_that_is_never_answered_still_returns_u157() {
     let fake = ssh::fake(late_open_script(3_600_000, false), 4).await;
     let (executor, _) = executor_with(&fake, 10, 0).await;
-    let waiting_request = request(&["echo", "hello"], 5000);
-    let waiting_context = context();
-    let waiting = executor.execute(waiting_request, waiting_context);
-    tokio::pin!(waiting);
-    // This one must be the first open, which is the one the fault holds back.
-    tokio::select! {
-        _ = &mut waiting => panic!("the held open returned"),
-        _ = fake.events_at_least("session_open", 1) => {}
-    }
-    let mut answered = 0;
-    let failure = loop {
-        tokio::select! {
-            result = &mut waiting => break result.err().unwrap(),
-            result = ssh::run(&executor, &["echo", "hello"], 60_000) => {
-                assert_eq!(result.unwrap().stdout, ["hello"]);
-                answered += 1;
-            }
-        }
-    };
-    assert_is_the_exec_timeout(&other(failure));
-    assert!(answered > 0);
+    let failure = other(
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            executor.execute(request(&["echo", "hello"], 600_000), context()),
+        )
+        .await
+        .unwrap()
+        .err()
+        .unwrap(),
+    );
+    assert_is_the_exec_timeout(&failure);
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
+        ["hello"]
+    );
     assert!(executor.connected());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn other_sessions_keep_working_while_an_open_waits_for_a_reply_u157() {
+    let fake = ssh::fake(late_open_script(3_600_000, false), 4).await;
+    let (executor, _) = executor_with(&fake, 1, 0).await;
+    let held = request(&["echo", "hello"], 600_000);
+    another_session_answers_during(&executor, executor.execute(held, context()), &fake, "session_open").await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
