@@ -288,7 +288,10 @@ impl RemoteDataSource for Blocking {
             self.blocked.store(true, Ordering::SeqCst);
             let _ = self.release.lock().unwrap().recv_timeout(Duration::from_secs(60));
             self.ended.store(true, Ordering::SeqCst);
-            Ok(vec![])
+            Ok(vec![ExecutionTime {
+                test_name: test().to_safe_test_name(),
+                percentile: 7000.0,
+            }])
         })
     }
     fn close(&self) -> ServiceFuture<'_, ()> {
@@ -296,6 +299,24 @@ impl RemoteDataSource for Blocking {
             self.closed.store(true, Ordering::SeqCst);
             Ok(())
         })
+    }
+}
+/// The production runtime, keeping each task's handle so that a test can wait for its end.
+struct KeepsTasks {
+    runtime: Arc<dyn VendorRuntime>,
+    tasks: Mutex<Vec<Arc<dyn VendorTask>>>,
+}
+impl VendorRuntime for KeepsTasks {
+    fn spawn_cancellable(&self, body: VendorTaskBody) -> Arc<dyn VendorTask> {
+        let task = self.runtime.spawn_cancellable(body);
+        self.tasks.lock().unwrap().push(task.clone());
+        task
+    }
+    fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
+        self.runtime.spawn(body)
+    }
+    fn spawn_blocking(&self, body: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
+        self.runtime.spawn_blocking(body)
     }
 }
 #[test]
@@ -312,6 +333,11 @@ fn close_gets_past_a_blocked_vendor_worker_on_the_real_runtime_and_clock() {
             });
             let mut context = env.context.clone();
             context.clock = Arc::new(RealBound(context.clock.clone()));
+            let vendor = Arc::new(KeepsTasks {
+                runtime: context.vendor.clone(),
+                tasks: Mutex::default(),
+            });
+            context.vendor = vendor.clone();
             let provider = MetricsProviderImpl::new(source.clone(), defaults(), context)?;
             let limit = jcompat::jtime::instant_of(0, 0).unwrap();
             MetricsProvider::execution_time(&provider, &test(), 50.0, limit).await?;
@@ -325,8 +351,10 @@ fn close_gets_past_a_blocked_vendor_worker_on_the_real_runtime_and_clock() {
             assert!(!source.ended.load(Ordering::SeqCst));
 
             release.send(()).map_err(|e| failure("test.Blocking", &e.to_string()))?;
-            until(|| source.ended.load(Ordering::SeqCst)).await;
-            // The value stays the default: the query's answer came after the cancel.
+            let refresh = vendor.tasks.lock().unwrap()[0].clone();
+            let _ = refresh.join().await;
+            assert!(source.ended.load(Ordering::SeqCst));
+            // Its answer came after the cancel, so the key keeps the default.
             assert_eq!(
                 MetricsLookup::execution_time(&provider, &test(), 50.0, limit),
                 DEFAULT_MILLIS
@@ -334,5 +362,11 @@ fn close_gets_past_a_blocked_vendor_worker_on_the_real_runtime_and_clock() {
             Ok(())
         })
     });
+    // The first query's three lines and close's warning: nothing from the query that ended later.
+    let messages: Vec<_> = logs.iter().map(|r| r.message.to_string_lossy()).collect();
+    assert_eq!(messages.len(), 4, "{messages:?}");
+    assert_eq!(lines(&logs, Level::Debug, "No execution time found"), 1);
+    assert_eq!(lines(&logs, Level::Warn, "Cannot fetch execution time"), 1);
+    assert_eq!(lines(&logs, Level::Info, "failed in"), 1);
     assert_eq!(lines(&logs, Level::Warn, "did not stop within 3000 ms"), 1);
 }
