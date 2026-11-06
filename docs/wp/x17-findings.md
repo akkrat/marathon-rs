@@ -72,7 +72,7 @@ this: the first version of this text stopped at one setup, a factor of four too 
 
 This is per simulator, of booting and shutting down. It takes 8 shutdowns. The number of boots depends on the state each
 setup finds: the review's run saw 4, and a temporary run here saw 7, 1 in the first setup, which found the simulator
-booted, and 2 in each of the others, which found it shut down. A real simulator stays shut down, so expect 7.
+booted, and 2 in each of the others, which found it shut down. A real simulator stays shut down, so expect 7 if the first setup finds it booted and 8 if it starts shut down. The duration leaves out shutdown waits and any session-close wait, which were not measured.
 
 A user's `onPrepare: [ERASE]` erases on each re-setup, as on any setup. Nothing else does.
 
@@ -181,6 +181,10 @@ A Swift Testing issue stays exempt even with no prefix (`✘ Test m() recorded a
 `Issue.record` takes free text. The UI test framework is not expected to report through it, which is also reasoned.
 
 **Still a false alarm, and flagged:**
+
+- A line that misses the form checks is searched whole, as on the base, so a test's own text there still aborts the batch: no space after `] :`, leading whitespace before the path, an activity line with no leading whitespace or with integer or `nan` seconds. A trailing `\r` is the widest of these, because a CRLF stream would switch this deviation off for every assertion and activity line; the SSH exec path has no terminal, so that isn't expected.
+- Contrived text that looks raw: an activity line with no location, `t = 4.20s Assertion Failure: failed - x:1: Failed to terminate`, because the location check takes `failed - x:1: `; `-[Cm] : failed - a b] : Failed to terminate`, with no space in the brackets; a directory named like a test head. Whether Xcode prints the first form isn't known; XCTest doesn't print the others.
+- `⚠` with the emoji selector, and any other Swift Testing marker not in the list. From memory, Swift Testing also prints `±` and `⎙` lines; this wasn't checked against its source.
 
 - A raw `print` from a hosted test or application with no log header: it cannot be told from an unknown form.
 - A test's own text that starts an assertion with a literal and has no prefix, as `record(XCTIssue(…))` can.
