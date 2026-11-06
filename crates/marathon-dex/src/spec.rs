@@ -8,6 +8,7 @@
 //! panic or an unbounded allocation (WP 6.4 P3).
 
 use crate::error::{DexError, DexResult};
+use std::sync::Arc;
 
 pub const ACC_INTERFACE: i32 = 0x200;
 pub const ACC_ABSTRACT: i32 = 0x400;
@@ -121,14 +122,27 @@ pub struct HeaderItem {
     pub method_ids_off: i32,
     pub class_defs_size: i32,
     pub class_defs_off: i32,
+    /// D26: this image's place in a DEX 041 container.
+    image: Option<ContainerImage>,
+}
+
+/// The fields DEX 041 adds to the header, with what they need from the older ones.
+#[derive(Clone, Copy, Debug)]
+struct ContainerImage {
+    file_size: i32,
+    container_size: i32,
+    header_offset: i32,
 }
 
 impl HeaderItem {
     /// The HeaderItem constructor reads every field (0x70 bytes, so a
     /// shorter file underflows) and only then validate() checks the
     /// magic and the endian tag.
-    fn parse(data: &[u8]) -> DexResult<Self> {
-        let mut c = Cursor::at(data, 0)?;
+    ///
+    /// `offset` is not 0 only for the later images of a DEX 041 container. Every offset in any image counts from the start
+    /// of the file, which is why the tables and items need no adjustment (format documentation, "Container format").
+    fn parse(data: &[u8], offset: i32) -> DexResult<Self> {
+        let mut c = Cursor::at(data, offset)?;
         // DexMagic: dex\n, version (3 bytes), zero.
         let dex = [c.get_i8()?, c.get_i8()?, c.get_i8()?];
         let newline = c.get_i8()?;
@@ -136,13 +150,14 @@ impl HeaderItem {
         let zero = c.get_i8()?;
         let _checksum = c.get_i32()?;
         c.take(20)?; // signature, never verified upstream
-        let _file_size = c.get_i32()?;
-        let _header_size = c.get_i32()?;
+        let file_size = c.get_i32()?;
+        let header_size = c.get_i32()?;
         let endian_tag = c.get_i32()?;
         let _link_size = c.get_i32()?;
         let _link_off = c.get_i32()?;
         let _map_off = c.get_i32()?;
-        let header = Self {
+        let mut header = Self {
+            image: None,
             string_ids_size: c.get_i32()?,
             string_ids_off: c.get_i32()?,
             type_ids_size: c.get_i32()?,
@@ -157,16 +172,18 @@ impl HeaderItem {
             class_defs_off: c.get_i32()?,
         };
         c.take(8)?; // dataSize, dataOff: read upstream, never used
-        // The version check pins the parser to DEX 035-039: 040 is rejected
-        // exactly as on the JVM (WP 6.4 decision 6; message is DexMagic's,
-        // the Kotlin data-class toString included).
+        // D26: DEX 040 and 041 are accepted, where the JVM parser takes 035-039 only (N10). 040 changes nothing the
+        // parser reads: it only allows more characters in simple names. Anything newer keeps the JVM's message, which
+        // is DexMagic's, the Kotlin data-class toString included.
+        let older = i32::from(version[1]) == 0x33 && i32::from(version[2]) >= 0x35;
+        let v040 = i32::from(version[1]) == 0x34 && i32::from(version[2]) == 0x30;
+        let v041 = i32::from(version[1]) == 0x34 && i32::from(version[2]) == 0x31;
         let valid = i32::from(dex[0]) == 0x64
             && i32::from(dex[1]) == 0x65
             && i32::from(dex[2]) == 0x78
             && i32::from(newline) == 0x0a
             && i32::from(version[0]) == 0x30
-            && i32::from(version[1]) == 0x33
-            && i32::from(version[2]) >= 0x35
+            && (older || v040 || v041)
             && i32::from(zero) == 0x00;
         if !valid {
             return Err(DexError::dex_exception(
@@ -181,6 +198,20 @@ impl HeaderItem {
             return Err(DexError::dex_exception(
                 format!("Invalid endian tag:{endian_tag}").as_str(),
             ));
+        }
+        if v041 {
+            let container_size = c.get_i32()?;
+            let header_offset = c.get_i32()?;
+            if header_size != 0x78 {
+                return Err(DexError::dex_exception(
+                    format!("Invalid DEX 041 header size:{header_size}").as_str(),
+                ));
+            }
+            header.image = Some(ContainerImage {
+                file_size,
+                container_size,
+                header_offset,
+            });
         }
         Ok(header)
     }
@@ -536,7 +567,8 @@ fn padded_right(c: &mut Cursor, size: i32, full_size: usize) -> DexResult<Vec<u8
 /// its init block. Class data and annotations are parsed on demand, as
 /// upstream (ClassDataItem.create / AnnotationsDirectoryItem.create at use).
 pub struct DexFile {
-    pub data: Vec<u8>,
+    /// The whole file: all images of a DEX 041 container share it.
+    pub data: Arc<Vec<u8>>,
     pub header: HeaderItem,
     pub string_ids: Vec<StringIdItem>,
     pub type_ids: Vec<TypeIdItem>,
@@ -551,8 +583,57 @@ pub struct DexFile {
 impl DexFile {
     pub const NO_INDEX: i32 = -1;
 
+    /// The dex at the start of `data`. A DEX 041 file can hold more: see [`DexFile::parse_all`].
     pub fn parse(data: Vec<u8>) -> DexResult<Self> {
-        let header = HeaderItem::parse(&data)?;
+        Self::parse_image(Arc::new(data), 0)
+    }
+
+    /// D26: every dex in `data`. That is one, except for a DEX 041 container: it holds one image per logical dex, each
+    /// with its own header and id tables, and each header's `file_size` is the distance to the next one.
+    pub fn parse_all(data: Vec<u8>) -> DexResult<Vec<Self>> {
+        let data = Arc::new(data);
+        let first = Self::parse_image(data.clone(), 0)?;
+        let Some(image) = first.header.image else {
+            return Ok(vec![first]);
+        };
+        let total = data.len() as i64;
+        let mut files = vec![first];
+        let mut current = image;
+        let mut offset = 0_i64;
+        loop {
+            let invalid = |what: &str| DexError::dex_exception(format!("Invalid DEX 041 container: {what}").as_str());
+            if i64::from(current.header_offset) != offset {
+                return Err(invalid(&format!(
+                    "header at {offset} says it is at {}",
+                    current.header_offset
+                )));
+            }
+            if i64::from(current.container_size) != total {
+                return Err(invalid(&format!(
+                    "size {} in a file of {total} bytes",
+                    current.container_size
+                )));
+            }
+            // A header is 0x78 bytes, so this also ends a loop on a zero or negative size.
+            if i64::from(current.file_size) < 0x78 || offset + i64::from(current.file_size) > total {
+                return Err(invalid(&format!("image at {offset} has size {}", current.file_size)));
+            }
+            offset += i64::from(current.file_size);
+            if offset == total {
+                return Ok(files);
+            }
+            let next = Self::parse_image(data.clone(), offset as i32)?;
+            // A later header of another version is no part of this format.
+            current = next
+                .header
+                .image
+                .ok_or_else(|| invalid(&format!("image at {offset} is not version 041")))?;
+            files.push(next);
+        }
+    }
+
+    fn parse_image(data: Arc<Vec<u8>>, offset: i32) -> DexResult<Self> {
+        let header = HeaderItem::parse(&data, offset)?;
         fn table<T>(
             data: &[u8],
             count: i32,

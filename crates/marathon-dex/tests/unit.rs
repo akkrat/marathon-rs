@@ -23,15 +23,23 @@ fn probe_dex_bytes() -> Vec<u8> {
 }
 
 #[test]
-fn dex_040_magic_is_rejected_with_dex_magic_message() {
-    let mut bytes = probe_dex_bytes();
-    bytes[4..7].copy_from_slice(b"040");
-    let err = DexFile::parse(bytes).map(|_| ()).unwrap_err();
-    assert_eq!(err.jvm_class.to_string_lossy(), "com.linkedin.dex.spec.DexException");
-    assert_eq!(
-        err.message.unwrap().to_string_lossy(),
-        "Invalid dexMagic:\nDexMagic(dex=[100, 101, 120], newline=10, version=[48, 52, 48], zero=0)\n"
-    );
+fn dex_versions_newer_than_041_are_rejected_with_dex_magic_message_d26() {
+    for (version, digits) in [
+        (b"042", "48, 52, 50"),
+        (b"050", "48, 53, 48"),
+        (b"100", "49, 48, 48"),
+        (b"034", "48, 51, 52"),
+    ] {
+        let mut bytes = probe_dex_bytes();
+        bytes[4..7].copy_from_slice(version);
+        let err = DexFile::parse(bytes.clone()).map(|_| ()).unwrap_err();
+        assert_eq!(err.jvm_class.to_string_lossy(), "com.linkedin.dex.spec.DexException");
+        assert_eq!(
+            err.message.unwrap().to_string_lossy(),
+            format!("Invalid dexMagic:\nDexMagic(dex=[100, 101, 120], newline=10, version=[{digits}], zero=0)\n")
+        );
+        assert!(DexFile::parse_all(bytes).is_err());
+    }
 }
 
 #[test]

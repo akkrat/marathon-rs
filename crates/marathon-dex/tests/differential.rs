@@ -111,6 +111,15 @@ fn custom_of(row: &Value) -> Vec<JavaString> {
 fn check_row(row: &Value) {
     let apk = row["apk"].as_str().unwrap();
     let path = apk_for(apk);
+    // D26: the JVM parser rejects DEX 040, as this row keeps witnessing (N10). This mutant is `probe.apk` with only its
+    // version bytes changed, so it now gives the tests of `probe.apk`. Exactly this row is treated this way.
+    if apk == "probe-dex040.apk" {
+        assert_eq!(row["testsError"]["class"], "com.linkedin.dex.spec.DexException");
+        let probe = marathon_dex::find_test_methods(&apk_for("probe.apk"), &custom_of(row)).unwrap();
+        let mutant = marathon_dex::find_test_methods(&path, &custom_of(row)).unwrap();
+        assert_eq!(render_methods(&mutant), render_methods(&probe));
+        return;
+    }
     match marathon_dex::find_test_methods(&path, &custom_of(row)) {
         Ok(methods) => {
             assert_eq!(render_methods(&methods), row["tests"], "tests for {apk}");

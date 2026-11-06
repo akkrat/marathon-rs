@@ -167,7 +167,7 @@ pub fn read_dex_files(apk_path: &Path) -> DexResult<Vec<DexFile>> {
             if is_dex {
                 let mut bytes = Vec::new();
                 match entry.read_to_end(&mut bytes) {
-                    Ok(_) => dex_files.push(DexFile::parse(bytes).map_err(Failure::Dex)?),
+                    Ok(_) => dex_files.extend(DexFile::parse_all(bytes).map_err(Failure::Dex)?),
                     Err(err)
                         if err
                             .get_ref()
@@ -220,7 +220,7 @@ pub fn read_dex_files(apk_path: &Path) -> DexResult<Vec<DexFile>> {
                     entry
                         .read_to_end(&mut bytes)
                         .map_err(|err| DexError::io(err.to_string().as_str()))?;
-                    dex_files.push(DexFile::parse(bytes)?);
+                    dex_files.extend(DexFile::parse_all(bytes)?);
                 }
             }
             Ok(dex_files)
