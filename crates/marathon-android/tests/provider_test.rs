@@ -453,7 +453,7 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
     };
     use std::sync::Arc;
     #[derive(Default)]
-    struct Lost(tokio::sync::Notify);
+    struct Lost(tokio::sync::Notify, tokio::sync::Notify);
     impl AndroidBatchExecutor for Lost {
         fn execute<'a>(
             &'a self,
@@ -465,6 +465,7 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
             _: VendorContext,
         ) -> VendorFuture<'a, ()> {
             Box::pin(async move {
+                self.1.notify_one();
                 self.0.notified().await;
                 Err(VendorError::DeviceLost(Failure {
                     class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
@@ -537,6 +538,34 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
             ));
             assert!(matches!(outcome, Err(VendorError::BatchExecution(_))), "{outcome:?}");
             logcat_streams(&[(&server, 2)]).await;
+            // The fast restart: the server answers again, so the probe alone would call this a device loss, but its
+            // list has not settled, because the device is not on it yet.
+            let running = batch();
+            checked(tokio::time::timeout(std::time::Duration::from_secs(60), lost.1.notified()).await);
+            server.kill(Some(std::time::Duration::from_millis(200)));
+            checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), async {
+                    while server
+                        .transcript()
+                        .iter()
+                        .filter(|r| r["event"] == "server_killed")
+                        .count()
+                        < 2
+                    {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                })
+                .await,
+            );
+            checked(server.disconnect_device("emulator-5554"));
+            track_requests(&server, 3).await;
+            let android = provider.android_device(&device).unwrap();
+            assert!(!android.adb_server_available());
+            lost.0.notify_one();
+            let outcome = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), running).await,
+            ));
+            assert!(matches!(outcome, Err(VendorError::BatchExecution(_))), "{outcome:?}");
             provider.terminate().await?;
             checked(server.shutdown().await);
             Ok(())

@@ -492,6 +492,8 @@ impl AdamDeviceProvider {
                         None,
                     );
                     send(tx, Tracked::Devices(client.clone(), vec![]))?;
+                    // Only after the disconnects: a batch released sooner fails on the dead server, again and again.
+                    handled(tx, context.cancellation.clone()).await?;
                     tracker.set_server_available(true);
                     settling = None;
                     self.reconnect(&client, context.clone()).await?

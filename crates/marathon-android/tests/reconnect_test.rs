@@ -581,15 +581,21 @@ pub fn state_changes(lines: &[Line]) -> Vec<String> {
 pub fn ran_on(observed: &Observed) -> (usize, BTreeMap<String, (bool, bool)>) {
     let mut out = BTreeMap::new();
     let mut total = 0;
+    let mut allowed = std::collections::BTreeSet::new();
     for (server, serial, start) in &observed.batches {
         let mine = observed.events.iter().filter(|e| e.server == *server);
         let drop = mine.clone().find(|e| !e.connect).map(|e| e.at_ms);
         let back = drop.and_then(|d| mine.clone().find(|e| e.connect && e.at_ms > d).map(|e| e.at_ms));
         // D27: the step that now holds the dropped device in prepare, `logcat -c`, only logs its failure, where the
         // JVM's `rm -r` fails prepare. So the drop that ends the hold can finish prepare first, and one batch can start
-        // on a device whose Disconnected is on its way. It is returned at once and runs again elsewhere.
+        // on a device whose Disconnected is on its way. It is returned at once and runs again elsewhere. Only one per
+        // device: more would be batches really handed to a lost device, which the map must prevent (D24).
         let dropped = mine.clone().any(|e| !e.connect && e.serial == *serial);
-        if dropped && drop.is_some_and(|d| *start >= d) && back.is_some_and(|b| *start < b) {
+        if dropped
+            && drop.is_some_and(|d| *start >= d)
+            && back.is_some_and(|b| *start < b)
+            && allowed.insert((*server, serial.clone()))
+        {
             continue;
         }
         total += 1;

@@ -798,8 +798,11 @@ impl Device for AndroidDevice {
                         .await;
                     match outcome {
                         // D22: the device outlives a lost adb server, so only its batch fails: retiring the last
-                        // device of a pool would end the run before the server returns.
-                        Err(VendorError::DeviceLost(failure)) if device.server_is_away(signal).await => {
+                        // device of a pool would end the run before the server returns. The tracker's flag covers the
+                        // time until its list has settled: a server that returned fast already answers the probe.
+                        Err(VendorError::DeviceLost(failure))
+                            if !device.adb_server_available() || device.server_is_away(signal).await =>
+                        {
                             device.log(
                                 Level::Warn,
                                 "Batch failed because the adb server is away; keeping the device",

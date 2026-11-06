@@ -192,7 +192,7 @@ key devices by adb server and serial, so a state change on one server affects
 only that server's device: the dropped device is disposed and, when it returns,
 gets a fresh actor that receives work. No configuration change is needed; expect
 all devices of a multi-host farm to keep working through reconnects. A device
-that disconnects stays in the provider's map as in Kotlin. When several servers
+that disconnects stayed in the provider's map as in Kotlin until D24 removed it. When several servers
 expose the same serial, the replay key of `borrow` is `serial@server` instead of
 the bare serial.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
@@ -270,7 +270,10 @@ adb server went away. Native builds reconnect, with a backoff of up to 8 s, and 
 loopback server again the way startup does. Devices keep their work during an outage,
 and new batches wait. A test running when the server went away fails as uncompleted and is retried.
 Once the server is back, a device still listed carries on, with its logcat and reverse port
-forwards restored; one not listed within `waitForDevicesTimeoutMillis` is disconnected. A server
+forwards restored; one not listed within `waitForDevicesTimeoutMillis` is disconnected. An emulator
+that itself restarted during the outage looks the same when it is listed again under the same serial:
+it is not prepared again, so its batches fail on the missing APKs until their retries run out or it
+really disconnects. A plain adb server restart does not restart emulators. A server
 that does not return within `waitForDevicesTimeoutMillis` has its devices disconnected, so the
 run ends as it does when devices are lost, and other servers are not affected. If adb restarts
 take longer on your hosts, raise that value.
