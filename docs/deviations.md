@@ -394,7 +394,9 @@ needed, and the limit is not configurable.
 **How long a dead worker takes.** The installer makes three attempts, so 15 minutes is the worst case. It applies to a process
 wedged behind an sshd that still answers, to a peer that accepts the connection and says nothing, and to any stall with
 `keepAliveInterval` set to 0. With the default `keepAliveInterval` of 15 s and `keepAliveMaxCount` of 4, a dead link or a frozen
-peer ends ssh, and so the send, after about 60 s, with ssh's `Timeout, server … not responding` in the error.
+peer ends ssh, and so that attempt, after about 60 s, with ssh's `Timeout, server … not responding` in the error. On a link that stays
+dead, attempts 2 and 3 then wait in ssh's connect for the host's TCP timeout, because `--rsh` sets no `ConnectTimeout`, so the install
+takes longer than the three minutes those 60 s suggest.
 
 **What a worker sees.** On a host with rsync 3, the flag also reaches the worker in `rsync --server … --timeout=300 …`, so a forced
 command or wrapper there that matches that string sees a new flag. openrsync, which macOS hosts have, does not pass it on.

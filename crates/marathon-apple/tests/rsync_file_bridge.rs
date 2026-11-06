@@ -696,6 +696,23 @@ fn a_stalled_send_under_sshpass_also_stops_rsync_d31() {
     script(&sshpass, FAKE_SSHPASS);
     run_stalled_send(StalledSend {
         sshpass: Some(&sshpass),
+        factor: 1,
+        ..StalledSend::new("hung", &program, dir.path())
+    });
+}
+#[test]
+fn rsync_under_sshpass_that_ignores_term_is_killed_d31() {
+    // KILL still reaches the listed process, whose start time has not changed.
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(
+        dir.path(),
+        "trap '' TERM\necho 'rsync(1): error: poll: timeout' >&2\nexec /bin/sleep 100038",
+    );
+    let sshpass = dir.path().join("sshpass");
+    script(&sshpass, FAKE_SSHPASS);
+    run_stalled_send(StalledSend {
+        sshpass: Some(&sshpass),
+        factor: 1,
         ..StalledSend::new("hung", &program, dir.path())
     });
 }
@@ -868,11 +885,15 @@ async fn stalled_send_runs() {
         .await
         .unwrap();
     assert_eq!((first, queued), (Ok(false), Ok(true)));
-    // Reaped before the send returned, so a retry cannot overlap it, and the next send ran after it.
-    assert_eq!(
-        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
-        Err(nix::errno::Errno::ESRCH)
-    );
+    // Gone, so a retry cannot overlap it, and the next send ran after it. Under `sshpass` rsync is an orphan by now, so
+    // its reaper is init, which may not have got to it yet: a zombie still answers signal 0.
+    tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        while nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None) != Err(nix::errno::Errno::ESRCH) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
     assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stalled\nnext\n");
     let lines = ssh::lines(&events);
     let errors: Vec<_> = lines

@@ -738,6 +738,8 @@ fn rsync_server_takes_only_the_send_timeout_the_bridge_passes_d31() {
     for option in ["--timeout=30", "--timeout=", "--timeout", "--contimeout=300"] {
         assert!(with(option).is_err(), "{option}");
     }
+    // Only a send carries it: the worker's `--sender` is marathon's receive.
+    assert!(rsync_args(&["--server", "--sender", "--timeout=300", ".", "/tmp/marathon/file"]).is_err());
 }
 #[test]
 fn rsync_feature_flags_cannot_enable_symlink_following() -> Result<()> {

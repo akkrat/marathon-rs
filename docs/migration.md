@@ -308,7 +308,9 @@ These fix bugs that Kotlin has, and need no configuration change.
   ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails)). If you wrap rsync with `RSYNC4J_RSYNC`, the wrapper now
   also gets `--timeout=300` on sends. On a host with rsync 3, so does the worker's `rsync --server`: check any forced
   command or wrapper there that matches that string. A worker that is silent for more than 5 minutes during a send now fails
-  that send. A dead worker fails an install in up to 15 minutes, and in about 3 with a dead link and the default keep-alive.
+  that send. A dead worker fails an install in up to 15 minutes. With a link that dies during a send and the default keep-alive, the
+  first attempt ends after about 60 s, but attempts 2 and 3 then wait in ssh's connect for the host's TCP timeout, because
+  `--rsh` sets no `ConnectTimeout`.
   An rsync that reports the stall in other words than `poll: timeout` or `io timeout after`, with a hung ssh, still waits.
 - **xcodebuild's command line on a worker starts with `env NSUnbufferedIO=YES`**
   ([D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)). Check anything on the worker that matches the command, such

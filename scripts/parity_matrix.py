@@ -833,7 +833,8 @@ def main() -> int:
     args = sys.argv[1:]
     check = "--check" in args
     args = [a for a in args if a != "--check"]
-    if len(args) != 1:
+    if len(args) != 1 or args[0].startswith("-") or not pathlib.Path(args[0]).is_dir():
+        # A wrong argument must not reach generate: it would find no tests, and the file would lose their rows.
         print(__doc__, file=sys.stderr)
         return 2
     existing = read_existing()

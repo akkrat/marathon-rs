@@ -375,22 +375,27 @@ impl Inner {
             if matches!(self.auth, Some(SshAuthentication::Password { .. })) {
                 under_sshpass = children_of(pid).await;
             }
-            for pid in under_sshpass.iter().copied().chain([pid as i32]) {
+            for pid in under_sshpass.iter().map(|(pid, _)| *pid).chain([pid as i32]) {
                 let _ = signal::kill(Pid::from_raw(pid), signal::Signal::SIGTERM);
             }
         }
         let stopped = async {
             let _ = child.wait().await;
-            while under_sshpass.iter().any(|pid| alive(*pid)) {
+            while under_sshpass.iter().any(|(pid, _)| alive(*pid)) {
                 if clock.delay(STOP_POLL_MILLIS, scope.clone()).await.is_err() {
                     break;
                 }
             }
         };
         let _ = within(clock, scope.clone(), STOP_STEP_MILLIS, stopped).await;
-        // Listed a step ago, so a pid can only be another process's if pids wrapped around in those few seconds.
-        for pid in under_sshpass.into_iter().filter(|pid| alive(*pid)) {
-            let _ = signal::kill(Pid::from_raw(pid), signal::Signal::SIGKILL);
+        // Listed a step ago, so a pid can only be another process's if pids wrapped around in those few seconds, and then
+        // it started later. A `ps` that cannot say either time leaves the listed process to KILL only if it could not say
+        // at the listing, as on a host without `lstart`.
+        for (pid, started) in under_sshpass.into_iter().filter(|(pid, _)| alive(*pid)) {
+            let deadline = tokio::time::Instant::now() + PROCESS_LIMIT;
+            if started.is_none() || started_at(pid, deadline).await == started {
+                let _ = signal::kill(Pid::from_raw(pid), signal::Signal::SIGKILL);
+            }
         }
         // Does nothing to a child that has been reaped, whose status `wait` then returns.
         let _ = child.start_kill();
@@ -433,21 +438,40 @@ impl Inner {
         Ok(status == 0)
     }
 }
-/// Best effort: no `pgrep`, or one that takes too long, only means the signals reach the child alone.
-async fn children_of(pid: u32) -> Vec<i32> {
+/// Best effort: no `pgrep`, or one that takes too long, only means the signals reach the child alone. Each child comes
+/// with when it started, within the same limit, so that KILL can tell it from a later process with its pid.
+async fn children_of(pid: u32) -> Vec<(i32, Option<String>)> {
+    let deadline = tokio::time::Instant::now() + PROCESS_LIMIT;
     let listing = Command::new("pgrep")
         .args(["-P", &pid.to_string()])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true)
         .output();
-    match tokio::time::timeout(PROCESS_LIMIT, listing).await {
+    let pids: Vec<i32> = match tokio::time::timeout_at(deadline, listing).await {
         Ok(Ok(output)) => String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| line.trim().parse().ok())
             .collect(),
         _ => Vec::new(),
+    };
+    let mut children = Vec::with_capacity(pids.len());
+    for pid in pids {
+        children.push((pid, started_at(pid, deadline).await));
     }
+    children
+}
+/// `ps -o lstart=`: `None` for a process that is gone, or a `ps` that cannot say in time.
+async fn started_at(pid: i32, deadline: tokio::time::Instant) -> Option<String> {
+    let probe = Command::new("ps")
+        .args(["-o", "lstart=", "-p", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let output = tokio::time::timeout_at(deadline, probe).await.ok()?.ok()?;
+    let started = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (output.status.success() && !started.is_empty()).then_some(started)
 }
 fn reports_stall(stderr: &[u8]) -> bool {
     STALL_REPORTS
@@ -508,5 +532,28 @@ impl FileBridge for RsyncFileBridge {
     fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
         let (inner, src, dst) = (self.0.clone(), src.to_owned(), dst.to_owned());
         Box::pin(async move { self.owned(async move { inner.transfer(dst, src, true).await }).await })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn started_at_tells_a_process_from_one_that_is_gone() {
+        let deadline = || tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+        let own = std::process::id() as i32;
+        let started = started_at(own, deadline()).await;
+        assert!(started.is_some());
+        assert_eq!(started_at(own, deadline()).await, started);
+        let mut child = Command::new("/bin/sleep")
+            .arg("100")
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let pid = child.id().unwrap() as i32;
+        assert!(started_at(pid, deadline()).await.is_some());
+        child.kill().await.unwrap();
+        assert_eq!(started_at(pid, deadline()).await, None);
     }
 }

@@ -173,16 +173,18 @@ and OpenSSH_10.5p1, TERM sent to `sshpass` 2 s after the report:
 | A shell script doing `exec /bin/sleep` | None | Reaped at once, status -15 | **Both gone** |
 | The real one, no `sshpass`, TERM to rsync | Either of the above | | Both gone (rsync exits 20) |
 
-So the finding holds for the real ssh. The reviewer's result is the fourth row, which is what my "real" test used then: with the step
+So the finding holds for the real ssh. The reviewer's result is the fourth row, which is what the first version's "real" test used: with the step
 reverted it still passed, because the stand-in dies on the pty's hangup where the real ssh does not. Why the real ssh survives was not
 established. The real-tool tests now run the real ssh against a listener that never answers, and that test fails with the step reverted.
 
 The code changed in three ways. Only under `sshpass` does it list children, so a key-authenticated send never runs `pgrep`. After `sshpass`
 exits it polls the listed pids for up to the step, so rsync gets the 5 s the first version took from it
 (`rsync_under_sshpass_gets_its_step_after_term_d31`: a handler that needs 0.5 s now finishes). And KILL goes only to those still alive. Those
-pids were listed a step earlier, so one could be another process's only if pids wrapped around within those seconds; there is no stronger
-check, because rsync's parent has gone and `pgrep -P` can no longer find it. No `pgrep` means the signals reach the child alone, and the send
-still returns, with rsync and ssh left behind.
+pids were listed a step earlier, so one could be another process's only if pids wrapped around within those seconds. `pgrep -P` can no
+longer tell, because rsync's parent has gone, so the listing records `ps -o lstart=` for each child and KILL goes only to a process that
+still says the same. The listing keeps its single 5 s limit, and the second `ps` has its own, so a hung `ps` adds at most 5 s to a send that
+got as far as KILL and costs that KILL. A host whose `ps` has no `lstart` keeps the pid check alone. No `pgrep` means the signals reach the
+child alone, and the send still returns, with rsync and ssh left behind.
 
 **Timing in the code and the tests.** `pgrep` and the output pipes' last bytes depend on how soon another process gets scheduled, so their
 5 s bounds are real time, off the vendor clock that tests compress: at a factor of 100 they had 50 ms, which lost to a loaded machine (rule
@@ -274,7 +276,7 @@ workdir. With the prefix reverted it gives `NS=unset F=unset`.
 (`the_request_keeps_the_variable_in_its_env_and_out_of_its_command_d32`), and `local_executor.rs` already shows env reaching a local
 process, so the variable arrives once.
 
-**What unbuffered output changes downstream.** I read the path for it, and nothing needs changing:
+**What unbuffered output changes downstream.** Reading the path for it shows that nothing needs changing:
 
 | Where | Effect |
 |---|---|
