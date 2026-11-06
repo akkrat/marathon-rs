@@ -32,9 +32,12 @@ use tokio::{
 pub const SEND_IO_TIMEOUT_SECONDS: i64 = 300;
 /// D31: what rsync prints when `--timeout` expires: openrsync's `error: poll: timeout`, rsync's `io timeout after N seconds`.
 const STALL_REPORTS: [&[u8]; 2] = [b"poll: timeout", b"io timeout after "];
-/// D31: how long a process that reported a stall gets to end at each step, and how long a finished process's output pipes
-/// may stay open. These only have to outlast a process that is already on its way out.
+/// D31: how long a process that reported a stall gets to end at each step. It only has to outlast one on its way out.
 const STOP_STEP_MILLIS: i64 = 5_000;
+const STOP_POLL_MILLIS: i64 = 100;
+/// D31: real time, not the vendor clock: this bounds how soon other processes get scheduled (`pgrep`, a pipe's last bytes),
+/// which is no shorter in a test that compresses the clock.
+const PROCESS_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct RsyncFileBridge(Arc<Inner>);
@@ -331,15 +334,11 @@ impl Inner {
         }
         if !receive {
             // D31: a hung ssh that outlived rsync may hold these pipes open.
-            let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
             let joined = async {
                 let _ = out_task.join().await;
                 let _ = err_task.join().await;
             };
-            if within(self.clock.as_ref(), scope, STOP_STEP_MILLIS, joined)
-                .await
-                .is_none()
-            {
+            if tokio::time::timeout(PROCESS_LIMIT, joined).await.is_err() {
                 readers.cancel(crate::cmd::cancelled("Process output outlived the process"));
             }
         }
@@ -359,9 +358,10 @@ impl Inner {
         ))
     }
     /// D31: `--timeout` has expired, but rsync may not end by itself: openrsync closes ssh's input and then waits for ssh,
-    /// for ever if ssh is hung. TERM ends openrsync and its ssh, but `sshpass` exits on TERM and leaves rsync running, so
-    /// the child's children get it too. A process group would be simpler, but it would keep rsync from a terminal's Ctrl-C on
-    /// every send. On return the child is reaped, so a retry cannot overlap it.
+    /// for ever if ssh is hung. TERM ends openrsync and its ssh. `sshpass` is another matter: it exits on TERM at once and
+    /// leaves rsync and a real ssh running, so under it rsync gets the TERM too, and its step before KILL. A process group
+    /// would be simpler, but it would keep rsync from a terminal's Ctrl-C on every send. On return the child is reaped, so
+    /// a retry cannot overlap it.
     async fn stop_stalled_send(&self, child: &mut Child) -> VendorResult<ExitStatus> {
         use nix::{sys::signal, unistd::Pid};
         let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
@@ -369,27 +369,32 @@ impl Inner {
         if let Some(status) = within(clock, scope.clone(), STOP_STEP_MILLIS, child.wait()).await {
             return status.map_err(io_error);
         }
-        let mut children = Vec::new();
+        let alive = |pid: i32| signal::kill(Pid::from_raw(pid), None).is_ok();
+        let mut under_sshpass = Vec::new();
         if let Some(pid) = child.id() {
-            children = within(clock, scope.clone(), STOP_STEP_MILLIS, children_of(pid))
-                .await
-                .unwrap_or_default();
-            for pid in children.iter().copied().chain([pid as i32]) {
+            if matches!(self.auth, Some(SshAuthentication::Password { .. })) {
+                under_sshpass = children_of(pid).await;
+            }
+            for pid in under_sshpass.iter().copied().chain([pid as i32]) {
                 let _ = signal::kill(Pid::from_raw(pid), signal::Signal::SIGTERM);
             }
         }
-        let stopped = within(clock, scope, STOP_STEP_MILLIS, child.wait()).await;
-        // sshpass is gone at once, whatever became of rsync, so whatever is left gets this.
-        for pid in children {
+        let stopped = async {
+            let _ = child.wait().await;
+            while under_sshpass.iter().any(|pid| alive(*pid)) {
+                if clock.delay(STOP_POLL_MILLIS, scope.clone()).await.is_err() {
+                    break;
+                }
+            }
+        };
+        let _ = within(clock, scope.clone(), STOP_STEP_MILLIS, stopped).await;
+        // Listed a step ago, so a pid can only be another process's if pids wrapped around in those few seconds.
+        for pid in under_sshpass.into_iter().filter(|pid| alive(*pid)) {
             let _ = signal::kill(Pid::from_raw(pid), signal::Signal::SIGKILL);
         }
-        match stopped {
-            Some(status) => status.map_err(io_error),
-            None => {
-                let _ = child.start_kill();
-                child.wait().await.map_err(io_error)
-            }
-        }
+        // Does nothing to a child that has been reaped, whose status `wait` then returns.
+        let _ = child.start_kill();
+        child.wait().await.map_err(io_error)
     }
     async fn transfer(&self, local: PathBuf, remote: String, receive: bool) -> VendorResult<bool> {
         let local = blocking(self.runtime.as_ref(), move || {
@@ -428,24 +433,21 @@ impl Inner {
         Ok(status == 0)
     }
 }
-/// Best effort: no `pgrep` only means the signals reach the child alone.
+/// Best effort: no `pgrep`, or one that takes too long, only means the signals reach the child alone.
 async fn children_of(pid: u32) -> Vec<i32> {
-    let listed = Command::new("pgrep")
+    let listing = Command::new("pgrep")
         .args(["-P", &pid.to_string()])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .kill_on_drop(true)
-        .output()
-        .await;
-    listed.map_or_else(
-        |_| Vec::new(),
-        |output| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .filter_map(|line| line.trim().parse().ok())
-                .collect()
-        },
-    )
+        .output();
+    match tokio::time::timeout(PROCESS_LIMIT, listing).await {
+        Ok(Ok(output)) => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse().ok())
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 fn reports_stall(stderr: &[u8]) -> bool {
     STALL_REPORTS

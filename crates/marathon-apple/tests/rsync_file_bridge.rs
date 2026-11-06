@@ -532,18 +532,56 @@ async fn early_error_child() {
     failing.join_pending().await.unwrap();
 }
 
-/// D31, in a child process because rsync's path is process-wide. `program` stands in for rsync; a stalled send is stopped
-/// in compressed time, whichever way the process has to be stopped.
-fn stalled_send_child(mode: &str, program: &Path, extra_path: Option<&Path>, root: &Path) {
-    stalled_send_child_with(mode, program, extra_path, root, None)
+/// One D31 run, in a child process because rsync's path is process-wide. `program` stands in for rsync. Scripted stand-ins
+/// run in compressed time by default; `factor` 1 keeps the bridge's steps real, for what must finish inside one.
+struct StalledSend<'a> {
+    mode: &'a str,
+    program: &'a Path,
+    root: &'a Path,
+    extra_path: Option<&'a Path>,
+    sshpass: Option<&'a Path>,
+    factor: i64,
+    silent_peer: bool,
 }
-fn stalled_send_child_with(mode: &str, program: &Path, extra_path: Option<&Path>, root: &Path, sshpass: Option<&Path>) {
+impl<'a> StalledSend<'a> {
+    fn new(mode: &'a str, program: &'a Path, root: &'a Path) -> Self {
+        Self {
+            mode,
+            program,
+            root,
+            extra_path: None,
+            sshpass: None,
+            factor: 100,
+            silent_peer: false,
+        }
+    }
+}
+fn stalled_send_child(mode: &str, program: &Path, extra_path: Option<&Path>, root: &Path) {
+    run_stalled_send(StalledSend {
+        extra_path,
+        ..StalledSend::new(mode, program, root)
+    })
+}
+fn run_stalled_send(run: StalledSend) {
+    let StalledSend {
+        mode,
+        program,
+        root,
+        extra_path,
+        sshpass,
+        factor,
+        silent_peer,
+    } = run;
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
     command
         .args(["--exact", "stalled_send_runs", "--nocapture"])
         .env("MRS_D31_MODE", mode)
         .env("MRS_D31_ROOT", root)
+        .env("MRS_D31_FACTOR", factor.to_string())
         .env("RSYNC4J_RSYNC", program);
+    if silent_peer {
+        command.env("MRS_D31_SILENT_PEER", "1");
+    }
     if let Some(sshpass) = sshpass {
         command.env("RSYNC4J_SSHPASS", sshpass).env("MRS_D31_PASSWORD", "1");
     }
@@ -645,35 +683,79 @@ fn a_failed_send_without_a_stall_report_keeps_its_message_and_stderr_d31() {
     let program = fake_rsync(dir.path(), "echo 'rsync: some other failure' >&2\nexit 23");
     stalled_send_child("other", &program, None, dir.path());
 }
+/// What `sshpass` does on TERM, measured with the real one: it exits at once, and rsync and ssh stay. See the real test.
+const FAKE_SSHPASS: &str = "#!/bin/bash\nshift 2\ntrap 'exit 143' TERM\n\"$@\" &\nwait $!\n";
 #[test]
 fn a_stalled_send_under_sshpass_also_stops_rsync_d31() {
-    // Measured with the real sshpass: TERM ends it at once, and rsync, in its own session, keeps waiting for ssh.
     let dir = tempfile::tempdir().unwrap();
     let program = fake_rsync(
         dir.path(),
         "echo 'rsync(1): error: poll: timeout' >&2\nexec /bin/sleep 100037",
     );
     let sshpass = dir.path().join("sshpass");
-    script(
-        &sshpass,
-        "#!/bin/bash\nshift 2\ntrap 'exit 143' TERM\n\"$@\" &\nwait $!\n",
-    );
-    stalled_send_child_with("hung", &program, None, dir.path(), Some(&sshpass));
+    script(&sshpass, FAKE_SSHPASS);
+    run_stalled_send(StalledSend {
+        sshpass: Some(&sshpass),
+        ..StalledSend::new("hung", &program, dir.path())
+    });
 }
-/// The real program with a short `--timeout` and an ssh that ignores the end of its input: the report's wording and the
-/// wait after it are the installed rsync's own, openrsync on macOS and rsync 3 on Linux.
+#[test]
+fn rsync_under_sshpass_gets_its_step_after_term_d31() {
+    // sshpass is gone at once, and that must not cost rsync the step before KILL: a real 5 s against 0.5 s here.
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(
+        dir.path(),
+        "trap '/bin/sleep 0.5; echo finished > \"$MRS_D31_ROOT/handler\"; exit 143' TERM\necho 'rsync(1): error: poll: timeout' >&2\nwhile :; do /bin/sleep 0.05; done",
+    );
+    let sshpass = dir.path().join("sshpass");
+    script(&sshpass, FAKE_SSHPASS);
+    run_stalled_send(StalledSend {
+        sshpass: Some(&sshpass),
+        factor: 1,
+        ..StalledSend::new("hung", &program, dir.path())
+    });
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("handler")).unwrap(),
+        "finished\n"
+    );
+}
+/// A tool on this host's `PATH` or in `/usr/bin`, which is where the real-tool tests take it from.
+fn real_tool(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var("PATH").unwrap_or_default();
+    std::env::split_paths(&format!("{path}:/usr/bin"))
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+/// The real rsync with a short `--timeout` and the real ssh, hung on a peer that accepts the connection and says nothing.
+/// The report's wording and the wait after it are the installed rsync's own, and what TERM and a hangup do to ssh is the real
+/// ssh's: a stand-in such as `sleep` dies on the hangup where ssh does not, which would hide what `sshpass` leaves behind.
+/// The bridge's steps are real here, because a KILL that comes too early would orphan ssh.
 fn real_rsync_with_a_hung_ssh(sshpass: Option<&Path>) {
+    let (Some(rsync), Some(ssh)) = (real_tool("rsync"), real_tool("ssh")) else {
+        eprintln!("skipped: this host has no rsync or ssh to run");
+        return;
+    };
+    // The bridge's own check wants these two there; on a host with them elsewhere RSYNC4J_* would say so.
+    if !Path::new("/usr/bin/ssh").exists() || !Path::new("/usr/bin/ssh-keygen").exists() {
+        eprintln!("skipped: this host has no /usr/bin/ssh and /usr/bin/ssh-keygen");
+        return;
+    }
     let dir = tempfile::tempdir().unwrap();
     let bin = dir.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
+    // `exec` keeps the pid, so what is recorded is the real ssh.
     script(
         &bin.join("ssh"),
-        "#!/bin/sh\necho $$ > \"$MRS_D31_ROOT/ssh-pid\"\nexec /bin/sleep 100037\n",
+        &format!(
+            "#!/bin/sh\necho $$ > \"$MRS_D31_ROOT/ssh-pid\"\nexec {} \"$@\"\n",
+            ssh.display()
+        ),
     );
     let program = dir.path().join("rsync");
     script(
         &program,
-        r#"#!/bin/bash
+        &format!(
+            r#"#!/bin/bash
 case "$*" in *127.0.0.1:/tmp/marathon/next*) echo next >> "$MRS_D31_ROOT/order"; exit 0;; esac
 echo $$ > "$MRS_D31_ROOT/pid"
 echo stalled >> "$MRS_D31_ROOT/order"
@@ -681,10 +763,18 @@ args=()
 for arg in "$@"; do
   case "$arg" in --timeout=300) args+=(--timeout=1);; *) args+=("$arg");; esac
 done
-exec /usr/bin/rsync "${args[@]}"
+exec {} "${{args[@]}}"
 "#,
+            rsync.display()
+        ),
     );
-    stalled_send_child_with("hung", &program, Some(&bin), dir.path(), sshpass);
+    run_stalled_send(StalledSend {
+        extra_path: Some(&bin),
+        sshpass,
+        factor: 1,
+        silent_peer: true,
+        ..StalledSend::new("hung", &program, dir.path())
+    });
 }
 #[test]
 fn the_real_rsync_gives_up_on_a_hung_ssh_d31() {
@@ -710,11 +800,18 @@ async fn stalled_send_runs() {
     let source = root.join("source");
     std::fs::write(&source, b"payload").unwrap();
     let (logging, events) = ssh::logging(false);
+    // Held for the whole run: the kernel accepts the connection, and nothing ever answers it.
+    let silent_peer =
+        std::env::var_os("MRS_D31_SILENT_PEER").map(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+    let port = silent_peer
+        .as_ref()
+        .map_or(22, |peer| i32::from(peer.local_addr().unwrap().port()));
+    let factor = std::env::var("MRS_D31_FACTOR").unwrap().parse().unwrap();
     let bridge = Arc::new(
         RsyncFileBridge::new(
             RsyncTarget {
                 addr: "127.0.0.1".into(),
-                port: 22,
+                port,
             },
             false,
             SshConfiguration {
@@ -737,7 +834,7 @@ async fn stalled_send_runs() {
                 key("/fixture/key")
             }),
             Arc::new(Runtime),
-            Arc::new(ssh::ScaledClock::new(100)),
+            Arc::new(ssh::ScaledClock::new(factor)),
             logging,
         )
         .await
