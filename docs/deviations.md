@@ -346,10 +346,13 @@ Approved 2026-11-06 (user decision). See
 In Kotlin a simulator whose setup fails stays tracked as connected. Nothing sets it up again, so it
 is out for the whole run, unless a devices update removes it and adds it back. Native builds retry it on a timer,
 up to three times, 30, 60 and 90 s after each failure. After the last retry it stays out, as in Kotlin, and an
-error says so. A simulator that left the devices file is not retried, and one added back starts over. A failed
-managed simulator is deleted before its replacement is created, so retries don't pile up simulators; one that
-could not be deleted is reused. Retries stop at `workerConnection.lateJoinCutoff` and when the run ends, which never
-waits for them, and a retried simulator is admitted to the run like a late one. An unreachable worker keeps its own
+error says so. A simulator that left the devices file is not retried, and one added back starts over. A profile
+is different: removing a worker from the devices file doesn't remove its profiles, as in Kotlin, so a pending retry
+carries on and **can still create a simulator on that removed worker**, until the retries run out or reach the
+cut-off. A failed managed simulator is deleted before its replacement is created, so retries don't pile up simulators;
+one that could not be deleted is reused. Retries stop at `workerConnection.lateJoinCutoff` and when the run ends. The
+end of a run doesn't wait out a pause, but it does wait for an attempt in flight to stop. A retried simulator is
+admitted to the run like a late one. An unreachable worker keeps its own
 connection retry. A refused connection, a simulator the worker doesn't have and an unavailable profile are not
 retried. There is no new setting: `attempts: 1` with `lateJoin: false` turns the retries off. `simctl` commands and
 log lines increase only when a setup fails. The macOS provider is not affected.

@@ -622,6 +622,7 @@ async fn refused_connections_wait_five_seconds_then_connect_without_restarting_a
     });
     h.services.context.clock = clock.clone();
     let connections = Arc::new(Connections {
+        fail_release: 0.into(),
         workers: std::sync::Mutex::new(vec![(Transport::Local, h.worker.clone())]),
         acquired: 0.into(),
         released: 0.into(),

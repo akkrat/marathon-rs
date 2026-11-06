@@ -92,6 +92,8 @@ pub struct Connections {
     pub workers: Mutex<Vec<(Transport, Executor)>>,
     pub acquired: AtomicUsize,
     pub released: AtomicUsize,
+    /// The release with this number, counting from 1, fails after being counted.
+    pub fail_release: AtomicUsize,
     pub trace: Arc<Mutex<Vec<String>>>,
 }
 impl ProvisioningConnections for Connections {
@@ -114,11 +116,14 @@ impl ProvisioningConnections for Connections {
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            self.released.fetch_add(1, Ordering::SeqCst);
+            let number = self.released.fetch_add(1, Ordering::SeqCst) + 1;
             self.trace
                 .lock()
                 .unwrap()
                 .push(format!("release:{}", executor.host().id));
+            if number == self.fail_release.load(Ordering::SeqCst) {
+                return Err(crate::support::error("release failed"));
+            }
             Ok(())
         })
     }
@@ -136,6 +141,7 @@ impl ProviderHarness {
             workers: Mutex::new(vec![(Transport::Local, h.worker.clone())]),
             acquired: 0.into(),
             released: 0.into(),
+            fail_release: 0.into(),
             trace: Arc::default(),
         });
         let recovery = Arc::new(Recovery::default());

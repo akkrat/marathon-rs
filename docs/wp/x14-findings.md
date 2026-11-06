@@ -53,9 +53,11 @@ profile of N costs at most N × 4 setups.
 
 ### Races
 
-- **One plan-and-provision per worker.** A new per-worker gate in `AppleSimulatorProvider::setup` covers the first, late
+- **One planned cycle per worker.** A new per-worker gate in `AppleSimulatorProvider::setup` covers the first, late
   and retried cycles. Without it, a retry could reuse a simulator another cycle is setting up, or shut it down under
   `shutdownUnused`, since it isn't registered yet. The lock is polled first, so an uncontended gate changes nothing.
+  A recovery's re-provisioning (`provisioner.existing` in `recover`) is **not** gated. It has no plan, and it sets up
+  simulators that are registered and marked recovering, which plans leave out.
 - **Removal during the pause.** `forget_setup` bumps the target's generation, clears its budget and empties it from the
   due list. A timer that fires later drops the stale entry, even if the simulator has been added back.
 - **Removal during an attempt.** `register` rejects it under the state lock, as it already did, so there is no connect
@@ -63,9 +65,26 @@ profile of N costs at most N × 4 setups.
 - **Added back during an attempt.** The snapshot's setup waits at the gate. The attempt's registration succeeds, and the
   plan then keeps the registered simulator out, so there is one setup and one actor.
   `a_simulator_added_back_during_its_retry_has_one_setup_and_one_actor`.
-- **Removal right after registration.** Events used to be sent by one spawned task each, so a disconnect could overtake
-  a connect. They now pass through an outbox, in the order raised, and a first registration queues its connect inside
-  the critical section that publishes the device. A removal that sees the device therefore raises its disconnect later.
+- **Event order.** Events used to be sent by one spawned task each, so a disconnect could overtake a connect. They now
+  pass through an outbox, in the order raised, and each task pops and sends under one lock acquisition, so a task
+  can't be overtaken between the two on a multi-threaded runtime. `try_send` only pushes to a queue, so the lock is
+  never held across a wait. A lost device's disconnect goes through the outbox too. Before this it was sent directly
+  and returned a closed channel's error to monitoring. That error cannot occur, because the channel closes after
+  monitoring is joined, and termination now joins the publishing tasks before it closes the channel.
+- **Removal right after a first registration.** The connect is queued inside the critical section that publishes the
+  device, so a removal that sees the device raises its disconnect later.
+- **Removal while a replacement waits for its predecessor's disposal.** The connect has to wait for the disposal, as in
+  Kotlin. Publishing the disconnect first would let the later `AddDevice` put a removed, disposed simulator into a pool
+  that other devices keep alive, and D33 reaches this path for every eligible disposed simulator. So the replacement
+  is marked as pending inside the same critical section. A removal in the window only flags it, and the connect and
+  disconnect go out together when the disposal ends, also if the disposal fails (then only the disconnect). This
+  gives `AddDevice` then `RemoveDevice` for the same instance, which doesn't depend on how the pool matches a removal
+  (by serial today, by instance under WP x17). Only that device's disconnect waits, so another device's events aren't
+  held behind a slow disposal. The recovery scan skips a pending replacement until the next tick, for the same order.
+- **Admission.** A retried simulator is admitted as a late one. The mark is a task-local around the retry attempt's
+  setup, since registration runs in that task. It isn't a transport, which would make a healthy simulator of a
+  snapshot late while a retry waits at the gate, and it isn't an id, as a profile's simulator has none until the attempt
+  creates it.
 - **Cost to other workers.** Gates are per worker, so another worker's setup in the same snapshot runs alongside. A
   snapshot that adds a device to the busy worker waits for its attempt, and later snapshots queue behind that one, as
   they do behind any slow setup. The wait is one attempt, bounded by the command timeouts.
@@ -82,14 +101,20 @@ each attempt's planning lease is released even when the attempt fails.
 
 ### Ending a run
 
-Provider termination cancels `retry_cancel`, which ends the pauses and in-flight attempts, and joins them. Neither waits
-out a pause: `terminating_cancels_a_pending_retry_without_waiting_for_its_pause`,
+Provider termination cancels `retry_cancel`, which ends the pauses and in-flight attempts, and then joins them. So it
+doesn't wait out a pause, but it does wait for an attempt in flight to stop, including that attempt's cleanup, such as
+deleting a simulator it created: `terminating_cancels_a_pending_retry_without_waiting_for_its_pause`. An attempt blocked
+on its connection doesn't hold it up, as the connection is detached:
 `terminating_doesn_t_wait_for_a_retry_blocked_on_its_connection`.
 
 The no-devices timeout needs no change. `Scheduler::execute` waits for a pool for `deviceInitializationTimeoutMillis`
 whatever the provider's tasks are doing, then fails with `NoDevicesException`. The default is 180 s, so with the default
 settings the retries at 30 and 90 s can still rescue a run with no devices, while the one at 180 s races the timeout and
-only matters when another device has opened a pool. Once a run has what it needs, the late-join cut-off stops further
+only matters when another device has opened a pool. Two tests run this through the real `Scheduler` with every setup
+failing (`crates/marathon-ios/tests/simulator_pool_recovery.rs`, `every_device_failing_ends_in_no_devices_*`): one with
+the retries run out before termination, one with a retry still pending. Both end in `NoDevicesException`, not before
+the timeout, with no pool, and the second terminates without waiting out its pause. They use a 300 ms timeout and real
+time, with the lower bound asserted. Once a run has what it needs, the late-join cut-off stops further
 retries: 600 s after the start by default, or once a simulator has waited 30 s for a batch. Reaching it from a retry
 latches it as any other caller does (approved P2).
 
@@ -107,46 +132,55 @@ touched. The JVM row `A81-failed-setup-remains-tracked` remains the witness of t
 holds at snapshot level, so the renamed test still asserts it.
 
 **With a failing setup**, per failed round: one WARN `Worker w: setup of a failed, setting up again in 30 s (retry 1 of 3)`
-and the existing ERROR for the failure. Per attempt, on success, one TimingLog line
-`Worker w: set up again after a failed setup, planned N simulators in A ms, provisioned them in B ms`, and the setup's
-usual commands and timing lines. At most one final ERROR per target. Nothing runs or logs on snapshots.
+and the existing ERROR for the failure. One TimingLog line
+`Worker w: set up again after a failed setup, planned N simulators in A ms, provisioned them in B ms` after each attempt
+that completes its provisioning round, **whether or not any simulator was set up**, so an attempt in which all fail logs
+it too; an attempt whose planning fails does not. Also the setup's usual commands and timing lines. At most one final
+ERROR per target. Nothing runs or logs on snapshots.
 
 ## What was verified
 
-- `crates/marathon-ios/tests/simulator_setup_retry.rs`: 22 tests on the policy, the races, the managed path, termination,
-  several workers, the cut-off and event order.
+- `crates/marathon-ios/tests/simulator_setup_retry.rs`: 26 tests on the policy, the races, the managed path, termination,
+  several workers, the cut-off, admission and event order. Positive counts wait on the harness's `eventually`, for a
+  log line or the count itself, and only checks that nothing more happens run after `advance`.
+- Two unit tests in the provider and in `setup_retry.rs`, and the two scheduler tests above.
 - A temporary revert of each mechanism fails the test made for it. These use explicit barriers rather than timing:
 
 | Reverted | Test that fails |
 |---|---|
 | The per-worker gate | `a_simulator_added_back_during_its_retry_has_one_setup_and_one_actor` |
 | Outbox order (`pop_back`, which gives the old order when the newer task runs first) | `a_connect_raised_before_a_removal_is_published_first_whatever_order_their_tasks_run_in` |
+| The send under the pop's lock | `an_event_being_sent_holds_back_the_next_one_on_another_thread` (real threads, multi-thread runtime) |
+| The lost device's disconnect through the outbox | `a_lost_device_s_disconnect_doesn_t_overtake_its_queued_connect` |
+| The disconnect waiting for a replacement's connect | `a_removal_during_a_predecessor_s_disposal_follows_the_replacement_s_connect_and_holds_up_nobody_else` |
+| Admission by the attempt's task, not the transport | `a_healthy_simulator_added_while_a_retry_waits_for_its_turn_is_not_a_late_one` |
+| Scheduling despite a failed planning-lease release | `a_failed_release_of_the_planning_lease_keeps_the_retry_of_the_first_cycle` |
+| Re-checking `due` before a failed runner stops | `a_runner_stopping_on_an_error_leaves_running_if_a_batch_arrived_meanwhile` (the decision under the lock; the window itself is not driven) |
 | `forget_setup` | `a_retry_from_before_a_removal_doesn_t_act_on_the_simulator_added_back_during_its_pause` |
-| The whole retry | 17 of the 22 tests |
+| The whole retry | 17 of the 22 tests that existed then |
 
 ## What was not verified
 
 - A real simulator or SSH worker failing setup and recovering.
-- A whole run through the core scheduler with every device failing. The no-devices statement above comes from reading
-  the scheduler, plus the provider-level termination tests.
-- The event order on a multi-threaded runtime: the test forces the reordering through a holding runtime instead.
+- A whole run through the CLI with every device failing: the scheduler tests stop at `Scheduler::execute`.
+- The whole provider on a multi-threaded runtime. The real-thread test covers the outbox itself. The provider-level
+  order tests force their interleavings on one thread, through a holding runtime or a gate.
+- A replacement's failing disposal: no test makes the predecessor's `dispose` fail, so the branch that raises the
+  disconnect alone was read, not run.
 - `scripts/check.sh` and the remote gate, which the batch's gate rule leaves to the orchestrator.
 
 ## Known limits
 
 - A profile target has no removal: tracking keeps profiles at their high-water mark (A52). So a profile's retries carry
   on after its worker leaves the snapshot, until the budget or the cut-off ends them, like the worker retry's pending
-  profiles.
+  profiles. **Such a retry can still create a simulator on the removed worker** if it is reachable. This was read from
+  the code, and no test pins it.
 - Instances of a profile added by a later snapshot share the budget the earlier ones have spent.
 
 ## Incidental bugs
 
 No bug of our own code was found. Behaviour seen nearby and left alone:
 
-- **A replacement can still connect after its removal.** When `register` replaces a previous device, it raises the
-  connect after the predecessor's disposal, so a removal in between raises its disconnect first. Kotlin has the same
-  order, and `replacement_waits_for_predecessor_and_removal_rejects_an_in_flight_setup` covers the waiting. D33 reaches
-  this only through a disposed simulator that the plan sets up again.
 - **A registered simulator whose re-provisioning fails** in `recover` isn't set up again until a snapshot adds a device
   to its worker, or it is lost again. That is recovery's policy, not A81.
 - **`udid … is not available` is final for the run**, even if the simulator appears on the worker moments later. As in

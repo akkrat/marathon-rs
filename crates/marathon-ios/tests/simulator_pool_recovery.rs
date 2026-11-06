@@ -223,3 +223,98 @@ fn cutoff_crossed_during_real_prepare_leaves_the_pool_without_requesting_a_first
     .map_err(|e| format!("{e:?}"))?;
     Ok(())
 }
+
+/// D33 through the core scheduler: every device fails, whichever way its retries are going.
+fn no_devices_with_failing_setups(pause: i64, finished_retries: bool) -> TestResult {
+    const TIMEOUT: i64 = 300;
+    let mut p = recovery_support::RecoveryHarness::settings(|_| {}, 3, pause)?;
+    std::fs::write(
+        p.h().dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
+    )?;
+    let boot = p.h().boot.clone();
+    *p.h().worker.before.lock().unwrap() = Arc::new(move |command| {
+        let answer = boot.answer(&command);
+        Box::pin(async move {
+            if command.last().is_some_and(|s| s == "HOME") {
+                return Err(support::error("setup failed"));
+            }
+            Ok(answer)
+        })
+    });
+    CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            p.base.h.services.runtime = core.vendor();
+            let provider = AppleSimulatorProvider::new(provider_support::ProviderHarness::services(
+                p.h(),
+                p.connections.clone(),
+                SimulatorRecovery::with_recovery_settings(3, pause),
+            ))
+            .map_err(|e| e.failure())?;
+            let started = std::time::Instant::now();
+            provider
+                .initialize(p.h().services.context.clone())
+                .await
+                .map_err(|e| e.failure().clone())?;
+            let mut configuration = (*p.h().services.configuration).clone();
+            configuration.device_initialization_timeout_millis = TIMEOUT;
+            let hooks = RuntimeHooks::live();
+            let parent = core.job(JobKind::Supervisor, None);
+            let scheduler = Scheduler::new(SchedulerParts {
+                core: core.clone(),
+                provider: provider.clone(),
+                analytics: Arc::new(Analytics::from_lookup(Arc::new(pool_support::NoMetrics))),
+                configuration: Arc::new(configuration),
+                shard: TestShard {
+                    tests: tests(),
+                    flaky_tests: vec![],
+                },
+                tracker: Arc::new(pool_support::RecordingTracker::default()),
+                timer: p.h().services.timer.clone(),
+                bundle_identifier: Some(p.h().services.identifier.clone()),
+                hooks: hooks.clone(),
+                barriers: hooks.barriers(),
+                ci: Ci::None,
+                output: OutputDriver {
+                    vendor: core.vendor(),
+                    sink: Arc::new(pool_support::NullSink),
+                },
+                context: core.context(parent.clone()),
+            });
+            let outcome = scheduler.execute().await;
+            let waited = started.elapsed();
+            assert!(matches!(outcome, Err(marathon_core::error::VendorError::NoDevices(_))));
+            // The failure comes at the timeout: retries neither end the wait early nor keep it open.
+            assert!(waited >= std::time::Duration::from_millis(TIMEOUT as u64), "{waited:?}");
+            assert!(scheduler.pools().is_empty());
+            let context = core.context(parent.clone());
+            if finished_retries {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+                while !p.log("setup failed 4 times, it stays out of the run") {
+                    assert!(std::time::Instant::now() < deadline);
+                    context.clock.delay(5, context.job.clone()).await?;
+                }
+            }
+            // Termination ends a pause that is still running, here far longer than anything else in this test.
+            provider.terminate().await.map_err(|e| e.failure().clone())?;
+            assert!(started.elapsed() < std::time::Duration::from_millis(pause.max(60_000) as u64));
+            assert_eq!(
+                provider_support::home(&p.h().worker, "a"),
+                if finished_retries { 4 } else { 1 }
+            );
+            parent.cancel(requested("test finished"));
+            let _ = parent.join().await;
+            Ok(())
+        })
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+#[test]
+fn every_device_failing_ends_in_no_devices_at_the_timeout_after_its_retries_have_run_out() -> TestResult {
+    no_devices_with_failing_setups(10, true)
+}
+#[test]
+fn every_device_failing_ends_in_no_devices_at_the_timeout_with_a_retry_still_pending() -> TestResult {
+    no_devices_with_failing_setups(120_000, false)
+}

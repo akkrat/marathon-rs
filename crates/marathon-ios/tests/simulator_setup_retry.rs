@@ -86,6 +86,23 @@ fn queued(p: &RecoveryHarness) -> usize {
     p.provider.subscribe().state().queued
 }
 const LONG_AFTER: u64 = 400_000;
+/// Waits for the failure that starts this retry's pause, then lets the pause pass. A retry runs on its own task, so
+/// the failure has to be seen first (docs/testing.md).
+async fn pass_pause(p: &RecoveryHarness, retry: i32, millis: u64) {
+    eventually(|| p.log(&format!("(retry {retry} of"))).await;
+    advance(millis).await;
+}
+/// Waiting on the paused clock can move it by a few virtual milliseconds.
+fn assert_attempts_at(p: &RecoveryHarness, expected: &[i64]) {
+    let actual = attempts_at(p);
+    assert_eq!(actual.len(), expected.len(), "{actual:?}");
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert!(
+            (*expected..expected + 1_000).contains(actual),
+            "{actual} for {expected}"
+        );
+    }
+}
 
 #[tokio::test(start_paused = true)]
 async fn a_simulator_whose_setup_failed_is_set_up_again_after_a_pause_and_connects_exactly_once() -> TestResult {
@@ -94,13 +111,13 @@ async fn a_simulator_whose_setup_failed_is_set_up_again_after_a_pause_and_connec
     p.update(&["a"]).await?;
     assert_eq!(homes(&p), 1);
     assert!(p.provider.devices().is_empty());
-    // `connected` has a 60 s watchdog on this paused clock, so the pauses pass first.
-    advance(30_000).await;
-    advance(60_000).await;
+    pass_pause(&p, 1, 30_000).await;
+    eventually(|| homes(&p) == 2).await;
+    pass_pause(&p, 2, 60_000).await;
     let device = p.connected(1).await.remove(0);
     assert_eq!(device.udid(), "a");
     assert_eq!(homes(&p), 3);
-    assert_eq!(attempts_at(&p), [0, 30_000, 90_000]);
+    assert_attempts_at(&p, &[0, 30_000, 90_000]);
     advance(LONG_AFTER).await;
     assert_eq!(homes(&p), 3);
     assert_eq!(queued(&p), 0);
@@ -112,13 +129,13 @@ async fn a_simulator_that_always_fails_gets_three_retries_at_growing_pauses_and_
     let p = RecoveryHarness::new(|_| {})?;
     fail_home(&p, &p.h().worker, usize::MAX, None);
     p.update(&["a"]).await?;
-    for pause in [30_000, 60_000, 90_000, LONG_AFTER] {
-        advance(pause).await;
+    for (retry, pause) in [(1, 30_000), (2, 60_000), (3, 90_000)] {
+        pass_pause(&p, retry, pause).await;
     }
-    settle().await;
-    assert_eq!(attempts_at(&p), [0, 30_000, 90_000, 180_000]);
+    eventually(|| p.log("setup failed 4 times, it stays out of the run")).await;
+    advance(LONG_AFTER).await;
+    assert_attempts_at(&p, &[0, 30_000, 90_000, 180_000]);
     assert_eq!(homes(&p), 4);
-    assert!(p.log("setup failed 4 times, it stays out of the run"));
     assert_eq!(queued(&p), 0);
     assert!(p.provider.devices().is_empty());
     let messages: Vec<String> = p
@@ -150,10 +167,13 @@ async fn unchanged_snapshots_neither_retry_a_failed_setup_nor_refill_its_budget(
     }
     assert_eq!(homes(&p), 1);
     assert_eq!(attempts_at(&p), [0]);
-    for pause in [30_000, 60_000, 90_000, LONG_AFTER] {
-        advance(pause).await;
+    for (retry, pause) in [(1, 30_000), (2, 60_000), (3, 90_000)] {
+        pass_pause(&p, retry, pause).await;
         p.update(&["a"]).await?;
     }
+    eventually(|| p.log("setup failed 4 times, it stays out of the run")).await;
+    advance(LONG_AFTER).await;
+    p.update(&["a"]).await?;
     assert_eq!(homes(&p), 4);
     p.balanced().await
 }
@@ -190,8 +210,8 @@ async fn a_retry_from_before_a_removal_doesn_t_act_on_the_simulator_added_back_d
     assert_eq!(homes(&p), 2);
     assert_eq!(attempts_at(&p), [0, 10_000]);
     advance(10_000).await;
-    assert_eq!(homes(&p), 3);
     assert_eq!(p.connected(1).await.len(), 1);
+    assert_eq!(homes(&p), 3);
     p.balanced().await
 }
 #[tokio::test(start_paused = true)]
@@ -200,7 +220,7 @@ async fn a_simulator_removed_during_its_retry_never_connects_and_isn_t_retried_a
     let gate = SharedDeferred::new();
     fail_home(&p, &p.h().worker, 1, Some(gate.clone()));
     p.update(&["a"]).await?;
-    advance(30_000).await;
+    pass_pause(&p, 1, 30_000).await;
     eventually(|| homes(&p) == 2).await;
     p.update(&[]).await?;
     gate.complete(Ok(()));
@@ -217,7 +237,7 @@ async fn a_simulator_added_back_during_its_retry_has_one_setup_and_one_actor() -
     let gate = SharedDeferred::new();
     fail_home(&p, &p.h().worker, 1, Some(gate.clone()));
     p.update(&["a"]).await?;
-    advance(30_000).await;
+    pass_pause(&p, 1, 30_000).await;
     eventually(|| homes(&p) == 2).await;
     p.update(&[]).await?;
     // The snapshot that adds it back waits for the attempt on this worker instead of setting it up next to it.
@@ -248,7 +268,7 @@ async fn failed_simulators_of_one_worker_are_retried_together_in_one_attempt() -
     assert_eq!(homes(&p), 2);
     let devices = p.connected(2).await;
     assert_eq!(devices.len(), 2);
-    assert_eq!(attempts_at(&p), [0, 30_000]);
+    assert_attempts_at(&p, &[0, 30_000]);
     p.balanced().await
 }
 #[tokio::test(start_paused = true)]
@@ -262,8 +282,8 @@ async fn a_failed_managed_simulator_is_deleted_and_replaced_so_that_retries_leav
     )])
     .await?;
     assert_eq!((simctl(&p, "create"), simctl(&p, "delete")), (1, 1));
-    advance(30_000).await;
-    advance(60_000).await;
+    pass_pause(&p, 1, 30_000).await;
+    pass_pause(&p, 2, 60_000).await;
     assert_eq!(p.connected(1).await.len(), 1);
     assert_eq!((simctl(&p, "create"), simctl(&p, "delete")), (3, 2));
     assert_eq!(p.h().worker.simulators.lock().unwrap().len(), 1);
@@ -298,8 +318,8 @@ async fn a_managed_simulator_that_couldn_t_be_deleted_is_reused_instead_of_creat
         vec![AppleTarget::SimulatorProfile(support::profile())],
     )])
     .await?;
-    advance(30_000).await;
-    advance(60_000).await;
+    pass_pause(&p, 1, 30_000).await;
+    pass_pause(&p, 2, 60_000).await;
     assert_eq!(p.connected(1).await.len(), 1);
     assert_eq!(simctl(&p, "create"), 1);
     assert_eq!(p.h().worker.simulators.lock().unwrap().len(), 1);
@@ -315,9 +335,11 @@ async fn the_instances_of_a_profile_share_one_budget_and_only_failed_ones_are_cr
         vec![AppleTarget::SimulatorProfile(support::profile()); 2],
     )])
     .await?;
-    for pause in [30_000, 60_000, 90_000, LONG_AFTER] {
-        advance(pause).await;
+    for (retry, pause) in [(1, 30_000), (2, 60_000), (3, 90_000)] {
+        pass_pause(&p, retry, pause).await;
     }
+    eventually(|| p.log("setup failed 4 times, it stays out of the run")).await;
+    advance(LONG_AFTER).await;
     assert_eq!(attempts_at(&p).len(), 4);
     assert_eq!(simctl(&p, "create"), 8);
     assert_eq!(simctl(&p, "delete"), 8);
@@ -355,11 +377,10 @@ async fn terminating_doesn_t_wait_for_a_retry_blocked_on_its_connection() -> Tes
         })
     });
     p.update(&["a"]).await?;
-    advance(30_000).await;
+    pass_pause(&p, 1, 30_000).await;
     watchdog(entered.wait()).await.map_err(test_error)?;
     watchdog(p.provider.terminate()).await.map_err(test_error)?;
     gate.complete(Ok(()));
-    settle().await;
     eventually(|| {
         p.base.connections.acquired.load(Ordering::SeqCst) == p.base.connections.released.load(Ordering::SeqCst)
     })
@@ -375,7 +396,7 @@ async fn a_retry_blocked_on_one_worker_doesn_t_hold_up_the_setup_of_another() ->
     let gate = SharedDeferred::new();
     fail_home(&p, &slow, 1, Some(gate.clone()));
     p.update_workers(vec![(worker("slow"), targets(&["x"]))]).await?;
-    advance(30_000).await;
+    pass_pause(&p, 1, 30_000).await;
     eventually(|| home(&slow, "x") == 2).await;
     p.update_workers(vec![
         (worker("slow"), targets(&["x"])),
@@ -401,15 +422,15 @@ async fn an_unreachable_worker_during_a_retry_goes_to_its_connection_retry_witho
     fail_home(&p, &p.h().worker, usize::MAX, None);
     p.answer(|_, w, n| Box::pin(async move { if w && n == 2 { Err(unreachable()) } else { Ok(None) } }));
     p.update(&["a"]).await?;
-    advance(1_000).await;
-    assert!(p.log("Failed to connect to worker local (No route to host), retrying"));
+    pass_pause(&p, 1, 1_000).await;
+    eventually(|| p.log("Failed to connect to worker local (No route to host), retrying")).await;
     assert_eq!(homes(&p), 1);
-    for _ in 0..50 {
-        advance(1_000).await;
+    while !p.log("setup failed 3 times, it stays out of the run") {
+        advance(100).await;
     }
+    advance(LONG_AFTER).await;
     // The first setup, one through the worker retry, then the last retry of the budget of 2.
     assert_eq!(homes(&p), 3);
-    assert!(p.log("setup failed 3 times, it stays out of the run"));
     p.balanced().await
 }
 #[tokio::test(start_paused = true)]
@@ -456,7 +477,7 @@ async fn a_failed_plan_on_a_connected_worker_is_retried_for_all_of_its_simulator
     assert!(p.log("Failed to initialize worker"));
     assert!(p.provider.devices().is_empty());
     assert_eq!(p.connected(2).await.len(), 2);
-    assert_eq!(attempts_at(&p), [0, 30_000]);
+    assert_attempts_at(&p, &[0, 30_000]);
     p.balanced().await
 }
 #[tokio::test(start_paused = true)]
@@ -465,10 +486,11 @@ async fn after_the_late_join_cut_off_a_failed_setup_is_no_longer_retried() -> Te
     fail_home(&p, &p.h().worker, 1, None);
     p.update(&["a"]).await?;
     p.time.wall_offset.store(600_001, Ordering::SeqCst);
+    pass_pause(&p, 1, 30_000).await;
+    eventually(|| p.log("doesn't join the run late, since the run started more than 600 s ago")).await;
     advance(LONG_AFTER).await;
     assert_eq!(homes(&p), 1);
     assert_eq!(attempts_at(&p).len(), 1);
-    assert!(p.log("doesn't join the run late, since the run started more than 600 s ago"));
     p.balanced().await
 }
 #[tokio::test(start_paused = true)]
@@ -502,6 +524,151 @@ async fn borrow_gets_the_simulator_once_its_retry_has_set_it_up() -> TestResult 
         borrowed.0.info().serial_number.to_string_lossy()
     );
     p.balanced().await
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_healthy_simulator_added_while_a_retry_waits_for_its_turn_is_not_a_late_one() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.h().worker.add(["b"]);
+    let boot = p.h().boot.clone();
+    let (left, gate) = (Arc::new(AtomicUsize::new(1)), SharedDeferred::new());
+    let g = gate.clone();
+    *p.h().worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let answer = boot.answer(&cmd);
+        let (left, g) = (left.clone(), g.clone());
+        Box::pin(async move {
+            if cmd.get(2).is_some_and(|s| s == "getenv") && cmd.last().is_some_and(|s| s == "HOME") {
+                if cmd.get(3).is_some_and(|s| s == "b") {
+                    g.wait().await?;
+                } else if left
+                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                    .is_ok()
+                {
+                    return Err(support::error("setup failed"));
+                }
+            }
+            Ok(answer)
+        })
+    });
+    p.update(&["a"]).await?;
+    eventually(|| p.log("(retry 1 of")).await;
+    // b's first cycle holds the worker while a's retry connects and waits for its turn.
+    let (provider, context) = (p.provider.clone(), p.h().services.context.clone());
+    let added = tokio::spawn(async move {
+        provider
+            .process_update(snapshot(vec![(Transport::Local, targets(&["a", "b"]))]), context)
+            .await
+    });
+    eventually(|| home(&p.h().worker, "b") == 1).await;
+    advance(30_000).await;
+    eventually(|| attempts_at(&p).len() == 3).await;
+    gate.complete(Ok(()));
+    watchdog(added).await?.map_err(test_error)?;
+    let b = p.connected(1).await.remove(0);
+    assert_eq!(b.udid(), "b");
+    p.time.wall_offset.store(600_001, Ordering::SeqCst);
+    p.h().prepare(&b).await.map_err(test_error)?;
+    assert!(!b.retired());
+    p.balanced().await
+}
+#[tokio::test(start_paused = true)]
+async fn a_failed_release_of_the_planning_lease_keeps_the_retry_of_the_first_cycle() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    fail_home(&p, &p.h().worker, 1, None);
+    // The failed simulator's own lease goes first, then the planning lease of the cycle.
+    p.base.connections.fail_release.store(2, Ordering::SeqCst);
+    p.update(&["a"]).await?;
+    assert!(p.log("Failed to initialize worker"));
+    assert!(p.log("release failed"));
+    assert_eq!(p.connected(1).await.len(), 1);
+    assert_eq!(homes(&p), 2);
+    p.balanced().await
+}
+#[tokio::test(start_paused = true)]
+async fn a_removal_during_a_predecessor_s_disposal_follows_the_replacement_s_connect_and_holds_up_nobody_else()
+-> TestResult {
+    use marathon_ios::device::{
+        simulator_factory::SimulatorCreating, simulator_provisioner::ProvisioningConnections,
+        worker_provisioning_context::WorkerProvisioningContext,
+    };
+    let p = ProviderHarness::new(|_| {})?;
+    p.h.worker.add(["b"]);
+    p.update(&["a"]).await?;
+    let old = p.connected(1).await.remove(0);
+    let gate = SharedDeferred::new();
+    let (script, job) = batch(&p.h, old, Some(gate.clone())).await;
+    p.connections
+        .connect(Transport::Local, p.h.services.context.clone())
+        .await
+        .map_err(test_error)?;
+    let replacement =
+        p.h.factory()
+            .create(
+                Transport::Local,
+                p.h.worker.clone(),
+                Arc::new(support::BridgeMock),
+                "a".into(),
+                Arc::new(WorkerProvisioningContext::new(Transport::Local, p.h.clock.clone())),
+                p.h.services.context.clone(),
+            )
+            .await?;
+    let device = replacement.device.clone();
+    let provider = p.provider.clone();
+    let registration = tokio::spawn(async move { provider.register("a@local".into(), replacement).await });
+    script.closing.wait().await.map_err(test_error)?;
+    p.update(&["b"]).await?;
+    // The disconnect waits for the connect of its own device only.
+    assert_eq!(p.connected(1).await[0].udid(), "b");
+    assert_eq!(p.provider.subscribe().state().queued, 0);
+    gate.complete(Ok(()));
+    registration.await??;
+    let _ = job.await?;
+    let channel = p.provider.subscribe();
+    let first = watchdog(channel.receive()).await.map_err(test_error)?;
+    let second = watchdog(channel.receive()).await.map_err(test_error)?;
+    assert!(matches!(&first, Some(DeviceEvent::Connected(d)) if *d == device));
+    assert!(matches!(&second, Some(DeviceEvent::Disconnected(d)) if *d == device));
+    p.finish().await
+}
+#[tokio::test(start_paused = true)]
+async fn a_lost_device_s_disconnect_doesn_t_overtake_its_queued_connect() -> TestResult {
+    use marathon_ios::device::{
+        simulator_factory::SimulatorCreating, simulator_provider::ProviderRecovery,
+        simulator_provider::recovery::SimulatorRecovery, worker_provisioning_context::WorkerProvisioningContext,
+    };
+    let base = ProviderHarness::new(|_| {})?;
+    let runtime = Arc::new(HeldRuntime::default());
+    let recovery = SimulatorRecovery::new();
+    let mut services = ProviderHarness::services(&base.h, base.connections.clone(), recovery.clone());
+    services.runtime = runtime.clone();
+    let provider = AppleSimulatorProvider::new(services)?;
+    let device = base
+        .h
+        .factory()
+        .create(
+            Transport::Local,
+            base.h.worker.clone(),
+            Arc::new(support::BridgeMock),
+            "a".into(),
+            Arc::new(WorkerProvisioningContext::new(Transport::Local, base.h.clock.clone())),
+            base.h.services.context.clone(),
+        )
+        .await?;
+    provider.register("a@local".into(), device).await?;
+    base.h.worker.connected.store(false, Ordering::SeqCst);
+    recovery
+        .reconnect(provider.clone(), base.h.services.context.clone())
+        .await
+        .map_err(test_error)?;
+    runtime.pass_next.store(usize::MAX, Ordering::SeqCst);
+    runtime.release().await.map_err(test_error)?;
+    let channel = provider.subscribe();
+    let first = watchdog(channel.receive()).await.map_err(test_error)?;
+    let second = watchdog(channel.receive()).await.map_err(test_error)?;
+    assert!(matches!(first, Some(DeviceEvent::Connected(_))));
+    assert!(matches!(second, Some(DeviceEvent::Disconnected(_))));
+    watchdog(provider.terminate()).await.map_err(test_error)?;
+    Ok(())
 }
 
 /// Keeps what is spawned until `release`, which runs it newest first. The next `pass_next` spawns go straight through.
@@ -565,7 +732,6 @@ async fn a_connect_raised_before_a_removal_is_published_first_whatever_order_the
         )
         .await
         .map_err(test_error)?;
-    settle().await;
     assert_eq!(base.recovery.failed.lock().unwrap().len(), 1);
     let device = base
         .h

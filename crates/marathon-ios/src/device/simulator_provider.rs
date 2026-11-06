@@ -116,8 +116,32 @@ pub struct ProviderServices {
     pub logging: SshLogging,
     pub recovery: Arc<dyn ProviderRecovery>,
 }
+/// D33: events leave in the order they were raised, whatever order their publishing tasks run in. The send happens
+/// under the lock of the pop: on a multi-threaded runtime a task between the two would be overtaken.
+struct Outbox<T>(Mutex<VecDeque<T>>);
+impl<T> Default for Outbox<T> {
+    fn default() -> Self {
+        Self(Mutex::default())
+    }
+}
+impl<T> Outbox<T> {
+    fn push(&self, event: T) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).push_back(event);
+    }
+    fn send_oldest<R>(&self, send: impl FnOnce(T) -> R) -> Option<R> {
+        let mut queue = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        queue.pop_front().map(send)
+    }
+}
+/// A replacement whose connect waits for its predecessor's disposal. A removal in that window can't publish its
+/// disconnect first, or the later connect would put a removed, disposed simulator into the pool.
+struct PendingConnect {
+    handle: Simulator,
+    disconnect: bool,
+}
 #[derive(Default)]
 struct State {
+    connecting: Vec<PendingConnect>,
     devices: IndexMap<JavaString, ConstructedSimulator<Simulator>>,
     removed: IndexSet<JavaString>,
     skipped_removed: IndexSet<JavaString>,
@@ -139,15 +163,14 @@ pub struct AppleSimulatorProvider {
     updates: tokio::sync::Mutex<()>,
     lifecycle: tokio::sync::Mutex<()>,
     update_tasks: RetainedTasks,
-    /// D33: one plan-and-provision per worker at a time, so that a timed retry can't plan a simulator another cycle
-    /// is setting up, or shut it down as unused. Other workers don't share a gate.
+    /// D33: one planned cycle per worker at a time, so that a timed retry can't plan a simulator another cycle is
+    /// setting up, or shut it down as unused. Other workers don't share a gate. A recovery's re-provisioning has no
+    /// plan and doesn't take it: it sets up simulators that are registered, which no plan picks.
     setup_gates: Mutex<IndexMap<Transport, Arc<tokio::sync::Mutex<()>>>>,
     provisioner: SimulatorProvisioner<Simulator>,
     planner: PlanCalculator,
     channel: Arc<SharedChannel<DeviceEvent>>,
-    /// D33: events leave in the order they were raised, whatever order their tasks run in. A retry can register a
-    /// simulator while a snapshot removes it, and its connect must not arrive after its disconnect.
-    outbox: Arc<Mutex<VecDeque<DeviceEvent>>>,
+    outbox: Arc<Outbox<DeviceEvent>>,
     monitor_cancel: Arc<Signal>,
     events: RetainedTasks,
     operations: RetainedTasks,
@@ -256,7 +279,23 @@ impl AppleSimulatorProvider {
         self.state().skipped_removed.contains(id)
     }
     fn notify(&self, event: DeviceEvent) {
-        self.outbox.lock().unwrap_or_else(|e| e.into_inner()).push_back(event);
+        self.outbox.push(event);
+        self.publish();
+    }
+    /// A disconnect that follows the connect its device is still waiting to raise.
+    fn notify_removed(&self, device: &ConstructedSimulator<Simulator>) {
+        {
+            let mut state = self.state();
+            if let Some(pending) = state
+                .connecting
+                .iter_mut()
+                .find(|pending| Arc::ptr_eq(&pending.handle, &device.handle))
+            {
+                pending.disconnect = true;
+                return;
+            }
+            self.outbox.push(DeviceEvent::Disconnected(device.device.clone()));
+        }
         self.publish();
     }
     fn publish(&self) {
@@ -265,22 +304,20 @@ impl AppleSimulatorProvider {
         let logging = self.services.logging.clone();
         let logger = self.logger.clone();
         self.events.spawn(self.services.runtime.as_ref(), async move {
-            let Some(event) = outbox.lock().unwrap_or_else(|e| e.into_inner()).pop_front() else {
+            let Some(Err(e)) = outbox.send_oldest(|event| channel.try_send(event)) else {
                 return Ok(());
             };
-            channel.try_send(event).map_err(|e| {
-                let detail = e.cause.unwrap_or_else(|| {
-                    failure(
-                        "kotlinx.coroutines.channels.ClosedSendChannelException",
-                        "Channel was closed",
-                    )
-                });
-                // A root launch reports a failed send independently of its registering caller.
-                if logging.enabled(&logger, Level::Error) {
-                    (logging.sink)(&logger, Level::Error, String::new(), Some(detail.clone()));
-                }
-                VendorError::Other(detail)
-            })
+            let detail = e.cause.unwrap_or_else(|| {
+                failure(
+                    "kotlinx.coroutines.channels.ClosedSendChannelException",
+                    "Channel was closed",
+                )
+            });
+            // A root launch reports a failed send independently of its registering caller.
+            if logging.enabled(&logger, Level::Error) {
+                (logging.sink)(&logger, Level::Error, String::new(), Some(detail.clone()));
+            }
+            Err(VendorError::Other(detail))
         });
     }
     pub async fn register(&self, id: JavaString, device: ConstructedSimulator<Simulator>) -> ProvisioningResult<()> {
@@ -317,12 +354,14 @@ impl AppleSimulatorProvider {
                 state.replaced.push(previous.handle.clone());
             }
             self.services.registry.register(device.handle.clone());
+            // A removal that sees this device in the map finds its connect raised, or waiting to be.
             if previous.is_none() {
-                // A removal that sees this device in the map raises its disconnect after this connect.
-                self.outbox
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .push_back(DeviceEvent::Connected(device.device.clone()));
+                self.outbox.push(DeviceEvent::Connected(device.device.clone()));
+            } else {
+                state.connecting.push(PendingConnect {
+                    handle: device.handle.clone(),
+                    disconnect: false,
+                });
             }
             previous
         };
@@ -330,19 +369,41 @@ impl AppleSimulatorProvider {
             self.publish();
             return Ok(());
         };
-        self.services.registry.remove(&previous.device);
-        if self.services.logging.enabled(&self.logger, Level::Error) {
-            let previous_text = self.object_text(&previous.handle)?;
-            let current_text = self.object_text(&device.handle)?;
-            self.log(
-                Level::Error,
-                || format!("replaced existing device {previous_text} with new {current_text}."),
-                None,
-            );
+        let replaced: ProvisioningResult<()> = async {
+            self.services.registry.remove(&previous.device);
+            if self.services.logging.enabled(&self.logger, Level::Error) {
+                let previous_text = self.object_text(&previous.handle)?;
+                let current_text = self.object_text(&device.handle)?;
+                self.log(
+                    Level::Error,
+                    || format!("replaced existing device {previous_text} with new {current_text}."),
+                    None,
+                );
+            }
+            previous.device.0.dispose().await?;
+            Ok(())
         }
-        previous.device.0.dispose().await?;
-        self.notify(DeviceEvent::Connected(device.device));
-        Ok(())
+        .await;
+        let events = {
+            let mut state = self.state();
+            let disconnect = state
+                .connecting
+                .iter()
+                .position(|pending| Arc::ptr_eq(&pending.handle, &device.handle))
+                .is_some_and(|index| state.connecting.swap_remove(index).disconnect);
+            if replaced.is_ok() {
+                self.outbox.push(DeviceEvent::Connected(device.device.clone()));
+            }
+            // Under the same lock: a removal arriving from here on publishes after these.
+            if disconnect {
+                self.outbox.push(DeviceEvent::Disconnected(device.device.clone()));
+            }
+            usize::from(replaced.is_ok()) + usize::from(disconnect)
+        };
+        for _ in 0..events {
+            self.publish();
+        }
+        replaced
     }
     fn object_text(&self, device: &Simulator) -> ProvisioningResult<String> {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 62);
@@ -454,7 +515,7 @@ impl AppleSimulatorProvider {
         let disposals = removals.into_iter().map(|device| {
             let siblings = siblings.clone();
             async move {
-                self.notify(DeviceEvent::Disconnected(device.device.clone()));
+                self.notify_removed(&device);
                 if device.handle.connected() {
                     let result = device.device.0.dispose().await.map_err(ProvisioningError::from);
                     if let Some(reason) = result.as_ref().err().and_then(ProvisioningError::cancellation) {
@@ -543,14 +604,22 @@ impl AppleSimulatorProvider {
             )
             .await;
         // Planning lease is independent of each device lease, even after a failed plan.
-        self.services.connections.release(executor).await?;
-        let unfinished = match result {
-            Ok(unfinished) => unfinished,
-            Err(error) if error.is_cancelled() => return Err(error),
-            Err(error) => {
-                self.services.recovery.setup_failed(transport, targets, started).await?;
+        let released = self.services.connections.release(executor).await;
+        // A failed release costs this lease, not the retries of what the cycle didn't set up. It stays the cycle's
+        // error, which the caller logs.
+        let (unfinished, failure) = match result {
+            Ok(unfinished) => (unfinished, None),
+            Err(error) if error.is_cancelled() => {
+                released?;
                 return Err(error);
             }
+            Err(error) => (
+                UnfinishedSetup {
+                    missing: Vec::new(),
+                    failed: targets,
+                },
+                Some(error),
+            ),
         };
         if !unfinished.missing.is_empty() {
             self.services
@@ -564,7 +633,8 @@ impl AppleSimulatorProvider {
                 .setup_failed(transport, unfinished.failed, started)
                 .await?;
         }
-        Ok(())
+        released?;
+        failure.map_or(Ok(()), Err)
     }
     async fn setup(
         &self,
@@ -813,6 +883,10 @@ impl AppleSimulatorProvider {
                 Some(error.failure().clone()),
             );
         }
+        // A disconnect a recovery raised has its publishing task; it goes out before the channel closes.
+        for event in self.events.take() {
+            let _ = event.join().await;
+        }
         self.channel.close(None);
         let context = VendorContext {
             cancellation: Signal::new(),
@@ -962,6 +1036,42 @@ async fn dispose_then_release(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_event_being_sent_holds_back_the_next_one_on_another_thread() {
+        let outbox = Arc::new(Outbox::default());
+        outbox.push(0);
+        outbox.push(1);
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let (entered, in_send) = std::sync::mpsc::channel();
+        let (overtaken, was_overtaken) = std::sync::mpsc::channel();
+        let first = {
+            let (outbox, sent) = (outbox.clone(), sent.clone());
+            tokio::task::spawn_blocking(move || {
+                outbox.send_oldest(|event| {
+                    entered.send(()).unwrap();
+                    // A negative window: the second send can only get in here if the lock doesn't cover the send.
+                    let _ = was_overtaken.recv_timeout(std::time::Duration::from_millis(300));
+                    sent.lock().unwrap().push(event);
+                });
+            })
+        };
+        let second = {
+            let (outbox, sent) = (outbox.clone(), sent.clone());
+            tokio::spawn(async move {
+                tokio::task::spawn_blocking(move || {
+                    in_send.recv_timeout(std::time::Duration::from_secs(60)).unwrap();
+                    outbox.send_oldest(|event| {
+                        sent.lock().unwrap().push(event);
+                        let _ = overtaken.send(());
+                    });
+                })
+                .await
+            })
+        };
+        first.await.unwrap();
+        second.await.unwrap().unwrap();
+        assert_eq!(*sent.lock().unwrap(), [0, 1]);
+    }
     #[tokio::test]
     async fn a82_throwing_disposal_skips_the_device_connection_release() {
         let released = std::sync::atomic::AtomicUsize::new(0);

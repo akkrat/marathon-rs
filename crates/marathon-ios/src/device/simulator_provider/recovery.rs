@@ -516,10 +516,8 @@ impl ProviderRecovery for SimulatorRecovery {
     fn admit(&self, id: &JavaString, device: &Simulator) -> ProvisioningResult<()> {
         let provider = self.provider()?;
         // D33: a retried simulator joins as late as one of a late worker, under the same cut-off.
-        let late = {
-            let state = self.state();
-            state.pending.contains_key(device.transport()) || state.setup.running(device.transport())
-        } && !provider.state().devices.contains_key(id);
+        let late = (self.state().pending.contains_key(device.transport()) || setup_retry::in_retried_setup())
+            && !provider.state().devices.contains_key(id);
         if late || self.state().awaiting_admission.contains(id) {
             if let Some(reason) = self.late_join_cutoff()? {
                 if let Some(previous) = provider.state().devices.get(id) {
@@ -586,7 +584,11 @@ impl ProviderRecovery for SimulatorRecovery {
                 let connected = d.connected();
                 let lost = d.lost();
                 let mut state = provider.state();
-                if state.recovering.iter().any(|old| Arc::ptr_eq(old, &d)) {
+                // A replacement still waiting to raise its connect is looked at again on the next tick, so that its
+                // disconnect follows that connect.
+                if state.recovering.iter().any(|old| Arc::ptr_eq(old, &d))
+                    || state.connecting.iter().any(|pending| Arc::ptr_eq(&pending.handle, &d))
+                {
                     continue;
                 }
                 if !connected {
@@ -602,17 +604,7 @@ impl ProviderRecovery for SimulatorRecovery {
             }
             // Every allocation is marked before any shared-channel disconnect is published.
             for d in disconnected.iter().chain(&failed) {
-                provider
-                    .channel
-                    .try_send(DeviceEvent::Disconnected(marathon_core::vendor::DeviceRef(d.clone())))
-                    .map_err(|e| {
-                        VendorError::Other(e.cause.unwrap_or_else(|| {
-                            failure(
-                                "kotlinx.coroutines.channels.ClosedSendChannelException",
-                                "Channel was closed",
-                            )
-                        }))
-                    })?;
+                provider.notify(DeviceEvent::Disconnected(marathon_core::vendor::DeviceRef(d.clone())));
             }
             let mut workers = IndexMap::<Transport, Vec<Simulator>>::new();
             for device in disconnected {

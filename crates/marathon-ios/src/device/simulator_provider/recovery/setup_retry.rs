@@ -5,6 +5,14 @@
 use super::*;
 use crate::device::device_tracker::target_id;
 
+tokio::task_local! {
+    /// Marks the task of a retry attempt. Registration runs in that task, so this tells a retried simulator from a
+    /// snapshot's on the same worker. Ids couldn't: a profile's simulator has none until the attempt creates it.
+    static RETRIED_SETUP: ();
+}
+pub(super) fn in_retried_setup() -> bool {
+    RETRIED_SETUP.try_with(|_| ()).is_ok()
+}
 #[derive(Clone)]
 struct Waiting {
     target: AppleTarget,
@@ -23,8 +31,14 @@ pub(super) struct SetupRetries {
     running: IndexSet<Transport>,
 }
 impl SetupRetries {
-    pub(super) fn running(&self, transport: &Transport) -> bool {
-        self.running.contains(transport)
+    /// Ends a worker's runner unless a batch arrived that nobody else will take. The batch saw the runner running,
+    /// and this is under the lock it added itself under.
+    fn stop_runner(&mut self, transport: &Transport) -> bool {
+        if self.due.get(transport).is_some_and(|due| !due.is_empty()) {
+            return false;
+        }
+        self.running.shift_remove(transport);
+        true
     }
     /// A removed simulator starts over if it is added back: the devices file changed, and that is bounded by its owner.
     pub(super) fn forget(&mut self, id: &JavaString) {
@@ -196,11 +210,30 @@ impl SimulatorRecovery {
                 return Ok(());
             }
         }
-        let result = self.drain_setup_retries(provider, transport, started, &caller).await;
-        if result.is_err() {
-            self.state().setup.running.shift_remove(transport);
+        loop {
+            let error = match self.drain_setup_retries(provider, transport, started, &caller).await {
+                Ok(()) => return Ok(()),
+                Err(error) => error,
+            };
+            // Each pass takes what is due, so an error that repeats still ends this.
+            let stopped = {
+                let mut state = self.state();
+                if matches!(error, VendorError::Cancelled(_)) {
+                    state.setup.running.shift_remove(transport);
+                    true
+                } else {
+                    state.setup.stop_runner(transport)
+                }
+            };
+            if stopped {
+                return Err(error);
+            }
+            provider.log(
+                Level::Error,
+                || format!("Failed to retry setups on worker {}", transport.id().to_string_lossy()),
+                Some(error.failure().clone()),
+            );
         }
-        result
     }
     async fn drain_setup_retries(
         &self,
@@ -274,14 +307,17 @@ impl SimulatorRecovery {
         let result = if targets.is_empty() {
             Ok(UnfinishedSetup::default())
         } else {
-            provider
-                .setup(
-                    transport,
-                    executor.clone(),
-                    &targets,
-                    started,
-                    SetupCycle::Retried,
-                    caller.clone(),
+            RETRIED_SETUP
+                .scope(
+                    (),
+                    provider.setup(
+                        transport,
+                        executor.clone(),
+                        &targets,
+                        started,
+                        SetupCycle::Retried,
+                        caller.clone(),
+                    ),
                 )
                 .await
         };
@@ -326,5 +362,27 @@ impl SimulatorRecovery {
                 .collect()
         };
         self.schedule_setup_retry(provider, transport, failed, started)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_runner_stopping_on_an_error_leaves_running_if_a_batch_arrived_meanwhile() {
+        let transport = Transport::Local;
+        let mut retries = SetupRetries::default();
+        retries.running.insert(transport.clone());
+        retries.due.entry(transport.clone()).or_default().push(Waiting {
+            target: AppleTarget::Simulator { udid: "a".into() },
+            key: "a@local".into(),
+            generation: 0,
+        });
+        assert!(!retries.stop_runner(&transport));
+        assert!(retries.running.contains(&transport));
+        retries.due.shift_remove(&transport);
+        assert!(retries.stop_runner(&transport));
+        assert!(!retries.running.contains(&transport));
     }
 }
