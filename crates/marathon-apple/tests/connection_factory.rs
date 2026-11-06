@@ -898,39 +898,6 @@ fn failed_kex_is_not_transient_but_other_unknown_faults_are_d35() {
             .caused_by(SshFailure::new(SOCKET_EXCEPTION, "reset"))
     )));
 }
-#[test]
-fn a_lost_connection_is_transient_but_a_state_error_is_not_d36() {
-    let device = |cause| {
-        ConnectionError::Device(DeviceFailureException::new(
-            DeviceFailureReason::UnreachableHost,
-            None,
-            Some(cause),
-        ))
-    };
-    // Whatever ended the transport, including what the classifier would not retry at connect: it did connect.
-    for why in [
-        SshFailure::transport(DisconnectReason::Unknown, "Broken transport; encountered EOF"),
-        SshFailure::transport(DisconnectReason::ProtocolError, "wire"),
-        SshFailure::connection(
-            DisconnectReason::ConnectionLost,
-            "Did not receive any keep-alive response",
-        ),
-    ] {
-        assert!(is_transient_connection_failure(&device(SshFailure::connection_gone(
-            &why
-        ))));
-    }
-    // The same text without the origin: a closed client or any other state error stays what it is.
-    assert!(!is_transient_connection_failure(&device(SshFailure::not_connected())));
-    assert!(!is_transient_connection_failure(&device(SshFailure::new(
-        ILLEGAL_STATE_EXCEPTION,
-        "Not authenticated"
-    ))));
-    assert!(!is_transient_connection_failure(&device(SshFailure::connection(
-        DisconnectReason::Unknown,
-        "Not connected"
-    ))));
-}
 #[tokio::test]
 async fn local_create_registers_but_direct_local_and_repeated_disposal_only_warn() {
     let (f, _) = factory(true, 8);

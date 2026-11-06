@@ -465,8 +465,9 @@ retried. The four immediate connection attempts remain. Approved 2026-11-06 (use
 When a worker drops the connection right after authentication, Kotlin's next command throws
 `IllegalStateException: Not connected`, past the handling that commands which may fail rely on. Native builds report
 a `ConnectionException` with the same text and the reason as its cause, so such a command returns no result, an error
-log says so, and marathon handles the device as it does any lost connection. Retries keep their configured limits.
-Using a connection after marathon closed it is still an `IllegalStateException`. Approved 2026-11-06 (user decision).
+log says so, and marathon handles the device as it does any lost connection: on iOS it reconnects within the configured
+retry limits, and on macOS, which has no reconnect, the device leaves the run. Using a live connection after marathon
+closed it is still an `IllegalStateException`. Approved 2026-11-06 (user decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A17](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
 

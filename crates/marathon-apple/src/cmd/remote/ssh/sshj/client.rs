@@ -107,10 +107,10 @@ impl ConnectionShared {
     }
     /// `TransportImpl.die`: the first cause wins, is logged at ERROR and is delivered to every channel.
     pub fn die(&self, cause: SshFailure) -> bool {
-        self.set_death(cause, true)
+        self.set_death(cause, true, false)
     }
     /// `TransportImpl.disconnect` suppresses the `Dying` line for a local close.
-    fn set_death(&self, cause: SshFailure, log_cause: bool) -> bool {
+    fn set_death(&self, cause: SshFailure, log_cause: bool, closed_locally: bool) -> bool {
         {
             let mut death = self.death.lock().unwrap_or_else(|e| e.into_inner());
             if death.is_some() {
@@ -121,6 +121,8 @@ impl ConnectionShared {
             if log_cause {
                 self.loggers.dying(&cause);
             }
+            // Under the lock and before `dead`: nobody sees this death without knowing whose it was.
+            self.closed_locally.store(closed_locally, Ordering::SeqCst);
             *death = Some(cause);
         }
         self.dead.send_replace(true);
@@ -748,10 +750,13 @@ impl KeepAliveConnection for KeepAlivePort {
 /// `TransportImpl.disconnect(BY_APPLICATION, "")`: channels get TransportException[BY_APPLICATION]("Disconnected").
 async fn disconnect_locally(shared: Option<&ConnectionShared>, handle: &Handle<ClientHandler>) {
     if let Some(shared) = shared {
-        shared.closed_locally.store(true, Ordering::SeqCst);
+        // D36: disposal also closes a connection the worker already dropped, and a task still running on that device
+        // must keep seeing a lost connection. russh closes the handle before it reports the death, so a transport
+        // whose death is still on its way counts as lost too.
         shared.set_death(
             SshFailure::transport(DisconnectReason::ByApplication, "Disconnected"),
             false,
+            !handle.is_closed(),
         );
         shared.received_disconnect.store(true, Ordering::SeqCst);
     }

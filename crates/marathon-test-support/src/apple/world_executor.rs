@@ -50,6 +50,7 @@ pub struct WorldExecutor {
     host: CommandHost,
     logger: Logger,
     pub connected: AtomicBool,
+    closed_locally: AtomicBool,
     pub before: Mutex<BeforeHook>,
     pub commands: Mutex<Vec<Vec<String>>>,
 }
@@ -79,6 +80,7 @@ impl WorldExecutor {
             },
             logger: logging.logger("marathon.test.WorldExecutor", None),
             connected: AtomicBool::new(true),
+            closed_locally: AtomicBool::new(false),
             before: Mutex::new(Arc::new(|_| Box::pin(async { Ok(None) }))),
             commands: Mutex::default(),
         }
@@ -98,6 +100,7 @@ impl WorldExecutor {
             },
             logger: self.logger.clone(),
             connected: AtomicBool::new(true),
+            closed_locally: AtomicBool::new(false),
             before: Mutex::new(Arc::new(|_| Box::pin(async { Ok(None) }))),
             commands: Mutex::default(),
         }
@@ -198,7 +201,7 @@ impl CommandExecutor for WorldExecutor {
             if let Some(result) = before(request.command.clone()).await? {
                 return Ok(CommandSession::finished(self.runtime.clone(), result));
             }
-            if self.connection.stop.is_cancelled() {
+            if self.closed_locally.load(Ordering::SeqCst) {
                 return Err(SshFailure::not_connected().into_vendor());
             }
             if !self.connected() {
@@ -280,7 +283,10 @@ impl CommandExecutor for WorldExecutor {
     }
     fn close(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            self.connected.store(false, Ordering::SeqCst);
+            // As the real executor: closing a connection already lost keeps it a lost connection (D36).
+            if self.connected.swap(false, Ordering::SeqCst) {
+                self.closed_locally.store(true, Ordering::SeqCst);
+            }
             self.connection.stop.cancel();
             self.connection.tasks.close();
             self.connection.tasks.wait().await;

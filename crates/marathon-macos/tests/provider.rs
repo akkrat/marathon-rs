@@ -350,3 +350,58 @@ async fn devices_read_error_chains_match_jvm_oracle() -> R {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn setup_on_a_connection_lost_before_the_last_probe_fails_instead_of_using_the_default_abi_d36() -> R {
+    use marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION;
+    let h = Harness::new("")?;
+    let d = h.device();
+    let worker = Arc::downgrade(&h.worker);
+    let original = h.worker.fake.before.lock().unwrap().clone();
+    *h.worker.fake.before.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.first().is_some_and(|c| c == "uname")
+            && let Some(worker) = worker.upgrade()
+        {
+            // What the real executor does: the transport is gone, and safeExecute turns the failure into null.
+            worker.fake.connected.store(false, Ordering::SeqCst);
+            return Box::pin(async {
+                Err(VendorError::Other(marathon_apple::cmd::failure(
+                    CONNECTION_EXCEPTION,
+                    "Not connected",
+                )))
+            });
+        }
+        original(cmd)
+    });
+    let error = d.setup(&h.context).await.unwrap_err();
+    assert_eq!(
+        (
+            error.failure().class.to_string_lossy(),
+            error.failure().message.as_ref().unwrap().to_string_lossy()
+        ),
+        (CONNECTION_EXCEPTION.to_owned(), "Not connected".to_owned())
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_failed_abi_probe_on_a_live_connection_still_gives_the_default_abi() -> R {
+    use marathon_core::vendor::Device;
+    let h = Harness::new("")?;
+    let d = h.device();
+    let original = h.worker.fake.before.lock().unwrap().clone();
+    *h.worker.fake.before.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.first().is_some_and(|c| c == "uname") {
+            return Box::pin(async {
+                Err(VendorError::Other(marathon_apple::cmd::failure(
+                    marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION,
+                    "Request failed",
+                )))
+            });
+        }
+        original(cmd)
+    });
+    v(d.setup(&h.context).await)?;
+    assert_eq!(d.abi().to_string_lossy(), "Unknown");
+    Ok(())
+}

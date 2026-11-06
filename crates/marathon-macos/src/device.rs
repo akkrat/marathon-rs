@@ -768,6 +768,14 @@ impl AppleDevice for MacosDevice {
                 .filter(CommandResult::successful)
                 .map(|r| marathon_apple::bin::kt::trim(&r.combined_stdout()).to_owned())
                 .unwrap_or_else(|| "Unknown".into());
+            // D36: on a lost connection this probe answers null, which reads as "use the default". A device
+            // described that way must not register (A17).
+            if !self.binary.command_executor.connected() {
+                return Err(VendorError::Other(failure(
+                    marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION,
+                    "Not connected",
+                )));
+            }
             self.facts.lock().unwrap_or_else(|e| e.into_inner()).abi = abi.into();
             Ok(())
         })

@@ -153,15 +153,7 @@ pub struct SshFailure {
     message: Option<String>,
     pub cause: Option<Box<SshFailure>>,
     pub suppressed: Vec<SshFailure>,
-    origin: Origin,
-}
-/// What the classifier must know that sshj's class, reason and text do not say (D35, D36). Never shown.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Origin {
-    #[default]
-    Reported,
-    NoCommonAlgorithm,
-    ConnectionGone,
+    no_common_algorithm: bool,
 }
 impl SshFailure {
     pub fn new(class: &'static str, message: impl Into<String>) -> Self {
@@ -171,7 +163,7 @@ impl SshFailure {
             message: Some(message.into()),
             cause: None,
             suppressed: Vec::new(),
-            origin: Origin::Reported,
+            no_common_algorithm: false,
         }
     }
     pub fn with_reason(mut self, reason: DisconnectReason) -> Self {
@@ -190,7 +182,7 @@ impl SshFailure {
             message: None,
             cause: Some(Box::new(cause)),
             suppressed: Vec::new(),
-            origin: Origin::Reported,
+            no_common_algorithm: false,
         }
     }
     pub fn transport(reason: DisconnectReason, message: impl Into<String>) -> Self {
@@ -200,23 +192,17 @@ impl SshFailure {
     /// because they reach logs, and UNKNOWN also covers real network faults. Only the classifier reads the marker.
     pub fn no_common_algorithm(message: impl Into<String>) -> Self {
         Self {
-            origin: Origin::NoCommonAlgorithm,
+            no_common_algorithm: true,
             ..Self::transport(DisconnectReason::Unknown, message)
         }
     }
     pub fn is_no_common_algorithm(&self) -> bool {
-        self.origin == Origin::NoCommonAlgorithm
+        self.no_common_algorithm
     }
     /// D36: a command needs a transport that died, `cause` being why. Kotlin's `IllegalStateException` escaped
     /// `safeExecute` (A17); this is a `ConnectionException`, which keeps the text and adds the reason.
     pub fn connection_gone(cause: &SshFailure) -> Self {
-        Self {
-            origin: Origin::ConnectionGone,
-            ..Self::connection(DisconnectReason::Unknown, NOT_CONNECTED).caused_by(cause.clone())
-        }
-    }
-    pub fn is_connection_gone(&self) -> bool {
-        self.origin == Origin::ConnectionGone
+        Self::connection(DisconnectReason::Unknown, NOT_CONNECTED).caused_by(cause.clone())
     }
     pub fn connection(reason: DisconnectReason, message: impl Into<String>) -> Self {
         Self::new(CONNECTION_EXCEPTION, message).with_reason(reason)

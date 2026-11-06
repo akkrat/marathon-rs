@@ -19,19 +19,17 @@ pub fn is_transient_connection_failure(error: &ConnectionError) -> bool {
     for _ in 0..16 {
         // D35: a failed negotiation has reason UNKNOWN, like real network faults, but the Kotlin KDoc's "failed key
         // exchange" will not heal by itself (A16).
-        // D36: a transport lost after authentication; the worker may accept the next connection.
-        if cause.is_connection_gone()
-            || (cause.is_instance(TRANSPORT_EXCEPTION)
-                && !cause.is_no_common_algorithm()
-                && matches!(
-                    cause.reason,
-                    DisconnectReason::Unknown
-                        | DisconnectReason::ConnectionLost
-                        | DisconnectReason::TooManyConnections
-                        | DisconnectReason::ByApplication
-                        | DisconnectReason::ServiceNotAvailable
-                        | DisconnectReason::MacError
-                ))
+        if (cause.is_instance(TRANSPORT_EXCEPTION)
+            && !cause.is_no_common_algorithm()
+            && matches!(
+                cause.reason,
+                DisconnectReason::Unknown
+                    | DisconnectReason::ConnectionLost
+                    | DisconnectReason::TooManyConnections
+                    | DisconnectReason::ByApplication
+                    | DisconnectReason::ServiceNotAvailable
+                    | DisconnectReason::MacError
+            ))
             || [
                 SOCKET_EXCEPTION,
                 SOCKET_TIMEOUT_EXCEPTION,

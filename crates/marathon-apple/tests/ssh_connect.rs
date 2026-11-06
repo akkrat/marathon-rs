@@ -178,14 +178,39 @@ async fn disconnect_after_auth_makes_safe_execute_return_null_d36() {
         panic!("execute must fail");
     };
     assert_eq!(failure, error.to_failure());
-    assert!(is_transient_connection_failure(&ConnectionError::Device(
-        DeviceFailureException::new(DeviceFailureReason::UnreachableHost, None, Some(error))
-    )));
+    // What recovery reads: `connected()`, which is false by the same check that refused the command.
+    assert!(!executor.connected());
     // The JVM recording stays as the witness of what A17 was.
     let kotlin = evidence("after_auth-11.stdout");
     assert_eq!(kotlin["value"][0]["class"], "IllegalStateException");
     assert_eq!(kotlin["value"][0]["message"], "Not connected");
     assert_eq!(connections(&fake).await, 1);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_connection_the_server_already_dropped_keeps_it_a_lost_connection_d36() {
+    // Disposal closes the executor of a lost worker while a task on that device is still running. That task did
+    // nothing wrong: its command must get the null of a lost connection, not the state error of a closed client.
+    let fake = ssh::fake(drops_after_auth(), 4).await;
+    let executor = ssh::connect(&fake).await;
+    wait_disconnected(&executor).await;
+    executor.close().await.unwrap();
+    assert_eq!(
+        executor
+            .safe_execute(CommandRequest::new(["echo", "hello"], duration(5000)), context())
+            .await,
+        Ok(None)
+    );
+    let error = executor.connection().start_session().await.err().unwrap();
+    assert_eq!(
+        chain(&error)[1],
+        (
+            "TransportException".into(),
+            Some("fixture disconnect 11".into()),
+            Some("BY_APPLICATION")
+        ),
+        "the worker's reason stays, not the local close's"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
