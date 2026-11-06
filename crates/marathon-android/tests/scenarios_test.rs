@@ -175,7 +175,7 @@ fn kotlin_multi_server_disconnect() {
             assert!(!device.0.info().healthy);
             assert_eq!(
                 device.0.info().network_state,
-                marathon_core::model::NetworkState::Connected
+                marathon_core::model::NetworkState::Disconnected
             );
             provider.terminate().await?;
             checked(first.shutdown().await);

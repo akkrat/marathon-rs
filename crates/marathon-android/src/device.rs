@@ -28,7 +28,10 @@ use marathon_core::{
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 pub trait AndroidBatchExecutor: Send + Sync {
@@ -80,7 +83,9 @@ struct Inner {
     logcat: Mutex<Option<Arc<dyn VendorTask>>>,
     reverse: Mutex<Vec<RemotePortSpec>>,
     disposal: tokio::sync::Mutex<bool>,
-    network_state: NetworkState,
+    /// D24: this device object was disconnected. A reconnect makes a new object on the same tracker, whose
+    /// state then says `device` again, so the tracker alone cannot tell.
+    lost: AtomicBool,
 }
 struct State {
     booted: bool,
@@ -103,11 +108,6 @@ impl AndroidDevice {
         tracker: Arc<DeviceStateTracker>,
         runtime: Arc<AndroidRuntime>,
     ) -> Self {
-        let network_state = if tracker.get_state(&adb_serial) == Some(DeviceState::Device) {
-            NetworkState::Connected
-        } else {
-            NetworkState::Disconnected
-        };
         let logger = runtime.logger("AndroidDevice");
         Self {
             inner: Arc::new(Inner {
@@ -137,9 +137,17 @@ impl AndroidDevice {
                 logcat: Mutex::default(),
                 reverse: Mutex::default(),
                 disposal: tokio::sync::Mutex::new(false),
-                network_state,
+                lost: AtomicBool::new(false),
             }),
         }
+    }
+    /// D24: from now on this object reports disconnected, whatever happens to its serial later.
+    pub(crate) fn mark_disconnected(&self) {
+        self.inner.lost.store(true, Ordering::Release);
+    }
+    fn is_live(&self) -> bool {
+        !self.inner.lost.load(Ordering::Acquire)
+            && self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device)
     }
     pub fn reference(&self) -> DeviceRef {
         let mut reference = lock(&self.inner.reference);
@@ -638,9 +646,14 @@ impl Device for AndroidDevice {
             },
             model: s.model.clone(),
             manufacturer: s.manufacturer.clone(),
-            network_state: self.inner.network_state,
+            // D24: Kotlin freezes CONNECTED at construction (N29).
+            network_state: if self.is_live() {
+                NetworkState::Connected
+            } else {
+                NetworkState::Disconnected
+            },
             device_features: s.features.clone(),
-            healthy: self.inner.tracker.get_state(self.adb_serial()) == Some(DeviceState::Device),
+            healthy: self.is_live(),
         }
     }
     fn abi(&self) -> JavaString {

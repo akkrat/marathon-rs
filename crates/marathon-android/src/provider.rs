@@ -364,18 +364,17 @@ impl AdamDeviceProvider {
                                 .await?;
                         }
                         TrackingUpdate::Disconnected => {
-                            let provided = lock(&self.inner.devices)
-                                .get(&(server.clone(), serial.clone()))
-                                .map(|p| {
-                                    (
-                                        p.device.clone(),
-                                        p.reference.clone(),
-                                        p.task.clone(),
-                                        p.ready.load(Ordering::Acquire),
-                                    )
-                                });
-                            if let Some((device, reference, task, ready)) = provided {
-                                if !ready {
+                            // D24: dropped from the map, so borrow cannot hand it out once disposed (N27).
+                            let provided = lock(&self.inner.devices).remove(&(server.clone(), serial.clone()));
+                            if let Some(Provided {
+                                device,
+                                reference,
+                                task,
+                                ready,
+                            }) = provided
+                            {
+                                device.mark_disconnected();
+                                if !ready.load(Ordering::Acquire) {
                                     task.cancel(requested("device disconnected"));
                                     let _ = task.join().await;
                                 }

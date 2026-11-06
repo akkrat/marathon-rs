@@ -79,7 +79,7 @@ async fn event(provider: &AdamDeviceProvider) -> DeviceEvent {
     .unwrap()
 }
 #[test]
-fn multi_server_disconnect_keeps_identity_and_disposed_borrow() {
+fn multi_server_disconnect_keeps_identity_and_borrow_skips_the_lost_device_d24() {
     let _ports = shared_ports();
     run(configuration(), |runtime, context| {
         Box::pin(async move {
@@ -110,13 +110,49 @@ fn multi_server_disconnect_keeps_identity_and_disposed_borrow() {
             assert!(!disconnected.0.info().healthy);
             assert_eq!(
                 disconnected.0.info().network_state,
+                marathon_core::model::NetworkState::Disconnected
+            );
+            let on_second = if first_ref == a { &b } else { &a };
+            assert_eq!(
+                on_second.0.info().network_state,
                 marathon_core::model::NetworkState::Connected
             );
+            // Only the healthy device is left to borrow, however often the random pick runs.
+            for _ in 0..20 {
+                assert_eq!(provider.borrow(context.clone()).await?, *on_second);
+            }
+            let on_second = on_second.clone();
             checked(second.disconnect_device("emulator-5556"));
             let _ = event(&provider).await;
-            let borrowed = provider.borrow(context).await?;
-            assert!(borrowed == a || borrowed == b);
-            assert!(!borrowed.0.info().healthy);
+            // With nothing left, borrow waits; the reconnect below is what ends the wait.
+            let waiting = {
+                let provider = provider.clone();
+                let context = context.clone();
+                tokio::spawn(async move { provider.borrow(context).await })
+            };
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            assert!(!waiting.is_finished(), "borrow returned a disposed device");
+            checked(second.connect_device("emulator-5556"));
+            let DeviceEvent::Connected(again) = event(&provider).await else {
+                panic!("reconnect")
+            };
+            let borrowed = checked(checked(
+                tokio::time::timeout(std::time::Duration::from_secs(60), waiting).await,
+            ))?;
+            assert_eq!(borrowed, again);
+            assert_ne!(borrowed, on_second);
+            assert!(borrowed.0.info().healthy);
+            // The old object stays lost although its serial is back on the same tracker.
+            assert!(!on_second.0.info().healthy);
+            assert_eq!(
+                on_second.0.info().network_state,
+                marathon_core::model::NetworkState::Disconnected
+            );
+            assert_eq!(
+                borrowed.0.info().network_state,
+                marathon_core::model::NetworkState::Connected
+            );
+            logcat_streams(&[(&second, 2)]).await;
             provider.terminate().await?;
             provider.terminate().await?;
             assert_eq!(first.warnings(), 0, "{:?}", first.transcript());
