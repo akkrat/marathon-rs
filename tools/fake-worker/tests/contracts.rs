@@ -731,6 +731,15 @@ async fn unsupported_requests_fail_and_fixture_output_survives_eof_fault() -> Re
 }
 
 #[test]
+fn rsync_server_takes_only_the_send_timeout_the_bridge_passes_d31() {
+    use fake_worker::router::rsync_args;
+    let with = |option| rsync_args(&["--server", "-logDtpr", option, ".", "/tmp/marathon/file"]);
+    assert!(with("--timeout=300").is_ok());
+    for option in ["--timeout=30", "--timeout=", "--timeout", "--contimeout=300"] {
+        assert!(with(option).is_err(), "{option}");
+    }
+}
+#[test]
 fn rsync_feature_flags_cannot_enable_symlink_following() -> Result<()> {
     use fake_worker::router::rsync_args;
     for option in [

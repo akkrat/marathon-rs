@@ -88,7 +88,7 @@ def check_new_native_transfer(data):
 
 # D32: what today's program puts before the one command that has the variable, and a JVM record or a native record pinned
 # from before D32 does not. As with D31, those records get exactly this prefix on exactly this command, so a native run
-# without it, or with it elsewhere, differs from them.
+# without it, or with it elsewhere, differs from them. See RE-PINNING above D31_FLAG: this refuses a newer pinned record.
 D32_PREFIX = 'env NSUnbufferedIO=YES '
 D32_COMMAND = 'xcrun xcodebuild test-without-building '
 
@@ -190,6 +190,11 @@ def ssh(data, name=None, before_d32=False):
 # Those records get exactly this flag at exactly its place, on exactly their sends (the caller decides, by
 # `evidence.may_withhold`). A native run of today's code is left as it is, so a send without the flag, or a receive with
 # it, differs from them.
+#
+# RE-PINNING: a native record made after D31 and D32 already has the flag and the prefix, so pinning one in a verification
+# manifest makes `may_withhold` true for it, and this file then refuses it: "D31 flag in a record from before it" or "D32
+# prefix in a record from before it". That is deliberate. Whoever re-pins must scope these two allowances to the records
+# from before them (the JVM's and the digests pinned before x13), not to `may_withhold`, which D20 and D27 keep using.
 D31_FLAG = '--timeout=300'
 
 
