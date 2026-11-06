@@ -463,3 +463,14 @@ instead of at once.
 No configuration change is needed, and the durations are not configurable. Approved 2026-11-06 (user decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A14](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+
+## D31 — An rsync send that stops moving fails
+
+Kotlin's rsync send has no timeout, so a send to a worker that has stopped answering waits for ever, and the other sends of
+that worker wait behind it. Native builds pass `--timeout=300`: a send with no I/O for 300 s is stopped and fails with an
+error starting `send error: no progress in 300 s`. It is a limit on progress, not on the total, so a large bundle over a slow
+link is unaffected for as long as it keeps moving. The installer's three attempts mean a dead worker can take up to 15 minutes
+to fail. Receives keep Kotlin's 30 s total deadline. No configuration change is needed, and the limit is not configurable.
+Approved 2026-11-06 (user decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A3](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).

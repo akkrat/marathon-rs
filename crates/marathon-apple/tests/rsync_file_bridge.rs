@@ -3,7 +3,7 @@ mod support;
 use marathon_apple::cmd::{
     FileBridge,
     remote::{
-        rsync::{RsyncFileBridge, RsyncTarget},
+        rsync::{RsyncFileBridge, RsyncTarget, rsync_file_bridge::SEND_IO_TIMEOUT_SECONDS},
         ssh::sshj::config::SshLogging,
     },
 };
@@ -55,6 +55,14 @@ async fn bridge_with_remote_path(
     .await
     .unwrap()
 }
+/// A recorded Kotlin argv as a send has it now: `--timeout` after `--times` (D31). Receives have no such flag.
+fn with_d31<S: From<String> + PartialEq<&'static str>>(mut argv: Vec<S>, receive: bool) -> Vec<S> {
+    if !receive {
+        let times = argv.iter().position(|arg| *arg == "--times").unwrap();
+        argv.insert(times + 1, format!("--timeout={SEND_IO_TIMEOUT_SECONDS}").into());
+    }
+    argv
+}
 fn key(path: &str) -> SshAuthentication {
     SshAuthentication::PublicKey {
         username: "fixture".into(),
@@ -104,7 +112,7 @@ async fn host_argv_matches_the_actual_kotlin_wrapper_probe() {
                         .map(|s| s.as_str().unwrap().to_owned())
                         .collect::<Vec<_>>();
                     // The shim records argv after argv[0]; password records its executable rsync operand too.
-                    assert_eq!(&args[1..], expected);
+                    assert_eq!(&args[1..], with_d31(expected, receive));
                     index += 1;
                 }
             }
@@ -154,9 +162,9 @@ async fn empty_options_match_the_actual_kotlin_wrapper_argv() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .map(|v| v.as_str().unwrap())
+                    .map(|v| v.as_str().unwrap().to_owned())
                     .collect();
-                assert_eq!(args[1..], expected);
+                assert_eq!(args[1..], with_d31(expected, receive));
                 index += 1;
             }
         }
@@ -261,7 +269,7 @@ async fn real_rsync_child() {
 }
 
 #[test]
-fn send_serialization_unbounded_receives_and_a3_deadline_match_kotlin() {
+fn send_serialization_unbounded_receives_and_the_receive_deadline_match_kotlin() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
@@ -522,4 +530,266 @@ async fn early_error_child() {
     // The clock error is returned only after the child it started has exited.
     assert_eq!(exited(), 4);
     failing.join_pending().await.unwrap();
+}
+
+/// D31, in a child process because rsync's path is process-wide. `program` stands in for rsync; a stalled send is stopped
+/// in compressed time, whichever way the process has to be stopped.
+fn stalled_send_child(mode: &str, program: &Path, extra_path: Option<&Path>, root: &Path) {
+    stalled_send_child_with(mode, program, extra_path, root, None)
+}
+fn stalled_send_child_with(mode: &str, program: &Path, extra_path: Option<&Path>, root: &Path, sshpass: Option<&Path>) {
+    let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "stalled_send_runs", "--nocapture"])
+        .env("MRS_D31_MODE", mode)
+        .env("MRS_D31_ROOT", root)
+        .env("RSYNC4J_RSYNC", program);
+    if let Some(sshpass) = sshpass {
+        command.env("RSYNC4J_SSHPASS", sshpass).env("MRS_D31_PASSWORD", "1");
+    }
+    if let Some(path) = extra_path {
+        command.env(
+            "PATH",
+            format!("{}:{}", path.display(), std::env::var("PATH").unwrap_or_default()),
+        );
+    }
+    // Into a file and under a deadline: a regression here leaves the child stuck, and it must fail, not hang the suite.
+    let log = root.join("child.log");
+    let file = std::fs::File::create(&log).unwrap();
+    let mut child = command.stdout(file.try_clone().unwrap()).stderr(file).spawn().unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break Some(status);
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    let mut survivors = Vec::new();
+    for file in ["pid", "ssh-pid", "held"] {
+        if let Some(pid) = std::fs::read_to_string(root.join(file))
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            let pid = nix::unistd::Pid::from_raw(pid);
+            if file != "held" && nix::sys::signal::kill(pid, None).is_ok() {
+                survivors.push(file);
+            }
+            let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+        }
+    }
+    let output = std::fs::read_to_string(&log).unwrap_or_default();
+    assert!(status.is_some_and(|status| status.success()), "{output}");
+    assert_eq!(survivors, Vec::<&str>::new(), "{output}");
+}
+fn script(path: &Path, text: &str) {
+    std::fs::write(path, text).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+/// Runs a healthy send when the destination is `.../next`. Otherwise it records its pid and does `body`.
+fn fake_rsync(root: &Path, body: &str) -> std::path::PathBuf {
+    let program = root.join("rsync");
+    script(
+        &program,
+        &format!(
+            r#"#!/bin/bash
+case "$*" in *--timeout=300*) ;; *) echo missing timeout >&2; exit 99;; esac
+case "$*" in *127.0.0.1:/tmp/marathon/next*) echo next >> "$MRS_D31_ROOT/order"; exit 0;; esac
+echo $$ > "$MRS_D31_ROOT/pid"
+echo stalled >> "$MRS_D31_ROOT/order"
+{body}
+"#
+        ),
+    );
+    program
+}
+#[test]
+fn a_stalled_send_that_waits_for_a_hung_ssh_is_stopped_on_term_d31() {
+    // openrsync's way: the report, then a wait for ssh that never ends.
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(
+        dir.path(),
+        "echo 'rsync(1): error: poll: timeout' >&2\nexec sleep 100037",
+    );
+    stalled_send_child("hung", &program, None, dir.path());
+}
+#[test]
+fn a_stalled_send_that_also_ignores_term_is_killed_d31() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(
+        dir.path(),
+        "trap '' TERM\necho 'rsync(1): error: poll: timeout' >&2\nwhile :; do /bin/sleep 0.05; done",
+    );
+    stalled_send_child("hung", &program, None, dir.path());
+}
+#[test]
+fn a_stalled_send_that_exits_while_ssh_holds_its_stderr_returns_d31() {
+    // rsync 3's way, with a child that keeps the pipes open past its parent's exit.
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(
+        dir.path(),
+        "/bin/sleep 100037 &\necho $! > \"$MRS_D31_ROOT/held\"\necho '[sender] io timeout after 300 seconds -- exiting' >&2\nexit 30",
+    );
+    stalled_send_child("hung", &program, None, dir.path());
+}
+#[test]
+fn a_failed_send_without_a_stall_report_keeps_its_message_and_stderr_d31() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(dir.path(), "echo 'rsync: some other failure' >&2\nexit 23");
+    stalled_send_child("other", &program, None, dir.path());
+}
+#[test]
+fn a_stalled_send_under_sshpass_also_stops_rsync_d31() {
+    // Measured with the real sshpass: TERM ends it at once, and rsync, in its own session, keeps waiting for ssh.
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(
+        dir.path(),
+        "echo 'rsync(1): error: poll: timeout' >&2\nexec /bin/sleep 100037",
+    );
+    let sshpass = dir.path().join("sshpass");
+    script(
+        &sshpass,
+        "#!/bin/bash\nshift 2\ntrap 'exit 143' TERM\n\"$@\" &\nwait $!\n",
+    );
+    stalled_send_child_with("hung", &program, None, dir.path(), Some(&sshpass));
+}
+/// The real program with a short `--timeout` and an ssh that ignores the end of its input: the report's wording and the
+/// wait after it are the installed rsync's own, openrsync on macOS and rsync 3 on Linux.
+fn real_rsync_with_a_hung_ssh(sshpass: Option<&Path>) {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    script(
+        &bin.join("ssh"),
+        "#!/bin/sh\necho $$ > \"$MRS_D31_ROOT/ssh-pid\"\nexec /bin/sleep 100037\n",
+    );
+    let program = dir.path().join("rsync");
+    script(
+        &program,
+        r#"#!/bin/bash
+case "$*" in *127.0.0.1:/tmp/marathon/next*) echo next >> "$MRS_D31_ROOT/order"; exit 0;; esac
+echo $$ > "$MRS_D31_ROOT/pid"
+echo stalled >> "$MRS_D31_ROOT/order"
+args=()
+for arg in "$@"; do
+  case "$arg" in --timeout=300) args+=(--timeout=1);; *) args+=("$arg");; esac
+done
+exec /usr/bin/rsync "${args[@]}"
+"#,
+    );
+    stalled_send_child_with("hung", &program, Some(&bin), dir.path(), sshpass);
+}
+#[test]
+fn the_real_rsync_gives_up_on_a_hung_ssh_d31() {
+    real_rsync_with_a_hung_ssh(None);
+}
+#[test]
+fn the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31() {
+    let sshpass = ["/opt/homebrew/bin/sshpass", "/usr/bin/sshpass"]
+        .into_iter()
+        .map(Path::new)
+        .find(|path| path.exists());
+    match sshpass {
+        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(sshpass)),
+        None => eprintln!("skipped: no sshpass on this host"),
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stalled_send_runs() {
+    let Ok(mode) = std::env::var("MRS_D31_MODE") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(std::env::var_os("MRS_D31_ROOT").unwrap());
+    let source = root.join("source");
+    std::fs::write(&source, b"payload").unwrap();
+    let (logging, events) = ssh::logging(false);
+    let bridge = Arc::new(
+        RsyncFileBridge::new(
+            RsyncTarget {
+                addr: "127.0.0.1".into(),
+                port: 22,
+            },
+            false,
+            SshConfiguration {
+                authentication: None,
+                known_hosts_path: None,
+                keep_alive_interval: duration(0),
+                keep_alive_max_count: 4,
+                debug: false,
+                share_worker_connection: false,
+            },
+            RsyncConfiguration {
+                remote_path: "/usr/bin/rsync".into(),
+            },
+            Some(if std::env::var_os("MRS_D31_PASSWORD").is_some() {
+                SshAuthentication::Password {
+                    username: "fixture".into(),
+                    password: "fake-password".into(),
+                }
+            } else {
+                key("/fixture/key")
+            }),
+            Arc::new(Runtime),
+            Arc::new(ssh::ScaledClock::new(100)),
+            logging,
+        )
+        .await
+        .unwrap(),
+    );
+    let first = {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        tokio::spawn(async move { bridge.send(&source, "/tmp/marathon/stuck").await })
+    };
+    let pid_file = root.join("pid");
+    let pid: i32 = tokio::time::timeout(std::time::Duration::from_secs(60), async {
+        loop {
+            if let Some(pid) = std::fs::read_to_string(&pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse().ok())
+            {
+                return pid;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    // Queued behind the stuck send by the per-bridge mutex; it gets its turn when that one ends.
+    let queued = {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        tokio::spawn(async move { bridge.send(&source, "/tmp/marathon/next").await })
+    };
+    let finished = async { (first.await.unwrap(), queued.await.unwrap()) };
+    let (first, queued) = tokio::time::timeout(std::time::Duration::from_secs(60), finished)
+        .await
+        .unwrap();
+    assert_eq!((first, queued), (Ok(false), Ok(true)));
+    // Reaped before the send returned, so a retry cannot overlap it, and the next send ran after it.
+    assert_eq!(
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None),
+        Err(nix::errno::Errno::ESRCH)
+    );
+    assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stalled\nnext\n");
+    let lines = ssh::lines(&events);
+    let errors: Vec<_> = lines
+        .iter()
+        .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+        .map(|(.., message)| message.as_str())
+        .collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    if mode == "hung" {
+        assert!(
+            errors[0].starts_with(
+                "send error: no progress in 300 s sending to 127.0.0.1:/tmp/marathon/stuck, rsync stopped: "
+            ),
+            "{errors:?}"
+        );
+    } else {
+        assert_eq!(errors[0], "send error: rsync: some other failure\n");
+    }
+    bridge.join_pending().await.unwrap();
 }

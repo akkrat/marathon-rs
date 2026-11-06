@@ -508,7 +508,7 @@ def normalized(directory, contract):
                         facts = dict(facts, **{vendor_console.SSHPASS_FACT: False})
                     content = base64.b64encode(vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)).decode()
                 elif name == 'host-argv.jsonl':
-                    content = vendor_transport.host_argv(data,record['identities'])
+                    content = vendor_transport.host_argv(data,record['identities'],may_withhold(directory,record))
                 else:
                     content = vendor_transport.ssh(data,contract['vendor']) if contract['transport'] == 'ssh' else vendor_transport.adb(data,may_withhold(directory,record))
             elif mode == 'allure-json':

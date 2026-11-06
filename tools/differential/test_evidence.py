@@ -570,11 +570,27 @@ class VendorEvidenceTests(unittest.TestCase):
             with self.subTest(option=old),self.assertRaises(e.Invalid):
                 e.compare(self.source,self.actual,self.contract)
 
+    @staticmethod
+    def as_live_native(directory, record):
+        """Changing a pinned native record makes it a run of today's code, which holds what today's code sends."""
+        import vendor_transport as t
+        if record['implementation'] != 'native' or not e.may_withhold(directory, record):
+            return
+        row = next(r for r in record['entries'] if r['path'] == 'host-argv.jsonl')
+        rows = [json.loads(line) for line in e.payload(directory, row, record).splitlines()]
+        for argv in rows:
+            argv['argv'] = t.with_d31_flag(argv['program'], argv['argv'])
+        data = b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
+        (directory / 'blobs' / row['sha256']).unlink()
+        row.update(sha256=e.sha(data), size=len(data))
+        e.save_payload(directory, row['sha256'], data, record)
+
     def parser_copy(self, source, name, content=None, mode=None, **fields):
         """A copy of a committed macOS record whose parser entry holds `content` or is rewritten by `fields`."""
         destination = self.tmp_root / name
         shutil.copytree(source, destination)
         record = json.loads((destination / 'evidence.json').read_bytes())
+        self.as_live_native(destination, record)
         row = next(r for r in record['entries'] if r['path'] == e.PARSER_PATH)
         self.assertIs(row['withheld'], True)
         if content is not None:
@@ -611,6 +627,37 @@ class VendorEvidenceTests(unittest.TestCase):
         (self.root / 'evidence.json').write_bytes(b'{}')
         self.assertFalse(e.may_withhold(self.root,record))
         self.assertTrue(e.may_withhold(self.root,dict(implementation='jvm')))
+
+    def d31_argv(self, *rows):
+        import vendor_transport as t
+        data = b''.join(json.dumps(dict(event='host_argv',program=program,argv=argv)).encode()+b'\n' for program,argv in rows)
+        values = dict(sandbox='/sandbox',safe_serial='serial',port='1')
+        return lambda before: t.host_argv(data,values,before)
+
+    def test_d31_a_send_of_an_older_record_gets_exactly_the_flag(self):
+        send = lambda *flag: ['--recursive','--times',*flag,'--rsh','ssh -p 1 ','--delete','/src','127.0.0.1:/tmp/marathon/x']
+        receive = lambda *flag: ['--recursive','--times',*flag,'--rsh','ssh -p 1 ','--delete','127.0.0.1:/tmp/marathon/x','/dst']
+        version = ['--version','/tmp','/tmp']
+        old = self.d31_argv(('rsync',send()),('rsync',receive()),('rsync',version))(True)
+        new = self.d31_argv(('rsync',send('--timeout=300')),('rsync',receive()),('rsync',version))(False)
+        # Today's native run compares equal to the JVM's.
+        self.assertEqual(old,new)
+        # The flag is missing, has another value or sits elsewhere: all differ.
+        for argv in [send(),send('--timeout=30'),['--timeout=300',*send()]]:
+            with self.subTest(argv):
+                self.assertNotEqual(old,self.d31_argv(('rsync',argv),('rsync',receive()),('rsync',version))(False))
+        # A receive with the flag differs, and an older record is not given it on a receive or the version form.
+        self.assertNotEqual(old,self.d31_argv(('rsync',send('--timeout=300')),('rsync',receive('--timeout=300')),('rsync',version))(False))
+        self.assertNotIn('--timeout=300',self.d31_argv(('rsync',receive()),('rsync',version))(True)['rsync:/dst'][0]['argv'])
+        self.assertEqual(self.d31_argv(('rsync',version))(True)['rsync:/tmp'][0]['argv'],version)
+
+    def test_d31_an_older_record_that_already_has_the_flag_is_refused(self):
+        with self.assertRaisesRegex(e.Invalid,'D31 flag'):
+            self.d31_argv(('rsync',['--times','--timeout=300','/src','127.0.0.1:/tmp/marathon/x']))(True)
+
+    def test_d31_leaves_the_ssh_form_of_an_older_record_alone(self):
+        ssh = ['-l','u','-p','1','127.0.0.1','/usr/bin/rsync','--server','--times','.','/tmp/marathon/x']
+        self.assertEqual(self.d31_argv(('ssh',ssh))(True),self.d31_argv(('ssh',ssh))(False))
 
     def test_d20_stand_in_matches_the_withheld_library_and_nothing_else_does(self):
         self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))
@@ -733,6 +780,7 @@ class VendorEvidenceTests(unittest.TestCase):
         destination = self.root / name
         shutil.copytree(source, destination)
         record = json.loads((destination / 'evidence.json').read_bytes())
+        self.as_live_native(destination, record)
         row = next(r for r in record['entries'] if r['path'] == 'transcript.jsonl')
         rows = [json.loads(line) for line in e.payload(destination, row, record).splitlines()]
         change(rows)

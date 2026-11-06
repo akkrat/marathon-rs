@@ -168,11 +168,27 @@ def ssh(data, name=None):
     return dict(lanes)
 
 
-def host_argv(data, values):
+# D31: what today's program passes to rsync on a send, and a JVM record or a native record pinned from before D31 lacks.
+# Those records get exactly this flag at exactly its place, on exactly their sends (the caller decides, by
+# `evidence.may_withhold`). A native run of today's code is left as it is, so a send without the flag, or a receive with
+# it, differs from them.
+D31_FLAG = '--timeout=300'
+
+
+def with_d31_flag(program, args):
+    if program == 'rsync' and args[-1].startswith('127.0.0.1:'):
+        e.require(D31_FLAG not in args,'D31 flag in a record from before it')
+        args.insert(args.index('--times') + 1,D31_FLAG)
+    return args
+
+
+def host_argv(data, values, before_d31=False):
     lanes = defaultdict(list)
     for row in records(data):
         e.require(row['event'] == 'host_argv' and row['program'] in ('rsync','ssh'),'unknown host argv')
         row = dict(row); args = list(row['argv'])
+        if before_d31:
+            args = with_d31_flag(row['program'],args)
         for i,arg in enumerate(args):
             bound = next((key for key,value in values.items() if key.startswith('temp_') and arg == value),None)
             if bound:

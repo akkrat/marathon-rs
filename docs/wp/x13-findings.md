@@ -114,6 +114,73 @@ inherits the ignored TERM dies too (`t30_kill_ends_a_process_that_ignores_term`:
 **Comparators.** No allowance is needed. `vendor_transport.ssh` compares exec, output and exit rows, not signals or
 `client_close`, and on a whole-vendor run every command has finished when it is closed.
 
+## D31 / A3: the rsync send limit
+
+**Ledger row verified.** `process` had a 30 s total deadline for a receive, and `child.wait()` alone for a send.
+`fixtures/oracle/connections/deadlines.jsonl` is the JVM's witness: the receive fails at its deadline while a send stays
+running. That test stays, under a new name, because a receive's deadline still applies and still leaves a send alone.
+
+**Why rsync's own timeout and not a total one.** A total deadline cannot tell a large bundle over a slow link from a dead
+worker. The `--timeout` flag can:
+
+| Measured with a short `--timeout` | openrsync (macOS 27, "rsync version 2.6.9 compatible") | rsync 3.4.1 (Linux) |
+|---|---|---|
+| Flag accepted | Yes; also on a second Mac with macOS 27.2 | Yes |
+| Passed on to the worker's `rsync --server` | No, so the worker's exec string is unchanged | Yes, among the options `{protocol-options}` covers |
+| Worker's `--server` accepts it | Yes, read without an option error | Yes |
+| Hung ssh, before the greeting | `error: poll: timeout` after 3 s of `--timeout=3` | `[sender] io timeout after 2 seconds -- exiting`, exit 30, after 3 s of `--timeout=2` |
+| Stall in the greeting and in the middle of a file | The same report | Not measured apart |
+| What it does next, if ssh sees the end of its input and exits | Exits with ssh's status | Exits by itself |
+| What it does next, if ssh does not | **Waits in `wait4` for ever** | Exits by itself, and ssh is gone |
+| TERM at that point | rsync exits with status 20, and ssh is gone too | |
+| 15 or 30 MiB at about 1 MiB/s, moving but slow, with `--timeout=2` | Exit 0 after 83.6 s, identical bytes | Exit 0 after 16 s, identical bytes |
+
+The first row is why the flag is enough on every rsync seen. rsync's older samba versions have had the flag since long before
+the 2.6.9 that macOS once shipped; that version itself was not run.
+
+**The trap beyond the brief: the flag alone does not bound a send on macOS.** Only the wrapper can see the state in the
+table's bold cell, and it has no other signal than rsync's text, since rsync does not exit. So the stderr reader watches for
+the two reports. Text is fragile, so this is arranged so that a miss costs little: rsync 3 exits regardless, and an rsync that
+words its report differently keeps Kotlin's unbounded wait for a hung ssh only, not for a dead link that ends ssh. A false match
+needs a stderr line with `poll: timeout` in it, on a send that is therefore already failing.
+
+**Stopping.** After a report: 5 s for rsync to exit by itself (a healthy ssh takes a moment over its input's end), TERM, 5 s,
+KILL, then the reap. These are short because they only have to outlast a process on its way out. A process group would have been
+the simple way to reach everything, but it would take rsync away from a terminal's Ctrl-C on every send. So TERM goes to the
+child and the children `pgrep -P` finds. That matters under `sshpass`, measured with the real one: TERM ends it at once, while
+rsync, in the session of `sshpass`'s pty, stays in `wait4` with its hung ssh, both alive 2 s later. Those children get KILL
+after the second wait, whatever became of `sshpass`. No `pgrep` only means the signals reach the child alone, and the send
+still returns.
+
+**300 s.** It is long because a false positive is worse than a late one: a healthy send that fails costs a device, while a dead
+one has already cost the wait. Silent stretches that a healthy send can have are the worker's `--delete` scan and its
+`--delay-updates` renames, both of which take longer the more it is under load, as it is when booting simulators. With the
+installer's three attempts a dead worker fails in up to 15 minutes, and not never.
+
+**Serialisation.** A stuck send held the per-bridge mutex for ever. It now holds it until it is reaped, and the next send then
+runs (`stalled_send_runs` asserts the order). Receives never took that mutex. **Retries:** the send returns only after the reap,
+so `with_retry_send` cannot overlap it. The worker's `rsync --server` is another matter: it ends on the end of its input if ssh
+got that far. With rsync 3 on the host it also has the flag, and otherwise a process stuck on a dead link can linger, but a
+retry cannot reach that worker either.
+
+**Reader bound.** `process` joined its pipe readers without a limit, and a surviving ssh inherits stderr. A send now waits at most
+5 s for them after the process ended. On a healthy exit the pipes close at once, so this adds nothing.
+
+**Transcript and comparators.** `--timeout=300` shows in the host argv only on macOS hosts. `vendor_transport.host_argv` gives a
+send of a JVM or pinned native record exactly this flag after `--times`, so a new native run must have it there. See
+`test_d31_*`: a missing flag, another value, another place or a flag on a receive all differ, and an older record that already
+has it is refused. The exec string needs nothing, because `{protocol-options}` covers rsync's server options.
+
+**Failure without it**, by temporary revert:
+
+| Reverted | Fails |
+|---|---|
+| The flag | Every `*_d31` test (the fake rsync refuses to run) and the argv tests |
+| Stopping on the report | `a_stalled_send_that_waits_for_a_hung_ssh_is_stopped_on_term_d31`, `a_stalled_send_that_also_ignores_term_is_killed_d31`, `the_real_rsync_gives_up_on_a_hung_ssh_d31` (each at its 60 s catch) |
+| KILL after TERM | `a_stalled_send_that_also_ignores_term_is_killed_d31` |
+| TERM to the child's children | `a_stalled_send_under_sshpass_also_stops_rsync_d31`, `the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31` |
+| The bound on the readers | `a_stalled_send_that_exits_while_ssh_holds_its_stderr_returns_d31` |
+
 ## Incidental bugs
 
 - `ExecChannel::exec`: an `exec` request that gets no reply within its 30 s also leaves the channel open on the peer. The

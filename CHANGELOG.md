@@ -47,6 +47,8 @@ Android, SSH and rsync fixes of bugs the Kotlin fork has, each an approved diffe
   connection ends (D29).
 - Closing an SSH session on an iOS or macOS worker takes at most 30 s: TERM, then KILL, then the session is abandoned
   with an error line, whatever the worker does. A server that ignores signals may leave the process running (D30).
+- An rsync send that makes no progress for 300 s is stopped and fails with a clear error, instead of blocking that
+  worker's sends for ever. A large bundle over a slow link is unaffected while it keeps moving (D31).
 
 ## 0.11.0
 

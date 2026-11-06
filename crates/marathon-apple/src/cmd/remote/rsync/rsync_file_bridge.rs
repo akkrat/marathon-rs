@@ -2,7 +2,8 @@
 
 use super::RsyncTarget;
 use crate::cmd::{
-    FileBridge, SessionScope, blocking, failure, io_error, remote::ssh::sshj::config::SshLogging,
+    FileBridge, SessionScope, blocking, failure, io_error,
+    remote::ssh::sshj::{client::within, config::SshLogging},
     retained_tasks::RetainedTasks,
 };
 use jcompat::{
@@ -16,10 +17,24 @@ use marathon_core::{
 };
 use std::{
     path::{Path, PathBuf},
-    process::Stdio,
+    process::{ExitStatus, Stdio},
     sync::{Arc, Mutex},
 };
-use tokio::{io::AsyncReadExt, process::Command, sync::oneshot};
+use tokio::{
+    io::AsyncReadExt,
+    process::{Child, Command},
+    sync::{Notify, oneshot},
+};
+
+/// D31: a send fails after this long with no I/O. A limit on progress, not on the total, because a large bundle over a
+/// slow link is legitimate. Long, because a worker can be silent for a while with the disk under load, as when it is
+/// booting simulators, and failing a healthy send costs more than noticing a dead one later.
+pub const SEND_IO_TIMEOUT_SECONDS: i64 = 300;
+/// D31: what rsync prints when `--timeout` expires: openrsync's `error: poll: timeout`, rsync's `io timeout after N seconds`.
+const STALL_REPORTS: [&[u8]; 2] = [b"poll: timeout", b"io timeout after "];
+/// D31: how long a process that reported a stall gets to end at each step, and how long a finished process's output pipes
+/// may stay open. These only have to outlast a process that is already on its way out.
+const STOP_STEP_MILLIS: i64 = 5_000;
 
 #[derive(Clone)]
 pub struct RsyncFileBridge(Arc<Inner>);
@@ -175,7 +190,7 @@ fn initialize_binaries() -> VendorResult<()> {
 }
 
 impl Inner {
-    fn arguments(&self, source: String, destination: String, _receive: bool) -> VendorResult<Vec<String>> {
+    fn arguments(&self, source: String, destination: String, receive: bool) -> VendorResult<Vec<String>> {
         let auth = self.auth.as_ref().ok_or_else(|| {
             VendorError::Other(failure(
                 "com.malinskiy.marathon.config.exceptions.ConfigurationException",
@@ -206,6 +221,9 @@ impl Inner {
             ]
             .map(str::to_owned),
         );
+        if !receive {
+            args.push(format!("--timeout={SEND_IO_TIMEOUT_SECONDS}"));
+        }
         let mut rsh = "ssh -o 'StrictHostKeyChecking no' -F /dev/null ".to_owned();
         let interval = self.ssh.keep_alive_interval.seconds();
         if interval > 0 {
@@ -265,8 +283,10 @@ impl Inner {
         }));
         let err_scope = readers.clone();
         let (err_tx, err_rx) = oneshot::channel();
+        let stall = Arc::new(Notify::new());
+        let reported = (!receive).then(|| stall.clone());
         let err_task = self.runtime.spawn(Box::pin(async move {
-            let _ = err_tx.send(read_pipe(stderr, err_scope).await);
+            let _ = err_tx.send(read_stderr(stderr, err_scope, reported).await);
             Ok(())
         }));
         let scope = Arc::new(SessionScope::default());
@@ -295,7 +315,11 @@ impl Inner {
                 }
             }
         } else {
-            child.wait().await.map_err(io_error)
+            tokio::select! {
+                biased;
+                result = child.wait() => result.map_err(io_error),
+                _ = stall.notified() => self.stop_stalled_send(&mut child).await,
+            }
         };
         if status.is_err() {
             // A failed wait may not have reaped the child; the error still wins.
@@ -304,6 +328,20 @@ impl Inner {
         drop(stdin);
         if timed_out || status.is_err() {
             readers.cancel(crate::cmd::cancelled("Process output timed out"));
+        }
+        if !receive {
+            // D31: a hung ssh that outlived rsync may hold these pipes open.
+            let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
+            let joined = async {
+                let _ = out_task.join().await;
+                let _ = err_task.join().await;
+            };
+            if within(self.clock.as_ref(), scope, STOP_STEP_MILLIS, joined)
+                .await
+                .is_none()
+            {
+                readers.cancel(crate::cmd::cancelled("Process output outlived the process"));
+            }
         }
         let out_joined = out_task.join().await;
         let err_joined = err_task.join().await;
@@ -320,6 +358,39 @@ impl Inner {
             err_rx.await.map_err(dropped)??,
         ))
     }
+    /// D31: `--timeout` has expired, but rsync may not end by itself: openrsync closes ssh's input and then waits for ssh,
+    /// for ever if ssh is hung. TERM ends openrsync and its ssh, but `sshpass` exits on TERM and leaves rsync running, so
+    /// the child's children get it too. A process group would be simpler, but it would keep rsync from a terminal's Ctrl-C on
+    /// every send. On return the child is reaped, so a retry cannot overlap it.
+    async fn stop_stalled_send(&self, child: &mut Child) -> VendorResult<ExitStatus> {
+        use nix::{sys::signal, unistd::Pid};
+        let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
+        let clock = self.clock.as_ref();
+        if let Some(status) = within(clock, scope.clone(), STOP_STEP_MILLIS, child.wait()).await {
+            return status.map_err(io_error);
+        }
+        let mut children = Vec::new();
+        if let Some(pid) = child.id() {
+            children = within(clock, scope.clone(), STOP_STEP_MILLIS, children_of(pid))
+                .await
+                .unwrap_or_default();
+            for pid in children.iter().copied().chain([pid as i32]) {
+                let _ = signal::kill(Pid::from_raw(pid), signal::Signal::SIGTERM);
+            }
+        }
+        let stopped = within(clock, scope, STOP_STEP_MILLIS, child.wait()).await;
+        // sshpass is gone at once, whatever became of rsync, so whatever is left gets this.
+        for pid in children {
+            let _ = signal::kill(Pid::from_raw(pid), signal::Signal::SIGKILL);
+        }
+        match stopped {
+            Some(status) => status.map_err(io_error),
+            None => {
+                let _ = child.start_kill();
+                child.wait().await.map_err(io_error)
+            }
+        }
+    }
     async fn transfer(&self, local: PathBuf, remote: String, receive: bool) -> VendorResult<bool> {
         let local = blocking(self.runtime.as_ref(), move || {
             let cwd = std::env::current_dir().map_err(io_error)?;
@@ -334,7 +405,7 @@ impl Inner {
         let remote = format!("{}:{remote}", self.target.addr.to_string_lossy());
         let (source, destination) = if receive { (remote, local) } else { (local, remote) };
         let (status, _, stderr) = self
-            .process(self.arguments(source, destination, receive)?, receive)
+            .process(self.arguments(source, destination.clone(), receive)?, receive)
             .await?;
         if status != 0 && !stderr.is_empty() {
             self.logging.log(
@@ -343,6 +414,10 @@ impl Inner {
                 || {
                     if receive {
                         stderr
+                    } else if reports_stall(stderr.as_bytes()) {
+                        format!(
+                            "send error: no progress in {SEND_IO_TIMEOUT_SECONDS} s sending to {destination}, rsync stopped: {stderr}"
+                        )
                     } else {
                         format!("send error: {stderr}")
                     }
@@ -353,7 +428,40 @@ impl Inner {
         Ok(status == 0)
     }
 }
+/// Best effort: no `pgrep` only means the signals reach the child alone.
+async fn children_of(pid: u32) -> Vec<i32> {
+    let listed = Command::new("pgrep")
+        .args(["-P", &pid.to_string()])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .output()
+        .await;
+    listed.map_or_else(
+        |_| Vec::new(),
+        |output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter_map(|line| line.trim().parse().ok())
+                .collect()
+        },
+    )
+}
+fn reports_stall(stderr: &[u8]) -> bool {
+    STALL_REPORTS
+        .iter()
+        .any(|report| stderr.windows(report.len()).any(|window| window == *report))
+}
 async fn read_pipe<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>, stop: Arc<SessionScope>) -> VendorResult<String> {
+    read_stderr(pipe, stop, None).await
+}
+/// `read_pipe`, also notifying `stall` once the text reports a stalled send. Where `stall` is set, the check runs over all
+/// the text so far, since a report can span two reads; rsync says little on stderr without `--verbose`, which goes to stdout.
+async fn read_stderr<R: tokio::io::AsyncRead + Unpin>(
+    pipe: Option<R>,
+    stop: Arc<SessionScope>,
+    stall: Option<Arc<Notify>>,
+) -> VendorResult<String> {
     let mut bytes = Vec::new();
     if let Some(mut pipe) = pipe {
         loop {
@@ -367,6 +475,11 @@ async fn read_pipe<R: tokio::io::AsyncRead + Unpin>(pipe: Option<R>, stop: Arc<S
                 break;
             }
             bytes.extend_from_slice(&chunk[..count]);
+            if let Some(stall) = &stall
+                && reports_stall(&bytes)
+            {
+                stall.notify_one();
+            }
         }
     }
     // CollectingProcessReader uses BufferedReader.readLine and appends '\n' to every line.
