@@ -616,9 +616,11 @@ retried, as in any lost connection. A device that returns keeps its actor, with 
 
 - A device still passing through at 10 s is disconnected, as before but later.
 - The limits are checked between rounds of reading the device list, and a round also asks each device that returned for
-  its properties (one `getprop`, bounded by `timeoutConfiguration.shell`, 30 s by default). While a returned device's
-  `getprop` goes unanswered, no other device's limit is checked, so a device can be held up to that much past its 10 s or
-  3 s, and the killed emulator below reaches its retry path that much later ([U170](found-bugs.md)).
+  its properties, one after another (one `getprop` each, bounded by `timeoutConfiguration.shell`, 20 s by default). No
+  other device's limit is checked meanwhile, so a device can be held past its 10 s or 3 s by up to the sum of the
+  outstanding probes' timeouts: 20 s for each device that returned and does not answer. Restoring a returned device's
+  logcat, up to 1 s, and each of its reverse port forwards, up to `timeoutConfiguration.portForward` (which defaults to
+  `shell`), adds to it. The killed emulator below reaches its retry path that much later ([U170](found-bugs.md)).
 - A device that goes `offline` and then leaves the list has 3 s, since a real blip passes through an empty list for up to
   a second. A killed emulator looks like this, so its retry path starts about 3.25 s after it dies, where it was immediate.
 - A device leaving the list directly from `device`, or reaching a state such as `unauthorized`, is disconnected at once.

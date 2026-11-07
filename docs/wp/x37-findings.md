@@ -57,10 +57,13 @@ rule restored, with `(["one"], 1)` and `(true, 1, 1)`.
 
 ## S-x19-1: another device's return probe delays a grace (docs only)
 
-A device that returns from a grace is asked for its properties inside the tracking loop, bounded by
-`timeoutConfiguration.shell`, 30 s by default. While that `getprop` stalls, no other device's grace is checked. The
-review witness held a second device past 15 s with its 10 s limit. D41's text in CHANGELOG.md, `docs/deviations.md` and
-`docs/migration.md` now says a limit can run longer by up to that timeout. Recorded as U170, open: a fix would move the
+Each device that returns from a grace is asked for its properties inside the tracking loop, one after another, each
+bounded by `timeoutConfiguration.shell`, 20 s by default. Its logcat (up to 1 s) and reverse port forwards
+(`portForward` each, defaulting to `shell`) are restored there too. Meanwhile no other device's grace is checked. The
+review witnesses held a second device past 15 s with its 10 s limit, and, with two returned devices and `shell` at 30 s,
+still at 50 s. D41's text in CHANGELOG.md, `docs/deviations.md` and `docs/migration.md` now says a limit can run longer
+by up to the sum of the outstanding probes' timeouts, 20 s each by default, plus those restores. The first version of
+this text said 30 s, the iOS default, and a single probe; review round 2 corrected both (S-x37-2). Recorded as U170, open: a fix would move the
 probe out of the loop, which is code under other work. The witness was not kept, as it fails by design until then.
 
 ## Docs corrected

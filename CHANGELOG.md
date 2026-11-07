@@ -51,8 +51,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A device that goes `offline` for a moment is kept: it gets up to 10 s to return, with batches waiting, instead of being
   disconnected at once, which ended a run on its last device. A killed emulator now reaches the retry path after about
   3 s instead of at once. A device gets at most 5 of these per adb server in a run, and the count is never reset. Either
-  limit can run longer, by up to the `shell` timeout (30 s by default), while another device that returned does not answer
-  (D41, U170).
+  limit can run longer while devices that returned are checked one after another: by up to the `shell` timeout (20 s by
+  default) for each one that does not answer, and while their logcat and reverse port forwards are restored (D41, U170).
 - A file sync push whose md5 never matches fails after `pushFile`, naming the file, instead of waiting for the batch
   timeout (D23).
 - A disconnected Android device can no longer be borrowed, and `networkState` reports `DISCONNECTED` once it is lost, which
