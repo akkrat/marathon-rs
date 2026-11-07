@@ -50,8 +50,10 @@ CHANGELOG bullet. `docs/wp/x34-findings.md` gets a pointer here where it says cl
 
 **Limits.**
 
-- A slow but working server that needs more than 30 s for everything the client still holds loses the rest. The retry
-  buffer only grows while sends fail, so this needs a server that was failing and then answers slowly.
+- A server that needs more than 30 s for everything the client still holds loses the rest. That needs no earlier failure:
+  a write that is slow but succeeds holds the sender while later points queue behind it, and a close that runs out of time
+  drops them (review round 2, S-x39-1: 1 of 2 points delivered with a shortened budget, 2 of 2 before this change). The
+  bound is kept; the loss is the price of it.
 - If the close is dropped for another reason, such as cancellation of the end of the run, the worker now stops too, where
   before it went on alone until the runtime ended. Nobody observed its result in either case.
 - Not verified against a real InfluxDB server, or through a whole CLI run with a trickling server.
@@ -74,8 +76,10 @@ the quota from the counts before any copy of the batch is charged, so nothing ch
 `wrapping_add` restored it fails with the count at -2147483648. `copies_in_one_batch_all_see_the_old_count` pins the
 partition below the boundary. `queue_oracle`, `queue_behaviour` and `run_flow_oracle` pass unchanged.
 
-**Other counters on the path, checked.** None can wrap this way. Progress's `running` goes up when a copy starts and down
-on its result, so a repeating uncompleted copy leaves it where it was; `total` and `done` don't move on a result that isn't
+**Other counters on the path, checked.** None that decides when retries end can wrap this way. Progress's `running` can:
+it goes down on every result, but production never calls `test_started` (the kept Kotlin bug C4), so it only goes down and
+wraps from `i32::MIN` to `i32::MAX` on a long enough run (review round 2, S-x39-2). It only feeds progress output, not the
+quota, and C4 is left as it is; `total` and `done` don't move on a result that isn't
 final. `retry_workers` gains an entry per return and loses it when the copy is taken again; it holds entries, not a count.
 
 **Limits.** With a quota of 2147483647, which D47 refuses, a saturating count would now end the loop at that count where a

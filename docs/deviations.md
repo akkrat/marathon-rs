@@ -768,7 +768,8 @@ Native builds change four things:
   5 minutes of metrics get skipped, then the backend is tried again. A carbon that drops packets costs 10 s in every 310 s. A
   refused connection costs almost nothing, so it is tried for every test. The backend's close at the end of the run, where
   InfluxDB sends what it still holds, also gets 30 s, where Kotlin waits for as long as the server keeps answering. Past that
-  one warning says those metrics are lost, InfluxDB's sender is stopped, and the run ends with the exit code it had.
+  one warning says those metrics are lost, InfluxDB's sender is stopped, and the run ends with the exit code it had. This can
+  lose points from a working server too: a write that is slow but succeeds holds the sender while later points queue behind it.
 - **A Graphite series printed as `None`** has no points in the window and is skipped with a debug line, so the query keeps its
   other tests. Kotlin discarded the whole query. Any other malformed value, such as `50,None`, still fails the query.
 - **Each step at the end of a run still runs after another fails:** the history close, provider termination, each reporter
@@ -779,7 +780,7 @@ Separately, when filters take a non-empty list to nothing, a run logs an ERROR l
 `No tests left to run after filtering: blocklist simple-class-name removed 12`. It still exits 0, because an empty shard
 fragment is legitimate. `parse` writes its empty list as before, with no warning.
 
-Metrics from a working backend are byte for byte the same. A queue that ends for any other reason still hangs the run
+Metrics from a working backend are byte for byte the same, except points still queued when a close runs out of time. A queue that ends for any other reason still hangs the run
 ([U168](found-bugs.md)). Approved 2026-11-07 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C62, C38, C11 and C25](known-kotlin-bugs.md) and
 the [x34 findings](wp/x34-findings.md).
