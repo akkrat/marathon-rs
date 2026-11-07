@@ -84,8 +84,13 @@ handler. Order cannot stand in for the id either: two refusals can both be waiti
 
 `start_session` uses the new method, and `ConnectionShared` loses the queue, its `Notify`, `take_open_failure` and the handler callback
 that filled it. A refusal is now plain data in the reply. Dropping one, claimed or not, drops its text and touches nobody else's, and a
-refusal no longer waits for its text after it wakes. The caller's error is the same as before: `OpenFailException` with the peer's
-description, empty when the transport has died.
+refusal no longer waits for its text after it wakes. What the caller gets:
+
+| Case | Error |
+|---|---|
+| A refusal reached the caller | `OpenFailException` with the peer's description, as before. It keeps it even if the session dies afterwards, since the text is in the reply. Before, a death between the wake and the text gave an empty one |
+| The session died before the reply reached the caller | russh's `Disconnect`, which `start_session` reports as the connection's failure, as for any open on a dead transport |
+| The peer refused with an empty description | `OpenFailException` with an empty message. This is the only way to get one |
 
 **The test.** `a_refusal_dropped_unclaimed_does_not_give_its_text_to_one_read_after_it_u157` is the reviewer's case. It runs on one thread,
 so nothing else can run between dropping the first caller and reading the second, and the result does not depend on scheduling. The first
@@ -109,9 +114,38 @@ and checks that each text matches its own reason. It also checks that a plain op
 
 The real-sshd suite was not rerun in round 2. A real refusal goes through the same russh path as the fake's.
 
+## Review round 3 (S-x38-2, S-x38-3)
+
+**S-x38-2, patch 4 did not replay.** Round 2 generated patch 4 from the vendored tree, so it carried two hunks that change the
+`Modified by` headers of `src/client/{encrypted,mod}.rs`. Those headers come from an adaptation that patches 1–3 do not make, so on the
+upstream archive with patches 1–3 the two hunks were rejected. Patch 4 is now regenerated against exactly that base: the unpacked archive
+with patches 1–3, and no adaptation. It has no header lines, only the 115 added lines of the change itself.
+
+The adaptations were described but not exactly. `vendor/russh/README.marathon.md` now gives the order (patches first, then the
+adaptations) and each adaptation. `scripts/replay_russh_vendor.py` carries them out, with the exact header lines and fixture names:
+it checks the archive's SHA-256, unpacks it, applies patches 1–4 with `git apply`, applies each adaptation where it must match exactly
+once, and compares the result with the tracked files of `vendor/russh`. It is not a gate step.
+
+How it was checked, with the crates.io archive from Cargo's cache (SHA-256 as recorded):
+
+| Check | Result |
+|---|---|
+| The script, into an empty directory outside any git work tree | `matches vendor/russh byte for byte`, exit 0 |
+| `diff -r` of that directory against `vendor/russh`, leaving out the ignored `Cargo.lock` that the vendored crate's tests write | No difference |
+| The script with round 2's patch 4 | `patch failed: src/client/encrypted.rs:1` and `src/client/mod.rs:1`, the reviewer's two hunks |
+| The script with one byte appended to the committed `src/pty.rs` | `differs: src/pty.rs`, exit 1 |
+
+The vendored tree itself is unchanged in this round, so no Rust code changed.
+
+**S-x38-3.** Round 2 said a refusal's description is empty once the transport has died. That was wrong: a refusal already in the reply
+keeps its description, and a reply that had not arrived is `Disconnect`. The table under round 2 now gives the three cases.
+
 ## Incidental bugs
 
 One, fixed here in round 2: refusal texts came from a queue shared by the whole connection, so concurrent or abandoned refusals could take
 each other's text. It came with the port, not from Kotlin: in sshj 0.39.0's bytecode, `ConnectionImpl` passes the packet to the channel it names, and that
 channel's `AbstractDirectChannel.gotOpenFailure` reads the text into its own `OpenFailException`. Before x21 it took
 two opens refused at about the same time. x21's task made it more likely, because a refusal nobody took was taken later, out of order.
+
+A nit found in round 3, not fixed: the `Modified by` line of the vendored `src/session.rs` says "server hooks", but only patch 3 (manual
+window adjust) changes that file. The replay keeps the line as it is.
