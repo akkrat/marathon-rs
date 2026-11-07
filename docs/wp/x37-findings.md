@@ -14,7 +14,7 @@ shell's working directory, normally `/`: on a device whose adb runs as root that
 **Fix.** A separate `RemoteFileManager::remove_push_destination`, used only by U159's call site, quotes the path with
 adam's `bash_escape` (single quotes, an embedded `'` as `'\''`, the helper the push request already uses) and passes
 `--`. `remove_remote_path` and every Kotlin-ported caller send the same commands as before; their own lack of quoting is
-Kotlin's and is now ledger row N41.
+Kotlin's, ledger rows N41 and N42.
 
 **Test.** `a_folder_push_with_a_space_removes_only_its_own_destination_d27` takes the command the fake received and runs
 it with `sh` on a private temporary directory: the sibling stays, the destination goes, and a second run on the absent
@@ -90,5 +90,11 @@ the `sh` replay runs on a temporary directory.
 
 ## Incidental bugs
 
-- N41 (Kotlin, kept): the after-batch removal of pushed folders, pull entries and `APP_DATA` moves send unquoted paths,
-  with the same `/data` hazard for a name with a space on a root adb. Kept for the parity of commands sent to devices.
+- N41 (Kotlin): the after-batch removal of a pushed folder sends its path unquoted, with the same `/data` hazard for a
+  name with a space on a root adb. Fixed in a separate last commit, after review round 2: `remove_pushed_path` quotes the
+  path, as the push destination is quoted, only when it holds a character other than ASCII letters, digits and
+  `/._-+,:@%`, so every ordinary path, and every recording and test, keeps Kotlin's command byte for byte. Its exit code
+  is still not read. `the_removal_after_a_batch_quotes_only_a_path_that_needs_it_d27` failed before, with
+  `rm -r /sdcard/payload data`.
+- N42 (Kotlin, kept): pull entries' `rm -r` and `mkdir` before a batch, and the `run-as` moves of `APP_DATA` folders,
+  are unquoted too. Kept for the parity of commands sent to devices.

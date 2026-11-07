@@ -332,7 +332,9 @@ under, for example, `/sdcard`. Native builds leave it alone. **This changes beha
 users: a test suite that relies on an empty external storage must clear it itself.** A folder that file sync pushes is removed first, so
 a leftover from a run cut short isn't what the tests read. If the device can't remove it, for example for lack of
 permission, the batch fails with `Could not delete remote file(s): <path>: exit code <n>: <rm's output>` and its tests
-come back as uncompleted, as when any other device command fails, instead of pushing the folder inside the leftover. A video can stay behind on
+come back as uncompleted, as when any other device command fails, instead of pushing the folder inside the leftover.
+After the batch the pushed folder is removed with Kotlin's command, its path quoted only if it holds a character the
+device's shell would split or expand, so a name with a space no longer takes a sibling with it ([N41](known-kotlin-bugs.md)). A video can stay behind on
 external storage: from an aborted run, and from a recording cut by a lost connection, in a run that still exits 0. See the
 [migration guide](migration.md#android-external-storage-is-no-longer-wiped). Approved 2026-11-06
 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),

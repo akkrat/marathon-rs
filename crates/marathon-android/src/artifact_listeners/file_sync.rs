@@ -217,11 +217,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     let name = basename(&entry.path);
                     device
                         .file_manager()
-                        .remove_remote_path(
-                            &self.path(entry.path_root, &name.to_string_lossy()),
-                            true,
-                            context.clone(),
-                        )
+                        .remove_pushed_path(&self.path(entry.path_root, &name.to_string_lossy()), context.clone())
                         .await?;
                 }
             }

@@ -10,6 +10,14 @@ pub const TRACE_CONFIG_FILE: &str = "/data/local/tmp/tracing.pbtx";
 pub struct RemoteFileManager<'a> {
     pub device: &'a AndroidDevice,
 }
+/// `path` as one word for the device's shell: as it is if nothing in it is special to the shell, quoted otherwise.
+fn shell_word(path: &str) -> std::borrow::Cow<'_, str> {
+    let plain = !path.is_empty()
+        && path
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b));
+    if plain { path.into() } else { bash_escape(path).into() }
+}
 impl RemoteFileManager<'_> {
     pub async fn remove_remote_path(&self, path: &str, recursive: bool, context: VendorContext) -> VendorResult<()> {
         self.device
@@ -47,6 +55,19 @@ impl RemoteFileManager<'_> {
                 ),
             ));
         }
+        Ok(())
+    }
+    /// Kotlin's after-batch removal of a pushed path, `rm -r <path>`, with the path quoted only when the device's shell
+    /// would split or expand it (N41). An ordinary path gives Kotlin's command byte for byte. The exit code is still not
+    /// read, as in Kotlin.
+    pub async fn remove_pushed_path(&self, path: &str, context: VendorContext) -> VendorResult<()> {
+        self.device
+            .critical_execute_shell_command(
+                &format!("rm -r {}", shell_word(path)),
+                &format!("Could not delete remote file(s): {path}"),
+                context,
+            )
+            .await?;
         Ok(())
     }
     pub async fn create_remote_directory(&self, path: Option<&str>, context: VendorContext) -> VendorResult<()> {

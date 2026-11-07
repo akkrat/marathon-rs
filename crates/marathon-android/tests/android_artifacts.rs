@@ -1460,6 +1460,27 @@ fn a_folder_push_with_a_space_removes_only_its_own_destination_d27() {
     assert_eq!(replay(removal, &root).status.code(), Some(0), "{removal}");
 }
 
+/// N41: Kotlin removed a pushed folder named `payload data` after the batch with `rm -r /sdcard/payload data`, deleting a
+/// sibling `payload`. A path that needs no quoting keeps Kotlin's command byte for byte.
+#[test]
+fn the_removal_after_a_batch_quotes_only_a_path_that_needs_it_d27() {
+    let (_temp, sent) = folder_push_commands("payload");
+    assert_eq!(
+        sent.last().map(String::as_str),
+        Some("rm -r /sdcard/payload"),
+        "{sent:?}"
+    );
+    let (temp, sent) = folder_push_commands("payload data");
+    let removal = sent.last().unwrap();
+    assert_eq!(removal, "rm -r '/sdcard/payload data'", "{sent:?}");
+    let root = temp.path().join("device");
+    checked(std::fs::create_dir_all(root.join("payload data")));
+    checked(std::fs::write(root.join("payload data/data.txt"), "pushed"));
+    checked(std::fs::create_dir(root.join("payload")));
+    assert_eq!(replay(removal, &root).status.code(), Some(0), "{removal}");
+    assert!(root.join("payload").exists() && !root.join("payload data").exists());
+}
+
 /// x37 review: `-e` follows a link, so a dangling link that `rm` failed to remove read as gone, and the push went on.
 #[cfg(unix)]
 #[test]
