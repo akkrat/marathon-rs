@@ -1,13 +1,8 @@
 diff --git a/src/channels/mod.rs b/src/channels/mod.rs
-index 2573e238..6baeb6b8 100644
+index 2573e23..63098ad 100644
 --- a/src/channels/mod.rs
 +++ b/src/channels/mod.rs
-@@ -1,3 +1,4 @@
-+// Modified by marathon-rs (open failure description): see vendor/russh/README.marathon.md for each change.
- use std::sync::Arc;
- 
- use bytes::Bytes;
-@@ -111,6 +112,11 @@ pub enum ChannelMsg {
+@@ -111,6 +111,11 @@ pub enum ChannelMsg {
      /// (server only)
      Failure,
      OpenFailure(ChannelOpenFailure),
@@ -20,16 +15,10 @@ index 2573e238..6baeb6b8 100644
  
  #[derive(Clone, Debug)]
 diff --git a/src/client/encrypted.rs b/src/client/encrypted.rs
-index ddcd7454..bd03f7ff 100644
+index 607bd4f..ba26cf0 100644
 --- a/src/client/encrypted.rs
 +++ b/src/client/encrypted.rs
-@@ -1,4 +1,4 @@
--// Modified by marathon-rs (close after local close (R1/U1), manual window adjust): see vendor/russh/README.marathon.md for each change.
-+// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, open failure description): see vendor/russh/README.marathon.md for each change.
- // Copyright 2016 Pierre-Étienne Meunier
- //
- // Licensed under the Apache License, Version 2.0 (the "License");
-@@ -565,6 +565,13 @@ impl Session {
+@@ -564,6 +564,13 @@ impl Session {
                  }
  
                  if let Some(sender) = self.channels.remove(&channel_num) {
@@ -44,16 +33,10 @@ index ddcd7454..bd03f7ff 100644
                          .send(ChannelMsg::OpenFailure(reason_code.clone()))
                          .await;
 diff --git a/src/client/mod.rs b/src/client/mod.rs
-index 86f46fc4..a9aa60a0 100644
+index 1d5b454..aa04b49 100644
 --- a/src/client/mod.rs
 +++ b/src/client/mod.rs
-@@ -1,4 +1,4 @@
--// Modified by marathon-rs (close after local close (R1/U1), manual window adjust): see vendor/russh/README.marathon.md for each change.
-+// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, open failure description): see vendor/russh/README.marathon.md for each change.
- // Copyright 2016 Pierre-Étienne Meunier
- //
- // Licensed under the Apache License, Version 2.0 (the "License");
-@@ -723,10 +723,23 @@ impl<H: Handler> Handle<H> {
+@@ -722,10 +722,23 @@ impl<H: Handler> Handle<H> {
  
      /// Wait for confirmation that a channel is open
      async fn wait_channel_confirmation(
@@ -77,7 +60,7 @@ index 86f46fc4..a9aa60a0 100644
          loop {
              match receiver.recv().await {
                  Some(ChannelMsg::Open {
-@@ -746,6 +759,15 @@ impl<H: Handler> Handle<H> {
+@@ -745,6 +758,15 @@ impl<H: Handler> Handle<H> {
                          read_half: ChannelReadHalf { receiver },
                      });
                  }
@@ -93,7 +76,7 @@ index 86f46fc4..a9aa60a0 100644
                  Some(ChannelMsg::OpenFailure(reason)) => {
                      return Err(crate::Error::ChannelOpenFailure(reason));
                  }
-@@ -838,6 +860,22 @@ impl<H: Handler> Handle<H> {
+@@ -837,6 +859,22 @@ impl<H: Handler> Handle<H> {
              .await
      }
  
@@ -117,10 +100,10 @@ index 86f46fc4..a9aa60a0 100644
      pub async fn channel_open_x11<A: Into<String>>(
          &self,
 diff --git a/src/client/test.rs b/src/client/test.rs
-index fde0fd9b..b01b5dba 100644
+index ae8ab4c..5a24fcc 100644
 --- a/src/client/test.rs
 +++ b/src/client/test.rs
-@@ -21,6 +21,8 @@ mod tests {
+@@ -20,6 +20,8 @@ mod tests {
      struct TestServer {
          clients: Arc<Mutex<HashMap<(usize, ChannelId), server::Handle>>>,
          id: usize,
@@ -129,7 +112,7 @@ index fde0fd9b..b01b5dba 100644
      }
  
      impl server::Server for TestServer {
-@@ -42,6 +44,11 @@ mod tests {
+@@ -41,6 +43,11 @@ mod tests {
              reply: server::ChannelOpenHandle,
              session: &mut Session,
          ) -> Result<(), Self::Error> {
@@ -141,7 +124,7 @@ index fde0fd9b..b01b5dba 100644
              {
                  let mut clients = self.clients.lock().unwrap();
                  clients.insert((self.id, channel.id()), session.handle());
-@@ -131,6 +138,14 @@ mod tests {
+@@ -130,6 +137,14 @@ mod tests {
      async fn authenticated_session_with<H: Handler + Send + 'static>(
          client_config: Config,
          handler: H,
@@ -156,7 +139,7 @@ index fde0fd9b..b01b5dba 100644
      ) -> crate::client::Handle<H> {
          let client_key = PrivateKey::random(&mut rng(), ssh_key::Algorithm::Ed25519).unwrap();
          let mut config = server::Config::default();
-@@ -142,6 +157,7 @@ mod tests {
+@@ -141,6 +156,7 @@ mod tests {
          let mut server = TestServer {
              clients: Arc::new(Mutex::new(HashMap::new())),
              id: 0,
@@ -164,7 +147,7 @@ index fde0fd9b..b01b5dba 100644
          };
          let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
          let addr = socket.local_addr().unwrap();
-@@ -224,6 +240,45 @@ mod tests {
+@@ -223,6 +239,45 @@ mod tests {
          assert_eq!(received_bytes(&mut channel, 10_000 - 5096).await, 10_000 - 5096);
      }
  
@@ -210,7 +193,7 @@ index fde0fd9b..b01b5dba 100644
      #[tokio::test]
      async fn test_automatic_window_is_the_default() {
          let _ = env_logger::try_init();
-@@ -317,6 +372,7 @@ mod tests {
+@@ -316,6 +371,7 @@ mod tests {
          let mut server = TestServer {
              clients: Arc::new(Mutex::new(HashMap::new())),
              id: 0,
@@ -218,7 +201,7 @@ index fde0fd9b..b01b5dba 100644
          };
  
          // Start the TCP listener for our mock server
-@@ -395,6 +451,7 @@ mod tests {
+@@ -394,6 +450,7 @@ mod tests {
          let mut server = TestServer {
              clients: Arc::new(Mutex::new(HashMap::new())),
              id: 0,
@@ -227,15 +210,10 @@ index fde0fd9b..b01b5dba 100644
  
          let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
 diff --git a/src/lib_inner.rs b/src/lib_inner.rs
-index 5bb73a15..09a86ff1 100644
+index 5bb73a1..22163a0 100644
 --- a/src/lib_inner.rs
 +++ b/src/lib_inner.rs
-@@ -1,3 +1,4 @@
-+// Modified by marathon-rs (open failure description): see vendor/russh/README.marathon.md for each change.
- use std::convert::TryFrom;
- use std::fmt::{Debug, Display, Formatter};
- use std::future::{Future, Pending};
-@@ -151,6 +152,14 @@ pub enum Error {
+@@ -151,6 +151,14 @@ pub enum Error {
      #[error("Failed to open channel ({0:?})")]
      ChannelOpenFailure(ChannelOpenFailure),
  

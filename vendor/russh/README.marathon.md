@@ -7,7 +7,8 @@ Registry build metadata and the registry lockfile are not vendored. An empty
 `[workspace]` keeps direct crate tests independent of ancestor workspaces.
 The root workspace pins `=0.64.1` and patches crates.io to this directory.
 
-Applied changes, in order:
+Applied changes, in order. The four patches apply to the unpacked archive itself,
+before any adaptation below, with `git apply -p1` and no fuzz:
 
 1. `spikes/ssh-russh/russh-close-after-local-close.patch` (R1/U1), unchanged.
    Its pending-open/duplicate/callback and live client regression tests remain.
@@ -45,10 +46,27 @@ Applied changes, in order:
    - one client test (concurrent refusals each get their own text; the plain open
      is unchanged). The test server can refuse a list of session opens.
 
-Each file these changes touch starts with a `Modified by marathon-rs` line (Apache-2.0 section 4(b)):
-`Cargo.toml`, `src/channels/mod.rs`, `src/client/{encrypted,mod,session,test}.rs`, `src/helpers.rs`,
-`src/keys/{known_hosts,mod}.rs`, `src/lib_inner.rs`, `src/pty.rs`, `src/server/{encrypted,mod,session}.rs` and
-`src/session.rs`. The upstream archive holds no NOTICE file.
+Then the adaptations, in this order:
+
+1. `.cargo_vcs_info.json` and `Cargo.lock` are removed, and `Cargo.toml` ends with an empty `[workspace]`.
+2. PTY opcode 4's variant is renamed `KillLine`, in its declaration and its decoding.
+3. Eight upstream test literals move to `fixtures/fake-worker/russh` (see below): each becomes
+   `include_str!` or `include_bytes!` of its fixture, by a path relative to its file.
+4. Each changed file gets a first line `Modified by marathon-rs (<what>)` (Apache-2.0 section 4(b)):
+   `Cargo.toml`, `src/channels/mod.rs`, `src/client/{encrypted,mod,session,test}.rs`, `src/helpers.rs`,
+   `src/keys/{known_hosts,mod}.rs`, `src/lib_inner.rs`, `src/pty.rs`, `src/server/{encrypted,mod,session}.rs` and
+   `src/session.rs`. The patches carry no such lines, so each applies whatever the headers say.
+5. `LICENSE`, which the archive lacks, is upstream's Apache-2.0 text, and this file is added.
+
+The upstream archive holds no NOTICE file.
+
+`scripts/replay_russh_vendor.py <russh-0.64.1.crate> <empty directory outside a git work tree>` does all of this: it checks
+the archive's SHA-256, applies the patches and the adaptations, each of which must match exactly where it expects to, and
+compares the result byte for byte with the tracked files here. The exact header lines and fixture names are in that script.
+It copies `LICENSE` and this file from here, since neither comes from the archive. Cargo keeps the archive at
+`~/.cargo/registry/cache/<index>/russh-0.64.1.crate` once anything has fetched `russh 0.64.1`. Run the script after
+changing a patch or an adaptation; it is not part of `scripts/check.sh`. When a patch changes, regenerate it against the
+unpacked archive with the earlier patches applied, and no adaptation.
 
 No process-wide environment flag changes protocol behavior. All default hooks
 retain the upstream wire behavior. These patches have not been submitted upstream.
