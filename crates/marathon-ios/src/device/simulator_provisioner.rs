@@ -231,7 +231,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
         udids: impl IntoIterator<Item = String>,
         transport: Transport,
         caller: VendorContext,
-    ) -> ProvisioningResult<()> {
+    ) -> ProvisioningResult<Vec<FailedSetup>> {
         let cycle = Arc::new(WorkerProvisioningContext::new(transport.clone(), caller.hooks.clone()));
         self.run(
             ProvisioningPlan {
@@ -244,7 +244,6 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             caller,
         )
         .await
-        .map(|_| ())
     }
     pub async fn provision(
         &self,

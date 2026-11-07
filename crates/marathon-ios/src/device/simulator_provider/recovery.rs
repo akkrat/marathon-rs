@@ -96,21 +96,106 @@ impl SimulatorRecovery {
             Ok(self.state().closed.clone())
         }
     }
-    fn cutoff(&self, provider: &AppleSimulatorProvider, transport: &Transport) -> VendorResult<bool> {
-        let Some(reason) = self.late_join_cutoff()? else {
-            return Ok(false);
+    /// D44: the simulators of this worker that have been in the run and are waiting to return, with when they started
+    /// to wait. They aren't late, so the late-join cut-off is not theirs: a lost worker mustn't lose its simulators for
+    /// good because the run had got far enough. One still waiting for its admission hasn't joined yet.
+    fn returning(&self, provider: &AppleSimulatorProvider, transport: &Transport) -> IndexMap<JavaString, ParkedOn> {
+        let mut returning = provider.parked_on(transport);
+        let state = self.state();
+        returning.retain(|id, _| !state.awaiting_admission.contains(id));
+        returning
+    }
+    fn log_late(
+        &self,
+        provider: &AppleSimulatorProvider,
+        transport: &Transport,
+        reason: &str,
+        late: usize,
+        others_left: bool,
+    ) {
+        let worker = transport.id().to_string_lossy();
+        if others_left {
+            if late > 0 {
+                provider.log(
+                    Level::Info,
+                    || format!("Worker {worker}: {late} devices don't join the run late, since {reason}"),
+                    None,
+                );
+            }
+        } else {
+            provider.log(
+                Level::Info,
+                || format!("Worker {worker} doesn't join the run late, since {reason}. No longer connecting to it"),
+                None,
+            );
+        }
+    }
+    /// What the worker retry still works for. True when nothing is left, which ends it.
+    ///
+    /// D44: a returning simulator waits for its worker for `lateJoinCutoff`, counted from when it started to wait. Zero
+    /// means no cut-off here too, so `lateJoin` and the end of the run are the limits then.
+    fn prune_pending(
+        &self,
+        provider: &AppleSimulatorProvider,
+        transport: &Transport,
+        pending: &PendingWorker,
+    ) -> VendorResult<bool> {
+        let closed = self.late_join_cutoff()?;
+        let returning = self.returning(provider, transport);
+        // Read only when it matters: a run with no lost simulator reads its clocks as it always has.
+        let now = match returning.is_empty() {
+            true => 0,
+            false => provider.services.timing.elapsed()?,
         };
-        provider.log(
-            Level::Info,
-            || {
-                format!(
-                    "Worker {} doesn't join the run late, since {reason}. No longer connecting to it",
-                    transport.id().to_string_lossy()
-                )
-            },
-            None,
-        );
-        Ok(true)
+        let cutoff = provider.services.vendor.worker_connection.late_join_cutoff;
+        let limit = match cutoff.is_zero() {
+            true => None,
+            false => Some(duration_millis(cutoff)?),
+        };
+        let mut late = 0;
+        let mut expired = Vec::new();
+        let left = pending.retain(|target| {
+            let parked = match target {
+                AppleTarget::Simulator { udid } => {
+                    let id = apple_id(udid, transport);
+                    returning.get(&id).map(|parked| (id, parked))
+                }
+                _ => None,
+            };
+            match parked {
+                // It left the devices file. If it comes back, that update starts a retry again.
+                Some((_, parked)) if parked.removed => false,
+                Some((id, parked)) if limit.is_some_and(|limit| now.wrapping_sub(parked.since) > limit) => {
+                    expired.push(id);
+                    false
+                }
+                Some(_) => true,
+                None if closed.is_some() => {
+                    late += 1;
+                    false
+                }
+                None => true,
+            }
+        });
+        for id in &expired {
+            provider.log(
+                Level::Error,
+                || {
+                    format!(
+                        "Simulator {} has no connection {} s after it lost its worker, it stays out of the run",
+                        id.to_string_lossy(),
+                        cutoff.seconds()
+                    )
+                },
+                None,
+            );
+        }
+        if let Some(reason) = &closed
+            && (late > 0 || left)
+        {
+            self.log_late(provider, transport, reason, late, left);
+        }
+        Ok(!left)
     }
     fn not_admitted(&self, provider: &AppleSimulatorProvider, device: &Simulator) -> VendorResult<bool> {
         let id = apple_id(&device.udid().into(), device.transport());
@@ -201,7 +286,7 @@ impl SimulatorRecovery {
                 .clock
                 .delay(duration_millis(pause)?, caller.cancellation.clone())
                 .await?;
-            if self.cutoff(provider, transport)? {
+            if self.prune_pending(provider, transport, pending)? {
                 return Ok(());
             }
             attempt = attempt.wrapping_add(1);
@@ -250,7 +335,7 @@ impl SimulatorRecovery {
             let result: VendorResult<bool> = async {
                 let connected = provider.services.timing.elapsed()?;
                 provider.log(Level::Warn, || format!("Connected to worker {worker} on attempt {attempt}, {} ms after the first one, setting up its devices", connected.wrapping_sub(started)), None);
-                if self.cutoff(provider, transport)? { return Ok(false); }
+                if self.prune_pending(provider, transport, pending)? { return Ok(false); }
                 loop {
                     let Some(targets) = pending.take() else { return Ok(false); };
                     let targets: Vec<_> = targets.into_iter().filter(|target| !matches!(target, AppleTarget::Simulator { udid } if provider.state().removed.contains(&apple_id(udid, transport)))).collect();
@@ -296,7 +381,7 @@ impl SimulatorRecovery {
         readded: bool,
         caller: VendorContext,
     ) -> VendorResult<()> {
-        let result: ProvisioningResult<()> = async {
+        let result: ProvisioningResult<Vec<FailedSetup>> = async {
             if readded {
                 provider.log(
                     Level::Warn,
@@ -305,7 +390,7 @@ impl SimulatorRecovery {
                 );
                 return provider
                     .provisioner
-                    .existing([lost[0].udid().to_owned()], transport.clone(), caller)
+                    .existing([lost[0].udid().to_owned()], transport.clone(), caller.clone())
                     .await;
             }
             let disposed = join_all(lost.iter().map(|d| d.dispose_and_join())).await;
@@ -332,7 +417,7 @@ impl SimulatorRecovery {
                         },
                         None,
                     );
-                    return Ok(());
+                    return Ok(Vec::new());
                 }
                 caller
                     .clock
@@ -362,12 +447,64 @@ impl SimulatorRecovery {
                 provider.log(Level::Warn, || format!("Re-provisioning {}", device.serial()), None);
                 udids.push(device.udid().to_owned());
             }
-            provider.provisioner.existing(udids, transport.clone(), caller).await
+            provider
+                .provisioner
+                .existing(udids, transport.clone(), caller.clone())
+                .await
         }
         .await;
-        {
+        // D44: after a worker loss the handle stays disconnected, so without an owner the scan would start again on the
+        // next tick. After the other two nothing would ever set it up again.
+        let (result, failures) = match result {
+            Ok(failures) => (Ok(()), failures),
+            Err(error) if error.is_cancelled() => (Err(error), Vec::new()),
+            Err(error) => {
+                let failures = lost
+                    .iter()
+                    .map(|d| FailedSetup::Existing {
+                        udid: d.udid().to_owned(),
+                        unreachable: false,
+                        refused: false,
+                    })
+                    .collect();
+                (Err(error), failures)
+            }
+        };
+        // Only a replay clock can fail, and then there is no limit to count from.
+        let now = match failures.is_empty() {
+            true => 0,
+            false => provider.services.timing.elapsed().unwrap_or(0),
+        };
+        let failures: Vec<_> = {
             let mut state = provider.state();
             state.recovering.retain(|d| !lost.iter().any(|old| Arc::ptr_eq(d, old)));
+            // In the section that ends `recovering`, so that no scan finds the handle between the two.
+            let failures = failures
+                .into_iter()
+                .filter(|failure| {
+                    let FailedSetup::Existing { udid, .. } = failure else {
+                        return false;
+                    };
+                    let Some(old) = lost.iter().find(|d| d.udid() == udid) else {
+                        return false;
+                    };
+                    let id = apple_id(&old.udid().into(), transport);
+                    // A registration rejected because the simulator left the file or the run is no failed setup.
+                    let parked = state.devices.get(&id).is_some_and(|c| Arc::ptr_eq(&c.handle, old))
+                        && !state.removed.contains(&id)
+                        && !state.exhausted.contains(&id)
+                        && !old.retired();
+                    if parked {
+                        state.parked.push(Parked {
+                            handle: old.clone(),
+                            since: now,
+                            // A90, as below: only a connected loss's predecessor is retained.
+                            retained: loss.is_some() || readded,
+                        });
+                    }
+                    parked
+                })
+                .collect();
             // A90: worker-loss replacement predecessors are not retained by the source.
             if loss.is_some() || readded {
                 for old in lost {
@@ -381,7 +518,8 @@ impl SimulatorRecovery {
                     }
                 }
             }
-        }
+            failures
+        };
         provider
             .isolate(result, || {
                 if readded {
@@ -393,8 +531,76 @@ impl SimulatorRecovery {
                     )
                 }
             })
-            .map_err(ProvisioningError::into_vendor)
+            .map_err(ProvisioningError::into_vendor)?;
+        if let Err(error) = self.hand_over(provider, transport, failures, now, caller).await {
+            provider.log(
+                Level::Error,
+                || {
+                    format!(
+                        "Failed to hand over the recovery of {}",
+                        transport_text(transport, &provider.local_identity)
+                    )
+                },
+                Some(error.failure().clone()),
+            );
+        }
+        Ok(())
     }
+    /// D44: who takes what a worker-loss recovery couldn't set up. An unreachable worker has its connection retry, a
+    /// worker that answered and failed has D33's budget, and a refusal has nobody: asking again changes nothing, and
+    /// repeated failed logins can get marathon's host banned.
+    async fn hand_over(
+        &self,
+        provider: &AppleSimulatorProvider,
+        transport: &Transport,
+        failures: Vec<FailedSetup>,
+        started: i64,
+        caller: VendorContext,
+    ) -> VendorResult<()> {
+        let mut unreachable_targets = Vec::new();
+        let mut failed_targets = Vec::new();
+        for failure in failures {
+            let FailedSetup::Existing {
+                udid,
+                unreachable,
+                refused,
+            } = failure
+            else {
+                continue;
+            };
+            if unreachable {
+                unreachable_targets.push(AppleTarget::Simulator {
+                    udid: udid.as_str().into(),
+                });
+            } else if refused {
+                provider.log(
+                    Level::Error,
+                    || {
+                        format!(
+                            "Simulator {udid} on worker {}: its connection was refused, it stays out of the run",
+                            transport.id().to_string_lossy()
+                        )
+                    },
+                    None,
+                );
+            } else {
+                failed_targets.push(AppleTarget::Simulator {
+                    udid: udid.as_str().into(),
+                });
+            }
+        }
+        if !unreachable_targets.is_empty() {
+            self.missing(transport.clone(), unreachable_targets, started, caller)
+                .await?;
+        }
+        self.schedule_setup_retry(provider, transport, failed_targets, started)
+    }
+}
+fn not_current(state: &State, id: &JavaString, device: &Simulator) -> bool {
+    state
+        .devices
+        .get(id)
+        .is_none_or(|current| !Arc::ptr_eq(&current.handle, device))
 }
 fn duration_millis(duration: jcompat::jtime::Duration) -> VendorResult<i64> {
     duration
@@ -572,6 +778,7 @@ impl ProviderRecovery for SimulatorRecovery {
                 {
                     let state = provider.state();
                     if state.recovering.iter().any(|old| Arc::ptr_eq(old, &d))
+                        || state.parked.iter().any(|p| Arc::ptr_eq(&p.handle, &d))
                         || state.exhausted.contains(&id)
                         || retired
                         || state.removed.contains(&id) && disposed
@@ -586,7 +793,9 @@ impl ProviderRecovery for SimulatorRecovery {
                 let mut state = provider.state();
                 // A replacement still waiting to raise its connect is looked at again on the next tick, so that its
                 // disconnect follows that connect.
-                if state.recovering.iter().any(|old| Arc::ptr_eq(old, &d))
+                // D44: `provider.devices()` is a snapshot, and a replacement may have registered since it was taken.
+                if not_current(&state, &id, &d)
+                    || state.recovering.iter().any(|old| Arc::ptr_eq(old, &d))
                     || state.connecting.iter().any(|pending| Arc::ptr_eq(&pending.handle, &d))
                 {
                     continue;

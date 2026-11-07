@@ -273,6 +273,11 @@ impl AppleSimulatorDevice {
     pub fn disposed(&self) -> bool {
         self.state().disposal.as_ref().is_some_and(|d| d.completed().is_some())
     }
+    /// D44: lost, or on the way out, whether or not its disposal has finished.
+    pub fn leaving(&self) -> bool {
+        let state = self.state();
+        state.lost || state.disposal.is_some()
+    }
     pub fn waiting_since(&self) -> Option<i64> {
         let state = self.state();
         if state.running.is_some() || state.lost || state.retired || state.disposal.is_some() {

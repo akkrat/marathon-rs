@@ -139,6 +139,20 @@ struct PendingConnect {
     handle: Simulator,
     disconnect: bool,
 }
+/// D44: a simulator whose recovery failed. Its old handle stays in the device map and the scan leaves it alone: whoever
+/// got the failure sets it up again, and any planned cycle on its worker may do so.
+struct Parked {
+    handle: Simulator,
+    /// Run time of the failure, or of the devices update that added it back. The worker retry's limit counts from here.
+    since: i64,
+    /// Whether its replacement keeps the old lease for release at termination (A90).
+    retained: bool,
+}
+#[derive(Clone, Copy)]
+struct ParkedOn {
+    since: i64,
+    removed: bool,
+}
 #[derive(Default)]
 struct State {
     connecting: Vec<PendingConnect>,
@@ -146,6 +160,7 @@ struct State {
     removed: IndexSet<JavaString>,
     skipped_removed: IndexSet<JavaString>,
     recovering: Vec<Simulator>,
+    parked: Vec<Parked>,
     exhausted: IndexSet<JavaString>,
     replaced: Vec<Simulator>,
     initialized: bool,
@@ -348,10 +363,18 @@ impl AppleSimulatorProvider {
             }
             state.skipped_removed.shift_remove(&id);
             let previous = state.devices.insert(id.clone(), device.clone());
-            if let Some(previous) = &previous
-                && !state.recovering.iter().any(|d| Arc::ptr_eq(d, &previous.handle))
-            {
-                state.replaced.push(previous.handle.clone());
+            if let Some(previous) = &previous {
+                // A90 also holds for a worker-loss predecessor replaced later, by a retry of its recovery.
+                let parked = state
+                    .parked
+                    .iter()
+                    .find(|p| Arc::ptr_eq(&p.handle, &previous.handle))
+                    .map(|p| p.retained);
+                state.parked.retain(|p| !Arc::ptr_eq(&p.handle, &previous.handle));
+                let recovering = state.recovering.iter().any(|d| Arc::ptr_eq(d, &previous.handle));
+                if parked.unwrap_or(!recovering) {
+                    state.replaced.push(previous.handle.clone());
+                }
             }
             self.services.registry.register(device.handle.clone());
             // A removal that sees this device in the map finds its connect raised, or waiting to be.
@@ -502,7 +525,9 @@ impl AppleSimulatorProvider {
                     ),
                     TrackingUpdate::Connected(target) => {
                         if let AppleTarget::Physical { udid } | AppleTarget::Simulator { udid } = &target {
-                            self.state().removed.shift_remove(&apple_id(udid, &transport));
+                            let id = apple_id(udid, &transport);
+                            self.state().removed.shift_remove(&id);
+                            self.restart_parked(&id)?;
                         }
                         added.push(target);
                     }
@@ -765,6 +790,51 @@ impl AppleSimulatorProvider {
         }
         Ok(unfinished)
     }
+    /// D44: the devices file changed, and that is bounded by its owner, so a simulator added back starts over.
+    fn restart_parked(&self, id: &JavaString) -> ProvisioningResult<()> {
+        if !self.state().parked.iter().any(|p| parked_id(p) == *id) {
+            return Ok(());
+        }
+        let now = self.services.timing.elapsed()?;
+        if let Some(parked) = self.state().parked.iter_mut().find(|p| parked_id(p) == *id) {
+            parked.since = now;
+        }
+        Ok(())
+    }
+    /// D44 (A80): the map keeps a simulator that left or was lost, and a parse on one fails an attempt of the three that
+    /// a run has. As Android's D24: only what can take work now, and a healthy run's keys are all of them, in map order.
+    fn borrowable(&self) -> IndexMap<JavaString, ConstructedSimulator<Simulator>> {
+        let mut devices = self.state().devices.clone();
+        // Outside the lock: an executor's connected check can suspend its caller in the source.
+        devices.retain(|_, d| d.handle.connected() && !d.handle.retired() && !d.handle.leaving());
+        let state = self.state();
+        devices.retain(|id, d| {
+            !state.removed.contains(id)
+                && !state.exhausted.contains(id)
+                && !state.recovering.iter().any(|old| Arc::ptr_eq(old, &d.handle))
+                && !state.parked.iter().any(|p| Arc::ptr_eq(&p.handle, &d.handle))
+        });
+        devices
+    }
+    fn parked_on(&self, transport: &Transport) -> IndexMap<JavaString, ParkedOn> {
+        let state = self.state();
+        state
+            .parked
+            .iter()
+            .filter(|p| p.handle.transport() == transport)
+            .map(|p| {
+                let id = parked_id(p);
+                let removed = state.removed.contains(&id);
+                (
+                    id,
+                    ParkedOn {
+                        since: p.since,
+                        removed,
+                    },
+                )
+            })
+            .collect()
+    }
     pub fn current(&self, transport: &Transport) -> ProvisioningResult<CurrentDevices> {
         let mut current = CurrentDevices {
             eligible_disposed: Vec::new(),
@@ -772,10 +842,11 @@ impl AppleSimulatorProvider {
         };
         for device in self.devices().into_iter().filter(|d| d.handle.transport() == transport) {
             let id = apple_id(&device.handle.udid().into(), transport);
-            let eligible = device.handle.disposed() && device.handle.connected() && !device.handle.retired();
-            let eligible = eligible && {
+            let free = device.handle.disposed() && device.handle.connected();
+            let eligible = !device.handle.retired() && {
                 let state = self.state();
-                !state.recovering.iter().any(|d| Arc::ptr_eq(d, &device.handle))
+                (free || state.parked.iter().any(|p| Arc::ptr_eq(&p.handle, &device.handle)))
+                    && !state.recovering.iter().any(|d| Arc::ptr_eq(d, &device.handle))
                     && !state.exhausted.contains(&id)
                     && !state.removed.contains(&id)
                     && state.devices.get(&id).is_some_and(|d| d.device == device.device)
@@ -944,7 +1015,7 @@ impl DeviceProvider for AppleSimulatorProvider {
             let this = self.this()?;
             self.dispatch(async move {
                 loop {
-                    let devices = this.state().devices.clone();
+                    let devices = this.borrowable();
                     if !devices.is_empty() {
                         let keys: Vec<_> = devices.keys().cloned().collect();
                         let key = caller
@@ -989,6 +1060,9 @@ impl DeviceProvider for AppleSimulatorProvider {
             done.wait().await.map(|_| ())
         })
     }
+}
+fn parked_id(parked: &Parked) -> JavaString {
+    apple_id(&parked.handle.udid().into(), parked.handle.transport())
 }
 pub fn apple_id(udid: &JavaString, transport: &Transport) -> JavaString {
     let mut id = udid.clone();

@@ -262,6 +262,127 @@ fn cutoff_crossed_during_real_prepare_leaves_the_pool_without_requesting_a_first
 }
 
 /// D33 through the core scheduler: every device fails, whichever way its retries are going.
+/// D44, through the real scheduler and pool: the worker answers, the re-provisioning fails once and the retry works. The
+/// pool gets one replacement while another device keeps it open. `simulator_reconnect_limit.rs` counts the disconnects.
+#[test]
+fn a_re_provisioning_that_fails_once_gives_the_pool_exactly_one_replacement() -> TestResult {
+    const PAUSE: i64 = 50;
+    let mut p = recovery_support::RecoveryHarness::settings(|_| {}, 3, PAUSE)?;
+    let peer_transport = support::worker("peer");
+    let peer = p.base.worker(peer_transport.clone(), &["b"]);
+    std::fs::write(
+        p.h().dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n- transport: {type: ssh, addr: peer}\n  devices: [{type: simulator, udid: b}]\n",
+    )?;
+    CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            p.base.h.services.runtime = core.vendor();
+            let provider = AppleSimulatorProvider::new(provider_support::ProviderHarness::services(
+                p.h(),
+                p.connections.clone(),
+                SimulatorRecovery::with_recovery_settings(3, PAUSE),
+            ))
+            .map_err(|e| e.failure())?;
+            let gate = SharedDeferred::new();
+            let script = Arc::new(BatchScript::default());
+            *script.plan.lock().unwrap() = OutputPlan {
+                hang: true,
+                close_gate: Some(gate.clone()),
+                ..Default::default()
+            };
+            script.attach(&p.h().worker);
+            script.attach(&peer);
+            let fresh = p.base.worker(Transport::Local, &["a"]);
+            script.attach(&fresh);
+            let boot = p.h().boot.clone();
+            let failures = Arc::new(std::sync::atomic::AtomicUsize::new(1));
+            *fresh.before.lock().unwrap() = Arc::new(move |c| {
+                let answer = boot.answer(&c);
+                let fail = c.last().is_some_and(|s| s == "HOME")
+                    && failures
+                        .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .is_ok();
+                Box::pin(async move {
+                    if fail {
+                        Err(support::error("setup failed"))
+                    } else {
+                        Ok(answer)
+                    }
+                })
+            });
+            provider
+                .initialize(p.h().services.context.clone())
+                .await
+                .map_err(|e| e.failure().clone())?;
+            let hooks = RuntimeHooks::live();
+            let parent = core.job(JobKind::Supervisor, None);
+            let tracker = Arc::new(pool_support::RecordingTracker::default());
+            let scheduler = Rc::new(Scheduler::new(SchedulerParts {
+                core: core.clone(),
+                provider: provider.clone(),
+                analytics: Arc::new(Analytics::from_lookup(Arc::new(pool_support::NoMetrics))),
+                configuration: p.h().services.configuration.clone(),
+                shard: TestShard {
+                    tests: tests(),
+                    flaky_tests: vec![],
+                },
+                tracker: tracker.clone(),
+                timer: p.h().services.timer.clone(),
+                bundle_identifier: Some(p.h().services.identifier.clone()),
+                hooks: hooks.clone(),
+                barriers: hooks.barriers(),
+                ci: Ci::None,
+                output: OutputDriver {
+                    vendor: core.vendor(),
+                    sink: Arc::new(pool_support::NullSink),
+                },
+                context: core.context(parent.clone()),
+            }));
+            let running = scheduler.clone();
+            core.spawn(
+                parent.clone(),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        let _ = running.execute().await;
+                        Ok(())
+                    })
+                }),
+            );
+            let context = core.context(parent.clone());
+            let wait = |millis| {
+                let c = context.clone();
+                async move { c.clock.delay(millis, c.job).await }
+            };
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while tracker.connected.lock().unwrap().len() < 2 {
+                assert!(std::time::Instant::now() < deadline);
+                wait(5).await?;
+            }
+            *p.base.connections.workers.lock().unwrap() = vec![
+                (Transport::Local, fresh.clone()),
+                (peer_transport.clone(), peer.clone()),
+            ];
+            p.h().worker.connected.store(false, Ordering::SeqCst);
+            // A batch on the lost connection comes back only when its session closes.
+            gate.complete(Ok(()));
+            while tracker.connected.lock().unwrap().len() < 3 {
+                assert!(std::time::Instant::now() < deadline);
+                wait(5).await?;
+            }
+            // Past every retry the budget has left: another setup or actor would show by then.
+            wait(PAUSE * 8).await?;
+            assert_eq!(tracker.connected.lock().unwrap().len(), 3);
+            assert_eq!(provider_support::home(&fresh, "a"), 2);
+            assert_eq!(scheduler.pools().len(), 1);
+            provider.terminate().await.map_err(|e| e.failure().clone())?;
+            parent.cancel(requested("test finished"));
+            let _ = parent.join().await;
+            Ok(())
+        })
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
 fn no_devices_with_failing_setups(pause: i64, finished_retries: bool) -> TestResult {
     const TIMEOUT: i64 = 300;
     let mut p = recovery_support::RecoveryHarness::settings(|_| {}, 3, pause)?;

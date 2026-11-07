@@ -37,6 +37,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - **A forced command or filter on an iOS worker must allow `xcrun simctl spawn <udid> launchctl print user/foreground`** (D46),
   the readiness probe of iOS 18 and later, where it was `launchctl dumpstate user/foreground/com.apple.SpringBoard`. iOS 16 and
   17 still send `dumpstate`.
+- **A lost iOS worker has a limit now** (D44). A simulator whose worker stays down is no longer tried every 16 ms until the run
+  ends: it is tried at `workerConnection`'s pace for `lateJoinCutoff` (600 s) after the first failure, and then stays out. With
+  `attempts: 1` and `lateJoin: false` it gets one try. Set `lateJoinCutoff: 0` to wait until the run ends.
 - **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
   report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the
   background. Key authentication has always behaved this way.
@@ -68,6 +71,11 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   is retried instead of returning only the tests found so far, which could give a passing run with tests missing (D25).
 - A remote parse whose instrumentation fails before it has listed every test it announced is retried, and fails the run with
   the reason if it keeps failing. A failing exit code on a complete list is still accepted (D42).
+- A failed re-provisioning of an iOS simulator is retried instead of being final, whether its worker was lost, it was lost with
+  its connection up or it was added back. A refused connection is not retried, and a simulator that was in the run can return
+  after the late-join cut-off (D44).
+- Remote parsing on iOS no longer gets a removed, lost or disposed simulator, which could use up its attempts and fail the
+  run at the start. It waits for one that can work (D44).
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
 - In a batch that mixes test APKs, each instrumentation runs only its own tests, the batch reports one result, and a test
   that a later instrumentation did not report no longer carries an earlier one's failure text (D28, U151).
@@ -190,8 +198,6 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A stalled rsync send costs 300 s, and a failed install is retried, so one simulator can spend about 7.6 hours on a worker
   that never answers, and N simulators on one worker about N times that. With the default keep-alive a dead link still costs
   about 1.6 hours per simulator. Another worker that finishes the queue ends the run. Kotlin waits for ever (D31, U163).
-- A registered iOS simulator whose connection is lost is reconnected every 16 ms with no limit until the run ends. Kotlin does
-  the same (D36, U164).
 - A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
   On the last device the run ends after about 6 to 13 minutes plus D48's wait, with "remaining tests will not run". If only the probe hangs and
   needs KILL it takes about 33 minutes, and if every command hangs about 50 (D38).

@@ -29,6 +29,16 @@ impl PendingWorker {
             Some(std::mem::take(&mut state.1))
         }
     }
+    /// D44: keeps what a retry still works for. A worker left with nothing takes no more offers, so that a later one
+    /// starts a retry of its own rather than joining one that is ending.
+    pub fn retain(&self, keep: impl FnMut(&AppleTarget) -> bool) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.1.retain(keep);
+        if state.1.is_empty() {
+            state.0 = false;
+        }
+        !state.1.is_empty()
+    }
     pub fn close(&self) {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).0 = false;
     }

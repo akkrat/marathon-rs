@@ -58,28 +58,30 @@ async fn dynamic() -> TestResult<(ProviderHarness, TcpStream)> {
     Ok((p, socket))
 }
 #[tokio::test(start_paused = true)]
-async fn a80_borrow_returns_the_same_removed_disposed_allocation() -> TestResult {
+async fn a80_borrow_waits_instead_of_returning_a_removed_disposed_allocation_d44() -> TestResult {
     let p = ProviderHarness::new(|_| {})?;
     p.update(&["a"]).await?;
     let device = p.connected(1).await.remove(0);
     p.update(&[]).await?;
-    let borrowed = p
-        .provider
-        .borrow(p.h.services.context.clone())
-        .await
-        .map_err(test_error)?;
-    assert!(Arc::ptr_eq(&borrowed.0, &(device.clone() as Arc<dyn Device>)));
     assert_eq!(
         device.disposed(),
         fixture("A80-stale-borrow")["disposed"].as_bool().unwrap()
     );
+    // The JVM recording stays as the witness of what Kotlin returned here.
     assert!(fixture("A80-stale-borrow")["same"].as_bool().unwrap());
+    let provider = p.provider.clone();
+    let caller = p.h.services.context.clone();
+    let borrowed = tokio::spawn(async move { provider.borrow(caller).await });
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    assert!(!borrowed.is_finished());
     assert!(matches!(
         p.provider.subscribe().receive().await.map_err(test_error)?,
         Some(marathon_core::vendor::DeviceEvent::Disconnected(_))
     ));
     p.update(&["a"]).await?;
     let replacement = p.connected(1).await.remove(0);
+    let reference = support::watchdog(borrowed).await?.map_err(test_error)?;
+    assert!(Arc::ptr_eq(&reference.0, &(replacement.clone() as Arc<dyn Device>)));
     assert!(!Arc::ptr_eq(&device, &replacement));
     assert_eq!(p.connections.acquired.load(Ordering::SeqCst), 4);
     assert_eq!(p.connections.released.load(Ordering::SeqCst), 2);

@@ -505,17 +505,15 @@ log says so, and marathon handles the device as it does any lost connection: on 
 the device leaves the run. Using a live connection after marathon
 closed it is still an `IllegalStateException`.
 
-**Known limit: the iOS reconnect has no end.** Every 16 ms the provider looks for lost simulators and starts a recovery for
-each one that is not already being recovered. After a lost connection that recovery has no attempt limit, so a registered
-simulator whose worker stays down is tried again for as long as the run lasts, each attempt as long as its own connect takes.
-The configured retry limits apply only to a simulator lost while its connection stays up. Kotlin has the same shape
-([A101](known-kotlin-bugs.md), [U164](found-bugs.md)).
+**The iOS reconnect has a limit** since [D44](#d44--a-lost-simulators-reconnect-has-a-limit). A worker that drops each
+connection after login counts as unreachable, so it is tried at `workerConnection`'s pace and for as long as D44 says, not
+every 16 ms.
 
 Approved 2026-11-06 (project owner's decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A17](known-kotlin-bugs.md) and the [x16 findings](wp/x16-findings.md).
 
-**Migration action:** none. If a worker keeps dropping connections after login, look at the worker; an iOS run keeps reconnecting to it until the run ends.
+**Migration action:** none. If a worker keeps dropping connections after login, look at the worker; an iOS run tries it as [D44](#d44--a-lost-simulators-reconnect-has-a-limit) describes.
 
 ## D37 — One unread output stream no longer kills the connection
 
@@ -663,6 +661,54 @@ the batch runner's handling of the same endings. Approved 2026-11-07 (project ow
 [x20 findings](wp/x20-findings.md).
 
 **Migration action:** none for a normal test APK. A custom runner that stops listing its tests early and exits with a failing code now fails the run with its text, where it used to run the tests it had listed.
+
+## D44 — A lost simulator's reconnect has a limit
+
+In Kotlin a registered simulator whose connection is lost is tried again every 16 ms until the run ends, and the failure of
+each attempt is thrown away. Repeated failed logins can trip fail2ban or sshd's penalties. Native builds try once at once,
+as Kotlin does, and then hand the simulator to whoever the failure belongs to:
+
+| The re-provisioning… | What happens | Limit, with the defaults |
+|---|---|---|
+| can't reach the worker, or the connection drops right after login | The worker connection retry | One attempt per worker at 10, 30 and 90 s, then one a minute, 11 in all, up to 600 s after the first failure |
+| fails with the worker answering | [D33](#d33--a-simulator-whose-setup-failed-is-set-up-again)'s budget, shared with any other failed setup of that simulator | Three retries in the run, 30, 60 and 90 s after each failure |
+| is refused (authentication, [D35](#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | Nothing, and an error says so | No retry |
+
+This applies to every failed re-provisioning: after a lost worker, after a simulator lost with its connection up, and after
+one added back to the devices file. In Kotlin those last two were final. A worker attempt can make up to four connections,
+so a worker that stays down costs at most one attempt a minute, or 4 connections, once the first pauses are over, where it
+used to cost up to about 3,750 attempts a minute per simulator.
+
+A simulator that was already in the run is not a late joiner, so the late-join cut-off doesn't stop its return: a worker lost
+an hour into a run can still come back. It gets its own limit of `lateJoinCutoff`, counted from the first failure, and
+`lateJoinCutoff: 0` means no limit, so the end of the run ends it. Other settings work as they do for any worker:
+`lateJoin: false` stops after `attempts`, and `attempts: 1` with `lateJoin: false` leaves only the first attempt. After the
+limit an error line says the simulator stays out of the run.
+
+The old device raises one disconnect, where Kotlin raised one per attempt, and a worker that comes back gives one
+connect and one actor per simulator. Termination cancels a retry that is waiting.
+
+**What stays final.** These stay out until a devices update removes the simulator and adds it back, or another planned setup
+on its worker picks it up: a refused connection, a spent D33 budget, a worker retry at its limit, and a non-transient error
+in that retry. These stay out for the run in any case: a simulator lost more than three times with its connection up, one
+retired because its session didn't close or was abandoned ([D30](#d30--closing-an-ssh-session-has-a-limit)), and a late
+joiner denied admission at the cut-off.
+
+**Not limited:** a connection that keeps dropping after setup succeeds. Each round is a full setup, so its pace is the time
+that takes, and a successful recovery has no count, since a worker may reboot more than once in a long run.
+
+**Remote parsing's `borrow`.** Kotlin picks at random from a map that keeps removed and disposed simulators, so a parse could
+get one and use up one of its three attempts. Native builds pick only a simulator that is connected and neither removed,
+lost, on its way out nor waiting to be set up again. With none, `borrow` waits, and `deviceInitializationTimeoutMillis`
+bounds that as for no devices at all, as [D24](#d24--a-lost-android-device-stays-out-of-use-and-says-so) does on Android. A
+healthy run sees the same choice. macOS has no change.
+
+Approved 2026-11-07 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A101 and A80](known-kotlin-bugs.md), [U164](found-bugs.md) and the [x27 findings](wp/x27-findings.md).
+
+**Migration action:** with `attempts: 1` and `lateJoin: false`, a simulator whose worker drops now stays out after one failed
+reconnect; it used to return whenever the worker did. To keep waiting, leave `lateJoin` on, and set `lateJoinCutoff: 0` to
+wait until the run ends.
 
 ## D45 — A hung test is a failure, however its allowance is printed
 

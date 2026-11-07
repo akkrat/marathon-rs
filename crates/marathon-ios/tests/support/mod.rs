@@ -595,6 +595,7 @@ impl Harness {
                 self.context.clone(),
             )
             .await
+            .map(|_| ())
     }
     pub fn registered(&self) -> usize {
         self.registrations.lock().unwrap().len()

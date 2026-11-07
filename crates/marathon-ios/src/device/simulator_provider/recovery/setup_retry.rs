@@ -58,8 +58,8 @@ fn label(target: &AppleTarget) -> String {
         target => target_id(target).to_string_lossy(),
     }
 }
-/// Whether this target still needs setting up. A registered simulator belongs to its recovery unless it is disposed
-/// and free to be set up again, and one that left the devices file is gone.
+/// Whether this target still needs setting up. A registered simulator belongs to its recovery unless it is free to be
+/// set up again, or its recovery failed and handed it over (D44), and one that left the devices file is gone.
 fn wanted(
     provider: &AppleSimulatorProvider,
     transport: &Transport,
@@ -257,12 +257,29 @@ impl SimulatorRecovery {
             if due.is_empty() {
                 continue;
             }
-            if self.cutoff(provider, transport)? {
+            let due = self.not_past_cutoff(provider, transport, due)?;
+            if due.is_empty() {
                 continue;
             }
             self.setup_retry_attempt(provider, transport, due, started, caller)
                 .await?;
         }
+    }
+    /// D44: a simulator returning to the run isn't late, and this retry's budget bounds it anyway.
+    fn not_past_cutoff(
+        &self,
+        provider: &AppleSimulatorProvider,
+        transport: &Transport,
+        due: Vec<Waiting>,
+    ) -> VendorResult<Vec<Waiting>> {
+        let Some(reason) = self.late_join_cutoff()? else {
+            return Ok(due);
+        };
+        let returning = self.returning(provider, transport);
+        let total = due.len();
+        let due: Vec<_> = due.into_iter().filter(|w| returning.contains_key(&w.key)).collect();
+        self.log_late(provider, transport, &reason, total - due.len(), !due.is_empty());
+        Ok(due)
     }
     async fn setup_retry_attempt(
         &self,
