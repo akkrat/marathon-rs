@@ -118,3 +118,11 @@ No new bug in our own code. Seen nearby and left alone:
 - **A failing bundle lookup loses more polled tests.** When `identify` fails, the tests already polled are lost with the
   error, as in Kotlin, because rejected ones are only re-added at the end. D50 raises the most that can be polled from `size`
   to 3 × `size`. The error reaches the queue actor as it did before.
+
+## Review
+
+A second-model review, by reading the code and a throwaway property test over 3000 random queues (duplicates, null and mixed bundles, ties, a duration limit, `lastMileLength`): no lost, duplicated or starved test, within 3 x `size` polls per batch, and the union of all batches equal to the original. Notes, none blocking:
+
+- The tests a failed `identify` drops are up to 3 x `size` now, against `size`, silently as in Kotlin. Its only realistic trigger, a test missing from the bundle map, ends the queue actor anyway, so re-adding them would restore tests nothing can poll. The real bug is the dead queue, recorded separately.
+- For the 7 allowed rows, D50's own batches are only asserted to differ from the recording, and one row pins its first batch. A wrong result on the other six would pass this test, though not the property checks.
+- The `queue_oracle` row replays a size-3 recording at `fixed-size:2` for 8 steps. It witnesses heap, comparison and outcome behaviour, not C33 at size 3.
