@@ -223,7 +223,12 @@ fn cutoff_crossed_during_real_prepare_leaves_the_pool_without_requesting_a_first
                 core: core.clone(),
                 provider: provider.clone(),
                 analytics: Arc::new(Analytics::from_lookup(Arc::new(pool_support::NoMetrics))),
-                configuration: p.h().services.configuration.clone(),
+                // D48: the pool that lost its only device waits for nothing here, so not the default 180 s on a real clock.
+                configuration: {
+                    let mut configuration = (*p.h().services.configuration).clone();
+                    configuration.device_initialization_timeout_millis = 200;
+                    Arc::new(configuration)
+                },
                 shard: TestShard {
                     tests: tests(),
                     flaky_tests: vec![],
