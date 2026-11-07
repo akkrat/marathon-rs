@@ -411,6 +411,13 @@ warning says those metrics are lost. The end of a run no longer stops at the fir
 log. A run whose filters removed every test still exits 0, and now logs an error line with what each filter removed. See
 [D51](deviations.md#d51--metrics-and-cleanup-failures-do-not-stop-a-run).
 
+## Cancelling a run
+
+SIGINT or SIGTERM now writes the reports and terminates the provider whatever `debug` says, in at most 25 s, and a second signal
+exits at once. The exit codes are still 130 and 143. A cancelled run's output directory now holds reports with the results so
+far, so read the exit code to tell whether a run finished. A harness that waits less than 25 s for the exit should allow for it.
+See [D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit).
+
 ## Trial and rollback
 
 Retain the previous executable and its configuration, inputs and state snapshots.

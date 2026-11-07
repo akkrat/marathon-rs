@@ -35,6 +35,17 @@ pub const TIMINGS: &str = "Timings";
 const NO_DEVICES: &str = "com.malinskiy.marathon.exceptions.NoDevicesException";
 const NO_TESTS: &str = "com.malinskiy.marathon.exceptions.NoTestCasesFoundException";
 
+/// D52: what a cancelled run gets before it exits, whatever is still running. A CI's grace between SIGTERM and SIGKILL is
+/// often 10 to 30 s. Reports come first, so a shorter grace costs cleanup and not results, and this stays under the
+/// longer one. It leaves room for D30's TERM, its 20 s and the KILL of a session the cancellation closed at the start.
+pub const CANCEL_LIMIT_MILLIS: i64 = 24_000;
+/// D52: how long one flush may hold a cancelled run, for a console that has stopped reading. The last flush comes after
+/// the limit above, so 25 s in all.
+pub const CANCEL_FLUSH_MILLIS: i64 = 1_000;
+/// D52: how long a cancelled run's cleanup waits for the reports. They keep going after this, but a stuck backend's close,
+/// which comes after the report files, must not use up the time for the provider.
+pub const CANCEL_REPORTS_HEAD_START_MILLIS: i64 = 10_000;
+
 /// `TimingLog.info(timer) { message }`'s text: the message, then the time since start.
 pub fn timing_message(message: &str, timer: &dyn crate::time::Timer) -> crate::time::ClockResult<JavaString> {
     let elapsed = timer.elapsed_time_millis()?;
@@ -109,6 +120,9 @@ pub fn signal_ignored(number: i32) -> bool {
 /// keeps its default disposition, while one that succeeded is still relayed (tokio keeps a
 /// registered handler, so abandoning its stream would swallow the signal). A signal the
 /// process started with ignored is not registered at all and stays ignored, as on HotSpot.
+///
+/// D52: after the first signal the listener keeps listening, off core, and a second one exits at once. The hook is
+/// not asked to run again, so nothing is done twice; whatever it has not done by then is lost.
 pub struct SignalRelay {
     signal: Arc<SharedDeferred<i32>>,
     source: Option<Arc<dyn VendorRuntime>>,
@@ -150,18 +164,21 @@ impl SignalRelay {
             .clone()
             .unwrap_or_else(|| Arc::new(tokio_registration));
         let ready = self.hooks.ready.clone();
+        let exit = self.exit.clone();
         let listener = vendor.spawn_cancellable(Box::new(move |cancelled| {
             Box::pin(async move {
-                let receipts: Vec<_> = [2, 15]
-                    .into_iter()
-                    .filter(|&number| !signal_ignored(number))
-                    .filter_map(|number| {
+                let numbered =
+                    |number: i32| -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = i32> + Send>>> {
                         let receipt = registration(number).ok()?;
                         Some(Box::pin(async move {
                             receipt.await;
                             number
                         }))
-                    })
+                    };
+                let receipts: Vec<_> = [2, 15]
+                    .into_iter()
+                    .filter(|&number| !signal_ignored(number))
+                    .filter_map(numbered)
                     .collect();
                 if let Some(ready) = ready {
                     ready();
@@ -169,8 +186,19 @@ impl SignalRelay {
                 if receipts.is_empty() {
                     return Ok(());
                 }
+                let (number, mut receipts) = tokio::select! {
+                    (number, _, rest) = futures_util::future::select_all(receipts) => (number, rest),
+                    _ = cancelled.cancelled() => return Ok(()),
+                };
+                output.complete(Ok(number));
+                // A receipt completes once, so the signal that fired needs a new one. Tokio's handler stays
+                // installed meanwhile: a repeat in this instant is the only one that goes unnoticed.
+                receipts.extend(numbered(number));
+                if receipts.is_empty() {
+                    return Ok(());
+                }
                 tokio::select! {
-                    (number, _, _) = futures_util::future::select_all(receipts) => { output.complete(Ok(number)); }
+                    (number, _, _) = futures_util::future::select_all(receipts) => exit(128 + number),
                     _ = cancelled.cancelled() => {}
                 }
                 Ok(())
@@ -185,28 +213,63 @@ impl SignalRelay {
             listener.cancel(requested("run finished"));
         }
     }
+    fn fired(&self) -> bool {
+        self.signal.completed().is_some()
+    }
 }
 
-/// `ShutdownHook`: only `debug: true` installs it (C10). Installation and removal cannot
-/// fail natively, so the swallowed IllegalStateException/SecurityException paths are gone
-/// (P3); `uninstall` returns true as after a nonthrowing `removeShutdownHook`.
+/// `ShutdownHook`. D52: installed whatever `debug` says; Kotlin installs it only with `debug: true` (C10). Installation
+/// and removal cannot fail natively, so the swallowed IllegalStateException/SecurityException paths are gone (P3);
+/// `uninstall` returns true as after a nonthrowing `removeShutdownHook`.
 struct ShutdownHook {
-    debug: bool,
     installed: Rc<Cell<bool>>,
 }
 impl ShutdownHook {
     fn install(&self) {
-        if self.debug {
-            self.installed.set(true);
-        }
+        self.installed.set(true);
     }
     fn uninstall(&self) -> bool {
-        if self.debug {
-            self.installed.set(false);
-        }
+        self.installed.set(false);
         true
     }
 }
+
+/// The steps at the end of a run, each of which runs once.
+#[derive(Clone, Copy)]
+enum FinishStep {
+    Analytics,
+    Provider,
+    Reports,
+    Usage,
+}
+impl FinishStep {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Analytics => "Closing the analytics history",
+            Self::Provider => "Terminating the device provider",
+            Self::Reports => "Closing the reports and tracker",
+            Self::Usage => "Closing the usage tracker",
+        }
+    }
+}
+#[derive(Default)]
+struct StepState {
+    started: Cell<bool>,
+    done: SharedDeferred<()>,
+}
+/// D52: a signal can arrive while the run is in the middle of its own `on_finish`, so the two share these. Whichever gets
+/// to a step first runs it, and the other waits for it, so nothing runs twice and the signal's order still holds for
+/// what is left: with the run in a slow provider termination, the signal writes the reports now.
+#[derive(Default)]
+struct FinishSteps {
+    analytics: StepState,
+    provider: StepState,
+    reports: StepState,
+    usage: StepState,
+}
+
+/// The relay, the job its task runs under, and that task.
+type RunningRelay = (Rc<SignalRelay>, JobRef, JobRef);
 
 pub struct Marathon {
     deps: RunDependencies,
@@ -215,6 +278,12 @@ pub struct Marathon {
     /// `cleanedUp`: one core thread, so a Cell is the AtomicBoolean.
     cleaned_up: Cell<bool>,
     hook_installed: Rc<Cell<bool>>,
+    steps: FinishSteps,
+    /// D52: the output directory is this run's, wiped and ready for reports.
+    output_ready: Cell<bool>,
+    /// D52: what a signal stops, as soon as there is something to stop.
+    run_job: RefCell<Option<JobRef>>,
+    scheduler_job: RefCell<Option<JobRef>>,
     /// First failure of a live pump's write, left for the next serial flush to report.
     pump_error: PumpErrors,
 }
@@ -253,6 +322,10 @@ impl Marathon {
             validator: LogicalConfigurationValidator,
             cleaned_up: Cell::new(false),
             hook_installed: Rc::new(Cell::new(false)),
+            steps: FinishSteps::default(),
+            output_ready: Cell::new(false),
+            run_job: RefCell::new(None),
+            scheduler_job: RefCell::new(None),
             pump_error: PumpErrors::default(),
         })
     }
@@ -262,7 +335,7 @@ impl Marathon {
     pub fn services(&self) -> &RunServices {
         &self.services
     }
-    /// Whether the debug-only shutdown hook is currently installed (C10).
+    /// Whether the shutdown hook is currently installed (D52, C10).
     pub fn hook_installed(&self) -> bool {
         self.hook_installed.get()
     }
@@ -517,8 +590,15 @@ impl Marathon {
             output: self.services.output.clone(),
             context: task.clone(),
         });
+        *self.scheduler_job.borrow_mut() = Some(scheduler.job());
 
+        // D52: a signal may have stopped this run while it was in a call that ignores cancellation, and the wipe would
+        // take the last run's reports with it for nothing.
+        if let Some(reason) = task.job.cancellation_signal().reason() {
+            return Err(VendorError::Cancelled(reason));
+        }
         self.wipe_output_dir().await?;
+        self.output_ready.set(true);
 
         self.timing(|| Ok(format!("Scheduling {} tests", parsed_filtered_tests.len())))?;
         self.flush(task.job.cancellation_signal()).await?;
@@ -742,7 +822,7 @@ impl Marathon {
 
     /// `onFinish`: the guard is set first, so a later finish attempt is a no-op even if this one
     /// failed (C25). Unlike Kotlin, a failing step doesn't skip the later ones (D51). D1 keeps the
-    /// usage slot as a no-op.
+    /// usage slot as a no-op. A signal finishes in its own order instead: see `finish_cancelled`.
     async fn on_finish(&self, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
         if self.cleaned_up.replace(true) {
             return Ok(());
@@ -751,45 +831,143 @@ impl Marathon {
         // Console order: records logged so far precede the reporters' stdout summary.
         let flushed = self.flush(cancellation.clone()).await;
         self.finish_step(&mut first, "Console output", flushed)?;
-        let vendor = self.services.core.vendor();
-        let analytics = self.deps.analytics.clone();
-        let closed = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
-            Box::pin(async move {
-                crate::wiring::MetricsProvider::close(analytics.as_ref())
-                    .await
-                    .map_err(vendor_error)
-            })
-        })
-        .await;
-        self.finish_step(&mut first, "Closing the analytics history", closed)?;
-        let provider = self.deps.provider.clone();
-        let terminated = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
-            Box::pin(async move { provider.terminate().await })
-        })
-        .await;
-        self.finish_step(&mut first, "Terminating the device provider", terminated)?;
+        for step in [FinishStep::Analytics, FinishStep::Provider] {
+            let result = self.run_step(step, cancellation.clone()).await;
+            self.finish_step(&mut first, step.label(), result)?;
+        }
         // Termination logs are enqueued by vendor tasks. Kotlin prints them
         // synchronously before Allure and the stdout summary close.
         let flushed = self.flush(cancellation.clone()).await;
         self.finish_step(&mut first, "Console output", flushed)?;
-        let reports = self.deps.reports.clone();
-        let closed = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
-            Box::pin(async move { reports.close().await.map_err(vendor_error) })
-        })
-        .await;
-        self.finish_step(&mut first, "Closing the reports and tracker", closed)?;
-        let usage = self.deps.usage.clone();
-        let closed = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
-            Box::pin(async move { usage.close().await })
-        })
-        .await;
-        self.finish_step(&mut first, "Closing the usage tracker", closed)?;
+        for step in [FinishStep::Reports, FinishStep::Usage] {
+            let result = self.run_step(step, cancellation.clone()).await;
+            self.finish_step(&mut first, step.label(), result)?;
+        }
         let flushed = self.flush(cancellation).await;
         self.finish_step(&mut first, "Console output", flushed)?;
         first.map_or(Ok(()), Err)
     }
 
-    /// `run`: install the debug-only hook, run, uninstall only after a successful return.
+    /// One step, or if it has started already, the wait for it. The caller that ran it gets its result and reports it.
+    async fn run_step(&self, step: FinishStep, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
+        let steps = &self.steps;
+        let state = match step {
+            FinishStep::Analytics => &steps.analytics,
+            FinishStep::Provider => &steps.provider,
+            FinishStep::Reports => &steps.reports,
+            FinishStep::Usage => &steps.usage,
+        };
+        if state.started.replace(true) {
+            let _ = state.done.wait_in(Signal::new()).await;
+            return Ok(());
+        }
+        let vendor = self.services.core.vendor();
+        let result = match step {
+            FinishStep::Analytics => {
+                let analytics = self.deps.analytics.clone();
+                call_vendor(vendor.as_ref(), cancellation, move |_| {
+                    Box::pin(async move {
+                        crate::wiring::MetricsProvider::close(analytics.as_ref())
+                            .await
+                            .map_err(vendor_error)
+                    })
+                })
+                .await
+            }
+            FinishStep::Provider => {
+                let provider = self.deps.provider.clone();
+                call_vendor(vendor.as_ref(), cancellation, move |_| {
+                    Box::pin(async move { provider.terminate().await })
+                })
+                .await
+            }
+            FinishStep::Reports => {
+                let reports = self.deps.reports.clone();
+                call_vendor(vendor.as_ref(), cancellation, move |_| {
+                    Box::pin(async move { reports.close().await.map_err(vendor_error) })
+                })
+                .await
+            }
+            FinishStep::Usage => {
+                let usage = self.deps.usage.clone();
+                call_vendor(vendor.as_ref(), cancellation, move |_| {
+                    Box::pin(async move { usage.close().await })
+                })
+                .await
+            }
+        };
+        state.done.complete(Ok(()));
+        result
+    }
+
+    /// A step of a cancelled run: its own task, so that a slow one holds up nothing else.
+    fn spawn_step(self: &Rc<Self>, step: FinishStep) -> JobRef {
+        let marathon = self.clone();
+        self.services.core.spawn_cleanup(Box::new(move |_| {
+            Box::pin(async move {
+                let result = marathon.run_step(step, Signal::new()).await;
+                let _ = marathon.finish_step(&mut None, step.label(), result);
+                Ok(())
+            })
+        }))
+    }
+
+    /// D52, and what makes a finish safe here (U161): the actors stop before anything closes. Left running, they'd hand
+    /// out tests to a closed adb client, whose batches end at once and quietly (N19), in a loop that takes no time and
+    /// adds INCOMPLETE results to the reports. With the queue gone, a test in flight can't be recorded behind the
+    /// reports' back either (A99). Cancelling also starts closing what the batches in flight have open.
+    fn stop_execution(&self, reason: &str) {
+        // Out of the cells first: a cancel can complete a job, and run what it left behind, right here.
+        let jobs = [self.scheduler_job.borrow().clone(), self.run_job.borrow().clone()];
+        for job in jobs.into_iter().flatten() {
+            job.cancel(requested(reason));
+        }
+    }
+
+    /// D52: a cancel writes what it can. The reports go first and the rest side by side after them, the opposite of
+    /// `on_finish`'s order, since CI may kill the process at any moment and results are what can't be had again. An
+    /// outer timer bounds all this: a limit built on cancellation would stop the steps (`finish_step`).
+    ///
+    /// Reports wait for a run that has wiped its output directory. Before that there are no results, and the directory
+    /// still holds the last run's reports, which empty ones would overwrite. Kotlin's hook overwrites them.
+    async fn finish_cancelled(self: &Rc<Self>, number: i32, task: &TaskContext) {
+        // At ERROR because this logger shows nothing below that without `debug: true`, and the line must reach a CI log.
+        self.log(
+            LOGGER,
+            Level::Error,
+            format!(
+                "Signal {number}: stopping the tests, writing the reports and cleaning up for up to {} s. A second signal exits at once",
+                (CANCEL_LIMIT_MILLIS + CANCEL_FLUSH_MILLIS) / 1000
+            )
+            .into(),
+            None,
+        );
+        self.cleaned_up.set(true);
+        self.stop_execution("Cancelled by a signal");
+        let _ = race(
+            self.flush(Signal::new()),
+            task.clock.delay(CANCEL_FLUSH_MILLIS, task.job.clone()),
+        )
+        .await;
+        let reports = self.output_ready.get().then(|| self.spawn_step(FinishStep::Reports));
+        if let Some(reports) = &reports {
+            let _ = race(
+                reports.join(),
+                task.clock.delay(CANCEL_REPORTS_HEAD_START_MILLIS, task.job.clone()),
+            )
+            .await;
+        }
+        let rest = [
+            self.spawn_step(FinishStep::Provider),
+            self.spawn_step(FinishStep::Analytics),
+            self.spawn_step(FinishStep::Usage),
+        ];
+        for job in rest.iter().chain(&reports) {
+            let _ = job.join().await;
+        }
+    }
+
+    /// `run`: install the hook, run, uninstall only after a successful return.
     /// An exceptional child completion runs a protected finish before the catch maps the
     /// throwable: NoDevices to false, anything else to `ignoreFailures`. `Err` is left for
     /// console/clock failures of this wrapper itself.
@@ -815,7 +993,6 @@ impl Marathon {
             Box::new(move |task: TaskContext| {
                 Box::pin(async move {
                     let hook = ShutdownHook {
-                        debug: marathon.deps.vendor.configuration.debug,
                         installed: marathon.hook_installed.clone(),
                     };
                     hook.install();
@@ -839,7 +1016,9 @@ impl Marathon {
                 })
             }),
         );
+        *self.run_job.borrow_mut() = Some(child.clone());
         let joined = child.join().await;
+        Self::await_signal_exit(&relay).await;
         let outcome = match result.take() {
             Some(value) => value,
             None => Err(VendorError::Cancelled(match (joined, child.state()) {
@@ -891,7 +1070,8 @@ impl Marathon {
                 flushed = self.flush(Signal::new()).await;
             }
         }
-        if let Some((relay, job)) = relay {
+        Self::await_signal_exit(&relay).await;
+        if let Some((relay, job, _)) = relay {
             relay.stop();
             job.cancel(requested("run finished"));
             let _ = job.join().await;
@@ -956,14 +1136,14 @@ impl Marathon {
         );
         job
     }
-    /// The hook's `runBlocking { onFinish() }` on core, then the JVM's exit status.
-    fn start_relay(self: &Rc<Self>, relay: Rc<SignalRelay>) -> (Rc<SignalRelay>, JobRef) {
+    /// The hook's `runBlocking { onFinish() }` on core, in D52's order and bounded, then the JVM's exit status.
+    fn start_relay(self: &Rc<Self>, relay: Rc<SignalRelay>) -> RunningRelay {
         let core = self.services.core.clone();
         let job = core.job(JobKind::Ordinary, None);
         let marathon = self.clone();
         let waiting = relay.clone();
         relay.listen();
-        core.spawn(
+        let hook = core.spawn(
             job.clone(),
             Box::new(move |task: TaskContext| {
                 Box::pin(async move {
@@ -973,16 +1153,40 @@ impl Marathon {
                         Err(other) => return Err(other.failure().clone().into()),
                     };
                     if marathon.hook_installed.get() {
-                        // A throwing hook thread is reported by the JVM; the exit still follows.
-                        let _ = marathon.on_finish(Signal::new()).await;
+                        let finished = race(
+                            marathon.finish_cancelled(number, &task),
+                            task.clock.delay(CANCEL_LIMIT_MILLIS, task.job.clone()),
+                        )
+                        .await;
+                        if let futures_util::future::Either::Right(_) = finished {
+                            marathon.log(
+                                LOGGER,
+                                Level::Error,
+                                format!("Cleanup did not finish in {CANCEL_LIMIT_MILLIS} ms; exiting anyway").into(),
+                                None,
+                            );
+                        }
                     }
-                    let _ = marathon.flush(Signal::new()).await;
+                    let _ = race(
+                        marathon.flush(Signal::new()),
+                        task.clock.delay(CANCEL_FLUSH_MILLIS, task.job.clone()),
+                    )
+                    .await;
                     (waiting.exit)(128 + number);
                     Ok(())
                 })
             }),
         );
-        (relay, job)
+        (relay, job, hook)
+    }
+    /// After a signal the process's end is the hook's, so the run neither stops the relay under it nor returns a result
+    /// of its own. In production this does not return.
+    async fn await_signal_exit(relay: &Option<RunningRelay>) {
+        if let Some((relay, _, hook)) = relay
+            && relay.fired()
+        {
+            let _ = hook.join().await;
+        }
     }
 }
 

@@ -472,8 +472,8 @@ queues built later and batches composed later, so with a failing backend the ord
 a healthy backend nothing changes. With a failing one the log gains one failed timing line and one warning per
 re-query, and one line when the history returns or the attempts run out. An empty answer gets that line too, and it says
 that nothing changes. Closing the provider cancels a re-query at once. The HTTP clients stop there, and a query that blocks
-its thread gets 3 seconds and one warning, and the backend is then closed anyway. The reports are still written, but the
-process ends only when that call returns. No configuration change is needed.
+its thread gets 3 seconds and one warning, and the backend is then closed anyway. The reports are still written, and since
+[D52](#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit) the process ends at most 3 s after the run does, whether or not that call has returned. No configuration change is needed.
 Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [C41](known-kotlin-bugs.md), the [x15 findings](wp/x15-findings.md) and the [x22 findings](wp/x22-findings.md).
 
@@ -787,6 +787,56 @@ the [x34 findings](wp/x34-findings.md).
 
 **Migration action:** none. Metrics lost to a backend that is down or slow show up in the log, and history falls back to its
 defaults for those tests. Look for `Cannot send test metrics` if history seems to stop growing.
+
+## D52 — A cancel writes the reports and cleans up, within a limit
+
+Kotlin runs its finish on SIGINT or SIGTERM only with `debug: true`. With the usual `debug: false`, a cancelled CI job writes no
+reports and doesn't terminate the provider, so worker processes can outlive the job. With `debug: true` the finish closes the
+provider first, while the tests keep being handed out, and can be killed before it reaches the reports.
+
+Native builds do the following on the first SIGINT or SIGTERM, in both debug modes, in this order:
+
+1. **The tests stop.** Pools, queues and devices are cancelled, which also starts closing what the batches in flight have open.
+   On a worker that means D30's TERM.
+2. **The reports are written:** results reach them only up to this point, so nothing can change under them.
+3. **Provider termination and the history close run side by side**, once the reports are done, or after 10 s if they aren't.
+   The reports carry on, since only a remote backend's close comes after the report files and it may never end.
+4. **The process exits with 128 + the signal number:** 130 or 143, as before.
+
+**At most 25 s.** That is 24 s for all of it, and 1 s for the last lines of the log if the console has stopped reading. Whatever
+is still running at 24 s is abandoned, with one error line. A CI's kill after SIGTERM often comes after 10 to 30 s. The reports
+come first, so a shorter grace costs cleanup and not results, and 25 s fits the longer ones and leaves room for D30's TERM,
+20 s and KILL. Without a stuck worker, a cancel takes well under a second.
+
+**A second signal exits at once**, with 128 + its own number. It doesn't run anything again, and what the first hadn't finished
+stays unfinished. A wrapper that sends the signal to the process group and also forwards it delivers two, which skips the
+cleanup; the exit code is still right.
+
+**What the reports hold.** Every result that had reached the queue. The test in flight is not in them, nor are the finished tests
+of a batch still in flight. Its absence is what Kotlin's captures show, and it no longer races ([A99](known-kotlin-bugs.md)).
+
+**When there's nothing to write.** Before a run wipes its output directory, that directory holds the last run's reports and
+there are no results, so a cancel writes none. That covers a cancelled `parse` too. Kotlin's hook wrote empty reports over the old ones there.
+
+**A signal during the run's own finish.** The end of a normal run closes the provider before the reports, which can take 30 s
+per session. A signal in that time now writes the reports at once and waits for what's running, up to the limit. Nothing runs
+twice. In Kotlin, and in the port until now, the finish found itself already started and the process exited mid-close.
+
+**After the run.** Once a run is over the process exits within 3 s more, even if a blocking call such as a stuck name lookup is
+still on a thread (D34). A signal is ignored in those 3 s.
+
+With U161, tests no longer bounce: a batch on a closed adb client ended at once and quietly and came back, in a loop that took no
+time, and every round added an INCOMPLETE to the reports. At `uncompletedTestRetryQuota: 1000` that was 1,001 false results.
+
+No configuration field changed. The log gains one error line naming the signal, at ERROR because this logger shows nothing lower
+with `debug: false`. Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C10 and A99](known-kotlin-bugs.md),
+[U161](found-bugs.md) and the [x35 findings](wp/x35-findings.md).
+
+**Migration action:** none for most. A cancelled job now has reports in its output directory, so don't take their presence to
+mean the run finished: the exit code says so. A process that used to die at once can take up to 25 s; a harness that waits
+less than that should allow for it, or send a second signal. A test in flight on Android leaves `screenrecord` running until its
+limit of 180 s, and its video on the device, as an exit always has.
 
 ## Other accepted text differences
 

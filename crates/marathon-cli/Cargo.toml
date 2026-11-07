@@ -28,6 +28,7 @@ serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundt
 tempfile = "3"
 nix = { version = "0.30", features = ["signal"] }
 marathon-test-support = { path = "../marathon-test-support" }
+marathon-adb = { path = "../marathon-adb", features = ["server"] }
 
 [[bin]]
 name = "marathon"

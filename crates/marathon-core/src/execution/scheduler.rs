@@ -88,8 +88,7 @@ impl Scheduler {
         }
     }
 
-    /// The detached job (test support: the Kotlin `job` field).
-    #[cfg(any(test, feature = "test-support"))]
+    /// The detached job, the Kotlin `job` field: cancelling it stops every pool, queue and device actor.
     pub fn job(&self) -> JobRef {
         self.inner.job.clone()
     }

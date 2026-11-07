@@ -5,7 +5,8 @@
 //! disposition ends the process, so a shell sees 128 + the signal number; while the run is
 //! suspended, the P3 relay exits with that status itself in both debug modes. A signal whose
 //! registration fails keeps its default disposition; the other one is still relayed. A signal
-//! the process started with ignored stays ignored, as on HotSpot.
+//! the process started with ignored stays ignored, as on HotSpot. D52: the hook runs in both debug modes and is bounded,
+//! and a second signal exits at once.
 #![cfg(unix)]
 use jcompat::logging::OutputTarget;
 use marathon_cli::{
@@ -32,35 +33,93 @@ use nix::{
 use std::{
     io::{BufRead, BufReader, Write},
     os::unix::process::ExitStatusExt,
-    process::{Child, Command, ExitStatus, Stdio},
-    sync::Arc,
+    process::{Child, ChildStderr, Command, ExitStatus, Stdio},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 const MODE: &str = "MARATHON_SIGNAL_CHILD";
+/// The status of a child whose run returned.
+const RETURNED: i32 = 7;
+
+/// Set once the run window opens: from then on `StuckConsole` stops taking output.
+static CONSOLE_STOPS: AtomicBool = AtomicBool::new(false);
+
+/// A stdout nobody reads, as a pipe that has filled up.
+struct StuckConsole;
+impl Write for StuckConsole {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if CONSOLE_STOPS.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_secs(3600));
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 /// Announces the run window, then never finishes.
 struct Suspended;
 impl LocalTestParser for Suspended {
     fn extract(&self, _: VendorContext) -> VendorFuture<'_, Vec<Test>> {
         Box::pin(async {
+            CONSOLE_STOPS.store(true, Ordering::SeqCst);
             let _ = writeln!(std::io::stderr(), "MARKER run");
             std::future::pending().await
         })
     }
 }
 
-fn factories(construction: bool) -> VendorFactories {
+/// Finds no tests, so the run ends by itself.
+struct NoTests;
+impl LocalTestParser for NoTests {
+    fn extract(&self, _: VendorContext) -> VendorFuture<'_, Vec<Test>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+}
+
+/// Announces the provider's termination; `run-stuck` never ends it, and `blocked-thread` leaves a blocking call behind,
+/// as a stuck name lookup would.
+fn on_terminate(provider: &StubDeviceProvider, mode: &str) {
+    let (stuck, blocked) = (mode == "run-stuck", mode == "blocked-thread");
+    *provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
+        let _ = writeln!(std::io::stderr(), "MARKER terminate");
+        Box::pin(async move {
+            if blocked {
+                tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_secs(3600)));
+            }
+            if stuck {
+                std::future::pending::<()>().await;
+            }
+            Ok(())
+        })
+    }));
+}
+
+fn factories(mode: &str) -> VendorFactories {
+    let mode = mode.to_owned();
     let mut factories = missing_vendors();
     factories.stub = Box::new(move |_| {
+        let mode = mode.clone();
         Box::pin(async move {
-            if construction {
+            if mode == "construction" {
                 let _ = writeln!(std::io::stderr(), "MARKER construction");
                 std::future::pending::<()>().await;
             }
+            let provider = StubDeviceProvider::new(SharedChannel::new());
+            on_terminate(&provider, &mode);
+            let parser: Arc<dyn LocalTestParser> = if mode == "blocked-thread" {
+                Arc::new(NoTests)
+            } else {
+                Arc::new(Suspended)
+            };
             Ok(VendorServices {
-                provider: StubDeviceProvider::new(SharedChannel::new()),
-                parser: Some(TestParser::Local(Arc::new(Suspended))),
+                provider,
+                parser: Some(TestParser::Local(parser)),
                 bundle_identifier: Some(Arc::new(MockTestBundleIdentifier)),
                 log_configurator: Some(Arc::new(MockLogConfigurator)),
             })
@@ -95,14 +154,14 @@ fn signal_child() {
     let Ok(mode) = std::env::var(MODE) else { return };
     let mut factory = ConfigurationFactory::new();
     factory.configuration.debug = mode == "run-debug";
-    let cli = CliOutput::new(
-        Box::new(std::io::sink()),
-        Box::new(std::io::sink()),
-        OutputTarget::Pipe,
-        Box::new(|| 0),
-    );
+    let stdout: Box<dyn Write + Send> = if mode == "stuck-console" {
+        Box::new(StuckConsole)
+    } else {
+        Box::new(std::io::sink())
+    };
+    let cli = CliOutput::new(stdout, Box::new(std::io::sink()), OutputTarget::Pipe, Box::new(|| 0));
     let runner = ProductionRunner {
-        factories: Arc::new(factories(mode == "construction")),
+        factories: Arc::new(factories(&mode)),
         cwd: std::env::current_dir().unwrap(),
         environment: vec![],
         signal_hooks: hooks(&mode),
@@ -114,12 +173,18 @@ fn signal_child() {
         output_file_name: None,
         include_flaky_tests: false,
     });
+    if mode == "blocked-thread" {
+        std::process::exit(RETURNED);
+    }
     panic!("the run finished");
 }
 
 /// Starts a child in `mode` and waits until it reaches the window under test. `ignored`
 /// starts it with that signal ignored (through `sh`, as a shell background job would).
 fn started(mode: &str, ignored: Option<&str>) -> Child {
+    started_with_stderr(mode, ignored).0
+}
+fn started_with_stderr(mode: &str, ignored: Option<&str>) -> (Child, std::io::Lines<BufReader<ChildStderr>>) {
     let exe = std::env::current_exe().unwrap();
     let args = ["--exact", "signal_child", "--nocapture", "--test-threads=1"];
     let mut command = match ignored {
@@ -158,7 +223,7 @@ fn started(mode: &str, ignored: Option<&str>) -> Child {
             _ => panic!("{mode}: the child exited before {awaited:?}: {:?}", child.wait()),
         }
     }
-    child
+    (child, lines)
 }
 
 /// Sends `signal` and returns the exit status, or `None` if the child is still running
@@ -171,6 +236,22 @@ fn signalled(child: &mut Child, signal: Signal, patience: Duration) -> Option<Ex
             return Some(status);
         }
         if Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Waits for an exit that needs no signal; a child still running is killed, and the status is `None`.
+fn signalled_wait(child: &mut Child, patience: Duration) -> Option<ExitStatus> {
+    let deadline = Instant::now() + patience;
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return Some(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
             return None;
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -218,6 +299,111 @@ fn a_signal_during_the_run_exits_with_128_plus_its_number() {
             assert_eq!(status.code(), Some(code), "{mode} {signal}: {status:?}");
         }
     }
+}
+
+/// D52: `debug: false` used to exit without this, leaving worker processes behind.
+#[test]
+fn a_signal_terminates_the_provider_whatever_debug_says_d52() {
+    for mode in ["run", "run-debug"] {
+        for (signal, code) in [(Signal::SIGINT, 130), (Signal::SIGTERM, 143)] {
+            if inherited_ignored(signal) {
+                continue;
+            }
+            let (mut child, lines) = started_with_stderr(mode, None);
+            kill(Pid::from_raw(child.id() as i32), signal).unwrap();
+            // Reading to the end of stderr also waits out the exit, and a child that survives fails the test below.
+            let terminated = lines.map_while(Result::ok).any(|line| line == "MARKER terminate");
+            let status = signalled_wait(&mut child, Duration::from_secs(60));
+            assert!(terminated, "{mode} {signal}: {status:?}");
+            assert_eq!(status.and_then(|s| s.code()), Some(code), "{mode} {signal}");
+        }
+    }
+}
+
+/// D52: a provider that never ends can't keep the process from exiting, at the limit and with the signal's status.
+#[test]
+fn a_stuck_provider_holds_a_cancel_only_up_to_the_limit_d52() {
+    if inherited_ignored(Signal::SIGTERM) {
+        return;
+    }
+    let (mut child, mut lines) = started_with_stderr("run-stuck", None);
+    let signalled_at = Instant::now();
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    assert!(lines.any(|line| line.is_ok_and(|l| l == "MARKER terminate")));
+    let status = signalled_wait(&mut child, Duration::from_secs(120));
+    let waited = signalled_at.elapsed();
+    assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
+    let limit = u64::try_from(marathon_core::marathon::CANCEL_LIMIT_MILLIS).unwrap();
+    assert!(waited >= Duration::from_millis(limit), "it gave up early: {waited:?}");
+}
+
+/// D52: a console that has stopped reading holds up neither the cleanup nor the exit.
+#[test]
+fn a_stuck_console_does_not_hold_a_cancel_d52() {
+    if inherited_ignored(Signal::SIGTERM) {
+        return;
+    }
+    let (mut child, mut lines) = started_with_stderr("stuck-console", None);
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    assert!(lines.any(|line| line.is_ok_and(|l| l == "MARKER terminate")));
+    let status = signalled_wait(&mut child, Duration::from_secs(60));
+    assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
+}
+
+/// D52: a second signal doesn't wait for the cleanup, or run it again. The status tells the two apart without a timing:
+/// the first signal's limit would exit with 143.
+#[test]
+fn a_second_signal_exits_at_once_d52() {
+    for (first, second, code) in [
+        (Signal::SIGTERM, Signal::SIGINT, 130),
+        (Signal::SIGINT, Signal::SIGTERM, 143),
+        (Signal::SIGTERM, Signal::SIGTERM, 143),
+    ] {
+        if inherited_ignored(first) || inherited_ignored(second) {
+            continue;
+        }
+        let (mut child, mut lines) = started_with_stderr("run-stuck", None);
+        kill(Pid::from_raw(child.id() as i32), first).unwrap();
+        assert!(lines.any(|line| line.is_ok_and(|l| l == "MARKER terminate")));
+        kill(Pid::from_raw(child.id() as i32), second).unwrap();
+        let exited_at = Instant::now();
+        let status = signalled_wait(&mut child, Duration::from_secs(60));
+        assert_eq!(
+            status.and_then(|s| s.code()),
+            Some(code),
+            "{first} then {second}: {status:?}"
+        );
+        if first == second {
+            // The same signal has the same status at the limit, so here only the time can tell.
+            let limit = u64::try_from(marathon_core::marathon::CANCEL_LIMIT_MILLIS).unwrap();
+            assert!(
+                exited_at.elapsed() < Duration::from_millis(limit),
+                "{:?}",
+                exited_at.elapsed()
+            );
+        }
+        assert_eq!(
+            lines.map_while(Result::ok).filter(|l| l == "MARKER terminate").count(),
+            0,
+            "{first} then {second}: the provider was terminated once"
+        );
+    }
+}
+
+/// D52: once the run is over, a blocking call left on a vendor thread doesn't hold the process, which by then no longer
+/// listens for signals. Without the limit this child would live for an hour.
+#[test]
+fn a_blocked_vendor_thread_does_not_hold_the_exit_after_the_run_d52() {
+    let exe = std::env::current_exe().unwrap();
+    let mut child = Command::new(exe)
+        .args(["--exact", "signal_child", "--nocapture", "--test-threads=1"])
+        .env(MODE, "blocked-thread")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let status = signalled_wait(&mut child, Duration::from_secs(60));
+    assert_eq!(status.and_then(|s| s.code()), Some(RETURNED), "{status:?}");
 }
 
 #[test]

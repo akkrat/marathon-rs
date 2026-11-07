@@ -1567,6 +1567,7 @@ dependencies = [
  "chrono",
  "fake-worker",
  "jcompat",
+ "marathon-adb",
  "marathon-analytics",
  "marathon-android",
  "marathon-config",

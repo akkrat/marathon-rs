@@ -42,6 +42,9 @@ pub struct CoreExecutor {
     pub(crate) mailboxes: RefCell<Vec<(&'static str, Rc<dyn MailboxProbe>)>>,
     logging: Arc<Mutex<jcompat::logging::MarathonLogging>>,
 }
+/// What the vendor runtime gets to stop once the run is over: D34's allowance for a call that blocks its thread.
+const VENDOR_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(3);
+
 impl CoreExecutor {
     /// The Send factory builds all Rc state on the dedicated LocalSet thread.
     /// This blocking entry point belongs to the CLI/test thread, never core.
@@ -122,7 +125,9 @@ impl CoreExecutor {
             .into());
         }
         let result = thread.join().map_err(panic_failure)?;
-        drop(vendor);
+        // D52: dropping a runtime waits for every blocking call, so a stuck name lookup or history query would hold the
+        // process after its reports are done, deaf to signals, since the relay is gone. It isn't waited for.
+        vendor.shutdown_timeout(VENDOR_SHUTDOWN);
         result
     }
     pub fn event_channel<T: Send + 'static>(&self, label: &'static str) -> Arc<SharedChannel<T>> {

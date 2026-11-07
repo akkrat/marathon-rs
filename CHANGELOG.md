@@ -117,6 +117,10 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   slow failure. The backend's close at the end of a run gets 30 s, so an InfluxDB server that answers its last flush slowly
   can no longer hold the end of a run (D51, U167).
 - A Graphite series with no points in the window no longer loses the whole history query (D51, C38).
+- A cancelled run writes its reports and terminates its devices whatever `debug` says, so a cancelled CI job has results and leaves
+  less behind on workers. SIGINT or SIGTERM stops the tests, writes the reports first, and exits with the same 130 or 143 within
+  25 s. A second signal exits at once. Tests no longer bounce after the signal, which added false INCOMPLETE results to the
+  reports (D52, C10, U161).
 - A failed reporter or close no longer skips the ones after it, such as a later report or terminating the devices. Each failure
   is logged, and the exit code is unchanged (D51, C11, C25).
 - A run whose filters removed every test logs an error line saying what each filter removed, so a mistyped filter is visible. It still exits 0 (D51).
@@ -124,7 +128,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   5, 10, 20 s and so on counted from the first failure, so a query that fails later joins the next round. Queues built and
   batches composed afterwards use the history it finds. A run never waits for this. With a failing analytics backend the log
   has more warnings and timing lines. If a query is stuck inside a blocking call, the run moves on after 3 s and writes its
-  reports, but the process may not end until that call returns, which may be never (D34).
+  reports, and the process ends at most 3 s after the run (D34, D52).
 - `fixed-size` batching counts only the tests a batch accepts, against both `size` and `durationMillis`, so flaky copies and
   tests of another test APK no longer end a batch early. With two test APKs in sorted order, 1,000 tests at size 10 take 100
   batches instead of 150. A batch rejects at most twice its size. A batch with nothing rejected is unchanged (D50).
@@ -140,6 +144,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D33, D34 and D40 had no real simulator, worker or analytics backend.
 - D50 was measured through the real pool and queue on a stub device, with no real test APKs.
 - D39's rule is reasoned from Xcode's formats and is not recorded from a real run.
+- D52 ran through the built binary with real signals on the fake adb and fake worker, and with a test in flight on an Android
+  API 36 emulator in both debug modes. It did not run on a real worker or Mac.
 - D45 ran on real hanging tests: an iOS 18.6 simulator under Xcode 27.2, with allowances that print `1 minute` and `2 minutes`.
 - The comparisons on real devices and private farms predate D21–D42.
 
@@ -171,8 +177,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   needs KILL it takes about 33 minutes, and if every command hangs about 50 (D38).
 - A failed xcodebuild close retires its simulator, which ends a pool whose last device it was (D30).
 - A batch that D22's hold kept waiting is charged an attempt when its server is given up, so with `uncompletedTestRetryQuota: 0`
-  tests can fail without having run (U160). After SIGINT with `debug: true`, tests may bounce back and add false INCOMPLETE
-  results to that run's reports (U161).
+  tests can fail without having run (U160).
 - A queue that ends for a reason other than a metrics failure, such as a broken console, leaves the run hanging (U168).
 
 ## 0.11.0

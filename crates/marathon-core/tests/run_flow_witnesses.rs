@@ -67,11 +67,15 @@ impl LogConfigurator for Configurator {
         Box::pin(async { Ok(()) })
     }
 }
+/// D52's witnesses: a call that doesn't return until the process would have exited.
+type Hold = Arc<marathon_core::executor::SharedDeferred<()>>;
 struct Parser {
     trace: Trace,
     out: PathBuf,
     markers: bool,
     tests: Vec<Test>,
+    /// Signals when the parser starts, and holds it there until the exit.
+    signal_and_hold: Option<(Arc<marathon_core::executor::SharedDeferred<i32>>, i32, Hold)>,
 }
 impl LocalTestParser for Parser {
     fn extract(&self, _: VendorContext) -> VendorFuture<'_, Vec<Test>> {
@@ -81,7 +85,14 @@ impl LocalTestParser for Parser {
             std::fs::write(self.out.join("parser-marker"), "parser").unwrap();
         }
         let tests = self.tests.clone();
-        Box::pin(async move { Ok(tests) })
+        let held = self.signal_and_hold.clone();
+        Box::pin(async move {
+            if let Some((trigger, number, hold)) = held {
+                Deferred::complete(trigger.as_ref(), Ok(number));
+                let _ = Deferred::wait(hold.as_ref()).await;
+            }
+            Ok(tests)
+        })
     }
 }
 struct NoTests;
@@ -110,11 +121,18 @@ impl RemoteDataSource for Source {
 struct Closing {
     trace: Trace,
     fail: Option<String>,
+    hold: Option<Hold>,
 }
 impl Reporter for Closing {
     fn generate<'a>(&'a self, _: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
         let result = push(&self.trace, "tracker.close", &self.fail).map_err(|e| e.failure().clone().into());
-        Box::pin(async move { result })
+        let hold = self.hold.clone();
+        Box::pin(async move {
+            if let Some(hold) = hold {
+                let _ = Deferred::wait(hold.as_ref()).await;
+            }
+            result
+        })
     }
 }
 
@@ -134,6 +152,13 @@ struct Options {
     remote_hang: Option<bool>,
     /// A signal number delivered at 1000 ms through the relay.
     signal: Option<i32>,
+    /// D52: the signal comes when the parser starts, before the output directory is wiped.
+    signal_at_parse: bool,
+    /// D52: the signal comes when the run's own `on_finish` reaches the provider.
+    signal_at_terminate: bool,
+    /// D52: this call doesn't return until the process would have exited.
+    terminate_hangs: bool,
+    reports_hang: bool,
 }
 /// Exit statuses with the trace as it stood when the process would have ended.
 type Exits = Arc<Mutex<Vec<(i32, Vec<String>)>>>;
@@ -189,6 +214,8 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
         }
     }
     let fail = o.fail.map(str::to_owned);
+    let hold: Hold = marathon_core::executor::SharedDeferred::new();
+    let trigger = marathon_core::executor::SharedDeferred::<i32>::new();
     factory.log_configurator = Some(Arc::new(Configurator(trace.clone())));
     if o.remote_hang.is_some() {
         factory.parser = Some(TestParser::Remote(Arc::new(NoTests)));
@@ -198,6 +225,9 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
             out: out.clone(),
             markers: o.markers,
             tests: if o.no_tests { vec![] } else { vec![test("method1")] },
+            signal_and_hold: o
+                .signal_at_parse
+                .then(|| (trigger.clone(), o.signal.unwrap_or(15), hold.clone())),
         })));
     }
     let remote_hang = o.remote_hang;
@@ -218,16 +248,17 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
         reporter: Arc::new(Closing {
             trace: trace.clone(),
             fail: fail.clone(),
+            hold: o.reports_hang.then(|| hold.clone()),
         }),
     }];
     factory.timer = Some(Arc::new(FakeTimer(Arc::new(|| 0))));
     let exits: Exits = Arc::default();
-    let trigger = marathon_core::executor::SharedDeferred::<i32>::new();
     if o.signal.is_some() {
-        let (recorded, at_exit) = (exits.clone(), trace.clone());
+        let (recorded, at_exit, released) = (exits.clone(), trace.clone(), hold.clone());
         factory.exit = Some(Arc::new(move |status| {
             let trace = at_exit.lock().unwrap().clone();
             recorded.lock().unwrap().push((status, trace));
+            Deferred::complete(released.as_ref(), Ok(()));
         }));
         factory.signal_trigger = Some(trigger.clone());
     }
@@ -240,7 +271,10 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
         devices: HashMap::new(),
         expect: Value::Null,
     };
-    let (subscribed_trigger, subscribed_signal) = (trigger.clone(), signal);
+    let at_subscribe = !o.signal_at_parse && !o.signal_at_terminate;
+    let (subscribed_trigger, subscribed_signal) = (trigger.clone(), signal.filter(|_| at_subscribe));
+    let terminating = (o.signal_at_terminate.then_some(signal).flatten(), trigger.clone());
+    let terminate_hold = o.terminate_hangs.then(|| hold.clone());
     let outcome = scenario::drive(
         factory,
         script,
@@ -274,7 +308,16 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
             }
             *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
                 let result = push(&t3, "terminate", &fail);
-                Box::pin(async move { result })
+                if let (Some(number), trigger) = &terminating {
+                    Deferred::complete(trigger.as_ref(), Ok(*number));
+                }
+                let hold = terminate_hold.clone();
+                Box::pin(async move {
+                    if let Some(hold) = hold {
+                        let _ = Deferred::wait(hold.as_ref()).await;
+                    }
+                    result
+                })
             }));
         })),
     );
@@ -751,9 +794,66 @@ fn missing_vendor_services_fail_construction_as_koin_does() {
     );
 }
 
-/// P3: one relay; debug runs the hook's finish first (C10), and both exit as the JVM does.
+/// D52's allowance over the JVM's `signal-*` rows, which stay as the witness: the hook always runs, and the reports
+/// come first, with the rest after them in either order, since those run side by side. Nothing else may differ.
+fn matches_jvm_finish_d52(jvm: &[&str], native: &[String]) -> bool {
+    const ALL: [&str; 3] = ["analytics.close", "terminate", "tracker.close"];
+    // With `debug: false` the JVM has no hook and runs none of this: exactly what D52 changes.
+    if !jvm.is_empty() && jvm != ALL {
+        return false;
+    }
+    let mut rest: Vec<&str> = native.iter().map(String::as_str).collect();
+    if rest.first() != Some(&"tracker.close") {
+        return false;
+    }
+    rest.remove(0);
+    rest.sort_unstable();
+    rest == ["analytics.close", "terminate"]
+}
 #[test]
-fn signals_finish_only_with_debug_and_exit_like_the_jvm() {
+fn the_d52_allowance_covers_only_the_order_and_the_debug_flag() {
+    let native = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+    let jvm = ["analytics.close", "terminate", "tracker.close"];
+    for good in [
+        ["tracker.close", "analytics.close", "terminate"],
+        ["tracker.close", "terminate", "analytics.close"],
+    ] {
+        assert!(matches_jvm_finish_d52(&jvm, &native(&good)));
+        assert!(matches_jvm_finish_d52(&[], &native(&good)));
+    }
+    for bad in [
+        // The JVM's own order: reports last, what a kill during cleanup would lose.
+        &["analytics.close", "terminate", "tracker.close"][..],
+        &["terminate", "tracker.close", "analytics.close"],
+        // Something missing or done twice.
+        &["tracker.close", "terminate"],
+        &["tracker.close", "analytics.close"],
+        &["analytics.close", "terminate"],
+        &["tracker.close", "tracker.close", "analytics.close", "terminate"],
+        &["tracker.close", "analytics.close", "terminate", "terminate"],
+        // Something new.
+        &["tracker.close", "analytics.close", "terminate", "usage.close"],
+        &[],
+    ] {
+        assert!(!matches_jvm_finish_d52(&jvm, &native(bad)), "{bad:?}");
+    }
+    assert!(
+        !matches_jvm_finish_d52(&["terminate"], &native(&jvm)),
+        "a JVM row of another shape"
+    );
+}
+fn finish_calls(trace: &[String]) -> Vec<String> {
+    trace
+        .iter()
+        .filter(|c| ["analytics.close", "terminate", "tracker.close"].contains(&c.as_str()))
+        .cloned()
+        .collect()
+}
+
+/// P3: one relay, and both exit as the JVM does. D52: whatever `debug` says, the hook's finish runs first, reports first
+/// (C10). The JVM rows stay the witness: with `debug: false` it runs nothing, with `debug: true` its own order.
+#[test]
+fn signals_always_finish_reports_first_and_exit_like_the_jvm_d52() {
     for (number, name) in [(2, "SIGINT"), (15, "SIGTERM")] {
         for debug in [false, true] {
             let row = row(&format!("signal-{name}-debug-{debug}"));
@@ -771,19 +871,103 @@ fn signals_finish_only_with_debug_and_exit_like_the_jvm() {
                 row["exitStatus"].as_i64().unwrap(),
                 "{name} debug={debug}"
             );
-            let finish: Vec<String> = trace
-                .iter()
-                .filter(|c| ["analytics.close", "terminate", "tracker.close"].contains(&c.as_str()))
-                .cloned()
-                .collect();
-            let jvm: Vec<String> = row["probe"]
+            let jvm: Vec<&str> = row["probe"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|p| p.as_str().unwrap().to_owned())
-                .filter(|p| p != "ready" && p != "usage.close")
+                .map(|p| p.as_str().unwrap())
+                .filter(|p| *p != "ready" && *p != "usage.close")
                 .collect();
-            assert_eq!(finish, jvm, "{name} debug={debug}");
+            let finish = finish_calls(trace);
+            assert!(
+                matches_jvm_finish_d52(&jvm, &finish),
+                "{name} debug={debug}: JVM {jvm:?}, native {finish:?}"
+            );
         }
+    }
+}
+
+/// D52: `cleaned_up` is set first, so the hook used to find nothing to do and the process exited mid-close, with the
+/// provider in its 30 s and the reports, which come after it, not written.
+#[test]
+fn a_signal_during_the_runs_own_finish_writes_the_reports_now_d52() {
+    let o = Options {
+        block_all: true,
+        signal: Some(15),
+        signal_at_terminate: true,
+        terminate_hangs: true,
+        ..Options::default()
+    };
+    let r = run(o, Entry::Run, ExecutionCommand::Run);
+    assert_eq!(r.exits.len(), 1, "{:?}", r.exits);
+    let (status, trace) = &r.exits[0];
+    assert_eq!(*status, 143);
+    assert_eq!(
+        finish_calls(trace),
+        ["analytics.close", "terminate", "tracker.close"],
+        "the run had started the first two, and nothing ran twice"
+    );
+}
+
+/// D52: however long the provider takes, the process exits at the limit, with the reports written.
+#[test]
+fn a_provider_that_never_ends_cannot_hold_a_cancel_past_its_limit_d52() {
+    let o = Options {
+        signal: Some(2),
+        terminate_hangs: true,
+        device_initialization_timeout_millis: Some(600_000),
+        ..Options::default()
+    };
+    let r = run(o, Entry::Run, ExecutionCommand::Run);
+    assert_eq!(r.exits.len(), 1, "{:?}", r.exits);
+    let (status, trace) = &r.exits[0];
+    assert_eq!(*status, 130);
+    assert_eq!(finish_calls(trace)[0], "tracker.close");
+    assert!(trace.contains(&"terminate".to_owned()), "{trace:?}");
+    assert_eq!(
+        r.outcome.completed_at,
+        Some(marathon_core::marathon::CANCEL_LIMIT_MILLIS),
+        "on the virtual clock, from a signal at 0: the exit releases the provider, and the run ends with it"
+    );
+}
+
+/// D52: file reports come before a remote backend's close, which can hang. It may not use up the provider's time.
+#[test]
+fn a_report_close_that_never_ends_does_not_keep_the_provider_from_terminating_d52() {
+    let o = Options {
+        signal: Some(15),
+        reports_hang: true,
+        device_initialization_timeout_millis: Some(600_000),
+        ..Options::default()
+    };
+    let r = run(o, Entry::Run, ExecutionCommand::Run);
+    assert_eq!(r.exits.len(), 1, "{:?}", r.exits);
+    let (status, trace) = &r.exits[0];
+    assert_eq!(*status, 143);
+    assert_eq!(finish_calls(trace)[0], "tracker.close");
+    assert!(trace.contains(&"terminate".to_owned()), "{trace:?}");
+    assert!(trace.contains(&"analytics.close".to_owned()), "{trace:?}");
+}
+
+/// D52: before the output directory is wiped it holds the last run's reports, and there are no results to write over
+/// them. That also keeps a cancelled `parse` from writing reports at all. The provider is still terminated.
+#[test]
+fn a_signal_before_the_output_directory_is_wiped_writes_no_reports_d52() {
+    for debug in [false, true] {
+        let o = Options {
+            debug,
+            prepare: true,
+            signal: Some(15),
+            signal_at_parse: true,
+            ..Options::default()
+        };
+        let r = run(o, Entry::Run, ExecutionCommand::Run);
+        assert_eq!(r.exits.len(), 1, "{:?}", r.exits);
+        let (status, trace) = &r.exits[0];
+        assert_eq!(*status, 143);
+        let mut finish = finish_calls(trace);
+        finish.sort();
+        assert_eq!(finish, ["analytics.close", "terminate"], "debug={debug}");
+        assert!(r.out.join("old.txt").exists(), "the last run's files stay");
     }
 }
