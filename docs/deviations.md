@@ -707,7 +707,7 @@ deadline ends a run, so a test that keeps coming back uncompleted repeats until 
 
 Native builds refuse that configuration. `marathon run` and `marathon parse` exit 1 with a `ConfigurationException` when
 the quota is unset or exactly 2147483647, on Android, iOS and macOS, and name the field, the reason, a suggested value and
-the [migration section](migration.md#a-finite-uncompletedtestretryquota-d47). Any other value passes: 0, a negative value, a literal `null` or an empty value, which bind to 0 or act like it and give a test no second attempt, and 2147483646, which is your choice to make. A value from an environment
+the [migration section](migration.md#a-finite-uncompletedtestretryquota-d47). Any other value passes: 0, a negative value, a literal `null` or an empty value, which bind to 0 or act like it and give a test no second attempt, and 2147483646, which is your choice to make. A test's count of uncompleted returns stops at 2147483647 where Kotlin's wraps, so the largest accepted quota still ends the loop when copies of one test in a batch are charged together. A value from an environment
 substitution such as `${QUOTA}` counts as the value it resolves to. No command-line option sets this field.
 
 The rule is that the check fails only when nothing bounds the loop, and on every vendor only the quota does:

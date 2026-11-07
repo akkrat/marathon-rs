@@ -420,23 +420,14 @@ impl QueueActor {
         progress: &mut PoolProgressAccumulator,
         signal: &Arc<dyn CancellationSignal>,
     ) -> OperationResult<()> {
-        // Partitioned on the counts before any copy is counted, so duplicate copies
-        // in one batch all see the old count.
+        let over = charge_uncompleted(
+            &mut self.uncompleted_tests_retry_count,
+            self.uncompleted_test_retry_quota,
+            uncompleted_tests.iter().map(|result| &result.test),
+        );
+        let mut over = over.into_iter();
         let (exceeded, uncompleted): (Vec<&TestResult>, Vec<&TestResult>) =
-            uncompleted_tests.iter().partition(|result| {
-                self.uncompleted_tests_retry_count
-                    .get(&result.test)
-                    .copied()
-                    .unwrap_or(0)
-                    >= self.uncompleted_test_retry_quota
-            });
-        for result in uncompleted_tests {
-            let count = self
-                .uncompleted_tests_retry_count
-                .entry(result.test.clone())
-                .or_insert(0);
-            *count = count.wrapping_add(1);
-        }
+            uncompleted_tests.iter().partition(|_| over.next().unwrap_or(false));
         for test in exceeded {
             self.log(
                 Level::Debug,
@@ -809,5 +800,74 @@ impl ActorHandler<QueueMessage> for QueueActor {
             self.observe();
             result
         })
+    }
+}
+
+/// Whether each uncompleted copy is over the quota, then one attempt charged to its test per copy. Partitioned on
+/// the counts before any copy is charged, so copies in one batch all see the old count.
+///
+/// D47: the count saturates where Kotlin's `Int` wraps. Copies charged together step it by more than one, so with
+/// four copies and a quota of 2147483646 a wrapping count jumps from 2147483644 into the negatives and never
+/// reaches the quota, and the loop D47 relies on the quota to end would go on.
+fn charge_uncompleted<'t>(
+    counts: &mut HashMap<Test, i32>,
+    quota: i32,
+    tests: impl Iterator<Item = &'t Test> + Clone,
+) -> Vec<bool> {
+    let over = tests
+        .clone()
+        .map(|test| counts.get(test).copied().unwrap_or(0) >= quota)
+        .collect();
+    for test in tests {
+        let count = counts.entry(test.clone()).or_insert(0);
+        *count = count.saturating_add(1);
+    }
+    over
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test(method: &str) -> Test {
+        Test {
+            pkg: "pkg".into(),
+            clazz: "Clazz".into(),
+            method: method.into(),
+            meta_properties: vec![],
+        }
+    }
+
+    /// S-x30-1: four copies of one test, as class-name batching can put in one batch, at the largest quota D47 accepts.
+    #[test]
+    fn four_copies_at_the_largest_accepted_quota_still_reach_it() {
+        let quota = i32::MAX - 1;
+        let poisoned = test("poisoned");
+        let mut counts = HashMap::from([(poisoned.clone(), quota - 2)]);
+        let copies = [&poisoned; 4];
+        assert_eq!(
+            charge_uncompleted(&mut counts, quota, copies.into_iter()),
+            [false; 4],
+            "2147483644 is under the quota"
+        );
+        assert_eq!(counts[&poisoned], i32::MAX, "a wrapping count would be negative here");
+        assert_eq!(
+            charge_uncompleted(&mut counts, quota, copies.into_iter()),
+            [true; 4],
+            "every copy ends at the next return"
+        );
+        assert_eq!(counts[&poisoned], i32::MAX);
+    }
+
+    #[test]
+    fn copies_in_one_batch_all_see_the_old_count() {
+        let (a, b) = (test("a"), test("b"));
+        let mut counts = HashMap::from([(a.clone(), 1)]);
+        assert_eq!(
+            charge_uncompleted(&mut counts, 2, [&a, &b, &a].into_iter()),
+            [false, false, false]
+        );
+        assert_eq!((counts[&a], counts[&b]), (3, 1));
+        assert_eq!(charge_uncompleted(&mut counts, 2, [&a, &b].into_iter()), [true, false]);
     }
 }
