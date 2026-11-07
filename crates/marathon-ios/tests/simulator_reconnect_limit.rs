@@ -870,3 +870,173 @@ async fn a_setup_retry_from_before_a_removal_cannot_give_up_the_simulator_added_
     assert_eq!(seen.connected, ["a@local"]);
     Ok(())
 }
+
+/// A recovery waiting for its connection when the simulator is removed and added back: its refusal is about the old
+/// claim, and the simulator gets an attempt of its own.
+#[tokio::test(start_paused = true)]
+async fn a_recovery_from_before_a_removal_cannot_refuse_the_simulator_added_back() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    let old = p.connected(1).await.remove(0);
+    let gate = SharedDeferred::new();
+    let waiting = Arc::new(AtomicBool::new(false));
+    let flag = waiting.clone();
+    let release = gate.clone();
+    p.answer(move |_, planning, n| {
+        let release = release.clone();
+        let flag = flag.clone();
+        Box::pin(async move {
+            if !planning && n == 2 {
+                flag.store(true, Ordering::SeqCst);
+                release.wait().await.map_err(ConnectionError::from)?;
+                return Err(auth());
+            }
+            Ok(None)
+        })
+    });
+    p.lose(&old).await;
+    eventually(|| waiting.load(Ordering::SeqCst)).await;
+    p.update(&[]).await?;
+    p.update(&["a"]).await?;
+    gate.complete(Ok(()));
+    pass(200).await;
+    let mut seen = Seen::default();
+    seen.drain(&p).await;
+    let refused = p.log("its connection was refused, it stays out of the run");
+    p.finish().await?;
+    assert_eq!(
+        seen.connected,
+        ["a@local"],
+        "late recovery refusal marked re-add refused={refused}"
+    );
+    Ok(())
+}
+
+/// A worker retry attempt waiting for its planning connection when the simulator is removed and added back: the attempt
+/// that ends the retry doesn't give up the simulator added back, which has an attempt of its own.
+#[tokio::test(start_paused = true)]
+async fn a_worker_retry_attempt_from_before_a_removal_cannot_give_up_the_simulator_added_back() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    p.connected(1).await;
+    let _lost = lose_worker(&p, &["a"]);
+    let gate = SharedDeferred::new();
+    let waiting = Arc::new(AtomicBool::new(false));
+    let flag = waiting.clone();
+    let release = gate.clone();
+    p.answer(move |_, planning, n| {
+        let release = release.clone();
+        let flag = flag.clone();
+        Box::pin(async move {
+            if !planning && n == 2 {
+                return Err(unreachable());
+            }
+            if planning && n == 2 {
+                flag.store(true, Ordering::SeqCst);
+                release.wait().await.map_err(ConnectionError::from)?;
+                return Err(auth());
+            }
+            Ok(None)
+        })
+    });
+    pass(11).await;
+    assert!(waiting.load(Ordering::SeqCst));
+    p.update(&[]).await?;
+    p.update(&["a"]).await?;
+    // Its own attempt, at once, while the retry's attempt still waits.
+    let mut seen = Seen::default();
+    seen.drain(&p).await;
+    assert_eq!(seen.connected, ["a@local"]);
+    gate.complete(Ok(()));
+    pass(200).await;
+    seen.drain(&p).await;
+    p.finish().await?;
+    assert_eq!(seen.connected, ["a@local"]);
+    Ok(())
+}
+
+/// D33's cap holds when a sibling's plan takes a simulator along, but the extra failure schedules a round of its own, so
+/// the pauses between one simulator's setups can be shorter than 30, 60 and 90 s.
+#[tokio::test(start_paused = true)]
+async fn sibling_setups_keep_the_cap_of_four_but_their_pauses_can_overlap() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a", "b"]).await?;
+    let old = p.connected(2).await;
+    let (boot, clock) = (p.h().boot.clone(), p.h().clock.clone());
+    let failures = Arc::new(Mutex::new(Vec::new()));
+    let seen = failures.clone();
+    *p.h().worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let answer = boot.answer(&cmd);
+        let home = cmd.last().is_some_and(|s| s == "HOME");
+        if home {
+            seen.lock().unwrap().push((cmd[cmd.len() - 2].clone(), clock.now()));
+        }
+        Box::pin(async move {
+            if home {
+                Err(support::error("setup failed"))
+            } else {
+                Ok(answer)
+            }
+        })
+    });
+    p.lose(old.iter().find(|d| d.udid() == "a").unwrap()).await;
+    eventually(|| p.log("setup of a failed")).await;
+    pass(5).await;
+    p.lose(old.iter().find(|d| d.udid() == "b").unwrap()).await;
+    eventually(|| p.log("setup of b failed")).await;
+    pass(300).await;
+    let failures = failures.lock().unwrap().clone();
+    let at = |id: &str| -> Vec<i64> {
+        failures
+            .iter()
+            .filter(|(name, _)| name == id)
+            .map(|(_, at)| at / 1000)
+            .collect()
+    };
+    // Four each. a's third comes 5 s after its second, in b's retry that took it along.
+    assert_eq!(at("a"), [0, 30, 35, 90]);
+    assert_eq!(at("b"), [5, 30, 35, 90]);
+    assert!(p.log("Simulator a on worker local: setup failed 4 times, it stays out of the run"));
+    assert!(p.log("Simulator b on worker local: setup failed 4 times, it stays out of the run"));
+    p.finish().await
+}
+/// A simulator added back while a worker retry attempt waits joins that retry after its own attempt fails. The attempt
+/// that then ends the retry started before it joined, so it goes to a retry of its own instead of being given up.
+#[tokio::test(start_paused = true)]
+async fn a_simulator_that_joins_a_retry_after_its_last_attempt_started_gets_a_retry_of_its_own() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    p.connected(1).await;
+    let _lost = lose_worker(&p, &["a"]);
+    let gate = SharedDeferred::new();
+    let release = gate.clone();
+    // The recovery finds a unreachable. The retry's attempt at 10 s waits, and is then refused. The update's own
+    // attempt finds the worker unreachable. Everything after that works.
+    p.answer(move |_, planning, n| {
+        let release = release.clone();
+        Box::pin(async move {
+            match (planning, n) {
+                (false, 2) | (true, 3) => Err(unreachable()),
+                (true, 2) => {
+                    release.wait().await.map_err(ConnectionError::from)?;
+                    Err(auth())
+                }
+                _ => Ok(None),
+            }
+        })
+    });
+    pass(11).await;
+    p.update(&[]).await?;
+    p.update(&["a"]).await?;
+    gate.complete(Ok(()));
+    pass(1).await;
+    assert!(p.log("not retrying"));
+    let mut seen = Seen::default();
+    seen.until_connected(&p, 1).await;
+    assert_eq!(seen.connected, ["a@local"]);
+    assert!(p.current("a").connected());
+    p.finish().await
+}

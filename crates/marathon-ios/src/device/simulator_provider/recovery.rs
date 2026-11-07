@@ -229,6 +229,11 @@ impl SimulatorRecovery {
         failure: ProvisioningError,
     ) -> VendorResult<()> {
         let provider = self.provider()?;
+        // D44: a hand-over is a decision too, so stale work hands over nothing.
+        let targets = provider.still_claimed(&transport, targets);
+        if targets.is_empty() {
+            return Ok(());
+        }
         let pending = {
             let mut state = self.state();
             if self.retry_cancel.reason().is_some() {
@@ -237,7 +242,7 @@ impl SimulatorRecovery {
             if state.pending.get(&transport).is_some_and(|p| p.offer(&targets)) {
                 return Ok(());
             }
-            let pending = Arc::new(PendingWorker::new(targets));
+            let pending = Arc::new(PendingWorker::new(targets.clone()));
             state.pending.insert(transport.clone(), pending.clone());
             pending
         };
@@ -251,26 +256,41 @@ impl SimulatorRecovery {
             cancellation: self.retry_cancel.clone(),
             ..provider.services.context.clone()
         };
+        let mut claims = provider.claim(targets.iter().map(|t| target_key(t, &transport)));
         self.retries
             .spawn(provider.services.runtime.clone().as_ref(), async move {
                 let result = this
-                    .retry(&provider, &transport, &pending, started, failure, caller)
+                    .retry(&provider, &transport, &pending, started, failure, caller, &mut claims)
                     .await;
                 pending.close();
-                // D44: what it still waited for has been logged as out of the run, so no sibling's plan takes it up.
+                let mut returning = Vec::new();
                 if result.is_ok()
                     && let Some(left) = pending.take()
                 {
-                    provider.give_up_targets(&transport, &left, ParkedFor::GivenUp);
+                    // D44: what the attempt that ended it acted for has been logged as out of the run, so no sibling's
+                    // plan takes it up. One that joined after that attempt started gets a retry of its own.
+                    with_claims_sync(claims, || {
+                        provider.give_up_targets(&transport, &left, ParkedFor::GivenUp)
+                    });
+                    returning = provider.waiting_for_retry(&transport, left);
                 }
-                let mut state = this.state();
-                if state.pending.get(&transport).is_some_and(|p| Arc::ptr_eq(p, &pending)) {
-                    state.pending.shift_remove(&transport);
+                {
+                    let mut state = this.state();
+                    if state.pending.get(&transport).is_some_and(|p| Arc::ptr_eq(p, &pending)) {
+                        state.pending.shift_remove(&transport);
+                    }
+                }
+                if !returning.is_empty() {
+                    let claims = provider.claim_now(returning.iter().map(|t| target_key(t, &transport)));
+                    let failure = missing_failure(returning.len());
+                    with_claims_sync(claims, || this.retry_later(transport, returning, started, failure))?;
                 }
                 result
             });
         Ok(())
     }
+    /// `claims` ends as those of the last attempt, which decide for what is left when the retry ends.
+    #[allow(clippy::too_many_arguments)]
     async fn retry(
         &self,
         provider: &AppleSimulatorProvider,
@@ -279,10 +299,14 @@ impl SimulatorRecovery {
         started: i64,
         mut last: ProvisioningError,
         caller: VendorContext,
+        claims: &mut Claims,
     ) -> VendorResult<()> {
         let config = &provider.services.vendor.worker_connection;
         let worker = transport.id().to_string_lossy();
         let mut attempt = 1i32;
+        let keys = |pending: &PendingWorker| -> Vec<JavaString> {
+            pending.peek().iter().map(|t| target_key(t, transport)).collect()
+        };
         loop {
             let Some(pause) = config.pause_after(attempt) else {
                 provider.log(Level::Error, || format!("Failed to connect to worker {worker} after {attempt} attempts ({}), its devices stay out of the run", describe_failure(&last.failure())), None);
@@ -295,9 +319,12 @@ impl SimulatorRecovery {
                 .clock
                 .delay(duration_millis(pause)?, caller.cancellation.clone())
                 .await?;
-            if self.prune_pending(provider, transport, pending)? {
+            // D44: what the pause ends decides for what waits now; the attempt acts for what waits when it starts.
+            let now = provider.claim_now(keys(pending));
+            if with_claims_sync(now, || self.prune_pending(provider, transport, pending))? {
                 return Ok(());
             }
+            *claims = provider.claim_now(keys(pending));
             attempt = attempt.wrapping_add(1);
             provider.log(
                 Level::Debug,
@@ -341,7 +368,7 @@ impl SimulatorRecovery {
                     continue;
                 }
             };
-            let result: VendorResult<bool> = async {
+            let result: VendorResult<bool> = with_claims(claims.clone(), async {
                 let connected = provider.services.timing.elapsed()?;
                 provider.log(Level::Warn, || format!("Connected to worker {worker} on attempt {attempt}, {} ms after the first one, setting up its devices", connected.wrapping_sub(started)), None);
                 if self.prune_pending(provider, transport, pending)? { return Ok(false); }
@@ -349,24 +376,35 @@ impl SimulatorRecovery {
                     let Some(targets) = pending.take() else { return Ok(false); };
                     let targets: Vec<_> = targets.into_iter().filter(|target| !matches!(target, AppleTarget::Simulator { udid } if provider.state().removed.contains(&apple_id(udid, transport)))).collect();
                     if targets.is_empty() { continue; }
-                    let unfinished = match provider.setup(transport, executor.clone(), &targets, started, SetupCycle::Late { attempt, connected }, caller.clone()).await {
-                        Ok(unfinished) => unfinished,
-                        Err(error) if error.is_cancelled() => return Err(error.into_vendor()),
-                        Err(error) => {
-                            provider.log(Level::Error, || format!("Failed to initialize worker {worker}"), Some(error.output_failure()));
-                            self.schedule_setup_retry(provider, transport, targets, started)?;
-                            return Ok(false);
+                    // D44: what joined after the attempt started is claimed as it is now.
+                    let taken = provider.claim(targets.iter().map(|t| target_key(t, transport)));
+                    let step = with_claims(taken, async {
+                        let unfinished = match provider.setup(transport, executor.clone(), &targets, started, SetupCycle::Late { attempt, connected }, caller.clone()).await {
+                            Ok(unfinished) => unfinished,
+                            Err(error) if error.is_cancelled() => return Err(error.into_vendor()),
+                            Err(error) => {
+                                provider.log(Level::Error, || format!("Failed to initialize worker {worker}"), Some(error.output_failure()));
+                                self.schedule_setup_retry(provider, transport, targets.clone(), started)?;
+                                return Ok(Late::Stop);
+                            }
+                        };
+                        self.schedule_setup_retry(provider, transport, unfinished.failed, started)?;
+                        let missing = provider.still_claimed(transport, unfinished.missing);
+                        if missing.is_empty() { return Ok(Late::Next); }
+                        provider.log(Level::Warn, || format!("Worker {worker}: {} devices could not connect, retrying", missing.len()), None);
+                        pending.offer(&missing);
+                        Ok(Late::Retry(missing.len()))
+                    }).await?;
+                    match step {
+                        Late::Next => continue,
+                        Late::Retry(missing) => {
+                            last = missing_failure(missing);
+                            return Ok(true);
                         }
-                    };
-                    self.schedule_setup_retry(provider, transport, unfinished.failed, started)?;
-                    let missing = unfinished.missing;
-                    if missing.is_empty() { continue; }
-                    last = missing_failure(missing.len());
-                    provider.log(Level::Warn, || format!("Worker {worker}: {} devices could not connect, retrying", missing.len()), None);
-                    pending.offer(&missing);
-                    return Ok(true);
+                        Late::Stop => return Ok(false),
+                    }
                 }
-            }.await;
+            }).await;
             let released = provider.services.connections.release(executor).await;
             // Kotlin's finally releases even a denied admission or a failed setup.
             let retry = finish_retry_attempt(result, released, |error| {
@@ -381,6 +419,7 @@ impl SimulatorRecovery {
             }
         }
     }
+    #[allow(clippy::too_many_arguments)]
     async fn recover(
         &self,
         provider: &AppleSimulatorProvider,
@@ -388,10 +427,12 @@ impl SimulatorRecovery {
         lost: &[Simulator],
         loss: Option<i32>,
         readded: bool,
+        again: bool,
         caller: VendorContext,
     ) -> VendorResult<()> {
         let result: ProvisioningResult<Vec<FailedSetup>> = async {
-            if readded {
+            // D44: `again` is the attempt of a simulator added back while an older recovery of it ran.
+            if readded || again {
                 provider.log(
                     Level::Warn,
                     || format!("Re-provisioning {}, added back to the devices file", lost[0].serial()),
@@ -484,10 +525,10 @@ impl SimulatorRecovery {
             true => 0,
             false => provider.services.timing.elapsed().unwrap_or(0),
         };
-        let failures: Vec<_> = {
-            let mut state = provider.state();
-            state.recovering.retain(|d| !lost.iter().any(|old| Arc::ptr_eq(d, old)));
+        let keys: Vec<_> = lost.iter().map(|d| apple_id(&d.udid().into(), transport)).collect();
+        let (failures, again_for) = provider.settle(&keys, |state, current| {
             // In the section that ends `recovering`, so that no scan finds the handle between the two.
+            let mut again_for = Vec::new();
             let failures = failures
                 .into_iter()
                 .filter(|failure| {
@@ -499,16 +540,19 @@ impl SimulatorRecovery {
                     };
                     let id = apple_id(&old.udid().into(), transport);
                     // A registration rejected because the simulator left the file or the run is no failed setup.
-                    let parked = state.devices.get(&id).is_some_and(|c| Arc::ptr_eq(&c.handle, old))
+                    let usable = state.devices.get(&id).is_some_and(|c| Arc::ptr_eq(&c.handle, old))
                         && !state.removed.contains(&id)
                         && !state.exhausted.contains(&id)
                         && !old.retired();
-                    if parked {
-                        state.park_epoch = state.park_epoch.wrapping_add(1);
-                        let epoch = state.park_epoch;
+                    // D44: removed and added back since this recovery started. Its result is about the old claim, so the
+                    // simulator gets an attempt of its own, and stays marked as recovering until that starts.
+                    if usable && !current.contains(&id) {
+                        again_for.push(old.clone());
+                        return false;
+                    }
+                    if usable {
                         state.parked.push(Parked {
                             handle: old.clone(),
-                            epoch,
                             for_: match *refused {
                                 true => ParkedFor::Refused,
                                 false => ParkedFor::Retry,
@@ -518,9 +562,12 @@ impl SimulatorRecovery {
                             retained: loss.is_some() || readded,
                         });
                     }
-                    parked
+                    usable
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            state.recovering.retain(|d| {
+                !lost.iter().any(|old| Arc::ptr_eq(d, old)) || again_for.iter().any(|again| Arc::ptr_eq(d, again))
+            });
             // A90: worker-loss replacement predecessors are not retained by the source.
             if loss.is_some() || readded {
                 for old in lost {
@@ -534,8 +581,11 @@ impl SimulatorRecovery {
                     }
                 }
             }
-            failures
-        };
+            (failures, again_for)
+        });
+        for device in again_for {
+            self.recover_again(provider, transport, device, loss, readded, &caller)?;
+        }
         provider
             .isolate(result, || {
                 if readded {
@@ -560,6 +610,37 @@ impl SimulatorRecovery {
                 Some(error.failure().clone()),
             );
         }
+        Ok(())
+    }
+    /// D44: the attempt of a simulator added back while an older recovery of it ran, as the scan would start it, with
+    /// claims taken now.
+    fn recover_again(
+        &self,
+        provider: &AppleSimulatorProvider,
+        transport: &Transport,
+        device: Simulator,
+        loss: Option<i32>,
+        readded: bool,
+        caller: &VendorContext,
+    ) -> VendorResult<()> {
+        let this = self.me.upgrade().ok_or_else(|| {
+            other(
+                "java.lang.IllegalStateException",
+                "Recovery allocation has been released",
+            )
+        })?;
+        let provider = provider.this()?;
+        let transport = transport.clone();
+        let caller = caller.clone();
+        let claims = provider.claim_now([apple_id(&device.udid().into(), &transport)]);
+        self.recoveries
+            .spawn(provider.services.runtime.clone().as_ref(), async move {
+                with_claims(
+                    claims,
+                    this.recover(&provider, &transport, &[device], loss, readded, true, caller),
+                )
+                .await
+            });
         Ok(())
     }
     /// D44: who takes what a worker-loss recovery couldn't set up. An unreachable worker has its connection retry, a
@@ -622,6 +703,12 @@ fn duration_millis(duration: jcompat::jtime::Duration) -> VendorResult<i64> {
     duration
         .to_millis()
         .ok_or_else(|| other("java.lang.ArithmeticException", "long overflow"))
+}
+/// What a late setup on a connected worker leaves its retry to do.
+enum Late {
+    Next,
+    Retry(usize),
+    Stop,
 }
 fn missing_failure(count: usize) -> ProvisioningError {
     other(
@@ -870,9 +957,15 @@ impl ProviderRecovery for SimulatorRecovery {
                     }),
                     ..caller.clone()
                 };
+                // D44: the recovery acts for these simulators at their generations now.
+                let claims = provider.claim_now(lost.iter().map(|d| apple_id(&d.udid().into(), &transport)));
                 self.recoveries
                     .spawn(provider.services.runtime.clone().as_ref(), async move {
-                        this.recover(&provider, &transport, &lost, loss, readded, caller).await
+                        with_claims(
+                            claims,
+                            this.recover(&provider, &transport, &lost, loss, readded, false, caller),
+                        )
+                        .await
                     });
             }
             Ok(())

@@ -19,14 +19,9 @@ struct Waiting {
     key: JavaString,
     generation: u64,
 }
+/// The count of failed rounds is the provider's `setup_failures`, next to the generations that guard it (D44).
 #[derive(Default)]
 pub(super) struct SetupRetries {
-    /// Failed rounds by target, for the run. A failure of a retry and one of a late worker's setup count alike, so a
-    /// hand-over between this retry and the worker retry can't refill the budget. All instances of a profile share
-    /// one key: instances that fail in the same cycle count once, and are retried together.
-    failures: IndexMap<JavaString, i32>,
-    /// Bumped by each removal, so that a retry from before it can't act on the simulator after it was added back.
-    generations: IndexMap<JavaString, u64>,
     due: IndexMap<Transport, Vec<Waiting>>,
     running: IndexSet<Transport>,
 }
@@ -41,16 +36,18 @@ impl SetupRetries {
         true
     }
     /// A removed simulator starts over if it is added back: the devices file changed, and that is bounded by its owner.
+    /// The removal also cleared its count and moved its generation on.
     pub(super) fn forget(&mut self, id: &JavaString) {
-        self.failures.shift_remove(id);
-        *self.generations.entry(id.clone()).or_default() += 1;
         for due in self.due.values_mut() {
             due.retain(|waiting| waiting.key != *id);
         }
     }
-    fn generation(&self, key: &JavaString) -> u64 {
-        self.generations.get(key).copied().unwrap_or(0)
-    }
+}
+/// D44: what a removal hasn't taken from a retry since it was scheduled.
+fn current_generation(provider: &AppleSimulatorProvider, due: Vec<Waiting>) -> Vec<Waiting> {
+    due.into_iter()
+        .filter(|waiting| waiting.generation == provider.generation(&waiting.key))
+        .collect()
 }
 fn label(target: &AppleTarget) -> String {
     match target {
@@ -98,35 +95,34 @@ impl SimulatorRecovery {
             provider.give_up_targets(transport, &targets, ParkedFor::GivenUp);
             return Ok(());
         }
-        let waiting = {
-            let state = self.state();
-            targets
-                .into_iter()
-                .map(|target| {
-                    let key = apple_id(&target_id(&target), transport);
-                    let generation = state.setup.generation(&key);
-                    Waiting {
-                        target,
-                        key,
-                        generation,
-                    }
-                })
-                .collect()
-        };
-        let waiting = wanted(provider, transport, waiting)?;
+        // D44: the retry acts for what the failing operation claimed, at its generation.
+        let claims = provider.claim(targets.iter().map(|target| apple_id(&target_id(target), transport)));
+        let waiting = targets
+            .into_iter()
+            .map(|target| {
+                let key = apple_id(&target_id(&target), transport);
+                let generation = claims.0.get(&key).copied().unwrap_or(0);
+                Waiting {
+                    target,
+                    key,
+                    generation,
+                }
+            })
+            .collect();
+        let waiting: Vec<Waiting> = wanted(provider, transport, waiting)?;
+        if self.retry_cancel.reason().is_some() {
+            return Ok(());
+        }
         let mut rounds = IndexMap::<i32, Vec<Waiting>>::new();
-        let mut counted = IndexMap::<JavaString, i32>::new();
         let mut exhausted = Vec::new();
-        {
-            let mut state = self.state();
-            if self.retry_cancel.reason().is_some() {
-                return Ok(());
-            }
-            for waiting in waiting {
+        let keys: Vec<_> = waiting.iter().map(|waiting| waiting.key.clone()).collect();
+        provider.settle(&keys, |state, current| {
+            let mut counted = IndexMap::<JavaString, i32>::new();
+            for waiting in waiting.into_iter().filter(|waiting| current.contains(&waiting.key)) {
                 let round = match counted.get(&waiting.key) {
                     Some(round) => *round,
                     None => {
-                        let failures = state.setup.failures.entry(waiting.key.clone()).or_default();
+                        let failures = state.setup_failures.entry(waiting.key.clone()).or_default();
                         *failures = failures.wrapping_add(1);
                         counted.insert(waiting.key.clone(), *failures);
                         if *failures > self.max_recoveries {
@@ -139,7 +135,7 @@ impl SimulatorRecovery {
                     rounds.entry(round).or_default().push(waiting);
                 }
             }
-        }
+        });
         let worker = transport.id().to_string_lossy();
         let spent: Vec<_> = exhausted.iter().map(|(target, _)| target.clone()).collect();
         provider.give_up_targets(transport, &spent, ParkedFor::GivenUp);
@@ -205,12 +201,9 @@ impl SimulatorRecovery {
         started: i64,
         caller: VendorContext,
     ) -> VendorResult<()> {
+        let batch = current_generation(provider, batch);
         {
             let mut state = self.state();
-            let batch: Vec<_> = batch
-                .into_iter()
-                .filter(|waiting| waiting.generation == state.setup.generation(&waiting.key))
-                .collect();
             state.setup.due.entry(transport.clone()).or_default().extend(batch);
             if !state.setup.running.insert(transport.clone()) {
                 return Ok(());
@@ -287,14 +280,23 @@ impl SimulatorRecovery {
         self.log_late(provider, transport, &reason, total - due.len(), !due.is_empty());
         Ok(due)
     }
-    /// D44: what a removal hasn't taken from this retry since it was scheduled.
-    fn current_generation(&self, due: Vec<Waiting>) -> Vec<Waiting> {
-        let state = self.state();
-        due.into_iter()
-            .filter(|waiting| waiting.generation == state.setup.generation(&waiting.key))
-            .collect()
-    }
+    /// D44: an attempt acts for its targets at the generations they were scheduled with.
     async fn setup_retry_attempt(
+        &self,
+        provider: &Arc<AppleSimulatorProvider>,
+        transport: &Transport,
+        due: Vec<Waiting>,
+        started: i64,
+        caller: &VendorContext,
+    ) -> VendorResult<()> {
+        let claims = Claims(due.iter().map(|w| (w.key.clone(), w.generation)).collect());
+        with_claims(
+            claims,
+            self.setup_retry_claimed(provider, transport, due, started, caller),
+        )
+        .await
+    }
+    async fn setup_retry_claimed(
         &self,
         provider: &Arc<AppleSimulatorProvider>,
         transport: &Transport,
@@ -320,8 +322,7 @@ impl SimulatorRecovery {
                 }
                 // The worker is what failed now: its own retry policy decides, as for a first connection.
                 // D44: only for what this retry still owns; one removed and added back meanwhile has a retry of its own.
-                let targets: Vec<_> = self
-                    .current_generation(due)
+                let targets: Vec<_> = current_generation(provider, due)
                     .into_iter()
                     .map(|waiting| waiting.target)
                     .collect();
@@ -334,7 +335,7 @@ impl SimulatorRecovery {
             }
         };
         // A removal during the connection takes the target out before anything is planned for it.
-        let due = match wanted(provider, transport, self.current_generation(due)) {
+        let due = match wanted(provider, transport, current_generation(provider, due)) {
             Ok(due) => due,
             Err(error) => {
                 let _ = provider.services.connections.release(executor).await;
@@ -384,13 +385,12 @@ impl SimulatorRecovery {
         };
         // A target removed during the attempt lost its budget and generation with it, whatever it was added back as.
         let owned = |targets: Vec<AppleTarget>| -> Vec<AppleTarget> {
-            let state = self.state();
             targets
                 .into_iter()
                 .filter(|target| {
                     let key = apple_id(&target_id(target), transport);
                     due.iter()
-                        .any(|waiting| waiting.key == key && waiting.generation == state.setup.generation(&key))
+                        .any(|waiting| waiting.key == key && waiting.generation == provider.generation(&key))
                 })
                 .collect()
         };

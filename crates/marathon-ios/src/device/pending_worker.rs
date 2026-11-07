@@ -39,6 +39,10 @@ impl PendingWorker {
         }
         !state.1.is_empty()
     }
+    /// D44: what waits now, left in place.
+    pub fn peek(&self) -> Vec<AppleTarget> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).1.clone()
+    }
     pub fn close(&self) {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).0 = false;
     }
