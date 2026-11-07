@@ -11,35 +11,66 @@ run`. The pool stays in `Scheduler.pools`, closed, so a device that connects lat
 
 ## D48: the design
 
-The pool asks the queue whether anything is left. If so, and time remains, it logs a warning and starts a timer under its
-supervisor, which `terminate` cancels. `AddDevice` during that wait voids the timer, and the new device asks the queue for a batch as
-any device does. The timer's end logs what Kotlin logged, and terminates the pool.
+As revised in review round 2, below. When the pool's last live device leaves, a timer starts under its supervisor, which `terminate`
+cancels. Once no device is left cleaning up, the pool asks the queue whether anything is left: if not it ends with Kotlin's lines,
+and if so it logs the wait. A device added meanwhile asks the queue for a batch as any device does, but does not stop the timer,
+and counts as live only once ready. The timer's end, with no live device, logs that none returned, stops the devices still getting
+ready, and ends the pool with Kotlin's lines once every device has reported Terminated.
 
 | Trap | What happens |
 |---|---|
 | A run must end when nothing returns | The timer. `a_run_ends_when_no_device_returns_d48` checks that it does not end a millisecond sooner, and ends exactly at its limit |
 | Which timeout | `deviceInitializationTimeoutMillis`, 180 s by default. It is the patience a run already has for a device to appear, and is on every vendor. `waitForDevicesTimeoutMillis` is Android's alone and bounds something else, and the batch and output timeouts bound a running test. 180 s holds what was measured: the slowest return on a real emulator took 46.6 s from `offline`, and D33's retries are 30, 60 and 90 s after each failure. Its cost is that it bounds both, so a farm that needs an hour for its first device also waits an hour here |
 | Doubling D41's grace and D22's bound | `Device::return_wait_used_millis`: what the vendor waited for this device before the disconnect. Android measures it from the first `offline` or the outage's start, on a new `VendorClock::now_millis`, carried through an outage that takes over from a grace. So a real killed emulator ended 180.00 s after its `offline`. Without this, the test's server that never returns would end 30 s later (`a_run_ends_when_its_adb_server_never_returns_d22`) |
-| A flapping device holding the run | The time runs from when the pool first lacked a device until a test ends, passed or failed. Time with a device counts, and a return does not reset it, so a cycle cannot repeat past the limit. `a_device_that_keeps_returning_without_finishing_a_test_cannot_hold_the_run_open_d48` |
+| A flapping device holding the run | The time runs from when the pool first lacked a device until a test ends, passed or failed. Time with a device counts, and a return does not reset it, so a cycle cannot repeat past the limit. `a_device_that_keeps_returning_without_finishing_a_test_cannot_hold_the_run_open_d48`. A returned device that is ready at the limit keeps the pool while it stays, and a test ending on it starts afresh: that is bounded by the retries, not by the limit |
 | The scheduler's lazy child join can miss a late pool | The pool's actor job stays active during the wait, so the traversal is still on it, and a pool created meanwhile is linked behind it and reached. `a_pool_created_during_a_wait_is_joined_and_the_run_waits_for_both_d48` drives this. A pool created after the traversal has finished is still missed, as the JVM row `late-pool` keeps |
 | The queue's tests and their order | No queue operation runs during a wait. A device taking over after a 30 s wait gets the same batches in the same order as one that was in the pool all along: `a_device_that_returns_carries_on_with_the_tests_in_their_order_d48`. Retry counts stay |
 | A queue terminating with no devices, against `remaining tests will not run` | The queue is asked after the messages sent before, so the last batch's outcome is counted. A queue that finished, or has no tests, ends the pool at once with Kotlin's lines: `a_pool_with_nothing_left_to_run_does_not_wait_d48`, `the_last_test_coming_back_with_no_retries_left_does_not_wait_d48`, `a_pool_with_no_tests_does_not_wait_d48`. The IsEmpty question now comes just before those lines rather than just after, so a queue line caused by the same last batch can precede them. No recording shows the difference |
 | Several pools | One wait per pool. A `RemoveDevice` is broadcast, so a pool in its wait ignores other pools' disconnects: `another_pools_disconnect_does_not_restart_or_end_a_wait_d48`, `pools_wait_on_their_own_and_a_healthy_one_carries_on_d48` |
-| A timer that fired just before a return | Waits are numbered, and a `ReturnWaitOver` of any other number is ignored. A stale timer needs no cancelling, as it does nothing and the supervisor ends with the pool |
+| A timer from before a test ended | Waits are numbered, and a `ReturnWaitOver` of any other number is ignored. A stale timer needs no cancelling, as it does nothing and the supervisor ends with the pool: `a_late_return_wait_timer_is_ignored_d48` |
 | Cancellation | The timer is under the supervisor. `a_cancelled_run_does_not_wait_out_the_limit_d48` |
 | macOS | Nothing there can bring a Mac back (`initialize_transport` connects each once), so `MacosDevice` says all the wait is used, and the run ends as it did |
 
-**The bound.** The pool ends at the latest at `first lack of a device + deviceInitializationTimeoutMillis`, or if a device was present then, when
-that device leaves, which its prepare retries, its batch timeouts and the quota limit. Any test ending starts it afresh.
+**The bound** (revised in round 2). `start` is the latest departure of a live device since a test last ended, less what the vendor had already
+waited for it; a live device is one that was in the pool before it lacked one, or came back and reported ready. If no test ends and no
+returned device is ready at `start + deviceInitializationTimeoutMillis`, the pool ends at that time plus the longest cleanup still running then
+(a cancelled batch or prepare of a device leaving, or of one the pool stops), which the vendor's timeouts bound. If a returned device is ready
+then, the pool ends when that device leaves, plus its cleanup. Any test ending starts it afresh.
 
 **On iOS.** A worker lost for less than the limit recovers into the same pool. `a_replacement_within_the_limit_takes_over_the_pool_d48` shows that
 through the real provider, recovery and scheduler on the fake worker. A recovery takes up to 70 s for its sessions to close, plus its connection attempts,
 so a worker has to be back well within the limit; if it is not, the run ends with exit 1 as it did. WP x27 changes the reconnect's pacing in parallel, and that branch was not read here.
 `last_device_loss_…_after_the_limit_does_not_resurrect_the_pool_d48` keeps the old behaviour at a small limit.
 
-**U160, a batch held at the gate and charged when a server is given up: not fixed, and affected in one way.** The charge is the same. Before D48 a run on its last
-device ended there, so only a second device saw it. Now the run can go on after the device returns and pass, with that attempt counted. With
-`uncompletedTestRetryQuota: 0` those tests still fail without having run. The row stays open, with a note.
+**U160, a batch held at the gate and charged when a server is given up: not fixed, and affected in one way.** D48 does not change the charge. It
+changes what follows it. Before D48 a run on its last device ended when the server was given up, exit 1 either way, so only a run with a second
+device saw the charge. Now the pool waits, the device can return within what is left of the limit, and the run can go on and succeed with that
+attempt spent on tests that never ran: D48 exposes the existing charge in runs that later succeed. With `uncompletedTestRetryQuota: 0` those
+tests fail without having run, in a run that otherwise passes; with a larger quota the run only loses one retry per held test. The row stays
+open, with a note.
+
+## Review round 2
+
+A cross-family review found two majors. Both are fixed, each with tests that failed before the fix.
+
+| Finding | Fix | Tests |
+|---|---|---|
+| **S-x31-1.** The wait began only once every device leaving had finished cleaning up, as `no_active_devices` counted a terminating actor. A disconnect at 500 ms with a 20 s cleanup and a 60 s limit ended at 80,500 ms. Replacements every 10 s that never got ready, each cleaning up for 20 s, kept something in the pool or in cleanup, so no wait ever started and the run never ended, also with quota 0 | The time starts when the last live device leaves, whatever is still cleaning up, and a timer runs from then. Its start is the latest live departure since a test ended, so the order of removal doesn't matter. A device added during a wait does not stop the timer and is live only once ready. At the limit with no live device the pool stops the devices still getting ready, takes no new device, and ends once every device has reported Terminated, so their outcomes still count. The wait is logged once nothing is cleaning up, if the queue then has tests, so a run whose last test came back with no retries left still ends at once with Kotlin's lines | `the_wait_runs_while_the_leaving_device_cleans_up_d48` (ended at 80,500 before, now 60,500), `replacements_that_never_get_ready_cannot_hold_the_run_open_d48` (the default quota and 0: no end by 300 s before, now 80,500, the limit plus the cleanup of the replacement it stopped), `a_cleanup_still_running_at_the_limit_is_waited_for_and_nothing_new_is_taken_d48` (a 70 s cleanup: ends at 70,500, a device arriving at the limit's end is not taken), `the_pool_lacks_a_device_from_the_last_departure_whatever_the_order_d48` (the reviewer's 10 s and 2 s numbers, both orders), all in `crates/marathon-core/tests/pool_scheduler.rs` |
+| **S-x31-2.** `server_lost` took the earliest grace start on the server for the outage, so `away_since` gave a device that was healthy until the outage the start of another device's grace | Each grace's start is kept for its own serial while the outage lasts. A device's time away is its own grace's start if it had one, else the outage's | `tracker::tests::an_outage_takes_over_each_grace_for_its_own_serial_d48` (B was away since 1,000 before, now 9,000); `an_outage_during_one_devices_grace_counts_for_the_other_from_its_own_start_d48` in `crates/marathon-android/tests/reconnect_test.rs`, the whole run on the fake adb: one device `offline` at 6 s, the server killed at 9 s for good, both disconnected at the outage's end. It ended at 186,050 before, now within 2 s after 189,000 |
+
+Each part of the pool fix was also reverted alone: the latest departure rather than the last one removed fails the order test; a returned
+device counting as live at once fails the replacements test; a timer started only once nothing is cleaning up fails the replacements and the
+long-cleanup tests. `a_late_return_wait_timer_is_ignored_d48` now checks a stale timer from before a test ended, as a return no longer
+voids the timer. Its old form, which injected a timer message after a return, no longer tested anything.
+
+What the review also found overstated, now said as it is in D48, CHANGELOG and migration: the bound has the cleanup still running at the
+limit on top; a returned device that is ready at the limit keeps the pool while it stays, so flapping cannot stretch the limit but a device
+that stays can hold the pool as long as its retries last; and pools keep their own time, but a run ends with its last pool, and a pool created
+after the scheduler's join is still missed.
+
+Not changed: what a vendor's cleanup costs. A cancelled batch or prepare that never returns holds the pool, as it did before D48. The
+reviewer's whole-run return at 15 s on Android was not run: the fake adb server restarts after real time, not virtual time, so a return at a
+set virtual time can't be placed. The pool-level test runs the same numbers on the real scheduler instead.
 
 ## D49: what Kotlin does
 

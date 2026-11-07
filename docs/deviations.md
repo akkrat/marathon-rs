@@ -749,19 +749,31 @@ a device that is away for a moment ends the run with exit 1. On iOS this defeats
 
 Native builds keep a pool with tests left to run for up to `deviceInitializationTimeoutMillis` (180 s by default), with no new
 setting. It is the time a run already gives a device to appear. A device that returns finds the queue as it was: same tests,
-same order, same retry counts. If none returns, the run ends as before, at that limit, with `remaining tests will not run`.
-A device that joins after that is still dropped.
+same order, same retry counts. If none returns, the pool ends as before, with `remaining tests will not run`, once the
+limit is up and the devices leaving have finished cleaning up. A device that joins after the limit is dropped.
 
-- **One wait, not several.** The time counts from when the device first went away. D41's grace and D22's outage are part of
-  it: a killed emulator ends the run 180 s after its first `offline`, and a server that never returns 180 s after it went. If
-  `waitForDevicesTimeoutMillis` is that long or longer, there is no wait after the outage.
-- **Time with a device counts too, until a test ends.** A device that keeps coming back without finishing a test can't hold a
-  run open: the limit runs from the first time it went away. A device that leaves after that limit ends the pool at once. Any test
-  that ends, passed or failed, gives the pool its whole wait again. So a run can be held up for the limit plus whatever
-  the last returned device was doing, which its own timeouts bound.
+- **The bound.** The time starts when the pool's last live device leaves. A live device is one that was in the pool before
+  it lacked one, or one that came back and reported ready. The start is the latest such departure since a test last ended,
+  less what the vendor had already waited for that device, whichever order the devices are removed in. With `L` for
+  `deviceInitializationTimeoutMillis`: if no test ends and no device that came back is ready at `start + L`, the pool stops
+  the devices still getting ready, takes no new ones, and ends when every device has reported Terminated, so that their
+  outcomes count. It ends at `start + L` plus the longest cleanup still running then: a leaving device's cancelled batch or
+  prepare, which the vendor's own timeouts bound, not D48. Devices that keep coming and going without getting ready don't
+  move the start.
+- **One wait, not several.** D41's grace and D22's outage are part of it: a killed emulator ends the run 180 s after its
+  first `offline`, and a server that never returns 180 s after it went. A device on that server that was healthy until the
+  outage counts from the outage, not from another device's grace. If `waitForDevicesTimeoutMillis` is that long or longer,
+  there is no wait after the outage.
+- **A device that came back and got ready.** If one is in the pool at `start + L`, the pool goes on with it, and ends when it
+  leaves and has cleaned up, unless a test has ended meanwhile. Any test that ends, passed or failed, gives the pool a whole new wait.
+  So a device that keeps coming back and leaving without finishing a test can't stretch the limit, but one that stays keeps
+  the pool for as long as it stays, and a test that ends on it starts the wait afresh. Such a run is bounded by its
+  retries and timeouts, as any run is.
 - **Nothing is waited for with nothing to run.** A pool whose queue is finished ends at once, as before, and so does a run
   with no tests left, or `deviceInitializationTimeoutMillis: 0`. A healthy run's logs and commands are unchanged.
-- **Each pool waits on its own**, and a run joins all of them, including one created during a wait.
+- **Each pool keeps its own time.** A device leaving another pool does not start, restart or end it. The run ends when every
+  pool has ended, so a waiting pool holds up a run whose other pools are done. A pool created during a wait is joined; one
+  created after the scheduler has finished joining its pools is still missed, as in Kotlin.
 - **macOS does not wait**, as nothing there can bring a Mac back.
 - **A device that left the pool without leaving adb's list is waited for too**, although it comes back only if the list changes:
   one whose prepare failed for good, or that [D49](#d49--a-lost-adb-request-does-not-retire-a-device-that-is-still-there) gave
@@ -769,8 +781,10 @@ A device that joins after that is still dropped.
 
 A run that loses its last device for good now takes up to the limit longer to fail: 180 s where a killed emulator took 12.5 s.
 A worker away for longer than the limit still ends the run. New log lines appear only during a wait: `no device left,
-waiting up to <n> ms for one to return` and `no device returned within deviceInitializationTimeoutMillis`, and `device <serial>
-has arrived`. Approved 2026-11-07 (project owner's decision). See
+waiting up to <n> ms for one to return`, logged once the devices leaving have finished cleaning up and only if tests are left
+then; `no device returned within deviceInitializationTimeoutMillis`; `device <serial> has arrived`; `device <serial> arrived
+after the wait ran out, not adding it`; and, at debug level, `device <serial> is not ready when the wait ends, terminating
+it`. Approved 2026-11-07 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C50](known-kotlin-bugs.md) and the
 [x31 findings](wp/x31-findings.md).
 

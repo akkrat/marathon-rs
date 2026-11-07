@@ -42,7 +42,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   background. Key authentication has always behaved this way.
 - **A run that loses all its devices takes longer to fail** (D48). A pool with tests left waits up to
   `deviceInitializationTimeoutMillis` (180 s by default) for a device to return, so a killed emulator alone now exits 1 after
-  about 180 s, not 12.5 s. Lower that value if you need it sooner; it also bounds the wait for the first device.
+  about 180 s, not 12.5 s, plus whatever the devices leaving still spend cleaning up then. Lower that value if you need it
+  sooner; it also bounds the wait for the first device.
 
 ### Android
 
@@ -134,9 +135,12 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A run whose filters removed every test logs an error line saying what each filter removed, so a mistyped filter is visible. It still exits 0 (D51).
 - A pool that loses its last device waits for one to return, instead of ending with its tests unrun: an `adb reboot` on a
   single emulator now exits 0, and an iOS simulator recovered after its worker dropped finds its tests still there. The wait
-  is up to `deviceInitializationTimeoutMillis` (180 s by default) from when the device first went away, which includes D22's
-  and D41's waits. A device that keeps returning without finishing a test can't hold a run open, a device after that limit is still dropped, and
-  macOS does not wait (D48).
+  is up to `deviceInitializationTimeoutMillis` (180 s by default) from when the pool's last working device went away, which
+  includes D22's and D41's waits for that device. It runs on while the devices leaving clean up, and while devices come back
+  without getting ready. When it is up, the pool stops the devices still getting ready, takes no new ones, and ends once
+  every device has finished cleaning up. A device that came back and got ready keeps the pool while it stays; when it
+  leaves without a test having ended, the pool ends once it has cleaned up. Any test that ends gives the pool a whole new wait. macOS does
+  not wait (D48).
 - A history query that fails is no longer final for the run: it is retried in the background a limited number of times, at
   5, 10, 20 s and so on counted from the first failure, so a query that fails later joins the next round. Queues built and
   batches composed afterwards use the history it finds. A run never waits for this. With a failing analytics backend the log
