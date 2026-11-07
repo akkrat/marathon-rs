@@ -459,15 +459,19 @@ error says so. A simulator that left the devices file is not retried, and one ad
 is different: removing a worker from the devices file doesn't remove its profiles, as in Kotlin, so a pending retry
 carries on and **can still create a simulator on that removed worker**, until the retries run out or reach the
 cut-off. A failed managed simulator is deleted before its replacement is created, so retries don't pile up simulators;
-one that could not be deleted is reused. Retries stop at `workerConnection.lateJoinCutoff` and when the run ends. The
+one that could not be deleted is reused. Retries stop at `workerConnection.lateJoinCutoff`, except for a simulator that was
+in the run and is returning after a loss ([D44](#d44--a-lost-simulators-reconnect-has-a-limit)), and when the run ends. The
 end of a run doesn't wait out a pause, but it does wait for an attempt in flight to stop. A retried simulator is
 admitted to the run like a late one. An unreachable worker keeps its own
 connection retry. A refused connection, a simulator the worker doesn't have and an unavailable profile are not
 retried. There is no new setting: `attempts: 1` with `lateJoin: false` turns the retries off. `simctl` commands and
 log lines increase only when a setup fails. The macOS provider is not affected. Since
 [D44](#d44--a-lost-simulators-reconnect-has-a-limit), a failed setup of a simulator that another simulator's setup took along
-counts too and starts a pause of its own. The cap of four setups holds, but when several simulators on one worker fail, the
-pauses between one simulator's setups can be shorter than 30, 60 and 90 s.
+counts too and starts a pause of its own. So the cap is four failed setups with the worker answering, the first included,
+counted wherever they happen, and when several simulators on one worker fail the pauses between one simulator's setups can be
+shorter than 30, 60 and 90 s. The cap has two exceptions. A setup that finds the worker unreachable isn't counted: the worker
+connection retry takes the simulator and has its own limit. And removing a simulator and adding it back starts its count
+over; a setup of it that was already running then counts for neither.
 Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A81](known-kotlin-bugs.md) and the [x14 findings](wp/x14-findings.md).
@@ -673,14 +677,16 @@ as Kotlin does, and then hand the simulator to whoever the failure belongs to:
 
 | The re-provisioning… | What happens | Limit, with the defaults |
 |---|---|---|
-| can't reach the worker, or the connection drops right after login | The worker connection retry | One attempt per worker at 10, 30 and 90 s, then one a minute, 11 in all, up to 600 s after the first failure |
-| fails with the worker answering | [D33](#d33--a-simulator-whose-setup-failed-is-set-up-again)'s budget, which every such failure of that simulator counts against, also one in another simulator's setup that took it along | At most four such setups, the first included. A retry waits 30, 60 and 90 s after the first, second and third failure; a failure in another simulator's setup starts a pause of its own, so the gaps can be shorter |
+| can't reach the worker, or the connection drops right after login | The worker connection retry | One attempt per worker at 10, 30 and 90 s, then one a minute, 11 in all, until `lateJoinCutoff` after the first failure (below) |
+| fails with the worker answering | [D33](#d33--a-simulator-whose-setup-failed-is-set-up-again)'s budget, which every such failure of that simulator counts against, also one in another simulator's setup that took it along | At most four such setups, the first included, with D33's two exceptions: a setup that finds the worker unreachable goes to the row above, and a re-add starts the count over. A retry waits 30, 60 and 90 s after the first, second and third failure; a failure in another simulator's setup starts a pause of its own, so the gaps can be shorter |
 | is refused by the simulator's own connection (authentication, [D35](#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | Nothing, and an error says so, also if the planning connection drops in the same setup | No retry |
 
 This applies to every failed re-provisioning: after a lost worker, after a simulator lost with its connection up, and after
-one added back to the devices file. In Kotlin those last two were final.
+one added back to the devices file. In Kotlin those last two were final. Each limit here holds between two changes of the
+devices file for that simulator: a devices update that removes it and adds it back starts its limits over, as below.
 
-**What a lost worker costs, with the defaults.** Take N simulators lost with one worker. The first attempt acquires one
+**What a lost worker costs, with the defaults.** Take N simulators lost with one worker, and no devices update that adds one
+of them back meanwhile; each such update adds the attempts of a new start. The first attempt acquires one
 connection per simulator. The worker retry then makes 11 attempts in 600 s, one a minute once the first pauses are over, and
 each acquires one planning connection and, if planning gets through, one more per simulator still waiting. That is at most
 N + 11 × (N + 1) acquisitions: 13 for two simulators whose worker doesn't answer, and 35 for two whose worker answers while
@@ -715,10 +721,12 @@ joiner denied admission at the cut-off.
 
 **Work that started before a re-add.** A recovery, a worker retry attempt, a D33 retry or a setup that started before the
 devices file removed a simulator and added it back decides nothing for it afterwards: no parking, refusal, giving up, count
-or hand-over to a retry. The simulator added back gets its own attempt at once, or, if an older recovery of it is still
-running, as soon as that recovery ends. If that attempt can't reach the worker and joins a worker retry whose attempt began
-before it joined, and that attempt ends the retry, the simulator gets a retry of its own, with its limit started over. A
-setup that succeeds is kept whenever it started.
+or hand-over to a retry. A simulator that was in the run and is added back gets its own attempt at once, or, if an older
+recovery of it is still running, as soon as that recovery ends. If that attempt can't reach the worker, it joins the worker
+retry. An attempt of that retry that began before the re-add doesn't take it: the retry's next attempt does, or, if that
+older attempt ends the retry, the simulator gets a retry of its own, with its limit started over. A setup takes along only
+the simulators it held a claim on when it started, so one that becomes eligible during it waits for the next setup. A setup
+that succeeds is kept whenever it started.
 
 **Not limited:** a connection that keeps dropping after setup succeeds. Each round is a full setup, so its pace is the time
 that takes, and a successful recovery has no count, since a worker may reboot more than once in a long run.

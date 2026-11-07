@@ -275,6 +275,11 @@ for it. This replaces round 3's per-handle epoch and D33's own generation map.
 | D33's count, and the rounds it schedules | `schedule_setup_retry` | `settle` |
 | Hand-over to the worker retry: a new retry or an offer | `retry_later` | `settle` (`still_claimed`) |
 | Hand-over of what an attempt couldn't reach back to its retry | `retry` → `pending.offer` | `settle` (`still_claimed`) |
+| Pending membership: an offer (round 5) | `retry_later`, `retry`'s hand-back, a devices update's `offer` | The entry carries the generation of the offering operation's claim |
+| Pending membership: `take` by an attempt (round 5) | `retry` | `standing`: a dead entry is dropped, one newer than the attempt's claim is offered back for the next attempt, the rest is taken |
+| Pending membership: prune (round 5) | `prune_pending` | Drops what left the file, what expired (giving up through `settle`) and late new devices at the cut-off. A dead entry is left for `take` or the cleanup, which can cost the retry one more attempt |
+| Pending membership: close and the cleanup's take (round 5) | `retry_later`'s task | `standing` against the last attempt's claims: dead dropped, newer or a returning simulator that joined later to a fresh retry (through `settle`), the rest given up (through `settle`) |
+| Pending membership: the worker's entry removed from the map | `retry_later`'s task | Only if it is still this retry's (`Arc::ptr_eq`), so a fresh retry's entry stays |
 
 Writes that are not decisions of older work, and don't go through `settle`:
 
@@ -320,6 +325,61 @@ scheduling is unchanged.
 - A simulator added back while a worker retry waits costs one more planning connection to that worker.
 - A setup that started before a re-add and succeeds still registers the simulator.
 - Real time on a multi-threaded runtime is not covered for these races; the tests use the paused clock and gates.
+- The shared-connection case from round 1 is still documented, not fixed.
+
+## Review round 5
+
+The re-check of round 4 found two holes, and the docs over-claimed in places.
+
+**S-x27-9: an older attempt used up the retry of the simulator added back** (major). An attempt waiting for its planning
+connection outlived a remove and re-add; the re-add's own attempt found the worker unreachable and joined the retry; then the
+older connection got through and its `take` emptied the pending list, both generations, under the old claim. The failure was
+rightly dropped as stale, but the entry was gone, so the simulator was left parked with no retry. Pending entries now carry the
+generation of the claim that offered them (`Entry`). An attempt takes only what it holds at that generation or doesn't hold at
+all; it drops a dead entry, one whose simulator left the file or was removed or added back since it was offered; and it offers
+an entry newer than its claim back, for the retry's next attempt, which claims it as it is then. The cleanup at the end of a
+retry sorts its leftovers the same way. This is about 80 lines, so the limit the brief offered as a fallback isn't needed.
+`PendingWorker` became generic over its entry so the Kotlin oracle test keeps using plain targets.
+
+Test: `an_older_attempt_that_connects_late_leaves_the_simulator_added_back_to_the_next_attempt` (the witness). It fails with
+the attempt taking newer entries. `a_simulator_that_joins_a_retry_after_its_last_attempt_started_gets_a_retry_of_its_own`
+(round 4) fails with the cleanup giving newer entries up.
+
+**S-x27-10: a plan took along simulators it held no claim on** (major). `setup` claimed its targets and the simulators
+parked when it started; one parked during its inventory await was then eligible, taken along, and its refusal and D33 charge
+were dropped by `settle`. A plan now claims every simulator registered on its worker before its first await, and the
+planner's view (`claimed_current`) keeps any eligible simulator the plan holds no current claim on, so one that becomes
+eligible later, a newly registered one or one added back during the plan, waits for the next plan.
+
+Tests: `a_simulator_parked_while_a_plan_lists_its_worker_keeps_the_setup_budget` (a had 5 failed setups, now 4) and
+`a_simulator_parked_while_a_plan_lists_its_worker_keeps_its_refusal` (2 refusals, now 1), both witnesses. Each half of the
+fix is enough for these two, so each was reverted alone without a failure; with both reverted, both fail.
+
+**Write sites.** The round 4 table now has the pending list's offer, take, prune, close and removal.
+
+**Docs.** Every guarantee in CHANGELOG, D33, D44 and the migration guide was read against the code:
+
+- D33's "retries stop at `lateJoinCutoff`" now names its exception, a simulator returning after a loss (D44).
+- The cap of four failed setups, and the "three times" of CHANGELOG and the migration guide, now state their two exceptions:
+  a setup that finds the worker unreachable isn't counted, as the worker's connection retry takes over, and a re-add starts
+  the count over, so a setup already running then counts for neither.
+- D44's worker retry row says "until `lateJoinCutoff`" instead of "up to 600 s", which the 630 s paragraph contradicted, and
+  D44 says once that each limit holds between two changes of the devices file for that simulator. The cost bound is stated
+  for a loss with no re-add meanwhile.
+- D44's stale-work paragraph says what happens to an entry offered after a re-add, and that a setup takes along only what it
+  claimed when it started.
+
+`cargo test -p marathon-ios`: 36 binaries, 321 tests pass; `cargo test -p marathon-cli`: 14 binaries, 48 pass; clippy and
+`cargo fmt --check` clean.
+
+**Limits that remain.**
+
+- A dead pending entry isn't pruned at a pause's end, only dropped at `take` or the cleanup, so it can keep a retry alive for
+  one more attempt.
+- `still_claimed` and the offer that follows aren't under one lock, as round 4 says: a removal between them leaves an entry
+  that the next attempt claims as it is then.
+- A simulator added back while a worker retry waits costs one more planning connection to that worker.
+- These races are tested on the paused clock with gates, not on a multi-threaded runtime in real time.
 - The shared-connection case from round 1 is still documented, not fixed.
 
 ## Incidental bugs

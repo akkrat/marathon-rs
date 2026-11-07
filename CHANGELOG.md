@@ -40,7 +40,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - **A lost iOS worker has a limit now** (D44). A simulator whose worker stays down is no longer tried every 16 ms until the run
   ends: it is tried at `workerConnection`'s pace for `lateJoinCutoff` (600 s) after the first failure, and then stays out. The
   end is noticed when the next pause is over, at 630 s with the defaults. With
-  `attempts: 1` and `lateJoin: false` it gets one try. Set `lateJoinCutoff: 0` to wait until the run ends.
+  `attempts: 1` and `lateJoin: false` it gets one try. Set `lateJoinCutoff: 0` to wait until the run ends. A devices update
+  that removes the simulator and adds it back starts these limits over.
 - **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
   report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the
   background. Key authentication has always behaved this way.
@@ -73,7 +74,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A remote parse whose instrumentation fails before it has listed every test it announced is retried, and fails the run with
   the reason if it keeps failing. A failing exit code on a complete list is still accepted (D42).
 - A failed re-provisioning of an iOS simulator is retried instead of being final, whether its worker was lost, it was lost with
-  its connection up or it was added back. Each simulator gets at most four setups that fail with its worker answering. One
+  its connection up or it was added back. Each simulator gets at most four setups that fail with its worker answering; a setup
+  that can't reach the worker goes to the worker's connection retry instead, and a re-add starts the count over. One
   whose own connection is refused is not tried again, by its own retry or by another simulator's setup, until the devices file
   removes it and adds it back, which gives it one new attempt. Work that started before such a re-add doesn't decide for the
   simulator after it. A simulator that was in the run can return after the late-join cut-off (D44).
@@ -112,8 +114,10 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 ### iOS simulators
 
 - A simulator whose setup failed is set up again, up to three times, 30, 60 and 90 s after each failure, instead of being out
-  for the whole run. When another simulator's setup on the same worker also fails it, the cap holds but the pauses can be
-  shorter (D44). `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
+  for the whole run. Setups that can't reach the worker are left to the worker's connection retry and aren't counted, and
+  removing the simulator and adding it back starts the count over. When another simulator's setup on the same worker also
+  fails it, the cap holds but the pauses can be shorter (D44). `attempts: 1` with `lateJoin: false` in `workerConnection`
+  turns this off (D33).
 - A failed or timed-out readiness probe means the simulator is not running yet, on every iOS runtime (D38).
 - The readiness probe of iOS 18 and later is `launchctl print user/foreground`, about 100 KB where `dumpstate` returned 10 to
   20 MB, with the same marker line. It may report a booted simulator ready up to one poll earlier. iOS 16 and 17 keep `dumpstate`
