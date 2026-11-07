@@ -1,7 +1,8 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt (`installShutdownHook`, `onFinish`) and ShutdownHook.kt.
 //!
 //! D52 and U161 through the built binary, with real signals: on fake adb, a cancel mid-test in both debug modes, and on
-//! the fake worker, a cancel with a process that takes its time to stop. Every wait is on something observed.
+//! the fake worker, a cancel with a process that takes its time to stop. Every wait is on something observed, but for
+//! the window in which a test that ends during the cleanup could be started again (U161).
 #![cfg(unix)]
 use base64::Engine;
 use fake_worker::{
@@ -20,9 +21,13 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -33,6 +38,10 @@ const FINISHED: &str = "com.example.MainActivityAllureTest#testFailure";
 const HANGING: &str = "com.example.MainActivityTest#testText";
 /// Far beyond the time from seeing the request to sending the signal, or the test would retry for a reason of its own.
 const HANGING_ENDS_MILLIS: u64 = 20_000;
+/// For the test that ends during the cleanup: still well beyond that time, and short of D52's limit with the window.
+const ENDS_IN_CLEANUP_MILLIS: u64 = 8_000;
+/// How long after its end the test has to come back. A live queue starts it again in milliseconds.
+const BOUNCE_WINDOW_MILLIS: u64 = 3_000;
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -90,7 +99,7 @@ fn files(dir: &Path) -> Vec<String> {
 
 /// The devices' script from the runner fixture, with `FINISHED` passing and `HANGING` starting and ending much later with
 /// no result. That end is what U161 needs: a batch that ends while the provider closes, on a client that then stays quiet.
-fn adb_script() -> Result<marathon_adb::server::CompiledScript> {
+fn adb_script(hanging_ends_millis: u64) -> Result<marathon_adb::server::CompiledScript> {
     let dir = repo().join("fixtures/fake-adb/android-runner-cli/script");
     let mut script: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("devices.yaml"))?)?;
     let started = |class: &str, test: &str| {
@@ -105,7 +114,7 @@ fn adb_script() -> Result<marathon_adb::server::CompiledScript> {
         0,
         serde_json::json!({
             "regex": "^am instrument.*MainActivityTest",
-            "output": [{"stdout": started("com.example.MainActivityTest", "testText")}, {"sleep_ms": HANGING_ENDS_MILLIS}],
+            "output": [{"stdout": started("com.example.MainActivityTest", "testText")}, {"sleep_ms": hanging_ends_millis}],
         }),
     );
     rules.insert(
@@ -136,6 +145,27 @@ fn instruments(server: &FakeAdbServer, test: &str) -> usize {
         .count()
 }
 
+/// The APKs, an adb that must not be called, and a Marathonfile for `FINISHED` and `HANGING` on the fake adb server at
+/// `port`, with `extra` appended.
+fn android_run(root: &Path, debug: bool, port: u16, extra: &str) -> Result {
+    let apks = repo().join("fixtures/vendor-android/apk");
+    for apk in ["app-debug.apk", "app-debug-androidTest.apk"] {
+        std::fs::copy(apks.join(apk), root.join(apk))?;
+    }
+    // Never to be called: marathon must find the fake server up.
+    let shim = root.join("sdk/platform-tools/adb");
+    std::fs::create_dir_all(shim.parent().ok_or("no parent")?)?;
+    std::fs::write(&shim, "#!/bin/sh\nexit 70\n")?;
+    std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::write(
+        root.join("Marathonfile"),
+        format!(
+            "name: shutdown\noutputDir: output\ndebug: {debug}\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 1000\nfilteringConfiguration:\n  allowlist:\n    - type: fully-qualified-test-name\n      values: [\"{FINISHED}\", \"{HANGING}\"]\nvendorConfiguration:\n  type: Android\n  androidSdk: sdk\n  applicationApk: app-debug.apk\n  testApplicationApk: app-debug-androidTest.apk\n  autoGrantPermission: false\n  applicationPmClear: false\n  testApplicationPmClear: false\n  waitForDevicesTimeoutMillis: 15000\n  adbServers:\n    - host: 127.0.0.1\n      port: {port}\n  screenRecordConfiguration:\n    videoConfiguration: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n{extra}"
+        ),
+    )?;
+    Ok(())
+}
+
 /// D52: with either `debug`, a cancel while a test runs writes the reports of what finished, without the test in flight
 /// (A99). U161: nothing is started on the closed client, whose batches ended at once and came back, adding INCOMPLETE results.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -144,23 +174,8 @@ async fn a_cancel_mid_test_writes_the_reports_and_does_not_bounce_the_test_d52_u
         for (number, code) in [(Signal::SIGTERM, 143), (Signal::SIGINT, 130)] {
             let dir = tempfile::tempdir()?;
             let root = dir.path();
-            let apks = repo().join("fixtures/vendor-android/apk");
-            for apk in ["app-debug.apk", "app-debug-androidTest.apk"] {
-                std::fs::copy(apks.join(apk), root.join(apk))?;
-            }
-            // Never to be called: marathon must find the fake server up.
-            let shim = root.join("sdk/platform-tools/adb");
-            std::fs::create_dir_all(shim.parent().ok_or("no parent")?)?;
-            std::fs::write(&shim, "#!/bin/sh\nexit 70\n")?;
-            std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755))?;
-            let mut server = FakeAdbServer::start(adb_script()?, ServerOptions::default()).await?;
-            std::fs::write(
-                root.join("Marathonfile"),
-                format!(
-                    "name: shutdown\noutputDir: output\ndebug: {debug}\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 1000\nfilteringConfiguration:\n  allowlist:\n    - type: fully-qualified-test-name\n      values: [\"{FINISHED}\", \"{HANGING}\"]\nvendorConfiguration:\n  type: Android\n  androidSdk: sdk\n  applicationApk: app-debug.apk\n  testApplicationApk: app-debug-androidTest.apk\n  autoGrantPermission: false\n  applicationPmClear: false\n  testApplicationPmClear: false\n  waitForDevicesTimeoutMillis: 15000\n  adbServers:\n    - host: 127.0.0.1\n      port: {}\n  screenRecordConfiguration:\n    videoConfiguration: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
-                    server.port()
-                ),
-            )?;
+            let mut server = FakeAdbServer::start(adb_script(HANGING_ENDS_MILLIS)?, ServerOptions::default()).await?;
+            android_run(root, debug, server.port(), "")?;
             let (stdout, stderr) = (root.join("stdout"), root.join("stderr"));
             let mut child = marathon(root, &stdout, &stderr)?;
             let context = format!("debug={debug} {number}");
@@ -428,5 +443,140 @@ async fn a_second_signal_leaves_the_slow_worker_process_behind_d52() -> Result {
     assert_eq!(status.code(), Some(130), "{}", worker.logs());
     assert!(!worker.saw("signal", "signal", "KILL"), "{}", worker.logs());
     worker.worker.shutdown().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// An InfluxDB v1 that answers the setup at once and holds every write until released: a metrics backend slow to take the
+/// last points, which keeps the reports step, and with it the cleanup, going.
+struct SlowInflux {
+    port: u16,
+    writes: Arc<AtomicUsize>,
+    release: tokio::sync::watch::Sender<bool>,
+    task: tokio::task::JoinHandle<()>,
+}
+impl SlowInflux {
+    async fn start() -> Result<Self> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let writes = Arc::new(AtomicUsize::new(0));
+        let (release, released) = tokio::sync::watch::channel(false);
+        let counted = writes.clone();
+        let task = tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                tokio::spawn(influx_connection(stream, counted.clone(), released.clone()));
+            }
+        });
+        Ok(Self {
+            port,
+            writes,
+            release,
+            task,
+        })
+    }
+    fn writes(&self) -> usize {
+        self.writes.load(Ordering::SeqCst)
+    }
+}
+impl Drop for SlowInflux {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn influx_connection(
+    stream: tokio::net::TcpStream,
+    writes: Arc<AtomicUsize>,
+    mut released: tokio::sync::watch::Receiver<bool>,
+) -> std::io::Result<()> {
+    let mut stream = tokio::io::BufReader::new(stream);
+    loop {
+        let mut request = String::new();
+        if stream.read_line(&mut request).await? == 0 {
+            return Ok(());
+        }
+        let mut length = 0;
+        loop {
+            let mut header = String::new();
+            stream.read_line(&mut header).await?;
+            let header = header.trim_end();
+            if header.is_empty() {
+                break;
+            }
+            if let Some((name, value)) = header.split_once(':')
+                && name.eq_ignore_ascii_case("content-length")
+            {
+                length = value.trim().parse().unwrap_or(0);
+            }
+        }
+        let mut body = vec![0; length];
+        stream.read_exact(&mut body).await?;
+        let path = request.split_whitespace().nth(1).unwrap_or_default();
+        let (status, reply) = if path.starts_with("/write") {
+            writes.fetch_add(1, Ordering::SeqCst);
+            let _ = released.wait_for(|released| *released).await;
+            ("204 No Content", "")
+        } else if String::from_utf8_lossy(&body).contains("SHOW+DATABASES") {
+            (
+                "200 OK",
+                r#"{"results":[{"statement_id":0,"series":[{"name":"databases","columns":["name"],"values":[["db"]]}]}]}"#,
+            )
+        } else {
+            ("200 OK", r#"{"results":[{"statement_id":0}]}"#)
+        };
+        let reply = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{reply}",
+            reply.len()
+        );
+        stream.get_mut().write_all(reply.as_bytes()).await?;
+    }
+}
+
+/// U161 (S-x35-2): the test in flight ends by itself during the cleanup, on a device that is still up, while a metrics
+/// backend slow to take the last points holds the reports step. With the actors left running, the queue starts it again
+/// at once, and again on every end, until the process exits. With them stopped, it started once. Reverting the actors'
+/// cancellation fails this test and no other.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_test_that_ends_during_the_cleanup_is_not_started_again_u161() -> Result {
+    let influx = SlowInflux::start().await?;
+    let dir = tempfile::tempdir()?;
+    let root = dir.path();
+    let mut server = FakeAdbServer::start(adb_script(ENDS_IN_CLEANUP_MILLIS)?, ServerOptions::default()).await?;
+    let analytics = format!(
+        "analyticsConfiguration:\n  type: influxdb\n  url: http://127.0.0.1:{}\n  user: ''\n  password: ''\n  dbName: db\n",
+        influx.port
+    );
+    android_run(root, false, server.port(), &analytics)?;
+    let (stdout, stderr) = (root.join("stdout"), root.join("stderr"));
+    let mut child = marathon(root, &stdout, &stderr)?;
+    let logs = || {
+        format!(
+            "{}\n{}",
+            std::fs::read_to_string(&stdout).unwrap_or_default(),
+            std::fs::read_to_string(&stderr).unwrap_or_default()
+        )
+    };
+    until("the hanging test to start", || instruments(&server, HANGING) > 0)
+        .await
+        .map_err(|e| format!("{e}\n{}", logs()))?;
+    let started_at = Instant::now();
+    signal(&child, Signal::SIGTERM)?;
+    until("a write to InfluxDB", || influx.writes() > 0)
+        .await
+        .map_err(|e| format!("{e}\n{}", logs()))?;
+    // The window: the test's end, and time for a live queue to start it again. A slow host only makes it narrower.
+    let window = started_at + Duration::from_millis(ENDS_IN_CLEANUP_MILLIS + BOUNCE_WINDOW_MILLIS);
+    while Instant::now() < window && instruments(&server, HANGING) == 1 {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let bounced = instruments(&server, HANGING);
+    influx.release.send_replace(true);
+    let status = exited(&mut child).await?;
+    assert_eq!(status.code(), Some(143), "{}", logs());
+    assert_eq!(bounced, 1, "the test was started again during the cleanup\n{}", logs());
+    assert_eq!(instruments(&server, HANGING), 1, "{}", logs());
+    let raw = std::fs::read_to_string(root.join("output/test_result/raw.json"))?;
+    let rows: Vec<Value> = serde_json::from_str(&raw)?;
+    assert_eq!(rows.len(), 1, "only the finished test is in the reports\n{raw}");
+    server.shutdown().await?;
     Ok(())
 }

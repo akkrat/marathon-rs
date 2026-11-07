@@ -24,7 +24,7 @@ sha2 = "=0.10.9"
 base64 = "0.22"
 futures-util = "=0.3.34"
 fake-worker = { path = "../../tools/fake-worker" }
-tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "process", "time"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "process", "time", "net", "io-util", "sync"] }
 serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
 tempfile = "3"
 nix = { version = "0.30", features = ["signal"] }
