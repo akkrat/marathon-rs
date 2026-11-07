@@ -75,8 +75,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A failed re-provisioning of an iOS simulator is retried instead of being final, whether its worker was lost, it was lost with
   its connection up or it was added back. Each simulator gets at most four setups that fail with its worker answering. One
   whose own connection is refused is not tried again, by its own retry or by another simulator's setup, until the devices file
-  removes it and adds it back, which gives it one new attempt. A simulator that was in the run can return after the late-join
-  cut-off (D44).
+  removes it and adds it back, which gives it one new attempt. Work that started before such a re-add doesn't decide for the
+  simulator after it. A simulator that was in the run can return after the late-join cut-off (D44).
 - Remote parsing on iOS no longer gets a removed, lost or disposed simulator, which could use up its attempts and fail the
   run at the start. It waits for one that can work (D44).
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
@@ -112,7 +112,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 ### iOS simulators
 
 - A simulator whose setup failed is set up again, up to three times, 30, 60 and 90 s after each failure, instead of being out
-  for the whole run. `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
+  for the whole run. When another simulator's setup on the same worker also fails it, the cap holds but the pauses can be
+  shorter (D44). `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
 - A failed or timed-out readiness probe means the simulator is not running yet, on every iOS runtime (D38).
 - The readiness probe of iOS 18 and later is `launchctl print user/foreground`, about 100 KB where `dumpstate` returned 10 to
   20 MB, with the same marker line. It may report a booted simulator ready up to one poll earlier. iOS 16 and 17 keep `dumpstate`

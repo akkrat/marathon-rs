@@ -200,7 +200,7 @@ connection outlived a removal and re-add, and its authentication error marked th
 worker retry that the re-add had started. A D33 retry now acts only for targets whose generation is still current, when its
 connection fails, before it plans, and on what its plan didn't set up (`unfinished.missing` was not filtered before). The other
 writers of the parking state were checked for the same: a plan of any kind that outlives a re-add (the update bumps a per-handle
-epoch) drops its results for that simulator, so a refusal it saw can't mark the new one. The worker retry needs nothing: a
+epoch) drops its results for that simulator, so a refusal it saw can't mark the new one. The worker retry needs nothing (round 4 found this wrong, S-x27-7): a
 re-add while it waits is offered to it, so it stays the only owner, and its limit counts from the re-add. The recovery's own
 parking runs under the lock that checks the handle is current. Tests:
 `a_setup_retry_from_before_a_removal_cannot_give_up_the_simulator_added_back` (the witness; generation check reverted: no
@@ -236,6 +236,91 @@ these claims and is unchanged.
 
 **Not verified:** two retries for the same simulator racing in one plan on a multi-threaded runtime; the D33 rounds a charged
 failure schedules alongside the simulator's own are bounded by the count, and their timing is only what the tests show.
+
+## Review round 4
+
+The re-check found two more stale-work holes around a remove and re-add, and a docs problem. By the owner's decision these
+are not patched path by path. Every asynchronous operation now captures its simulators' generations when it starts, and
+every write it makes for them goes through one function that drops the write if a generation has moved since.
+
+**The mechanism.** The provider keeps one generation per simulator (`generations`, keyed like D33's budget), bumped when the
+devices file removes the simulator and again when it adds it back, under the lock that changes `removed`. D33's count moved
+next to it (`setup_failures`), so that check and write share one lock; the removal clears it there. An operation holds its
+claims in a task-local scope (`Claims`, `with_claims`). `settle` takes the state lock, works out which of the given keys the
+running operation holds a current claim on, and passes only those to the write. Work with no claim on a key writes nothing
+for it. This replaces round 3's per-handle epoch and D33's own generation map.
+
+**Where claims are taken:**
+
+| Operation | When |
+|---|---|
+| Recovery from the scan | When the scan marks it recovering, before it is spawned |
+| Recovery of a simulator added back during an older one (`recover_again`) | When the older one drops its stale result |
+| A devices update's setup (`initialize_transport`) | At its start, after the update's bump |
+| Any plan (`setup`) | At its start, for its targets and the parked simulators on its worker it may take along; an older claim held by the caller wins |
+| Worker retry | At `retry_later` (the caller's claims), at each pause's end for what it prunes, at each attempt's start for what waits then, and at `take` for what joined since |
+| D33 retry | At scheduling (the failing operation's claim), carried in `Waiting` into the attempt's scope |
+
+**Every write of parking, refusal, giving up, D33's count or a hand-over, and its route:**
+
+| Write | Where | Route |
+|---|---|---|
+| Park after a failed recovery, as owned or refused | `recover` | `settle`; a stale result goes to `recover_again` instead |
+| Refused, seen by a plan | `setup` → `give_up_parked` | `settle` |
+| Given up: worker retry limit | `prune_pending` → `give_up_parked` | `settle` |
+| Given up: worker retry ended (out of `attempts`, non-transient error, failed setup) | `retry_later`'s task → `give_up_targets` | `settle`, under the last attempt's claims |
+| Given up: worker connection refused or no retry | `connect_failed` → `give_up_targets` | `settle` |
+| Given up: no retry for unreachable simulators | `missing` → `give_up_targets` | `settle` |
+| Given up: no D33 retry, or D33's budget spent | `schedule_setup_retry` → `give_up_targets` | `settle` |
+| D33's count, and the rounds it schedules | `schedule_setup_retry` | `settle` |
+| Hand-over to the worker retry: a new retry or an offer | `retry_later` | `settle` (`still_claimed`) |
+| Hand-over of what an attempt couldn't reach back to its retry | `retry` → `pending.offer` | `settle` (`still_claimed`) |
+
+Writes that are not decisions of older work, and don't go through `settle`:
+
+| Write | Why |
+|---|---|
+| The bump, the count cleared on removal, `restart_parked` on re-add | They are the devices update, which is what makes older work stale |
+| A setup that succeeds removes its parked entry (`register`) | A working simulator is kept whenever its setup started |
+| A devices update offers new targets to a waiting retry (`initialize_transport`) | Taken at that operation's start, so nothing is older; a simulator added back is not offered (below) |
+| `recovering` marks from the scan; the D33 queue (`due`) | The scan is a start; the queue is filtered by generation when it is read, and its writes go through `settle` |
+| `skipped_removed`, `exhausted`, `losses`, and the lease list `replaced` | Bookkeeping of removals, losses and leases, not a recovery's decision |
+
+**A simulator added back gets an attempt of its own.** A devices update no longer offers a parked simulator to a waiting
+worker retry: it sets it up at once, on a planning connection of its own. If an older recovery of it is still running, that
+recovery's stale result starts the new attempt (`recover_again`, the added-back re-provisioning, with fresh claims) instead
+of parking it. If the new attempt can't reach the worker, it hands the simulator to the worker retry like any failure; and if
+the retry's attempt that then ends the retry began before it joined, the simulator gets a retry of its own
+(`waiting_for_retry`), since that attempt decides nothing for it. A new device that joins a waiting retry late is dropped
+with it, as in Kotlin.
+
+**Tests.** The reviewer's witnesses are in the file under names in its style; the two stale ones failed on `d19b918c`.
+
+- `a_recovery_from_before_a_removal_cannot_refuse_the_simulator_added_back` (S-x27-6): fails with the stale branch of
+  `recover` reverted, and with `settle` letting every claim through.
+- `a_worker_retry_attempt_from_before_a_removal_cannot_give_up_the_simulator_added_back` (S-x27-7): now also checks that the
+  simulator added back is set up at once, while the retry's attempt still waits. Fails with the simulator added back offered
+  to the waiting retry.
+- `a_simulator_that_joins_a_retry_after_its_last_attempt_started_gets_a_retry_of_its_own` (new): fails without
+  `waiting_for_retry`, and with `settle` letting every claim through.
+- `sibling_setups_keep_the_cap_of_four_but_their_pauses_can_overlap` (S-x27-8, the third witness rewritten): pins four
+  failed setups each, a at 0, 30, 35 and 90 s and b at 5, 30, 35 and 90 s. It asserts what the docs now say.
+
+All earlier tests pass unchanged, including round 3's. `cargo test -p marathon-ios`: 36 binaries, 318 tests pass;
+`cargo test -p marathon-cli`: 14 binaries, 48 pass; clippy and `cargo fmt --check` clean.
+
+**S-x27-8, docs only.** A failure charged from a sibling's plan schedules its own round and doesn't move the earlier timer,
+so the cap holds and the pauses can overlap. D33's and D44's text, CHANGELOG and the D33 row in `migration.md` say so. The
+scheduling is unchanged.
+
+**Limits.**
+
+- `still_claimed` checks under the lock, and the offer to the retry follows under the recovery's own lock. A removal between
+  the two leaves an entry, which the retry's next attempt claims as it is then: an extra attempt, not a stale decision.
+- A simulator added back while a worker retry waits costs one more planning connection to that worker.
+- A setup that started before a re-add and succeeds still registers the simulator.
+- Real time on a multi-threaded runtime is not covered for these races; the tests use the paused clock and gates.
+- The shared-connection case from round 1 is still documented, not fixed.
 
 ## Incidental bugs
 
