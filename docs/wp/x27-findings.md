@@ -129,8 +129,10 @@ test. That isn't small for so rare a combination, so it is left for the owner to
 
 ## What was verified
 
-- `crates/marathon-ios/tests/simulator_reconnect_limit.rs`, 14 tests, and one new test in `simulator_pool_recovery.rs`.
-- `cargo test -p marathon-ios`: 36 binaries, 299 tests pass. `cargo test -p marathon-cli`: 14 binaries, 39 tests pass.
+- `crates/marathon-ios/tests/simulator_reconnect_limit.rs`, 14 tests, and one new test in `simulator_pool_recovery.rs`. Review
+  round 2 adds four, below.
+- `cargo test -p marathon-ios`: 36 binaries, 299 tests pass. `cargo test -p marathon-cli`: 14 binaries, 39 tests pass. After
+  review round 2, on main `c03c08a5`: 308 and 48.
 - `cargo clippy -p marathon-ios --all-targets -- -D warnings` and `cargo fmt --check`.
 - `tools/differential/make_registry.py --check` and `test_evidence.py` pass.
 
@@ -154,6 +156,38 @@ A temporary revert of each mechanism fails the tests shown:
 - A whole run through the CLI, or a whole remote parse with `borrow` waiting into the timeout.
 - The whole provider on a multi-threaded runtime, apart from the stale-snapshot test.
 - `scripts/check.sh` and the remote gate, which the batch's gate rule leaves to the orchestrator.
+
+## Review round 2
+
+A cross-family review found three things. The first is a code fix, and each of its tests fails with it reverted, which was
+checked. The other two are about the text, and their tests pin the numbers it now states.
+
+**A refused simulator was taken along by other plans** (major). Every parked handle was eligible for any plan on its worker,
+refused ones too, so after a worker loss a sibling's D33 retries asked for the refused simulator's connection again, once per
+retry. A parked handle now records why it is parked (`ParkedFor`): a retry owns it, it was refused, or its retry gave up.
+Only the first is eligible, also when the handle is otherwise free after a connected loss. "Gave up" covers each point that
+logs a simulator as out of the run: D33's budget spent, the worker retry at its limit, out of `attempts` or ended by a
+non-transient error, and no retry configured. A refusal seen in any later plan marks the handle, also when that plan only took
+it along. A devices update that adds it back makes it owned again. So the way back from every final state in the table above is
+that update, and no longer another plan on the worker. Tests:
+
+- `a_simulator_refused_after_a_worker_loss_is_not_set_up_again_by_a_siblings_setup_retries`: a refused, b failing setup on its
+  D33 retries. One connection for a, five in all; before the fix a was taken along at 30 s and set up.
+- `a_simulator_given_up_on_is_not_set_up_again_by_a_later_plan_on_its_worker`: D33's budget spent, and the worker retry at its
+  limit, each followed by a devices update that adds another simulator on the worker.
+- `a_refused_simulator_that_is_removed_and_added_back_is_set_up_again`: the way back.
+
+**The connection bound left out simulator acquisitions** (minor). An attempt whose planning connection gets through also
+acquires one connection per waiting simulator. With the defaults a worker loss acquires at most N + 11 × (N + 1) times, 13
+for two simulators whose worker is down and 35 for two whose worker answers while their own connections fail. "Up to four" is
+per acquisition, sshj's immediate retries, with one login. D44's text now says so. Test:
+`a_worker_that_answers_while_its_simulators_cannot_connect_acquires_at_most_n_plus_11_times_n_plus_1`, which counts 35.
+
+**The 600 s limit is not a deadline** (minor). It is looked at when a pause ends and after an attempt connects, so with
+attempts that fail at once the end comes at 630 s, and it can be late by one pause plus an attempt in flight. Enforcing a
+deadline would need a timer racing the attempt and its setup, so the docs state when it is noticed instead.
+`a_worker_that_stays_down_is_tried_at_capped_pauses_until_the_limit_and_then_left_alone` now pins no error at 625 s and one
+by 635 s.
 
 ## Incidental bugs
 

@@ -326,6 +326,25 @@ async fn a_simulator_refused_after_a_worker_loss_is_not_set_up_again_by_a_siblin
     assert_eq!(seen.disconnected, 2);
     p.finish().await
 }
+/// The way back for a refused simulator: the devices file drops it and adds it back.
+#[tokio::test(start_paused = true)]
+async fn a_refused_simulator_that_is_removed_and_added_back_is_set_up_again() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    let old = p.connected(1).await.remove(0);
+    let lost = lose_worker(&p, &["a"]);
+    p.answer(|_, worker, _| Box::pin(async move { if worker { Ok(None) } else { Err(auth()) } }));
+    eventually(|| p.log("its connection was refused, it stays out of the run")).await;
+    p.answer(|_, _, _| Box::pin(async { Ok(None) }));
+    p.update(&[]).await?;
+    p.update(&["a"]).await?;
+    let mut seen = Seen::default();
+    seen.until_connected(&p, 1).await;
+    assert!(!Arc::ptr_eq(&old, &p.current("a")));
+    assert!(p.current("a").connected());
+    assert_eq!(home(&lost.fresh, "a"), 1);
+    p.finish().await
+}
 /// A simulator its retry gave up on stays out when a devices update plans its worker for another one: D33's budget
 /// spent, and the worker retry at its limit.
 #[tokio::test(start_paused = true)]
