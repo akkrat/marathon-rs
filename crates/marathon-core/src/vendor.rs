@@ -64,6 +64,11 @@ pub trait Device: Send + Sync {
     /// Idempotent and safe for concurrent callers: a second caller joins the
     /// disposal already in progress (AppleSimulatorDevice.kt:576–610).
     fn dispose(&self) -> VendorFuture<'_, ()>;
+    /// D48: how much of an emptied pool's wait this device has used up by leaving: what the vendor already waited for
+    /// it, so that the two waits don't add up, or `i64::MAX` if no path can bring it back. Must not perform I/O.
+    fn return_wait_used_millis(&self) -> i64 {
+        0
+    }
 }
 #[derive(Clone)]
 pub enum DeviceEvent {

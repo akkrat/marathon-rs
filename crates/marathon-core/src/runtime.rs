@@ -187,6 +187,10 @@ pub trait TimeoutScope {
 /// own scope's timeout, never an inner timeout or external cancellation.
 pub trait VendorClock: Send + Sync {
     fn delay(&self, millis: i64, cancellation: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()>;
+    /// This clock's time, for measuring a wait. A clock with no time of its own reads 0, so everything on it takes no time.
+    fn now_millis(&self) -> i64 {
+        0
+    }
     /// Join cancelled cleanup, then return own expiry as
     /// Err(VendorError::Cancelled(Cancellation::Timeout { scope, .. })).
     /// Inner timeouts and external cancellation propagate with their scope intact.

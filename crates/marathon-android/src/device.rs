@@ -35,7 +35,7 @@ use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex, Weak,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
     },
 };
 
@@ -98,6 +98,8 @@ struct Inner {
     /// D24: this device object was disconnected. A reconnect makes a new object on the same tracker, whose
     /// state then says `device` again, so the tracker alone cannot tell.
     lost: AtomicBool,
+    /// D48: what an outage or a grace period had waited for it when it was disconnected.
+    return_wait_used: AtomicI64,
 }
 struct State {
     booted: bool,
@@ -151,12 +153,16 @@ impl AndroidDevice {
                 reverse: Mutex::default(),
                 disposal: tokio::sync::Mutex::new(false),
                 lost: AtomicBool::new(false),
+                return_wait_used: AtomicI64::new(0),
             }),
         }
     }
     /// D24: from now on this object reports disconnected, whatever happens to its serial later.
     pub(crate) fn mark_disconnected(&self) {
         self.inner.lost.store(true, Ordering::Release);
+    }
+    pub(crate) fn set_return_wait_used(&self, millis: i64) {
+        self.inner.return_wait_used.store(millis, Ordering::Release);
     }
     fn is_live(&self) -> bool {
         !self.inner.lost.load(Ordering::Acquire)
@@ -942,6 +948,9 @@ impl Device for AndroidDevice {
             Signal::new(),
             move |_| Box::pin(async move { device.dispose_inner().await }),
         ))
+    }
+    fn return_wait_used_millis(&self) -> i64 {
+        self.inner.return_wait_used.load(Ordering::Acquire)
     }
 }
 impl LogProducer for AndroidDevice {

@@ -68,7 +68,8 @@ fn two_healthy_devices_on_execution_of_two_tests_while_one_device_disconnects_sh
 
 #[test]
 fn all_devices_lost_during_execution_should_fail_instead_of_hanging() {
-    let outcome = scenario::run("all-lost.json", |_| {});
+    // D48: the Kotlin test's 60 s no longer reach the end of the pool's wait, which is that long too.
+    let outcome = scenario::run_longer("all-lost.json", 60_000, |_| {});
     assert!(outcome.completed);
     assert!(matches!(outcome.value, Some(Ok(false))));
 }
@@ -88,7 +89,8 @@ fn one_healthy_device_and_invalid_marathon_config_should_fail() {
 
 #[test]
 fn two_devices_in_separate_pools_disconnecting_one_after_another_should_terminate_the_run() {
-    let outcome = scenario::run("two-pools-disconnect.json", |_| {});
+    // D48: as above.
+    let outcome = scenario::run_longer("two-pools-disconnect.json", 60_000, |_| {});
     assert!(outcome.completed);
 }
 

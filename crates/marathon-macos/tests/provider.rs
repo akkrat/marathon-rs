@@ -107,6 +107,8 @@ async fn static_host_lifecycle_identity_queue_and_retained_leases() -> R {
         return Err("disconnected".into());
     };
     assert_eq!(first, event);
+    // D48: a Mac is connected once, so a pool that lost its Macs has nothing to wait for.
+    assert_eq!(first.0.return_wait_used_millis(), i64::MAX);
     assert_eq!(first.0.info().serial_number, "udid@local".into());
     assert_eq!(first.0.info().operating_system.version, "15.0".into());
     assert_eq!(first.0.abi(), "arm64".into());

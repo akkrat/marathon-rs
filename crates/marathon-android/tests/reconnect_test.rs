@@ -200,8 +200,8 @@ pub struct Observed {
     /// Batches that reached the device: (server index, adb serial, virtual start).
     pub batches: Vec<(usize, String, i64)>,
     pub events: Vec<Event>,
-    /// The provider's events as the scheduler received them.
-    pub received: Vec<(bool, String, DeviceRef, bool)>,
+    /// The provider's events as the scheduler received them, the last field being the virtual time.
+    pub received: Vec<(bool, String, DeviceRef, bool, i64)>,
     /// Fake-adb warnings per server (a strict fake records one for any unmatched command or broken session).
     pub warnings: Vec<usize>,
 }
@@ -217,13 +217,14 @@ fn requests(server: &FakeAdbServer, serial: &str, needle: &str) -> usize {
         .count()
 }
 
-/// What the scheduler received from the provider, in order: (connected, serial text, device).
-type Tapped = Arc<Mutex<Vec<(bool, String, DeviceRef, bool)>>>;
+/// What the scheduler received from the provider, in order: (connected, serial text, device, healthy, virtual time).
+type Tapped = Arc<Mutex<Vec<(bool, String, DeviceRef, bool, i64)>>>;
 
 /// The real provider with its event channel observed where the scheduler consumes it.
 struct TappedProvider {
     inner: Arc<dyn DeviceProvider>,
     tap: Tapped,
+    now: Arc<AtomicI64>,
 }
 impl DeviceProvider for TappedProvider {
     fn initialize(&self, context: VendorContext) -> VendorFuture<'_, ()> {
@@ -239,12 +240,14 @@ impl DeviceProvider for TappedProvider {
         Arc::new(TappedChannel {
             inner: self.inner.subscribe(),
             tap: self.tap.clone(),
+            now: self.now.clone(),
         })
     }
 }
 struct TappedChannel {
     inner: Arc<dyn EventChannel<DeviceEvent>>,
     tap: Tapped,
+    now: Arc<AtomicI64>,
 }
 impl EventChannel<DeviceEvent> for TappedChannel {
     fn try_send(&self, message: DeviceEvent) -> Result<(), SendError<DeviceEvent>> {
@@ -260,7 +263,8 @@ impl EventChannel<DeviceEvent> for TappedChannel {
                 };
                 let serial = device.0.info().serial_number.to_string_lossy();
                 let healthy = device.0.info().healthy;
-                checked_lock(&self.tap).push((connected, serial, device, healthy));
+                let at = self.now.load(Ordering::SeqCst);
+                checked_lock(&self.tap).push((connected, serial, device, healthy, at));
             }
             Ok(event)
         })
@@ -370,6 +374,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
     let started: Started = Arc::default();
     let clock_now = Arc::new(AtomicI64::new(0));
     let (log_started, log_now) = (started.clone(), clock_now.clone());
+    let tap_now = clock_now.clone();
     let tap: Tapped = Arc::default();
     let log_tap = tap.clone();
     let final_tap = tap.clone();
@@ -419,6 +424,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
                         services.provider = Arc::new(TappedProvider {
                             inner: services.provider,
                             tap: log_tap,
+                            now: tap_now,
                         });
                         Ok::<VendorServices, VendorError>(services)
                     })
@@ -849,6 +855,33 @@ fn a_run_ends_when_its_adb_server_never_returns_d22() {
         observed.virtual_millis
     );
     assert!(observed.received.iter().any(|r| !r.0));
+    // D48: the outage's 30 s count against the pool's wait, so this is not 30 s later.
+    let given_up = disconnected_at(&observed);
+    assert!((36_000..40_000).contains(&given_up), "{given_up} virtual ms");
+    ends_when_the_wait_from(&observed, 6000);
+}
+
+/// When the scheduler heard of the only disconnect.
+fn disconnected_at(observed: &Observed) -> i64 {
+    let gone: Vec<_> = observed.received.iter().filter(|r| !r.0).collect();
+    assert_eq!(gone.len(), 1, "{:?}", observed.received);
+    gone[0].4
+}
+
+/// D48: a run whose device never comes back ends one `deviceInitializationTimeoutMillis` after it first went away, and
+/// not a poll or two later. The default is what the Marathonfile here gets.
+fn ends_when_the_wait_from(observed: &Observed, away: i64) {
+    assert!(
+        matches!(observed.result, Some(Ok(false))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert!(
+        (away + 180_000..away + 180_000 + 2000).contains(&observed.virtual_millis),
+        "away at {away}, ended at {}",
+        observed.virtual_millis
+    );
 }
 
 /// D41, the whole run: the sequence a real emulator shows when adbd restarts, on the only device of the pool. Every test
@@ -890,18 +923,10 @@ fn a_run_survives_a_brief_offline_on_its_last_device_d41() {
 #[test]
 fn a_device_that_stays_offline_is_disconnected_after_its_grace_d41() {
     let observed = run_states("same-server", &[(6000, "offline")]);
-    assert!(
-        matches!(observed.result, Some(Ok(false))),
-        "run ended after {} virtual ms: {:?}",
-        observed.virtual_millis,
-        observed.result.as_ref().map(|r| r.is_ok())
-    );
-    assert!(
-        (16_000..30_000).contains(&observed.virtual_millis),
-        "{} virtual ms",
-        observed.virtual_millis
-    );
-    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    let gone = disconnected_at(&observed);
+    assert!((16_000..30_000).contains(&gone), "{gone} virtual ms");
+    // D48: the grace's 10 s count against the pool's wait.
+    ends_when_the_wait_from(&observed, 6000);
     let during = |b: &&(usize, String, i64)| (6100..16_000).contains(&b.2);
     assert_eq!(
         observed.batches.iter().filter(during).count(),
@@ -915,19 +940,10 @@ fn a_device_that_stays_offline_is_disconnected_after_its_grace_d41() {
 #[test]
 fn a_killed_emulator_is_disconnected_soon_after_it_leaves_the_list_d41() {
     let observed = run_states("same-server", &[(6000, "offline"), (6250, "missing")]);
-    assert!(
-        matches!(observed.result, Some(Ok(false))),
-        "run ended after {} virtual ms: {:?}",
-        observed.virtual_millis,
-        observed.result.as_ref().map(|r| r.is_ok())
-    );
     // 3 s after it left the list, well before the 10 s of a device that is still listed.
-    assert!(
-        (9250..16_000).contains(&observed.virtual_millis),
-        "{} virtual ms",
-        observed.virtual_millis
-    );
-    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    let gone = disconnected_at(&observed);
+    assert!((9250..16_000).contains(&gone), "{gone} virtual ms");
+    ends_when_the_wait_from(&observed, 6000);
 }
 
 /// D41 with a second device. A batch on the device that goes away ends during its grace, and the actor asks for no next
@@ -966,16 +982,89 @@ fn a_device_in_its_grace_is_given_no_new_batch_d41() {
 #[test]
 fn a_device_that_vanishes_directly_has_no_grace_d41() {
     let observed = run_states("same-server", &[(6000, "missing")]);
+    let gone = disconnected_at(&observed);
+    assert!(gone < 9250, "{gone} virtual ms");
+    ends_when_the_wait_from(&observed, gone);
+}
+
+/// D48, the whole run with the real provider: the only device leaves the list for 14 s, past any grace, and comes back as
+/// a new device, which runs the rest. Before, the first disconnect ended the pool, and the run with exit 1.
+#[test]
+fn a_run_survives_its_last_device_leaving_and_returning_d48() {
+    let observed = run_states("same-server", &[(6000, "missing"), (20_000, "listed")]);
     assert!(
-        matches!(observed.result, Some(Ok(false))),
+        matches!(observed.result, Some(Ok(true))),
         "run ended after {} virtual ms: {:?}",
         observed.virtual_millis,
         observed.result.as_ref().map(|r| r.is_ok())
     );
-    assert!(observed.virtual_millis < 9250, "{} virtual ms", observed.virtual_millis);
+    assert_eq!(disconnected_at(&observed), observed.received[1].4);
+    assert_eq!(observed.received.iter().filter(|r| r.0).count(), 2);
+    assert!(
+        observed.batches.iter().all(|b| b.2 < 6100 || b.2 >= 20_000),
+        "no batch without a device: {:?}",
+        observed.batches
+    );
+    assert!(observed.batches.iter().any(|b| b.2 >= 20_000));
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 2);
+    assert_eq!(pool_warnings(&observed), 0);
+    assert!(
+        !observed
+            .lines
+            .iter()
+            .any(|l| matches!(l, Line::Log { message, .. } if message.contains("remaining tests will not run"))),
+        "the pool waited"
+    );
 }
 
-/// D41: flapping cannot keep a device, and so a run, going for ever on grace periods.
+/// D48 with D41: a real `adb reboot` on the only emulator. The device returns from its grace still booting, so it goes
+/// through disconnect and connect, and now the pool is still there for it.
+#[test]
+fn a_run_survives_a_reboot_of_its_only_device_d48() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    let setup_getprops = 2;
+    let props = script["devices"][0]["getprop"].as_object().unwrap().clone();
+    let all: String = props
+        .iter()
+        .map(|(k, v)| format!("[{k}]: [{}]\n", v.as_str().map_or_else(|| v.to_string(), str::to_owned)))
+        .collect();
+    let rules = script["shell"].as_array_mut().unwrap();
+    rules.insert(0, json!({"exact":"getprop","times":setup_getprops,"stdout":all}));
+    rules.insert(
+        1,
+        json!({"exact":"getprop","times":1,"stdout":"[ro.build.version.sdk]: [27]\n"}),
+    );
+    let events = [
+        (6000, "offline"),
+        (6250, "missing"),
+        (7500, "listed"),
+        (14_000, "device"),
+    ]
+    .into_iter()
+    .map(|(at_ms, state)| Event {
+        server: 0,
+        at_ms,
+        connect: false,
+        serial: "emulator-5554".into(),
+        kill: None,
+        state: Some(state),
+    })
+    .collect();
+    let observed = run_loaded(vec![(script, events, index)]);
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
+    assert_eq!(observed.received.iter().filter(|r| r.0).count(), 2);
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 2);
+}
+
+/// D41: flapping cannot keep a device going for ever on grace periods: the sixth `offline` disconnects it. D48: it then
+/// finds its pool still there each time it comes back, and with the flapping over it runs the rest.
 #[test]
 fn a_flapping_device_runs_out_of_grace_d41() {
     let mut states = Vec::new();
@@ -985,18 +1074,18 @@ fn a_flapping_device_runs_out_of_grace_d41() {
     }
     let observed = run_states("same-server", &states);
     assert!(
-        matches!(observed.result, Some(Ok(false))),
+        matches!(observed.result, Some(Ok(true))),
         "run ended after {} virtual ms: {:?}",
         observed.virtual_millis,
         observed.result.as_ref().map(|r| r.is_ok())
     );
-    // The sixth `offline` at the latest.
+    let first = observed.received.iter().find(|r| !r.0).unwrap().4;
+    assert!(first < 20_000, "{first} virtual ms");
     assert!(
-        observed.virtual_millis < 20_000,
-        "{} virtual ms",
-        observed.virtual_millis
+        observed.received.iter().filter(|r| !r.0).count() > 1,
+        "{:?}",
+        observed.received
     );
-    assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
 }
 
 /// D25 (N38), a whole run: the first parse is cut off after one of the twenty tests. The run used to take that one for

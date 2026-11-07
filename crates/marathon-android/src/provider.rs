@@ -369,6 +369,10 @@ impl AdamDeviceProvider {
                             }) = provided
                             {
                                 device.mark_disconnected();
+                                // D48: an emptied pool's wait goes on from what the outage or grace has already used.
+                                if let Some(since) = self.inner.trackers.tracker(&client).away_since(&serial) {
+                                    device.set_return_wait_used(context.clock.now_millis().saturating_sub(since));
+                                }
                                 if !ready.load(Ordering::Acquire) {
                                     task.cancel(requested("device disconnected"));
                                     let _ = task.join().await;
@@ -483,7 +487,7 @@ impl AdamDeviceProvider {
                 &format!("Lost device tracking on adb server {name}; reconnecting"),
                 cause.as_ref().map(VendorError::failure),
             );
-            tracker.set_server_available(false);
+            tracker.server_lost(clock.now_millis());
             // D41: the outage's own bound now covers a device in its grace period, and the server gate holds its batches.
             blips.abandon();
             handled(tx, context.cancellation.clone()).await?;
@@ -516,7 +520,7 @@ impl AdamDeviceProvider {
                     send(tx, Tracked::Devices(client.clone(), vec![]))?;
                     // Only after the disconnects: a batch released sooner fails on the dead server, again and again.
                     handled(tx, context.cancellation.clone()).await?;
-                    tracker.set_server_available(true);
+                    tracker.server_back();
                     settling = None;
                     self.reconnect(&client, context.clone()).await?
                 }
@@ -623,7 +627,7 @@ impl AdamDeviceProvider {
                 ),
                 None,
             );
-            tracker.hold(serial);
+            tracker.hold(serial, context.clock.now_millis());
             blips.open(serial);
         }
         let mut restarted = Vec::new();
@@ -708,7 +712,7 @@ impl AdamDeviceProvider {
                 device.resume_after_server_return(context.clone()).await?;
             }
         }
-        self.inner.trackers.tracker(client).set_server_available(true);
+        self.inner.trackers.tracker(client).server_back();
         Ok(())
     }
     /// Until the server answers and its track-devices stream gives a first list, with a capped backoff on the

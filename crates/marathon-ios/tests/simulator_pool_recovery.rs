@@ -28,8 +28,20 @@ use std::{
     sync::{Arc, atomic::Ordering},
 };
 
+/// C50's Kotlin behaviour stays, after D48's limit: a pool that has ended is not brought back.
 #[test]
-fn last_device_loss_joins_batch_and_queue_barriers_and_a_replacement_does_not_resurrect_the_pool() -> TestResult {
+fn last_device_loss_joins_batch_and_queue_barriers_and_a_replacement_after_the_limit_does_not_resurrect_the_pool_d48()
+-> TestResult {
+    last_device_loss(200, false)
+}
+
+/// D48: a worker-loss recovery on a one-worker pool. The replacement simulator finds the pool still there, with its tests.
+#[test]
+fn a_replacement_within_the_limit_takes_over_the_pool_d48() -> TestResult {
+    last_device_loss(60_000, true)
+}
+
+fn last_device_loss(wait_millis: i64, returns_in_time: bool) -> TestResult {
     let mut p = recovery_support::RecoveryHarness::fast()?;
     std::fs::write(
         p.h().dir.path().join("Marathondevices"),
@@ -67,6 +79,12 @@ fn last_device_loss_joins_batch_and_queue_barriers_and_a_replacement_does_not_re
                 })
             });
             let replacement_batches = Arc::new(BatchScript::default());
+            if returns_in_time {
+                *replacement_batches.plan.lock().unwrap() = OutputPlan {
+                    lines: [passed(1), passed(2)].concat(),
+                    ..Default::default()
+                };
+            }
             replacement_batches.attach(&fresh);
             provider
                 .initialize(p.h().services.context.clone())
@@ -79,7 +97,11 @@ fn last_device_loss_joins_batch_and_queue_barriers_and_a_replacement_does_not_re
                 core: core.clone(),
                 provider: provider.clone(),
                 analytics: Arc::new(Analytics::from_lookup(Arc::new(pool_support::NoMetrics))),
-                configuration: p.h().services.configuration.clone(),
+                configuration: {
+                    let mut configuration = (*p.h().services.configuration).clone();
+                    configuration.device_initialization_timeout_millis = wait_millis;
+                    Arc::new(configuration)
+                },
                 shard: TestShard {
                     tests: tests(),
                     flaky_tests: vec![],
@@ -126,6 +148,16 @@ fn last_device_loss_joins_batch_and_queue_barriers_and_a_replacement_does_not_re
             assert!(!scheduler.pools()[0].1.terminated());
             assert!(finished.completed().is_none());
             batch_gate.complete(Ok(()));
+            if returns_in_time {
+                recovery_gate.complete(Ok(()));
+                let result = finished.wait().await.map_err(|e| e.failure().clone())?;
+                assert!(replacement_batches.count.load(Ordering::SeqCst) > 0);
+                assert!(*result, "the tests ran on the replacement");
+                provider.terminate().await.map_err(|e| e.failure().clone())?;
+                parent.cancel(requested("test finished"));
+                let _ = parent.join().await;
+                return Ok(());
+            }
             while !scheduler.pools()[0].1.terminated() {
                 assert!(std::time::Instant::now() < deadline);
                 wait(5).await?;

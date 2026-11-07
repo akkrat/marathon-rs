@@ -282,6 +282,9 @@ impl SendClock {
     }
 }
 impl VendorClock for SendClock {
+    fn now_millis(&self) -> i64 {
+        self.timeline.now()
+    }
     fn delay(&self, millis: i64, cancellation: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             if millis <= 0 {

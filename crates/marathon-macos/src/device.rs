@@ -685,6 +685,10 @@ impl Device for MacosDevice {
             Ok(())
         })
     }
+    /// D48: the provider connects each worker's Mac once, at the start, so nothing can bring a lost one back.
+    fn return_wait_used_millis(&self) -> i64 {
+        i64::MAX
+    }
 }
 impl AppleDevice for MacosDevice {
     fn udid(&self) -> &str {

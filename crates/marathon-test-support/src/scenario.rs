@@ -411,3 +411,16 @@ pub fn run(name: &str, adjust: impl FnOnce(&mut MarathonFactory)) -> Outcome {
     adjust(&mut factory);
     drive(factory, script, None, None)
 }
+
+/// As [`run`], with its end `millis` later. The files stay as the Kotlin capture has them. D48's emptied pools wait for
+/// longer than some of the Kotlin tests advance the clock.
+pub fn run_longer(name: &str, millis: i64, adjust: impl FnOnce(&mut MarathonFactory)) -> Outcome {
+    let (mut factory, mut script) = load(name);
+    adjust(&mut factory);
+    for (at, event, ..) in &mut script.events {
+        if event == "end" {
+            *at += millis;
+        }
+    }
+    drive(factory, script, None, None)
+}

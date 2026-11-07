@@ -11,6 +11,8 @@ pub enum DevicePoolMessage {
     FromScheduler(FromScheduler),
     FromDevice(FromDevice),
     FromQueue(FromQueue),
+    /// D48: the wait with this number for a device to return has run out.
+    ReturnWaitOver(u64),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FromScheduler {

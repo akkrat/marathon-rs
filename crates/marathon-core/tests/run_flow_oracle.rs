@@ -241,12 +241,64 @@ fn outcome(outcome: &scenario::Outcome) -> Value {
     value
 }
 
+/// D48: the wait a pool that lost its last device now makes, in the two rows where it does, `deviceInitializationTimeoutMillis`
+/// of `MarathonFactory`. These rows stay the witness that Kotlin ended the run at once.
+const D48_WAIT: i64 = 60_000;
+
+/// D48's allowance over a row's outcome: nothing differs but `completedAt`, later by exactly the wait.
+fn d48_outcome(actual: &Value, jvm: &Value) -> Result<(), String> {
+    let mut moved = actual.clone();
+    let Some(at) = actual["completedAt"].as_i64() else {
+        return Err("the run did not complete".into());
+    };
+    moved["completedAt"] = (at - D48_WAIT).into();
+    if moved == *jvm {
+        Ok(())
+    } else {
+        Err(format!("{actual} is not {jvm} with the wait of D48 added"))
+    }
+}
+
+/// D48's allowance over a row's log, the calls devices got: only the driver's own `end` differs, by the wait the test added.
+fn d48_log(actual: &[Value], jvm: &[Value]) -> Vec<Value> {
+    let end = |log: &[Value]| {
+        log.iter().find(|entry| entry["event"] == "end").unwrap()["t"]
+            .as_i64()
+            .unwrap()
+    };
+    assert_eq!(end(actual), end(jvm) + D48_WAIT);
+    actual
+        .iter()
+        .map(|entry| {
+            let mut entry = entry.clone();
+            if entry["event"] == "end" {
+                entry["t"] = end(jvm).into();
+            }
+            entry
+        })
+        .collect()
+}
+
 fn check(name: &str) {
+    check_with(name, false);
+}
+
+fn check_with(name: &str, d48: bool) {
     let row = rows().into_iter().find(|r| r["scenario"] == name).unwrap();
-    let rust = scenario::run(&format!("{name}.json"), |_| {});
-    assert_eq!(outcome(&rust), row["outcome"], "{name}: outcome");
+    let rust = if d48 {
+        scenario::run_longer(&format!("{name}.json"), D48_WAIT, |_| {})
+    } else {
+        scenario::run(&format!("{name}.json"), |_| {})
+    };
     let jvm_log: Vec<Value> = row["log"].as_array().unwrap().clone();
-    assert_eq!(normalize(&rust.log), normalize(&jvm_log), "{name}: log");
+    let log = if d48 {
+        d48_outcome(&outcome(&rust), &row["outcome"]).unwrap();
+        d48_log(&rust.log, &jvm_log)
+    } else {
+        assert_eq!(outcome(&rust), row["outcome"], "{name}: outcome");
+        rust.log.clone()
+    };
+    assert_eq!(normalize(&log), normalize(&jvm_log), "{name}: log");
     let raw = rust.output_dir.join("test_result/raw.json");
     let raw = raw.is_file().then(|| std::fs::read_to_string(raw).unwrap());
     assert_eq!(
@@ -306,7 +358,7 @@ fn disconnect_matches_the_jvm_transcript() {
 }
 #[test]
 fn all_lost_matches_the_jvm_transcript() {
-    check("all-lost");
+    check_with("all-lost", true);
 }
 #[test]
 fn invalid_config_matches_the_jvm_transcript() {
@@ -314,7 +366,31 @@ fn invalid_config_matches_the_jvm_transcript() {
 }
 #[test]
 fn two_pools_disconnect_matches_the_jvm_transcript() {
-    check("two-pools-disconnect");
+    check_with("two-pools-disconnect", true);
+}
+#[test]
+fn the_d48_allowance_hides_nothing_else() {
+    let jvm = serde_json::json!({"completed": true, "value": false, "completedAt": 16000});
+    let at = |completed: i64| serde_json::json!({"completed": true, "value": false, "completedAt": completed});
+    assert!(d48_outcome(&at(16000 + D48_WAIT), &jvm).is_ok());
+    // Not at once, not a moment off.
+    assert!(d48_outcome(&at(16000), &jvm).is_err());
+    assert!(d48_outcome(&at(16000 + D48_WAIT + 1), &jvm).is_err());
+    // A different answer stays a difference.
+    let other = serde_json::json!({"completed": true, "value": true, "completedAt": 16000 + D48_WAIT});
+    assert!(d48_outcome(&other, &jvm).is_err());
+    let hung = serde_json::json!({"completed": false, "value": false});
+    assert!(d48_outcome(&hung, &jvm).is_err());
+    // The log allowance moves only the driver's end, and only by the wait.
+    let log = |t: i64, end: i64| {
+        vec![
+            serde_json::json!({"t": t, "device": "d", "call": "execute"}),
+            serde_json::json!({"t": end, "event": "end"}),
+        ]
+    };
+    assert_eq!(d48_log(&log(1, 2 + D48_WAIT), &log(1, 2)), log(1, 2));
+    assert_ne!(d48_log(&log(5, 2 + D48_WAIT), &log(1, 2)), log(1, 2));
+    assert!(std::panic::catch_unwind(|| d48_log(&log(1, 3), &log(1, 2))).is_err());
 }
 #[test]
 fn uncompleted_1_matches_the_jvm_transcript() {

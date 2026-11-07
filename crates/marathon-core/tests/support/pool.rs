@@ -297,6 +297,7 @@ pub struct TestDevice {
     execute: OnExecute,
     pub batches: Mutex<Vec<Vec<String>>>,
     pub finish: Finish,
+    return_wait_used: std::sync::atomic::AtomicI64,
 }
 impl TestDevice {
     pub fn new(serial: &str, worker_id: Option<&str>, prepare: Option<OnPrepare>, execute: OnExecute) -> Arc<Self> {
@@ -319,7 +320,13 @@ impl TestDevice {
             execute,
             batches: Mutex::new(vec![]),
             finish: Finish::default(),
+            return_wait_used: std::sync::atomic::AtomicI64::new(0),
         })
+    }
+    /// What this device reports having used of an emptied pool's wait (D48).
+    pub fn set_return_wait_used(&self, millis: i64) {
+        self.return_wait_used
+            .store(millis, std::sync::atomic::Ordering::Relaxed);
     }
     /// `TestDevice(serial)` with the default hooks.
     pub fn plain(serial: &str) -> Arc<Self> {
@@ -420,6 +427,9 @@ impl Device for TestDevice {
     }
     fn dispose(&self) -> VendorFuture<'_, ()> {
         Box::pin(async { Ok(()) })
+    }
+    fn return_wait_used_millis(&self) -> i64 {
+        self.return_wait_used.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 

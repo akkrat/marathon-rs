@@ -38,6 +38,9 @@ struct Gate {
     held: Vec<String>,
     /// D41: how many grace periods each serial has had in this run.
     blips: HashMap<String, u32>,
+    /// D48: since when, on the vendor clock, the server has been away, or each held serial.
+    server_away_since: Option<i64>,
+    held_since: HashMap<String, i64>,
 }
 pub struct DeviceStateTracker {
     devices: Mutex<Vec<(String, DeviceState)>>,
@@ -51,29 +54,63 @@ impl Default for DeviceStateTracker {
                 server: true,
                 held: vec![],
                 blips: HashMap::new(),
+                server_away_since: None,
+                held_since: HashMap::new(),
             }),
         }
     }
 }
 impl DeviceStateTracker {
-    pub(crate) fn set_server_available(&self, available: bool) {
-        self.gate.send_modify(|gate| gate.server = available);
+    /// An open grace period's time carries on in the outage that takes over from it.
+    pub(crate) fn server_lost(&self, now: i64) {
+        self.gate.send_modify(|gate| {
+            gate.server = false;
+            let since = gate
+                .held_since
+                .values()
+                .copied()
+                .min()
+                .map_or(now, |held| held.min(now));
+            gate.server_away_since = Some(since);
+        });
+    }
+    pub(crate) fn server_back(&self) {
+        self.gate.send_modify(|gate| {
+            gate.server = true;
+            gate.server_away_since = None;
+        });
     }
     pub(crate) fn is_server_available(&self) -> bool {
         self.gate.borrow().server
     }
     /// D41: a grace period starts for this serial.
-    pub(crate) fn hold(&self, serial: &str) {
+    pub(crate) fn hold(&self, serial: &str, now: i64) {
         self.gate.send_modify(|gate| {
             gate.held.push(serial.to_owned());
+            gate.held_since.insert(serial.to_owned(), now);
             *gate.blips.entry(serial.to_owned()).or_default() += 1;
         });
     }
     pub(crate) fn release(&self, serial: &str) {
-        self.gate.send_modify(|gate| gate.held.retain(|held| held != serial));
+        self.gate.send_modify(|gate| {
+            gate.held.retain(|held| held != serial);
+            gate.held_since.remove(serial);
+        });
     }
     pub(crate) fn release_all(&self) {
-        self.gate.send_modify(|gate| gate.held.clear());
+        self.gate.send_modify(|gate| {
+            gate.held.clear();
+            gate.held_since.clear();
+        });
+    }
+    /// D48: since when this serial has been kept waiting by an outage or a grace period, if it is.
+    pub(crate) fn away_since(&self, serial: &str) -> Option<i64> {
+        let gate = self.gate.borrow();
+        let held = gate.held_since.get(serial).copied();
+        match (held, gate.server_away_since) {
+            (Some(held), Some(server)) => Some(held.min(server)),
+            (held, server) => held.or(server),
+        }
     }
     pub(crate) fn is_held(&self, serial: &str) -> bool {
         self.gate.borrow().held.iter().any(|held| held == serial)
