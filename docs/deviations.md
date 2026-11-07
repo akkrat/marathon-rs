@@ -671,8 +671,8 @@ as Kotlin does, and then hand the simulator to whoever the failure belongs to:
 | The re-provisioning… | What happens | Limit, with the defaults |
 |---|---|---|
 | can't reach the worker, or the connection drops right after login | The worker connection retry | One attempt per worker at 10, 30 and 90 s, then one a minute, 11 in all, up to 600 s after the first failure |
-| fails with the worker answering | [D33](#d33--a-simulator-whose-setup-failed-is-set-up-again)'s budget, shared with any other failed setup of that simulator | Three retries in the run, 30, 60 and 90 s after each failure |
-| is refused (authentication, [D35](#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | Nothing, and an error says so | No retry |
+| fails with the worker answering | [D33](#d33--a-simulator-whose-setup-failed-is-set-up-again)'s budget, which every such failure of that simulator counts against, also one in another simulator's setup that took it along | At most four such setups, the first included; a retry waits 30, 60 and 90 s after the first, second and third failure |
+| is refused by the simulator's own connection (authentication, [D35](#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | Nothing, and an error says so, also if the planning connection drops in the same setup | No retry |
 
 This applies to every failed re-provisioning: after a lost worker, after a simulator lost with its connection up, and after
 one added back to the devices file. In Kotlin those last two were final.
@@ -683,7 +683,8 @@ each acquires one planning connection and, if planning gets through, one more pe
 N + 11 × (N + 1) acquisitions: 13 for two simulators whose worker doesn't answer, and 35 for two whose worker answers while
 their own connections fail. Kotlin made up to about 3,750 attempts a minute per simulator. Each acquisition makes up to four
 TCP connections to the SSH port, sshj's immediate retries, and logs in once if one of them gets through, so there is at most
-one failed login per acquisition, and a refused one ends the retry. With `checkReachability` a host that doesn't answer gets
+one failed login per acquisition. A refused simulator connection takes that simulator out, and a refused planning connection
+ends the worker retry. With `checkReachability` a host that doesn't answer gets
 no TCP connection at all. With `shareWorkerConnection: true` the acquisitions on a worker share one connection, and those
 waiting for the same attempt share its result, so there are fewer. The acquisitions are measured with a scripted connection
 factory; what each costs on the wire is read from the code.
@@ -701,9 +702,11 @@ The old device raises one disconnect, where Kotlin raised one per attempt, and a
 connect and one actor per simulator. Termination cancels a retry that is waiting.
 
 **What stays final.** These stay out until a devices update removes the simulator and adds it back: a refused connection, a
-spent D33 budget, a worker retry at its limit or out of `attempts`, and a non-transient error in that retry. Another simulator's
-setup on the same worker doesn't take them along; only one that a retry is still waiting for goes into such a setup. These
-stay out for the run in any case: a simulator lost more than three times with its connection up, one
+spent D33 budget, a worker retry at its limit or out of `attempts`, a non-transient error in that retry, and no retry at all
+(`attempts: 1` with `lateJoin: false`). Another simulator's setup on the same worker doesn't take them along; only one that a
+retry is still waiting for goes into such a setup. Removing and adding back is a new start, not a promise: the simulator gets
+one new attempt with its D33 budget and its limit started over, and the rules above apply to that attempt as to the first. A
+retry or setup that began before the removal doesn't decide for it after the re-add. These stay out for the run in any case: a simulator lost more than three times with its connection up, one
 retired because its session didn't close or was abandoned ([D30](#d30--closing-an-ssh-session-has-a-limit)), and a late
 joiner denied admission at the cut-off.
 

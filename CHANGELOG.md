@@ -73,8 +73,10 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A remote parse whose instrumentation fails before it has listed every test it announced is retried, and fails the run with
   the reason if it keeps failing. A failing exit code on a complete list is still accepted (D42).
 - A failed re-provisioning of an iOS simulator is retried instead of being final, whether its worker was lost, it was lost with
-  its connection up or it was added back. A refused connection is not retried, also not when another simulator on that worker
-  is set up again, and a simulator that was in the run can return after the late-join cut-off (D44).
+  its connection up or it was added back. Each simulator gets at most four setups that fail with its worker answering. One
+  whose own connection is refused is not tried again, by its own retry or by another simulator's setup, until the devices file
+  removes it and adds it back, which gives it one new attempt. A simulator that was in the run can return after the late-join
+  cut-off (D44).
 - Remote parsing on iOS no longer gets a removed, lost or disposed simulator, which could use up its attempts and fail the
   run at the start. It waits for one that can work (D44).
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).

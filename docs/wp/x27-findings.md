@@ -77,7 +77,7 @@ trade-off for the owner.
 | State | Way back |
 |---|---|
 | Refused connection | Removed and added back by a devices update |
-| D33's budget spent (4 setups for the run) | The same; removal also clears the budget |
+| D33's budget spent (4 failed setups, counted in every plan that tried it) | The same; removal also clears the budget |
 | Worker retry at its limit, or out of `attempts` with `lateJoin: false`, or none configured | The same |
 | A non-transient error inside the worker retry, which ends it for all its targets | The same |
 | Lost more than three times with its connection up (`exhausted`) | None |
@@ -85,9 +85,9 @@ trade-off for the owner.
 | A late joiner denied admission at the cut-off | None |
 | Left the devices file | Added back |
 
-A later plan picking up a parked simulator that a retry still waits for is read from the code, not tested. If that setup fails,
-the failure isn't among the plan's targets, so it schedules nothing and the simulator's own retry still owns it; a refusal
-there marks it refused all the same.
+A later plan can pick up a parked simulator that a retry still waits for, as Kotlin's planning does with a disposed one. If that
+setup fails with the worker answering, the failure counts against the simulator's D33 budget; a refusal marks it refused; an
+unreachable result leaves it to its own retry (review round 3).
 
 ## Exactly one actor
 
@@ -188,6 +188,54 @@ attempts that fail at once the end comes at 630 s, and it can be late by one pau
 deadline would need a timer racing the attempt and its setup, so the docs state when it is noticed instead.
 `a_worker_that_stays_down_is_tried_at_capped_pauses_until_the_limit_and_then_left_alone` now pins no error at 625 s and one
 by 635 s.
+
+## Review round 3
+
+The re-check found three more, two from round 2. The reviewer's four witnesses are in `simulator_reconnect_limit.rs` under
+names in the file's style; three failed on `ddbc2929` and pass now, and the fourth passed already and stays as the test of the
+re-add claim. Each fix below was reverted on its own, and the tests named fail then.
+
+**A D33 retry from before a removal gave up the simulator added back** (major, from round 2). A D33 retry waiting for its
+connection outlived a removal and re-add, and its authentication error marked the new simulator given up, which stopped the
+worker retry that the re-add had started. A D33 retry now acts only for targets whose generation is still current, when its
+connection fails, before it plans, and on what its plan didn't set up (`unfinished.missing` was not filtered before). The other
+writers of the parking state were checked for the same: a plan of any kind that outlives a re-add (the update bumps a per-handle
+epoch) drops its results for that simulator, so a refusal it saw can't mark the new one. The worker retry needs nothing: a
+re-add while it waits is offered to it, so it stays the only owner, and its limit counts from the re-add. The recovery's own
+parking runs under the lock that checks the handle is current. Tests:
+`a_setup_retry_from_before_a_removal_cannot_give_up_the_simulator_added_back` (the witness; generation check reverted: no
+replacement connects) and `a_refusal_seen_by_a_plan_that_outlived_a_remove_and_re_add_does_not_stop_the_new_one` (epoch check
+reverted: times out waiting for the connect).
+
+**A refusal was lost when the planning connection dropped** (major, round 2 incomplete). The refusal was recorded only with the
+planning connection still up, so a refusal followed by a dropped connection sent the simulator back to the worker retry, which
+asked again. A refusal by the simulator's own connection is now recorded whatever the planning connection did, and that
+simulator is not sent back. Tests: `a_refusal_in_a_later_plan_is_final_even_when_the_planning_connection_drops` (the witness:
+a refused twice) and `a_refusal_stays_final_when_the_same_plan_loses_its_planning_connection`, where a and b are named by
+the same plan (a connected again at 30 s).
+
+**A sibling's plan spent setups outside the budget** (minor). A parked simulator taken along by another simulator's plan had
+its failure thrown away, as it isn't among that plan's targets, so two simulators lost 5 s apart got 6 and 7 setups. Of the two
+fixes offered, keeping parked simulators out of unrelated plans looked simpler but breaks the ported Kotlin test
+`a_device_update_sets_up_again_a_simulator_whose_recovery_has_failed_and_leaves_the_healthy_one_alone`
+(`AppleSimulatorProviderReconnectTest`): Kotlin's planning takes a disposed simulator along, and that is parity. So the failure
+is charged instead: a setup of a taken-along simulator that fails with the worker answering goes to D33 like its own, and once
+the budget is spent the simulator is given up and no plan takes it again. Every such failure is counted, so a simulator gets at
+most four. An unreachable result is left to its owner, and a refusal marks it as above. Test:
+`two_simulators_lost_with_their_connection_up_get_four_setups_each` (4 and 4; 6 and 7 with the charge reverted).
+
+**Docs.** D44's table now says the budget counts every failed setup of the simulator, also in another's plan, at most four
+with the first; that refusal means the simulator's own connection, also with the planning connection dropped; and that
+removing and adding back gives one new attempt with its limits started over, not a recovery.
+`every_given_up_simulator_comes_back_when_removed_and_added_back` pins that attempt for each way of giving up: the worker
+retry's limit, out of `attempts`, no retry, and D33's budget. CHANGELOG and PLAN say the same; `migration.md` makes none of
+these claims and is unchanged.
+
+`cargo test -p marathon-ios`: 36 binaries, 314 tests pass; `cargo test -p marathon-cli`: 14 binaries, 48 pass; clippy and
+`cargo fmt --check` clean.
+
+**Not verified:** two retries for the same simulator racing in one plan on a multi-threaded runtime; the D33 rounds a charged
+failure schedules alongside the simulator's own are bounded by the count, and their timing is only what the tests show.
 
 ## Incidental bugs
 
