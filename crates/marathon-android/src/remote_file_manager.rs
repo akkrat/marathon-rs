@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/RemoteFileManager.kt
 use crate::{device::AndroidDevice, support::*};
 use jcompat::{file_manager::escape_utf16, logging::Level, writers::JavaString};
+use marathon_adb::client::sync::directory::bash_escape;
 use marathon_core::{error::VendorResult, model::Test, vendor::VendorContext};
 pub const MAX_FILENAME: usize = 255;
 pub const TMP_PATH: &str = "/data/local/tmp";
@@ -18,6 +19,29 @@ impl RemoteFileManager<'_> {
                 context,
             )
             .await?;
+        Ok(())
+    }
+    /// U159's removal of a folder push's destination, which Kotlin doesn't send, so its command is not bound to
+    /// `remove_remote_path`'s: the path is quoted for the device's shell, as a folder name may hold a space, and the
+    /// removal must leave nothing there, or adb's push would land one level inside the leftover. An absent destination
+    /// is fine: `rm` fails on it and the test then passes.
+    pub async fn remove_push_destination(&self, path: &str, context: VendorContext) -> VendorResult<()> {
+        let quoted = bash_escape(path);
+        let message = format!("Could not delete remote file(s): {path}");
+        let result = self
+            .device
+            .critical_execute_shell_command(&format!("rm -r -- {quoted} || [ ! -e {quoted} ]"), &message, context)
+            .await?;
+        if result.exit_code != 0 {
+            return Err(other(
+                "com.malinskiy.marathon.android.exception.CommandRejectedException",
+                format!(
+                    "{message}: exit code {}: {}",
+                    result.exit_code,
+                    result.output.to_string_lossy().trim()
+                ),
+            ));
+        }
         Ok(())
     }
     pub async fn create_remote_directory(&self, path: Option<&str>, context: VendorContext) -> VendorResult<()> {

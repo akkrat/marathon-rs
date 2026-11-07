@@ -230,6 +230,11 @@ mod file_sync_test_run_listener_test {
             Box::pin(async move {
                 let _temp = temp;
                 let mut script = base_script(27, vec![]);
+                shell(
+                    &mut script,
+                    "rm -r -- '/sdcard/fixtures-dir' || [ ! -e '/sdcard/fixtures-dir' ]",
+                    "",
+                );
                 shell(&mut script, "rm -r /sdcard/fixtures-dir", "");
                 script["shell"]
                     .as_array_mut()
@@ -244,7 +249,7 @@ mod file_sync_test_run_listener_test {
                 let about: Vec<_> = sent.iter().filter(|c| c.contains("fixtures-dir")).collect();
                 assert_eq!(
                     about.first().map(|c| c.as_str()),
-                    Some("rm -r /sdcard/fixtures-dir"),
+                    Some("rm -r -- '/sdcard/fixtures-dir' || [ ! -e '/sdcard/fixtures-dir' ]"),
                     "{about:?}"
                 );
                 assert!(about.len() > 1, "{about:?}");
@@ -1380,4 +1385,126 @@ fn missing_and_timed_out_pulls_still_emit_video_capture_and_trace_attachments() 
             })
         });
     }
+}
+
+/// x37: the removal before a folder push named `payload data` used to be `rm -r /sdcard/payload data`, which deleted a
+/// sibling `payload`. Only the command is taken from the fake; `sh` runs it on a private temporary directory.
+#[test]
+fn a_folder_push_with_a_space_removes_only_its_own_destination_d27() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    let folder = temp.path().join("payload data");
+    checked(std::fs::create_dir(&folder));
+    checked(std::fs::write(folder.join("data.txt"), "fresh"));
+    android(&mut c).file_sync_configuration.push.push(FilePushEntry {
+        path: js(&folder.to_string_lossy()),
+        path_root: PathRoot::ExternalStorage,
+    });
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let mut script = base_script(27, vec![]);
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"prefix":"rm ","stdout":""}));
+            script["shell"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"prefix":"mkdir","stdout":""}));
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = FileSyncTestRunListener::new(artifacts(&device));
+            listener.before_test_run_in(None, context.clone()).await?;
+            let removal = commands(&server).into_iter().find(|c| c.starts_with("rm -r ")).unwrap();
+            finish(server, device).await;
+            // Replay only the emitted removal on a private local filesystem; no real device or adb is involved.
+            let root = temp.path().join("device");
+            checked(std::fs::create_dir_all(root.join("payload data")));
+            checked(std::fs::write(root.join("payload data/data.txt"), "stale"));
+            checked(std::fs::create_dir(root.join("payload")));
+            let command = removal.replace("/sdcard", &root.to_string_lossy());
+            let result = checked(
+                tokio::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(&command)
+                    .current_dir(temp.path())
+                    .output()
+                    .await,
+            );
+            assert!(
+                root.join("payload").exists() && !root.join("payload data").exists(),
+                "cleanup command={removal:?}; guard_exists={}; stale_exists={}; status={:?}",
+                root.join("payload").exists(),
+                root.join("payload data").exists(),
+                result.status.code()
+            );
+            assert_eq!(result.status.code(), Some(0), "{command}");
+            // An absent destination, the usual case, is no failure.
+            let again = checked(
+                tokio::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(&command)
+                    .current_dir(temp.path())
+                    .output()
+                    .await,
+            );
+            assert_eq!(again.status.code(), Some(0), "{command}");
+            Ok(())
+        })
+    });
+}
+
+/// x37: a leftover that can't be removed used to stay what the tests read, with the fresh folder pushed inside it.
+#[test]
+fn a_folder_push_fails_when_its_leftover_cannot_be_removed_d27() {
+    let mut c = configuration();
+    let temp = output(&mut c);
+    let folder = temp.path().join("payload");
+    checked(std::fs::create_dir(&folder));
+    checked(std::fs::write(folder.join("data.txt"), "fresh"));
+    android(&mut c).file_sync_configuration.push.push(FilePushEntry {
+        path: js(&folder.to_string_lossy()),
+        path_root: PathRoot::ExternalStorage,
+    });
+    run(c, move |runtime, context| {
+        Box::pin(async move {
+            let _temp = temp;
+            let mut script = base_script(27, vec![]);
+            script["devices"][0]["files"] = json!([
+                {"path":"/sdcard/payload","dir":true},
+                {"path":"/sdcard/payload/data.txt","content":"stale"}
+            ]);
+            script["shell"].as_array_mut().unwrap().extend([
+                json!({"exact":"rm -r -- '/sdcard/payload' || [ ! -e '/sdcard/payload' ]","stdout":"rm: /sdcard/payload/data.txt: Permission denied\n","exit_code":1}),
+                json!({"prefix":"mkdir","stdout":""})
+            ]);
+            let server = server(script).await;
+            let device = device(&server, runtime);
+            device.setup(context.clone()).await?;
+            let listener = FileSyncTestRunListener::new(artifacts(&device));
+            let outcome = listener.before_test_run_in(None, context.clone()).await;
+            let root_data = server
+                .file("emulator-5554", "/sdcard/payload/data.txt")
+                .unwrap()
+                .content
+                .unwrap();
+            let nested = server
+                .file("emulator-5554", "/sdcard/payload/payload/data.txt")
+                .is_some();
+            finish(server, device).await;
+            let error = outcome
+                .err()
+                .unwrap_or_else(|| panic!("setup succeeded: root_data={root_data:?}, fresh_nested={nested}"));
+            assert_eq!(
+                error.failure().message.as_ref().map(|m| m.to_string_lossy()).as_deref(),
+                Some(
+                    "Could not delete remote file(s): /sdcard/payload: exit code 1: \
+                     rm: /sdcard/payload/data.txt: Permission denied"
+                )
+            );
+            assert!(!nested, "the fresh folder was pushed inside the leftover");
+            Ok(())
+        })
+    });
 }

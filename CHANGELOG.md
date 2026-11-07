@@ -64,7 +64,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - In a batch that mixes test APKs, each instrumentation runs only its own tests, the batch reports one result, and a test
   that a later instrumentation did not report no longer carries an earlier one's failure text (D28, U151).
 - A folder left on the device by a run that was cut short is removed before a file sync push, so the first batch does not
-  read the previous run's files (U159).
+  read the previous run's files. A folder that can't be removed fails the batch with `Could not delete remote file(s): …`
+  (U159).
 
 ### iOS and macOS workers
 

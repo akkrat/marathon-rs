@@ -103,7 +103,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     // read, with this push one level inside it.
                     device
                         .file_manager()
-                        .remove_remote_path(&remote, true, context.clone())
+                        .remove_push_destination(&remote, context.clone())
                         .await?;
                     device
                         .push_folder(&entry.path.to_string_lossy(), &remote, context.clone())

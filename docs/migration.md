@@ -283,7 +283,8 @@ Native builds run neither ([D27](deviations.md#d27--prepare-no-longer-wipes-exte
 - **Action for you:** if your tests rely on an empty external storage, for example because they count files
   or fail on leftovers, clear what they need yourself, in the tests or in your device setup.
 - **What marathon still cleans:** each file sync pull entry is removed and recreated before every batch, and
-  file sync pushes are replaced and then removed after the batch. Videos are removed after each test.
+  file sync pushes are replaced and then removed after the batch. A pushed folder that can't be removed first fails
+  the batch with `Could not delete remote file(s): …`; give the shell user write access to the destination. Videos are removed after each test.
 - **What can now accumulate:** videos left on the device by a run that was aborted, or by a recording that a lost
   connection cut short, in a run that still exits 0. Their names hold that run's batch id, which a later run
   cannot know, and marathon does not delete by pattern, because that could hit your data. Clear them with your
