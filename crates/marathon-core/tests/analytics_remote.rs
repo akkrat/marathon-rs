@@ -61,6 +61,7 @@ fn graphite(value: &str) -> GraphiteDataSource {
             ..Graphite::default()
         }),
         prefix: None,
+        context: None,
     }
 }
 fn limit() -> Instant {
@@ -214,10 +215,16 @@ fn query_and_graphite_parser_jvm_rows() {
                 let source = GraphiteDataSource {
                     client: Arc::new(Graphite::default()),
                     prefix: row["prefix"].as_str().map(str::to_owned),
+                    context: None,
                 };
                 let time = row["time"].as_bool().unwrap();
                 assert_eq!(source.target(time.then_some(99.9)), row["target"].as_str().unwrap());
-                match parse_line(row["line"].as_str().unwrap()) {
+                // D51's allowance: the JVM throws on these rows, and `parse_line` stays that witness.
+                // The data source skips exactly the lines whose whole value is `None`.
+                let line = row["line"].as_str().unwrap();
+                assert_eq!(has_no_datapoint(line), line.ends_with("|None"), "{line}");
+                assert!(!has_no_datapoint(line) || !row["error"].is_null(), "{line}");
+                match parse_line(line) {
                     Ok((name, value)) => {
                         let value = if time { value } else { value / 100.0 };
                         assert_eq!(name.to_string_lossy(), row["name"].as_str().unwrap());
@@ -305,9 +312,9 @@ fn influx_mapping_drops_nulls_filters_series_and_rejects_errors() {
 }
 
 #[test]
-fn one_bad_graphite_datapoint_fails_the_whole_query_and_is_cached_for_the_run() {
+fn one_malformed_graphite_datapoint_fails_the_whole_query_and_is_cached_for_the_run() {
     run(async {
-        for bad in ["None", "50,None"] {
+        for bad in ["50,None", "none", "None ", "nope"] {
             let h = Harness::new();
             let client = Arc::new(Graphite {
                 lines: vec![
@@ -319,6 +326,7 @@ fn one_bad_graphite_datapoint_fails_the_whole_query_and_is_cached_for_the_run() 
             let source = GraphiteDataSource {
                 client: client.clone(),
                 prefix: None,
+                context: None,
             };
             let p = h.provider(Arc::new(source), 300000, None);
             let test = &strategy_support::generate_tests(1)[0];
@@ -330,6 +338,66 @@ fn one_bad_graphite_datapoint_fails_the_whole_query_and_is_cached_for_the_run() 
             assert_eq!(client.targets.lock().unwrap().len(), 6);
             assert_eq!(h.logs.take().iter().filter(|e| e.logger == "Timings").count(), 2);
         }
+    });
+}
+
+/// D51 / C38: a series with no points in the window prints `None`, and its neighbours survive.
+#[test]
+fn a_none_datapoint_is_skipped_and_keeps_the_rest_of_the_query() {
+    run(async {
+        let source = GraphiteDataSource {
+            client: Arc::new(Graphite {
+                lines: vec![
+                    "pkg0--clazz0--method0,1,2,3|50".into(),
+                    "pkg1--clazz1--method1,1,2,3|None".into(),
+                    "pkg2--clazz2--method2,1,2,3|None".into(),
+                    "pkg3--clazz3--method3,1,2,3|25".into(),
+                ],
+                ..Graphite::default()
+            }),
+            prefix: None,
+            context: None,
+        };
+        let rates = source.request_all_success_rates(limit()).await.unwrap();
+        assert_eq!(
+            rates,
+            [
+                SuccessRate {
+                    test_name: "pkg0.clazz0.method0".into(),
+                    mean: 0.5
+                },
+                SuccessRate {
+                    test_name: "pkg3.clazz3.method3".into(),
+                    mean: 0.25
+                }
+            ]
+        );
+        let times = source.request_all_execution_times(90.0, limit()).await.unwrap();
+        assert_eq!(times.len(), 2);
+        assert_eq!(times[1].percentile, 25.0);
+    });
+}
+
+#[test]
+fn a_skipped_none_datapoint_logs_at_debug_only() {
+    run(async {
+        let h = Harness::new();
+        let source = GraphiteDataSource {
+            client: Arc::new(Graphite {
+                lines: vec!["pkg0--clazz0--method0,1,2,3|None".into()],
+                ..Graphite::default()
+            }),
+            prefix: None,
+            context: Some(h.context.clone()),
+        };
+        assert!(source.request_all_success_rates(limit()).await.unwrap().is_empty());
+        let logs = h.logs.take();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].level, jcompat::logging::Level::Debug);
+        assert_eq!(
+            logs[0].message.to_string_lossy(),
+            "Skipping a Graphite series with no datapoints: pkg0--clazz0--method0,1,2,3|None"
+        );
     });
 }
 

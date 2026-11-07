@@ -367,6 +367,81 @@ fn surviving(out: &std::path::Path) -> Option<Vec<String>> {
     })
 }
 
+/// D51's allowance. The JVM's trace stops at the slot that failed (C25); ours runs the later slots.
+/// Returns the JVM trace with those added, so nothing else can differ.
+fn d51_trace(case: &str, jvm: Vec<String>) -> Vec<String> {
+    const SLOTS: [&str; 3] = ["analytics.close", "terminate", "tracker.close"];
+    let failing = match case {
+        "finish-fail-analytics" => "analytics.close",
+        "finish-fail-terminate" | "exceptional-finish-fail" => "terminate",
+        "finish-fail-tracker" => "tracker.close",
+        _ => return jvm,
+    };
+    assert_eq!(jvm.last().map(String::as_str), Some(failing), "{case}: {jvm:?}");
+    let later = SLOTS.iter().skip_while(|s| **s != failing).skip(1);
+    jvm.iter().cloned().chain(later.map(|s| (*s).to_owned())).collect()
+}
+type Record = (String, String, Option<String>);
+/// D51's allowance on the logs: exactly these extra Marathon records, which must be there.
+fn d51_extra_records(case: &str) -> Vec<Record> {
+    let error = |step: &str| {
+        (
+            "ERROR".to_owned(),
+            format!("{step} failed during cleanup"),
+            Some("java.lang.IllegalStateException".to_owned()),
+        )
+    };
+    let filtered = (
+        "WARN".to_owned(),
+        "No tests left to run after filtering: blocklist simple-class-name removed 1".to_owned(),
+        None,
+    );
+    match case {
+        "finish-fail-analytics" => vec![filtered, error("Closing the analytics history")],
+        "finish-fail-terminate" => vec![filtered, error("Terminating the device provider")],
+        "finish-fail-tracker" => vec![filtered, error("Closing the reports and tracker")],
+        "exceptional-finish-fail" => vec![error("Terminating the device provider")],
+        "run-filtered-empty" | "wipe-run" => vec![filtered],
+        _ => vec![],
+    }
+}
+fn without_d51_records(case: &str, mut events: Vec<Record>) -> Vec<Record> {
+    for extra in d51_extra_records(case) {
+        let at = events.iter().position(|e| *e == extra);
+        events.remove(at.unwrap_or_else(|| panic!("{case}: no {extra:?} in {events:?}")));
+    }
+    events
+}
+#[test]
+fn the_d51_allowances_hide_nothing_else() {
+    let names = |names: &[&str]| names.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    // Other cases are untouched.
+    assert_eq!(d51_trace("run-ok", names(&["a"])), names(&["a"]));
+    assert!(d51_extra_records("run-ok").is_empty());
+    assert!(
+        d51_extra_records("filtered-empty-parse").is_empty(),
+        "parse writes its empty list as before"
+    );
+    // The added slots are exactly those after the failing one.
+    assert_eq!(
+        d51_trace("finish-fail-analytics", names(&["x", "analytics.close"])),
+        names(&["x", "analytics.close", "terminate", "tracker.close"])
+    );
+    assert_eq!(
+        d51_trace("finish-fail-tracker", names(&["x", "tracker.close"])),
+        names(&["x", "tracker.close"])
+    );
+    // A JVM trace that didn't stop at its slot isn't what the allowance is for.
+    assert!(std::panic::catch_unwind(|| d51_trace("finish-fail-terminate", vec!["x".to_owned()])).is_err());
+    // A missing record fails, and only one is removed.
+    let extra = d51_extra_records("run-filtered-empty").remove(0);
+    assert!(std::panic::catch_unwind(|| without_d51_records("run-filtered-empty", vec![])).is_err());
+    assert_eq!(
+        without_d51_records("run-filtered-empty", vec![extra.clone(), extra.clone()]),
+        vec![extra]
+    );
+}
+
 fn check(case: &str, r: &Result) {
     let row = row(case);
     match (&r.outcome.value, row.get("value")) {
@@ -397,10 +472,14 @@ fn check(case: &str, r: &Result) {
         .map(|t| t.as_str().unwrap().to_owned())
         .filter(|t| t != "usage.close")
         .collect();
-    assert_eq!(r.trace, expected_trace, "{case}: trace");
+    assert_eq!(r.trace, d51_trace(case, expected_trace), "{case}: trace");
     for logger in [LOGGER, PARSE, TIMINGS] {
         assert_eq!(
-            rust_events(&r.outcome.lines, logger),
+            if logger == LOGGER {
+                without_d51_records(case, rust_events(&r.outcome.lines, logger))
+            } else {
+                rust_events(&r.outcome.lines, logger)
+            },
             jvm_events(&row, logger),
             "{case}: {logger} records"
         );
@@ -570,9 +649,10 @@ fn successful_parse_through_run_skips_on_finish_c26() {
     check("run-parse", &run(o, Entry::Run, parse(Some("p"))));
 }
 
-/// C25: a failing close skips the later slots, and the exceptional finish that follows is a no-op.
+/// D51: a failing close no longer skips the later slots, where the JVM rows do (C25). The guard is
+/// kept, so the exceptional finish that follows is still a no-op, and the outcome is the JVM's.
 #[test]
-fn a_failing_finish_slot_skips_the_rest_c25() {
+fn a_failing_finish_slot_runs_the_rest_and_keeps_the_outcome_d51() {
     for (slot, case) in [
         ("analytics.close", "finish-fail-analytics"),
         ("terminate", "finish-fail-terminate"),

@@ -21,7 +21,7 @@ use crate::{
     wiring::RunDependencies,
 };
 use jcompat::{logging::Level, writers::JavaString};
-use marathon_config::{binding::ConfigurationError, loader::LogicalConfigurationValidator};
+use marathon_config::{TestFilterConfiguration, binding::ConfigurationError, loader::LogicalConfigurationValidator};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -448,7 +448,7 @@ impl Marathon {
         if parsed_all_tests.is_empty() {
             return Err(VendorError::Other(failure(NO_TESTS, "No tests cases were found")));
         }
-        let parsed_filtered_tests = self.apply_test_filters(parsed_all_tests).await?;
+        let (parsed_filtered_tests, filter_stages) = self.apply_test_filters(parsed_all_tests).await?;
 
         if let ExecutionCommand::Parse {
             output_file_name,
@@ -523,6 +523,14 @@ impl Marathon {
         self.timing(|| Ok(format!("Scheduling {} tests", parsed_filtered_tests.len())))?;
         self.flush(task.job.cancellation_signal()).await?;
         let result = if parsed_filtered_tests.is_empty() {
+            // D51: a green run that ran nothing should at least say why. It may be right (an empty
+            // shard fragment), so it stays exit 0; `parse` writes its empty list as before.
+            self.log(
+                LOGGER,
+                Level::Warn,
+                format!("No tests left to run after filtering: {}", filter_stages.join(", ")).into(),
+                None,
+            );
             true
         } else {
             scheduler.execute().await?
@@ -640,23 +648,29 @@ impl Marathon {
     }
 
     /// Each allowlist filter, then each blocklist filter, freshly constructed per call.
-    async fn apply_test_filters(&self, parsed: Vec<Test>) -> VendorResult<Vec<Test>> {
+    /// Also returns what each one removed, as the empty-run warning's text.
+    async fn apply_test_filters(&self, parsed: Vec<Test>) -> VendorResult<(Vec<Test>, Vec<String>)> {
         let vendor = self.services.core.vendor();
         let filtering = &self.deps.vendor.configuration.filtering_configuration;
+        let mut stages = Vec::new();
         let mut tests = parsed;
         for config in &filtering.allowlist {
+            let before = tests.len();
             tests = TestFilter::from_config(config, &self.services.filters)
                 .filter(tests, vendor.as_ref())
                 .await
                 .map_err(vendor_error)?;
+            stages.push(removed_by("allowlist", config, before - tests.len()));
         }
         for config in &filtering.blocklist {
+            let before = tests.len();
             tests = TestFilter::from_config(config, &self.services.filters)
                 .filter_not(tests, vendor.as_ref())
                 .await
                 .map_err(vendor_error)?;
+            stages.push(removed_by("blocklist", config, before - tests.len()));
         }
-        Ok(tests)
+        Ok((tests, stages))
     }
 
     /// Shard first, flakiness second. D13: the flakiness key is fetched where `process`
@@ -705,43 +719,73 @@ impl Marathon {
         .await
     }
 
-    /// `onFinish`: the guard is set first; a failing close skips the later slots and every
-    /// later finish attempt (C25). D1 keeps the usage slot as a no-op.
+    /// D51: one step of `on_finish` that failed is logged and doesn't stop the later ones, and the
+    /// first failure is what the run returns, so the exit code stays as it was. Cancellation still
+    /// stops them, as the steps after it would only be cancelled too.
+    fn finish_step(&self, first: &mut Option<VendorError>, step: &str, result: VendorResult<()>) -> VendorResult<()> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(VendorError::Cancelled(reason)) => Err(first.take().unwrap_or(VendorError::Cancelled(reason))),
+            Err(error) => {
+                self.log(
+                    LOGGER,
+                    Level::Error,
+                    format!("{step} failed during cleanup").into(),
+                    Some(error.failure().clone()),
+                );
+                first.get_or_insert(error);
+                Ok(())
+            }
+        }
+    }
+
+    /// `onFinish`: the guard is set first, so a later finish attempt is a no-op even if this one
+    /// failed (C25). Unlike Kotlin, a failing step doesn't skip the later ones (D51). D1 keeps the
+    /// usage slot as a no-op.
     async fn on_finish(&self, cancellation: Arc<dyn CancellationSignal>) -> VendorResult<()> {
         if self.cleaned_up.replace(true) {
             return Ok(());
         }
+        let mut first = None;
         // Console order: records logged so far precede the reporters' stdout summary.
-        self.flush(cancellation.clone()).await?;
+        let flushed = self.flush(cancellation.clone()).await;
+        self.finish_step(&mut first, "Console output", flushed)?;
         let vendor = self.services.core.vendor();
         let analytics = self.deps.analytics.clone();
-        call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
+        let closed = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
             Box::pin(async move {
                 crate::wiring::MetricsProvider::close(analytics.as_ref())
                     .await
                     .map_err(vendor_error)
             })
         })
-        .await?;
+        .await;
+        self.finish_step(&mut first, "Closing the analytics history", closed)?;
         let provider = self.deps.provider.clone();
-        call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
+        let terminated = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
             Box::pin(async move { provider.terminate().await })
         })
-        .await?;
+        .await;
+        self.finish_step(&mut first, "Terminating the device provider", terminated)?;
         // Termination logs are enqueued by vendor tasks. Kotlin prints them
         // synchronously before Allure and the stdout summary close.
-        self.flush(cancellation.clone()).await?;
+        let flushed = self.flush(cancellation.clone()).await;
+        self.finish_step(&mut first, "Console output", flushed)?;
         let reports = self.deps.reports.clone();
-        call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
+        let closed = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
             Box::pin(async move { reports.close().await.map_err(vendor_error) })
         })
-        .await?;
+        .await;
+        self.finish_step(&mut first, "Closing the reports and tracker", closed)?;
         let usage = self.deps.usage.clone();
-        call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
+        let closed = call_vendor(vendor.as_ref(), cancellation.clone(), move |_| {
             Box::pin(async move { usage.close().await })
         })
-        .await?;
-        self.flush(cancellation).await
+        .await;
+        self.finish_step(&mut first, "Closing the usage tracker", closed)?;
+        let flushed = self.flush(cancellation).await;
+        self.finish_step(&mut first, "Console output", flushed)?;
+        first.map_or(Ok(()), Err)
     }
 
     /// `run`: install the debug-only hook, run, uninstall only after a successful return.
@@ -939,6 +983,25 @@ impl Marathon {
         );
         (relay, job)
     }
+}
+
+/// One stage of the empty-run warning, naming the filter as the Marathonfile's `type` does.
+fn removed_by(list: &str, config: &TestFilterConfiguration, removed: usize) -> String {
+    use TestFilterConfiguration as F;
+    let kind = match config {
+        F::SimpleClassname(_) => "simple-class-name",
+        F::SimpleTestname(_) => "simple-test-name",
+        F::FullyQualifiedClassname(_) => "fully-qualified-class-name",
+        F::FullyQualifiedTestname(_) => "fully-qualified-test-name",
+        F::TestMethod(_) => "method",
+        F::Annotation(_) => "annotation",
+        F::TestPackage(_) => "package",
+        F::AnnotationData { .. } => "annotationData",
+        F::Fragmentation { .. } => "fragmentation",
+        F::Composition { .. } => "composition",
+        F::Allure { .. } => "allure",
+    };
+    format!("{list} {kind} removed {removed}")
 }
 
 /// Kotlin's `File.deleteRecursively` keeps going after a failure and ignores the result.

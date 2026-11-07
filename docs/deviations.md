@@ -720,6 +720,39 @@ Approved 2026-11-07 (project owner's decision). See [PLAN §3.11](../PLAN.md#311
 **Migration action:** none. If you set `testBatchTimeoutMillis` close to what short batches took, check it, since batches
 with flaky copies or several test APKs now hold more tests.
 
+## D51 — Metrics and cleanup failures do not stop a run
+
+Kotlin's Graphite tracker has no catch, so a carbon that refuses the connection throws into the queue actor at the first test
+result, and the queue ends. In the port, the run then never ended. Reports and closes short-circuit too: one failure skips the
+ones after it.
+
+Native builds change four things:
+
+- **A failing analytics backend** is logged once per kind of failure, at most eight kinds, and the run carries on with the
+  same results and exit code. At the end of the run one line says how many results were lost. This covers Graphite, InfluxDB
+  and InfluxDB 2, and replaces InfluxDB 2's error line per test. A failed backend `close` still fails the run as before.
+- **Time limits on a send.** Carbon gets 10 s to look up and connect and 10 s to write, where Kotlin has no limit. No send to
+  any backend holds up the queue for more than 30 s. A send that fails after 1 s or more, or hits a limit, makes the next
+  5 minutes of metrics get skipped, then the backend is tried again. A carbon that drops packets costs 10 s in every 310 s. A
+  refused connection costs almost nothing, so it is tried for every test.
+- **A Graphite series printed as `None`** has no points in the window and is skipped with a debug line, so the query keeps its
+  other tests. Kotlin discarded the whole query. Any other malformed value, such as `50,None`, still fails the query.
+- **Each step at the end of a run still runs after another fails:** the history close, provider termination, each reporter
+  and the tracker close. Each failure is logged, and the first is returned, so the exit code is what it was. A later finish
+  attempt is still a no-op, and cancellation still stops the steps after it.
+
+Separately, when filters take a non-empty list to nothing, a run logs a WARN with what each filter removed, for example
+`No tests left to run after filtering: blocklist simple-class-name removed 12`. It still exits 0, because an empty shard
+fragment is legitimate. `parse` writes its empty list as before, with no warning.
+
+Metrics from a working backend are byte for byte the same. A queue that ends for any other reason still hangs the run
+([U168](found-bugs.md)). Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C62, C38, C11 and C25](known-kotlin-bugs.md) and
+the [x34 findings](wp/x34-findings.md).
+
+**Migration action:** none. Metrics lost to a backend that is down or slow show up in the log, and history falls back to its
+defaults for those tests. Look for `Cannot send test metrics` if history seems to stop growing.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)

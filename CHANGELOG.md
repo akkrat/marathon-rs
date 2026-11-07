@@ -106,6 +106,13 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 
 ### All platforms
 
+- A Graphite or InfluxDB backend that is down or slow no longer stops a run. With carbon down, a run used to hang at its first
+  test result. The failure is now logged once per kind, and sends have time limits, with metrics skipped for 5 minutes after a
+  slow failure (D51, U167).
+- A Graphite series with no points in the window no longer loses the whole history query (D51, C38).
+- A failed reporter or close no longer skips the ones after it, such as a later report or terminating the devices. Each failure
+  is logged, and the exit code is unchanged (D51, C11, C25).
+- A run whose filters removed every test logs a warning saying what each filter removed. It still exits 0 (D51).
 - A history query that fails is no longer final for the run: it is retried in the background a limited number of times, at
   5, 10, 20 s and so on counted from the first failure, so a query that fails later joins the next round. Queues built and
   batches composed afterwards use the history it finds. A run never waits for this. With a failing analytics backend the log
@@ -158,7 +165,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A failed xcodebuild close retires its simulator, which ends a pool whose last device it was (D30).
 - A batch that D22's hold kept waiting is charged an attempt when its server is given up, so with `uncompletedTestRetryQuota: 0`
   tests can fail without having run (U160). After SIGINT with `debug: true`, tests may bounce back and add false INCOMPLETE
-  results to that run's reports (U161). A write error to Graphite ends the queue, where Kotlin swallowed it (U167).
+  results to that run's reports (U161).
+- A queue that ends for a reason other than a metrics failure, such as a broken console, leaves the run hanging (U168).
 
 ## 0.11.0
 

@@ -84,13 +84,14 @@ async fn build(
                         env.context.clone(),
                     )),
                     prefix: Some(key.into()),
+                    context: None,
                 }),
                 Arc::new(GraphiteTracker {
                     client: BasicGraphiteClient {
                         host: env_var("MRS_GRAPHITE_HOST"),
                         port,
                         prefix: Some(key.into()),
-                        sender: Arc::new(SocketSender),
+                        sender: Arc::new(SocketSender::default()),
                         cancellation: Signal::new(),
                     },
                     read_only: false,

@@ -81,7 +81,7 @@ async fn case(env: Env, name: &str) -> OperationResult<()> {
                         host: "127.0.0.1".into(),
                         port,
                         prefix: Some("prefix".into()),
-                        sender: Arc::new(SocketSender),
+                        sender: Arc::new(SocketSender::default()),
                         cancellation: env.context.cancellation.clone(),
                     },
                     read_only: false,
@@ -96,6 +96,7 @@ async fn case(env: Env, name: &str) -> OperationResult<()> {
                         env.context.clone(),
                     )),
                     prefix: Some("prefix".into()),
+                    context: None,
                 })
             }
         };

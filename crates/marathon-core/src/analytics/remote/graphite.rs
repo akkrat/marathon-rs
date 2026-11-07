@@ -1,8 +1,11 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/metrics/remote/graphite/GraphiteDataSource.kt
 //! and core/src/main/kotlin/com/malinskiy/marathon/extension/StringExtensions.kt (withPrefix).
 use super::*;
-use crate::{error::OperationResult, executor::shared::failure};
-use jcompat::jnum::{double_to_string, parse_double_with_error};
+use crate::{analytics::MetricsContext, error::OperationResult, executor::shared::failure};
+use jcompat::{
+    jnum::{double_to_string, parse_double_with_error},
+    logging::Level,
+};
 use std::sync::Arc;
 
 /// WP 3.4b implements QueryableGraphiteClient: render GET on port 80, Java form
@@ -13,6 +16,8 @@ pub trait GraphiteQuery: Send + Sync {
 pub struct GraphiteDataSource {
     pub client: Arc<dyn GraphiteQuery>,
     pub prefix: Option<String>,
+    /// Where the debug line for a skipped `None` goes (D51). `None` logs nothing.
+    pub context: Option<MetricsContext>,
 }
 pub fn with_prefix(path: &str, prefix: Option<&str>) -> String {
     match prefix.filter(|s| !s.is_empty()) {
@@ -40,13 +45,30 @@ pub fn parse_line(line: &str) -> OperationResult<(JavaString, f64)> {
         parse_double_with_error(value).map_err(|message| failure("java.lang.NumberFormatException", &message))?;
     Ok((name.into(), value))
 }
+/// Whether a raw line is one series with no value at all: the query summarises over 10 years, and
+/// `format=raw` prints `None` for a series with no points in the window. Kotlin's `toDouble` throws
+/// here and loses the whole query (C38). `50,None` is still malformed, and fails as it did.
+pub fn has_no_datapoint(line: &str) -> bool {
+    line.split_once('|').map_or(line, |p| p.1) == "None"
+}
+impl GraphiteDataSource {
+    /// D51: keeps every line that has a value, so one empty series can't discard the query.
+    fn with_datapoints<'a>(&'a self, lines: &'a [String]) -> impl Iterator<Item = &'a String> {
+        lines.iter().filter(|line| {
+            let skip = has_no_datapoint(line);
+            if let (true, Some(context)) = (skip, &self.context) {
+                let text = format!("Skipping a Graphite series with no datapoints: {line}");
+                context.log("MetricsProviderImpl", Level::Debug, text.into(), None);
+            }
+            !skip
+        })
+    }
+}
 impl RemoteDataSource for GraphiteDataSource {
     fn request_all_success_rates(&self, limit: Instant) -> ServiceFuture<'_, Vec<SuccessRate>> {
         Box::pin(async move {
-            self.client
-                .query(&self.target(None), limit)
-                .await?
-                .iter()
+            let lines = self.client.query(&self.target(None), limit).await?;
+            self.with_datapoints(&lines)
                 .map(|line| {
                     let (test_name, value) = parse_line(line)?;
                     Ok(SuccessRate {
@@ -59,10 +81,8 @@ impl RemoteDataSource for GraphiteDataSource {
     }
     fn request_all_execution_times(&self, percentile: f64, limit: Instant) -> ServiceFuture<'_, Vec<ExecutionTime>> {
         Box::pin(async move {
-            self.client
-                .query(&self.target(Some(percentile)), limit)
-                .await?
-                .iter()
+            let lines = self.client.query(&self.target(Some(percentile)), limit).await?;
+            self.with_datapoints(&lines)
                 .map(|line| {
                     let (test_name, percentile) = parse_line(line)?;
                     Ok(ExecutionTime { test_name, percentile })

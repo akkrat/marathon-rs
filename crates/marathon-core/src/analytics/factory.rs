@@ -83,7 +83,11 @@ impl MetricsProviderFactory {
                     _ => (Arc::new(InvalidGraphiteQuery), None),
                 };
                 return Ok(Analytics::new(MetricsProviderImpl::new(
-                    Arc::new(GraphiteDataSource { client, prefix }),
+                    Arc::new(GraphiteDataSource {
+                        client,
+                        prefix,
+                        context: Some(self.context.clone()),
+                    }),
                     config.defaults,
                     self.context.clone(),
                 )?));

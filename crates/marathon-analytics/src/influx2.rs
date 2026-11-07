@@ -344,20 +344,9 @@ impl Influx2Tracker {
         if self.read_only {
             return Ok(());
         }
-        let result = self.client.write(points::line(event, true)?).await;
-        match result {
-            Err(OperationError::Failed(f)) if f.class.to_string_lossy().starts_with("com.influxdb.exceptions.") => {
-                log(
-                    &self.client.context,
-                    "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Tracker",
-                    Level::Error,
-                    "Failed to write data point to InfluxDb2".into(),
-                    Some(f),
-                );
-                Ok(())
-            }
-            other => other,
-        }
+        // D51: Kotlin logs a failed write per test here. `BackendGuard` logs it once per kind,
+        // and only it can see that a write took a minute to fail.
+        self.client.write(points::line(event, true)?).await
     }
 }
 impl TrackerInternalAdapter for Influx2Tracker {

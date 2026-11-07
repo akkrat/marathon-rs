@@ -266,7 +266,8 @@ fn annotated_csv_tables_quotes_defaults_and_nulls() {
     assert!(marathon_analytics::influx2::decode(",error,reference\n,bad query,7\n").is_err());
 }
 #[test]
-fn v2_tracker_catches_http_and_transport_but_preserves_cancellation() {
+fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation() {
+    use marathon_core::report::Event;
     let logs = run(|env| {
         Box::pin(async move {
             let count = Arc::new(Mutex::new(0));
@@ -290,11 +291,42 @@ fn v2_tracker_catches_http_and_transport_but_preserves_cancellation() {
             let mut context = env.context.clone();
             context.cancellation = signal.clone();
             let client = Influx2Client::connect(&v2(&peer.url), false, context).await?;
-            let tracker = Influx2Tracker::new(client.clone(), false)?;
-            tracker.track_test(&event(TestStatus::Passed, false)).await?;
+            let tracker = Arc::new(Influx2Tracker::new(client.clone(), false)?);
+            let class = |result: OperationResult<()>| match result {
+                Err(OperationError::Failed(f)) => f.class.to_string_lossy(),
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(
+                class(tracker.track_test(&event(TestStatus::Passed, false)).await),
+                "com.influxdb.exceptions.BadRequestException"
+            );
             assert_eq!(*count.lock().unwrap(), 1);
+            // D51: Kotlin logs per test. The guard logs this once, however many tests fail this way.
+            let context = env.context.clone();
+            let guard = BackendGuard::new(
+                tracker.clone(),
+                Arc::new(move |_, level, message, cause| {
+                    context.logs.push(marathon_core::logging::LogRecord {
+                        logger: "guard".into(),
+                        at_millis: 0,
+                        wall_millis: 0,
+                        level,
+                        message: message.clone(),
+                        cause: cause.cloned(),
+                    })
+                }),
+                jcompat::logging::MarathonLogging::default().logger("guard", None),
+                BackendLimits::default(),
+            );
+            let tracked = Event::Test(event(TestStatus::Passed, false));
+            guard.track(&tracked).await.unwrap();
+            guard.track(&tracked).await.unwrap();
+            assert_eq!(*count.lock().unwrap(), 3);
             peer.shutdown().await?;
-            tracker.track_test(&event(TestStatus::Failure, false)).await?;
+            assert_eq!(
+                class(tracker.track_test(&event(TestStatus::Failure, false)).await),
+                "com.influxdb.exceptions.InfluxException"
+            );
             signal.cancel(requested("stop"));
             assert!(matches!(
                 tracker.track_test(&event(TestStatus::Passed, false)).await,
@@ -304,16 +336,12 @@ fn v2_tracker_catches_http_and_transport_but_preserves_cancellation() {
             Ok(())
         })
     });
-    let errors = logs
-        .iter()
-        .filter(|r| r.message.to_string_lossy() == "Failed to write data point to InfluxDb2")
-        .collect::<Vec<_>>();
-    assert_eq!(errors.len(), 2);
+    let errors = logs.iter().filter(|r| r.logger == "guard").collect::<Vec<_>>();
+    assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(
         errors[0].cause.as_ref().unwrap().class.to_string_lossy(),
         "com.influxdb.exceptions.BadRequestException"
     );
-    assert!(errors[1].cause.as_ref().unwrap().cause.is_some());
 }
 #[test]
 fn factory_falls_back_on_real_setup_failure() {
@@ -539,9 +567,10 @@ fn http_follow_ups_match_okhttp_without_adding_history_retries() {
                 if scenario == "v2-redirect" {
                     assert!(client.query(&"bad".into()).await.is_err());
                 } else {
-                    Influx2Tracker::new(client.clone(), false)?
+                    // What counts here is the exchanges; a final 503 is `BackendGuard`'s to log (D51).
+                    let _ = Influx2Tracker::new(client.clone(), false)?
                         .track_test(&event(TestStatus::Passed, false))
-                        .await?;
+                        .await;
                 }
                 client.shutdown().await?;
                 assert_eq!(*seen.lock().unwrap(), exchanges(scenario).len());
@@ -624,7 +653,7 @@ fn carbon_reset_errors_propagate_and_typed_cancellation_interrupts_send() {
                 host: "127.0.0.1".into(),
                 port,
                 prefix: None,
-                sender: Arc::new(SocketSender),
+                sender: Arc::new(SocketSender::default()),
                 cancellation: signal.clone(),
             };
             let result = client
@@ -681,7 +710,7 @@ fn carbon_cancellation_closes_a_pending_socket_write() {
                 host: "127.0.0.1".into(),
                 port,
                 prefix: None,
-                sender: Arc::new(SocketSender),
+                sender: Arc::new(SocketSender::default()),
                 cancellation: signal.clone(),
             };
             let send = client.send(GraphiteMetric {
@@ -707,6 +736,175 @@ fn carbon_cancellation_closes_a_pending_socket_write() {
             Ok(())
         })
     });
+}
+
+/// D51: a carbon that takes the data but never reads can't hold the queue up for long.
+#[test]
+fn a_stalled_carbon_write_times_out() {
+    run(|_| {
+        Box::pin(async {
+            use tokio::net::TcpListener;
+            let listener = io(TcpListener::bind("127.0.0.1:0").await)?;
+            let port = io(listener.local_addr())?.port();
+            let client = BasicGraphiteClient {
+                host: "127.0.0.1".into(),
+                port,
+                prefix: None,
+                sender: Arc::new(SocketSender {
+                    limits: CarbonLimits {
+                        connect: std::time::Duration::from_secs(60),
+                        write: std::time::Duration::from_millis(100),
+                    },
+                }),
+                cancellation: Signal::new(),
+            };
+            let send = client.send(GraphiteMetric {
+                metric_name: "m".repeat(64 * 1024 * 1024),
+                metric_value: "1".into(),
+                timestamp: 0,
+            });
+            let (result, accepted) = tokio::join!(send, listener.accept());
+            let _held_open_and_never_read = io(accepted)?;
+            let Err(OperationError::Failed(failure)) = result else {
+                panic!("{result:?}")
+            };
+            assert_eq!(
+                failure.message.unwrap().to_string_lossy(),
+                "Error while writing data to graphite: write timed out after 100 ms"
+            );
+            assert!(failure.class.to_string_lossy().ends_with("GraphiteException"));
+            Ok(())
+        })
+    });
+}
+
+/// D51: a full accept queue drops the SYN, which is what a firewalled host looks like. A host that
+/// doesn't saturate has nothing to show here; `saturated` tells us which of the two this was.
+#[test]
+fn a_carbon_that_never_accepts_times_out_on_connect() {
+    run(|_| {
+        Box::pin(async {
+            let socket = io(tokio::net::TcpSocket::new_v4())?;
+            io(socket.bind(
+                "127.0.0.1:0"
+                    .parse()
+                    .map_err(|_| marathon_core::executor::shared::failure("test.Carbon", "address"))?,
+            ))?;
+            let address = io(socket.local_addr())?;
+            let listener = io(socket.listen(1))?;
+            let mut held = Vec::new();
+            let mut saturated = false;
+            for _ in 0..512 {
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(250),
+                    tokio::net::TcpStream::connect(address),
+                )
+                .await
+                {
+                    Ok(Ok(stream)) => held.push(stream),
+                    Ok(Err(_)) | Err(_) => {
+                        saturated = true;
+                        break;
+                    }
+                }
+            }
+            if !saturated {
+                eprintln!("the accept queue didn't fill on this host; the connect limit wasn't exercised");
+                return Ok(());
+            }
+            let sender = SocketSender {
+                limits: CarbonLimits {
+                    connect: std::time::Duration::from_millis(100),
+                    write: std::time::Duration::from_secs(60),
+                },
+            };
+            // Unbounded, the OS's connect timeout takes over a minute, so this separates the two.
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(60),
+                sender.send_data("127.0.0.1", address.port(), "m 1 0\n".into(), Signal::new()),
+            )
+            .await
+            .map_err(|_| marathon_core::executor::shared::failure("test.Carbon", "the connect limit did not apply"))?;
+            drop((listener, held));
+            let Err(OperationError::Failed(failure)) = result else {
+                panic!("{result:?}")
+            };
+            let message = failure.message.unwrap().to_string_lossy();
+            // A host may refuse instead of dropping the SYN; both end the send at once.
+            assert!(
+                message.starts_with("Error while writing data to graphite: "),
+                "{message}"
+            );
+            Ok(())
+        })
+    });
+}
+
+/// D51 with the real tracker: carbon down is the realistic fault. Each test tries, none fails.
+#[test]
+fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
+    use marathon_core::report::Event;
+    let logs = run(|env| {
+        Box::pin(async move {
+            let listener = io(tokio::net::TcpListener::bind("127.0.0.1:0").await)?;
+            let port = io(listener.local_addr())?.port();
+            drop(listener);
+            let tracker = Arc::new(GraphiteTracker {
+                client: BasicGraphiteClient {
+                    host: "127.0.0.1".into(),
+                    port,
+                    prefix: None,
+                    sender: Arc::new(SocketSender::default()),
+                    cancellation: Signal::new(),
+                },
+                read_only: false,
+            });
+            let context = env.context.clone();
+            let guard = BackendGuard::new(
+                tracker,
+                Arc::new(move |_, level, message, cause| {
+                    context.logs.push(marathon_core::logging::LogRecord {
+                        logger: "guard".into(),
+                        at_millis: 0,
+                        wall_millis: 0,
+                        level,
+                        message: message.clone(),
+                        cause: cause.cloned(),
+                    })
+                }),
+                jcompat::logging::MarathonLogging::default().logger("guard", None),
+                BackendLimits {
+                    slow_failure: std::time::Duration::from_secs(3600),
+                    ..BackendLimits::default()
+                },
+            );
+            let tracked = Event::Test(event(TestStatus::Passed, false));
+            for _ in 0..5 {
+                guard.track(&tracked).await.unwrap();
+            }
+            TrackerInternal::close(&guard).await?;
+            Ok(())
+        })
+    });
+    let lines = logs
+        .iter()
+        .filter(|r| r.logger == "guard")
+        .map(|r| {
+            (
+                r.message.to_string_lossy(),
+                r.cause.as_ref().map(|c| c.class.to_string_lossy()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(
+        lines[0].1.as_deref(),
+        Some("com.malinskiy.marathon.analytics.external.graphite.GraphiteException")
+    );
+    assert_eq!(
+        lines[1].0,
+        "The analytics backend lost test metrics: 5 results failed to send, and up to 0 were skipped"
+    );
 }
 
 #[test]
@@ -989,7 +1187,7 @@ fn refused_carbon_connection_raises_graphite_exception() {
                 host: "127.0.0.1".into(),
                 port: 1,
                 prefix: None,
-                sender: Arc::new(SocketSender),
+                sender: Arc::new(SocketSender::default()),
                 cancellation: env.context.cancellation.clone(),
             };
             let Err(OperationError::Failed(error)) = client

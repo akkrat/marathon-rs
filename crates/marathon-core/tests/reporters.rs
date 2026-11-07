@@ -130,7 +130,7 @@ impl TrackerInternalAdapter for Never {
     }
 }
 #[test]
-fn concrete_reporter_failure_keeps_partial_writes_and_stops_reporters_and_remote_close() {
+fn concrete_reporter_failure_keeps_partial_writes_and_only_cancellation_stops_later_closes() {
     for cancelled in [false, true] {
         let temp = Temp::new();
         let path = temp.path();
@@ -183,8 +183,10 @@ fn concrete_reporter_failure_keeps_partial_writes_and_stops_reporters_and_remote
                 Ok(())
             })
         }));
-        assert_eq!(later.load(Ordering::SeqCst), 0);
-        assert_eq!(remote.load(Ordering::SeqCst), 0);
+        // D51: Kotlin stops at the first failure (C11). Cancellation still stops the rest.
+        let expected = usize::from(!cancelled);
+        assert_eq!(later.load(Ordering::SeqCst), expected);
+        assert_eq!(remote.load(Ordering::SeqCst), expected);
         assert_eq!(
             manifest(&temp.0).keys().map(String::as_str).collect::<Vec<_>>(),
             vec!["devices/myPool/a.json"]

@@ -103,7 +103,7 @@ impl BackendFactory for BackendClients {
                     .unwrap_or(2003);
                     // Socket validates the port only when the first eligible event writes.
                     let (port, sender): (u16, Arc<dyn DataSender>) = match u16::try_from(port) {
-                        Ok(port) => (port, Arc::new(SocketSender)),
+                        Ok(port) => (port, Arc::new(SocketSender::default())),
                         Err(_) => (0, Arc::new(InvalidPortSender(port))),
                     };
                     Arc::new(GraphiteTracker {

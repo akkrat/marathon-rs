@@ -333,7 +333,7 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
 }
 
 #[test]
-fn real_registration_failure_stops_later_html() {
+fn real_registration_failure_does_not_stop_later_html() {
     use jcompat::logging::MarathonLogging;
     use marathon_core::{
         analytics::{ExecutionReportGenerator, TrackerInternal},
@@ -406,7 +406,8 @@ fn real_registration_failure_stops_later_html() {
         })
     }));
     assert!(temp.0.join("html/timeline/index.html").is_file());
-    assert!(!temp.0.join("html/index.html").exists());
+    // D51: the JVM row stops at Allure (C11). Html now runs, and the error is still Allure's.
+    assert!(temp.0.join("html/index.html").exists());
 }
 
 #[test]

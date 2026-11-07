@@ -18,10 +18,11 @@ use marathon_core::{
     report::TestEvent,
     runtime::*,
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpStream, lookup_host},
+    time::timeout,
 };
 
 pub struct GraphiteMetric {
@@ -38,7 +39,29 @@ pub trait DataSender: Send + Sync {
         cancellation: Arc<dyn CancellationSignal>,
     ) -> ServiceFuture<'a, ()>;
 }
-pub struct SocketSender;
+/// D51: Kotlin has no timeout on either, and each send holds up the queue actor.
+#[derive(Clone, Copy)]
+pub struct CarbonLimits {
+    /// Name lookup and connect together.
+    pub connect: Duration,
+    /// Write and shutdown together.
+    pub write: Duration,
+}
+impl Default for CarbonLimits {
+    /// 10 s outlasts one dead DNS server (resolv.conf's default is 5 s) and three lost SYNs
+    /// (at 1, 3 and 7 s). A send is three short lines, which fit the socket's buffer, so a working
+    /// carbon never comes near either limit.
+    fn default() -> Self {
+        Self {
+            connect: Duration::from_secs(10),
+            write: Duration::from_secs(10),
+        }
+    }
+}
+#[derive(Clone, Copy, Default)]
+pub struct SocketSender {
+    pub limits: CarbonLimits,
+}
 fn graphite_error(message: String) -> OperationError {
     failure(
         "com.malinskiy.marathon.analytics.external.graphite.GraphiteException",
@@ -55,25 +78,39 @@ impl DataSender for SocketSender {
         cancellation: Arc<dyn CancellationSignal>,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
+            let limits = self.limits;
             let send = async {
-                let addresses = lookup_host((host, port))
+                let connect = async {
+                    let addresses = lookup_host((host, port))
+                        .await
+                        .map_err(|_| graphite_error(format!("Unknown host: {host}")))?
+                        .collect::<Vec<_>>();
+                    TcpStream::connect(addresses.as_slice())
+                        .await
+                        .map_err(|e| graphite_error(format!("Error while writing data to graphite: {e}")))
+                };
+                let mut socket = timeout(limits.connect, connect).await.map_err(|_| {
+                    graphite_error(format!(
+                        "Error while writing data to graphite: connect timed out after {} ms",
+                        limits.connect.as_millis()
+                    ))
+                })??;
+                let write = async {
+                    socket.write_all(data.as_bytes()).await?;
+                    socket.shutdown().await
+                };
+                timeout(limits.write, write)
                     .await
-                    .map_err(|_| graphite_error(format!("Unknown host: {host}")))?
-                    .collect::<Vec<_>>();
-                let mut socket = TcpStream::connect(addresses.as_slice())
-                    .await
-                    .map_err(|e| graphite_error(format!("Error while writing data to graphite: {e}")))?;
-                socket
-                    .write_all(data.as_bytes())
-                    .await
-                    .map_err(|e| graphite_error(format!("Error while writing data to graphite: {e}")))?;
-                socket
-                    .shutdown()
-                    .await
+                    .map_err(|_| {
+                        graphite_error(format!(
+                            "Error while writing data to graphite: write timed out after {} ms",
+                            limits.write.as_millis()
+                        ))
+                    })?
                     .map_err(|e| graphite_error(format!("Error while writing data to graphite: {e}")))?;
                 Ok(())
             };
-            // Approved P3: typed cancellation interrupts a stuck carbon write. No timeout.
+            // Approved P3: typed cancellation interrupts a stuck carbon write. D51 adds the limits.
             tokio::select! {biased; reason=cancellation.cancelled()=>Err(reason.into()),result=send=>result}
         })
     }

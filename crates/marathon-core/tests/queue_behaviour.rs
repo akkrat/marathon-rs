@@ -79,7 +79,9 @@ fn close_discards_queued_messages_and_fails_later_sends() {
     });
 }
 
-/// A tracker failure escapes the handler: the queue ends and logs it, the state stays as the early return left it (P3).
+/// A failure at the `Tracker` seam escapes the handler: the queue ends and logs it, the state stays as the early
+/// return left it (P3). A remote backend's failures no longer get this far (D51, `BackendGuard`), but a handler
+/// that fails for any other reason still ends the queue, and nothing then ends the run (U168).
 #[test]
 fn handler_failure_ends_the_queue() {
     let setup = quota_setup("pool", 1, vec![mtest("pkg", "A", "a"), mtest("pkg", "B", "b")]);

@@ -16,7 +16,11 @@ use jcompat::{
     logging::{Level, Logger},
     writers::JavaString,
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 /// Runs inline on the I/O worker selected by Track or EventPipeline::close.
 pub trait TrackerInternal: Send + Sync {
@@ -58,13 +62,33 @@ impl<T: TrackerInternalAdapter> TrackerInternal for T {
         TrackerInternalAdapter::close(self)
     }
 }
+/// Where a close's later failures go: the first is returned, and `Marathon::on_finish` logs that one.
+pub type CloseLog = Option<(ServiceLog, Logger)>;
+/// D51: a failed close doesn't stop the later ones (Kotlin: it does, C11). Cancellation still stops
+/// them, since the closes after it would only be cancelled too.
+fn close_failed(first: &mut Option<OperationError>, error: OperationError, log: &CloseLog) -> OperationResult<()> {
+    let OperationError::Failed(failure) = &error else {
+        return Err(first.take().unwrap_or(error));
+    };
+    match (first.is_some(), log) {
+        (false, _) => *first = Some(error),
+        (true, Some((log, logger))) => log(logger, Level::Error, &"A later close also failed".into(), Some(failure)),
+        (true, None) => {}
+    }
+    Ok(())
+}
 #[derive(Clone)]
 pub struct DelegatingTrackerInternal {
     delegates: Vec<Arc<dyn TrackerInternal>>,
+    log: CloseLog,
 }
 impl DelegatingTrackerInternal {
     pub fn new(delegates: Vec<Arc<dyn TrackerInternal>>) -> Self {
-        Self { delegates }
+        Self { delegates, log: None }
+    }
+    pub fn with_close_log(mut self, log: ServiceLog, logger: Logger) -> Self {
+        self.log = Some((log, logger));
+        self
     }
 }
 impl TrackerInternal for DelegatingTrackerInternal {
@@ -78,10 +102,13 @@ impl TrackerInternal for DelegatingTrackerInternal {
     }
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async move {
+            let mut first = None;
             for delegate in &self.delegates {
-                delegate.close().await?;
+                if let Err(error) = delegate.close().await {
+                    close_failed(&mut first, error, &self.log)?;
+                }
             }
-            Ok(())
+            first.map_or(Ok(()), Err)
         })
     }
 }
@@ -89,13 +116,19 @@ impl TrackerInternal for DelegatingTrackerInternal {
 pub struct ExecutionReportGenerator {
     events: Arc<Mutex<Vec<Event>>>,
     reporters: Vec<Arc<dyn Reporter>>,
+    log: CloseLog,
 }
 impl ExecutionReportGenerator {
     pub fn new(reporters: Vec<Arc<dyn Reporter>>) -> Self {
         Self {
             events: Arc::default(),
             reporters,
+            log: None,
         }
+    }
+    pub fn with_close_log(mut self, log: ServiceLog, logger: Logger) -> Self {
+        self.log = Some((log, logger));
+        self
     }
     fn snapshot(&self) -> ExecutionReport {
         let events = self.events.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -131,10 +164,148 @@ impl TrackerInternal for ExecutionReportGenerator {
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async move {
             let report = self.snapshot();
+            let mut first = None;
             for reporter in &self.reporters {
-                reporter.generate(&report).await?;
+                if let Err(error) = reporter.generate(&report).await {
+                    close_failed(&mut first, error, &self.log)?;
+                }
             }
-            Ok(())
+            first.map_or(Ok(()), Err)
+        })
+    }
+}
+/// D51: when to leave a backend alone. A send takes the queue actor's time, so one that took this
+/// long to fail would otherwise cost that much again for every test.
+#[derive(Clone, Copy)]
+pub struct BackendLimits {
+    /// No send holds the queue longer than this, whatever the backend's own timeouts are.
+    pub send: Duration,
+    pub slow_failure: Duration,
+    pub cool_off: Duration,
+}
+impl Default for BackendLimits {
+    /// 30 s sits above carbon's own limits (20 s in all) and well under the 60 s per step of the
+    /// InfluxDB clients, whose writes Kotlin batches off the caller and which here can hold it.
+    /// One second separates a refusal or a reset, which cost nothing, from a timeout or an
+    /// unreachable host. Five minutes keeps the worst send to under a tenth of the queue's time,
+    /// and the only cost is history for that window.
+    fn default() -> Self {
+        Self {
+            send: Duration::from_secs(30),
+            slow_failure: Duration::from_secs(1),
+            cool_off: Duration::from_secs(300),
+        }
+    }
+}
+/// Distinct failures logged per run; a backend's text can name a test, and that mustn't mean a line per test.
+const LOGGED_KINDS: usize = 8;
+#[derive(Default)]
+struct GuardState {
+    kinds: HashSet<(JavaString, Option<JavaString>)>,
+    skip_until: Option<tokio::time::Instant>,
+    announced_skip: bool,
+    failed: u64,
+    skipped: u64,
+}
+/// D51: metrics are never worth a test run. Kotlin lets a tracker's exception end the queue actor,
+/// and a dead queue leaves the run hanging (U168). A remote backend's failure is logged once per kind and
+/// the run carries on. Its close still reports: `on_finish` keeps the exit code that a failed close has.
+pub struct BackendGuard {
+    inner: Arc<dyn TrackerInternal>,
+    log: ServiceLog,
+    logger: Logger,
+    limits: BackendLimits,
+    state: Mutex<GuardState>,
+}
+impl BackendGuard {
+    pub fn new(inner: Arc<dyn TrackerInternal>, log: ServiceLog, logger: Logger, limits: BackendLimits) -> Self {
+        Self {
+            inner,
+            log,
+            logger,
+            limits,
+            state: Mutex::default(),
+        }
+    }
+    fn state(&self) -> std::sync::MutexGuard<'_, GuardState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+    fn failed(&self, failure: &Failure, slow: bool, counted: bool) {
+        let (first_of_kind, announce) = {
+            let mut state = self.state();
+            state.failed += u64::from(counted);
+            if slow {
+                state.skip_until = Some(tokio::time::Instant::now() + self.limits.cool_off);
+            }
+            let first_of_kind = state.kinds.len() < LOGGED_KINDS
+                && state.kinds.insert((failure.class.clone(), failure.message.clone()));
+            let announce = slow && !std::mem::replace(&mut state.announced_skip, true);
+            (first_of_kind, announce)
+        };
+        if first_of_kind {
+            let text = "Cannot send test metrics to the analytics backend; the run carries on. Each kind of failure is logged once".into();
+            (self.log)(&self.logger, Level::Warn, &text, Some(failure));
+        }
+        if announce {
+            let text = format!(
+                "The analytics backend failed slowly, so test metrics are skipped for {} s after each such failure",
+                self.limits.cool_off.as_secs()
+            );
+            (self.log)(&self.logger, Level::Warn, &text.into(), None);
+        }
+    }
+}
+impl TrackerInternal for BackendGuard {
+    fn track<'a>(&'a self, event: &'a Event) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            let counted = matches!(event, Event::Test(_));
+            {
+                let mut state = self.state();
+                if state
+                    .skip_until
+                    .is_some_and(|until| tokio::time::Instant::now() < until)
+                {
+                    state.skipped += u64::from(counted);
+                    return Ok(());
+                }
+            }
+            let started = tokio::time::Instant::now();
+            match tokio::time::timeout(self.limits.send, self.inner.track(event)).await {
+                Err(_) => {
+                    let text = format!(
+                        "No answer from the analytics backend in {} ms",
+                        self.limits.send.as_millis()
+                    );
+                    self.failed(
+                        &crate::executor::shared::failure("java.util.concurrent.TimeoutException", &text),
+                        true,
+                        counted,
+                    );
+                    Ok(())
+                }
+                Ok(Err(error @ VendorError::Cancelled(_))) => Err(error),
+                Ok(Err(error)) => {
+                    let slow = started.elapsed() >= self.limits.slow_failure;
+                    self.failed(error.failure(), slow, counted);
+                    Ok(())
+                }
+                Ok(Ok(())) => Ok(()),
+            }
+        })
+    }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async move {
+            let (failed, skipped) = {
+                let state = self.state();
+                (state.failed, state.skipped)
+            };
+            if failed + skipped > 0 {
+                let text = format!(
+                    "The analytics backend lost test metrics: {failed} results failed to send, and up to {skipped} were skipped"
+                );
+                (self.log)(&self.logger, Level::Warn, &text.into(), None);
+            }
+            self.inner.close().await
         })
     }
 }
@@ -459,7 +630,8 @@ impl TrackerFactory {
             io.as_ref(),
             Box::pin(async move {
                 self.reporters.sort_by_key(|r| r.slot);
-                let generator = ExecutionReportGenerator::new(self.reporters.into_iter().map(|r| r.reporter).collect());
+                let generator = ExecutionReportGenerator::new(self.reporters.into_iter().map(|r| r.reporter).collect())
+                    .with_close_log(self.log.clone(), self.logger.clone());
                 let mut delegates: Vec<Arc<dyn TrackerInternal>> = vec![Arc::new(generator)];
                 if let Some(backend) = self.backend {
                     let request = match backend.request.clone() {
@@ -469,7 +641,12 @@ impl TrackerFactory {
                         r => r,
                     };
                     match backend.factory.create(request).await.map_err(vendor_error)? {
-                        Ok(Some(tracker)) => delegates.push(tracker),
+                        Ok(Some(tracker)) => delegates.push(Arc::new(BackendGuard::new(
+                            tracker,
+                            self.log.clone(),
+                            self.logger.clone(),
+                            BackendLimits::default(),
+                        ))),
                         Ok(None) => {}
                         Err(failure) => match backend.request {
                             BackendRequest::Influx { url } => {
@@ -486,7 +663,9 @@ impl TrackerFactory {
                         },
                     }
                 }
-                let internal: Arc<dyn TrackerInternal> = Arc::new(DelegatingTrackerInternal::new(delegates));
+                let internal: Arc<dyn TrackerInternal> = Arc::new(
+                    DelegatingTrackerInternal::new(delegates).with_close_log(self.log.clone(), self.logger.clone()),
+                );
                 self.track
                     .add(Arc::new(MappingTracker::new(self.clock, internal.clone())));
                 Ok(EventPipeline {

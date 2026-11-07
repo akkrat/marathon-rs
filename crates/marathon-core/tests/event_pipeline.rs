@@ -387,13 +387,13 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                 .await;
                 assert_eq!(pipeline.is_err(), outcome == 2);
                 if let Ok(pipeline) = pipeline {
-                    assert_eq!(
+                    assert!(
                         pipeline
                             .tracker()
                             .test(&pool("myPool"), &device(), &result("x", TestStatus::Passed), true)
                             .await
-                            .is_err(),
-                        outcome == 3
+                            .is_ok(),
+                        "D51: a backend's failure never reaches the queue"
                     );
                     assert_eq!(pipeline.reports().close().await.is_err(), reporter_failure);
                     let got = calls.lock().unwrap().clone();
@@ -405,9 +405,25 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                         assert_eq!(got.last().unwrap(), "remote-close");
                     }
                     if reporter_failure {
-                        assert_eq!(&got[2..], ["devices", "billing"]);
+                        // D51: Kotlin stops at the failing reporter (C11).
+                        assert_eq!(
+                            &got[2..],
+                            [
+                                "devices",
+                                "billing",
+                                "junit",
+                                "timeline",
+                                "raw",
+                                "test-json",
+                                "allure",
+                                "html",
+                                "stdout",
+                                "remote-close"
+                            ]
+                        );
                     } else {
-                        let start = 2;
+                        // Outcome 3 logs its failure once, and the lost metrics at close.
+                        let start = if outcome == 3 { 3 } else { 2 };
                         assert_eq!(
                             &got[start..start + 9],
                             [
@@ -876,8 +892,10 @@ fn public_pipeline_hops_once_per_event_and_close() {
     })
     .unwrap();
 }
+/// D51: the JVM row still shows Kotlin stopping at the first reporter (C11). Later reporters now
+/// run, and a repeated explicit close still generates again.
 #[test]
-fn reporter_error_stops_later_reporters_and_is_not_a_once_guard() {
+fn reporter_error_does_not_stop_later_reporters_and_is_not_a_once_guard() {
     CoreExecutor::run(|core| {
         Box::pin(async move {
             let calls = Arc::new(Mutex::new(vec![]));
@@ -904,9 +922,281 @@ fn reporter_error_stops_later_reporters_and_is_not_a_once_guard() {
                 json!(error.class.as_utf8().unwrap()),
                 oracle("reporter-failure")["error"]
             );
-            assert_eq!(json!(*calls.lock().unwrap()), oracle("reporter-failure")["calls"]);
+            assert_eq!(oracle("reporter-failure")["calls"], json!(["bad"]));
+            assert_eq!(*calls.lock().unwrap(), ["bad", "never"]);
             assert!(close_generator(core.vendor().as_ref(), &generator).await.is_err());
-            assert_eq!(*calls.lock().unwrap(), ["bad", "bad"]);
+            assert_eq!(*calls.lock().unwrap(), ["bad", "never", "bad", "never"]);
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+#[test]
+fn a_later_failed_reporter_is_logged_and_the_first_failure_is_returned() {
+    CoreExecutor::run(|core| {
+        Box::pin(async move {
+            let calls = Arc::new(Mutex::new(vec![]));
+            let logged = Arc::new(Mutex::new(vec![]));
+            let captured = logged.clone();
+            let log: marathon_core::ServiceLog = Arc::new(move |_, level, message, cause| {
+                captured.lock().unwrap().push((
+                    level,
+                    message.to_string_lossy(),
+                    cause.is_some_and(|c: &Failure| c.message == Some("second".into())),
+                ));
+            });
+            struct Fails(&'static str, Arc<Mutex<Vec<String>>>);
+            impl Reporter for Fails {
+                fn generate<'a>(&'a self, _: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
+                    Box::pin(async move {
+                        self.1.lock().unwrap().push(self.0.into());
+                        Err(marathon_core::executor::shared::failure("test.Close", self.0).into())
+                    })
+                }
+            }
+            let generator = ExecutionReportGenerator::new(vec![
+                Arc::new(Fails("first", calls.clone())),
+                Arc::new(Fails("second", calls.clone())),
+            ])
+            .with_close_log(log, MarathonLogging::default().logger("TrackerFactory", None));
+            let error = close_generator(core.vendor().as_ref(), &generator).await.unwrap_err();
+            let OperationError::Failed(error) = error else {
+                panic!("expected ordinary failure")
+            };
+            assert_eq!(error.message, Some("first".into()));
+            assert_eq!(*calls.lock().unwrap(), ["first", "second"]);
+            assert_eq!(
+                *logged.lock().unwrap(),
+                [(
+                    jcompat::logging::Level::Error,
+                    "A later close also failed".to_owned(),
+                    true
+                )]
+            );
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+
+/// What the guard's backend does on its next `test`.
+#[derive(Clone)]
+enum Next {
+    Pass,
+    Fail(&'static str),
+    Cancel,
+    Hang,
+}
+struct Scripted {
+    next: Mutex<Next>,
+    sends: Mutex<u32>,
+    closes: Mutex<u32>,
+    close_fails: bool,
+}
+impl Scripted {
+    fn new(next: Next, close_fails: bool) -> Arc<Self> {
+        Arc::new(Self {
+            next: Mutex::new(next),
+            sends: Mutex::new(0),
+            closes: Mutex::new(0),
+            close_fails,
+        })
+    }
+}
+impl TrackerInternalAdapter for Scripted {
+    fn test<'a>(&'a self, _: &'a TestEvent) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            *self.sends.lock().unwrap() += 1;
+            let next = self.next.lock().unwrap().clone();
+            match next {
+                Next::Pass => Ok(()),
+                Next::Fail(text) => Err(VendorError::Other(marathon_core::executor::shared::failure(
+                    "test.Backend",
+                    text,
+                ))),
+                Next::Cancel => Err(VendorError::Cancelled(marathon_core::executor::shared::requested(
+                    "stop",
+                ))),
+                Next::Hang => std::future::pending().await,
+            }
+        })
+    }
+    fn close(&self) -> ServiceFuture<'_, ()> {
+        Box::pin(async move {
+            *self.closes.lock().unwrap() += 1;
+            if self.close_fails {
+                Err(marathon_core::executor::shared::failure("test.Backend", "close").into())
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+type Logged = Arc<Mutex<Vec<(jcompat::logging::Level, String)>>>;
+fn guard(backend: Arc<Scripted>, limits: BackendLimits) -> (BackendGuard, Logged) {
+    let logged: Logged = Arc::default();
+    let captured = logged.clone();
+    let guard = BackendGuard::new(
+        backend,
+        Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_string_lossy()))),
+        MarathonLogging::default().logger("TrackerFactory", None),
+        limits,
+    );
+    (guard, logged)
+}
+fn test_event() -> Event {
+    Event::Test(TestEvent {
+        instant: instant_of(0, 0).unwrap(),
+        pool_id: pool("myPool"),
+        device: device(),
+        test_result: Arc::new(result("x", TestStatus::Passed)),
+        final_result: true,
+    })
+}
+fn never_slow() -> BackendLimits {
+    BackendLimits {
+        send: std::time::Duration::from_secs(3600),
+        slow_failure: std::time::Duration::from_secs(3600),
+        cool_off: std::time::Duration::from_secs(3600),
+    }
+}
+#[test]
+fn a_failing_backend_logs_once_per_kind_and_keeps_being_tried() {
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let backend = Scripted::new(Next::Fail("refused"), false);
+            let (guard, logged) = guard(backend.clone(), never_slow());
+            for _ in 0..3 {
+                guard.track(&test_event()).await.unwrap();
+            }
+            *backend.next.lock().unwrap() = Next::Fail("reset");
+            for _ in 0..3 {
+                guard.track(&test_event()).await.unwrap();
+            }
+            assert_eq!(
+                *backend.sends.lock().unwrap(),
+                6,
+                "a quick failure costs nothing, so it retries"
+            );
+            let warned = |logged: &Logged| logged.lock().unwrap().len();
+            assert_eq!(warned(&logged), 2, "{:?}", logged.lock().unwrap());
+            TrackerInternal::close(&guard).await.unwrap();
+            assert_eq!(*backend.closes.lock().unwrap(), 1);
+            assert_eq!(
+                logged.lock().unwrap().last().unwrap().1,
+                "The analytics backend lost test metrics: 6 results failed to send, and up to 0 were skipped"
+            );
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+#[test]
+fn a_backend_naming_each_test_in_its_failure_cannot_log_per_test() {
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let backend = Scripted::new(Next::Pass, false);
+            let (guard, logged) = guard(backend.clone(), never_slow());
+            for text in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"] {
+                *backend.next.lock().unwrap() = Next::Fail(text);
+                guard.track(&test_event()).await.unwrap();
+            }
+            assert_eq!(logged.lock().unwrap().len(), 8);
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+#[test]
+fn a_slow_failure_leaves_the_backend_alone_for_the_cool_off() {
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let limits = BackendLimits {
+                slow_failure: std::time::Duration::ZERO,
+                ..never_slow()
+            };
+            let backend = Scripted::new(Next::Fail("timed out"), false);
+            let (guard, logged) = guard(backend.clone(), limits);
+            for _ in 0..5 {
+                guard.track(&test_event()).await.unwrap();
+            }
+            assert_eq!(*backend.sends.lock().unwrap(), 1);
+            assert_eq!(logged.lock().unwrap().len(), 2, "the failure, and that it skips");
+            TrackerInternal::close(&guard).await.unwrap();
+            assert_eq!(
+                logged.lock().unwrap().last().unwrap().1,
+                "The analytics backend lost test metrics: 1 results failed to send, and up to 4 were skipped"
+            );
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+#[test]
+fn a_backend_that_never_answers_gives_way_and_is_left_alone() {
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let limits = BackendLimits {
+                send: std::time::Duration::from_millis(50),
+                ..never_slow()
+            };
+            let backend = Scripted::new(Next::Hang, false);
+            let (guard, logged) = guard(backend.clone(), limits);
+            for _ in 0..3 {
+                guard.track(&test_event()).await.unwrap();
+            }
+            assert_eq!(*backend.sends.lock().unwrap(), 1);
+            assert_eq!(logged.lock().unwrap().len(), 2, "the timeout, and that it skips");
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+#[test]
+fn the_backend_is_tried_again_when_the_cool_off_ends() {
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let limits = BackendLimits {
+                slow_failure: std::time::Duration::ZERO,
+                cool_off: std::time::Duration::ZERO,
+                ..never_slow()
+            };
+            let backend = Scripted::new(Next::Fail("timed out"), false);
+            let (guard, _) = guard(backend.clone(), limits);
+            for _ in 0..3 {
+                guard.track(&test_event()).await.unwrap();
+            }
+            assert_eq!(*backend.sends.lock().unwrap(), 3);
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+#[test]
+fn a_healthy_backend_is_silent_and_a_failed_close_still_reports() {
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let backend = Scripted::new(Next::Pass, true);
+            let (guard, logged) = guard(backend.clone(), BackendLimits::default());
+            guard.track(&test_event()).await.unwrap();
+            assert!(TrackerInternal::close(&guard).await.is_err());
+            assert!(logged.lock().unwrap().is_empty());
+            Ok(())
+        })
+    })
+    .unwrap();
+}
+#[test]
+fn cancellation_passes_through_the_backend_guard() {
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let backend = Scripted::new(Next::Cancel, false);
+            let (guard, logged) = guard(backend, never_slow());
+            assert!(matches!(
+                guard.track(&test_event()).await,
+                Err(VendorError::Cancelled(_))
+            ));
+            assert!(logged.lock().unwrap().is_empty());
             Ok(())
         })
     })
