@@ -733,15 +733,43 @@ impl HandleRef {
     }
 }
 
+type Opened = Result<Channel<client::Msg>, RusshError>;
+
+/// The reply of an open, as the caller receives it. Until the caller claims it, the open task still owns it: dropped
+/// unclaimed, whether in the oneshot or in a caller's future that was dropped before it was polled again, it goes back to
+/// the task, which deals with it as with a reply that came after the caller had gone.
+struct OpenReply {
+    opened: Option<Opened>,
+    unclaimed: Option<oneshot::Sender<Opened>>,
+}
+impl OpenReply {
+    fn is_refusal(&self) -> bool {
+        matches!(self.opened, Some(Err(RusshError::ChannelOpenFailure(_))))
+    }
+    /// From here the reply is the caller's: the task ends without touching it.
+    fn claim(mut self) -> Opened {
+        self.unclaimed = None;
+        self.opened.take().unwrap_or(Err(RusshError::Disconnect))
+    }
+}
+impl Drop for OpenReply {
+    fn drop(&mut self) {
+        if let (Some(opened), Some(unclaimed)) = (self.opened.take(), self.unclaimed.take()) {
+            let _ = unclaimed.send(opened);
+        }
+    }
+}
+
 /// One channel open. Kotlin's `open()` gives up after sshj's 30 s and the channel stays attached, so a late confirmation
 /// opens a channel that nobody ever closes, in a `MaxSessions` slot (U157). A CLOSE needs the peer's channel number, which only
-/// the confirmation brings, so nothing can be sent before it: when no caller is left for the reply, this waits for it and
-/// closes what it opened. A late refusal takes its text off the queue, where the next refusal would read it as its own.
-/// Holding the handle keeps the transport up, but only until the reply, the transport's death or the client's own close.
+/// the confirmation brings, so nothing can be sent before it: when no caller claims the reply, this waits for it and
+/// closes what it opened. A refusal nobody claimed has its text taken off the queue, where the next refusal would read it as
+/// its own. The reply stays this task's until the caller claims it (x38): a caller can go away after the reply reached its
+/// oneshot. Holding the handle keeps the transport up, but only until the reply, the transport's death or the client's own close.
 async fn open_session(
     handle: Arc<Handle<ClientHandler>>,
     shared: Arc<ConnectionShared>,
-    reply: oneshot::Sender<Result<Channel<client::Msg>, RusshError>>,
+    reply: oneshot::Sender<OpenReply>,
 ) -> marathon_core::error::VendorResult<()> {
     let opened = tokio::select! {
         biased;
@@ -749,13 +777,24 @@ async fn open_session(
         _ = shared.wait_dead() => return Ok(()),
     };
     drop(handle);
-    match reply.send(opened) {
-        Ok(()) | Err(Err(RusshError::Disconnect)) => {}
-        Err(Err(RusshError::ChannelOpenFailure(_))) => {
+    let (unclaimed, returned) = oneshot::channel();
+    // A failed send drops the reply at once, which returns it below.
+    let _ = reply.send(OpenReply {
+        opened: Some(opened),
+        unclaimed: Some(unclaimed),
+    });
+    let returned = tokio::select! {
+        biased;
+        _ = shared.wait_dead() => return Ok(()),
+        returned = returned => returned,
+    };
+    match returned {
+        Err(_) | Ok(Err(RusshError::Disconnect)) => {}
+        Ok(Err(RusshError::ChannelOpenFailure(_))) => {
             shared.take_open_failure().await;
         }
-        Err(Err(_)) => {}
-        Err(Ok(channel)) => {
+        Ok(Err(_)) => {}
+        Ok(Ok(channel)) => {
             let (mut read, write) = channel.split();
             let _ = write.close().await;
             // As the pump does for a dropped channel, so that russh's queue never holds up the connection.
@@ -868,23 +907,27 @@ impl SshConnection {
             .spawn(Box::pin(open_session(self.handle.clone(), self.shared.clone(), reply)));
         let opened = tokio::select! {
             biased;
-            opened = within(self.clock.as_ref(), self.scope.clone(), TIMEOUT_MILLIS, &mut replied) => {
-                opened.map(|reply| reply.unwrap_or(Err(RusshError::Disconnect)))
-            }
-            _ = self.shared.wait_dead() => Some(Err(RusshError::Disconnect)),
+            opened = within(self.clock.as_ref(), self.scope.clone(), TIMEOUT_MILLIS, &mut replied) => opened.map(Result::ok),
+            _ = self.shared.wait_dead() => Some(None),
         };
         // From here the task sees that nobody is waiting. A reply that got in just before this is still the caller's.
         replied.close();
-        let opened = opened.or_else(|| replied.try_recv().ok());
-        let channel = match opened {
-            Some(Ok(channel)) => channel,
-            Some(Err(RusshError::ChannelOpenFailure(reason))) => {
+        let opened = opened.or_else(|| replied.try_recv().ok().map(Some));
+        // A refusal is claimed only once its text is off the queue, so that a caller dropped while it waits for the text
+        // leaves the task to take it.
+        let opened = match opened {
+            Some(Some(reply)) if reply.is_refusal() => {
                 let description = self.shared.take_open_failure().await;
+                let _ = reply.claim();
                 let failure = SshFailure::new(OPEN_FAIL_EXCEPTION, description);
-                let _ = reason;
                 self.shared.loggers.woke_to(&promise, &failure);
                 return Err(failure);
             }
+            Some(reply) => Some(reply.map_or(Err(RusshError::Disconnect), OpenReply::claim)),
+            None => None,
+        };
+        let channel = match opened {
+            Some(Ok(channel)) => channel,
             Some(Err(_)) => {
                 let failure = self.shared.channel_failure();
                 self.shared.loggers.woke_to(&promise, &failure);

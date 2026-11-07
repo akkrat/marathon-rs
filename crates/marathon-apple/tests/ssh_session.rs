@@ -463,6 +463,67 @@ async fn a_caller_that_goes_away_during_an_open_leaves_no_channel_behind_u157() 
     );
 }
 
+/// Wakes the test when the open's reply has reached the caller, without polling the caller again.
+struct Woken(tokio::sync::Notify);
+impl std::task::Wake for Woken {
+    fn wake(self: Arc<Self>) {
+        self.0.notify_one();
+    }
+}
+
+/// Starts an open, waits until its reply is in the caller's oneshot, and drops the caller there, unpolled. At factor 1 the
+/// open's 30 s are far behind the reply's 1 s, so the wake is the reply.
+async fn drop_the_caller_once_its_reply_came(executor: &SshCommandExecutor, fake: &ssh::Fake) {
+    let woken = Arc::new(Woken(tokio::sync::Notify::new()));
+    let waker = std::task::Waker::from(woken.clone());
+    let mut open = Box::pin(executor.connection().start_session());
+    assert!(
+        open.as_mut()
+            .poll(&mut std::task::Context::from_waker(&waker))
+            .is_pending()
+    );
+    assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
+    tokio::time::timeout(Duration::from_secs(60), woken.0.notified())
+        .await
+        .expect("the reply reaches the caller");
+    drop(open);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_caller_that_goes_away_after_its_reply_came_leaves_no_channel_behind_u157() {
+    // One slot, so that a channel left open would refuse the next command.
+    let fake = ssh::fake(late_open_script(1_000, false), 1).await;
+    let (executor, _) = executor_with(&fake, 1, 0).await;
+    drop_the_caller_once_its_reply_came(&executor, &fake).await;
+    assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
+    assert!(fake.events("exec").await.is_empty());
+    assert_eq!(
+        ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
+        ["hello"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_caller_that_goes_away_after_its_refusal_came_leaves_no_text_behind_u157() {
+    let fake = ssh::fake(late_open_script(1_000, true), 1).await;
+    let (executor, _) = executor_with(&fake, 1, 0).await;
+    drop_the_caller_once_its_reply_came(&executor, &fake).await;
+    let held = start(&executor, &["sleep", "1000"], 600_000).await;
+    let refused = other(
+        executor
+            .execute(request(&["echo", "hello"], 5000), context())
+            .await
+            .err()
+            .unwrap(),
+    );
+    assert_eq!(
+        class_chain(&refused),
+        [(OPEN_FAIL_EXCEPTION.into(), Some("Resource shortage".into()))]
+    );
+    held.terminate().unwrap();
+    held.close().await.unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_late_refusal_does_not_give_its_text_to_the_next_failure_u157() {
     let fake = ssh::fake(late_open_script(12_000, true), 1).await;
