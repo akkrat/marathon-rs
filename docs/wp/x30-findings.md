@@ -113,6 +113,15 @@ Verified: the tests named above, and the crates and validators listed in the WP'
 Not verified: a real device run, as the check fails before any device is touched; the K × 4 × N product as one whole run;
 `android-reconnect-probes/run`, as above; and x27's and x28's final code.
 
+## Review
+
+A second-model review ran the new tests and the real binary on refused configs: every spelling of the unlimited value is refused with exit 1, before any side effect, and no assertion was weakened. Notes:
+
+- Each copy of a test is charged per return (`queue.rs:434-440`), so the rule of thumb is too small for a run with flakiness copies. The docs now say so.
+- `BatchFailurePolicy` has an always-on counter of 3 consecutive batch failures that isn't a setting. It already bounds iOS's "failure with a reason" path, and WP x28 charges it for a silent output timeout too, so "the timeouts bound one batch" isn't the whole story on iOS after that merge. The refusal stays right: the unclassified-error and lost-connection paths remain unbounded.
+- A pipeline that runs `parse` on a separate minimal config now fails. The owner's decision covers `parse`. Nothing in this repository is affected.
+- The message doesn't name the Marathonfile, unlike "No vendor config present in <path>". Not changed.
+
 ## Incidental bugs
 
 Not fixed here; both need the owner's decision above.

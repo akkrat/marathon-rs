@@ -117,16 +117,13 @@ uncompletedTestRetryQuota: 5
 ```
 
 Without it, or with 2147483647, `marathon run` and `marathon parse` exit 1. No other setting can stand in for it: nothing
-else ends a run in which a test keeps coming back uncompleted. `retryStrategy` applies to failed tests only, the timeouts
-bound one batch, and on iOS `maxBatchesWithoutProgress` isn't charged for an unclassified error or a lost connection. That
+else ends a run in which a test keeps coming back uncompleted. `retryStrategy` applies to failed tests only, the timeouts bound one batch, and on iOS a device-level limit only retires a simulator, never the run, and isn't charged for an unclassified error or a lost connection. That
 setting stays optional, with 0 meaning off, and macOS and Android don't have it.
 
-**Which value.** Use the number of devices + 2, and at least 5. Each time a test comes back uncompleted it is charged once,
-and that includes a batch lost with its device, so a test that was only unlucky can be charged about once per device
+**Which value.** As a rule of thumb, not a measurement, use the number of devices + 2, and at least 5, and more with flakiness copies. Each time a test comes back uncompleted, each of its copies in that batch is charged once, and that includes a batch lost with its device, so a test that was only unlucky can be charged about once per device
 during a bad outage. Too small a value turns an emulator restart or a lost worker into failed tests. The other side of the
 choice is cost: a test that hangs every time takes (quota + 1) × the time it takes to give up, usually
-`testOutputTimeoutMillis`. Any value other than 2147483647 is accepted, so a very large one keeps the old behaviour, if that
-is really what you want.
+`testOutputTimeoutMillis`. Any value other than 2147483647 is accepted, so a very large one keeps the old behaviour, if that is really what you want. A literal `null` or an empty value binds to 0, and 0 or a negative value gives a test no second attempt, including after device loss.
 
 ## Keep configuration and command placement
 

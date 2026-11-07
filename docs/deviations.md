@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D42; implementation availability
+canonical. This guide covers D1–D42, D45, D47 and D50; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -654,7 +654,7 @@ XCTest reports a test that exceeded its execution time allowance on one line, an
 no `failed` line follows. Kotlin reads the allowance by replacing ` seconds`, ` minutes` and ` hours` and handing the result
 to `Duration.parse`. A singular unit throws, and XCTest prints `1 minute` for the 60 s that Marathon's own setup examples
 recommend. The throw isn't a device failure, so the batch comes back with its tests uncompleted, and with the default
-`uncompletedTestRetryQuota` a test that hangs every time repeats until CI kills the job.
+`uncompletedTestRetryQuota` a test that hangs every time repeats until CI kills the job, which D47 now refuses.
 
 Native builds never stop on that text. What Kotlin could read reads the same. Then the English forms of XCTest's formatter
 read: `1 minute`, `1 hour`, `1 minute, 30 seconds`, fractions such as `1.5 minutes`, and abbreviations such as `1 hr`. Any other
@@ -676,15 +676,14 @@ deadline ends a run, so a test that keeps coming back uncompleted repeats until 
 
 Native builds refuse that configuration. `marathon run` and `marathon parse` exit 1 with a `ConfigurationException` when
 the quota is unset or exactly 2147483647, on Android, iOS and macOS, and name the field, the reason, a suggested value and
-the [migration section](migration.md#a-finite-uncompletedtestretryquota-d47). Any other value passes: 0, a negative value,
-which like 0 gives a test no second attempt, and 2147483646, which is your choice to make. A value from an environment
+the [migration section](migration.md#a-finite-uncompletedtestretryquota-d47). Any other value passes: 0, a negative value, a literal `null` or an empty value, which bind to 0 or act like it and give a test no second attempt, and 2147483646, which is your choice to make. A value from an environment
 substitution such as `${QUOTA}` counts as the value it resolves to. No command-line option sets this field.
 
 The rule is that the check fails only when nothing bounds the loop, and on every vendor only the quota does:
 
 - `retryStrategy` and its quotas apply to failed tests. An uncompleted test never reaches them.
 - `executionStrategy` completes a test on a pass or a failure, and a repeating uncompleted result is neither.
-- The flakiness strategy only decides how many copies to start with. The timeouts bound one batch, not how many there are.
+- The flakiness strategy only decides how many copies to start with. The timeouts bound one batch, not how many there are; on iOS a silent output timeout also counts towards recycling that simulator (D39), which retires a device, not the run.
 - Android and macOS have no count of batches without progress. `maxBatchesWithoutProgress` isn't a macOS setting at all.
 - iOS's `maxBatchesWithoutProgress` retires one simulator at a time, and it isn't charged for an unclassified error, or for
   a lost connection, after which the simulator comes back with a new count. So it doesn't excuse an unlimited quota,

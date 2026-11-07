@@ -7,7 +7,7 @@
 ## 1. Goal and constraints
 
 - A single native `marathon` binary that replaces the JVM distribution.
-- **External interface unchanged:** Marathonfile, Marathondevices and the dynamic-provider protocol, the CLI, exit codes, the output-directory layout and file formats, and the commands sent to workers.
+- **External interface unchanged, except for the deviations of §3.11 (D47 requires a finite `uncompletedTestRetryQuota`):** Marathonfile, Marathondevices and the dynamic-provider protocol, the CLI, exit codes, the output-directory layout and file formats, and the commands sent to workers.
 - **Scope:** all three vendors in v1 (iOS, macOS and Android). All three are release-gated on real end-to-end runs (§6.6).
 - **Bug-for-bug parity by default**, so that Kotlin and Rust can be compared directly. Intentional deviations are listed in §3.11; smaller approved simplifications are recorded in each WP's findings.
 

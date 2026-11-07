@@ -105,6 +105,7 @@ async fn fifty_silent_batches_recycle_the_simulator_until_its_recoveries_run_out
     advance(2000).await;
     assert!(p.current("a").disposed());
     p.balanced().await
+}
 // D47's witness: a lost connection isn't charged to the limit above, and each replacement starts with a fresh
 // maxBatchesWithoutProgress count, so a worker that drops every batch has no bound but uncompletedTestRetryQuota.
 #[tokio::test(start_paused = true)]

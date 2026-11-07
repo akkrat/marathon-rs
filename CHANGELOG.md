@@ -13,7 +13,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 
 - **Breaking: every Marathonfile must set a finite `uncompletedTestRetryQuota`** (D47). `marathon run` and `parse` exit 1
   when it is unset or 2147483647, on every platform, because nothing else ends a run in which a test keeps coming back
-  uncompleted. Add this line, with the number of devices + 2 if that is more than 5:
+  uncompleted. Add this line. As a rule of thumb, not a measurement, use the number of devices + 2 if that is more than 5, and more with flakiness copies:
 
   ```yaml
   uncompletedTestRetryQuota: 5

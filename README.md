@@ -2,7 +2,8 @@
 
 A native Rust rewrite of the Kotlin marathon fork frozen at `e47352f2`,
 for running Android, iOS and macOS tests with the existing Marathonfile,
-Marathondevices, CLI and report formats.
+Marathondevices, CLI and report formats, apart from the approved differences in
+[the deviations guide](docs/deviations.md). A Marathonfile must set a finite `uncompletedTestRetryQuota`.
 
 **0.11.0 is the first public release.** The changelog lists fixes made since, which are not
 released yet. The Kotlin tests are ported or marked not applicable with a reason, differential suites compare
