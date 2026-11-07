@@ -940,11 +940,13 @@ fn a_cancelled_run_does_not_wait_out_the_limit_d48() {
         })
     });
 }
+/// A wait's timer is not cancelled when a test ends: it finds another number, or none, and does nothing. Here the first
+/// wait's timer fires at 60,500, during the second wait, which runs to its own end.
 #[test]
 fn a_late_return_wait_timer_is_ignored_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "Scheduler"));
+            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(4, "Scheduler"));
             h.run_current().await;
             let first = slow("same", 1000);
             run.connect(&first);
@@ -953,17 +955,188 @@ fn a_late_return_wait_timer_is_ignored_d48() {
             advance(&h, 1000).await;
             let second = slow("same", 1000);
             run.connect(&second);
-            h.run_current().await;
-            // What a timer that fired just before the return leaves in the mailbox.
-            let (_, pool) = run.scheduler.pools().remove(0);
-            assert!(
-                pool.actor
-                    .try_send(marathon_core::execution::DevicePoolMessage::ReturnWaitOver(1))
-                    .is_ok()
-            );
+            // Its first test ends at 2000, and it goes in the middle of the next.
+            advance(&h, 2500).await;
+            run.disconnect(&second);
+            advance(&h, 2500 + WAIT - 1).await;
+            assert!(ended_at(&run).is_none(), "the first wait's timer did nothing");
             h.advance_until_idle().await;
-            assert!(passed(&run));
+            assert_eq!(ended_at(&run), Some(2500 + WAIT));
             run.finish(&h).await;
         })
     });
+}
+
+// ---- D48, review round 2: the time runs from the last live device's departure -------------------------------------
+
+/// Runs a test until it is cancelled, then takes `cleanup` ms that nothing cancels, as a vendor pulling its files does.
+fn cleaning_up(cleanup: i64) -> OnExecute {
+    on_execute(move |e| async move {
+        let reason = e.context.cancellation.cancelled().await;
+        e.context
+            .clock
+            .delay(cleanup, marathon_core::executor::shared::Signal::new())
+            .await?;
+        Err(VendorError::Cancelled(reason))
+    })
+}
+/// Prepares until it is cancelled, then takes `cleanup` ms that nothing cancels: a device that never gets ready.
+fn never_ready(cleanup: i64) -> OnPrepare {
+    on_prepare(move |context| async move {
+        let reason = context.cancellation.cancelled().await;
+        context
+            .clock
+            .delay(cleanup, marathon_core::executor::shared::Signal::new())
+            .await?;
+        Err(VendorError::Cancelled(reason))
+    })
+}
+fn failed(run: &Run) -> bool {
+    matches!(run.result.borrow().as_ref(), Some((_, Ok(false))))
+}
+
+/// The reviewer's first witness: a disconnect at 500 whose cleanup takes 20 s used to start the wait at 20,500, and the
+/// run ended at 80,500.
+#[test]
+fn the_wait_runs_while_the_leaving_device_cleans_up_d48() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "Scheduler"));
+            h.run_current().await;
+            let only = TestDevice::new("only", None, None, cleaning_up(20_000));
+            run.connect(&only);
+            advance(&h, 500).await;
+            run.disconnect(&only);
+            advance(&h, 500 + WAIT - 1).await;
+            assert!(ended_at(&run).is_none(), "not a moment before its limit");
+            h.advance_until_idle().await;
+            assert_eq!(ended_at(&run), Some(500 + WAIT));
+            // Logged once the cleanup is done and the queue has the batch back, with what is left.
+            assert_eq!(logged(&h, "waiting up to 40000 ms for one to return"), 1);
+            assert!(failed(&run));
+            assert_eq!(logged(&h, "remaining tests will not run"), 1);
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// A cleanup still running when the time is up is waited for, so the outcome it sends before Terminated counts. The run
+/// ends at the limit plus what is left of that cleanup, and a device arriving meanwhile is not taken.
+#[test]
+fn a_cleanup_still_running_at_the_limit_is_waited_for_and_nothing_new_is_taken_d48() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "Scheduler"));
+            h.run_current().await;
+            let only = TestDevice::new("only", None, None, cleaning_up(70_000));
+            run.connect(&only);
+            advance(&h, 500).await;
+            run.disconnect(&only);
+            advance(&h, 500 + WAIT).await;
+            assert_eq!(logged(&h, "no device returned within"), 1);
+            assert!(ended_at(&run).is_none(), "the cleanup is still running");
+            let late = slow("late", 1000);
+            run.connect(&late);
+            h.advance_until_idle().await;
+            assert_eq!(ended_at(&run), Some(500 + 70_000));
+            assert!(failed(&run));
+            assert!(late.batches().is_empty());
+            assert_eq!(
+                logged(&h, "device late arrived after the wait ran out, not adding it"),
+                1
+            );
+            assert_eq!(logged(&h, "remaining tests will not run"), 1);
+            run.finish(&h).await;
+        })
+    });
+}
+
+/// The reviewer's second witness: replacements every 10 s that never get ready, each cleaning up for 20 s after its
+/// disconnect, so that some device was always in the pool or cleaning up. No wait ever started, and the run never ended,
+/// also with no retries. Now the time runs from the first disconnect, the replacement preparing at the limit is stopped,
+/// and the run ends when its cleanup is done.
+#[test]
+fn replacements_that_never_get_ready_cannot_hold_the_run_open_d48() {
+    for quota in [None, Some(0)] {
+        let mut c = waiting();
+        if let Some(quota) = quota {
+            c.uncompleted_test_retry_quota = quota;
+        }
+        scheduling_test(move |h| {
+            Box::pin(async move {
+                let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(2, "Scheduler"));
+                h.run_current().await;
+                let first = TestDevice::new("first", None, None, cleaning_up(20_000));
+                run.connect(&first);
+                advance(&h, 500).await;
+                run.disconnect(&first);
+                let mut replacements = vec![];
+                let mut at = 10_000;
+                while ended_at(&run).is_none() && at <= 300_000 {
+                    advance(&h, at).await;
+                    let replacement = TestDevice::new(
+                        &format!("replacement-{at}"),
+                        None,
+                        Some(never_ready(20_000)),
+                        report_passed(),
+                    );
+                    run.connect(&replacement);
+                    advance(&h, at + 5000).await;
+                    run.disconnect(&replacement);
+                    replacements.push(replacement);
+                    at += 10_000;
+                }
+                // The replacement that came at 60,000 was preparing at the limit, and cleans up for 20 s.
+                assert_eq!(ended_at(&run), Some(500 + WAIT + 20_000), "quota {quota:?}");
+                assert!(failed(&run));
+                assert!(replacements.iter().all(|r| r.batches().is_empty()));
+                assert_eq!(logged(&h, "no device returned within"), 1);
+                assert_eq!(logged(&h, "is not ready when the wait ends, terminating it"), 1);
+                // At 70,000 and 80,000.
+                assert_eq!(logged(&h, "arrived after the wait ran out, not adding it"), 2);
+                h.advance_until_idle().await;
+                run.finish(&h).await;
+            })
+        });
+    }
+}
+
+/// The reviewer's numbers for the Android tracker's finding, at the pool: with a 10 s limit, one device was in its grace
+/// period since 1 s and the other healthy until its server went at 9 s, and both are disconnected at 11 s. The pool lacks
+/// a device from 9 s, whichever is removed first, so the one returning at 15 s is taken and runs the rest.
+#[test]
+fn the_pool_lacks_a_device_from_the_last_departure_whatever_the_order_d48() {
+    for graced_first in [true, false] {
+        let mut c = configured(10_000, false);
+        c.batching_strategy = fixed_size(1);
+        scheduling_test(move |h| {
+            Box::pin(async move {
+                let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(4, "Scheduler"));
+                h.run_current().await;
+                let graced = slow("graced", 1_000_000);
+                let healthy = slow("healthy", 1_000_000);
+                run.connect(&graced);
+                run.connect(&healthy);
+                advance(&h, 11_000).await;
+                graced.set_return_wait_used(10_000);
+                healthy.set_return_wait_used(2000);
+                if graced_first {
+                    run.disconnect(&graced);
+                    run.disconnect(&healthy);
+                } else {
+                    run.disconnect(&healthy);
+                    run.disconnect(&graced);
+                }
+                advance(&h, 15_000).await;
+                assert!(ended_at(&run).is_none(), "graced first: {graced_first}");
+                assert_eq!(logged(&h, "waiting up to 8000 ms"), 1, "graced first: {graced_first}");
+                let back = slow("healthy", 1000);
+                run.connect(&back);
+                h.advance_until_idle().await;
+                assert!(passed(&run), "graced first: {graced_first}");
+                assert_eq!(back.batches().len(), 4);
+                run.finish(&h).await;
+            })
+        });
+    }
 }

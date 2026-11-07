@@ -5,7 +5,9 @@
 //! serial number as Kotlin's are, because the queue's replies carry only a
 //! `DeviceInfo`.
 //!
-//! D48: a pool whose last device left with tests still to run waits a limited time for one to return (C50).
+//! D48: a pool whose last device left with tests still to run waits a limited time for one to return (C50). The time
+//! runs from when its last live device left, through the cleanup of the devices leaving and through returns that never
+//! get ready.
 use crate::error::*;
 use crate::{
     execution::{
@@ -111,9 +113,21 @@ pub struct DevicePoolActor {
     /// one whose device returned first, in time or just too late to stop it.
     return_wait: Option<u64>,
     return_waits: u64,
+    /// D48: the wait was logged since the pool last had a device added. A wait started while devices were still cleaning
+    /// up is logged only once they are done, and only if the queue still has tests then.
+    announced: bool,
     /// D48: when this pool last started to lack a device, until a test has ended on one again. Time with a device counts,
     /// so a device that keeps coming back without finishing anything can't hold the run open for ever.
     away_since: Option<i64>,
+    /// D48: the latest time a live device went away, what its vendor had waited for it included, since a test last ended.
+    /// The pool lacks a device from the latest of these, whatever order the devices are removed in.
+    departed: Option<i64>,
+    /// D48: devices added while the pool lacked one, until they report ready. They are not live: the limit runs on, and
+    /// one that never gets ready is stopped when it runs out.
+    returning: Vec<DeviceRef>,
+    /// D48: the limit ran out with no live device. The pool takes no new device, and ends once those still cleaning up
+    /// have reported Terminated, so that their outcomes count.
+    ending: bool,
 
     #[cfg(any(test, feature = "test-support"))]
     device_observer: Option<DeviceObserver>,
@@ -134,6 +148,13 @@ fn job_was_cancelled() -> Cancellation {
         "kotlinx.coroutines.JobCancellationException",
         "Job was cancelled",
     ))
+}
+
+/// D48: what made the pool check whether it still has a device, for the lines Kotlin logs as it ends.
+#[derive(Clone, Copy)]
+enum Loss {
+    Removed,
+    Terminated,
 }
 
 fn same_actor(a: &DeviceActorRef, b: &DeviceActorRef) -> bool {
@@ -226,7 +247,11 @@ impl DevicePoolActor {
             failed_batches: HashMap::new(),
             return_wait: None,
             return_waits: 0,
+            announced: false,
             away_since: None,
+            departed: None,
+            returning: Vec::new(),
+            ending: false,
             #[cfg(any(test, feature = "test-support"))]
             device_observer: observer,
         };
@@ -314,8 +339,10 @@ impl DevicePoolActor {
 
     async fn device_terminated(&mut self, device: DeviceRef, task: &TaskContext) -> OperationResult<()> {
         let serial = serial(&device);
+        // A device that ended on its own, with no RemoveDevice, leaves the pool here.
         if self.devices.get(&serial).is_some_and(|actor| actor.device == device) {
             self.devices.shift_remove(&serial);
+            self.departing(&device);
         }
         self.terminating_devices.retain(|it| *it != device);
         self.release_device(&device);
@@ -340,11 +367,7 @@ impl DevicePoolActor {
             S(" terminated. devices.size = "),
             S(&size),
         ]);
-        if self.no_active_devices() && !self.wait_for_return(device.0.return_wait_used_millis(), task).await? {
-            self.log_all_terminated();
-            self.terminate_now();
-        }
-        Ok(())
+        self.after_loss(Loss::Terminated, task).await
     }
 
     fn log_all_terminated(&self) {
@@ -359,36 +382,87 @@ impl DevicePoolActor {
         self.debug(&[S("terminate pool "), J(&self.pool())]);
     }
 
-    /// D48: true if the pool, having lost its last device, now waits for one to return. It doesn't if nothing is left to
-    /// run or its time is up, and has then heard from the queue, as `terminate` would have. The queue, its order and its
-    /// retry counts stay as they are, and a device that returns simply asks it for a batch.
-    async fn wait_for_return(&mut self, used: i64, task: &TaskContext) -> OperationResult<bool> {
-        if self.return_wait.is_some() {
-            return Ok(true);
-        }
-        if !self.queue_has_work(task).await? {
-            return Ok(false);
+    /// D48: after a device left, live or not, or finished cleaning up. A pool with a live device carries on. One without
+    /// lacks a device from `away_since`, and has `deviceInitializationTimeoutMillis` from then: until it runs out, the pool
+    /// waits for a device to return if it has tests left, and after that it stops the devices still getting ready and ends
+    /// once every device has reported Terminated. The queue, its order and its retry counts stay as they are, and a device
+    /// that returns simply asks it for a batch.
+    async fn after_loss(&mut self, by: Loss, task: &TaskContext) -> OperationResult<()> {
+        if self.has_live_device() {
+            return Ok(());
         }
         let now = self.clock.now_millis();
-        let since = *self.away_since.get_or_insert(now.saturating_sub(used));
-        let left = self
-            .configuration
-            .device_initialization_timeout_millis
-            .saturating_sub(now.saturating_sub(since));
-        if left <= 0 {
-            return Ok(false);
+        let since = *self.away_since.get_or_insert(self.departed.unwrap_or(now));
+        let left = if self.ending {
+            0
+        } else {
+            self.configuration
+                .device_initialization_timeout_millis
+                .saturating_sub(now.saturating_sub(since))
+        };
+        if !self.devices.is_empty() || !self.terminating_devices.is_empty() {
+            // The time runs now, even while a device leaving takes long to clean up. The queue is asked once they are
+            // done, when it has their outcomes.
+            if left <= 0 {
+                self.stop_returning_devices();
+            } else if self.return_wait.is_none() {
+                self.start_return_wait(left);
+            }
+            return Ok(());
         }
-        let millis = left.to_string();
-        self.log(
-            Level::Warn,
-            text(&[
-                S("pool "),
-                J(&self.pool()),
-                S(": no device left, waiting up to "),
-                S(&millis),
-                S(" ms for one to return"),
-            ]),
-        );
+        if left > 0 && self.return_wait.is_some() && self.announced {
+            return Ok(());
+        }
+        // Also lets the queue take the last outcomes before the pool goes, as `terminate` does.
+        if self.queue_has_work(task).await? && left > 0 {
+            if self.return_wait.is_none() {
+                self.start_return_wait(left);
+            }
+            let millis = left.to_string();
+            self.log(
+                Level::Warn,
+                text(&[
+                    S("pool "),
+                    J(&self.pool()),
+                    S(": no device left, waiting up to "),
+                    S(&millis),
+                    S(" ms for one to return"),
+                ]),
+            );
+            self.announced = true;
+            return Ok(());
+        }
+        match by {
+            Loss::Removed => self.debug(&[S("terminate pool "), J(&self.pool())]),
+            Loss::Terminated => self.log_all_terminated(),
+        }
+        self.terminate_now();
+        Ok(())
+    }
+
+    /// D48: a device that is ready, or was in the pool before it lacked one.
+    fn has_live_device(&self) -> bool {
+        self.devices
+            .values()
+            .any(|actor| !self.returning.contains(&actor.device))
+    }
+
+    /// D48: a device leaves the pool. Only a live one's departure says when the pool began to lack one, so that devices
+    /// that come and go without getting ready do not move it.
+    fn departing(&mut self, device: &DeviceRef) {
+        let returning = self.returning.len();
+        self.returning.retain(|it| it != device);
+        if self.returning.len() < returning || self.away_since.is_some() {
+            return;
+        }
+        let at = self
+            .clock
+            .now_millis()
+            .saturating_sub(device.0.return_wait_used_millis());
+        self.departed = Some(self.departed.map_or(at, |departed| departed.max(at)));
+    }
+
+    fn start_return_wait(&mut self, left: i64) {
         let (Some(pool), Some(supervisor)) = (self.myself.clone(), self.supervisor.clone()) else {
             unreachable!("the pool is alive while it handles a message")
         };
@@ -408,7 +482,25 @@ impl DevicePoolActor {
             }),
         );
         self.return_wait = Some(number);
-        Ok(true)
+    }
+
+    /// D48: the time ran out with no live device. Devices still getting ready are stopped as removed ones are, and the
+    /// pool ends when the last has reported Terminated.
+    fn stop_returning_devices(&mut self) {
+        self.ending = true;
+        for (serial, actor) in std::mem::take(&mut self.devices) {
+            self.debug(&[
+                S("pool "),
+                J(&self.pool()),
+                S(": device "),
+                J(&serial),
+                S(" is not ready when the wait ends, terminating it"),
+            ]);
+            self.terminating_devices.push(actor.device.clone());
+            self.release_device(&actor.device);
+            let _ = actor.actor.try_send(DeviceEvent::Terminate);
+        }
+        self.returning.clear();
     }
 
     async fn return_wait_over(&mut self, number: u64, task: &TaskContext) -> OperationResult<()> {
@@ -416,6 +508,10 @@ impl DevicePoolActor {
             return Ok(());
         }
         self.return_wait = None;
+        // A device that returned and got ready keeps the pool until it leaves, which then ends it.
+        if self.has_live_device() {
+            return Ok(());
+        }
         let millis = self.configuration.device_initialization_timeout_millis.to_string();
         self.log(
             Level::Warn,
@@ -427,6 +523,11 @@ impl DevicePoolActor {
                 S(" ms)"),
             ]),
         );
+        if !self.devices.is_empty() || !self.terminating_devices.is_empty() {
+            self.stop_returning_devices();
+            return Ok(());
+        }
+        self.ending = true;
         self.log_all_terminated();
         self.await_queue(task).await?;
         self.terminate_now();
@@ -435,9 +536,13 @@ impl DevicePoolActor {
 
     fn device_completed(&mut self, device: DeviceRef, results: TestBatchResults) {
         self.release_assignment(&device);
-        // A test ended, whatever its status: this pool has its devices again.
-        if !results.finished.is_empty() || !results.failed.is_empty() {
+        // A test ended, whatever its status: this pool has its devices again, and a timer still running finds no wait.
+        if (!results.finished.is_empty() || !results.failed.is_empty()) && !self.ending {
             self.away_since = None;
+            self.departed = None;
+            self.returning.clear();
+            self.return_wait = None;
+            self.announced = false;
         }
         let failed = !results.failed.is_empty() || !results.uncompleted.is_empty();
         self.send_to_queue(QueueMessage::Completed(device.0.info(), results));
@@ -485,6 +590,8 @@ impl DevicePoolActor {
         else {
             return;
         };
+        // D48: a returning device is live once it is ready.
+        self.returning.retain(|it| *it != device);
         let requested = matches!(self.requests.get(&serial), Some(Some(r)) if same_actor(r, &actor));
         let assigned = self.assignments.get(&serial).is_some_and(|a| a.device == device);
         let parked = self.parked_devices.iter().any(|p| same_actor(p, &actor));
@@ -671,27 +778,17 @@ impl DevicePoolActor {
             ]);
         }
         if let Some(actor) = &actor {
+            self.departing(&actor.device);
             self.terminating_devices.push(actor.device.clone());
             self.release_device(&actor.device);
             let _ = actor.actor.try_send(DeviceEvent::Terminate);
         }
         let size = self.devices.len().to_string();
         self.debug(&[S("devices.size = "), S(&size)]);
-        if self.no_active_devices() {
-            if self.return_wait.is_none() {
-                self.debug(&[S("pool "), J(&self.pool()), S(": noActiveDevices")]);
-            }
-            let used = actor.map_or(0, |actor| actor.device.0.return_wait_used_millis());
-            if !self.wait_for_return(used, task).await? {
-                self.debug(&[S("terminate pool "), J(&self.pool())]);
-                self.terminate_now();
-            }
+        if self.devices.is_empty() && self.terminating_devices.is_empty() && !self.announced {
+            self.debug(&[S("pool "), J(&self.pool()), S(": noActiveDevices")]);
         }
-        Ok(())
-    }
-
-    fn no_active_devices(&self) -> bool {
-        self.devices.is_empty() && self.terminating_devices.is_empty()
+        self.after_loss(Loss::Removed, task).await
     }
 
     fn add_device(&mut self, device: DeviceRef) {
@@ -708,8 +805,25 @@ impl DevicePoolActor {
             );
             return;
         }
+        if self.ending {
+            self.log(
+                Level::Warn,
+                text(&[
+                    S("pool "),
+                    J(&self.pool()),
+                    S(": device "),
+                    J(&serial),
+                    S(" arrived after the wait ran out, not adding it"),
+                ]),
+            );
+            return;
+        }
         self.debug(&[S("add device "), J(&serial)]);
-        if self.return_wait.take().is_some() {
+        // D48: the wait goes on until it is ready, so that one that never gets ready cannot hold the pool.
+        if self.away_since.is_some() {
+            self.returning.push(device.clone());
+        }
+        if std::mem::take(&mut self.announced) {
             self.log(
                 Level::Info,
                 text(&[
