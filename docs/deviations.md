@@ -675,9 +675,18 @@ as Kotlin does, and then hand the simulator to whoever the failure belongs to:
 | is refused (authentication, [D35](#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | Nothing, and an error says so | No retry |
 
 This applies to every failed re-provisioning: after a lost worker, after a simulator lost with its connection up, and after
-one added back to the devices file. In Kotlin those last two were final. A worker attempt can make up to four connections,
-so a worker that stays down costs at most one attempt a minute, or 4 connections, once the first pauses are over, where it
-used to cost up to about 3,750 attempts a minute per simulator.
+one added back to the devices file. In Kotlin those last two were final.
+
+**What a lost worker costs, with the defaults.** Take N simulators lost with one worker. The first attempt acquires one
+connection per simulator. The worker retry then makes 11 attempts in 600 s, one a minute once the first pauses are over, and
+each acquires one planning connection and, if planning gets through, one more per simulator still waiting. That is at most
+N + 11 × (N + 1) acquisitions: 13 for two simulators whose worker doesn't answer, and 35 for two whose worker answers while
+their own connections fail. Kotlin made up to about 3,750 attempts a minute per simulator. Each acquisition makes up to four
+TCP connections to the SSH port, sshj's immediate retries, and logs in once if one of them gets through, so there is at most
+one failed login per acquisition, and a refused one ends the retry. With `checkReachability` a host that doesn't answer gets
+no TCP connection at all. With `shareWorkerConnection: true` the acquisitions on a worker share one connection, and those
+waiting for the same attempt share its result, so there are fewer. The acquisitions are measured with a scripted connection
+factory; what each costs on the wire is read from the code.
 
 A simulator that was already in the run is not a late joiner, so the late-join cut-off doesn't stop its return: a worker lost
 an hour into a run can still come back. It gets its own limit of `lateJoinCutoff`, counted from the first failure, and

@@ -53,7 +53,8 @@ eligible, so one simulator can't be set up twice at once.
 |---|---|---|
 | Pace, worker down | Every 16 ms plus the attempt's own time, up to about 3,750 attempts a minute per simulator | One attempt a minute per worker, after the first pauses |
 | Attempts, 600 s | Up to about 37,500 per simulator, and it never ends | One per simulator at once, then 11 per worker: 10, 30, 90, 150 … 570 s |
-| Connections per attempt | Up to 4 (sshj's immediate retries) | Up to 4, so at most 48 + 4 × (simulators − 1) |
+| Acquisitions, 600 s | One per simulator per attempt, with no end | N + 11 × (N + 1) for N simulators: one planning connection per worker attempt, plus one per waiting simulator when planning gets through (review round 2) |
+| Connections per acquisition | Up to 4 (sshj's immediate retries), one login | The same |
 | Worker answers, setup fails | Every 16 ms | 4 setups for the run (D33): 0, 30, 90, 180 s |
 | Refused | Every 16 ms | 1 |
 | Disconnect events | One per attempt | One |

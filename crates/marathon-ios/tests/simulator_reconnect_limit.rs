@@ -158,6 +158,26 @@ async fn a_worker_that_stays_down_is_tried_at_capped_pauses_until_the_limit_and_
     assert!(seen.connected.is_empty());
     p.finish().await
 }
+/// The most a worker loss acquires with the defaults: the first attempt's one connection per simulator, then for each of
+/// the worker retry's 11 attempts one planning connection and, when planning gets through, one per waiting simulator.
+#[tokio::test(start_paused = true)]
+async fn a_worker_that_answers_while_its_simulators_cannot_connect_acquires_at_most_n_plus_11_times_n_plus_1()
+-> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a", "b"]).await?;
+    p.connected(2).await;
+    let lost = lose_worker(&p, &["a", "b"]);
+    p.answer(|_, worker, _| Box::pin(async move { if worker { Ok(None) } else { Err(unreachable()) } }));
+    pass(1300).await;
+    assert_seconds(&attempts_since(&p, &lost, true), &CAPPED);
+    let simulators = attempts_since(&p, &lost, false);
+    let expected: Vec<i64> = [0].into_iter().chain(CAPPED).flat_map(|s| [s, s]).collect();
+    assert_seconds(&simulators, &expected);
+    // N + 11 × (N + 1) for N = 2.
+    assert_eq!(simulators.len() + CAPPED.len(), 35);
+    assert!(p.log("Simulator a@local has no connection 600 s after it lost its worker, it stays out of the run"));
+    p.finish().await
+}
 #[tokio::test(start_paused = true)]
 async fn a_worker_that_comes_back_recovers_its_simulators_exactly_once() -> TestResult {
     let p = RecoveryHarness::new(|_| {})?;
