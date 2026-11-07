@@ -178,6 +178,9 @@ impl SimulatorRecovery {
             }
         });
         for id in &expired {
+            if let Some((udid, _)) = id.to_string_lossy().rsplit_once('@') {
+                provider.give_up_parked(transport, &[udid], ParkedFor::GivenUp);
+            }
             provider.log(
                 Level::Error,
                 || {
@@ -254,6 +257,12 @@ impl SimulatorRecovery {
                     .retry(&provider, &transport, &pending, started, failure, caller)
                     .await;
                 pending.close();
+                // D44: what it still waited for has been logged as out of the run, so no sibling's plan takes it up.
+                if result.is_ok()
+                    && let Some(left) = pending.take()
+                {
+                    provider.give_up_targets(&transport, &left, ParkedFor::GivenUp);
+                }
                 let mut state = this.state();
                 if state.pending.get(&transport).is_some_and(|p| Arc::ptr_eq(p, &pending)) {
                     state.pending.shift_remove(&transport);
@@ -482,7 +491,7 @@ impl SimulatorRecovery {
             let failures = failures
                 .into_iter()
                 .filter(|failure| {
-                    let FailedSetup::Existing { udid, .. } = failure else {
+                    let FailedSetup::Existing { udid, refused, .. } = failure else {
                         return false;
                     };
                     let Some(old) = lost.iter().find(|d| d.udid() == udid) else {
@@ -497,6 +506,10 @@ impl SimulatorRecovery {
                     if parked {
                         state.parked.push(Parked {
                             handle: old.clone(),
+                            for_: match *refused {
+                                true => ParkedFor::Refused,
+                                false => ParkedFor::Retry,
+                            },
                             since: now,
                             // A90, as below: only a connected loss's predecessor is retained.
                             retained: loss.is_some() || readded,
@@ -665,6 +678,7 @@ impl ProviderRecovery for SimulatorRecovery {
                     },
                     Some(error.output_failure()),
                 );
+                provider.give_up_targets(&transport, &targets, ParkedFor::GivenUp);
                 return Ok(());
             }
             provider.log(
@@ -706,6 +720,8 @@ impl ProviderRecovery for SimulatorRecovery {
             if retry {
                 let error = missing_failure(targets.len());
                 self.retry_later(transport, targets, started, error)?;
+            } else {
+                provider.give_up_targets(&transport, &targets, ParkedFor::GivenUp);
             }
             Ok(())
         })

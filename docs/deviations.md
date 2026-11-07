@@ -688,9 +688,10 @@ limit an error line says the simulator stays out of the run.
 The old device raises one disconnect, where Kotlin raised one per attempt, and a worker that comes back gives one
 connect and one actor per simulator. Termination cancels a retry that is waiting.
 
-**What stays final.** These stay out until a devices update removes the simulator and adds it back, or another planned setup
-on its worker picks it up: a refused connection, a spent D33 budget, a worker retry at its limit, and a non-transient error
-in that retry. These stay out for the run in any case: a simulator lost more than three times with its connection up, one
+**What stays final.** These stay out until a devices update removes the simulator and adds it back: a refused connection, a
+spent D33 budget, a worker retry at its limit or out of `attempts`, and a non-transient error in that retry. Another simulator's
+setup on the same worker doesn't take them along; only one that a retry is still waiting for goes into such a setup. These
+stay out for the run in any case: a simulator lost more than three times with its connection up, one
 retired because its session didn't close or was abandoned ([D30](#d30--closing-an-ssh-session-has-a-limit)), and a late
 joiner denied admission at the cut-off.
 

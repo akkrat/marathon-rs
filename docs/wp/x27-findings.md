@@ -40,8 +40,8 @@ that ends `recovering`, so no scan sees it in between:
 | Registration rejected because the simulator left the file or the run | Nobody, not parked | Not a failed setup |
 | Cancelled | Nobody | The run is ending |
 
-A parked handle is skipped by the scan and is eligible for a plan on its worker (`current()`), which is how a retry can replace
-it. Registration ends the parking. Plans run one at a time per worker under D33's gate, and a recovering handle is never
+A parked handle is skipped by the scan and is eligible for a plan on its worker (`current()`) while a retry still owns it,
+which is how that retry replaces it. A refused one, or one whose retry gave up, is not (review round 2). Registration ends the parking. Plans run one at a time per worker under D33's gate, and a recovering handle is never
 eligible, so one simulator can't be set up twice at once.
 
 ### Attempts and bounds, with the defaults
@@ -74,17 +74,18 @@ trade-off for the owner.
 
 | State | Way back |
 |---|---|
-| Refused connection | Removed and added back by a devices update, or another plan on its worker |
+| Refused connection | Removed and added back by a devices update |
 | D33's budget spent (4 setups for the run) | The same; removal also clears the budget |
-| Worker retry at its limit, or out of `attempts` with `lateJoin: false` | The same |
+| Worker retry at its limit, or out of `attempts` with `lateJoin: false`, or none configured | The same |
 | A non-transient error inside the worker retry, which ends it for all its targets | The same |
 | Lost more than three times with its connection up (`exhausted`) | None |
 | Retired: session not closed in 70 s, or abandoned (D30) | None |
 | A late joiner denied admission at the cut-off | None |
 | Left the devices file | Added back |
 
-A later plan picking up a parked simulator is read from the code and only tested through a devices update. If that setup fails,
-the failure isn't among the plan's targets, so it schedules nothing.
+A later plan picking up a parked simulator that a retry still waits for is read from the code, not tested. If that setup fails,
+the failure isn't among the plan's targets, so it schedules nothing and the simulator's own retry still owns it; a refusal
+there marks it refused all the same.
 
 ## Exactly one actor
 

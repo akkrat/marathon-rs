@@ -91,7 +91,11 @@ impl SimulatorRecovery {
         started: i64,
     ) -> VendorResult<()> {
         // With attempts: 1 and lateJoin: false the owner asked for no retries of a worker's devices at all.
-        if targets.is_empty() || provider.services.vendor.worker_connection.pause_after(1).is_none() {
+        if targets.is_empty() {
+            return Ok(());
+        }
+        if provider.services.vendor.worker_connection.pause_after(1).is_none() {
+            provider.give_up_targets(transport, &targets, ParkedFor::GivenUp);
             return Ok(());
         }
         let waiting = {
@@ -137,6 +141,8 @@ impl SimulatorRecovery {
             }
         }
         let worker = transport.id().to_string_lossy();
+        let spent: Vec<_> = exhausted.iter().map(|(target, _)| target.clone()).collect();
+        provider.give_up_targets(transport, &spent, ParkedFor::GivenUp);
         for (target, failures) in exhausted {
             provider.log(
                 Level::Error,

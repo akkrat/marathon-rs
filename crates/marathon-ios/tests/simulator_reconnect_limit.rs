@@ -114,11 +114,16 @@ fn assert_seconds(actual: &[i64], seconds: &[i64]) {
 }
 /// `getenv HOME` fails on the first `failures` setups.
 fn fail_home(worker: &FakeSimulatorWorker, h: &Harness, failures: usize) {
+    fail_home_of(worker, h, None, failures)
+}
+/// As `fail_home`, for one simulator only when `udid` is given.
+fn fail_home_of(worker: &FakeSimulatorWorker, h: &Harness, udid: Option<&'static str>, failures: usize) {
     let boot = h.boot.clone();
     let left = Arc::new(AtomicUsize::new(failures));
     *worker.before.lock().unwrap() = Arc::new(move |cmd| {
         let answer = boot.answer(&cmd);
         let fail = cmd.last().is_some_and(|s| s == "HOME")
+            && udid.is_none_or(|udid| cmd.len() >= 2 && cmd[cmd.len() - 2] == udid)
             && left
                 .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok();
@@ -264,6 +269,79 @@ async fn a_refused_connection_is_not_tried_again() -> TestResult {
         p.finish().await?;
     }
     Ok(())
+}
+/// A refused simulator is out for good: a sibling's setup retries plan its worker again, and must not take it along.
+#[tokio::test(start_paused = true)]
+async fn a_simulator_refused_after_a_worker_loss_is_not_set_up_again_by_a_siblings_setup_retries() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a", "b"]).await?;
+    p.connected(2).await;
+    let lost = lose_worker(&p, &["a", "b"]);
+    fail_home_of(&lost.fresh, p.h(), Some("b"), usize::MAX);
+    let first = Arc::new(AtomicBool::new(true));
+    // The recovery connects to a first, then to b. Only that first connection is refused, so a simulator taken along
+    // by a later plan would connect, and be counted below.
+    p.answer(move |_, worker, _| {
+        let refuse = !worker && first.swap(false, Ordering::SeqCst);
+        Box::pin(async move { if refuse { Err(auth()) } else { Ok(None) } })
+    });
+    for (retry, pause) in [(1, 30), (2, 60), (3, 90)] {
+        eventually(|| p.log(&format!("(retry {retry} of 3)"))).await;
+        pass(pause).await;
+    }
+    eventually(|| p.log("on worker local: setup failed 4 times")).await;
+    pass(1000).await;
+    assert!(p.log("Simulator a on worker local: its connection was refused, it stays out of the run"));
+    // a once, refused; b at the recovery and at each of its three retries.
+    assert_seconds(&attempts_since(&p, &lost, false), &[0, 0, 30, 90, 180]);
+    assert_eq!((home(&lost.fresh, "a"), home(&lost.fresh, "b")), (0, 4));
+    let mut seen = Seen::default();
+    seen.drain(&p).await;
+    assert!(seen.connected.is_empty(), "{:?}", seen.connected);
+    assert_eq!(seen.disconnected, 2);
+    p.finish().await
+}
+/// A simulator its retry gave up on stays out when a devices update plans its worker for another one: D33's budget
+/// spent, and the worker retry at its limit.
+#[tokio::test(start_paused = true)]
+async fn a_simulator_given_up_on_is_not_set_up_again_by_a_later_plan_on_its_worker() -> TestResult {
+    // The worker answers and a's setup keeps failing.
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    p.connected(1).await;
+    let lost = lose_worker(&p, &["a", "c"]);
+    fail_home_of(&lost.fresh, p.h(), Some("a"), usize::MAX);
+    lost.down.store(false, Ordering::SeqCst);
+    for (retry, pause) in [(1, 30), (2, 60), (3, 90)] {
+        eventually(|| p.log(&format!("(retry {retry} of 3)"))).await;
+        pass(pause).await;
+    }
+    eventually(|| p.log("on worker local: setup failed 4 times, it stays out of the run")).await;
+    pass(10).await;
+    p.update(&["a", "c"]).await?;
+    let mut seen = Seen::default();
+    seen.until_connected(&p, 1).await;
+    pass(300).await;
+    seen.drain(&p).await;
+    assert_eq!(seen.connected, ["c@local"]);
+    assert_eq!((home(&lost.fresh, "a"), home(&lost.fresh, "c")), (4, 1));
+    p.finish().await?;
+    // The worker stays down past the limit, then comes back.
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    p.connected(1).await;
+    let lost = lose_worker(&p, &["a", "c"]);
+    pass(700).await;
+    assert!(p.log("Simulator a@local has no connection 600 s after it lost its worker"));
+    lost.down.store(false, Ordering::SeqCst);
+    p.update(&["a", "c"]).await?;
+    let mut seen = Seen::default();
+    seen.until_connected(&p, 1).await;
+    pass(300).await;
+    seen.drain(&p).await;
+    assert_eq!(seen.connected, ["c@local"]);
+    assert_eq!((home(&lost.fresh, "a"), home(&lost.fresh, "c")), (0, 1));
+    p.finish().await
 }
 /// D36: the login works and the next command finds the connection gone, which fail2ban or sshd's penalties can see.
 #[tokio::test(start_paused = true)]

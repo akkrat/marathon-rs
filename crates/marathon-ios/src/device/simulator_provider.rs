@@ -140,13 +140,26 @@ struct PendingConnect {
     disconnect: bool,
 }
 /// D44: a simulator whose recovery failed. Its old handle stays in the device map and the scan leaves it alone: whoever
-/// got the failure sets it up again, and any planned cycle on its worker may do so.
+/// got the failure sets it up again, and while that retry lasts any planned cycle on its worker may do so.
 struct Parked {
     handle: Simulator,
+    for_: ParkedFor,
     /// Run time of the failure, or of the devices update that added it back. The worker retry's limit counts from here.
     since: i64,
     /// Whether its replacement keeps the old lease for release at termination (A90).
     retained: bool,
+}
+/// D44: why a simulator is parked. Only one that a retry still owns goes into another plan on its worker: a sibling's
+/// retries plan that worker too, and would otherwise ask again for what was refused or given up on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ParkedFor {
+    /// The worker connection retry or D33's budget owns it.
+    Retry,
+    /// Its own connection was refused, such as authentication or D35. Asking again changes nothing.
+    Refused,
+    /// The retry that owned it ended without it: D33's budget is spent, the worker retry reached its limit or ended,
+    /// or no retry is configured. It has been logged as out of the run.
+    GivenUp,
 }
 #[derive(Clone, Copy)]
 struct ParkedOn {
@@ -756,6 +769,16 @@ impl AppleSimulatorProvider {
         let lost = !executor.connected();
         let mut unfinished = UnfinishedSetup::default();
         for failure in failures {
+            // D44: also one that this plan took along because it was parked, which isn't among its targets.
+            if let FailedSetup::Existing {
+                udid,
+                unreachable: false,
+                refused: true,
+            } = &failure
+                && !lost
+            {
+                self.give_up_parked(transport, &[udid.as_str()], ParkedFor::Refused);
+            }
             let (target, unreachable, refused) = match failure {
                 FailedSetup::Existing {
                     udid,
@@ -798,8 +821,33 @@ impl AppleSimulatorProvider {
         let now = self.services.timing.elapsed()?;
         if let Some(parked) = self.state().parked.iter_mut().find(|p| parked_id(p) == *id) {
             parked.since = now;
+            parked.for_ = ParkedFor::Retry;
         }
         Ok(())
+    }
+    /// D44: the parked simulators among `udids` on this worker are out of the run until the devices file adds them back.
+    fn give_up_parked(&self, transport: &Transport, udids: &[&str], reason: ParkedFor) {
+        let mut state = self.state();
+        for parked in state
+            .parked
+            .iter_mut()
+            .filter(|p| p.handle.transport() == transport && udids.contains(&p.handle.udid()))
+        {
+            parked.for_ = reason;
+        }
+    }
+    /// As `give_up_parked`, for the simulators among a retry's targets.
+    fn give_up_targets(&self, transport: &Transport, targets: &[AppleTarget], reason: ParkedFor) {
+        let udids: Vec<String> = targets
+            .iter()
+            .filter_map(|target| match target {
+                AppleTarget::Simulator { udid } => Some(udid.to_string_lossy()),
+                _ => None,
+            })
+            .collect();
+        if !udids.is_empty() {
+            self.give_up_parked(transport, &udids.iter().map(String::as_str).collect::<Vec<_>>(), reason);
+        }
     }
     /// D44 (A80): the map keeps a simulator that left or was lost, and a parse on one fails an attempt of the three that
     /// a run has. As Android's D24: only what can take work now, and a healthy run's keys are all of them, in map order.
@@ -845,7 +893,9 @@ impl AppleSimulatorProvider {
             let free = device.handle.disposed() && device.handle.connected();
             let eligible = !device.handle.retired() && {
                 let state = self.state();
-                (free || state.parked.iter().any(|p| Arc::ptr_eq(&p.handle, &device.handle)))
+                // D44: a parked handle only while a retry owns it, even if it is otherwise free (a connected loss).
+                let parked = state.parked.iter().find(|p| Arc::ptr_eq(&p.handle, &device.handle));
+                parked.map_or(free, |p| p.for_ == ParkedFor::Retry)
                     && !state.recovering.iter().any(|d| Arc::ptr_eq(d, &device.handle))
                     && !state.exhausted.contains(&id)
                     && !state.removed.contains(&id)
