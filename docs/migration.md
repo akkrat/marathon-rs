@@ -105,8 +105,9 @@ links to its entry in the [deviations guide](deviations.md).
 | have a worker with no algorithm in common with marathon ([D35](deviations.md#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | It is no longer retried. | Fix the worker's SSH configuration. |
 | pull slow artifacts from password-authenticated workers ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), U155) | A pull that takes more than 30 s is now really cut. Kotlin's rsync finished it in the background. | Nothing yet: there is no setting for the 30 s. Expect the file to be missing and `.rsync-partial/<name>` to be left in the output directory. |
 | have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. While devices that returned are checked, one after another, that can stretch by up to the `shell` timeout (20 s by default) for each one that does not answer, and by the restoring of their logcat and reverse port forwards. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
+| rely on a run failing quickly when it loses all its devices ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)) | A pool with tests left waits up to `deviceInitializationTimeoutMillis` (180 s by default) for a device to return before it ends. A killed emulator alone exits 1 after about 180 s, not 12.5 s. | Lower `deviceInitializationTimeoutMillis`, which also bounds the wait for the first device. |
 
-These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D23, D26, D28–D30, D34, D36, D37, D40, D42 and D45. D2, D3,
+These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45 and D49. D2, D3,
 D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections below.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
@@ -310,6 +311,9 @@ These fix bugs that Kotlin has, and need no configuration change.
   while devices that returned are checked one after another: by up to `timeoutConfiguration.shell` (20 s by default) for
   each one that does not answer its `getprop`, and while their logcat and reverse port forwards are restored (U170). A
   device has at most 5 of these per adb server per run, and the count is never reset.
+- **A lost adb request no longer retires a device that is still there**
+  ([D49](deviations.md#d49--a-lost-adb-request-does-not-retire-a-device-that-is-still-there)). A device listed as `device` that
+  answers loses only the batch, 3 times per adb server per run, and the count is never reset. One `getprop` is sent per loss.
 - **A file sync push that never verifies fails after `pushFile`**
   ([D23](deviations.md#d23--waiting-for-a-pushed-file-has-a-limit)).
 - **`networkState` can read `DISCONNECTED`** in a lost Android device's per-test JSON
@@ -350,7 +354,7 @@ batch that rejected a test.
   the marker once about 80% had arrived. A simulator then takes up to four setups of two `bootWait`s each, about 26 to
   30 minutes per simulator with the defaults, before it is out of the run. That holds while another simulator keeps the pool
   alive, and leaves out the waits for shutdown and for the session to close. On the last device the run ends after about 6
-  to 13 minutes, with `remaining tests will not run`. Raise `shell` if that happens. A configured
+  to 13 minutes plus [D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait, with `remaining tests will not run`. Raise `shell` if that happens. A configured
   `onPrepare: [ERASE]` erases on each re-setup, as on any setup.
 - **The readiness probe is `launchctl print user/foreground` from iOS 18**
   ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). The answer is about
@@ -377,7 +381,8 @@ These fix bugs that Kotlin has, and need no configuration change.
 - **Closing a session takes at most 30 s, and can kill the process**
   ([D30](deviations.md#d30--closing-an-ssh-session-has-a-limit)). A process that ignores TERM gets KILL after 20 s. A
   server that ignores signals can leave it running; an error line starting `Abandoning session` then names the command.
-  On iOS an abandoned session retires its simulator, which ends a pool whose last device it was.
+  On iOS an abandoned session retires its simulator, and a pool whose last device it was waits
+  ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)), then ends.
 - **An rsync send that stops moving fails after 300 s**
   ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails)). If you wrap rsync with `RSYNC4J_RSYNC`, the wrapper now
   also gets `--timeout=300` on sends. On a host with rsync 3, so does the worker's `rsync --server`: check any forced

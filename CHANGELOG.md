@@ -40,6 +40,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
   report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the
   background. Key authentication has always behaved this way.
+- **A run that loses all its devices takes longer to fail** (D48). A pool with tests left waits up to
+  `deviceInitializationTimeoutMillis` (180 s by default) for a device to return, so a killed emulator alone now exits 1 after
+  about 180 s, not 12.5 s. Lower that value if you need it sooner; it also bounds the wait for the first device.
 
 ### Android
 
@@ -53,6 +56,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   3 s instead of at once. A device gets at most 5 of these per adb server in a run, and the count is never reset. Either
   limit can run longer while devices that returned are checked one after another: by up to the `shell` timeout (20 s by
   default) for each one that does not answer, and while their logcat and reverse port forwards are restored (D41, U170).
+- An adb request rejected or closed before its reply no longer retires a device that is still listed and answers: only
+  the batch fails, 3 times per adb server in a run, and the count is never reset (D49).
 - A file sync push whose md5 never matches fails after `pushFile`, naming the file, instead of waiting for the batch
   timeout (D23).
 - A disconnected Android device can no longer be borrowed, and `networkState` reports `DISCONNECTED` once it is lost, which
@@ -127,6 +132,11 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A failed reporter or close no longer skips the ones after it, such as a later report or terminating the devices. Each failure
   is logged, and the exit code is unchanged (D51, C11, C25).
 - A run whose filters removed every test logs an error line saying what each filter removed, so a mistyped filter is visible. It still exits 0 (D51).
+- A pool that loses its last device waits for one to return, instead of ending with its tests unrun: an `adb reboot` on a
+  single emulator now exits 0, and an iOS simulator recovered after its worker dropped finds its tests still there. The wait
+  is up to `deviceInitializationTimeoutMillis` (180 s by default) from when the device first went away, which includes D22's
+  and D41's waits. A device that keeps returning without finishing a test can't hold a run open, a device after that limit is still dropped, and
+  macOS does not wait (D48).
 - A history query that fails is no longer final for the run: it is retried in the background a limited number of times, at
   5, 10, 20 s and so on counted from the first failure, so a query that fails later joins the next round. Queues built and
   batches composed afterwards use the history it finds. A run never waits for this. With a failing analytics backend the log
@@ -142,6 +152,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D21–D28, D41, D42 and the stream-end fix of D25 also ran on Android emulators (API 33 and 36; D41 and D42 on API 36 only),
   with no real USB or TCP device. The merged Android fixes then ran together on emulators: 41 runs with adb server, adbd and
   emulator kills, reboots, a stale pushed folder and silent video, with no run exiting 0 with tests missing and no hang.
+- D48's `adb reboot` and killed-emulator cases and D49's closed requests ran on an API 36 emulator, and the reboot also on
+  API 33. D48's iOS recovery ran on the fake worker only.
 - D29–D32 and D35–D37 ran against real OpenSSH on loopback.
 - D38 and D46 were measured on iOS 18.6, 26.4 and 27.0; iOS 16 and 17 were not measured. D30's TERM timing was measured on one Mac only.
 - D33, D34 and D40 had no real simulator, worker or analytics backend.
@@ -176,9 +188,11 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A registered iOS simulator whose connection is lost is reconnected every 16 ms with no limit until the run ends. Kotlin does
   the same (D36, U164).
 - A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
-  On the last device the run ends after about 6 to 13 minutes with "remaining tests will not run". If only the probe hangs and
+  On the last device the run ends after about 6 to 13 minutes plus D48's wait, with "remaining tests will not run". If only the probe hangs and
   needs KILL it takes about 33 minutes, and if every command hangs about 50 (D38).
-- A failed xcodebuild close retires its simulator, which ends a pool whose last device it was (D30).
+- A failed xcodebuild close retires its simulator, and a pool whose last device it was waits (D48), then ends (D30).
+- An Android device that left its pool but not adb's list, after a failed prepare or D49's limit, returns only if the list changes,
+  so a pool waiting for it uses up the limit for nothing (D48).
 - A batch that D22's hold kept waiting is charged an attempt when its server is given up, so with `uncompletedTestRetryQuota: 0`
   tests can fail without having run (U160).
 - A queue that ends for a reason other than a metrics failure, such as a broken console, leaves the run hanging (U168).

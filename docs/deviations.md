@@ -264,7 +264,7 @@ that itself restarted during the outage looks the same when it is listed again u
 it is not prepared again, so its batches fail on the missing APKs. `uncompletedTestRetryQuota`, which must be finite
 ([D47](#d47--an-unlimited-uncompletedtestretryquota-is-refused)), ends them when it runs out, and a small one fails the tests. This is a known limit. A plain adb server restart does not restart emulators. A server
 that does not return within `waitForDevicesTimeoutMillis` has its devices disconnected, so the
-run ends as it does when devices are lost, and other servers are not affected. If adb restarts
+run ends as it does when devices are lost, after what is left of [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait, and other servers are not affected. If adb restarts
 take longer on your hosts, raise that value.
 Remote test parsing waits in the same way: an outage does not use up its attempts. If the server never
 returns at that stage, the run fails with `NoDevicesException` when `deviceInitializationTimeoutMillis`
@@ -379,7 +379,7 @@ Kotlin sends TERM, waits up to 30 s for the worker to close the channel and then
 can wait without any limit. It never sends KILL. Native builds send TERM, give the process up to 20 s to end,
 send KILL if it did not, close the channel and give the worker up to 10 s more. After that the session is
 abandoned, so no close takes more than 30 s, and the run carries on. On iOS an abandoned session retires its
-simulator, so when that simulator was the last device of the pool, the pool ends and so does the run. The close fails with the same error
+simulator, so when that simulator was the last device of the pool, the pool waits for [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s limit, then ends, and so does the run. The close fails with the same error
 as Kotlin's, and one error line names the command.
 
 **A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
@@ -538,7 +538,7 @@ measured on iOS 18.6, 26.4 and 27.0, while runtimes 16, 17 and other 26.x were n
 one more poll. A probe that fails for the whole of `bootWait` costs up to four setups of two boot waits each, about 26
 to 30 minutes of booting and shutting down per simulator with the defaults, and then the simulator is out of the run.
 That figure holds while another simulator keeps the pool alive, and leaves out the waits for shutdown and for the session to
-close. On the last device the run ends sooner, after about 6 to 13 minutes, with `remaining tests will not run`. When only the
+close. On the last device the run ends sooner, after about 6 to 13 minutes plus [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait, with `remaining tests will not run`. When only the
 probe hangs and needs KILL it takes about 33 minutes, and with every command hung about 50.
 On runtimes 16 and 17 each probe returns about 20 MB, so a host or link too slow to deliver that within `shell` now takes
 this path, where Kotlin counted the marker once about 80% of it had arrived. From runtime 18 on [D46](#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)
@@ -626,6 +626,7 @@ retried, as in any lost connection. A device that returns keeps its actor, with 
 - A device that goes `offline` and then leaves the list has 3 s, since a real blip passes through an empty list for up to
   a second. A killed emulator looks like this, so its retry path starts about 3.25 s after it dies, where it was immediate.
 - A device leaving the list directly from `device`, or reaching a state such as `unauthorized`, is disconnected at once.
+- A device disconnected after any of this that was the last of its pool has what is left of [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait to return.
 - A device that returns still booting went through a reboot, and is set up again as after any disconnect. One that has
   finished a reboot by then, as from a quick snapshot, is taken for a blip and not prepared again.
 - A device has at most 5 of these per adb server per run. The count is never reset, not even when the device comes back
@@ -740,6 +741,61 @@ vendor keeps its own error. Approved 2026-11-07 (project owner's decision). See
 [x30 findings](wp/x30-findings.md).
 
 **Migration action:** add `uncompletedTestRetryQuota` to every Marathonfile. See [the migration guide](migration.md#a-finite-uncompletedtestretryquota-d47).
+
+## D48 — A pool that lost its last device waits for one to return
+
+Kotlin ends a pool the moment its last device goes. The remaining tests never run, and a device that returns is dropped, so
+a device that is away for a moment ends the run with exit 1. On iOS this defeats the worker-loss recovery of a pool on one worker.
+
+Native builds keep a pool with tests left to run for up to `deviceInitializationTimeoutMillis` (180 s by default), with no new
+setting. It is the time a run already gives a device to appear. A device that returns finds the queue as it was: same tests,
+same order, same retry counts. If none returns, the run ends as before, at that limit, with `remaining tests will not run`.
+A device that joins after that is still dropped.
+
+- **One wait, not several.** The time counts from when the device first went away. D41's grace and D22's outage are part of
+  it: a killed emulator ends the run 180 s after its first `offline`, and a server that never returns 180 s after it went. If
+  `waitForDevicesTimeoutMillis` is that long or longer, there is no wait after the outage.
+- **Time with a device counts too, until a test ends.** A device that keeps coming back without finishing a test can't hold a
+  run open: the limit runs from the first time it went away. A device that leaves after that limit ends the pool at once. Any test
+  that ends, passed or failed, gives the pool its whole wait again. So a run can be held up for the limit plus whatever
+  the last returned device was doing, which its own timeouts bound.
+- **Nothing is waited for with nothing to run.** A pool whose queue is finished ends at once, as before, and so does a run
+  with no tests left, or `deviceInitializationTimeoutMillis: 0`. A healthy run's logs and commands are unchanged.
+- **Each pool waits on its own**, and a run joins all of them, including one created during a wait.
+- **macOS does not wait**, as nothing there can bring a Mac back.
+- **A device that left the pool without leaving adb's list is waited for too**, although it comes back only if the list changes:
+  one whose prepare failed for good, or that [D49](#d49--a-lost-adb-request-does-not-retire-a-device-that-is-still-there) gave
+  up on. That costs up to the limit on top of what it costs today.
+
+A run that loses its last device for good now takes up to the limit longer to fail: 180 s where a killed emulator took 12.5 s.
+A worker away for longer than the limit still ends the run. New log lines appear only during a wait: `no device left,
+waiting up to <n> ms for one to return` and `no device returned within deviceInitializationTimeoutMillis`, and `device <serial>
+has arrived`. Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C50](known-kotlin-bugs.md) and the
+[x31 findings](wp/x31-findings.md).
+
+**Migration action:** none needed. If a run that lost all its devices must fail sooner, lower `deviceInitializationTimeoutMillis`, which also bounds the wait for the first device.
+
+## D49 — A lost adb request does not retire a device that is still there
+
+In Kotlin, an adb request rejected or closed before its reply retires the device for the rest of the run. adb's list doesn't
+change, so nothing ever connects the device again, however healthy it is.
+
+Native builds first look. If the server still lists the device as `device` and the device answers a `getprop` with
+`sys.boot_completed`, only the batch fails, and the device takes the next one. That batch's tests are charged one
+attempt, as for any lost batch. A device gets this 3 times per adb server per run, and the count is never reset,
+not even when its serial returns as a new device. The fourth loss retires it, as in Kotlin, with the log line `Device <serial> lost 3 requests already; not keeping it`.
+
+A device that doesn't answer within `shell`, has restarted, or has left the list is retired at its first loss. So a dead device
+that stays listed still leaves, and a loop can't form: at most 4 batches per device go this way, each charged once. With
+`uncompletedTestRetryQuota: 0` the tests of each batch fail, where Kotlin failed those of one and then lost the device. The
+same request lost because of a server outage or a brief `offline` is still [D22](#d22--a-run-survives-an-adb-server-restart) and
+[D41](#d41--a-brief-offline-does-not-lose-the-device). A loss adds one `getprop` to the commands sent, and a healthy run sends the same commands.
+Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [N15](known-kotlin-bugs.md) and the
+[x31 findings](wp/x31-findings.md).
+
+**Migration action:** none.
 
 ## D50 — A rejected test does not use a batch slot
 
