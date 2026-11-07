@@ -28,9 +28,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-const ANDROID: &str = "name: x\noutputDir: out\nvendorConfiguration:\n  type: Android\n  applicationApk: app.apk\n";
-const ANDROID_IGNORE_FAILURES: &str =
-    "name: x\noutputDir: out\nignoreFailures: true\nvendorConfiguration:\n  type: Android\n  applicationApk: app.apk\n";
+const ANDROID: &str = "name: x\noutputDir: out\nuncompletedTestRetryQuota: 5\nvendorConfiguration:\n  type: Android\n  applicationApk: app.apk\n";
+const ANDROID_IGNORE_FAILURES: &str = "name: x\noutputDir: out\nignoreFailures: true\nuncompletedTestRetryQuota: 5\nvendorConfiguration:\n  type: Android\n  applicationApk: app.apk\n";
 const STUB: &str = "name: x\noutputDir: out\nvendorConfiguration:\n  type: stub\n";
 const EMPTY: &str = "name: x\noutputDir: out\nvendorConfiguration:\n  type: empty\n";
 
@@ -152,6 +151,10 @@ struct Run {
 fn marathon(args: &[&str], content: &str, construct: Result<Outcome, Failure>) -> Run {
     let tmp = tempfile::tempdir().unwrap();
     fs::write(tmp.path().join("Marathonfile"), content).unwrap();
+    // What an iOS or macOS bundle needs in order to bind.
+    fs::write(tmp.path().join("Marathondevices"), "workers: []\n").unwrap();
+    fs::create_dir_all(tmp.path().join("Sample.app")).unwrap();
+    fs::create_dir_all(tmp.path().join("Sample.xctest")).unwrap();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let runner = StubRunner {
         construct,
@@ -363,6 +366,168 @@ fn run_flags_reach_the_configuration_merge() {
         Ok(Outcome::Succeed(true)),
     );
     assert_eq!(r.seen[0], "construct analyticsTracking=true bugsnagReporting=false");
+}
+
+// ---- D47: the table in docs/wp/x30-findings.md ------------------------------------------------------------------------
+
+const REFUSED: &str = "uncompletedTestRetryQuota is unlimited";
+const IOS_HINT: &str = "maxBatchesWithoutProgress does not replace it";
+
+fn vendor_config(top: &str, vendor: &str, extra: &str) -> String {
+    let vendor = match vendor {
+        "Android" => "type: Android\n  applicationApk: app.apk\n".to_owned(),
+        apple => format!(
+            "type: {apple}\n  devices: Marathondevices\n  bundle:\n    application: Sample.app\n    testApplication: Sample.xctest\n    testType: xctest\n{extra}"
+        ),
+    };
+    format!("name: x\noutputDir: out\n{top}vendorConfiguration:\n  {vendor}")
+}
+
+fn assert_refused(r: &Run, case: &str) {
+    assert_eq!(r.exit, 1, "{case}: {}", r.stderr);
+    assert!(r.seen.is_empty(), "{case}: nothing may start");
+    assert!(
+        r.stderr.starts_with(
+            "Exception in thread \"main\" com.malinskiy.marathon.config.exceptions.ConfigurationException: uncompletedTestRetryQuota is unlimited"
+        ),
+        "{case}: {}",
+        r.stderr
+    );
+    assert!(
+        r.stderr.contains("`uncompletedTestRetryQuota: 5`"),
+        "{case}: {}",
+        r.stderr
+    );
+    assert!(
+        r.stderr.contains(marathon_config::loader::FINITE_RETRIES_MIGRATION_URL),
+        "{case}: {}",
+        r.stderr
+    );
+}
+
+fn assert_accepted(r: &Run, case: &str) {
+    assert!(!r.stderr.contains(REFUSED), "{case}: {}", r.stderr);
+    assert_eq!(r.exit, 0, "{case}: {}", r.stderr);
+    assert_eq!(r.seen.len(), 2, "{case}: the run must start");
+}
+
+#[test]
+fn an_unlimited_quota_is_refused_on_every_vendor_whatever_else_is_set() {
+    for vendor in ["Android", "iOS", "macOS"] {
+        for top in [
+            "",
+            "uncompletedTestRetryQuota: 2147483647\n",
+            "uncompletedTestRetryQuota: ${UNSET_QUOTA:-2147483647}\n",
+            // Neither applies to an uncompleted result.
+            "retryStrategy:\n  type: fixed-quota\n  totalAllowedRetryQuota: 1\n  retryPerTestQuota: 1\n",
+            "testBatchTimeoutMillis: 1000\ntestOutputTimeoutMillis: 1000\ndeviceInitializationTimeoutMillis: 1000\n",
+            "executionStrategy:\n  mode: ALL_SUCCESS\n  fast: true\n",
+        ] {
+            let case = format!("{vendor} {top:?}");
+            let r = marathon(&["run"], &vendor_config(top, vendor, ""), Ok(Outcome::Succeed(true)));
+            assert_refused(&r, &case);
+            assert_eq!(r.stderr.contains(IOS_HINT), vendor == "iOS", "{case}: {}", r.stderr);
+        }
+    }
+}
+
+#[test]
+fn max_batches_without_progress_does_not_excuse_an_unlimited_quota() {
+    // Its witnesses: simulator_batch::an_unclassified_error_is_not_counted_as_a_batch_without_progress and
+    // simulator_recovery::a_worker_that_keeps_dropping_its_connection_is_not_charged_to_the_limit_on_losses.
+    for value in [0, 1, 3] {
+        let extra = format!("  maxBatchesWithoutProgress: {value}\n");
+        let r = marathon(&["run"], &vendor_config("", "iOS", &extra), Ok(Outcome::Succeed(true)));
+        assert_refused(&r, &format!("iOS with {value}"));
+        assert!(r.stderr.contains(IOS_HINT), "{}", r.stderr);
+    }
+}
+
+#[test]
+fn any_other_quota_is_accepted_and_max_batches_without_progress_is_not_required() {
+    for vendor in ["Android", "iOS", "macOS"] {
+        // A null binds to 0, as a Jackson primitive does.
+        for quota in ["0", "1", "5", "-1", "2147483646", "${UNSET_QUOTA:-5}", "null"] {
+            let top = format!("uncompletedTestRetryQuota: {quota}\n");
+            let r = marathon(&["run"], &vendor_config(&top, vendor, ""), Ok(Outcome::Succeed(true)));
+            assert_accepted(&r, &format!("{vendor} {quota}"));
+        }
+    }
+    let top = "uncompletedTestRetryQuota: 5\n";
+    let extra = "  maxBatchesWithoutProgress: 0\n";
+    let r = marathon(&["run"], &vendor_config(top, "iOS", extra), Ok(Outcome::Succeed(true)));
+    assert_accepted(&r, "iOS with the setting off");
+}
+
+#[test]
+fn macos_has_no_max_batches_without_progress_to_offer() {
+    let top = "uncompletedTestRetryQuota: 5\n";
+    let extra = "  maxBatchesWithoutProgress: 3\n";
+    let r = marathon(
+        &["run"],
+        &vendor_config(top, "macOS", extra),
+        Ok(Outcome::Succeed(true)),
+    );
+    assert_eq!(r.exit, 1, "{}", r.stderr);
+    assert!(r.stderr.contains("Error parsing config file"), "{}", r.stderr);
+    assert!(r.seen.is_empty());
+}
+
+#[test]
+fn parse_is_refused_too() {
+    let r = marathon(
+        &["parse"],
+        &vendor_config("", "Android", ""),
+        Ok(Outcome::Succeed(true)),
+    );
+    assert_refused(&r, "parse");
+}
+
+#[test]
+fn a_stub_or_missing_vendor_keeps_its_own_error() {
+    let r = marathon(&["run"], STUB, Ok(Outcome::Succeed(true)));
+    assert_eq!(r.exit, 1);
+    assert!(r.stderr.contains("No vendor config present"), "{}", r.stderr);
+    assert!(!r.stderr.contains(REFUSED), "{}", r.stderr);
+}
+
+#[test]
+fn commands_that_run_no_test_do_not_apply_the_check() {
+    let unset = vendor_config("", "Android", "");
+    // Kotlin's default stays in the binding, which is what the JVM goldens replay.
+    let r = marathon(&["config-dump", "Marathonfile"], &unset, Ok(Outcome::Succeed(true)));
+    assert_eq!(r.exit, 0, "{}", r.stderr);
+    assert!(r.stdout.contains("2147483647"), "{}", r.stdout);
+    for args in [&["--help"][..], &["version"][..]] {
+        let r = marathon(args, &unset, Ok(Outcome::Succeed(true)));
+        assert_eq!(r.exit, 0, "{args:?}: {}", r.stderr);
+    }
+}
+
+#[test]
+fn the_binary_exits_1_with_the_message_on_stderr() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("Marathonfile"), vendor_config("", "Android", "")).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_marathon"))
+        .current_dir(tmp.path())
+        .env("ANDROID_HOME", "/android-sdk")
+        .args(["run", "-m", "Marathonfile"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(REFUSED));
+}
+
+#[test]
+fn the_message_links_to_a_section_that_exists() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/migration.md");
+    let migration = fs::read_to_string(path).unwrap();
+    let anchor = marathon_config::loader::FINITE_RETRIES_MIGRATION_URL
+        .rsplit_once('#')
+        .unwrap()
+        .1;
+    assert_eq!(anchor, "a-finite-uncompletedtestretryquota-d47");
+    assert!(migration.contains("\n### A finite `uncompletedTestRetryQuota` (D47)\n"));
 }
 
 /// The 1.6 hand-off row: the JVM's rendering of a three-level chain, frames removed (D12).

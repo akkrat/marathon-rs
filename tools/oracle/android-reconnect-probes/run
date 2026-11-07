@@ -59,7 +59,9 @@ def run_one(scenario, implementation, binary):
                       'screenRecordConfiguration': {'videoConfiguration': {'enabled': False}, 'screenshotConfiguration': {'enabled': False}},
                       'testParserConfiguration': {'type': 'remote'},
                       'adbServers': [{'host': '127.0.0.1', 'port': port} for port in ports]}
+            # D47 refuses the unlimited default. This value is out of reach too, so the replay is the same on both CLIs.
             config = {'name': 'x1-reconnect', 'outputDir': './output', 'analyticsTracking': False, 'bugsnagReporting': False, 'debug': True,
+                      'uncompletedTestRetryQuota': 2147483646,
                       'vendorConfiguration': vendor}
             (inp / 'Marathonfile').write_text(json.dumps(config))
             env = {'HOME': str(temp / 'home'), 'TMPDIR': str(temp / 'tmp'), 'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'JAVA_HOME': java_home, 'LANG': 'en_US.UTF-8'}

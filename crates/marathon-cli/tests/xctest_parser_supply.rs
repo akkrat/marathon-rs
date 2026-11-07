@@ -17,7 +17,7 @@ fn marathon_config_files(root: &Path, vendor: &str, parser: &str) -> std::io::Re
         root.join("Marathonfile"),
         format!(
             "name: supply\noutputDir: report\nanalyticsTracking: false\nbugsnagReporting: false\n\
-             deviceInitializationTimeoutMillis: 100\nvendorConfiguration:\n  type: {vendor}\n  devices: Marathondevices\n  \
+             uncompletedTestRetryQuota: 5\ndeviceInitializationTimeoutMillis: 100\nvendorConfiguration:\n  type: {vendor}\n  devices: Marathondevices\n  \
              bundle:\n    application: Sample.app\n    testApplication: Sample.xctest\n    testType: xctest\n  \
              testParserConfiguration:\n    type: {parser}\n"
         ),

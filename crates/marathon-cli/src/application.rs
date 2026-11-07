@@ -15,7 +15,7 @@ use jcompat::{
 use marathon_config::{
     Configuration, VendorConfiguration,
     binding::{BindingContext, ConfigurationError, Profile},
-    loader::MarathonConfigurationLoader,
+    loader::{MarathonConfigurationLoader, validate_uncompleted_retries_bounded},
 };
 use marathon_core::{error::Failure, model::ExecutionCommand};
 use std::{
@@ -403,6 +403,10 @@ fn run(
             &format!("No vendor config present in {absolute}"),
         ));
     }
+
+    // D47. After the vendor gate, so that a stub or missing vendor keeps its own error; `run` and `parse` alike, since
+    // a Marathonfile that `run` refuses should fail at a CI job's first step. `config-dump` runs no test and doesn't come here.
+    validate_uncompleted_retries_bounded(&configuration).map_err(|e| configuration_failure(&e))?;
 
     let ignore_failures = configuration.ignore_failures;
     let marathon = runner.construct(Arc::new(configuration), output.logging(), output.console())?;

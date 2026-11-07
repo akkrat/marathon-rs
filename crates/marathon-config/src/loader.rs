@@ -291,6 +291,40 @@ impl ConfigurationLoader for MarathonConfigurationLoader {
     }
 }
 
+// ---- D47: the uncompleted retry loop must have a limit --------------------------
+
+/// Where the error message sends the reader.
+pub const FINITE_RETRIES_MIGRATION_URL: &str =
+    "https://github.com/akkrat/marathon-rs/blob/main/docs/migration.md#a-finite-uncompletedtestretryquota-d47";
+
+/// D47: refuse a configuration in which nothing bounds a test that keeps coming back uncompleted.
+///
+/// No Kotlin counterpart. Only the quota ends that loop on every path, on every vendor (the table is in
+/// `docs/wp/x30-findings.md`), so unset and an explicit `Integer.MAX_VALUE` fail alike and any other value passes. A
+/// run calls this after `parse_sync`; `parse_sync` itself stays Kotlin's binding, which the JVM goldens replay.
+pub fn validate_uncompleted_retries_bounded(configuration: &Configuration) -> Result<(), Box<ConfigurationError>> {
+    if configuration.uncompleted_test_retry_quota != i32::MAX {
+        return Ok(());
+    }
+    // iOS's setting looks like an alternative and earlier docs recommended it, so the message answers that question.
+    let not_enough = match configuration.vendor_configuration {
+        VendorConfiguration::Ios(_) => {
+            " maxBatchesWithoutProgress does not replace it: a lost connection and an unclassified error are not counted."
+        }
+        VendorConfiguration::Android(_)
+        | VendorConfiguration::Macos(_)
+        | VendorConfiguration::Stub
+        | VendorConfiguration::Empty => "",
+    };
+    Err(stage_error(
+        ValidationStage::Parse,
+        CONFIGURATION_EXCEPTION_CLASS,
+        Some(format!(
+            "uncompletedTestRetryQuota is unlimited (2147483647 when unset), and no other setting ends a run in which a test keeps coming back uncompleted: it would repeat until the job is killed.{not_enough} Set a finite value in the Marathonfile, for example `uncompletedTestRetryQuota: 5` (the number of devices + 2, at least 5). See {FINITE_RETRIES_MIGRATION_URL}"
+        )),
+    ))
+}
+
 // ---- Logical validator (stage b) --------------------------------------------
 
 fn logical_error(message: String) -> Box<ConfigurationError> {

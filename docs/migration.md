@@ -94,6 +94,7 @@ links to its entry in the [deviations guide](deviations.md).
 
 | If you… | What changed | Do |
 |---|---|---|
+| **have any Marathonfile that doesn't set `uncompletedTestRetryQuota`** ([D47](deviations.md#d47--an-unlimited-uncompletedtestretryquota-is-refused)) | **Breaking.** `marathon run` and `parse` now exit 1 when it is unset or 2147483647, because nothing else ends a run in which a test keeps coming back uncompleted. | Add `uncompletedTestRetryQuota: 5`, or the number of devices + 2 if that is more. [See below](#a-finite-uncompletedtestretryquota-d47). |
 | rely on an empty `/sdcard` ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)) | Prepare no longer runs `rm -r $EXTERNAL_STORAGE`. Videos from an aborted run, or cut short by a lost connection in a run that still exits 0, stay on the device. | Clear what your tests need in the tests or in your device setup. |
 | set `socketIdleTimeout` ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)) | It is now real milliseconds. It bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal of port forwards when a device is disposed. Kotlin read it as seconds, so `PT30S` lasted 30,000 s. | Remove it, or keep it at 30 s or more. `PT2S` now fails those requests on a slow adb server. |
 | have a forced command or wrapper on an iOS or macOS worker ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)) | xcodebuild is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`. Sends carry `--timeout=300`. On a host with rsync 3 the worker's `rsync --server` gets it too, and so does a wrapper set with `RSYNC4J_RSYNC`. | Match `env NSUnbufferedIO=YES xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND`, keep `env` on the worker's `PATH`, and accept the new flag. |
@@ -103,17 +104,29 @@ links to its entry in the [deviations guide](deviations.md).
 | have a worker with no algorithm in common with marathon ([D35](deviations.md#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | It is no longer retried. | Fix the worker's SSH configuration. |
 | pull slow artifacts from password-authenticated workers ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), U155) | A pull that takes more than 30 s is now really cut. Kotlin's rsync finished it in the background. | Nothing yet: there is no setting for the 30 s. Expect the file to be missing and `.rsync-partial/<name>` to be left in the output directory. |
 | have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
-| have a test or device that keeps failing | `uncompletedTestRetryQuota` defaults to `Integer.MAX_VALUE` and there is no overall run deadline. A test that keeps coming back uncompleted is repeated until something else stops the run. | Set finite values: `uncompletedTestRetryQuota` for every platform, and `maxBatchesWithoutProgress` (0, which is off, by default) for iOS. See below. |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D23, D26, D28–D30, D34, D36, D37, D40, D42 and D45. D2, D3,
 D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections below.
 
-**Finite values for `uncompletedTestRetryQuota` and `maxBatchesWithoutProgress`.** With the defaults, nothing ends a run in
-which a test keeps coming back uncompleted, for example because its device keeps failing. Choose a finite
-`uncompletedTestRetryQuota` that fits your suite, and on iOS a finite `maxBatchesWithoutProgress`, the number of batches in
-a row in which no test passed or failed after which a simulator is dropped. The trade-off: device loss uses the same quota.
-A small `uncompletedTestRetryQuota` turns an emulator restart or a lost worker into failed tests, so do not set it so low
-that the devices you have can exhaust it.
+### A finite `uncompletedTestRetryQuota` (D47)
+
+Add one line at the top level of every Marathonfile, on Android, iOS and macOS alike:
+
+```yaml
+uncompletedTestRetryQuota: 5
+```
+
+Without it, or with 2147483647, `marathon run` and `marathon parse` exit 1. No other setting can stand in for it: nothing
+else ends a run in which a test keeps coming back uncompleted. `retryStrategy` applies to failed tests only, the timeouts
+bound one batch, and on iOS `maxBatchesWithoutProgress` isn't charged for an unclassified error or a lost connection. That
+setting stays optional, with 0 meaning off, and macOS and Android don't have it.
+
+**Which value.** Use the number of devices + 2, and at least 5. Each time a test comes back uncompleted it is charged once,
+and that includes a batch lost with its device, so a test that was only unlucky can be charged about once per device
+during a bad outage. Too small a value turns an emulator restart or a lost worker into failed tests. The other side of the
+choice is cost: a test that hangs every time takes (quota + 1) × the time it takes to give up, usually
+`testOutputTimeoutMillis`. Any value other than 2147483647 is accepted, so a very large one keeps the old behaviour, if that
+is really what you want.
 
 ## Keep configuration and command placement
 
@@ -290,8 +303,8 @@ These fix bugs that Kotlin has, and need no configuration change.
   A server still away after `waitForDevicesTimeoutMillis` (30 s by default) loses its devices. Remote test parsing
   waits for the server too; if it never returns at that stage, the run fails with `NoDevicesException` when
   `deviceInitializationTimeoutMillis` (180 s by default) has passed. An emulator that restarted during an outage is not
-  prepared again, so its batches fail on the missing APKs; with the default, unlimited `uncompletedTestRetryQuota` they
-  repeat until something else ends the run.
+  prepared again, so its batches fail on the missing APKs, until `uncompletedTestRetryQuota` runs out
+  ([D47](deviations.md#d47--an-unlimited-uncompletedtestretryquota-is-refused)).
 - **A brief `offline` no longer loses a device**
   ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)). A device gets up to 10 s, 3 s if it also leaves
   the list, so a killed emulator takes about 3.25 s to reach the retry path, where it was immediate. A device has at most

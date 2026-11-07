@@ -11,6 +11,16 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 
 ### Check before you upgrade
 
+- **Breaking: every Marathonfile must set a finite `uncompletedTestRetryQuota`** (D47). `marathon run` and `parse` exit 1
+  when it is unset or 2147483647, on every platform, because nothing else ends a run in which a test keeps coming back
+  uncompleted. Add this line, with the number of devices + 2 if that is more than 5:
+
+  ```yaml
+  uncompletedTestRetryQuota: 5
+  ```
+
+  `maxBatchesWithoutProgress` stays optional and doesn't replace it. See
+  [the migration guide](docs/migration.md#a-finite-uncompletedtestretryquota-d47).
 - **Device preparation no longer wipes external storage** (D27). Kotlin deleted everything under, for example, `/sdcard`
   on every prepare. A test suite that relies on an empty external storage must now clear it itself. Videos left behind
   by an aborted run, or by a recording that a lost connection cut short in a run that still exits 0, are no longer
@@ -27,9 +37,6 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
   report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the
   background. Key authentication has always behaved this way.
-- **Set `uncompletedTestRetryQuota` and, on iOS, `maxBatchesWithoutProgress` to finite values.** The first defaults to
-  `Integer.MAX_VALUE` and no deadline ends a run, so a test that keeps coming back uncompleted repeats until something else
-  stops it. Device loss uses the same quota, so a small value turns lost devices into failed tests.
 
 ### Android
 
@@ -138,8 +145,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   ([U103](docs/found-bugs.md)).
 - No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
   JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
-- With the default, unlimited `uncompletedTestRetryQuota`, an emulator that restarted during an adb outage (D22) repeats its
-  failing batches until something else ends the run.
+- An emulator that restarted during an adb outage (D22) repeats its failing batches until `uncompletedTestRetryQuota` runs
+  out.
 - A stalled rsync send costs 300 s, and a failed install is retried, so one simulator can spend about 7.6 hours on a worker
   that never answers, and N simulators on one worker about N times that. With the default keep-alive a dead link still costs
   about 1.6 hours per simulator. Another worker that finishes the queue ends the run. Kotlin waits for ever (D31, U163).

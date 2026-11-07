@@ -7,6 +7,7 @@ use marathon_apple::{
     test::TestRequest,
     xcodebuild_session::XcodebuildSession,
 };
+use marathon_config::vendor::{GrantLifecycle, IosPermission};
 use marathon_core::{
     error::VendorError,
     executor::shared::{SharedDeferred, Signal},
@@ -37,6 +38,34 @@ async fn by_default_batches_in_which_no_test_finished_keep_the_simulator() -> Te
         assert!(run(&h, &d).await.0.is_ok());
     }
     assert!(!d.lost());
+    h.finish(&[d]).await;
+    Ok(())
+}
+// D47's witness: why this setting doesn't excuse an unlimited uncompletedTestRetryQuota. The batch comes back uncompleted
+// each time (DeviceActor's recoverable path) and no count moves, so the simulator takes the next batch for ever.
+#[tokio::test(start_paused = true)]
+async fn an_unclassified_error_is_not_counted_as_a_batch_without_progress() -> TestResult {
+    let h = Harness::new(|v| {
+        v.max_batches_without_progress = 1;
+        v.permissions.lifecycle = GrantLifecycle::BeforeEachBatch;
+        v.permissions.grant = vec![IosPermission::Calendar];
+    })?;
+    let (d, _) = prepared(&h).await?;
+    let boot = h.boot.clone();
+    *h.worker.before.lock().unwrap() = Arc::new(move |command| {
+        if command.get(2).is_some_and(|s| s == "privacy") {
+            return Box::pin(async { Err(VendorError::Other(failure("java.io.IOException", "probe"))) });
+        }
+        let reply = boot.answer(&command);
+        Box::pin(async move { Ok(reply) })
+    });
+    for _ in 0..5 {
+        let (r, results) = run(&h, &d).await;
+        assert!(matches!(r, Err(VendorError::Other(_))), "{r:?}");
+        assert!(results.is_none());
+        assert!(!d.lost());
+        assert!(!d.retired());
+    }
     h.finish(&[d]).await;
     Ok(())
 }

@@ -261,9 +261,8 @@ and new batches wait. A test running when the server went away fails as uncomple
 Once the server is back, a device still listed carries on, with its logcat and reverse port
 forwards restored; one not listed within `waitForDevicesTimeoutMillis` is disconnected. An emulator
 that itself restarted during the outage looks the same when it is listed again under the same serial:
-it is not prepared again, so its batches fail on the missing APKs. With the default `uncompletedTestRetryQuota`,
-which is unlimited, they repeat until something else ends the run or the device really disconnects; a finite quota
-ends them when it runs out, and with a small one they fail the tests. This is a known limit. A plain adb server restart does not restart emulators. A server
+it is not prepared again, so its batches fail on the missing APKs. `uncompletedTestRetryQuota`, which must be finite
+([D47](#d47--an-unlimited-uncompletedtestretryquota-is-refused)), ends them when it runs out, and a small one fails the tests. This is a known limit. A plain adb server restart does not restart emulators. A server
 that does not return within `waitForDevicesTimeoutMillis` has its devices disconnected, so the
 run ends as it does when devices are lost, and other servers are not affected. If adb restarts
 take longer on your hosts, raise that value.
@@ -669,6 +668,34 @@ same test keeps its place. Approved 2026-11-07 (project owner's decision). See
 
 **Migration action:** none. A test that hangs on every attempt now fails instead of repeating, so a run that used to be killed
 by CI ends with a failed test.
+
+## D47 — An unlimited `uncompletedTestRetryQuota` is refused
+
+**This breaks existing Marathonfiles.** In Kotlin, and until now here, the quota defaults to `Integer.MAX_VALUE` and no
+deadline ends a run, so a test that keeps coming back uncompleted repeats until CI kills the job.
+
+Native builds refuse that configuration. `marathon run` and `marathon parse` exit 1 with a `ConfigurationException` when
+the quota is unset or exactly 2147483647, on Android, iOS and macOS, and name the field, the reason, a suggested value and
+the [migration section](migration.md#a-finite-uncompletedtestretryquota-d47). Any other value passes: 0, a negative value,
+which like 0 gives a test no second attempt, and 2147483646, which is your choice to make. A value from an environment
+substitution such as `${QUOTA}` counts as the value it resolves to. No command-line option sets this field.
+
+The rule is that the check fails only when nothing bounds the loop, and on every vendor only the quota does:
+
+- `retryStrategy` and its quotas apply to failed tests. An uncompleted test never reaches them.
+- `executionStrategy` completes a test on a pass or a failure, and a repeating uncompleted result is neither.
+- The flakiness strategy only decides how many copies to start with. The timeouts bound one batch, not how many there are.
+- Android and macOS have no count of batches without progress. `maxBatchesWithoutProgress` isn't a macOS setting at all.
+- iOS's `maxBatchesWithoutProgress` retires one simulator at a time, and it isn't charged for an unclassified error, or for
+  a lost connection, after which the simulator comes back with a new count. So it doesn't excuse an unlimited quota,
+  and it is no longer something you have to set: 0 stays off.
+
+`marathon --help`, `version` and the hidden `config-dump`, which run no test, don't apply the check. A stub or missing
+vendor keeps its own error. Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C85](known-kotlin-bugs.md) and the
+[x30 findings](wp/x30-findings.md).
+
+**Migration action:** add `uncompletedTestRetryQuota` to every Marathonfile. See [the migration guide](migration.md#a-finite-uncompletedtestretryquota-d47).
 
 ## D50 — A rejected test does not use a batch slot
 
