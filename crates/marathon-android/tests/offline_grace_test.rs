@@ -358,13 +358,13 @@ fn with_executor(runtime: &Arc<AndroidRuntime>, ports: &[u16], executor: Arc<Los
 
 /// The trap D22's review found in `execute`, here for a blip. A device loss during a grace period, or from one that has
 /// just ended, or just before the tracker hears of one, costs only the batch. New batches wait. A device loss with adb
-/// saying `device` throughout is still one.
+/// saying `device` throughout, on a device that does not answer (D49), is still one.
 #[test]
 fn a_blip_fails_only_the_batch_and_later_batches_wait_d41() {
     let _ports = shared_ports();
     run_with_stopped_clock(configuration(), |runtime, context| {
         Box::pin(async move {
-            let mut server = server(base_script(27, vec![])).await;
+            let mut server = server(stops_answering_after_setup(base_script(27, vec![]))).await;
             let lost = Arc::new(Lost::default());
             let provider = AdamDeviceProvider::new(with_executor(&runtime, &[server.port()], lost.clone()))?;
             provider.initialize(context.clone()).await?;
@@ -591,6 +591,164 @@ fn remote_parsing_waits_out_a_brief_offline_d41() {
             let tests = checked(checked(tokio::time::timeout(Duration::from_secs(60), parse).await))?;
             assert_eq!(tests.len(), 1);
             assert_eq!(instruments(), 4);
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+/// D49 (N15): a request rejected or closed before its reply, on a device the server lists as `device` and which answers,
+/// costs the batch and not the device, three times in a run. The tracker sees no change here, so a device retired now
+/// would stay out for good. No disconnect or connect is seen, and one `getprop` per loss is all it sends.
+#[test]
+fn a_lost_request_on_a_listed_device_that_answers_keeps_it_up_to_a_limit_d49() {
+    let _ports = shared_ports();
+    run_with_stopped_clock(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let lost = Arc::new(Lost::default());
+            let provider = AdamDeviceProvider::new(with_executor(&runtime, &[server.port()], lost.clone()))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            logcat_streams(&[(&server, 1)]).await;
+            let getprops = |server: &marathon_adb::server::FakeAdbServer| {
+                server
+                    .transcript()
+                    .iter()
+                    .filter(|r| r["type"] == "shell" && r["command"] == "getprop")
+                    .count()
+            };
+            let before = getprops(&server);
+            for number in 1..=4 {
+                let running = {
+                    let device = device.clone();
+                    let configuration = runtime.dependencies.configuration.clone();
+                    let context = context.clone();
+                    tokio::spawn(async move {
+                        device
+                            .0
+                            .execute(
+                                configuration,
+                                DevicePoolId { name: "pool".into() },
+                                Arc::new(TestBatch {
+                                    tests: vec![],
+                                    id: "batch".into(),
+                                }),
+                                Arc::new(SharedDeferred::default()),
+                                context,
+                            )
+                            .await
+                    })
+                };
+                until(|| lost.1.load(Ordering::SeqCst) >= number).await;
+                lost.0.notify_one();
+                let outcome = checked(checked(tokio::time::timeout(Duration::from_secs(60), running).await));
+                if number <= 3 {
+                    assert!(
+                        matches!(outcome, Err(VendorError::BatchExecution(_))),
+                        "{number}: {outcome:?}"
+                    );
+                } else {
+                    assert!(
+                        matches!(outcome, Err(VendorError::DeviceLost(_))),
+                        "{number}: {outcome:?}"
+                    );
+                }
+            }
+            // The limit is checked before the question, so the loss that retires it sends none.
+            assert_eq!(getprops(&server), before + 3);
+            assert!(
+                device.0.info().healthy,
+                "this device was retired by its actor, not disconnected"
+            );
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+/// D49: a device that stopped answering goes at its first lost request, though adb still lists it.
+#[test]
+fn a_lost_request_on_a_listed_device_that_does_not_answer_loses_it_d49() {
+    let _ports = shared_ports();
+    run_with_stopped_clock(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(stops_answering_after_setup(base_script(27, vec![]))).await;
+            let lost = Arc::new(Lost::default());
+            let provider = AdamDeviceProvider::new(with_executor(&runtime, &[server.port()], lost.clone()))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            logcat_streams(&[(&server, 1)]).await;
+            let running = {
+                let device = device.clone();
+                let configuration = runtime.dependencies.configuration.clone();
+                let context = context.clone();
+                tokio::spawn(async move {
+                    device
+                        .0
+                        .execute(
+                            configuration,
+                            DevicePoolId { name: "pool".into() },
+                            Arc::new(TestBatch {
+                                tests: vec![],
+                                id: "batch".into(),
+                            }),
+                            Arc::new(SharedDeferred::default()),
+                            context,
+                        )
+                        .await
+                })
+            };
+            until(|| lost.1.load(Ordering::SeqCst) >= 1).await;
+            lost.0.notify_one();
+            let outcome = checked(checked(tokio::time::timeout(Duration::from_secs(60), running).await));
+            assert!(matches!(outcome, Err(VendorError::DeviceLost(_))), "{outcome:?}");
+            provider.terminate().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}
+
+/// D49: one that has left the list goes at once too; the tracker's own disconnect takes it from there.
+#[test]
+fn a_lost_request_on_a_device_no_longer_listed_loses_it_d49() {
+    let _ports = shared_ports();
+    run_with_stopped_clock(configuration(), |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let lost = Arc::new(Lost::default());
+            let provider = AdamDeviceProvider::new(with_executor(&runtime, &[server.port()], lost.clone()))?;
+            provider.initialize(context.clone()).await?;
+            let device = connected(&provider).await;
+            logcat_streams(&[(&server, 1)]).await;
+            let running = {
+                let device = device.clone();
+                let configuration = runtime.dependencies.configuration.clone();
+                let context = context.clone();
+                tokio::spawn(async move {
+                    device
+                        .0
+                        .execute(
+                            configuration,
+                            DevicePoolId { name: "pool".into() },
+                            Arc::new(TestBatch {
+                                tests: vec![],
+                                id: "batch".into(),
+                            }),
+                            Arc::new(SharedDeferred::default()),
+                            context,
+                        )
+                        .await
+                })
+            };
+            until(|| lost.1.load(Ordering::SeqCst) >= 1).await;
+            checked(server.disconnect_device(SERIAL));
+            lost.0.notify_one();
+            let outcome = checked(checked(tokio::time::timeout(Duration::from_secs(60), running).await));
+            assert!(matches!(outcome, Err(VendorError::DeviceLost(_))), "{outcome:?}");
             provider.terminate().await?;
             checked(server.shutdown().await);
             Ok(())

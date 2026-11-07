@@ -41,6 +41,8 @@ struct Gate {
     /// D48: since when, on the vendor clock, the server has been away, or each held serial.
     server_away_since: Option<i64>,
     held_since: HashMap<String, i64>,
+    /// D49: how many lost requests each serial has outlived in this run.
+    request_losses: HashMap<String, u32>,
 }
 pub struct DeviceStateTracker {
     devices: Mutex<Vec<(String, DeviceState)>>,
@@ -56,6 +58,7 @@ impl Default for DeviceStateTracker {
                 blips: HashMap::new(),
                 server_away_since: None,
                 held_since: HashMap::new(),
+                request_losses: HashMap::new(),
             }),
         }
     }
@@ -111,6 +114,14 @@ impl DeviceStateTracker {
             (Some(held), Some(server)) => Some(held.min(server)),
             (held, server) => held.or(server),
         }
+    }
+    pub(crate) fn request_losses(&self, serial: &str) -> u32 {
+        self.gate.borrow().request_losses.get(serial).copied().unwrap_or(0)
+    }
+    pub(crate) fn count_request_loss(&self, serial: &str) {
+        self.gate.send_modify(|gate| {
+            *gate.request_losses.entry(serial.to_owned()).or_default() += 1;
+        });
     }
     pub(crate) fn is_held(&self, serial: &str) -> bool {
         self.gate.borrow().held.iter().any(|held| held == serial)

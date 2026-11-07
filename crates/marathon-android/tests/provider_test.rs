@@ -697,7 +697,8 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
     }
     run(configuration(), |runtime, context| {
         Box::pin(async move {
-            let mut server = server(base_script(27, vec![])).await;
+            // D49: this device stops answering, or the first loss would not retire it.
+            let mut server = server(stops_answering_after_setup(base_script(27, vec![]))).await;
             let lost = Arc::new(Lost::default());
             let changed = change_runtime(&runtime, &[server.port()]);
             let changed = Arc::new(AndroidRuntime {

@@ -144,6 +144,22 @@ pub fn base_script(sdk: i32, features: Vec<&str>) -> Value {
     {"exact":"logcat -v long","hang":true}
     ]})
 }
+/// A device that went dead while the server still lists it: setup's two `getprop`s answer, and the next one, D49's question,
+/// shows it no longer booted. Later ones answer again, as after a restart.
+pub fn stops_answering_after_setup(mut script: Value) -> Value {
+    let props = script["devices"][0]["getprop"].as_object().unwrap().clone();
+    let all: String = props
+        .iter()
+        .map(|(k, v)| format!("[{k}]: [{}]\n", v.as_str().map_or_else(|| v.to_string(), str::to_owned)))
+        .collect();
+    let rules = script["shell"].as_array_mut().unwrap();
+    rules.insert(0, json!({"exact":"getprop","times":2,"stdout":all}));
+    rules.insert(
+        1,
+        json!({"exact":"getprop","times":1,"stdout":"[ro.build.version.sdk]: [27]\n"}),
+    );
+    script
+}
 pub async fn server(script: Value) -> FakeAdbServer {
     let script = checked(Script::from_yaml(&script.to_string()));
     checked(FakeAdbServer::start(checked(script.compile(Path::new("."))), ServerOptions::default()).await)

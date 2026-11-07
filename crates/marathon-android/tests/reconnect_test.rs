@@ -72,6 +72,8 @@ struct VirtualDuration {
     clock: Arc<dyn VendorClock>,
     now: Arc<AtomicI64>,
     started: Started,
+    /// D49: how many batches still get a request rejected before its reply, as if by a closed adb connection.
+    lost_requests: Arc<AtomicI64>,
 }
 impl AndroidBatchExecutor for VirtualDuration {
     fn execute<'a>(
@@ -95,6 +97,14 @@ impl AndroidBatchExecutor for VirtualDuration {
                 .unwrap_or_default();
             checked_lock(&self.started).push((port, device.adb_serial().to_owned(), start));
             self.clock.delay(TEST_MILLIS, context.cancellation.clone()).await?;
+            if self.lost_requests.fetch_sub(1, Ordering::SeqCst) > 0 {
+                return Err(marathon_android::execution_error(VendorError::Other(Failure {
+                    class: "com.malinskiy.adam.exception.RequestRejectedException".into(),
+                    message: Some("".into()),
+                    cause: None,
+                    stacktrace: None,
+                })));
+            }
             self.inner
                 .execute(device, configuration, pool, batch, result, context)
                 .await
@@ -333,6 +343,10 @@ fn run_states(script: &str, states: &[(i64, &'static str)]) -> Observed {
 }
 
 fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
+    run_losing_requests(loaded, 0)
+}
+
+fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i64) -> Observed {
     let runtime = checked(tokio::runtime::Builder::new_multi_thread().enable_all().build());
     let mut servers = Vec::new();
     for (script, _, _) in &loaded {
@@ -375,6 +389,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
     let clock_now = Arc::new(AtomicI64::new(0));
     let (log_started, log_now) = (started.clone(), clock_now.clone());
     let tap_now = clock_now.clone();
+    let lost_requests = Arc::new(AtomicI64::new(lost_requests));
     let tap: Tapped = Arc::default();
     let log_tap = tap.clone();
     let final_tap = tap.clone();
@@ -419,6 +434,7 @@ fn run_loaded(loaded: Vec<(Value, Vec<Event>, usize)>) -> Observed {
                             clock: dependencies.clock.clone(),
                             now: log_now,
                             started: log_started,
+                            lost_requests,
                         });
                         let mut services = create_services_with_executor(dependencies, executor).await?;
                         services.provider = Arc::new(TappedProvider {
@@ -1061,6 +1077,61 @@ fn a_run_survives_a_reboot_of_its_only_device_d48() {
     assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
     assert_eq!(observed.received.iter().filter(|r| r.0).count(), 2);
     assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 2);
+}
+
+/// D49, the whole run: two adb requests closed before their reply on the only device, which stays listed and answers. In
+/// Kotlin and before D49 the first retires it, and the run ends with exit 1.
+#[test]
+fn a_run_survives_lost_requests_on_a_healthy_device_d49() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (script, _, index) = load("same-server");
+    let observed = run_losing_requests(vec![(script, vec![], index)], 2);
+    assert!(
+        matches!(observed.result, Some(Ok(true))),
+        "run ended after {} virtual ms: {:?}",
+        observed.virtual_millis,
+        observed.result.as_ref().map(|r| r.is_ok())
+    );
+    assert!(observed.received.iter().all(|r| r.0), "{:?}", observed.received);
+    assert_eq!(actor_messages(&observed, "emulator-5554", "initialize "), 1);
+}
+
+/// D49: requests that keep getting lost retire the device at the fourth, with no loop: four batches, each charged once.
+/// D48 then gives the pool its bounded wait, as this device stays listed and nothing brings it back.
+#[test]
+fn a_device_that_keeps_losing_requests_leaves_without_a_retry_loop_d49() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (script, _, index) = load("same-server");
+    let observed = run_losing_requests(vec![(script, vec![], index)], i64::MAX);
+    assert_eq!(observed.batches.len(), 4, "{:?}", observed.batches);
+    assert!(
+        observed.received.iter().all(|r| r.0),
+        "no disconnect: {:?}",
+        observed.received
+    );
+    assert_eq!(actor_messages(&observed, "emulator-5554", "executeBatch "), 4);
+    ends_when_the_wait_from(&observed, observed.batches[3].2 + TEST_MILLIS);
+}
+
+/// D49: a device that went dead and stays listed leaves at its first lost request.
+#[test]
+fn a_dead_device_that_stays_listed_leaves_at_its_first_lost_request_d49() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    let props = script["devices"][0]["getprop"].as_object().unwrap().clone();
+    let all: String = props
+        .iter()
+        .map(|(k, v)| format!("[{k}]: [{}]\n", v.as_str().map_or_else(|| v.to_string(), str::to_owned)))
+        .collect();
+    let rules = script["shell"].as_array_mut().unwrap();
+    rules.insert(0, json!({"exact":"getprop","times":2,"stdout":all}));
+    rules.insert(
+        1,
+        json!({"exact":"getprop","times":1,"stdout":"[ro.build.version.sdk]: [27]\n"}),
+    );
+    let observed = run_losing_requests(vec![(script, vec![], index)], i64::MAX);
+    assert_eq!(observed.batches.len(), 1, "{:?}", observed.batches);
+    ends_when_the_wait_from(&observed, observed.batches[0].2 + TEST_MILLIS);
 }
 
 /// D41: flapping cannot keep a device going for ever on grace periods: the sixth `offline` disconnects it. D48: it then

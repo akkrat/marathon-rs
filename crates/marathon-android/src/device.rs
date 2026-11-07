@@ -44,6 +44,18 @@ const OUTAGE_POLL_MILLIS: i64 = 100;
 /// D41: the logcat stream's end and the list reporting the blip come over different sockets, so after a very short blip
 /// the stream may not have ended yet. It has in every real case seen, so this only limits the wait.
 const LOGCAT_END_WAIT_MILLIS: i64 = 1000;
+/// D49: lost requests per serial per adb server per run that a device listed as `device` and answering survives. Each one
+/// charges its batch an attempt, so it is a count with no forgiveness, as D41's is. One after this retires the device.
+const REQUEST_LOSSES_PER_DEVICE: u32 = 3;
+/// D22, D41, D49: why a request failed the way that means a lost device.
+enum LossCause {
+    /// The server is away, or the transport is passing through a brief `offline`.
+    Passing(&'static str),
+    /// The server lists it as `device`, so the tracker sees no change and would never connect it again (N15).
+    Listed,
+    /// No longer on the list, or in another state.
+    Unlisted,
+}
 pub trait AndroidBatchExecutor: Send + Sync {
     fn execute<'a>(
         &'a self,
@@ -692,21 +704,48 @@ impl AndroidDevice {
     /// just after, so this also asks the server, which takes one `host:devices`, only after a failure. A device on the
     /// list as `device`, or no longer on it, gives `None`.
     async fn passing_loss(&self, signal: Arc<dyn CancellationSignal>) -> Option<&'static str> {
+        match self.loss_cause(signal).await {
+            LossCause::Passing(why) => Some(why),
+            LossCause::Listed | LossCause::Unlisted => None,
+        }
+    }
+    async fn loss_cause(&self, signal: Arc<dyn CancellationSignal>) -> LossCause {
         const SERVER: &str = "the adb server is away";
         const DEVICE: &str = "the device is briefly offline";
         if !self.adb_server_available() {
-            return Some(SERVER);
+            return LossCause::Passing(SERVER);
         }
         if self.is_held() {
-            return Some(DEVICE);
+            return LossCause::Passing(DEVICE);
         }
-        match self.request(ListDevicesRequest, None, signal).await {
-            Err(_) => Some(SERVER),
-            Ok(devices) => devices
-                .iter()
-                .any(|d| d.serial == self.adb_serial() && is_passing(d.state))
-                .then_some(DEVICE),
+        let devices = match self.request(ListDevicesRequest, None, signal).await {
+            Err(_) => return LossCause::Passing(SERVER),
+            Ok(devices) => devices,
+        };
+        match devices.iter().find(|d| d.serial == self.adb_serial()).map(|d| d.state) {
+            Some(state) if is_passing(state) => LossCause::Passing(DEVICE),
+            Some(DeviceState::Device) => LossCause::Listed,
+            _ => LossCause::Unlisted,
         }
+    }
+    /// D49: a request was rejected or closed before its reply, and the server still lists this device as `device`. If the
+    /// device also answers, the connection was at fault and the device is kept, a limited number of times. A dead device
+    /// that stays listed does not answer, and goes at its first loss. So does one that restarted meanwhile.
+    async fn survives_request_loss(&self, context: &VendorContext) -> VendorResult<bool> {
+        let serial = self.adb_serial();
+        if self.inner.tracker.request_losses(serial) >= REQUEST_LOSSES_PER_DEVICE {
+            self.log(
+                Level::Warn,
+                &format!("Device {serial} lost {REQUEST_LOSSES_PER_DEVICE} requests already; not keeping it"),
+                None,
+            );
+            return Ok(false);
+        }
+        if !self.finished_booting(context).await? {
+            return Ok(false);
+        }
+        self.inner.tracker.count_request_loss(serial);
+        Ok(true)
     }
     fn is_gate_closed(&self) -> bool {
         !self.adb_server_available() || self.is_held()
@@ -888,20 +927,14 @@ impl Device for AndroidDevice {
                     })
                     .await?;
                     let blips = device.inner.tracker.blips(device.adb_serial());
+                    let context = VendorContext {
+                        cancellation: signal.clone(),
+                        ..context
+                    };
                     let outcome = device
                         .runtime()
                         .executor
-                        .execute(
-                            &device,
-                            configuration,
-                            pool,
-                            batch,
-                            result,
-                            VendorContext {
-                                cancellation: signal.clone(),
-                                ..context
-                            },
-                        )
+                        .execute(&device, configuration, pool, batch, result, context.clone())
                         .await;
                     // D41: the actor asks for the next batch as this returns, and a batch given to a device that does
                     // not come back goes back to the queue charged to its tests, which never ran. So it waits here. An
@@ -921,7 +954,15 @@ impl Device for AndroidDevice {
                             let passing = if device.inner.tracker.blips(device.adb_serial()) != blips {
                                 Some("the device was briefly offline")
                             } else {
-                                device.passing_loss(signal).await
+                                match device.loss_cause(signal).await {
+                                    LossCause::Passing(why) => Some(why),
+                                    // D49: the tracker sees no change here, so a device retired now would stay out of
+                                    // the run however healthy it is.
+                                    LossCause::Listed if device.survives_request_loss(&context).await? => {
+                                        Some("a request was lost, while the device is listed and answers")
+                                    }
+                                    LossCause::Listed | LossCause::Unlisted => None,
+                                }
                             };
                             match passing {
                                 Some(why) => {
