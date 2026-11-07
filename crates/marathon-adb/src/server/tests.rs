@@ -452,6 +452,29 @@ devices:
     drop(c);
 }
 
+/// A `gate` step holds the rest of the output, and the command's end, until the test opens it.
+#[tokio::test]
+async fn a_gate_holds_the_output_until_it_is_opened() {
+    let server = start(
+        "devices: [{ serial: d1, shell: [ { exact: gated, output: [{ stdout: \"a\" }, { gate: g }, { stdout: \"b\" }] } ] }]",
+    )
+    .await;
+    let mut c = Client::device(server.port(), "d1", "shell:gated").await;
+    c.status().await.unwrap();
+    assert_eq!(c.read_n(1).await, b"a");
+    let mut probe = [0u8; 1];
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), c.s.read(&mut probe))
+            .await
+            .is_err(),
+        "the gate let the output through"
+    );
+    server.open_gate("g");
+    assert_eq!(c.rest().await, b"b");
+    // An open gate stays open.
+    assert_eq!(shell_v1(server.port(), "d1", "gated").await.0, "ab");
+}
+
 #[tokio::test]
 async fn disconnect_ends_open_sessions() {
     let server = start("devices: [{ serial: d1, shell: [ { prefix: logcat, hang: true } ] }]").await;

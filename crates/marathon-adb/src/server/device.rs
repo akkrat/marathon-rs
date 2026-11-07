@@ -420,6 +420,10 @@ async fn run(
                     capture_output(world, serial, conn, "stderr", b);
                 }
                 Step::Sleep(ms) => tokio::time::sleep(Duration::from_millis(*ms)).await,
+                Step::Gate(name) => {
+                    // The world holds the sender, so the wait ends only when the gate opens.
+                    let _ = world.gates.subscribe().wait_for(|open| open.contains(name)).await;
+                }
                 Step::StdoutStream {
                     data,
                     chunk_size,

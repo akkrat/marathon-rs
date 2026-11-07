@@ -1,7 +1,7 @@
 //! The shared state of a running server: devices, their filesystems and reverse rules, the expectations
 //! with their use counts, and the signals that end sessions.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
@@ -23,6 +23,8 @@ pub(crate) struct World {
     state: Mutex<State>,
     /// Bumped whenever the device list (serials or states) changes; `host:track-devices` follows it.
     pub devices_changed: watch::Sender<u64>,
+    /// The gates the test has opened, for `gate` output steps.
+    pub gates: watch::Sender<BTreeSet<String>>,
     /// Asks the listener supervisor to drop every connection (and maybe listen again later).
     pub kill: tokio::sync::mpsc::UnboundedSender<KillRequest>,
 }
@@ -135,6 +137,7 @@ impl World {
             default: script.default.clone(),
             state: Mutex::new(state),
             devices_changed: watch::Sender::new(0),
+            gates: watch::Sender::new(BTreeSet::new()),
             kill,
         }
     }

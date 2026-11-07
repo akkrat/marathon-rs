@@ -121,6 +121,13 @@ impl FakeAdbServer {
         self.world.capture_output.store(true, Ordering::Relaxed);
     }
 
+    /// Opens the gate `name`: the `gate` output steps waiting on it go on, and later ones pass at once.
+    pub fn open_gate(&self, name: &str) {
+        self.world.gates.send_modify(|open| {
+            open.insert(name.to_owned());
+        });
+    }
+
     /// Waits until the transcript file holds every record so far; fails if writing it failed.
     pub async fn flush_transcript(&self) -> io::Result<()> {
         self.world.transcript.flush().await

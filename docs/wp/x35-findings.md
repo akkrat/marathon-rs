@@ -100,7 +100,7 @@ doesn't wait for any of this. In-process tests see the same, and a task that ign
 | `a_cancel_mid_test_writes_the_reports_and_does_not_bounce_the_test_d52_u161` | The built binary on the fake adb: both debug modes, both signals, a finished test in the reports, the test in flight not, and it started once |
 | `a_cancel_writes_reports_first_and_stops_a_slow_worker_process_d52` | The built binary on the fake worker with an `xcodebuild` that ignores TERM: reports before the KILL, TERM then KILL within the limit, 143, in both debug modes |
 | `a_second_signal_leaves_the_slow_worker_process_behind_d52` | The same, with a second signal during TERM's wait: 130, and no KILL sent |
-| `a_test_that_ends_during_the_cleanup_is_not_started_again_u161` | The built binary on the fake adb, with an InfluxDB holding its last write: the test in flight ends during the cleanup on a live device and is not started again (review round 2) |
+| `a_test_that_ends_during_the_cleanup_is_not_started_again_u161` | The built binary on the fake adb, with an InfluxDB holding its last write: the test in flight ends during the cleanup on a live device and is not started again (review rounds 2 and 3) |
 
 `signals_finish_only_with_debug_and_exit_like_the_jvm` was the old pin. It is renamed to the first test above; the rows are unchanged.
 
@@ -167,12 +167,22 @@ A cross-family review found four things. All are fixed.
 | Finding | Fix | Test |
 |---|---|---|
 | S-x35-1 (major). A second signal could be lost: the relay dropped the stream of the signal that fired and registered a new one, and a repeat in between was missed. The process ran on to the limit, or a third signal exited with its own status | Each signal keeps the one stream it was registered with for both deliveries. `SignalRegistration` returns a stream, not a one-shot future | `a_second_signal_right_after_the_first_is_not_lost_d52`: SIGTERM's stream sends the process a second SIGTERM on its first delivery, and hands the first on only once a stream of its own has seen the second. Registering again fails it at 24.0 s |
-| S-x35-2 (minor). Deleting `stop_execution` failed no CLI test, since the process exited before a batch could come back | A test where the cleanup lasts: an InfluxDB that holds its writes keeps the reports step going, and the test in flight ends by itself 8 s after it started, on a device that is still up | `a_test_that_ends_during_the_cleanup_is_not_started_again_u161`. With `stop_execution` deleted, it fails and the three other CLI shutdown tests pass |
+| S-x35-2 (minor). Deleting `stop_execution` failed no CLI test, since the process exited before a batch could come back | A test where the cleanup lasts: an InfluxDB that holds its writes keeps the reports step going, and the test in flight ends on a device that is still up. Round 2 ended it 8 s after it started; round 3 ends it at a gate (S-x35-5) | `a_test_that_ends_during_the_cleanup_is_not_started_again_u161`. With `stop_execution` deleted, it fails and the three other CLI shutdown tests pass |
 | S-x35-3 (minor). The signal tests read stderr with blocking calls before their deadlines, so a regression that stopped both the marker and the exit hung them | stderr is read on a thread through a channel, every wait has the 60 s patience, and a failing test kills and reaps its child | All 11 `signal_windows` tests |
 | S-x35-4 (nit). The incidental finding on D51's filter line was out of date | Marked resolved | |
 
-The new U161 test's window is the one wait not on an event: after the test's end it gives a live queue 3 s to start the test
-again, which takes milliseconds. A slow host can only narrow it, so it can miss a bounce but not invent one.
+In round 2 the U161 test ended the test in flight 8 s after it started, and this text said a slow host could only narrow its
+window. That was wrong; see S-x35-5 below.
 
 The second-signal text in D52, the changelog, the migration guide and PLAN now says what the relay does: a second signal exits
 at once however soon it comes, and two of the same signal that arrive before the relay takes the first count as one.
+
+## Review round 3
+
+| Finding | Fix | Test |
+|---|---|---|
+| S-x35-5 (minor). The U161 test could take a legitimate retry for a bounce. Its test in flight ended 8 s after it started whatever the test did, so a host that took more than 8 s to send SIGTERM saw the batch end and be retried before the signal, and the test failed with `2 != 1`. The reviewer reproduced it with a 9 s delay before the signal and the production code unchanged | The fake adb gained a `gate` output step, which waits until the in-process test opens the gate (`FakeAdbServer::open_gate`). The test in flight now waits on one, and the test opens it only once the cancel's line is in marathon's stdout, which is logged just before the actors are stopped, and once InfluxDB holds a write, so the reports step is waiting. So the test can't end before the signal | `a_gate_holds_the_output_until_it_is_opened` in marathon-adb. `a_test_that_ends_during_the_cleanup_is_not_started_again_u161` passed 5 runs in a row, about 5.3 s each, and passed with a 9 s delay added before the signal. With `stop_execution` deleted it fails, with 34 and 36 starts against 1, and the three other CLI shutdown tests pass |
+
+The window is now the one wait not on an event: once the gate is open, a live queue has 3 s to start the test again, which
+takes milliseconds. Nothing can end the test before the gate opens, so a slow host can only narrow this window: it can miss a
+bounce but not invent one.

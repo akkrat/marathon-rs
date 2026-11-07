@@ -268,6 +268,8 @@ pub enum OutputStep {
     Stderr(String),
     StdoutFile(FileStream),
     SleepMs(u64),
+    /// Waits until the test opens the gate of this name with `FakeAdbServer::open_gate`.
+    Gate(String),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -460,6 +462,7 @@ pub enum Step {
         interval_ms: u64,
     },
     Sleep(u64),
+    Gate(String),
 }
 
 fn compile_device(d: &DeviceSpec, base: &Path) -> Result<CompiledDevice, ScriptError> {
@@ -558,6 +561,7 @@ fn compile_rule(e: &ShellExpectation, base: &Path, id: &str) -> Result<Rule, Scr
                     OutputStep::Stdout(t) => Step::Stdout(t.clone().into_bytes()),
                     OutputStep::Stderr(t) => Step::Stderr(t.clone().into_bytes()),
                     OutputStep::SleepMs(ms) => Step::Sleep(*ms),
+                    OutputStep::Gate(name) => Step::Gate(name.clone()),
                     OutputStep::StdoutFile(FileStream::Path(p)) => stream_step(base, p, None, 0)?,
                     OutputStep::StdoutFile(FileStream::Options {
                         path,

@@ -2,7 +2,8 @@
 //!
 //! D52 and U161 through the built binary, with real signals: on fake adb, a cancel mid-test in both debug modes, and on
 //! the fake worker, a cancel with a process that takes its time to stop. Every wait is on something observed, but for
-//! the window in which a test that ends during the cleanup could be started again (U161).
+//! the window in which a test that ends during the cleanup could be started again (U161), which a slow host can only
+//! narrow.
 #![cfg(unix)]
 use base64::Engine;
 use fake_worker::{
@@ -38,9 +39,10 @@ const FINISHED: &str = "com.example.MainActivityAllureTest#testFailure";
 const HANGING: &str = "com.example.MainActivityTest#testText";
 /// Far beyond the time from seeing the request to sending the signal, or the test would retry for a reason of its own.
 const HANGING_ENDS_MILLIS: u64 = 20_000;
-/// For the test that ends during the cleanup: still well beyond that time, and short of D52's limit with the window.
-const ENDS_IN_CLEANUP_MILLIS: u64 = 8_000;
-/// How long after its end the test has to come back. A live queue starts it again in milliseconds.
+/// The gate that ends `HANGING` in the test where it ends during the cleanup.
+const CLEANUP_GATE: &str = "cleanup";
+/// How long after its end the test has to come back. A live queue starts it again in milliseconds. Short of D52's 10 s
+/// head start, so the device is up all the while.
 const BOUNCE_WINDOW_MILLIS: u64 = 3_000;
 
 fn repo() -> PathBuf {
@@ -97,9 +99,19 @@ fn files(dir: &Path) -> Vec<String> {
     out
 }
 
+/// How `HANGING` ends: with no result, after a time or once the test opens a gate.
+enum HangingEnds {
+    After(u64),
+    AtGate(&'static str),
+}
+
 /// The devices' script from the runner fixture, with `FINISHED` passing and `HANGING` starting and ending much later with
 /// no result. That end is what U161 needs: a batch that ends while the provider closes, on a client that then stays quiet.
-fn adb_script(hanging_ends_millis: u64) -> Result<marathon_adb::server::CompiledScript> {
+fn adb_script(hanging: HangingEnds) -> Result<marathon_adb::server::CompiledScript> {
+    let end = match hanging {
+        HangingEnds::After(millis) => serde_json::json!({"sleep_ms": millis}),
+        HangingEnds::AtGate(name) => serde_json::json!({"gate": name}),
+    };
     let dir = repo().join("fixtures/fake-adb/android-runner-cli/script");
     let mut script: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("devices.yaml"))?)?;
     let started = |class: &str, test: &str| {
@@ -114,7 +126,7 @@ fn adb_script(hanging_ends_millis: u64) -> Result<marathon_adb::server::Compiled
         0,
         serde_json::json!({
             "regex": "^am instrument.*MainActivityTest",
-            "output": [{"stdout": started("com.example.MainActivityTest", "testText")}, {"sleep_ms": hanging_ends_millis}],
+            "output": [{"stdout": started("com.example.MainActivityTest", "testText")}, end],
         }),
     );
     rules.insert(
@@ -174,7 +186,11 @@ async fn a_cancel_mid_test_writes_the_reports_and_does_not_bounce_the_test_d52_u
         for (number, code) in [(Signal::SIGTERM, 143), (Signal::SIGINT, 130)] {
             let dir = tempfile::tempdir()?;
             let root = dir.path();
-            let mut server = FakeAdbServer::start(adb_script(HANGING_ENDS_MILLIS)?, ServerOptions::default()).await?;
+            let mut server = FakeAdbServer::start(
+                adb_script(HangingEnds::After(HANGING_ENDS_MILLIS))?,
+                ServerOptions::default(),
+            )
+            .await?;
             android_run(root, debug, server.port(), "")?;
             let (stdout, stderr) = (root.join("stdout"), root.join("stderr"));
             let mut child = marathon(root, &stdout, &stderr)?;
@@ -531,16 +547,18 @@ async fn influx_connection(
     }
 }
 
-/// U161 (S-x35-2): the test in flight ends by itself during the cleanup, on a device that is still up, while a metrics
-/// backend slow to take the last points holds the reports step. With the actors left running, the queue starts it again
-/// at once, and again on every end, until the process exits. With them stopped, it started once. Reverting the actors'
-/// cancellation fails this test and no other.
+/// U161 (S-x35-2): the test in flight ends during the cleanup, on a device that is still up, while a metrics backend slow
+/// to take the last points holds the reports step. With the actors left running, the queue starts it again at once, and
+/// again on every end, until the process exits. With them stopped, it started once. Reverting the actors' cancellation
+/// fails this test and no other. The test can't end before the signal (S-x35-5): its output waits on a gate, opened once
+/// the cancel's line is out, which is logged just before the actors are stopped.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_test_that_ends_during_the_cleanup_is_not_started_again_u161() -> Result {
     let influx = SlowInflux::start().await?;
     let dir = tempfile::tempdir()?;
     let root = dir.path();
-    let mut server = FakeAdbServer::start(adb_script(ENDS_IN_CLEANUP_MILLIS)?, ServerOptions::default()).await?;
+    let mut server =
+        FakeAdbServer::start(adb_script(HangingEnds::AtGate(CLEANUP_GATE))?, ServerOptions::default()).await?;
     let analytics = format!(
         "analyticsConfiguration:\n  type: influxdb\n  url: http://127.0.0.1:{}\n  user: ''\n  password: ''\n  dbName: db\n",
         influx.port
@@ -558,13 +576,24 @@ async fn a_test_that_ends_during_the_cleanup_is_not_started_again_u161() -> Resu
     until("the hanging test to start", || instruments(&server, HANGING) > 0)
         .await
         .map_err(|e| format!("{e}\n{}", logs()))?;
-    let started_at = Instant::now();
     signal(&child, Signal::SIGTERM)?;
+    until("the cancel's line", || {
+        std::fs::read_to_string(&stdout).is_ok_and(|out| out.contains("stopping the tests, writing the reports"))
+    })
+    .await
+    .map_err(|e| format!("{e}\n{}", logs()))?;
     until("a write to InfluxDB", || influx.writes() > 0)
         .await
         .map_err(|e| format!("{e}\n{}", logs()))?;
-    // The window: the test's end, and time for a live queue to start it again. A slow host only makes it narrower.
-    let window = started_at + Duration::from_millis(ENDS_IN_CLEANUP_MILLIS + BOUNCE_WINDOW_MILLIS);
+    assert_eq!(
+        instruments(&server, HANGING),
+        1,
+        "started again before it ended\n{}",
+        logs()
+    );
+    server.open_gate(CLEANUP_GATE);
+    // The window: time for a live queue to start the test again. A slow host only makes it narrower.
+    let window = Instant::now() + Duration::from_millis(BOUNCE_WINDOW_MILLIS);
     while Instant::now() < window && instruments(&server, HANGING) == 1 {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }

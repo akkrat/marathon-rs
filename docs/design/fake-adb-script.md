@@ -72,7 +72,7 @@ One expectation answers `shell:` (v1), `shell,v2,…:` (v2), `exec:` and `abb_ex
 | `times` | Stops matching after this many uses, so a later expectation for the same command takes over |
 | `delay_ms` | Waits before the first output |
 | `stdout`, `stdout_file`, `stderr` | Output, written in that order. `stdout_file` streams a file in `chunk_size`-byte writes `chunk_interval_ms` apart (the whole file at once by default) |
-| `output` | Instead of the three above: a list of steps `{stdout: …}`, `{stderr: …}`, `{stdout_file: path}` or `{stdout_file: {path, chunk_size, interval_ms}}`, and `{sleep_ms: …}` |
+| `output` | Instead of the three above: a list of steps `{stdout: …}`, `{stderr: …}`, `{stdout_file: path}` or `{stdout_file: {path, chunk_size, interval_ms}}`, `{sleep_ms: …}`, and `{gate: name}`, which waits until the in-process test calls `FakeAdbServer::open_gate(name)` (a standalone server never opens one) |
 | `exit_code` | 0–255 |
 | `hang` | After the output, keep the command running until the client closes the connection (logcat, a stuck instrumentation) |
 
