@@ -153,7 +153,7 @@ polled again, dropped the channel without CLOSE. x38 fixed it: the reply stays t
 | Late reply | What the task does |
 |---|---|
 | Confirmation | CLOSE, then drains until the peer's CLOSE or the transport's end, as the pump does, so that russh's queue does not hold up the connection |
-| Refusal | Takes its text off the queue. Otherwise the next refusal reads it as its own: `a_late_refusal_does_not_give_its_text_to_the_next_failure_u157` |
+| Refusal | Takes its text off the queue. Otherwise the next refusal reads it as its own: `a_late_refusal_does_not_give_its_text_to_the_next_failure_u157`. Since x38 there is no queue: each open gets its own text from russh, so a refusal nobody takes leaves nothing behind |
 | None | Nothing, until the connection ends |
 
 A reply that gets in at the very moment of the bound goes to the caller: the receiver is closed first and then read once. Since x38 the task
