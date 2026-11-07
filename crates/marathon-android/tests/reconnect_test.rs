@@ -994,6 +994,35 @@ fn a_device_in_its_grace_is_given_no_new_batch_d41() {
     assert_eq!(observed.received.iter().filter(|r| !r.0).count(), 1);
 }
 
+/// D48 with D41 and D22, two devices: one goes `offline` at 6 s, and the server goes at 9 s, never to return, while the
+/// other is healthy. The outage takes over the grace, and both are disconnected when it gives up. The pool had a device
+/// until 9 s, so it waits from there. It used to take the grace's start for every device on the server, and ended at
+/// 186 s.
+#[test]
+fn an_outage_during_one_devices_grace_counts_for_the_other_from_its_own_start_d48() {
+    let _ports = PORTS.write().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = load("same-server");
+    script["devices"][1]["connected"] = json!(true);
+    script["devices"][1].as_object_mut().unwrap().remove("shell");
+    let event = |at_ms, kill, state| Event {
+        server: 0,
+        at_ms,
+        connect: false,
+        serial: "emulator-5554".into(),
+        kill,
+        state,
+    };
+    let events = vec![event(6000, None, Some("offline")), event(9000, Some(None), None)];
+    let observed = run_loaded(vec![(script, events, index)]);
+    assert_eq!(
+        observed.received.iter().filter(|r| !r.0).count(),
+        2,
+        "{:?}",
+        observed.received
+    );
+    ends_when_the_wait_from(&observed, 9000);
+}
+
 /// D41: a device that vanishes while it is `device` is disconnected at once, as ever.
 #[test]
 fn a_device_that_vanishes_directly_has_no_grace_d41() {

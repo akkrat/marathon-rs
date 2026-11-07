@@ -41,6 +41,8 @@ struct Gate {
     /// D48: since when, on the vendor clock, the server has been away, or each held serial.
     server_away_since: Option<i64>,
     held_since: HashMap<String, i64>,
+    /// D48: when the grace periods an outage took over began. Each goes on counting for its own serial alone.
+    held_before_outage: HashMap<String, i64>,
     /// D49: how many lost requests each serial has outlived in this run.
     request_losses: HashMap<String, u32>,
 }
@@ -58,29 +60,29 @@ impl Default for DeviceStateTracker {
                 blips: HashMap::new(),
                 server_away_since: None,
                 held_since: HashMap::new(),
+                held_before_outage: HashMap::new(),
                 request_losses: HashMap::new(),
             }),
         }
     }
 }
 impl DeviceStateTracker {
-    /// An open grace period's time carries on in the outage that takes over from it.
+    /// An open grace period's time carries on in the outage that takes over from it, for its own serial. The other devices
+    /// on the server were fine until now.
     pub(crate) fn server_lost(&self, now: i64) {
         self.gate.send_modify(|gate| {
             gate.server = false;
-            let since = gate
-                .held_since
-                .values()
-                .copied()
-                .min()
-                .map_or(now, |held| held.min(now));
-            gate.server_away_since = Some(since);
+            gate.server_away_since = Some(now);
+            for (serial, since) in &gate.held_since {
+                gate.held_before_outage.entry(serial.clone()).or_insert(*since);
+            }
         });
     }
     pub(crate) fn server_back(&self) {
         self.gate.send_modify(|gate| {
             gate.server = true;
             gate.server_away_since = None;
+            gate.held_before_outage.clear();
         });
     }
     pub(crate) fn is_server_available(&self) -> bool {
@@ -109,7 +111,11 @@ impl DeviceStateTracker {
     /// D48: since when this serial has been kept waiting by an outage or a grace period, if it is.
     pub(crate) fn away_since(&self, serial: &str) -> Option<i64> {
         let gate = self.gate.borrow();
-        let held = gate.held_since.get(serial).copied();
+        let held = gate
+            .held_since
+            .get(serial)
+            .or_else(|| gate.held_before_outage.get(serial))
+            .copied();
         match (held, gate.server_away_since) {
             (Some(held), Some(server)) => Some(held.min(server)),
             (held, server) => held.or(server),
@@ -201,5 +207,30 @@ impl MultiServerDeviceStateTracker {
     }
     pub fn update(&self, client: &AndroidDebugBridgeClient, devices: &[Device]) -> Vec<(String, TrackingUpdate)> {
         self.tracker(client).update(devices)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D48: the reviewer's witness. A device whose grace began at 1,000 has been away since then; one that was healthy
+    /// until its server went at 9,000 has been away since 9,000, not since the other's grace.
+    #[test]
+    fn an_outage_takes_over_each_grace_for_its_own_serial_d48() {
+        let tracker = DeviceStateTracker::default();
+        tracker.hold("graced", 1000);
+        tracker.server_lost(9000);
+        // The grace periods end as the outage takes over (`Blips::abandon`).
+        tracker.release_all();
+        assert_eq!(tracker.away_since("graced"), Some(1000));
+        assert_eq!(tracker.away_since("healthy"), Some(9000));
+        tracker.server_back();
+        assert_eq!(tracker.away_since("graced"), None);
+        assert_eq!(tracker.away_since("healthy"), None);
+        // A later outage starts afresh for both.
+        tracker.server_lost(20_000);
+        assert_eq!(tracker.away_since("graced"), Some(20_000));
+        assert_eq!(tracker.away_since("healthy"), Some(20_000));
     }
 }
