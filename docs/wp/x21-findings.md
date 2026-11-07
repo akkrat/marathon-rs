@@ -145,7 +145,10 @@ No reply to opening chan#<n> in 30 s. If the worker answers later, that channel 
 
 **The fix.** Dropping russh's future was what lost the channel, so the open now runs in a task of its own, which ends on the reply, the transport's
 death or the client's own close (`close_ends_the_wait_for_an_open_that_was_abandoned`). The caller takes the reply through a oneshot. If it has gone, because it
-timed out or its future was dropped (`a_caller_that_goes_away_during_an_open_leaves_no_channel_behind_u157`), the task owns the reply:
+timed out or its future was dropped (`a_caller_that_goes_away_during_an_open_leaves_no_channel_behind_u157`), the task owns the reply.
+As first merged, that held only for a caller that went away before the reply reached the oneshot. One dropped after that, but before it was
+polled again, dropped the channel without CLOSE. x38 fixed it: the reply stays the task's until the caller claims it
+(`docs/wp/x38-findings.md`). What the task does with a reply nobody claims:
 
 | Late reply | What the task does |
 |---|---|
@@ -153,7 +156,8 @@ timed out or its future was dropped (`a_caller_that_goes_away_during_an_open_lea
 | Refusal | Takes its text off the queue. Otherwise the next refusal reads it as its own: `a_late_refusal_does_not_give_its_text_to_the_next_failure_u157` |
 | None | Nothing, until the connection ends |
 
-A reply that gets in at the very moment of the bound goes to the caller, and the task never sees it: the receiver is closed first and then read once.
+A reply that gets in at the very moment of the bound goes to the caller: the receiver is closed first and then read once. Since x38 the task
+still gets it back if the caller drops it unclaimed.
 
 **One cost, and one thing it holds.** Each open now spawns a task, which ends with the reply. No wire order changes for sequential commands, and
 concurrent opens already had no fixed order on a multi-thread runtime. While it waits, the task holds the russh handle, so a client that is dropped
