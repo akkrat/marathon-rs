@@ -1140,3 +1140,76 @@ fn the_pool_lacks_a_device_from_the_last_departure_whatever_the_order_d48() {
         });
     }
 }
+
+// ---- D48, review round 3: a result that comes in while no device is live --------------------------------------------
+
+/// Reports every test passed at once, then holds the batch until it is cancelled and cleans up for `cleanup` ms that
+/// nothing cancels, as Android publishes its results before it pulls its files. A disconnect then reports the batch
+/// passed, after the pool has removed the device.
+fn passed_then_cleaning_up(cleanup: i64) -> OnExecute {
+    on_execute(move |e| async move {
+        e.result.complete(Ok(e.device.report(&e.batch, TestStatus::Passed)));
+        let reason = e.context.cancellation.cancelled().await;
+        e.context
+            .clock
+            .delay(cleanup, marathon_core::executor::shared::Signal::new())
+            .await?;
+        Err(VendorError::Cancelled(reason))
+    })
+}
+
+/// The reviewer's witness for S-x31-3: the result of the device that left came in after the replacement was admitted, and
+/// made every returning device live, so a replacement that never got ready held the run open. It stays not live until it
+/// is ready, and is stopped at the limit, which runs from that result.
+#[test]
+fn review_completed_result_must_not_promote_a_preparing_replacement() {
+    for quota in [None, Some(0)] {
+        let mut c = waiting();
+        if let Some(quota) = quota {
+            c.uncompleted_test_retry_quota = quota;
+        }
+        scheduling_test(move |h| {
+            Box::pin(async move {
+                let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(2, "Scheduler"));
+                h.run_current().await;
+                let first = TestDevice::new("first", None, None, passed_then_cleaning_up(20_000));
+                run.connect(&first);
+                advance(&h, 500).await;
+                let replacement = TestDevice::new("replacement", None, Some(never_ready(20_000)), report_passed());
+                run.disconnect(&first);
+                run.connect(&replacement);
+                advance(&h, 200_000).await;
+                // The limit from the result at 500, then the cleanup of the replacement it stopped.
+                assert_eq!(ended_at(&run), Some(500 + WAIT + 20_000), "quota {quota:?}");
+                assert!(failed(&run));
+                assert!(replacement.batches().is_empty());
+                assert_eq!(logged(&h, "device replacement is not ready when the wait ends"), 1);
+                run.finish(&h).await;
+            })
+        });
+    }
+}
+
+/// The reviewer's witness for the rest of S-x31-1: a test reported passed by the device that left used to clear the wait,
+/// and the next one began when its cleanup ended, at 20,500, so the run ended at 80,500.
+#[test]
+fn review_completed_result_must_not_move_deadline_to_cleanup_end() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "Scheduler"));
+            h.run_current().await;
+            let only = TestDevice::new("only", None, None, passed_then_cleaning_up(20_000));
+            run.connect(&only);
+            advance(&h, 500).await;
+            run.disconnect(&only);
+            advance(&h, 500 + WAIT - 1).await;
+            assert!(ended_at(&run).is_none(), "not a moment before its limit");
+            h.advance_until_idle().await;
+            assert_eq!(ended_at(&run), Some(500 + WAIT));
+            assert!(failed(&run));
+            assert_eq!(only.batches().len(), 1);
+            assert_eq!(logged(&h, "waiting up to 40000 ms for one to return"), 1);
+            run.finish(&h).await;
+        })
+    });
+}

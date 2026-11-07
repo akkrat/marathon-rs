@@ -116,14 +116,15 @@ pub struct DevicePoolActor {
     /// D48: the wait was logged since the pool last had a device added. A wait started while devices were still cleaning
     /// up is logged only once they are done, and only if the queue still has tests then.
     announced: bool,
-    /// D48: when this pool last started to lack a device, until a test has ended on one again. Time with a device counts,
-    /// so a device that keeps coming back without finishing anything can't hold the run open for ever.
+    /// D48: when this pool last started to lack a device, until a test has ended with a live device in the pool. A test
+    /// that ends with none starts it again at that moment. Time with a device counts, so a device that keeps coming back
+    /// without finishing anything can't hold the run open for ever.
     away_since: Option<i64>,
     /// D48: the latest time a live device went away, what its vendor had waited for it included, since a test last ended.
     /// The pool lacks a device from the latest of these, whatever order the devices are removed in.
     departed: Option<i64>,
-    /// D48: devices added while the pool lacked one, until they report ready. They are not live: the limit runs on, and
-    /// one that never gets ready is stopped when it runs out.
+    /// D48: devices added while the pool lacked one, each until it reports ready or leaves, whatever else happens. They are
+    /// not live: the limit runs on, and one that never gets ready is stopped when it runs out.
     returning: Vec<DeviceRef>,
     /// D48: the limit ran out with no live device. The pool takes no new device, and ends once those still cleaning up
     /// have reported Terminated, so that their outcomes count.
@@ -536,13 +537,19 @@ impl DevicePoolActor {
 
     fn device_completed(&mut self, device: DeviceRef, results: TestBatchResults) {
         self.release_assignment(&device);
-        // A test ended, whatever its status: this pool has its devices again, and a timer still running finds no wait.
+        // A test ended, whatever its status: the pool gets a whole new wait, and a timer still running finds another number
+        // or none. A device that has not reported ready stays not live until it does.
         if (!results.finished.is_empty() || !results.failed.is_empty()) && !self.ending {
-            self.away_since = None;
             self.departed = None;
-            self.returning.clear();
             self.return_wait = None;
             self.announced = false;
+            if self.has_live_device() {
+                self.away_since = None;
+            } else {
+                // From a device that has left: the new wait starts now, not when its cleanup ends.
+                self.away_since = Some(self.clock.now_millis());
+                self.start_return_wait(self.configuration.device_initialization_timeout_millis.max(0));
+            }
         }
         let failed = !results.failed.is_empty() || !results.uncompleted.is_empty();
         self.send_to_queue(QueueMessage::Completed(device.0.info(), results));
