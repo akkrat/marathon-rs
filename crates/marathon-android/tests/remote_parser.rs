@@ -695,3 +695,18 @@ fn duplicate_test_retains_first_metadata_but_last_bundle_registration() {
         })
     });
 }
+
+/// x37: with no `numtests`, only the code line tells this list from a whole one, and here it was cut.
+#[test]
+fn a_parse_cut_inside_its_code_line_is_retried_d25() {
+    let no_count = "INSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=one\nINSTRUMENTATION_STATUS_CODE: 1\nINSTRUMENTATION_STATUS: class=pkg.Clazz\nINSTRUMENTATION_STATUS: test=one\nINSTRUMENTATION_STATUS_CODE: 0\n";
+    let cut = format!("{no_count}INSTRUMENTATION_CODE");
+    let (tests, attempts) = extracted(script(vec![
+        json!({"prefix":"am instrument","stdout":cut,"times":1}),
+        json!({"prefix":"am instrument","stdout":whole()}),
+    ]));
+    assert_eq!(
+        (tests.unwrap(), attempts),
+        (vec!["one".to_owned(), "two".to_owned()], 2)
+    );
+}

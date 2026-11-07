@@ -179,6 +179,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A batch that D22's hold kept waiting is charged an attempt when its server is given up, so with `uncompletedTestRetryQuota: 0`
   tests can fail without having run (U160).
 - A queue that ends for a reason other than a metrics failure, such as a broken console, leaves the run hanging (U168).
+- A remote parse cut after other text, before its first status atom, can't be told from output that is not the
+  instrumentation protocol: it gives no tests for that bundle and is not retried. With several bundles the run goes on
+  without them (D25).
 
 ## 0.11.0
 

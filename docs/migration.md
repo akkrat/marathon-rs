@@ -315,7 +315,8 @@ These fix bugs that Kotlin has, and need no configuration change.
 - **Failed instrumentation streams are reported** with their cause
   ([D25](deviations.md#d25--a-failed-instrumentation-stream-is-reported)). Uncompleted tests may carry that text
   instead of the generic one, `No test results` or none, and a remote parse cut off by a lost connection is retried
-  instead of giving a shorter test list. A run that used to pass with tests silently missing can now run them all, or
+  instead of giving a shorter test list. A parse cut before its first status atom, after other text, still gives no
+  tests for that bundle, with no retry. A run that used to pass with tests silently missing can now run them all, or
   fail.
 - **A remote parse that fails short of its list is a failed attempt**
   ([D42](deviations.md#d42--a-remote-parse-that-fails-short-of-its-list-is-a-failed-attempt)). A session whose

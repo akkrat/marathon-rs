@@ -189,13 +189,17 @@ impl InstrumentationResponseTransformer {
     ///   still become the protocol's first word doesn't count: `I` or `INSTRUMENTATION` was cut. Other text followed by
     ///   a cut can't be told from this on a v1 shell.
     ///
-    /// A final code line without its line break still counts, as a recording can end that way (adam's `log_13`).
+    /// A final code line without its line break still counts, as a recording can end that way (adam's `log_13`), but
+    /// only whole: `INSTRUMENTATION_CODE: <int>`. The word alone, or with no number yet, is a cut inside that line, and a
+    /// runner that omits `numtests` would otherwise pass its partial list.
     pub fn ended_without_result(&self) -> bool {
         let units = &self.buffer.0;
-        if self.session_ended
-            || (self.start_refused && !self.test_started)
-            || find_slice(units, TokenType::InstrumentationCode.name()).is_some()
-        {
+        // A code with its line break was an atom, so a code left here is on the last line, as `find_atom` splits it.
+        let last_line = units
+            .rsplit(|&unit| unit == 0x0a || unit == 0x0d)
+            .next()
+            .unwrap_or_default();
+        if self.session_ended || (self.start_refused && !self.test_started) || whole_code_line(last_line) {
             return false;
         }
         let blank = units.iter().all(|&unit| matches!(unit, 0x20 | 0x09 | 0x0a | 0x0d));
@@ -429,6 +433,14 @@ fn to_int_or_null(units: &[u16]) -> Option<i32> {
     String::from_utf16(jstring::trim(units))
         .ok()
         .and_then(|s| jnum::parse_int(&s))
+}
+
+/// `INSTRUMENTATION_CODE: <int>`, the value read as `parse_instrumentation_code` reads it.
+fn whole_code_line(line: &[u16]) -> bool {
+    let token = TokenType::InstrumentationCode.name();
+    starts_with(line, token)
+        && line.get(token.len()) == Some(&u16::from(b':'))
+        && to_int_or_null(&line[token.len() + 1..]).is_some()
 }
 
 fn starts_with(units: &[u16], prefix: &str) -> bool {
@@ -1040,6 +1052,42 @@ mod tests {
         assert!(cut(&format!(
             "{started}INSTRUMENTATION_STATUS: stream=INSTRUMENTATION_FAILED: mine\nINSTRUMENTATION_STATUS_CODE: 2\n"
         )));
+    }
+
+    /// x37: only a whole code line ends the stream when its line break is missing. Every test reported and no
+    /// `numtests` gives `transform` no count to miss, so this is all that tells a cut list from a whole one.
+    #[test]
+    fn a_stream_cut_inside_its_code_line_is_cut_off_d25() {
+        let finished = "INSTRUMENTATION_STATUS: class=C\nINSTRUMENTATION_STATUS: test=a\nINSTRUMENTATION_STATUS_CODE: 1\n\
+                        INSTRUMENTATION_STATUS: class=C\nINSTRUMENTATION_STATUS: test=a\nINSTRUMENTATION_STATUS_CODE: 0\n";
+        let cut = |end: &str| {
+            let mut t = InstrumentationResponseTransformer::new();
+            t.process(format!("{finished}{end}").as_bytes()).expect("process");
+            t.ended_without_result()
+        };
+        for end in [
+            "INSTRUMENTATION_CODE",
+            "INSTRUMENTATION_CODE:",
+            "INSTRUMENTATION_CODE: ",
+            "INSTRUMENTATION_CODE: -",
+            "INSTRUMENTATION_RESULT: stream=\nINSTRUMENTATION_CODE",
+            "text INSTRUMENTATION_CODE: -1",
+        ] {
+            assert!(cut(end), "{end:?}");
+        }
+        for end in [
+            "INSTRUMENTATION_CODE: -1",
+            "INSTRUMENTATION_CODE: 0",
+            "INSTRUMENTATION_CODE: -1 ",
+        ] {
+            assert!(!cut(end), "{end:?}");
+        }
+        // Split across chunks, the code still counts once whole.
+        let mut t = InstrumentationResponseTransformer::new();
+        t.process(format!("{finished}INSTRUMENTATION_CODE").as_bytes())
+            .expect("process");
+        t.process(b": -1").expect("process");
+        assert!(!t.ended_without_result());
     }
 
     #[test]

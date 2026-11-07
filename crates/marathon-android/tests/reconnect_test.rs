@@ -1118,3 +1118,34 @@ fn kotlin_witness_of_the_serial_only_device_map_is_unchanged() {
         })
     );
 }
+
+/// x37, a whole run: a session with no `numtests`, cut inside its final code line, gave `transform` no count to miss,
+/// and the bare word used to count as the stream's end. The run passed with 1 of the 20 tests.
+#[test]
+fn a_run_does_not_take_a_parse_cut_inside_its_code_line_for_the_list_d25() {
+    let _ports = PORTS.read().unwrap_or_else(|e| e.into_inner());
+    let (mut script, _, index) = parse_ending_with("INSTRUMENTATION_CODE", Some(1));
+    let rules = script["shell"].as_array_mut().unwrap();
+    let partial = rules
+        .iter_mut()
+        .find(|r| {
+            r["times"] == 1
+                && r["stdout"]
+                    .as_str()
+                    .is_some_and(|s| s.ends_with("INSTRUMENTATION_CODE"))
+        })
+        .unwrap();
+    partial["stdout"] = json!(
+        partial["stdout"]
+            .as_str()
+            .unwrap()
+            .replace("INSTRUMENTATION_STATUS: numtests=20\n", "")
+    );
+    let observed = run_loaded(vec![(script, vec![], index)]);
+    let summary = (
+        matches!(observed.result, Some(Ok(true))),
+        parses(&observed),
+        observed.batches.len(),
+    );
+    assert_eq!(summary, (true, 2, 20), "(success, parse attempts, batches)");
+}

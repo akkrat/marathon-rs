@@ -300,12 +300,16 @@ the parser refuses) looks like a normal end: tests go missing with a generic tex
 nothing says why. So does one that merely stops, which is what a dropped adb connection looks like: remote
 parsing then takes the tests listed so far for the whole list, and a run can pass with tests missing.
 
-Native builds treat a stream without `INSTRUMENTATION_CODE`, which `am instrument -r` prints last for every
-instrumentation that ran, crashed or not, as failed too. They report a test-run failure with the cause and log it, so
+Native builds treat a stream that does not end with a whole `INSTRUMENTATION_CODE: <n>` line, which `am instrument -r`
+prints last for every instrumentation that ran, crashed or not, as failed too. A stream cut inside that line, after the
+word and before its number, counts as cut. They report a test-run failure with the cause and log it, so
 the unfinished tests are retried and their reports carry the real reason, for example `Instrumentation failed:
 java.io.EOFException: the instrumentation stream ended before a result`. That includes the test in progress. A test
 that finished before the cut stays finished. A device is retired only for a failure that retires it in any other adb
-request. A remote parsing attempt fails, and is retried, and never returns a partial list.
+request. A remote parsing attempt fails, and is retried, instead of returning the tests listed so far. One cut can't be
+told apart: a stream that stops after other text, before the protocol's first status atom, looks like output that never
+was the protocol. It gives no test for that bundle, with no retry; with several bundles the run goes on without that
+bundle's tests.
 
 Test crashes and non-zero exits are unchanged, and so are the two ends without the code that are not a cut stream: `am`
 refusing to start the instrumentation, and output that never was the protocol. What a failing session code means for
