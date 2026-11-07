@@ -112,7 +112,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A Graphite series with no points in the window no longer loses the whole history query (D51, C38).
 - A failed reporter or close no longer skips the ones after it, such as a later report or terminating the devices. Each failure
   is logged, and the exit code is unchanged (D51, C11, C25).
-- A run whose filters removed every test logs a warning saying what each filter removed. It still exits 0 (D51).
+- A run whose filters removed every test logs an error line saying what each filter removed, so a mistyped filter is visible. It still exits 0 (D51).
 - A history query that fails is no longer final for the run: it is retried in the background a limited number of times, at
   5, 10, 20 s and so on counted from the first failure, so a query that fails later joins the next round. Queues built and
   batches composed afterwards use the history it finds. A run never waits for this. With a failing analytics backend the log

@@ -392,7 +392,7 @@ fn d51_extra_records(case: &str) -> Vec<Record> {
         )
     };
     let filtered = (
-        "WARN".to_owned(),
+        "ERROR".to_owned(),
         "No tests left to run after filtering: blocklist simple-class-name removed 1".to_owned(),
         None,
     );

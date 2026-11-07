@@ -94,7 +94,7 @@ cases.
 
 ### The empty-run warning
 
-The WARN is logged where the run decides not to execute, naming each filter's removal count. `parse` doesn't warn:
+The line, raised from WARN to ERROR by the project owner's decision because that logger shows nothing below ERROR with `debug: false`, is logged where the run decides not to execute, naming each filter's removal count. `parse` doesn't warn:
 `filtered_empty_parse_writes_an_empty_test_list` and `test_parse_command_should_create_a_file_with_zero_tests` are unchanged. An
 all-removed run still exits 0, since ending it with an error is a policy decision for the owner.
 

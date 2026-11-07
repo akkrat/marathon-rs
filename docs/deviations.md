@@ -740,7 +740,7 @@ Native builds change four things:
   and the tracker close. Each failure is logged, and the first is returned, so the exit code is what it was. A later finish
   attempt is still a no-op, and cancellation still stops the steps after it.
 
-Separately, when filters take a non-empty list to nothing, a run logs a WARN with what each filter removed, for example
+Separately, when filters take a non-empty list to nothing, a run logs an ERROR line with what each filter removed, so it shows with `debug: false` too, for example
 `No tests left to run after filtering: blocklist simple-class-name removed 12`. It still exits 0, because an empty shard
 fragment is legitimate. `parse` writes its empty list as before, with no warning.
 

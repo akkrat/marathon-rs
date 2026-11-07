@@ -523,11 +523,12 @@ impl Marathon {
         self.timing(|| Ok(format!("Scheduling {} tests", parsed_filtered_tests.len())))?;
         self.flush(task.job.cancellation_signal()).await?;
         let result = if parsed_filtered_tests.is_empty() {
-            // D51: a green run that ran nothing should at least say why. It may be right (an empty
-            // shard fragment), so it stays exit 0; `parse` writes its empty list as before.
+            // D51: a green run that ran nothing should at least say why, and this logger shows nothing below ERROR
+            // with `debug: false`. It may be right (an empty shard fragment), so it stays exit 0; `parse` writes its
+            // empty list as before.
             self.log(
                 LOGGER,
-                Level::Warn,
+                Level::Error,
                 format!("No tests left to run after filtering: {}", filter_stages.join(", ")).into(),
                 None,
             );
