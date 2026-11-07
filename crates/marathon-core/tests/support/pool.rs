@@ -40,7 +40,7 @@ use marathon_core::{
     runtime::*,
     strategy::MetricsLookup,
     time::*,
-    vendor::{Device, DeviceRef, VendorContext},
+    vendor::{Device, DeviceRef, TestBundleIdentifier, VendorContext},
     wiring::{MetricsProvider, Tracker},
 };
 use std::{
@@ -644,6 +644,9 @@ pub struct PoolOptions {
     pub pool: String,
     pub configure: Box<dyn FnOnce(&mut Configuration)>,
     pub before_execute: Option<BeforeExecute>,
+    pub bundle_identifier: Option<Arc<dyn TestBundleIdentifier>>,
+    /// Durations for sorting and batching, in place of `NoMetrics`.
+    pub lookup: Option<Arc<dyn MetricsLookup>>,
 }
 impl Default for PoolOptions {
     fn default() -> Self {
@@ -651,6 +654,8 @@ impl Default for PoolOptions {
             pool: "scheduling".into(),
             configure: Box::new(|_| {}),
             before_execute: None,
+            bundle_identifier: None,
+            lookup: None,
         }
     }
 }
@@ -710,7 +715,8 @@ impl Harness {
         );
         let progress: SharedProgress = Rc::new(tokio::sync::Mutex::new(accumulator));
         let metrics = Arc::new(NoMetrics);
-        let mut prepared = PreparedQueue::from_parts(&configuration, metrics.clone(), metrics);
+        let lookup: Arc<dyn MetricsLookup> = options.lookup.unwrap_or_else(|| metrics.clone());
+        let mut prepared = PreparedQueue::from_parts(&configuration, lookup, metrics);
         if let Some(hook) = options.before_execute {
             prepared = prepared.with_before_execute(hook);
         }
@@ -725,7 +731,7 @@ impl Harness {
                 prepared,
                 shard,
                 timer: Arc::new(ZeroTimer),
-                bundle_identifier: None,
+                bundle_identifier: options.bundle_identifier,
                 parent: self.parent.clone(),
                 hooks: self.hooks.clone(),
                 barriers: self.barriers.clone(),

@@ -146,6 +146,20 @@ fn state_name(state: TestState) -> &'static str {
     }
 }
 
+/// D50's allowance. In this row Kotlin's FixedSize:3 spends one slot on a flaky copy, so its first three batches
+/// poll exactly what D50's FixedSize:2 polls, and those messages stay comparable byte for byte. Its fourth batch has
+/// three tests, so the row stops before that request; with the recorded size 3 it differs from the first step.
+const D50_ROW: &str = "execution-time comparisons with ConfirmOutcome and IsEmpty";
+const D50_ROW_COMPARABLE_STEPS: usize = 8;
+fn with_d50_allowance(mut row: Value) -> Value {
+    if row["case"] == D50_ROW {
+        row["batching"] = json!("fixed-size:2");
+        row["steps"].as_array_mut().unwrap().truncate(D50_ROW_COMPARABLE_STEPS);
+        row["progress"] = Value::Null;
+    }
+    row
+}
+
 /// Replays the rows whose case starts with one of `prefixes` (all rows for none).
 fn replay(prefixes: &'static [&'static str]) {
     let rows: Vec<Value> = rows()
@@ -154,8 +168,22 @@ fn replay(prefixes: &'static [&'static str]) {
             let case = row["case"].as_str().unwrap();
             prefixes.is_empty() || prefixes.iter().any(|prefix| case.starts_with(prefix))
         })
+        .map(with_d50_allowance)
         .collect();
+    let mismatches = mismatches_of(rows);
+    assert!(
+        mismatches.is_empty(),
+        "{} mismatches:\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
+}
+
+/// What differs from the recording in `rows`, in order.
+fn mismatches_of(rows: Vec<Value>) -> Vec<String> {
     assert!(!rows.is_empty());
+    let found = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let out = found.clone();
     let configurations: Vec<_> = rows.iter().map(scenario_configuration).collect();
     run(move |core| {
         Box::pin(async move {
@@ -244,27 +272,65 @@ fn replay(prefixes: &'static [&'static str]) {
                     .into_iter()
                     .map(|(name, state)| json!([name, state_name(state), state.counters().0]))
                     .collect();
-                if json!(progress) != row["progress"] {
+                if !row["progress"].is_null() && json!(progress) != row["progress"] {
                     mismatches.push(format!(
                         "{case}: progress\n  rust {progress:?}\n  jvm  {}",
                         row["progress"]
                     ));
                 }
             }
-            assert!(
-                mismatches.is_empty(),
-                "{} mismatches:\n{}",
-                mismatches.len(),
-                mismatches.join("\n")
-            );
+            *out.lock().unwrap() = mismatches;
             Ok(())
         })
     });
+    found.lock().unwrap().clone()
 }
 
 #[test]
 fn queue_actor_replays_the_jvm_corpus() {
     replay(&[]);
+}
+
+fn recorded_row(case: &str) -> Value {
+    rows().into_iter().find(|row| row["case"] == case).unwrap()
+}
+
+/// The row as recorded differs at its first batch, and only because the copy no longer takes the third slot.
+#[test]
+fn d50_fills_the_slot_kotlin_gave_to_a_flaky_copy() {
+    let mut row = recorded_row(D50_ROW);
+    let recorded = row["steps"][0]["replies"][0][3].clone();
+    assert_eq!(recorded, json!([["pkg", "C1", "m1"], ["pkg", "C2", "m2"]]));
+    row["steps"].as_array_mut().unwrap().truncate(1);
+    row["progress"] = Value::Null;
+    let mismatches = mismatches_of(vec![row]);
+    assert!(mismatches.len() == 1, "{mismatches:?}");
+    assert!(
+        mismatches[0].contains(
+            r#"["ExecuteBatch","serial-A1","batch-1",[["pkg","C1","m1"],["pkg","C2","m2"],["pkg","C3","m3"]]]"#
+        ),
+        "{}",
+        mismatches[0]
+    );
+}
+
+#[test]
+fn the_d50_allowance_covers_one_row_and_hides_no_other_change() {
+    let total = rows().len();
+    let changed = rows()
+        .into_iter()
+        .filter(|row| with_d50_allowance(row.clone()) != *row)
+        .count();
+    assert_eq!((total > 1, changed), (true, 1));
+    // The steps it keeps still answer to the recording.
+    let mut tampered = with_d50_allowance(recorded_row(D50_ROW));
+    tampered["steps"][3]["state"]["queue"][0] = json!(["tampered", "tampered", "tampered"]);
+    assert_eq!(mismatches_of(vec![tampered]).len(), 1);
+    // Another row keeps its progress check and its size.
+    let mut other = recorded_row("C5: a phantom AddRetry through the queue");
+    assert_eq!(with_d50_allowance(other.clone()), other);
+    other["progress"][0][1] = json!("tampered");
+    assert_eq!(mismatches_of(vec![other]).len(), 1);
 }
 
 /// C45: the attempt that completes a test under fast ALL_SUCCESS is still queued as a retry and runs again.

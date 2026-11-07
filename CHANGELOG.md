@@ -97,6 +97,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   batches composed afterwards use the history it finds. A run never waits for this. With a failing analytics backend the log
   has more warnings and timing lines. If a query is stuck inside a blocking call, the run moves on after 3 s and writes its
   reports, but the process may not end until that call returns, which may be never (D34).
+- `fixed-size` batching counts only the tests a batch accepts, against both `size` and `durationMillis`, so flaky copies and
+  tests of another test APK no longer end a batch early. With two test APKs in sorted order, 1,000 tests at size 10 take 100
+  batches instead of 150. A batch rejects at most twice its size. A batch with nothing rejected is unchanged (D50).
 
 ### Evidence for these changes
 
@@ -107,6 +110,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D29–D32 and D35–D37 ran against real OpenSSH on loopback.
 - D38 was measured on iOS 18.6, 26.4 and 27.0. D30's TERM timing was measured on one Mac only.
 - D33, D34 and D40 had no real simulator, worker or analytics backend.
+- D50 was measured through the real pool and queue on a stub device, with no real test APKs.
 - D39's rule is reasoned from Xcode's formats and is not recorded from a real run.
 - The comparisons on real devices and private farms predate D21–D42.
 

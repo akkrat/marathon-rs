@@ -316,6 +316,14 @@ These fix bugs that Kotlin has, and need no configuration change.
   ([D28](deviations.md#d28--each-instrumentation-runs-only-its-own-tests)). This only matters for batches
   that mix test APKs, which takes `class-name` batching and the same class name in both.
 
+## Batches hold more tests with flaky copies or several test APKs
+
+`fixed-size` batching now counts only the tests a batch accepts
+([D50](deviations.md#d50--a-rejected-test-does-not-use-a-batch-slot)). Batches that used to end early hold up to `size`
+tests and up to `durationMillis`, so a run makes fewer instrumentation or xcodebuild starts and each batch can take longer.
+Check `testBatchTimeoutMillis` if you set it close to what those short batches took. Under ties, as with `no-sorting`, tests
+can run in another order after a batch that rejected a test.
+
 ## Other Apple behaviour changes
 
 - **A failed readiness probe means not running**

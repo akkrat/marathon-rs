@@ -643,6 +643,31 @@ the batch runner's handling of the same endings. Approved 2026-11-07 (project ow
 
 **Migration action:** none for a normal test APK. A custom runner that stops listing its tests early and exits with a failing code now fails the run with its text, where it used to run the tests it had listed.
 
+## D50 — A rejected test does not use a batch slot
+
+Kotlin's `fixed-size` batching counts every test it polls. A flaky copy of a test already in the batch, or a test of
+another test APK, is put back but has still used a slot and added its expected duration. Batches end early, and each extra
+batch costs another instrumentation or xcodebuild start.
+
+Native builds count only the tests a batch accepts, against both `size` and `durationMillis`. A batch may reject at most
+2 × `size` tests, so it never scans a long run of another APK; at that limit it goes out short. The first test polled is
+always accepted, and one test longer than the limit still makes a batch. Rejected tests go back after the batch, as before.
+
+- A batch with nothing rejected performs the same queue operations as in Kotlin. So does a whole run with no flaky copies
+  and one test APK.
+- A batch can now be longer, up to its configured `size` and `durationMillis`, which are what Kotlin meant.
+- With sorted tests every test keeps its place. Under ties, as with `no-sorting`, the order is the heap's: rejected tests go
+  to its end, so after such a batch tests can run in another order than in Kotlin.
+- Tests of two APKs in the order they were listed, without sorting, gain almost nothing: 1,000 tests at size 10 take 101
+  batches either way. Sorted, those take 100 instead of 150.
+- `class-name` and `isolate` batching are unchanged.
+
+Approved 2026-11-07 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[C33](known-kotlin-bugs.md) and the [x32 findings](wp/x32-findings.md).
+
+**Migration action:** none. If you set `testBatchTimeoutMillis` close to what short batches took, check it, since batches
+with flaky copies or several test APKs now hold more tests.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)

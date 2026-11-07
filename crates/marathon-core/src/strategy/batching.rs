@@ -3,7 +3,7 @@
 //! constructor's id default (test/TestBatch.kt:5).
 //!
 //! Every queue operation can call the comparator, so the operations, their order
-//! and their count follow Kotlin exactly.
+//! and their count follow Kotlin exactly, apart from D50 in `fixed_size`.
 
 use super::{MetricsKey, MetricsLookup};
 use crate::{
@@ -17,6 +17,9 @@ use marathon_config::schema::BatchingStrategyConfiguration;
 use std::{cmp::Ordering, collections::HashSet};
 
 const BATCH_ID: &str = "core.TestBatch.id";
+/// D50: rejected polls a fixed-size batch may make per slot. Two fill a batch from two evenly mixed test APKs,
+/// and a run makes about as many polls in all as Kotlin, which spent the same polls over more batches.
+const REJECTED_POLLS_PER_SLOT: i64 = 2;
 
 #[derive(Clone, Debug)]
 pub enum BatchingStrategy {
@@ -147,37 +150,39 @@ where
     if i64::try_from(queue.len()).unwrap_or(i64::MAX) < i64::from(last_mile_length) {
         return Ok(queue.poll().into_iter().collect());
     }
-    let mut counter = 0i32;
+    // D50: only accepted tests use a slot or count towards the duration limit. Kotlin (C33) charged rejected
+    // polls too, which ended batches early. With nothing rejected, the operations are exactly Kotlin's.
+    let mut accepted = 0i32;
     let mut expected_batch_duration = 0.0f64;
     let mut unbatchable = Vec::new();
+    // Polling through a long run of another bundle would cost far more than the batch is worth, so rejected
+    // polls have their own limit. i64: size can be Integer.MAX_VALUE.
+    let rejected_limit = i64::from(size) * REJECTED_POLLS_PER_SLOT;
+    let mut rejected = 0i64;
     // A LinkedHashSet: insertion order, with set membership.
     let mut result = Vec::new();
     let mut members = HashSet::new();
     let mut bundle: Option<BundleRef> = None;
-    while counter < size {
+    while accepted < size && rejected < rejected_limit {
         let Some(item) = queue.poll() else { break };
-        // Every poll counts, including the ones that end up unbatchable.
-        counter = counter.wrapping_add(1);
         let item_bundle = match identifier {
             Some(identifier) => identifier.identify(&item).map_err(BatchingError::Bundle)?,
             None => None,
         };
-        if members.contains(&item) {
-            // A flaky copy of a test already in the batch.
-            unbatchable.push(item.clone());
-        } else if bundle.is_some() && bundle != item_bundle {
-            unbatchable.push(item.clone());
-        } else {
-            // Only a non-null bundle locks the batch: a null-bundle test leaves it open.
-            bundle = item_bundle;
-            members.insert(item.clone());
-            result.push(item.clone());
+        // A flaky copy of a test already in the batch, or a test of another bundle.
+        if members.contains(&item) || (bundle.is_some() && bundle != item_bundle) {
+            rejected += 1;
+            unbatchable.push(item);
+            continue;
         }
+        // Only a non-null bundle locks the batch: a null-bundle test leaves it open.
+        bundle = item_bundle;
+        accepted += 1;
+        members.insert(item.clone());
+        result.push(item.clone());
         if let Some((millis, percentile, limit)) = duration {
-            let expected = metrics.execution_time(&item, percentile, limit);
-            // Every polled item adds its duration, unbatchable ones too; at least one
-            // test is taken even when it alone exceeds the limit.
-            expected_batch_duration += expected;
+            // At least one test is taken even when it alone exceeds the limit.
+            expected_batch_duration += metrics.execution_time(&item, percentile, limit);
             if expected_batch_duration >= millis as f64 {
                 break;
             }
