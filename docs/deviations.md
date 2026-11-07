@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D42, D45, D47 and D50; implementation availability
+canonical. This guide covers D1–D42, D45, D47, D50 and D51; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -729,8 +729,7 @@ ones after it.
 Native builds change four things:
 
 - **A failing analytics backend** is logged once per kind of failure, at most eight kinds, and the run carries on with the
-  same results and exit code. At the end of the run one line says how many results were lost. This covers Graphite, InfluxDB
-  and InfluxDB 2, and replaces InfluxDB 2's error line per test. A failed backend `close` still fails the run as before.
+  same results and exit code. At the end of the run one line says how many results were lost. This covers Graphite and InfluxDB 2, whose error line per test it replaces. InfluxDB's own worker already swallowed its write failures, so they never reach it or the line at the end. A backend that fails once after taking 1 s or more loses up to 5 minutes of metrics, which also thins the history for later runs. A failed backend `close` still fails the run as before.
 - **Time limits on a send.** Carbon gets 10 s to look up and connect and 10 s to write, where Kotlin has no limit. No send to
   any backend holds up the queue for more than 30 s. A send that fails after 1 s or more, or hits a limit, makes the next
   5 minutes of metrics get skipped, then the backend is tried again. A carbon that drops packets costs 10 s in every 310 s. A

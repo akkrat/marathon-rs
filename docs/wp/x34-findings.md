@@ -121,6 +121,14 @@ all-removed run still exits 0, since ending it with an error is a policy decisio
   connect limit on this Mac.
 - A whole run with a real stalled carbon. The guard's skip is tested with a scripted backend and limits set per test.
 
+## Review
+
+A second-model review, by reading the code. Its limits, none run:
+
+- A failure taking 1 s or more skips metrics for 5 minutes, even a single 503. One taking 0.2–0.9 s, such as a slow failing name lookup, never skips, so every test pays it for the whole run.
+- A stuck name lookup keeps running in the blocking pool after its timeout, and dropping the vendor runtime waits for it, so exit can be delayed by up to the resolver's timeout. It had no limit before.
+- The totals line is skipped when `reports.close` is cancelled, which only the normal path can do, and it counts test results only.
+
 ## Incidental bugs
 
 - **U168.** Any other queue handler failure still ends the queue and hangs the run, including a console flush failure in

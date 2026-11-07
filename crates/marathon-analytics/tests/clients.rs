@@ -846,9 +846,8 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
     use marathon_core::report::Event;
     let logs = run(|env| {
         Box::pin(async move {
-            let listener = io(tokio::net::TcpListener::bind("127.0.0.1:0").await)?;
-            let port = io(listener.local_addr())?.port();
-            drop(listener);
+            // A privileged port nothing here listens on. A released ephemeral one could be taken by a parallel test.
+            let port = 1;
             let tracker = Arc::new(GraphiteTracker {
                 client: BasicGraphiteClient {
                     host: "127.0.0.1".into(),
