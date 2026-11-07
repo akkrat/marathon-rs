@@ -471,21 +471,41 @@ impl std::task::Wake for Woken {
     }
 }
 
-/// Starts an open, waits until its reply is in the caller's oneshot, and drops the caller there, unpolled. At factor 1 the
-/// open's 30 s are far behind the reply's 1 s, so the wake is the reply.
+/// An open polled once, with a waker of its own, so that a test can see its reply arrive without polling it again.
+struct HeldOpen<F> {
+    open: std::pin::Pin<Box<F>>,
+    woken: Arc<Woken>,
+    waker: std::task::Waker,
+}
+impl<F: Future> HeldOpen<F> {
+    fn start(open: F) -> Self {
+        let woken = Arc::new(Woken(tokio::sync::Notify::new()));
+        let mut held = HeldOpen {
+            open: Box::pin(open),
+            waker: std::task::Waker::from(woken.clone()),
+            woken,
+        };
+        assert!(held.poll().is_pending());
+        held
+    }
+    fn poll(&mut self) -> std::task::Poll<F::Output> {
+        self.open
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(&self.waker))
+    }
+    /// At factor 1 the open's 30 s are far behind a reply that comes in 1 s or at once, so the wake is the reply.
+    async fn replied(&self) {
+        tokio::time::timeout(Duration::from_secs(60), self.woken.0.notified())
+            .await
+            .expect("the reply reaches the caller");
+    }
+}
+
+/// Starts an open, waits until its reply is in the caller's oneshot, and drops the caller there, unpolled.
 async fn drop_the_caller_once_its_reply_came(executor: &SshCommandExecutor, fake: &ssh::Fake) {
-    let woken = Arc::new(Woken(tokio::sync::Notify::new()));
-    let waker = std::task::Waker::from(woken.clone());
-    let mut open = Box::pin(executor.connection().start_session());
-    assert!(
-        open.as_mut()
-            .poll(&mut std::task::Context::from_waker(&waker))
-            .is_pending()
-    );
+    let open = HeldOpen::start(executor.connection().start_session());
     assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
-    tokio::time::timeout(Duration::from_secs(60), woken.0.notified())
-        .await
-        .expect("the reply reaches the caller");
+    open.replied().await;
     drop(open);
 }
 
@@ -518,6 +538,31 @@ async fn a_caller_that_goes_away_after_its_refusal_came_leaves_no_text_behind_u1
     );
     assert_eq!(
         class_chain(&refused),
+        [(OPEN_FAIL_EXCEPTION.into(), Some("Resource shortage".into()))]
+    );
+    held.terminate().unwrap();
+    held.close().await.unwrap();
+}
+
+/// Two refusals waiting in their callers at once (x38 review round 2): the first is dropped unclaimed and the second is read
+/// at once. On one thread nothing else runs between the drop and that read, so a text taken from a queue shared by the
+/// connection would be the first one's.
+#[tokio::test]
+async fn a_refusal_dropped_unclaimed_does_not_give_its_text_to_one_read_after_it_u157() {
+    let fake = ssh::fake(late_open_script(1_000, true), 1).await;
+    let (executor, _) = executor_with(&fake, 1, 0).await;
+    let first = HeldOpen::start(executor.connection().start_session());
+    assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
+    first.replied().await;
+    let held = start(&executor, &["sleep", "1000"], 600_000).await;
+    let mut second = HeldOpen::start(executor.connection().start_session());
+    second.replied().await;
+    drop(first);
+    let std::task::Poll::Ready(refused) = second.poll() else {
+        panic!("the second open's reply was in its oneshot")
+    };
+    assert_eq!(
+        class_chain(&other(refused.err().unwrap().into_vendor())),
         [(OPEN_FAIL_EXCEPTION.into(), Some("Resource shortage".into()))]
     );
     held.terminate().unwrap();

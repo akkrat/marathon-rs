@@ -19,7 +19,6 @@ use russh::{
     keys::{Algorithm, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate},
 };
 use std::{
-    collections::VecDeque,
     future::Future,
     path::Path,
     pin::Pin,
@@ -28,7 +27,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
-use tokio::sync::{Notify, oneshot, watch};
+use tokio::sync::{oneshot, watch};
 
 pub type SshFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, SshFailure>> + Send + 'a>>;
 
@@ -76,8 +75,6 @@ pub struct ConnectionShared {
     closed_locally: AtomicBool,
     authenticated: AtomicBool,
     host_key_rejection: Mutex<Option<SshFailure>>,
-    open_failures: Mutex<VecDeque<String>>,
-    open_failure_added: Notify,
     next_channel: AtomicU32,
     #[cfg(feature = "test-support")]
     peak_unread: std::sync::atomic::AtomicUsize,
@@ -92,8 +89,6 @@ impl ConnectionShared {
             closed_locally: AtomicBool::new(false),
             authenticated: AtomicBool::new(false),
             host_key_rejection: Mutex::new(None),
-            open_failures: Mutex::new(VecDeque::new()),
-            open_failure_added: Notify::new(),
             next_channel: AtomicU32::new(0),
             #[cfg(feature = "test-support")]
             peak_unread: std::sync::atomic::AtomicUsize::new(0),
@@ -164,24 +159,6 @@ impl ConnectionShared {
     pub fn next_channel_number(&self) -> u32 {
         self.next_channel.fetch_add(1, Ordering::SeqCst)
     }
-    /// russh wakes the opener before calling `channel_open_failure`; the description follows at once.
-    async fn take_open_failure(&self) -> String {
-        loop {
-            let added = self.open_failure_added.notified();
-            tokio::pin!(added);
-            added.as_mut().enable();
-            if let Some(description) = self.open_failures.lock().unwrap_or_else(|e| e.into_inner()).pop_front() {
-                return description;
-            }
-            if self.is_dead() {
-                return String::new();
-            }
-            tokio::select! {
-                _ = added => {},
-                _ = self.wait_dead() => {},
-            }
-        }
-    }
 }
 
 pub struct ClientHandler {
@@ -224,22 +201,6 @@ impl client::Handler for ClientHandler {
             ),
         ));
         Ok(false)
-    }
-    async fn channel_open_failure(
-        &mut self,
-        _: ChannelId,
-        _: russh::ChannelOpenFailure,
-        description: &str,
-        _: &str,
-        _: &mut client::Session,
-    ) -> Result<(), Self::Error> {
-        self.shared
-            .open_failures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push_back(description.into());
-        self.shared.open_failure_added.notify_waiters();
-        Ok(())
     }
     async fn disconnected(&mut self, reason: client::DisconnectReason<Self::Error>) -> Result<(), Self::Error> {
         match reason {
@@ -737,15 +698,13 @@ type Opened = Result<Channel<client::Msg>, RusshError>;
 
 /// The reply of an open, as the caller receives it. Until the caller claims it, the open task still owns it: dropped
 /// unclaimed, whether in the oneshot or in a caller's future that was dropped before it was polled again, it goes back to
-/// the task, which deals with it as with a reply that came after the caller had gone.
+/// the task, which closes a channel as it does one that came after the caller had gone. A refusal carries its own text, so
+/// dropping one leaves nothing behind.
 struct OpenReply {
     opened: Option<Opened>,
     unclaimed: Option<oneshot::Sender<Opened>>,
 }
 impl OpenReply {
-    fn is_refusal(&self) -> bool {
-        matches!(self.opened, Some(Err(RusshError::ChannelOpenFailure(_))))
-    }
     /// From here the reply is the caller's: the task ends without touching it.
     fn claim(mut self) -> Opened {
         self.unclaimed = None;
@@ -763,9 +722,10 @@ impl Drop for OpenReply {
 /// One channel open. Kotlin's `open()` gives up after sshj's 30 s and the channel stays attached, so a late confirmation
 /// opens a channel that nobody ever closes, in a `MaxSessions` slot (U157). A CLOSE needs the peer's channel number, which only
 /// the confirmation brings, so nothing can be sent before it: when no caller claims the reply, this waits for it and
-/// closes what it opened. A refusal nobody claimed has its text taken off the queue, where the next refusal would read it as
-/// its own. The reply stays this task's until the caller claims it (x38): a caller can go away after the reply reached its
-/// oneshot. Holding the handle keeps the transport up, but only until the reply, the transport's death or the client's own close.
+/// closes what it opened. The reply stays this task's until the caller claims it (x38): a caller can go away after the reply
+/// reached its oneshot. A refusal's text comes with the refusal, from russh's channel to this opener (vendor patch 4): a
+/// queue shared by the connection let concurrent or abandoned refusals take each other's text. Holding the handle keeps the
+/// transport up, but only until the reply, the transport's death or the client's own close.
 async fn open_session(
     handle: Arc<Handle<ClientHandler>>,
     shared: Arc<ConnectionShared>,
@@ -773,7 +733,7 @@ async fn open_session(
 ) -> marathon_core::error::VendorResult<()> {
     let opened = tokio::select! {
         biased;
-        opened = handle.channel_open_session() => opened,
+        opened = handle.channel_open_session_described() => opened,
         _ = shared.wait_dead() => return Ok(()),
     };
     drop(handle);
@@ -789,11 +749,7 @@ async fn open_session(
         returned = returned => returned,
     };
     match returned {
-        Err(_) | Ok(Err(RusshError::Disconnect)) => {}
-        Ok(Err(RusshError::ChannelOpenFailure(_))) => {
-            shared.take_open_failure().await;
-        }
-        Ok(Err(_)) => {}
+        Err(_) | Ok(Err(_)) => {}
         Ok(Ok(channel)) => {
             let (mut read, write) = channel.split();
             let _ = write.close().await;
@@ -912,22 +868,16 @@ impl SshConnection {
         };
         // From here the task sees that nobody is waiting. A reply that got in just before this is still the caller's.
         replied.close();
-        let opened = opened.or_else(|| replied.try_recv().ok().map(Some));
-        // A refusal is claimed only once its text is off the queue, so that a caller dropped while it waits for the text
-        // leaves the task to take it.
-        let opened = match opened {
-            Some(Some(reply)) if reply.is_refusal() => {
-                let description = self.shared.take_open_failure().await;
-                let _ = reply.claim();
+        let opened = opened
+            .or_else(|| replied.try_recv().ok().map(Some))
+            .map(|reply| reply.map_or(Err(RusshError::Disconnect), OpenReply::claim));
+        let channel = match opened {
+            Some(Ok(channel)) => channel,
+            Some(Err(RusshError::ChannelOpenRefused { description, .. })) => {
                 let failure = SshFailure::new(OPEN_FAIL_EXCEPTION, description);
                 self.shared.loggers.woke_to(&promise, &failure);
                 return Err(failure);
             }
-            Some(reply) => Some(reply.map_or(Err(RusshError::Disconnect), OpenReply::claim)),
-            None => None,
-        };
-        let channel = match opened {
-            Some(Ok(channel)) => channel,
             Some(Err(_)) => {
                 let failure = self.shared.channel_failure();
                 self.shared.loggers.woke_to(&promise, &failure);
