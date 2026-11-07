@@ -17,11 +17,48 @@ mod setup_retry;
 #[derive(Default)]
 struct PolicyState {
     provider: Weak<AppleSimulatorProvider>,
-    pending: IndexMap<Transport, Arc<PendingWorker>>,
+    pending: IndexMap<Transport, Arc<PendingWorker<Entry>>>,
     losses: IndexMap<JavaString, i32>,
     awaiting_admission: IndexSet<JavaString>,
     closed: Option<String>,
     setup: setup_retry::SetupRetries,
+}
+/// D44: a target waiting for its worker, with the generation of the claim that handed it over. An attempt takes only
+/// what matches its own claims; an entry whose simulator was removed or added back since it was offered is dead.
+#[derive(Clone)]
+struct Entry {
+    target: AppleTarget,
+    generation: u64,
+}
+fn entries(provider: &AppleSimulatorProvider, transport: &Transport, targets: &[AppleTarget]) -> Vec<Entry> {
+    let claims = provider.claim(targets.iter().map(|t| target_key(t, transport)));
+    targets
+        .iter()
+        .map(|target| Entry {
+            target: target.clone(),
+            generation: claims.0.get(&target_key(target, transport)).copied().unwrap_or(0),
+        })
+        .collect()
+}
+/// D44: how a retry's entries stand against the claims of `held`, the attempt or the retry that is ending.
+enum Standing {
+    /// Removed from the devices file, or removed or added back since it was offered.
+    Dead,
+    /// Held at its generation, or not held at all.
+    Own,
+    /// Offered after a re-add that `held` predates.
+    Newer,
+}
+fn standing(provider: &AppleSimulatorProvider, transport: &Transport, entry: &Entry, held: &Claims) -> Standing {
+    let key = target_key(&entry.target, transport);
+    let removed = matches!(entry.target, AppleTarget::Simulator { .. }) && provider.state().removed.contains(&key);
+    if removed || entry.generation != provider.generation(&key) {
+        return Standing::Dead;
+    }
+    match held.0.get(&key) {
+        Some(generation) if *generation != entry.generation => Standing::Newer,
+        _ => Standing::Own,
+    }
 }
 /// One supervised retry root per run, independent of monitoring's recovery children.
 pub struct SimulatorRecovery {
@@ -138,7 +175,7 @@ impl SimulatorRecovery {
         &self,
         provider: &AppleSimulatorProvider,
         transport: &Transport,
-        pending: &PendingWorker,
+        pending: &PendingWorker<Entry>,
     ) -> VendorResult<bool> {
         let closed = self.late_join_cutoff()?;
         let returning = self.returning(provider, transport);
@@ -154,7 +191,8 @@ impl SimulatorRecovery {
         };
         let mut late = 0;
         let mut expired = Vec::new();
-        let left = pending.retain(|target| {
+        let left = pending.retain(|entry| {
+            let target = &entry.target;
             let parked = match target {
                 AppleTarget::Simulator { udid } => {
                     let id = apple_id(udid, transport);
@@ -234,15 +272,16 @@ impl SimulatorRecovery {
         if targets.is_empty() {
             return Ok(());
         }
+        let offered = entries(&provider, &transport, &targets);
         let pending = {
             let mut state = self.state();
             if self.retry_cancel.reason().is_some() {
                 return Ok(());
             }
-            if state.pending.get(&transport).is_some_and(|p| p.offer(&targets)) {
+            if state.pending.get(&transport).is_some_and(|p| p.offer(&offered)) {
                 return Ok(());
             }
-            let pending = Arc::new(PendingWorker::new(targets.clone()));
+            let pending = Arc::new(PendingWorker::new(offered));
             state.pending.insert(transport.clone(), pending.clone());
             pending
         };
@@ -268,11 +307,25 @@ impl SimulatorRecovery {
                     && let Some(left) = pending.take()
                 {
                     // D44: what the attempt that ended it acted for has been logged as out of the run, so no sibling's
-                    // plan takes it up. One that joined after that attempt started gets a retry of its own.
+                    // plan takes it up. One offered after a re-add that attempt predates, or a returning simulator that
+                    // joined after it started, gets a retry of its own. A dead entry is nobody's.
+                    let mut covered = Vec::new();
+                    for entry in left {
+                        let key = target_key(&entry.target, &transport);
+                        match standing(&provider, &transport, &entry, &claims) {
+                            Standing::Dead => {}
+                            Standing::Newer => returning.push(entry.target),
+                            Standing::Own if !claims.0.contains_key(&key) && provider.parked_for_retry(&key) => {
+                                returning.push(entry.target)
+                            }
+                            Standing::Own => covered.push(entry.target),
+                        }
+                    }
                     with_claims_sync(claims, || {
-                        provider.give_up_targets(&transport, &left, ParkedFor::GivenUp)
+                        provider.give_up_targets(&transport, &covered, ParkedFor::GivenUp)
                     });
-                    returning = provider.waiting_for_retry(&transport, left);
+                    let mut seen = IndexSet::new();
+                    returning.retain(|target| seen.insert(target_key(target, &transport)));
                 }
                 {
                     let mut state = this.state();
@@ -295,7 +348,7 @@ impl SimulatorRecovery {
         &self,
         provider: &AppleSimulatorProvider,
         transport: &Transport,
-        pending: &PendingWorker,
+        pending: &PendingWorker<Entry>,
         started: i64,
         mut last: ProvisioningError,
         caller: VendorContext,
@@ -304,8 +357,12 @@ impl SimulatorRecovery {
         let config = &provider.services.vendor.worker_connection;
         let worker = transport.id().to_string_lossy();
         let mut attempt = 1i32;
-        let keys = |pending: &PendingWorker| -> Vec<JavaString> {
-            pending.peek().iter().map(|t| target_key(t, transport)).collect()
+        let keys = |pending: &PendingWorker<Entry>| -> Vec<JavaString> {
+            pending
+                .peek()
+                .iter()
+                .map(|e| target_key(&e.target, transport))
+                .collect()
         };
         loop {
             let Some(pause) = config.pause_after(attempt) else {
@@ -373,9 +430,23 @@ impl SimulatorRecovery {
                 provider.log(Level::Warn, || format!("Connected to worker {worker} on attempt {attempt}, {} ms after the first one, setting up its devices", connected.wrapping_sub(started)), None);
                 if self.prune_pending(provider, transport, pending)? { return Ok(false); }
                 loop {
-                    let Some(targets) = pending.take() else { return Ok(false); };
-                    let targets: Vec<_> = targets.into_iter().filter(|target| !matches!(target, AppleTarget::Simulator { udid } if provider.state().removed.contains(&apple_id(udid, transport)))).collect();
-                    if targets.is_empty() { continue; }
+                    let Some(taken) = pending.take() else { return Ok(false); };
+                    // D44: an entry offered after a re-add this attempt predates stays for the retry's next attempt,
+                    // which claims it as it is then. A dead one goes.
+                    let held = provider.claim([]);
+                    let (mut targets, mut newer) = (Vec::new(), Vec::new());
+                    for entry in taken {
+                        match standing(provider, transport, &entry, &held) {
+                            Standing::Dead => {}
+                            Standing::Own => targets.push(entry.target),
+                            Standing::Newer => newer.push(entry),
+                        }
+                    }
+                    if targets.is_empty() {
+                        if newer.is_empty() { continue; }
+                        pending.offer(&newer);
+                        return Ok(true);
+                    }
                     // D44: what joined after the attempt started is claimed as it is now.
                     let taken = provider.claim(targets.iter().map(|t| target_key(t, transport)));
                     let step = with_claims(taken, async {
@@ -392,9 +463,10 @@ impl SimulatorRecovery {
                         let missing = provider.still_claimed(transport, unfinished.missing);
                         if missing.is_empty() { return Ok(Late::Next); }
                         provider.log(Level::Warn, || format!("Worker {worker}: {} devices could not connect, retrying", missing.len()), None);
-                        pending.offer(&missing);
+                        pending.offer(&entries(provider, transport, &missing));
                         Ok(Late::Retry(missing.len()))
                     }).await?;
+                    pending.offer(&newer);
                     match step {
                         Late::Next => continue,
                         Late::Retry(missing) => {
@@ -730,8 +802,12 @@ impl ProviderRecovery for SimulatorRecovery {
         Box::pin(async move { connections.connect_worker(transport, caller).await })
     }
     fn offer(&self, transport: &Transport, targets: &[AppleTarget]) -> bool {
-        let offered = self.state().pending.get(transport).is_some_and(|p| p.offer(targets));
-        if offered && let Ok(provider) = self.provider() {
+        let Ok(provider) = self.provider() else {
+            return false;
+        };
+        let offered = entries(&provider, transport, targets);
+        let offered = self.state().pending.get(transport).is_some_and(|p| p.offer(&offered));
+        if offered {
             provider.log(
                 Level::Info,
                 || {

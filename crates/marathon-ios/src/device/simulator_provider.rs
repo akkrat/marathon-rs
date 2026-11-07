@@ -733,8 +733,9 @@ impl AppleSimulatorProvider {
         released?;
         failure.map_or(Ok(()), Err)
     }
-    /// D44: a plan acts for its targets and for the parked simulators it may take along, at the generations they have
-    /// now, unless the operation running it already holds an older claim.
+    /// D44: a plan acts for its targets and for every simulator of its worker it may take along, at the generations they
+    /// have before its first await, unless the operation running it already holds an older claim. It takes along only
+    /// what it holds a current claim on (`claimed_current`); one that becomes eligible otherwise waits for the next plan.
     async fn setup(
         &self,
         transport: &Transport,
@@ -744,14 +745,14 @@ impl AppleSimulatorProvider {
         kind: SetupCycle,
         caller: VendorContext,
     ) -> ProvisioningResult<UnfinishedSetup> {
-        let parked: Vec<_> = self
+        let registered: Vec<_> = self
             .state()
-            .parked
-            .iter()
-            .filter(|p| p.handle.transport() == transport)
-            .map(parked_id)
+            .devices
+            .values()
+            .filter(|d| d.handle.transport() == transport)
+            .map(|d| apple_id(&d.handle.udid().into(), transport))
             .collect();
-        let claims = self.claim(targets.iter().map(|t| target_key(t, transport)).chain(parked));
+        let claims = self.claim(targets.iter().map(|t| target_key(t, transport)).chain(registered));
         with_claims(
             claims,
             self.setup_claimed(transport, executor, targets, started, kind, caller),
@@ -797,7 +798,7 @@ impl AppleSimulatorProvider {
                         .collect()
                 },
                 self.services.vendor.lifecycle_configuration.shutdown_unused,
-                || self.current(transport),
+                || self.claimed_current(transport),
                 &caller,
             )
             .await;
@@ -935,23 +936,12 @@ impl AppleSimulatorProvider {
         }
         Ok(())
     }
-    /// D44: the simulators among `targets` that a retry should still own: parked for one, and in the devices file.
-    fn waiting_for_retry(&self, transport: &Transport, targets: Vec<AppleTarget>) -> Vec<AppleTarget> {
-        let state = self.state();
-        let mut seen = IndexSet::new();
-        targets
-            .into_iter()
-            .filter(|target| {
-                let key = target_key(target, transport);
-                matches!(target, AppleTarget::Simulator { .. })
-                    && !state.removed.contains(&key)
-                    && state
-                        .parked
-                        .iter()
-                        .any(|p| parked_id(p) == key && p.for_ == ParkedFor::Retry)
-                    && seen.insert(key)
-            })
-            .collect()
+    /// D44: whether this simulator's old handle is parked for a retry to own.
+    fn parked_for_retry(&self, key: &JavaString) -> bool {
+        self.state()
+            .parked
+            .iter()
+            .any(|p| parked_id(p) == *key && p.for_ == ParkedFor::Retry)
     }
     fn is_parked(&self, id: &JavaString) -> bool {
         self.state().parked.iter().any(|p| parked_id(p) == *id)
@@ -980,6 +970,14 @@ impl AppleSimulatorProvider {
                 })
                 .collect(),
         )
+    }
+    /// D44: whether the running operation holds a claim on this key that is still current.
+    fn claimed(&self, key: &JavaString) -> bool {
+        CLAIMS
+            .try_with(|claims| claims.0.get(key).copied())
+            .ok()
+            .flatten()
+            .is_some_and(|claimed| claimed == self.generation(key))
     }
     /// D44: whether the running operation's claim on this key is out of date. One it holds no claim on isn't.
     fn stale(&self, key: &JavaString) -> bool {
@@ -1082,6 +1080,17 @@ impl AppleSimulatorProvider {
                 )
             })
             .collect()
+    }
+    /// D44: `current` for a plan, with what the plan holds no current claim on kept rather than taken along.
+    fn claimed_current(&self, transport: &Transport) -> ProvisioningResult<CurrentDevices> {
+        let mut current = self.current(transport)?;
+        let (eligible, unclaimed): (Vec<_>, Vec<_>) = current
+            .eligible_disposed
+            .into_iter()
+            .partition(|udid| self.claimed(&apple_id(&udid.as_str().into(), transport)));
+        current.eligible_disposed = eligible;
+        current.kept.extend(unclaimed);
+        Ok(current)
     }
     pub fn current(&self, transport: &Transport) -> ProvisioningResult<CurrentDevices> {
         let mut current = CurrentDevices {

@@ -1040,3 +1040,168 @@ async fn a_simulator_that_joins_a_retry_after_its_last_attempt_started_gets_a_re
     assert!(p.current("a").connected());
     p.finish().await
 }
+
+/// A worker retry attempt waits for its planning connection while the simulator is removed and added back, and the new
+/// attempt joins the retry. When the older connection gets through, it leaves the newer entry to the retry's next attempt.
+#[tokio::test(start_paused = true)]
+async fn an_older_attempt_that_connects_late_leaves_the_simulator_added_back_to_the_next_attempt() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    p.connected(1).await;
+    let _lost = lose_worker(&p, &["a"]);
+    let gate = SharedDeferred::new();
+    let release = gate.clone();
+    p.answer(move |_, planning, n| {
+        let release = release.clone();
+        Box::pin(async move {
+            match (planning, n) {
+                (false, _) | (true, 3) => Err(unreachable()),
+                (true, 2) => {
+                    release.wait().await.map_err(ConnectionError::from)?;
+                    Ok(None)
+                }
+                _ => Ok(None),
+            }
+        })
+    });
+    pass(11).await;
+    p.update(&[]).await?;
+    p.update(&["a"]).await?;
+    gate.complete(Ok(()));
+    pass(1).await;
+    p.answer(|_, _, _| Box::pin(async { Ok(None) }));
+    pass(200).await;
+    let calls = p.connections.calls.lock().unwrap().clone();
+    let mut seen = Seen::default();
+    seen.drain(&p).await;
+    let logs: Vec<_> = p
+        .h()
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, _, m, _)| m.clone())
+        .collect();
+    p.finish().await?;
+    assert_eq!(seen.connected, ["a@local"], "calls={calls:?}, logs={logs:?}");
+    Ok(())
+}
+
+/// A plan claims every simulator of its worker before it lists them, so one parked meanwhile and taken along is charged.
+#[tokio::test(start_paused = true)]
+async fn a_simulator_parked_while_a_plan_lists_its_worker_keeps_the_setup_budget() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.h().worker.add(["b"]);
+    p.start(&["a"]).await?;
+    let old = p.connected(1).await.remove(0);
+    let entered = SharedDeferred::new();
+    let gate = SharedDeferred::new();
+    let (e, g) = (entered.clone(), gate.clone());
+    let boot = p.h().boot.clone();
+    let once = AtomicBool::new(true);
+    *p.h().worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let block = cmd == ["xcrun", "simctl", "list", "--json"] && once.swap(false, Ordering::SeqCst);
+        let home = cmd.last().is_some_and(|s| s == "HOME");
+        let answer = boot.answer(&cmd);
+        let (e, g) = (e.clone(), g.clone());
+        Box::pin(async move {
+            if block {
+                e.complete(Ok(()));
+                g.wait().await?;
+            }
+            if home {
+                Err(support::error("setup failed"))
+            } else {
+                Ok(answer)
+            }
+        })
+    });
+    let provider = p.provider.clone();
+    let caller = p.h().services.context.clone();
+    let update = tokio::spawn(async move {
+        provider
+            .process_update(snapshot(vec![(Transport::Local, targets(&["a", "b"]))]), caller)
+            .await
+    });
+    entered.wait().await.map_err(test_error)?;
+    p.lose(&old).await;
+    eventually(|| p.log("setup of a failed")).await;
+    gate.complete(Ok(()));
+    update.await?.map_err(test_error)?;
+    pass(300).await;
+    let (a, b) = (home(&p.h().worker, "a") - 1, home(&p.h().worker, "b"));
+    let logs: Vec<_> = p
+        .h()
+        .logs
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, _, m, _)| m.clone())
+        .collect();
+    p.finish().await?;
+    assert!(a <= 4 && b <= 4, "failed setups a={a}, b={b}; logs={logs:?}");
+    Ok(())
+}
+
+/// As above: a refusal seen for a simulator parked while the plan listed its worker is kept.
+#[tokio::test(start_paused = true)]
+async fn a_simulator_parked_while_a_plan_lists_its_worker_keeps_its_refusal() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.h().worker.add(["b"]);
+    p.start(&["a"]).await?;
+    let old = p.connected(1).await.remove(0);
+    let entered = SharedDeferred::new();
+    let gate = SharedDeferred::new();
+    let (e, g) = (entered.clone(), gate.clone());
+    let boot = p.h().boot.clone();
+    let once = AtomicBool::new(true);
+    *p.h().worker.before.lock().unwrap() = Arc::new(move |cmd| {
+        let block = cmd == ["xcrun", "simctl", "list", "--json"] && once.swap(false, Ordering::SeqCst);
+        let answer = boot.answer(&cmd);
+        let (e, g) = (e.clone(), g.clone());
+        Box::pin(async move {
+            if block {
+                e.complete(Ok(()));
+                g.wait().await?;
+            }
+            Ok(answer)
+        })
+    });
+    let refused = Arc::new(AtomicUsize::new(0));
+    let count = refused.clone();
+    p.answer(move |_, planning, n| {
+        if !planning && n >= 4 {
+            count.fetch_add(1, Ordering::SeqCst);
+        }
+        Box::pin(async move {
+            match (planning, n) {
+                (false, 2) => Err(unreachable()),
+                (false, n) if n >= 4 => Err(auth()),
+                _ => Ok(None),
+            }
+        })
+    });
+    let provider = p.provider.clone();
+    let caller = p.h().services.context.clone();
+    let update = tokio::spawn(async move {
+        provider
+            .process_update(snapshot(vec![(Transport::Local, targets(&["a", "b"]))]), caller)
+            .await
+    });
+    entered.wait().await.map_err(test_error)?;
+    p.lose(&old).await;
+    eventually(|| p.log("1 devices could not connect, retrying")).await;
+    gate.complete(Ok(()));
+    update.await?.map_err(test_error)?;
+    pass(200).await;
+    let calls = p.connections.calls.lock().unwrap().clone();
+    let mut seen = Seen::default();
+    seen.drain(&p).await;
+    p.finish().await?;
+    assert_eq!(seen.connected, ["b@local"], "calls={calls:?}");
+    assert_eq!(refused.load(Ordering::SeqCst), 1, "calls={calls:?}");
+    Ok(())
+}

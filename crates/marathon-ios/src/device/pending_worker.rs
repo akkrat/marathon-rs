@@ -3,16 +3,17 @@
 use marathon_config::devices::AppleTarget;
 use std::sync::Mutex;
 
-pub struct PendingWorker {
-    state: Mutex<(bool, Vec<AppleTarget>)>,
+/// D44: generic so that the provider's retry can keep each target's generation with it.
+pub struct PendingWorker<T = AppleTarget> {
+    state: Mutex<(bool, Vec<T>)>,
 }
-impl PendingWorker {
-    pub fn new(targets: Vec<AppleTarget>) -> Self {
+impl<T: Clone> PendingWorker<T> {
+    pub fn new(targets: Vec<T>) -> Self {
         Self {
             state: Mutex::new((true, targets)),
         }
     }
-    pub fn offer(&self, targets: &[AppleTarget]) -> bool {
+    pub fn offer(&self, targets: &[T]) -> bool {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if !state.0 {
             return false;
@@ -20,7 +21,7 @@ impl PendingWorker {
         state.1.extend_from_slice(targets);
         true
     }
-    pub fn take(&self) -> Option<Vec<AppleTarget>> {
+    pub fn take(&self) -> Option<Vec<T>> {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.1.is_empty() {
             state.0 = false;
@@ -31,7 +32,7 @@ impl PendingWorker {
     }
     /// D44: keeps what a retry still works for. A worker left with nothing takes no more offers, so that a later one
     /// starts a retry of its own rather than joining one that is ending.
-    pub fn retain(&self, keep: impl FnMut(&AppleTarget) -> bool) -> bool {
+    pub fn retain(&self, keep: impl FnMut(&T) -> bool) -> bool {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.1.retain(keep);
         if state.1.is_empty() {
@@ -40,7 +41,7 @@ impl PendingWorker {
         !state.1.is_empty()
     }
     /// D44: what waits now, left in place.
-    pub fn peek(&self) -> Vec<AppleTarget> {
+    pub fn peek(&self) -> Vec<T> {
         self.state.lock().unwrap_or_else(|e| e.into_inner()).1.clone()
     }
     pub fn close(&self) {
