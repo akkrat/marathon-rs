@@ -1,0 +1,46 @@
+Test Suite 'All tests' started at 2026-11-07 10:20:41.845.
+Test Suite 'TimeoutTests.xctest' started at 2026-11-07 10:20:41.845.
+Test Suite 'TimeoutTests' started at 2026-11-07 10:20:41.846.
+Test Case '-[TimeoutTests.TimeoutTests testA_hang60]' started.
+Test Case '-[TimeoutTests.TimeoutTests testA_hang60]' exceeded execution time allowance of 1 minute. The test may have hung; check Xcode's test report for additional diagnostics. If the test requires additional time, use -[XCTestCase executionTimeAllowance] or one of xcodebuild's command-line overrides.
+
+
+
+
+Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.
+
+Test Suite 'Selected tests' started at 2026-11-07 10:21:47.500.
+Test Suite 'TimeoutTests.xctest' started at 2026-11-07 10:21:47.500.
+Test Suite 'TimeoutTests' started at 2026-11-07 10:21:47.500.
+Test Case '-[TimeoutTests.TimeoutTests testB_passes]' started.
+Test Case '-[TimeoutTests.TimeoutTests testB_passes]' passed (0.001 seconds).
+Test Case '-[TimeoutTests.TimeoutTests testC_hang90]' started.
+Test Case '-[TimeoutTests.TimeoutTests testC_hang90]' exceeded execution time allowance of 2 minutes. The test may have hung; check Xcode's test report for additional diagnostics. If the test requires additional time, use -[XCTestCase executionTimeAllowance] or one of xcodebuild's command-line overrides.
+
+
+
+
+Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.
+
+Test Suite 'Selected tests' started at 2026-11-07 10:23:53.204.
+Test Suite 'TimeoutTests.xctest' started at 2026-11-07 10:23:53.204.
+Test Suite 'TimeoutTests' started at 2026-11-07 10:23:53.205.
+Test Suite 'TimeoutTests' passed at 2026-11-07 10:23:53.205.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite '_TtCC12TimeoutTests12TimeoutTests6Nested' started at 2026-11-07 10:23:53.205.
+Test Case '-[_TtCC12TimeoutTests12TimeoutTests6Nested testNested]' started.
+Test Case '-[_TtCC12TimeoutTests12TimeoutTests6Nested testNested]' passed (0.001 seconds).
+Test Suite '_TtCC12TimeoutTests12TimeoutTests6Nested' passed at 2026-11-07 10:23:53.206.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'TimeoutTests.xctest' passed at 2026-11-07 10:23:53.207.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'Selected tests' passed at 2026-11-07 10:23:53.207.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.001 (0.003) seconds
+
+Test session results, code coverage, and logs:
+
+Failing tests:
+	TimeoutTests.testA_hang60()
+	TimeoutTests.testC_hang90()
+
+** TEST FAILED **

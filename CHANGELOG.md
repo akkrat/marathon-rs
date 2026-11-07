@@ -87,6 +87,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A test name, a test's own assertion text or an application's log line that contains a device failure text, such as
   `Failed to terminate`, no longer aborts the batch. After a prefix such as `XCTAssertTrue failed - ` that test fails and the
   batch goes on, and a simulator is no longer dropped after 3 such batches in a row (D39).
+- A test that hangs past its execution time allowance now fails, with the hang's line as its text, whatever form the allowance
+  is printed in. With `1 minute`, which a 60 s allowance prints, Kotlin aborted the batch and repeated the test until CI killed
+  the job (D45).
 - A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40). No
   known path triggers this, so you are unlikely to have met it.
 
@@ -112,6 +115,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D33, D34 and D40 had no real simulator, worker or analytics backend.
 - D50 was measured through the real pool and queue on a stub device, with no real test APKs.
 - D39's rule is reasoned from Xcode's formats and is not recorded from a real run.
+- D45 ran on real hanging tests: an iOS 18.6 simulator under Xcode 27.2, with allowances that print `1 minute` and `2 minutes`.
 - The comparisons on real devices and private farms predate D21–D42.
 
 ### Known limits

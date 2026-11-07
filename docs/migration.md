@@ -105,7 +105,7 @@ links to its entry in the [deviations guide](deviations.md).
 | have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
 | have a test or device that keeps failing | `uncompletedTestRetryQuota` defaults to `Integer.MAX_VALUE` and there is no overall run deadline. A test that keeps coming back uncompleted is repeated until something else stops the run. | Set finite values: `uncompletedTestRetryQuota` for every platform, and `maxBatchesWithoutProgress` (0, which is off, by default) for iOS. See below. |
 
-These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D23, D26, D28–D30, D34, D36, D37, D40 and D42. D2, D3,
+These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D23, D26, D28–D30, D34, D36, D37, D40, D42 and D45. D2, D3,
 D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections below.
 
 **Finite values for `uncompletedTestRetryQuota` and `maxBatchesWithoutProgress`.** With the defaults, nothing ends a run in

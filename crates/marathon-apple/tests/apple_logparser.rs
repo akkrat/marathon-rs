@@ -139,6 +139,14 @@ fn test() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
         }
+        // D45: Kotlin's expectation holds except that a hang now reports its line as the trace.
+        let expected = match input.lines().find(|line| line.contains(D45_MARKER)) {
+            Some(line) => {
+                assert_eq!(expected.matches("trace=null").count(), 1, "{name}");
+                expected.replace("trace=null", &format!("trace={line}"))
+            }
+            None => expected,
+        };
         assert_eq!(actual.join("\n"), expected.trim_end(), "{name}/{target}");
     }
     Ok(())
@@ -430,20 +438,206 @@ fn a_recorded_app_log_line_is_not_a_failure_d39() {
         Some("Failed to terminate")
     );
 }
-#[test]
-fn malformed_durations_escape_as_typed_errors() {
-    for allowance in ["1 minute", "1 hour", "1 minute, 30 seconds", " 3 minutes"] {
-        assert!(matches!(
-            parser("").process(&format!(
-                "Test Case '-[p.C m]' exceeded execution time allowance of {allowance}. The test may have hung"
-            )),
-            Err(ParseError::Duration { .. })
-        ));
+const D45_MARKER: &str = "exceeded execution time allowance of";
+/// D45: the JVM rows where parseAppleDuration threw (A47), with the milliseconds and the seconds of the log
+/// line that native builds report instead. The recordings stay as they are, as the witness.
+const D45_RECORDED_THROWS: &[(&str, i64, i64)] = &[
+    ("real/xcode27-timeout", 60_000, 60),
+    ("duration/1 minute", 60_000, 60),
+    ("duration/1 hour", 3_600_000, 3600),
+    ("duration/1 minute, 30 seconds", 90_000, 90),
+    ("duration/ 3 minutes", 180_000, 180),
+];
+fn hung(allowance: &str) -> String {
+    format!("Test Case '-[p.C m]' exceeded execution time allowance of {allowance}. The test may have hung")
+}
+fn elapsed_of(allowance: &str) -> i64 {
+    match parser("").process(&hung(allowance)) {
+        Ok(Some(events)) => match &events[..] {
+            [
+                TestEvent::TestFailed {
+                    start_time, end_time, ..
+                },
+            ] => end_time - start_time,
+            other => panic!("{allowance:?}: {other:?}"),
+        },
+        other => panic!("{allowance:?}: {other:?}"),
     }
+}
+#[test]
+fn no_allowance_stops_a_hung_test_from_failing_d45() {
+    for (allowance, millis) in [
+        // What NSDateComponentsFormatter's full style prints: see docs/wp/x28-findings.md.
+        ("1 second", 1_000),
+        ("30 seconds", 30_000),
+        ("1 minute", 60_000),
+        ("2 minutes", 120_000),
+        ("1 minute, 1 second", 61_000),
+        ("1 minute, 30 seconds", 90_000),
+        ("1 hour", 3_600_000),
+        ("2 hours", 7_200_000),
+        ("1 hour, 1 minute", 3_660_000),
+        ("1 hour, 1 minute, 1 second", 3_661_000),
+        ("1 day", 86_400_000),
+        ("1 day, 1 hour", 90_000_000),
+        ("1 week", 604_800_000),
+        // Fractions, including those Duration.parse only takes on seconds.
+        ("1.5 seconds", 1_500),
+        ("1.5 minutes", 90_000),
+        ("0.5 hours", 1_800_000),
+        // Whitespace, which Kotlin's untrimmed receiver kept.
+        (" 3 minutes", 180_000),
+        ("1\u{a0}minute", 60_000),
+        // The abbreviated style.
+        ("1 min", 60_000),
+        ("1 hr, 30 min", 5_400_000),
+        ("1 minute and 30 seconds", 90_000),
+        // Plurals in an order that Kotlin's rewrite turns into an unreadable ISO text.
+        ("30 seconds, 2 minutes", 150_000),
+    ] {
+        assert_eq!(elapsed_of(allowance), millis, "{allowance:?}");
+    }
+}
+#[test]
+fn an_allowance_that_is_not_understood_still_fails_the_test_d45() {
+    for allowance in [
+        "soon",
+        "1 Minute und 30 Sekunden",
+        "60",
+        "minutes",
+        "1 fortnight",
+        "NaN seconds x",
+        "inf minutes, 1",
+        "99999999999999999999 weeks",
+        "9223372036854775807 hours",
+    ] {
+        assert_eq!(elapsed_of(allowance), 0, "{allowance:?}");
+    }
+}
+#[test]
+fn every_form_kotlin_could_read_is_read_the_same_d45() {
+    for (allowance, millis) in [
+        ("2 minutes", 120_000),
+        ("1.5 seconds", 1_500),
+        ("2 hours", 7_200_000),
+        // Odd, but Duration.parse took them.
+        ("1H", 3_600_000),
+        ("-5 seconds", -5_000),
+    ] {
+        assert_eq!(elapsed_of(allowance), millis, "{allowance:?}");
+    }
+}
+#[test]
+fn a_hung_test_reports_its_line_unless_it_has_a_failing_line_already_d45() -> Result<(), ParseError> {
+    let trace_of = |lines: &[String]| -> Result<Option<String>, ParseError> {
+        let mut p = parser("");
+        let mut trace = None;
+        for line in lines {
+            for event in p.process(line)?.into_iter().flatten() {
+                if let TestEvent::TestFailed { trace: t, .. } = event {
+                    trace = Some(t.map(|t| t.to_string_lossy()));
+                }
+            }
+        }
+        Ok(trace.flatten())
+    };
+    let line = hung("1 minute");
+    assert_eq!(trace_of(std::slice::from_ref(&line))?, Some(line.clone()));
+    assert_eq!(
+        trace_of(&[
+            "Test Case '-[p.C m]' started.".to_owned(),
+            "/a:1: error: -[p.C m] : first".to_owned(),
+            line.clone(),
+        ])?,
+        Some("/a:1:first".to_owned())
+    );
+    // A later test isn't handed the last hang's line.
+    assert_eq!(
+        trace_of(&[
+            line,
+            "Test Case '-[p.C n]' started.".to_owned(),
+            "Test Case '-[p.C n]' failed (1.000 seconds).".to_owned(),
+        ])?,
+        None
+    );
+    Ok(())
+}
+/// D45 on a real stream: an iOS 18.6 simulator under Xcode 27.2, each hang restarting the runner. Before, the first
+/// hang's `1 minute` threw and ended the batch here. See fixtures/PROVENANCE.md.
+#[test]
+fn a_real_stream_with_hung_tests_reports_every_test_and_no_batch_failure_d45() -> Result<(), ParseError> {
+    let mut p = XctestEventProducer::new(parser("TimeoutTests"));
+    let mut seen = vec![];
+    for line in include_str!("../../../fixtures/apple-logparser/xcode27-ios-hang.log.input").lines() {
+        for event in p.process(line)?.into_iter().flatten() {
+            seen.push(match event {
+                TestEvent::TestFailed {
+                    id,
+                    end_time,
+                    start_time,
+                    trace,
+                } => format!(
+                    "failed {}.{}.{} {} {}",
+                    id.pkg.to_string_lossy(),
+                    id.clazz.to_string_lossy(),
+                    id.method.to_string_lossy(),
+                    end_time - start_time,
+                    trace.is_some_and(|t| t.to_string_lossy() == line)
+                ),
+                TestEvent::TestPassed { id, .. } => format!(
+                    "passed {}.{}.{}",
+                    id.pkg.to_string_lossy(),
+                    id.clazz.to_string_lossy(),
+                    id.method.to_string_lossy()
+                ),
+                TestEvent::TestStarted { .. } => continue,
+                other => panic!("{line:?}: {other:?}"),
+            });
+        }
+    }
+    assert_eq!(
+        seen,
+        [
+            "failed TimeoutTests.TimeoutTests.testA_hang60 60000 true",
+            "passed TimeoutTests.TimeoutTests.testB_passes",
+            // A 90 s allowance: XCTest rounds it up to the minute it prints.
+            "failed TimeoutTests.TimeoutTests.testC_hang90 120000 true",
+            // A nested Swift class logs a mangled name with no dot, so A5's split doesn't apply.
+            "passed TimeoutTests._TtCC12TimeoutTests12TimeoutTests6Nested.testNested",
+        ]
+    );
+    Ok(())
+}
+/// D45 is only about the allowance's text: a malformed result line still escapes as Kotlin's does.
+#[test]
+fn a_malformed_test_duration_escapes_as_a_typed_error() {
     assert!(matches!(
         parser("").process("Test Case '-[p.C m]' failed (1.2.3 seconds)."),
         Err(ParseError::NumberFormat { .. })
     ));
+}
+#[test]
+fn the_d45_allowance_hides_nothing_else_in_the_recordings() -> Result<(), Box<dyn std::error::Error>> {
+    let mut throws = vec![];
+    for line in include_str!("../../../fixtures/oracle/apple-logparser/probes.jsonl")
+        .split('\n')
+        .filter(|l| !l.is_empty())
+    {
+        let row: serde_json::Value = serde_json::from_str(line)?;
+        if row["kind"] != "stream" {
+            continue;
+        }
+        for entry in row["rows"].as_array().unwrap() {
+            if entry["exception"][0] == "java.time.format.DateTimeParseException" {
+                assert!(entry["line"].as_str().unwrap().contains(D45_MARKER));
+                throws.push(row["case"].as_str().unwrap().to_owned());
+            }
+        }
+    }
+    // Every throw is the witness of A47, each listed once. A row that stopped throwing or a new one fails here.
+    let listed = D45_RECORDED_THROWS.iter().map(|(case, ..)| (*case).to_owned());
+    assert_eq!(throws, listed.collect::<Vec<_>>());
+    Ok(())
 }
 
 #[test]
@@ -476,6 +670,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
         let mut producer = XctestEventProducer::new(progress);
         for entry in row["rows"].as_array().unwrap() {
             let text = entry["line"].as_str().unwrap();
+            let d45 = D45_RECORDED_THROWS.iter().find(|(case, ..)| row["case"] == *case);
             let result = if row["producer"].as_bool().unwrap() {
                 producer.process(text)
             } else {
@@ -483,7 +678,8 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
             };
             match result {
                 Ok(events) => {
-                    assert!(entry["exception"].is_null(), "{}: {text:?}", row["case"]);
+                    let thrown = text.contains(D45_MARKER) && d45.is_some();
+                    assert_eq!(entry["exception"].is_null(), !thrown, "{}: {text:?}", row["case"]);
                     let events = events.map(|v| {
                         v.iter()
                             .map(|e| e.to_kotlin_string(&*hooks).unwrap().to_string_lossy())
@@ -498,6 +694,21 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                         serde_json::json!([
                             "TestStarted(id=Test(pkg=p, clazz=C Test runner, method=exited, metaProperties=[]))"
                         ])
+                    } else if thrown {
+                        // D45: what the JVM threw on is now the failure it reports for the plural forms.
+                        let (_, millis, _) = d45.unwrap();
+                        let name = text.split('\'').nth(1).unwrap();
+                        let name = name.trim_start_matches("-[").trim_end_matches(']');
+                        let (class, method) = name.split_once(' ').unwrap();
+                        let (pkg, clazz) = class.split_once('.').unwrap();
+                        serde_json::json!([format!(
+                            "TestFailed(id=Test(pkg={pkg}, clazz={clazz}, method={method}, metaProperties=[]), startTime={}, endTime=1537187696000, trace={text})",
+                            1537187696000_i64 - millis
+                        )])
+                    } else if text.contains(D45_MARKER) {
+                        // D45: the JVM's hung test had no trace unless a failing line came first.
+                        let recorded = entry["events"][0].as_str().unwrap();
+                        serde_json::json!([recorded.replace("trace=null", &format!("trace={text}"))])
                     } else {
                         entry["events"].clone()
                     };
@@ -514,9 +725,19 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 }
             }
         }
+        let mut recorded_logs = row["logs"].as_array().unwrap().clone();
+        if let Some((_, _, seconds)) = D45_RECORDED_THROWS.iter().find(|(case, ..)| row["case"] == *case) {
+            // D45: the JVM threw before this line.
+            let name = if row["case"] == "real/xcode27-timeout" {
+                "TimeoutTests.TimeoutTests.testHang"
+            } else {
+                "p.C.m"
+            };
+            recorded_logs.push(serde_json::json!({"logger":"TestRunProgressParser","level":"DEBUG","message":format!("Test {name} finished with result <timeout> after {seconds} seconds")}));
+        }
         assert_eq!(
             serde_json::to_value(logs.lock().unwrap().clone())?,
-            row["logs"],
+            serde_json::Value::Array(recorded_logs),
             "{}",
             row["case"]
         );

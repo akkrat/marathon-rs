@@ -643,6 +643,27 @@ the batch runner's handling of the same endings. Approved 2026-11-07 (project ow
 
 **Migration action:** none for a normal test APK. A custom runner that stops listing its tests early and exits with a failing code now fails the run with its text, where it used to run the tests it had listed.
 
+## D45 — A hung test is a failure, however its allowance is printed
+
+XCTest reports a test that exceeded its execution time allowance on one line, and that line is the only sign in its output:
+no `failed` line follows. Kotlin reads the allowance by replacing ` seconds`, ` minutes` and ` hours` and handing the result
+to `Duration.parse`. A singular unit throws, and XCTest prints `1 minute` for the 60 s that Marathon's own setup examples
+recommend. The throw isn't a device failure, so the batch comes back with its tests uncompleted, and with the default
+`uncompletedTestRetryQuota` a test that hangs every time repeats until CI kills the job.
+
+Native builds never stop on that text. What Kotlin could read reads the same. Then the English forms of XCTest's formatter
+read: `1 minute`, `1 hour`, `1 minute, 30 seconds`, fractions such as `1.5 minutes`, and abbreviations such as `1 hr`. Any other
+text, such as another language, is taken as 0 s with a warning; it only dates the failure, so the test still fails.
+
+The test now fails, the batch goes on and the runner restarts as xcodebuild intends. A hung test with no failing line of its
+own has the hang's line as its trace, including the plural forms, where Kotlin reported none. An earlier failing line in the
+same test keeps its place. Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [A47](known-kotlin-bugs.md) and the
+[x28 findings](wp/x28-findings.md).
+
+**Migration action:** none. A test that hangs on every attempt now fails instead of repeating, so a run that used to be killed
+by CI ends with a failed test.
+
 ## D50 — A rejected test does not use a batch slot
 
 Kotlin's `fixed-size` batching counts every test it polls. A flaky copy of a test already in the batch, or a test of

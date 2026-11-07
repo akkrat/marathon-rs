@@ -15,8 +15,6 @@ use std::sync::Arc;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseError {
     NumberFormat { input: String },
-    Duration { input: String },
-    DurationOverflow,
     Clock(ReplayError),
 }
 impl ParseError {
@@ -30,11 +28,6 @@ impl ParseError {
                     format!("For input string: \"{input}\"")
                 },
             ),
-            Self::Duration { .. } => (
-                "java.time.format.DateTimeParseException",
-                "Text cannot be parsed to a Duration".into(),
-            ),
-            Self::DurationOverflow => ("java.lang.ArithmeticException", "long overflow".into()),
             Self::Clock(error) => ("ReplayError", error.message.to_string_lossy()),
         };
         crate::cmd::failure(class, message)
@@ -138,14 +131,7 @@ impl TestRunProgressParser {
             let Some(c) = TIMEOUT_TEST.find(line) else {
                 return Ok(None);
             };
-            let iso = format!(
-                "PT{}",
-                c[3].replace(" seconds", "S")
-                    .replace(" minutes", "M")
-                    .replace(" hours", "H")
-            );
-            let duration = jtime::parse_duration(&iso).ok_or_else(|| ParseError::Duration { input: iso.clone() })?;
-            let millis = duration.to_millis().ok_or(ParseError::DurationOverflow)?;
+            let allowance = Allowance::read(&c[3]);
             let test = self.test(&c[1], &c[2]);
             self.logging.log(
                 &self.logger,
@@ -154,17 +140,32 @@ impl TestRunProgressParser {
                     format!(
                         "Test {} finished with result <timeout> after {} seconds",
                         log_name(&test),
-                        duration.seconds()
+                        allowance.seconds
                     )
                 },
                 None,
             );
+            if !allowance.understood {
+                self.logging.log(
+                    &self.logger,
+                    Level::Warn,
+                    || {
+                        format!(
+                            "Execution time allowance '{}' of test {} is not understood, taking it as 0 seconds",
+                            &c[3],
+                            log_name(&test)
+                        )
+                    },
+                    None,
+                );
+            }
             let end_time = self.timer.current_time_millis().map_err(ParseError::Clock)?;
             TestEvent::TestFailed {
                 id: test,
-                start_time: end_time.wrapping_sub(millis),
+                start_time: end_time.wrapping_sub(allowance.millis),
                 end_time,
-                trace: self.failing_trace.clone(),
+                // D45: this line is what's known about a hang, and Kotlin reported nothing.
+                trace: self.failing_trace.clone().or_else(|| Some(line.into())),
             }
         } else {
             if FAILING_TEST.matches(line)
@@ -176,6 +177,70 @@ impl TestRunProgressParser {
         };
         Ok(Some(vec![event]))
     }
+}
+
+/// D45: the allowance only dates the failure, so no text may stop a hung test from being reported.
+/// Kotlin's `parseAppleDuration` threw on `1 minute`, which XCTest prints for 60 s (A47).
+struct Allowance {
+    seconds: i64,
+    millis: i64,
+    understood: bool,
+}
+impl Allowance {
+    fn read(text: &str) -> Self {
+        // Everything Kotlin could read stays as it was, including its odd forms.
+        let iso = format!(
+            "PT{}",
+            text.replace(" seconds", "S")
+                .replace(" minutes", "M")
+                .replace(" hours", "H")
+        );
+        if let Some(duration) = jtime::parse_duration(&iso)
+            && let Some(millis) = duration.to_millis()
+        {
+            return Self {
+                seconds: duration.seconds(),
+                millis,
+                understood: true,
+            };
+        }
+        match spoken_millis(text) {
+            Some(millis) => Self {
+                seconds: millis / 1000,
+                millis,
+                understood: true,
+            },
+            None => Self {
+                seconds: 0,
+                millis: 0,
+                understood: false,
+            },
+        }
+    }
+}
+
+/// `1 minute`, `1 hour, 1 minute`, `1.5 minutes`: the English forms of NSDateComponentsFormatter.
+/// XCTest formats the allowance with the test process's locale, so other languages can reach the caller's fallback.
+fn spoken_millis(text: &str) -> Option<i64> {
+    let mut tokens = text
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|token| !token.is_empty() && *token != "and");
+    let mut total = 0_f64;
+    let mut read = false;
+    while let Some(number) = tokens.next() {
+        let value = number.parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0)?;
+        let scale = match tokens.next()?.to_ascii_lowercase().as_str() {
+            "second" | "seconds" | "sec" | "secs" => 1_000.0,
+            "minute" | "minutes" | "min" | "mins" => 60_000.0,
+            "hour" | "hours" | "hr" | "hrs" => 3_600_000.0,
+            "day" | "days" => 86_400_000.0,
+            "week" | "weeks" | "wk" | "wks" => 604_800_000.0,
+            _ => return None,
+        };
+        total += value * scale;
+        read = true;
+    }
+    (read && total < i64::MAX as f64).then_some(total.round() as i64)
 }
 
 fn log_name(test: &Test) -> String {
