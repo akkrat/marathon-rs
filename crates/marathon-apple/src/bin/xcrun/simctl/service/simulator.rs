@@ -101,11 +101,17 @@ impl SimulatorService {
     /// D38: a failed or timed-out probe is not running on every runtime. Kotlin skips the exit
     /// check from runtime 16 on (A41), but a healthy simulator exits 0 there as well: measured on
     /// iOS 18.6, 26.4 and 27.0, see docs/wp/x17-findings.md.
+    ///
+    /// D46: from runtime 18 on the probe is `launchctl print user/foreground`, which prints the same
+    /// `M A`/`M D` line before `com.apple.springboard.services` in about 100 KB instead of the 10-20
+    /// MB of `dumpstate`. Runtimes 16 and 17 were not measured and keep `dumpstate`; an unparsable
+    /// version keeps the `print system` path below.
     pub async fn is_running(&self, udid: &str, runtime_version: &str, context: &VendorContext) -> VendorResult<bool> {
         // Approved P1: ASCII digits only.
         let major = kt::substring_before(runtime_version, ".").parse::<i32>().ok();
         let timeout = self.service.timeouts().shell;
         let args = match major {
+            Some(major) if major >= 18 => argv(["spawn", udid, "launchctl", "print", "user/foreground"]),
             Some(major) if major >= 16 => argv([
                 "spawn",
                 udid,

@@ -586,6 +586,7 @@ class VendorEvidenceTests(unittest.TestCase):
         e.save_payload(directory, row['sha256'], data, record)
         row = next(r for r in record['entries'] if r['path'] == 'transcript.jsonl')
         rows = [json.loads(line) for line in e.payload(directory, row, record).splitlines()]
+        rows = t.with_d46_probe(rows)
         for event in rows:
             if event['event'] == 'exec':
                 wire = t.with_d32_prefix(base64.b64decode(event['detail']['base64']).decode()).encode()
@@ -709,6 +710,93 @@ class VendorEvidenceTests(unittest.TestCase):
         self.assertEqual(t.without_d32_prefix('env NSUnbufferedIO=YES ' + test),test)
         for other in [test,'env NSUnbufferedIO=YES xcrun xcodebuild -version','env NSUnbufferedIO=NO ' + test]:
             self.assertEqual(t.without_d32_prefix(other),other)
+
+    @staticmethod
+    def d46_control_lane(*sessions, before=False):
+        """Control-lane wires of a record whose sessions are (wire, stdout) pairs, with the older record's allowance or not."""
+        import vendor_transport as t
+        rows = []
+        for channel,(wire,stdout) in enumerate(sessions):
+            for event,data in [('exec',wire.encode()),('output',stdout.encode())]:
+                if event == 'output' and not data:
+                    continue
+                rows.append(dict(event=event,connection=1,channel=channel,detail=dict(base64=base64.b64encode(data).decode(),sha256=e.sha(data),size=len(data))))
+            rows.append(dict(event='exit_status',connection=1,channel=channel,detail=dict(status=0)))
+            rows.append(dict(event='channel_end',connection=1,channel=channel,detail=dict(outcome='completed')))
+        rows.append(dict(event='connection_end',connection=1,channel=None,detail={}))
+        rows.append(dict(event='cleanup',connection=None,channel=None,detail=dict(outcome='completed',active_processes=[])))
+        for seq,row in enumerate(rows):
+            row['seq'] = seq
+        data = b''.join(json.dumps(row).encode()+b'\n' for row in rows)
+        return [session['wire'] for session in t.ssh(data,None,before)['control']]
+
+    D46_OLD = 'xcrun simctl spawn U launchctl dumpstate user/foreground/com.apple.SpringBoard'
+    D46_NEW = 'xcrun simctl spawn U launchctl print user/foreground'
+    D46_GETENV = 'xcrun simctl getenv U SIMULATOR_RUNTIME_VERSION'
+
+    def test_d46_only_the_probe_of_a_runtime_18_or_later_in_an_older_record_changes(self):
+        old, new = self.D46_OLD, self.D46_NEW
+        for reply in ['18.0\n','18.6\n','26.4\n','27.0\n','099.9\n','18','+18.1\n']:
+            with self.subTest(reply):
+                self.assertEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),[self.D46_GETENV,new])
+                # Today's native run compares equal to the JVM's; the older program's probe does not.
+                self.assertEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),
+                                 self.d46_control_lane((self.D46_GETENV,reply),(new,'')))
+                self.assertNotEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),
+                                    self.d46_control_lane((self.D46_GETENV,reply),(old,'')))
+        # Runtimes 16 and 17, a version that does not parse as a number, and no recorded version keep the recorded wire.
+        for reply in ['16.0\n','17.5\n','17\n','','x.1\n','１８.0\n','-18.0\n','1x8.0\n']:
+            with self.subTest(reply):
+                self.assertEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),[self.D46_GETENV,old])
+                self.assertNotEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),
+                                    self.d46_control_lane((self.D46_GETENV,reply),(new,'')))
+        self.assertEqual(self.d46_control_lane((old,''),before=True),[old])
+
+    def test_d46_the_allowance_reads_the_version_of_the_probed_simulator_and_changes_no_other_command(self):
+        old, new = self.D46_OLD, self.D46_NEW
+        other = 'xcrun simctl spawn V launchctl dumpstate user/foreground/com.apple.SpringBoard'
+        # Runtime 18 on U says nothing about V, and a version read of another key is not the runtime.
+        self.assertEqual(self.d46_control_lane((self.D46_GETENV,'27.1\n'),(other,''),before=True),[self.D46_GETENV,other])
+        self.assertEqual(self.d46_control_lane(('xcrun simctl getenv U SIMULATOR_RUNTIME_BUILD_VERSION','27.1\n'),(old,''),before=True),
+                         ['xcrun simctl getenv U SIMULATOR_RUNTIME_BUILD_VERSION',old])
+        untouched = [old + ' -x','xcrun simctl spawn U launchctl dumpstate user/foreground','xcrun simctl spawn U launchctl print system',
+                     'xcrun simctl spawn U launchctl dumpstate system',"sh -c '" + old + "'",'env ' + old,'xcrun simctl spawn U launchctl print user/foreground/com.apple.SpringBoard']
+        self.assertEqual(self.d46_control_lane((self.D46_GETENV,'27.1\n'),*[(w,'') for w in untouched],before=True),[self.D46_GETENV,*untouched])
+        # Without the allowance (a new native record) nothing changes, and both forms are listed in the catalogue's one form.
+        self.assertEqual(self.d46_control_lane((self.D46_GETENV,'27.1\n'),(old,''),(new,'')),[self.D46_GETENV,old,new])
+        import vendor_transport as t
+        self.assertEqual(t.without_d46_probe(new),old)
+        for wire in [old,new + ' -x',new.replace('print','dump'),'env ' + new,new.replace('user/foreground','system')]:
+            self.assertEqual(t.without_d46_probe(wire),wire)
+
+    def test_d46_an_older_record_that_already_has_the_new_probe_is_refused(self):
+        with self.assertRaisesRegex(e.Invalid,'D46 probe'):
+            self.d46_control_lane((self.D46_GETENV,'27.1\n'),(self.D46_NEW,''),before=True)
+
+    def test_d46_a_live_native_probe_equals_the_recorded_dumpstate_in_the_ios_records(self):
+        import vendor_transport as t
+        golden, contract = DRIVER['golden']('ios-smoke'), DRIVER['contract']('ios-smoke')
+        recorded = ROOT / 'fixtures/differential/vendor-verification-c95b2128/ios-smoke/native'
+        def probes(directory):
+            record = e.load(directory / 'evidence.json')
+            row = next(r for r in record['entries'] if r['path'] == 'transcript.jsonl')
+            return [wire for r in t.records(e.payload(directory,row,record)) if r['event'] == 'exec'
+                    for wire in [t.payload(r['detail']).decode()] if ' launchctl ' in wire]
+        probe = 'xcrun simctl spawn AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE launchctl '
+        # The JVM's witness and the older native pin hold dumpstate; a live run of today's program holds print.
+        self.assertEqual(probes(golden),[probe + 'dumpstate user/foreground/com.apple.SpringBoard'] * 2)
+        self.assertEqual(probes(recorded),probes(golden))
+        live = self.rewrite_transcript(recorded,'live-ios',lambda rows: None)
+        self.assertEqual(probes(live),[probe + 'print user/foreground'] * 2)
+        e.compare(golden,live,contract)
+        def keep_dumpstate(rows):
+            for row in rows:
+                if row['event'] == 'exec' and t.payload(row['detail']).decode().endswith(' launchctl print user/foreground'):
+                    data = t.payload(row['detail']).decode().replace('print user/foreground','dumpstate user/foreground/com.apple.SpringBoard').encode()
+                    row['detail'].update(base64=base64.b64encode(data).decode(),sha256=e.sha(data),size=len(data))
+        # A program that kept dumpstate on runtime 27.1 differs from the JVM's record under the allowance, as it should.
+        with self.assertRaises(e.Invalid):
+            e.compare(golden,self.rewrite_transcript(recorded,'kept-dumpstate',keep_dumpstate),contract)
 
     def test_d20_stand_in_matches_the_withheld_library_and_nothing_else_does(self):
         self.tmp_root = Path(tempfile.mkdtemp(dir=self.root))

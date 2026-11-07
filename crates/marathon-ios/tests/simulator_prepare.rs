@@ -43,7 +43,8 @@ fn probe_fails(h: &Harness, failures: usize, exit_code: Option<i32>) -> Arc<Atom
     let count = probes.clone();
     let plan = h.boot.clone();
     *h.worker.before.lock().unwrap() = Arc::new(move |c| {
-        let reply = if c.get(5).is_some_and(|s| s == "dumpstate") {
+        // The readiness probe, whichever form the runtime gets (D46: `print` from 18, `dumpstate` on 16 and 17).
+        let reply = if c.get(4).is_some_and(|s| s == "launchctl") {
             let failed = count.fetch_add(1, Ordering::SeqCst) < failures;
             Some(CommandResult {
                 stdout: vec!["0x4e03 M A com.apple.springboard.services".to_owned()],
@@ -57,6 +58,29 @@ fn probe_fails(h: &Harness, failures: usize, exit_code: Option<i32>) -> Arc<Atom
     });
     h.boot.state.store(3, Ordering::SeqCst);
     probes
+}
+#[tokio::test(start_paused = true)]
+async fn the_readiness_probe_of_a_runtime_18_simulator_is_launchctl_print_user_foreground_d46() -> TestResult {
+    // The harness's worker reports runtime 18.6.
+    let h = Harness::new(|_| {})?;
+    let d = h.device().await?;
+    probe_fails(&h, 0, Some(0));
+    assert!(d.boot(&h.services.context).await.unwrap());
+    let probes: Vec<Vec<String>> = h
+        .worker
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|c| c.iter().any(|arg| arg == "launchctl"))
+        .cloned()
+        .collect();
+    assert_eq!(
+        probes,
+        [["xcrun", "simctl", "spawn", "a", "launchctl", "print", "user/foreground"]]
+    );
+    h.finish(&[d]).await;
+    Ok(())
 }
 #[tokio::test(start_paused = true)]
 async fn one_failed_or_timed_out_probe_costs_one_more_poll_and_no_new_boot_d38() -> TestResult {

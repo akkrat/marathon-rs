@@ -103,8 +103,58 @@ def without_d32_prefix(wire):
     return wire.removeprefix(D32_PREFIX) if wire.startswith(D32_PREFIX + D32_COMMAND) else wire
 
 
+# D46: the readiness probe of today's program on runtime 18 and later, which a JVM record or a native record pinned from
+# before D46 shows as the older `dumpstate`. Those records get exactly this wire on exactly the probes whose own record says
+# the simulator runs runtime 18 or later (its `SIMULATOR_RUNTIME_VERSION` reply), so a native run that kept `dumpstate`
+# there, used `print` on runtime 16 or 17, or whose runtime was not recorded, differs from them. As with D31 and D32 the
+# caller decides by `evidence.may_withhold`, and a record from before D46 that already has the new wire is refused.
+D46_OLD = 'launchctl dumpstate user/foreground/com.apple.SpringBoard'
+D46_NEW = 'launchctl print user/foreground'
+D46_FIRST_RUNTIME = 18
+D46_GETENV = re.compile(r'xcrun simctl getenv (\S+) SIMULATOR_RUNTIME_VERSION')
+D46_PROBE_OLD = re.compile(r'xcrun simctl spawn (\S+) ' + re.escape(D46_OLD))
+D46_PROBE_NEW = re.compile(r'xcrun simctl spawn (\S+) ' + re.escape(D46_NEW))
+
+
+def runtime_major(reply):
+    """The integer before the first dot as the program parses it (ASCII digits, one optional plus); None when it is not one."""
+    head = reply.decode(errors='replace').strip().split('.')[0]
+    return int(head) if re.fullmatch(r'\+?[0-9]+',head) else None
+
+
+def with_d46_probe(rows):
+    """The rows of an older record with the probes of runtime 18 and later as today's program sends them."""
+    wires, replies = {}, defaultdict(bytes)
+    for row in rows:
+        key = (row['connection'],row['channel'])
+        if row['event'] == 'exec':
+            wires[key] = payload(row['detail']).decode()
+        elif row['event'] == 'output' and key in wires and row['detail'].get('extended') is None:
+            replies[key] += payload(row['detail'])
+    majors = {m[1]:runtime_major(replies[key]) for key,wire in wires.items() if (m := D46_GETENV.fullmatch(wire))}
+    result = []
+    for row in rows:
+        if row['event'] == 'exec':
+            wire = wires[row['connection'],row['channel']]
+            e.require(not D46_PROBE_NEW.fullmatch(wire),'D46 probe in a record from before it')
+            probe = D46_PROBE_OLD.fullmatch(wire)
+            if probe and (majors.get(probe[1]) or 0) >= D46_FIRST_RUNTIME:
+                data = ('xcrun simctl spawn ' + probe[1] + ' ' + D46_NEW).encode()
+                row = dict(row,detail=dict(row['detail'],base64=base64.b64encode(data).decode(),sha256=e.sha(data),size=len(data)))
+        result.append(row)
+    return result
+
+
+def without_d46_probe(wire):
+    """The form the command catalogue describes: the one probe form that it lists."""
+    probe = D46_PROBE_NEW.fullmatch(wire)
+    return 'xcrun simctl spawn ' + probe[1] + ' ' + D46_OLD if probe else wire
+
+
 def ssh(data, name=None, before_d32=False):
     rows = records(data)
+    if before_d32:
+        rows = with_d46_probe(rows)
     e.require([r['seq'] for r in rows] == list(range(len(rows))),'truncated/reordered SSH transcript')
     e.require(rows[-1]['event'] == 'cleanup' and rows[-1]['detail']['outcome'] == 'completed'
               and rows[-1]['detail']['active_processes'] == [],'incomplete SSH cleanup')
@@ -171,7 +221,7 @@ def ssh(data, name=None, before_d32=False):
                 if (wire.startswith('/usr/libexec/PlistBuddy ') or
                         re.fullmatch(r'cat /Users/worker/Library/Developer/CoreSimulator/Devices/[^/]+/device.plist',wire) or
                         re.fullmatch(r'xcrun simctl boot [^ ]+',wire) or
-                        re.fullmatch(r'xcrun simctl spawn [^ ]+ launchctl dumpstate user/foreground/com.apple.SpringBoard',wire)):
+                        re.fullmatch(r'xcrun simctl spawn [^ ]+ launchctl (dumpstate user/foreground/com\.apple\.SpringBoard|print user/foreground)',wire)):
                     lane = 'prepare:simulator'
                 elif (wire == 'xcrun --sdk iphonesimulator --show-sdk-platform-path' or
                         wire.startswith(("chmod +x '", 'rm -R /tmp/marathon/', 'ln -s /tmp/marathon/shared/', 'lipo /tmp/marathon/')) or
@@ -194,7 +244,8 @@ def ssh(data, name=None, before_d32=False):
 # RE-PINNING: a native record made after D31 and D32 already has the flag and the prefix, so pinning one in a verification
 # manifest makes `may_withhold` true for it, and this file then refuses it: "D31 flag in a record from before it" or "D32
 # prefix in a record from before it". That is deliberate. Whoever re-pins must scope these two allowances to the records
-# from before them (the JVM's and the digests pinned before x13), not to `may_withhold`, which D20 and D27 keep using.
+# from before them (the JVM's and the digests pinned before x13), not to `may_withhold`, which D20 and D27 keep using. D46's
+# rewrite, which rides on the D32 flag in ssh(), is refused the same way: "D46 probe in a record from before it".
 D31_FLAG = '--timeout=300'
 
 

@@ -658,6 +658,33 @@ fn rows() -> Vec<(String, Value)> {
         .collect()
 }
 
+/// Runs one case against the scripted executor and returns what the Rust wrapper requested and answered.
+async fn observe(case: &str) -> Value {
+    let executor = Arc::new(Scripted {
+        host: KotlinProcessHost::host(),
+        logger: MarathonLogging::default().logger("probe.Recording", None),
+        answers: Mutex::new(answers(case).into()),
+        requests: Mutex::new(vec![]),
+    });
+    let logs: Logs = Arc::default();
+    let tools = Tools {
+        executor: executor.clone(),
+        timeouts: Arc::new(timeouts()),
+        runtime: Arc::new(Runtime),
+        logging: logging(&logs),
+    };
+    let env = AppleBinaryEnvironment::with_tools(tools, 1_234_567, 7_654);
+    let outcome = match run(case, &env, &context()).await {
+        Ok(value) => json!({"return": value}),
+        Err(error) => json!({"error": fail(error)}),
+    };
+    json!({
+        "requests": *executor.requests.lock().unwrap(),
+        "outcome": outcome,
+        "logs": *logs.lock().unwrap(),
+    })
+}
+
 #[tokio::test]
 async fn every_probed_wrapper_call_matches_kotlin() {
     let (mut checked, mut mismatches) = (0, Vec::new());
@@ -665,29 +692,7 @@ async fn every_probed_wrapper_call_matches_kotlin() {
         if kotlin.get("requests").is_none() {
             continue;
         }
-        let executor = Arc::new(Scripted {
-            host: KotlinProcessHost::host(),
-            logger: MarathonLogging::default().logger("probe.Recording", None),
-            answers: Mutex::new(answers(&case).into()),
-            requests: Mutex::new(vec![]),
-        });
-        let logs: Logs = Arc::default();
-        let tools = Tools {
-            executor: executor.clone(),
-            timeouts: Arc::new(timeouts()),
-            runtime: Arc::new(Runtime),
-            logging: logging(&logs),
-        };
-        let env = AppleBinaryEnvironment::with_tools(tools, 1_234_567, 7_654);
-        let outcome = match run(&case, &env, &context()).await {
-            Ok(value) => json!({"return": value}),
-            Err(error) => json!({"error": fail(error)}),
-        };
-        let rust = json!({
-            "requests": *executor.requests.lock().unwrap(),
-            "outcome": outcome,
-            "logs": *logs.lock().unwrap(),
-        });
+        let rust = observe(&case).await;
         let expected = deviation(&case, &kotlin).unwrap_or(kotlin);
         if plain(&rust) != plain(&expected) {
             mismatches.push(format!(
@@ -739,6 +744,106 @@ fn d38_allowance_covers_only_failed_dumpstate_probes_that_kotlin_reported_as_run
     let mut not_running = row("sim.running/16.0/fail").clone();
     not_running["outcome"] = json!({"return": false});
     assert!(!d38_row("sim.running/16.0/fail", &not_running));
+}
+
+/// D46: what a JVM `sim.running/16.0` row becomes on a runtime of 18 or later. Only the probe's argv changes; the
+/// answers, the timeouts, the environment and the outcome stay what Kotlin's row recorded (and D38's, where it applies).
+fn d46_expected(case: &str, kotlin: &Value) -> Value {
+    let mut value = deviation(case, kotlin).unwrap_or_else(|| kotlin.clone());
+    let argv = &mut value["requests"][0]["argv"];
+    assert_eq!(
+        argv,
+        &json!([
+            "xcrun",
+            "simctl",
+            "spawn",
+            "U",
+            "launchctl",
+            "dumpstate",
+            "user/foreground/com.apple.SpringBoard"
+        ])
+    );
+    *argv = json!(["xcrun", "simctl", "spawn", "U", "launchctl", "print", "user/foreground"]);
+    value
+}
+
+#[tokio::test]
+async fn d46_runtime_18_and_later_probe_with_print_user_foreground_and_nothing_else_changes() {
+    let rows = rows();
+    let row = |case: &str| rows.iter().find(|(c, _)| c == case).map(|(_, kotlin)| kotlin).unwrap();
+    for runtime in ["18", "18.0", "18.6", "26.4", "27.0", "+18.1", "99.9"] {
+        for variant in ["ok", "fail", "nul", "D"] {
+            let witness = format!("sim.running/16.0/{variant}");
+            let case = format!("sim.running/{runtime}/{variant}");
+            assert_eq!(
+                plain(&observe(&case).await),
+                plain(&d46_expected(&witness, row(&witness))),
+                "{case}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn d46_runtimes_16_and_17_keep_the_dumpstate_probe_exactly_as_recorded() {
+    let rows = rows();
+    let row = |case: &str| rows.iter().find(|(c, _)| c == case).map(|(_, kotlin)| kotlin).unwrap();
+    for runtime in ["16", "16.0", "16.9", "17", "17.0", "17.5", "+17.0"] {
+        for variant in ["ok", "fail", "nul", "D"] {
+            let witness = format!("sim.running/16.0/{variant}");
+            let case = format!("sim.running/{runtime}/{variant}");
+            let kotlin = row(&witness);
+            let expected = deviation(&witness, kotlin).unwrap_or_else(|| kotlin.clone());
+            assert_eq!(plain(&observe(&case).await), plain(&expected), "{case}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn d46_a_runtime_that_does_not_parse_keeps_the_print_system_probe() {
+    let rows = rows();
+    for runtime in ["", "x", "15.9", "-1.0", "2147483648.0", "１８.0", "１６.0", "18x"] {
+        let rust = observe(&format!("sim.running/{runtime}/ok")).await;
+        assert_eq!(
+            rust["requests"][0]["argv"],
+            json!(["xcrun", "simctl", "spawn", "U", "launchctl", "print", "system"]),
+            "{runtime:?}"
+        );
+    }
+    // The JVM rows are the witness of Kotlin's own choice for the same versions.
+    for case in [
+        "sim.running//ok",
+        "sim.running/x/ok",
+        "sim.running/15.9/ok",
+        "sim.running/-1.0/ok",
+    ] {
+        let kotlin = rows.iter().find(|(c, _)| c == case).map(|(_, kotlin)| kotlin).unwrap();
+        assert_eq!(kotlin["requests"][0]["argv"][6], "system", "{case}");
+    }
+}
+
+#[test]
+fn d46_allowance_changes_the_dumpstate_witness_in_its_argv_only() {
+    let rows = rows();
+    let row = |case: &str| rows.iter().find(|(c, _)| c == case).map(|(_, kotlin)| kotlin).unwrap();
+    // The witnesses: Kotlin asks every runtime from 16 on, 18 included, for dumpstate.
+    for variant in ["ok", "D", "fail", "nul"] {
+        let case = format!("sim.running/16.0/{variant}");
+        let kotlin = deviation(&case, row(&case)).unwrap_or_else(|| row(&case).clone());
+        assert_eq!(kotlin["requests"][0]["argv"][5], "dumpstate", "{case}");
+        let expected = d46_expected(&case, row(&case));
+        assert_eq!(
+            expected["requests"][0]["argv"],
+            json!(["xcrun", "simctl", "spawn", "U", "launchctl", "print", "user/foreground"])
+        );
+        // Everything but that argv is Kotlin's row (with D38's answer where it applies).
+        let (mut left, mut right) = (expected.clone(), kotlin.clone());
+        left["requests"][0]["argv"] = json!(null);
+        right["requests"][0]["argv"] = json!(null);
+        assert_eq!(left, right, "{case}");
+        // A call that kept the old argv on runtime 18 would not equal the expectation.
+        assert_ne!(plain(&expected), plain(&kotlin), "{case}");
+    }
 }
 
 #[test]

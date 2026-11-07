@@ -532,12 +532,13 @@ to 30 minutes of booting and shutting down per simulator with the defaults, and 
 That figure holds while another simulator keeps the pool alive, and leaves out the waits for shutdown and for the session to
 close. On the last device the run ends sooner, after about 6 to 13 minutes, with `remaining tests will not run`. When only the
 probe hangs and needs KILL it takes about 33 minutes, and with every command hung about 50.
-Each probe returns about 20 MB, so a host or link too slow to deliver that within `shell` now takes this path, where
-Kotlin counted the marker once about 80% of it had arrived. No probe result erases a simulator; a configured
+On runtimes 16 and 17 each probe returns about 20 MB, so a host or link too slow to deliver that within `shell` now takes
+this path, where Kotlin counted the marker once about 80% of it had arrived. From runtime 18 on [D46](#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)
+sends a probe of about 100 KB, which makes this risk a small one there. The 26 to 30 minute bound above does not depend on the probe's size. No probe result erases a simulator; a configured
 `onPrepare: [ERASE]` erases on each re-setup, as on any setup. The commands are unchanged. Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A41](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
 
-**Migration action:** none on a normal host. On a slow host or link, raise `shell` (30 s by default) so that a probe that returns about 20 MB can arrive in time.
+**Migration action:** none on a normal host. On a slow host or link running iOS 16 or 17, raise `shell` (30 s by default) so that a probe that returns about 20 MB can arrive in time.
 
 ## D39 — A test's own text does not abort its batch
 
@@ -668,6 +669,36 @@ same test keeps its place. Approved 2026-11-07 (project owner's decision). See
 
 **Migration action:** none. A test that hangs on every attempt now fails instead of repeating, so a run that used to be killed
 by CI ends with a failed test.
+
+## D46 — The readiness probe is `launchctl print user/foreground` from runtime 18
+
+Kotlin asks whether a simulator is running with `launchctl dumpstate user/foreground/com.apple.SpringBoard` from runtime
+16 on, and reads one line of the answer. The answer is 10 to 20 MB, on every poll of the boot wait. Native builds send
+`launchctl print user/foreground` instead when the simulator's runtime major is 18 or later. Runtimes 16 and 17 were not
+measured and keep `dumpstate`. A version that does not parse as a number keeps `print system`, as before, so the choice
+is `print system` below 16 or unparsable, `dumpstate` on 16 and 17, and `print user/foreground` from 18.
+
+Measured on iOS 18.6, 26.4 and 27.0: exit 0, 97 to 121 KB, and the same marker line, `0x… M A com.apple.springboard.services`
+or `M D` while it starts, so the parser that reads the state before `com.apple.springboard.services` is unchanged. An earlier
+measurement compared the two probes over 666 paired rounds, and they agreed on 658. In the 8 that did not, `print` reported
+ready up to one poll earlier. `launchctl print system` and `simctl bootstatus` are not equivalent and were not used. A re-measurement for
+this change is in the [x29 findings](wp/x29-findings.md). A probe that fails, or times out, is still not running (D38).
+
+The effect is on the size, not the count: a boot poll costs about a hundredth of the bytes, so a slow link or a busy worker
+no longer fails the probe for want of 20 MB of delivery, and a long boot wait holds far less in memory. Boot readiness may be
+seen up to one poll interval earlier. The command a worker sees changes, and the commands of a simulator on 16 or 17 do not.
+
+The JVM rows stay as the witnesses of what Kotlin sends: `fixtures/oracle/apple-bin/probes.jsonl` (`sim.running/16.0/*`, which
+the tests expect as `print user/foreground` on 18 and later and unchanged on 16 and 17) and
+`fixtures/oracle/simulator-device/events.jsonl`. The differential comparator rewrites the probe in a JVM record, or a native record pinned before D46,
+only where the same record's own `SIMULATOR_RUNTIME_VERSION` reply for that simulator reads 18 or later, and refuses a record from
+before D46 that already holds the new command. Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [A41](known-kotlin-bugs.md) and the
+[x29 findings](wp/x29-findings.md).
+
+**Migration action:** a forced command or filter on an iOS worker that allows `xcrun simctl spawn … launchctl dumpstate
+user/foreground/com.apple.SpringBoard` must also allow `xcrun simctl spawn … launchctl print user/foreground`, or the probe
+fails and the simulator is out of the run (D38).
 
 ## D47 — An unlimited `uncompletedTestRetryQuota` is refused
 

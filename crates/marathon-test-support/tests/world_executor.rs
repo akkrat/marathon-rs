@@ -418,7 +418,8 @@ async fn wrapper(id: &str, argv: &[String], e: Arc<dyn CommandExecutor>) -> Resu
             v(env.xcrun.simctl.simulator.getenv(UDID, &argv[4], &c).await)?;
         }
         "springboard-16plus" => {
-            v(env.xcrun.simctl.simulator.is_running(UDID, "27.1", &c).await)?;
+            // The form is the probe of runtimes 16 and 17; D46 gives 18 and later `print user/foreground`.
+            v(env.xcrun.simctl.simulator.is_running(UDID, "17.5", &c).await)?;
         }
         "xcode-version" => {
             v(env.xcrun.xcodebuild.get_version(&c).await)?;
@@ -622,6 +623,57 @@ async fn generated_catalogue_matches_the_ssh_executor_and_production_wrappers() 
         v(ssh.close().await)?;
         w.shutdown().await?;
         assert!(e.processes().active().await.is_empty());
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+async fn the_fake_answers_the_runtime_18_readiness_probe_as_it_answers_dumpstate_d46() -> Result<()> {
+    support::bounded(60, async {
+        let (_dir, _, e) = world_executor(scenario("ios-media")?, Script::default()).await?;
+        let e = Arc::new(e);
+        let (_sshdir, w, ssh) = ssh_worker(World::new(scenario("ios-media")?)?).await?;
+        for executor in [e.clone(), ssh.clone()] {
+            let probes = [
+                [
+                    "xcrun",
+                    "simctl",
+                    "spawn",
+                    UDID,
+                    "launchctl",
+                    "dumpstate",
+                    "user/foreground/com.apple.SpringBoard",
+                ],
+                [
+                    "xcrun",
+                    "simctl",
+                    "spawn",
+                    UDID,
+                    "launchctl",
+                    "print",
+                    "user/foreground",
+                ],
+            ];
+            // A simulator that is not booted has no SpringBoard in either form, and a booted one reports the marker.
+            let before = [
+                run(executor.as_ref(), probes[0]).await?,
+                run(executor.as_ref(), probes[1]).await?,
+            ];
+            assert_eq!(before[0], before[1]);
+            assert_eq!(before[1].exit_code, Some(1));
+            run(executor.as_ref(), ["xcrun", "simctl", "boot", UDID]).await?;
+            let after = [
+                run(executor.as_ref(), probes[0]).await?,
+                run(executor.as_ref(), probes[1]).await?,
+            ];
+            assert_eq!(after[0], after[1]);
+            assert_eq!(after[1].stdout, ["A com.apple.springboard.services"]);
+            assert_eq!(after[1].exit_code, Some(0));
+        }
+        v(e.close().await)?;
+        v(ssh.close().await)?;
+        w.shutdown().await?;
         Ok(())
     })
     .await

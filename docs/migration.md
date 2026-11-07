@@ -98,7 +98,8 @@ links to its entry in the [deviations guide](deviations.md).
 | rely on an empty `/sdcard` ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)) | Prepare no longer runs `rm -r $EXTERNAL_STORAGE`. Videos from an aborted run, or cut short by a lost connection in a run that still exits 0, stay on the device. | Clear what your tests need in the tests or in your device setup. |
 | set `socketIdleTimeout` ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)) | It is now real milliseconds. It bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal of port forwards when a device is disposed. Kotlin read it as seconds, so `PT30S` lasted 30,000 s. | Remove it, or keep it at 30 s or more. `PT2S` now fails those requests on a slow adb server. |
 | have a forced command or wrapper on an iOS or macOS worker ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), [D32](deviations.md#d32--xcodebuild-on-a-worker-runs-unbuffered)) | xcodebuild is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`. Sends carry `--timeout=300`. On a host with rsync 3 the worker's `rsync --server` gets it too, and so does a wrapper set with `RSYNC4J_RSYNC`. | Match `env NSUnbufferedIO=YES xcrun xcodebuild` at the start of `SSH_ORIGINAL_COMMAND`, keep `env` on the worker's `PATH`, and accept the new flag. |
-| run iOS simulators on a slow host or link ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)) | A readiness probe returns about 20 MB, and a failed or timed-out probe now means "not running". It must arrive within `shell` (30 s by default). | Raise `shell`. The time a simulator can then spend is in [D38](deviations.md#d38--a-failed-readiness-probe-means-not-running). |
+| run iOS 16 or 17 simulators on a slow host or link ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)) | On runtimes 16 and 17 a readiness probe still returns about 20 MB, and a failed or timed-out probe now means "not running". It must arrive within `shell` (30 s by default). From runtime 18 on the probe is about 100 KB ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). | Raise `shell` on 16 and 17. The time a simulator can then spend is in [D38](deviations.md#d38--a-failed-readiness-probe-means-not-running). |
+| have a forced command or filter on an iOS worker that allows the readiness probe ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)) | On iOS 18 and later the probe is `xcrun simctl spawn <udid> launchctl print user/foreground`, where it was `… launchctl dumpstate user/foreground/com.apple.SpringBoard`. Runtimes 16 and 17 still send `dumpstate`. | Allow the new command too. A filter that refuses it makes every probe fail, and the simulator leaves the run after its setups (D38). |
 | have UI tests that fail with a "Failed to terminate…" message ([D39](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch)) | After a prefix such as `XCTAssertTrue failed - ` the test fails and the batch goes on. A simulator is no longer dropped after 3 such batches in a row. Three output timeouts in a row with no test passed or failed do recycle it, also for a silent test with no failure text. | If a batch waits out its timeout, or a sick simulator keeps taking batches, read the failing line in the log and consider `maxBatchesWithoutProgress`. Raise `testOutputTimeoutMillis` for a test that is silent for longer and passes. |
 | depend on a simulator being set up once ([D33](deviations.md#d33--a-simulator-whose-setup-failed-is-set-up-again)) | A simulator whose setup failed is set up again 30, 60 and 90 s after each failure, even on a removed worker's profile. | `attempts: 1` with `lateJoin: false` in `workerConnection` turns it off. |
 | have a worker with no algorithm in common with marathon ([D35](deviations.md#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | It is no longer retried. | Fix the worker's SSH configuration. |
@@ -337,13 +338,18 @@ can run in another order after a batch that rejected a test.
 ## Other Apple behaviour changes
 
 - **A failed readiness probe means not running**
-  ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)). Each probe returns about 20 MB of stdout. On a
+  ([D38](deviations.md#d38--a-failed-readiness-probe-means-not-running)). On iOS 16 and 17 each probe returns about 20 MB of
+  stdout (from 18 on it is about 100 KB, see D46 below). On a
   host or link too slow to deliver that within `shell` (30 s by default), every probe now times out, where Kotlin counted
   the marker once about 80% had arrived. A simulator then takes up to four setups of two `bootWait`s each, about 26 to
   30 minutes per simulator with the defaults, before it is out of the run. That holds while another simulator keeps the pool
   alive, and leaves out the waits for shutdown and for the session to close. On the last device the run ends after about 6
   to 13 minutes, with `remaining tests will not run`. Raise `shell` if that happens. A configured
   `onPrepare: [ERASE]` erases on each re-setup, as on any setup.
+- **The readiness probe is `launchctl print user/foreground` from iOS 18**
+  ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). The answer is about
+  100 KB instead of 10 to 20 MB, with the same marker line, and `dumpstate` stays for 16 and 17. A worker command filter
+  that matches the old command must also allow `xcrun simctl spawn <udid> launchctl print user/foreground`.
 - **A test's own text does not abort its batch**
   ([D39](deviations.md#d39--a-tests-own-text-does-not-abort-its-batch)). A failure text in a test name, an activity line,
   a Swift Testing event or an application's log line no longer reports. In an assertion it reports only when the message

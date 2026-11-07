@@ -284,6 +284,8 @@ impl World {
                 d.state = if *op == "boot" { "Booted" } else { "Shutdown" }.into();
                 ok("")
             }
+            // D46: `print user/foreground` is the probe from runtime 18 on, `dumpstate` on 16 and 17. The
+            // fake answers both alike: the readiness marker is the same line in either.
             [
                 "xcrun",
                 "simctl",
@@ -292,7 +294,8 @@ impl World {
                 "launchctl",
                 "dumpstate",
                 "user/foreground/com.apple.SpringBoard",
-            ] => match self.device(id)? {
+            ]
+            | ["xcrun", "simctl", "spawn", id, "launchctl", "print", "user/foreground"] => match self.device(id)? {
                 Some(d) if d.state == "Booted" => ok("A com.apple.springboard.services\n"),
                 Some(_) => error("SpringBoard not running\n", 1),
                 None => invalid(id),

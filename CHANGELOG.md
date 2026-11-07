@@ -32,8 +32,11 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   `--timeout=300` (D31). On a host with rsync 3 the worker's `rsync --server` gets the flag too, and so does a wrapper set
   with `RSYNC4J_RSYNC`. A forced command or wrapper on the worker must match `env NSUnbufferedIO=YES xcrun xcodebuild`
   at the start of `SSH_ORIGINAL_COMMAND`, `env` must be on its `PATH`, and the flag must be accepted.
-- **iOS simulators on a slow host or link:** a readiness probe returns about 20 MB and must arrive within `shell` (30 s by
-  default), or the probe counts as failed (D38). Raise `shell`.
+- **iOS 16 and 17 simulators on a slow host or link:** a readiness probe returns about 20 MB and must arrive within `shell`
+  (30 s by default), or the probe counts as failed (D38). Raise `shell`. From iOS 18 the probe is about 100 KB (D46).
+- **A forced command or filter on an iOS worker must allow `xcrun simctl spawn <udid> launchctl print user/foreground`** (D46),
+  the readiness probe of iOS 18 and later, where it was `launchctl dumpstate user/foreground/com.apple.SpringBoard`. iOS 16 and
+  17 still send `dumpstate`.
 - **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
   report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the
   background. Key authentication has always behaved this way.
@@ -91,6 +94,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A simulator whose setup failed is set up again, up to three times, 30, 60 and 90 s after each failure, instead of being out
   for the whole run. `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off (D33).
 - A failed or timed-out readiness probe means the simulator is not running yet, on every iOS runtime (D38).
+- The readiness probe of iOS 18 and later is `launchctl print user/foreground`, about 100 KB where `dumpstate` returned 10 to
+  20 MB, with the same marker line. It may report a booted simulator ready up to one poll earlier. iOS 16 and 17 keep `dumpstate`
+  (D46).
 - A test name, a test's own assertion text or an application's log line that contains a device failure text, such as
   `Failed to terminate`, no longer aborts the batch. After a prefix such as `XCTAssertTrue failed - ` that test fails and the
   batch goes on, and a simulator is no longer dropped after 3 such batches in a row (D39).
@@ -129,7 +135,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   with no real USB or TCP device. The merged Android fixes then ran together on emulators: 41 runs with adb server, adbd and
   emulator kills, reboots, a stale pushed folder and silent video, with no run exiting 0 with tests missing and no hang.
 - D29–D32 and D35–D37 ran against real OpenSSH on loopback.
-- D38 was measured on iOS 18.6, 26.4 and 27.0. D30's TERM timing was measured on one Mac only.
+- D38 and D46 were measured on iOS 18.6, 26.4 and 27.0; iOS 16 and 17 were not measured. D30's TERM timing was measured on one Mac only.
 - D33, D34 and D40 had no real simulator, worker or analytics backend.
 - D50 was measured through the real pool and queue on a stub device, with no real test APKs.
 - D39's rule is reasoned from Xcode's formats and is not recorded from a real run.
