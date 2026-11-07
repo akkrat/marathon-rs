@@ -738,7 +738,9 @@ Native builds count only the tests a batch accepts, against both `size` and `dur
 always accepted, and one test longer than the limit still makes a batch. Rejected tests go back after the batch, as before.
 
 - A batch with nothing rejected performs the same queue operations as in Kotlin. So does a whole run with one test APK and no duplicate copies of a test in the queue.
-- A batch can now be longer, up to its configured `size` and `durationMillis`, which are what Kotlin meant.
+- A batch can now be longer. It stops at its configured `size`, or once its expected durations add up to
+  `durationMillis`, which are what Kotlin meant. The duration is a stopping point, not a cap: the test that reaches it is
+  still in the batch, so two 4 s tests make an 8 s batch with a 6 s limit, as in Kotlin.
 - With sorted tests every test keeps its place. Under ties, as with `no-sorting`, the order is the heap's: rejected tests go
   to its end, so after such a batch tests can run in another order than in Kotlin.
 - Tests of two APKs in the order they were listed, without sorting, gain almost nothing: 1,000 tests at size 10 take 101

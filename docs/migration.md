@@ -330,10 +330,12 @@ These fix bugs that Kotlin has, and need no configuration change.
 ## Batches hold more tests with flaky copies or several test APKs
 
 `fixed-size` batching now counts only the tests a batch accepts
-([D50](deviations.md#d50--a-rejected-test-does-not-use-a-batch-slot)). Batches that used to end early hold up to `size`
-tests and up to `durationMillis`, so a run makes fewer instrumentation or xcodebuild starts and each batch can take longer.
-Check `testBatchTimeoutMillis` if you set it close to what those short batches took. Under ties, as with `no-sorting`, tests
-can run in another order after a batch that rejected a test.
+([D50](deviations.md#d50--a-rejected-test-does-not-use-a-batch-slot)). Batches that used to end early now take tests
+until they hold `size` or their expected durations add up to `durationMillis`. That is where a batch stops, not a cap:
+the test that reaches it is still in the batch, so two 4 s tests make an 8 s batch with a 6 s limit, as in Kotlin. A run
+makes fewer instrumentation or xcodebuild starts and each batch can take longer. Check `testBatchTimeoutMillis` if you
+set it close to what those short batches took. Under ties, as with `no-sorting`, tests can run in another order after a
+batch that rejected a test.
 
 ## Other Apple behaviour changes
 
