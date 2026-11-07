@@ -25,15 +25,17 @@ destination exits 0.
 The removal's exit status was not read. With `Permission denied` setup went on, the stale files stayed where the tests
 read them, and the fresh folder landed inside, at `/sdcard/payload/payload/data.txt`.
 
-**Fix.** The command is `rm -r -- '<d>' || [ ! -e '<d>' ]`: it succeeds when `rm` did, or when nothing is left, which
-covers an absent destination without a separate round trip. Anything else fails the batch's file sync setup with
+**Fix.** The command is `rm -r -- '<d>' || { [ ! -e '<d>' ] && [ ! -L '<d>' ]; }`: it succeeds when `rm` did, or when
+nothing is left, which covers an absent destination without a separate round trip. `-e` follows a link, so `-L` keeps a
+dangling link that `rm` could not remove from reading as gone (review round 2, S-x37-1). Anything else fails the batch's file sync setup with
 `Could not delete remote file(s): <path>: exit code <n>: <rm's output>`, class `CommandRejectedException`, as a refused
 critical shell command does; the batch's tests come back as uncompleted. `[` is a shell builtin in mksh and toybox's
 `sh`, and toolbox's and toybox's `rm` take `--` through `getopt`.
 
 **Test.** `a_folder_push_fails_when_its_leftover_cannot_be_removed_d27`. It was proved against the fix itself by making
 only the exit check inert: the test then saw the stale file at the root and the fresh one nested. The existing
-`a_folder_push_removes_a_leftover_first_d27` now pins the new command.
+`a_folder_push_removes_a_leftover_first_d27` now pins the new command. `a_dangling_link_left_by_a_failed_removal_fails_the_push_d27`
+replays the command with `sh` and an `rm` that fails: with `-e` alone it exited 0 and left the link.
 
 ## S-x18-1: a bare `INSTRUMENTATION_CODE` counted as the end
 

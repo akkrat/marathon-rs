@@ -232,7 +232,7 @@ mod file_sync_test_run_listener_test {
                 let mut script = base_script(27, vec![]);
                 shell(
                     &mut script,
-                    "rm -r -- '/sdcard/fixtures-dir' || [ ! -e '/sdcard/fixtures-dir' ]",
+                    "rm -r -- '/sdcard/fixtures-dir' || { [ ! -e '/sdcard/fixtures-dir' ] && [ ! -L '/sdcard/fixtures-dir' ]; }",
                     "",
                 );
                 shell(&mut script, "rm -r /sdcard/fixtures-dir", "");
@@ -249,7 +249,9 @@ mod file_sync_test_run_listener_test {
                 let about: Vec<_> = sent.iter().filter(|c| c.contains("fixtures-dir")).collect();
                 assert_eq!(
                     about.first().map(|c| c.as_str()),
-                    Some("rm -r -- '/sdcard/fixtures-dir' || [ ! -e '/sdcard/fixtures-dir' ]"),
+                    Some(
+                        "rm -r -- '/sdcard/fixtures-dir' || { [ ! -e '/sdcard/fixtures-dir' ] && [ ! -L '/sdcard/fixtures-dir' ]; }"
+                    ),
                     "{about:?}"
                 );
                 assert!(about.len() > 1, "{about:?}");
@@ -1387,72 +1389,94 @@ fn missing_and_timed_out_pulls_still_emit_video_capture_and_trace_attachments() 
     }
 }
 
-/// x37: the removal before a folder push named `payload data` used to be `rm -r /sdcard/payload data`, which deleted a
-/// sibling `payload`. Only the command is taken from the fake; `sh` runs it on a private temporary directory.
-#[test]
-fn a_folder_push_with_a_space_removes_only_its_own_destination_d27() {
+/// The file sync commands sent for one folder named `name` pushed to external storage, before and after a batch, as the
+/// fake received them. The folder lives in the returned directory.
+fn folder_push_commands(name: &str) -> (tempfile::TempDir, Vec<String>) {
     let mut c = configuration();
     let temp = output(&mut c);
-    let folder = temp.path().join("payload data");
+    let folder = temp.path().join(name);
     checked(std::fs::create_dir(&folder));
     checked(std::fs::write(folder.join("data.txt"), "fresh"));
     android(&mut c).file_sync_configuration.push.push(FilePushEntry {
         path: js(&folder.to_string_lossy()),
         path_root: PathRoot::ExternalStorage,
     });
+    let sent = Arc::new(std::sync::Mutex::new(vec![]));
+    let into = sent.clone();
     run(c, move |runtime, context| {
         Box::pin(async move {
             let mut script = base_script(27, vec![]);
-            script["shell"]
-                .as_array_mut()
-                .unwrap()
-                .push(json!({"prefix":"rm ","stdout":""}));
-            script["shell"]
-                .as_array_mut()
-                .unwrap()
-                .push(json!({"prefix":"mkdir","stdout":""}));
+            let rules = script["shell"].as_array_mut().unwrap();
+            rules.push(json!({"prefix":"rm ","stdout":""}));
+            rules.push(json!({"prefix":"mkdir","stdout":""}));
             let server = server(script).await;
             let device = device(&server, runtime);
             device.setup(context.clone()).await?;
+            let before = commands(&server).len();
             let listener = FileSyncTestRunListener::new(artifacts(&device));
             listener.before_test_run_in(None, context.clone()).await?;
-            let removal = commands(&server).into_iter().find(|c| c.starts_with("rm -r ")).unwrap();
+            listener.after_test_run_in(context).await?;
+            *into.lock().unwrap() = commands(&server).split_off(before);
             finish(server, device).await;
-            // Replay only the emitted removal on a private local filesystem; no real device or adb is involved.
-            let root = temp.path().join("device");
-            checked(std::fs::create_dir_all(root.join("payload data")));
-            checked(std::fs::write(root.join("payload data/data.txt"), "stale"));
-            checked(std::fs::create_dir(root.join("payload")));
-            let command = removal.replace("/sdcard", &root.to_string_lossy());
-            let result = checked(
-                tokio::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(&command)
-                    .current_dir(temp.path())
-                    .output()
-                    .await,
-            );
-            assert!(
-                root.join("payload").exists() && !root.join("payload data").exists(),
-                "cleanup command={removal:?}; guard_exists={}; stale_exists={}; status={:?}",
-                root.join("payload").exists(),
-                root.join("payload data").exists(),
-                result.status.code()
-            );
-            assert_eq!(result.status.code(), Some(0), "{command}");
-            // An absent destination, the usual case, is no failure.
-            let again = checked(
-                tokio::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(&command)
-                    .current_dir(temp.path())
-                    .output()
-                    .await,
-            );
-            assert_eq!(again.status.code(), Some(0), "{command}");
             Ok(())
         })
     });
+    let sent = std::mem::take(&mut *sent.lock().unwrap());
+    (temp, sent)
+}
+
+/// Runs a device command with the local `sh`, with `/sdcard` standing for `root`. No real device or adb is involved.
+fn replay(command: &str, root: &std::path::Path) -> std::process::Output {
+    let command = command.replace("/sdcard", &root.to_string_lossy());
+    checked(
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&command)
+            .current_dir(root)
+            .output(),
+    )
+}
+
+/// x37: the removal before a folder push named `payload data` used to be `rm -r /sdcard/payload data`, which deleted a
+/// sibling `payload`.
+#[test]
+fn a_folder_push_with_a_space_removes_only_its_own_destination_d27() {
+    let (temp, sent) = folder_push_commands("payload data");
+    let removal = sent.iter().find(|c| c.starts_with("rm -r ")).unwrap();
+    let root = temp.path().join("device");
+    checked(std::fs::create_dir_all(root.join("payload data")));
+    checked(std::fs::write(root.join("payload data/data.txt"), "stale"));
+    checked(std::fs::create_dir(root.join("payload")));
+    let result = replay(removal, &root);
+    assert!(
+        root.join("payload").exists() && !root.join("payload data").exists(),
+        "cleanup command={removal:?}; guard_exists={}; stale_exists={}; status={:?}",
+        root.join("payload").exists(),
+        root.join("payload data").exists(),
+        result.status.code()
+    );
+    assert_eq!(result.status.code(), Some(0), "{removal}");
+    // An absent destination, the usual case, is no failure.
+    assert_eq!(replay(removal, &root).status.code(), Some(0), "{removal}");
+}
+
+/// x37 review: `-e` follows a link, so a dangling link that `rm` failed to remove read as gone, and the push went on.
+#[cfg(unix)]
+#[test]
+fn a_dangling_link_left_by_a_failed_removal_fails_the_push_d27() {
+    let (temp, sent) = folder_push_commands("payload");
+    let removal = sent.iter().find(|c| c.starts_with("rm -r ")).unwrap();
+    let root = temp.path().join("device");
+    checked(std::fs::create_dir(&root));
+    let link = root.join("payload");
+    checked(std::os::unix::fs::symlink(root.join("gone"), &link));
+    // `rm` failing, as it would for lack of permission.
+    let failed = replay(&format!("rm() {{ return 1; }}; {removal}"), &root);
+    assert_ne!(failed.status.code(), Some(0), "{removal}");
+    assert!(link.symlink_metadata().is_ok());
+    // A working `rm` removes the link.
+    assert_eq!(replay(removal, &root).status.code(), Some(0), "{removal}");
+    assert!(link.symlink_metadata().is_err());
 }
 
 /// x37: a leftover that can't be removed used to stay what the tests read, with the fresh folder pushed inside it.
@@ -1476,7 +1500,7 @@ fn a_folder_push_fails_when_its_leftover_cannot_be_removed_d27() {
                 {"path":"/sdcard/payload/data.txt","content":"stale"}
             ]);
             script["shell"].as_array_mut().unwrap().extend([
-                json!({"exact":"rm -r -- '/sdcard/payload' || [ ! -e '/sdcard/payload' ]","stdout":"rm: /sdcard/payload/data.txt: Permission denied\n","exit_code":1}),
+                json!({"exact":"rm -r -- '/sdcard/payload' || { [ ! -e '/sdcard/payload' ] && [ ! -L '/sdcard/payload' ]; }","stdout":"rm: /sdcard/payload/data.txt: Permission denied\n","exit_code":1}),
                 json!({"prefix":"mkdir","stdout":""})
             ]);
             let server = server(script).await;
