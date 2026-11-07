@@ -178,7 +178,8 @@ impl TrackerInternal for ExecutionReportGenerator {
 /// long to fail would otherwise cost that much again for every test.
 #[derive(Clone, Copy)]
 pub struct BackendLimits {
-    /// No send holds the queue longer than this, whatever the backend's own timeouts are.
+    /// No send holds the queue longer than this, whatever the backend's own timeouts are, and no
+    /// close holds the end of the run longer.
     pub send: Duration,
     pub slow_failure: Duration,
     pub cool_off: Duration,
@@ -210,6 +211,7 @@ struct GuardState {
 /// D51: metrics are never worth a test run. Kotlin lets a tracker's exception end the queue actor,
 /// and a dead queue leaves the run hanging (U168). A remote backend's failure is logged once per kind and
 /// the run carries on. Its close still reports: `on_finish` keeps the exit code that a failed close has.
+/// A close that runs out of time is only logged.
 pub struct BackendGuard {
     inner: Arc<dyn TrackerInternal>,
     log: ServiceLog,
@@ -305,7 +307,20 @@ impl TrackerInternal for BackendGuard {
                 );
                 (self.log)(&self.logger, Level::Warn, &text.into(), None);
             }
-            self.inner.close().await
+            // A close's last flush is a send too, and a server that trickles its answer never trips
+            // the clients' idle timeouts. Dropping the close is how it stops: InfluxDB's client then
+            // stops its worker. Kotlin waits for as long as the server keeps answering.
+            match tokio::time::timeout(self.limits.send, self.inner.close()).await {
+                Ok(result) => result,
+                Err(_) => {
+                    let text = format!(
+                        "The analytics backend did not close in {} ms; test metrics it still held are lost",
+                        self.limits.send.as_millis()
+                    );
+                    (self.log)(&self.logger, Level::Warn, &text.into(), None);
+                    Ok(())
+                }
+            }
         })
     }
 }

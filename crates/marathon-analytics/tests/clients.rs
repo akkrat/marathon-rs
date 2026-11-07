@@ -1209,3 +1209,127 @@ fn refused_carbon_connection_raises_graphite_exception() {
         })
     });
 }
+
+/// Reads one HTTP request and returns its head; `None` at EOF.
+async fn read_request(socket: &mut tokio::net::TcpStream) -> std::io::Result<Option<String>> {
+    use tokio::io::AsyncReadExt;
+    let (mut bytes, mut buffer) = (Vec::new(), [0; 8192]);
+    loop {
+        if let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+            let head = String::from_utf8_lossy(&bytes[..end]).into_owned();
+            let length = head
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+                .and_then(|(_, v)| v.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if bytes.len() >= end + 4 + length {
+                return Ok(Some(head));
+            }
+        }
+        let count = socket.read(&mut buffer).await?;
+        if count == 0 {
+            return Ok(None);
+        }
+        bytes.extend_from_slice(&buffer[..count]);
+    }
+}
+
+/// S-x34-1: a server that answers InfluxDB's last flush a byte at a time never trips the clients'
+/// idle timeout, so without D51's limit on the close the run's end waits for as long as it trickles.
+/// The guard gives way at its limit, logs once, and the worker's socket is closed.
+#[test]
+fn a_last_flush_to_a_trickling_server_gives_way_at_the_close_limit() {
+    use marathon_core::report::Event;
+    use tokio::{io::AsyncWriteExt, net::TcpListener};
+    let logs = run(|env| {
+        Box::pin(async move {
+            let listener = io(TcpListener::bind("127.0.0.1:0").await)?;
+            let url = format!("http://{}", io(listener.local_addr())?);
+            let (started, mut started_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+            let (ended, mut ended_rx) = tokio::sync::mpsc::unbounded_channel::<usize>();
+            let server = tokio::spawn(async move {
+                loop {
+                    let Ok((mut socket, _)) = listener.accept().await else {
+                        return;
+                    };
+                    let (started, ended) = (started.clone(), ended.clone());
+                    tokio::spawn(async move {
+                        let Ok(Some(head)) = read_request(&mut socket).await else {
+                            return;
+                        };
+                        if head.starts_with("POST /query") {
+                            let body = "{\"results\":[{\"series\":[{\"name\":\"databases\",\"columns\":[\"name\"],\"values\":[[\"db\"]]}]}]}";
+                            let reply = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                                body.len()
+                            );
+                            let _ = socket.write_all(reply.as_bytes()).await;
+                            let _ = socket.shutdown().await;
+                            return;
+                        }
+                        // A write: a body that never ends, a byte every 20 ms, until the client hangs up.
+                        let _ = started.send(());
+                        let mut chunks = 0;
+                        if socket
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n")
+                            .await
+                            .is_ok()
+                        {
+                            while socket.write_all(b"x").await.is_ok() {
+                                chunks += 1;
+                                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                            }
+                        }
+                        let _ = ended.send(chunks);
+                    });
+                }
+            });
+            let client = InfluxClient::connect(&v1(&url), false, env.context.clone(), env.io.clone()).await?;
+            let tracker = Arc::new(InfluxTracker {
+                client,
+                read_only: false,
+            });
+            let context = env.context.clone();
+            let guard = BackendGuard::new(
+                tracker,
+                Arc::new(move |_, level, message, cause| {
+                    context.logs.push(marathon_core::logging::LogRecord {
+                        logger: "guard".into(),
+                        at_millis: 0,
+                        wall_millis: 0,
+                        level,
+                        message: message.clone(),
+                        cause: cause.cloned(),
+                    })
+                }),
+                jcompat::logging::MarathonLogging::default().logger("guard", None),
+                BackendLimits {
+                    send: std::time::Duration::from_millis(500),
+                    ..BackendLimits::default()
+                },
+            );
+            guard
+                .track(&Event::Test(event(TestStatus::Passed, false)))
+                .await
+                .unwrap();
+            // The worker's timed flush is under way and trickling; the close queues behind it.
+            started_rx.recv().await.expect("the flush reaches the server");
+            TrackerInternal::close(&guard).await?;
+            // The worker's request is stopped: the server sees the client hang up.
+            let chunks = ended_rx.recv().await.expect("the trickling exchange ends");
+            assert!(chunks > 0);
+            server.abort();
+            Ok(())
+        })
+    });
+    let lines = logs
+        .iter()
+        .filter(|r| r.logger == "guard")
+        .map(|r| r.message.to_string_lossy())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        ["The analytics backend did not close in 500 ms; test metrics it still held are lost"]
+    );
+}

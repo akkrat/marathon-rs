@@ -764,7 +764,9 @@ Native builds change four things:
 - **Time limits on a send.** Carbon gets 10 s to look up and connect and 10 s to write, where Kotlin has no limit. No send to
   any backend holds up the queue for more than 30 s. A send that fails after 1 s or more, or hits a limit, makes the next
   5 minutes of metrics get skipped, then the backend is tried again. A carbon that drops packets costs 10 s in every 310 s. A
-  refused connection costs almost nothing, so it is tried for every test.
+  refused connection costs almost nothing, so it is tried for every test. The backend's close at the end of the run, where
+  InfluxDB sends what it still holds, also gets 30 s, where Kotlin waits for as long as the server keeps answering. Past that
+  one warning says those metrics are lost, InfluxDB's sender is stopped, and the run ends with the exit code it had.
 - **A Graphite series printed as `None`** has no points in the window and is skipped with a debug line, so the query keeps its
   other tests. Kotlin discarded the whole query. Any other malformed value, such as `50,None`, still fails the query.
 - **Each step at the end of a run still runs after another fails:** the history close, provider termination, each reporter

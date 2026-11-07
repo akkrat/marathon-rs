@@ -114,7 +114,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 
 - A Graphite or InfluxDB backend that is down or slow no longer stops a run. With carbon down, a run used to hang at its first
   test result. The failure is now logged once per kind, and sends have time limits, with metrics skipped for 5 minutes after a
-  slow failure (D51, U167).
+  slow failure. The backend's close at the end of a run gets 30 s, so an InfluxDB server that answers its last flush slowly
+  can no longer hold the end of a run (D51, U167).
 - A Graphite series with no points in the window no longer loses the whole history query (D51, C38).
 - A failed reporter or close no longer skips the ones after it, such as a later report or terminating the devices. Each failure
   is logged, and the exit code is unchanged (D51, C11, C25).

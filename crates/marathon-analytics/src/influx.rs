@@ -10,7 +10,10 @@ use marathon_config::InfluxDbConfiguration;
 use marathon_core::{
     analytics::{MetricsContext, TrackerInternalAdapter, remote::influx::*},
     error::*,
-    executor::{Signal, shared::failure},
+    executor::{
+        Signal,
+        shared::{failure, requested},
+    },
     model::TestStatus,
     report::TestEvent,
     runtime::*,
@@ -33,7 +36,19 @@ pub struct InfluxClient {
     http: SharedHttp,
     sender: mpsc::Sender<Message>,
     task: Arc<dyn VendorTask>,
+    /// The worker's own cancellation, used only when a shutdown is abandoned.
+    worker: Arc<Signal>,
     closed: Mutex<bool>,
+}
+/// D51: a caller that stops waiting for `shutdown`, as `BackendGuard` does at its limit, drops
+/// the future. The worker would otherwise go on with a request that a trickling server never ends.
+struct AbandonOnDrop<'a>(Option<&'a Signal>);
+impl Drop for AbandonOnDrop<'_> {
+    fn drop(&mut self) {
+        if let Some(worker) = self.0 {
+            worker.cancel(requested("InfluxDB shutdown abandoned"));
+        }
+    }
 }
 impl InfluxClient {
     /// Poll on the vendor runtime during dependency construction; history and
@@ -111,7 +126,8 @@ impl InfluxClient {
         let (sender, receiver) = mpsc::channel(BATCH_ACTIONS);
         // Java's scheduled batch pool is independent of the caller's coroutine.
         // onFinish must still be able to drain it after the run is cancelled.
-        let worker_http = Arc::new(http.with_cancellation(Signal::new()));
+        let worker = Signal::new();
+        let worker_http = Arc::new(http.with_cancellation(worker.clone()));
         let task = io.spawn(Box::pin(async move {
             run_batches(worker_http, context, database, policy, receiver)
                 .await
@@ -121,6 +137,7 @@ impl InfluxClient {
             http,
             sender,
             task,
+            worker,
             closed: Mutex::new(false),
         }))
     }
@@ -147,6 +164,7 @@ impl InfluxClient {
         receiver.await.map_err(|_| crate::http::closed())?
     }
     pub async fn shutdown(&self) -> OperationResult<()> {
+        let mut abandon = AbandonOnDrop(Some(&self.worker));
         let mut closed = self.closed.lock().await;
         let result = if !*closed {
             *closed = true;
@@ -162,11 +180,15 @@ impl InfluxClient {
             Ok(())
         };
         // Hold the close gate until the worker and its current socket are gone.
-        self.task.join().await.map_err(|e| match e {
-            VendorError::Cancelled(c) => OperationError::Cancelled(c),
-            e => OperationError::Failed(e.failure().clone()),
-        })?;
-        result
+        let joined = self.task.join().await;
+        abandon.0 = None;
+        match joined {
+            // An earlier shutdown was abandoned and stopped the worker; whoever abandoned it reported that.
+            Err(VendorError::Cancelled(_)) if self.worker.reason().is_some() => Ok(()),
+            Err(VendorError::Cancelled(c)) => Err(OperationError::Cancelled(c)),
+            Err(e) => Err(OperationError::Failed(e.failure().clone())),
+            Ok(()) => result,
+        }
     }
 }
 pub(crate) async fn request(

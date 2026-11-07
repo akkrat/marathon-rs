@@ -61,7 +61,9 @@ Worst cases for the queue actor:
   returns the failure to the guard, which is the only thing that can see how long it took. The text
   `Failed to write data point to InfluxDb2` is gone, replaced by the guard's line.
 - **Closes** are not bounded here. InfluxDB v1's close makes its one last attempt per buffered batch, at 60 s per step, as
-  Kotlin's does. It runs once, at the end, and nothing waits on it but the end of the run.
+  Kotlin's does. It runs once, at the end, and nothing waits on it but the end of the run. (Since x39 the guard bounds the
+  close as a whole at 30 s, because a server that trickles its answer never reaches a 60 s idle limit: see the
+  [x39 findings](x39-findings.md).)
 
 ### Logging once per kind
 

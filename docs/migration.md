@@ -403,8 +403,9 @@ These fix bugs that Kotlin has, and need no configuration change.
 
 ## Analytics and end-of-run failures
 
-A Graphite or InfluxDB backend that is down or slow is logged and the run carries on, and the end of a run no longer stops at
-the first failed close. Exit codes are unchanged. If history seems to stop growing, look for `Cannot send test metrics` in the
+A Graphite or InfluxDB backend that is down or slow is logged and the run carries on. No send to it holds up the run for more
+than 30 s, and its close at the end of the run, where InfluxDB sends the metrics it still holds, gets 30 s too; past that a
+warning says those metrics are lost. The end of a run no longer stops at the first failed close. Exit codes are unchanged. If history seems to stop growing, look for `Cannot send test metrics` in the
 log. A run whose filters removed every test still exits 0, and now logs an error line with what each filter removed. See
 [D51](deviations.md#d51--metrics-and-cleanup-failures-do-not-stop-a-run).
 

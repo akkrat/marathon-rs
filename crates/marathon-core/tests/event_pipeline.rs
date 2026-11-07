@@ -1186,6 +1186,48 @@ fn a_healthy_backend_is_silent_and_a_failed_close_still_reports() {
     })
     .unwrap();
 }
+/// S-x34-1: a close that never finishes, like a final flush to a server that trickles its answer.
+#[test]
+fn a_close_that_never_finishes_gives_way_and_is_logged_once() {
+    struct NeverCloses;
+    impl TrackerInternalAdapter for NeverCloses {
+        fn close(&self) -> ServiceFuture<'_, ()> {
+            Box::pin(std::future::pending())
+        }
+    }
+    CoreExecutor::run(|_| {
+        Box::pin(async move {
+            let logged: Logged = Arc::default();
+            let captured = logged.clone();
+            let guard = BackendGuard::new(
+                Arc::new(NeverCloses),
+                Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_string_lossy()))),
+                MarathonLogging::default().logger("TrackerFactory", None),
+                BackendLimits {
+                    send: std::time::Duration::from_millis(50),
+                    ..never_slow()
+                },
+            );
+            guard.track(&test_event()).await.unwrap();
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_secs(60), TrackerInternal::close(&guard))
+                    .await
+                    .expect("the close gives way at its limit")
+                    .is_ok(),
+                "an expired close leaves the exit code alone"
+            );
+            assert_eq!(
+                *logged.lock().unwrap(),
+                vec![(
+                    jcompat::logging::Level::Warn,
+                    "The analytics backend did not close in 50 ms; test metrics it still held are lost".to_owned()
+                )]
+            );
+            Ok(())
+        })
+    })
+    .unwrap();
+}
 #[test]
 fn cancellation_passes_through_the_backend_guard() {
     CoreExecutor::run(|_| {
