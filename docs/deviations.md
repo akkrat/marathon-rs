@@ -690,7 +690,9 @@ of them back meanwhile; each such update adds the attempts of a new start. The f
 connection per simulator. The worker retry then makes 11 attempts in 600 s, one a minute once the first pauses are over, and
 each acquires one planning connection and, if planning gets through, one more per simulator still waiting. That is at most
 N + 11 × (N + 1) acquisitions: 13 for two simulators whose worker doesn't answer, and 35 for two whose worker answers while
-their own connections fail. Kotlin made up to about 3,750 attempts a minute per simulator. Each acquisition makes up to four
+their own connections fail. The 11-attempt schedule and the N + 11 × (N + 1) bound apply to one uninterrupted worker
+retry: hand-overs through D33 can start the connection backoff again and exceed that count without a devices update.
+Kotlin made up to about 3,750 attempts a minute per simulator. Each acquisition makes up to four
 TCP connections to the SSH port, sshj's immediate retries, and logs in once if one of them gets through, so there is at most
 one failed login per acquisition. A refused simulator connection takes that simulator out, and a refused planning connection
 ends the worker retry. With `checkReachability` a host that doesn't answer gets
@@ -725,7 +727,7 @@ or hand-over to a retry. A simulator that was in the run and is added back gets 
 recovery of it is still running, as soon as that recovery ends. If that attempt can't reach the worker, it joins the worker
 retry. An attempt of that retry that began before the re-add doesn't take it: the retry's next attempt does, or, if that
 older attempt ends the retry, the simulator gets a retry of its own, with its limit started over. A setup takes along only
-the simulators it held a claim on when it started, so one that becomes eligible during it waits for the next setup. A setup
+simulators on which it holds a current claim; an unclaimed simulator that becomes eligible during it waits for the next setup. A setup
 that succeeds is kept whenever it started.
 
 **Not limited:** a connection that keeps dropping after setup succeeds. Each round is a full setup, so its pace is the time

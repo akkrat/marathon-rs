@@ -53,7 +53,7 @@ eligible, so one simulator can't be set up twice at once.
 |---|---|---|
 | Pace, worker down | Every 16 ms plus the attempt's own time, up to about 3,750 attempts a minute per simulator | One attempt a minute per worker, after the first pauses |
 | Attempts, 600 s | Up to about 37,500 per simulator, and it never ends | One per simulator at once, then 11 per worker: 10, 30, 90, 150 … 570 s |
-| Acquisitions, 600 s | One per simulator per attempt, with no end | N + 11 × (N + 1) for N simulators: one planning connection per worker attempt, plus one per waiting simulator when planning gets through (review round 2) |
+| Acquisitions, 600 s | One per simulator per attempt, with no end | N + 11 × (N + 1) for N simulators: one planning connection per worker attempt, plus one per waiting simulator when planning gets through (review round 2), for one uninterrupted worker retry; D33 hand-overs can restart the backoff and exceed it (S-x27-11) |
 | Connections per acquisition | Up to 4 (sshj's immediate retries), one login | The same |
 | Worker answers, setup fails | Every 16 ms | 4 setups for the run (D33): 0, 30, 90, 180 s |
 | Refused | Every 16 ms | 1 |
@@ -180,7 +180,9 @@ that update, and no longer another plan on the worker. Tests:
 **The connection bound left out simulator acquisitions** (minor). An attempt whose planning connection gets through also
 acquires one connection per waiting simulator. With the defaults a worker loss acquires at most N + 11 × (N + 1) times, 13
 for two simulators whose worker is down and 35 for two whose worker answers while their own connections fail. "Up to four" is
-per acquisition, sshj's immediate retries, with one login. D44's text now says so. Test:
+per acquisition, sshj's immediate retries, with one login. D44's text now says so. The bound holds for one uninterrupted
+worker retry: alternating unreachable connections and ordinary setup failures hand over through D33 and can start the
+backoff again (round 5's review measured 31 acquisitions for one simulator; S-x27-11). Test:
 `a_worker_that_answers_while_its_simulators_cannot_connect_acquires_at_most_n_plus_11_times_n_plus_1`, which counts 35.
 
 **The 600 s limit is not a deadline** (minor). It is looked at when a pause ends and after an attempt connects, so with
@@ -277,7 +279,7 @@ for it. This replaces round 3's per-handle epoch and D33's own generation map.
 | Hand-over of what an attempt couldn't reach back to its retry | `retry` → `pending.offer` | `settle` (`still_claimed`) |
 | Pending membership: an offer (round 5) | `retry_later`, `retry`'s hand-back, a devices update's `offer` | The entry carries the generation of the offering operation's claim |
 | Pending membership: `take` by an attempt (round 5) | `retry` | `standing`: a dead entry is dropped, one newer than the attempt's claim is offered back for the next attempt, the rest is taken |
-| Pending membership: prune (round 5) | `prune_pending` | Drops what left the file, what expired (giving up through `settle`) and late new devices at the cut-off. A dead entry is left for `take` or the cleanup, which can cost the retry one more attempt |
+| Pending membership: prune (round 5) | `prune_pending` | Drops what left the file, what expired (giving up through `settle`) and late new devices at the cut-off. A dead entry is left for `take` or the cleanup; a removed target that never registered can keep the retry alive until a planning connection succeeds or the retry's limit (S-x27-13) |
 | Pending membership: close and the cleanup's take (round 5) | `retry_later`'s task | `standing` against the last attempt's claims: dead dropped, newer or a returning simulator that joined later to a fresh retry (through `settle`), the rest given up (through `settle`) |
 | Pending membership: the worker's entry removed from the map | `retry_later`'s task | Only if it is still this retry's (`Arc::ptr_eq`), so a fresh retry's entry stays |
 
@@ -348,8 +350,9 @@ the attempt taking newer entries. `a_simulator_that_joins_a_retry_after_its_last
 **S-x27-10: a plan took along simulators it held no claim on** (major). `setup` claimed its targets and the simulators
 parked when it started; one parked during its inventory await was then eligible, taken along, and its refusal and D33 charge
 were dropped by `settle`. A plan now claims every simulator registered on its worker before its first await, and the
-planner's view (`claimed_current`) keeps any eligible simulator the plan holds no current claim on, so one that becomes
-eligible later, a newly registered one or one added back during the plan, waits for the next plan.
+planner's view (`claimed_current`) keeps any eligible simulator the plan holds no current claim on. A registered simulator is
+claimed before the inventory, so one parked during it can join this plan; an unclaimed one that becomes eligible later, a
+newly registered one or one added back during the plan, waits for the next plan (corrected after round 5's review, S-x27-12).
 
 Tests: `a_simulator_parked_while_a_plan_lists_its_worker_keeps_the_setup_budget` (a had 5 failed setups, now 4) and
 `a_simulator_parked_while_a_plan_lists_its_worker_keeps_its_refusal` (2 refusals, now 1), both witnesses. Each half of the
@@ -374,8 +377,9 @@ fix is enough for these two, so each was reverted alone without a failure; with 
 
 **Limits that remain.**
 
-- A dead pending entry isn't pruned at a pause's end, only dropped at `take` or the cleanup, so it can keep a retry alive for
-  one more attempt.
+- A dead pending entry isn't pruned at a pause's end, only dropped at `take` or the cleanup. A removed target that never
+  registered can keep its worker retry alive until a planning connection succeeds or the retry reaches its configured limit;
+  with `lateJoinCutoff: 0`, this can last until the run ends (round 5's review, S-x27-13).
 - `still_claimed` and the offer that follows aren't under one lock, as round 4 says: a removal between them leaves an entry
   that the next attempt claims as it is then.
 - A simulator added back while a worker retry waits costs one more planning connection to that worker.
