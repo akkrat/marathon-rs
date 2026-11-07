@@ -117,9 +117,11 @@ D46_PROBE_NEW = re.compile(r'xcrun simctl spawn (\S+) ' + re.escape(D46_NEW))
 
 
 def runtime_major(reply):
-    """The integer before the first dot as the program parses it (ASCII digits, one optional plus); None when it is not one."""
+    """The integer before the first dot as the program parses it (ASCII digits, one optional plus, at most `i32::MAX`); None
+    when it is not one."""
     head = reply.decode(errors='replace').strip().split('.')[0]
-    return int(head) if re.fullmatch(r'\+?[0-9]+',head) else None
+    value = int(head) if re.fullmatch(r'\+?[0-9]+',head) else None
+    return value if value is not None and value <= 2**31 - 1 else None
 
 
 def with_d46_probe(rows):

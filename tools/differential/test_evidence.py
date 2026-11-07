@@ -736,7 +736,7 @@ class VendorEvidenceTests(unittest.TestCase):
 
     def test_d46_only_the_probe_of_a_runtime_18_or_later_in_an_older_record_changes(self):
         old, new = self.D46_OLD, self.D46_NEW
-        for reply in ['18.0\n','18.6\n','26.4\n','27.0\n','099.9\n','18','+18.1\n']:
+        for reply in ['18.0\n','18.6\n','26.4\n','27.0\n','099.9\n','18','+18.1\n','2147483647.0\n','0002147483647.0\n']:
             with self.subTest(reply):
                 self.assertEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),[self.D46_GETENV,new])
                 # Today's native run compares equal to the JVM's; the older program's probe does not.
@@ -745,7 +745,8 @@ class VendorEvidenceTests(unittest.TestCase):
                 self.assertNotEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),
                                     self.d46_control_lane((self.D46_GETENV,reply),(old,'')))
         # Runtimes 16 and 17, a version that does not parse as a number, and no recorded version keep the recorded wire.
-        for reply in ['16.0\n','17.5\n','17\n','','x.1\n','１８.0\n','-18.0\n','1x8.0\n']:
+        # A major past i32::MAX fails the program's parse too.
+        for reply in ['16.0\n','17.5\n','17\n','','x.1\n','１８.0\n','-18.0\n','1x8.0\n','2147483648.0\n','99999999999999999999.1\n']:
             with self.subTest(reply):
                 self.assertEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),[self.D46_GETENV,old])
                 self.assertNotEqual(self.d46_control_lane((self.D46_GETENV,reply),(old,''),before=True),
