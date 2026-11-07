@@ -87,6 +87,10 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A test name, a test's own assertion text or an application's log line that contains a device failure text, such as
   `Failed to terminate`, no longer aborts the batch. After a prefix such as `XCTAssertTrue failed - ` that test fails and the
   batch goes on, and a simulator is no longer dropped after 3 such batches in a row (D39).
+- Three output timeouts in a row with no test passed or failed now set a simulator up again, so a real failure that D39 misses
+  no longer keeps a sick simulator in the run. This also reaches a test that stays silent past `testOutputTimeoutMillis`, which
+  Kotlin repeated on the same simulator for ever. A simulator that does this after each of its 3 recoveries leaves the run (D39,
+  U165).
 - A test that hangs past its execution time allowance now fails, with the hang's line as its text, whatever form the allowance
   is printed in. With `1 minute`, which a 60 s allowance prints, Kotlin aborted the batch and repeated the test until CI killed
   the job (D45).
@@ -145,8 +149,6 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   On the last device the run ends after about 6 to 13 minutes with "remaining tests will not run". If only the probe hangs and
   needs KILL it takes about 33 minutes, and if every command hangs about 50 (D38).
 - A failed xcodebuild close retires its simulator, which ends a pool whose last device it was (D30).
-- A real failure that D39 now misses ends in a 300 s output timeout per batch, and with the default settings the simulator is
-  then never recycled (D39, U165).
 - A batch that D22's hold kept waiting is charged an attempt when its server is given up, so with `uncompletedTestRetryQuota: 0`
   tests can fail without having run (U160). After SIGINT with `debug: true`, tests may bounce back and add false INCOMPLETE
   results to that run's reports (U161). A write error to Graphite ends the queue, where Kotlin swallowed it (U167).

@@ -200,13 +200,16 @@ impl AppleSimulatorDevice {
             return Err(error.into_vendor());
         }
         if error.error.failure().class == JavaString::from("java.util.concurrent.TimeoutException") {
-            let loss = self.state().policy.on_batch_completed(progress);
-            if let Some(mut loss) = loss {
-                loss.suppressed.push(error.into_vendor().failure().clone());
+            let error = error.into_vendor();
+            let loss = self
+                .state()
+                .policy
+                .on_batch_timed_out(error.failure().clone(), progress);
+            if let Some(loss) = loss {
                 self.mark_lost();
                 return Err(loss.into_vendor());
             }
-            return Err(error.into_vendor());
+            return Err(error);
         }
         if matches!(error.error, VendorError::Cancelled(_)) {
             self.join_cancelled(job, context).await?;

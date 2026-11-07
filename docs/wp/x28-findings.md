@@ -1,4 +1,4 @@
-# x28 — hung Apple tests
+# x28 — hung Apple tests, and silent batches
 
 ## A47 / D45
 
@@ -63,6 +63,50 @@ No, not on the forms that were checked.
 | `xctest` discovery | Code reading only | The batch holds the mangled class with `pkg` set to the bundle id, so it matches when the target name equals the bundle id, as for any class |
 | A real three-part class name in a log line | Code reading only | With `xctest` discovery the logged `pkg` wouldn't match the batch, the test would count as missing, and it would come back uncompleted until the quota ends. No real output with such a name was seen |
 
+## U165 / D39 extended
+
+### What Kotlin does, and the choice
+
+Kotlin's `AppleSimulatorDevice` handles `TimeoutException` with `onBatchCompleted`, which resets the count of batch failures. A
+real failure text reached `onBatchFailed` instead, so Kotlin recycled a simulator for the text and never for the silence. D39
+stopped matching some of those texts, which left the silence as the only sign.
+
+Two rules were possible:
+
+| | Only after an exempted literal | Any timeout with no progress (chosen) |
+|---|---|---|
+| Change | The classifier reports what it exempted, and that state crosses the producer and session to `classify` | One policy method |
+| Catches a miss that isn't an exempted form, such as CRLF output | No | Yes |
+| Differs from Kotlin on a silent hang with no text | No | Yes: recycled after 3 |
+
+The cost of the chosen rule is the last row. It was accepted because a batch that shows nothing for 300 s three times in a row
+is the same evidence `maxBatchesWithoutProgress` acts on, and because the alternative for a test that hangs every time was to
+repeat it on the same simulator with no end.
+
+A batch with progress is unchanged: it resets the count, as Kotlin does. `TimeoutException` reaches this branch only from the
+reader's idle timeout. The session-close timeout arrives as a device loss, and the batch timeout ends the batch without an error.
+
+### The scenario
+
+The audit's logs aren't in this repository, so its 50 batches are rebuilt here: every batch goes silent, with the default 3
+batch failures and the default 3 recoveries, through the real device, policy and provider recovery on a fake worker. The test
+sets a short recovery pause, because the default's 60 s meets the harness's watchdog.
+
+| | Batches before the simulator is lost | Recycled | Time at 300 s per batch |
+|---|---|---|---|
+| Before (fix reverted) | never, all 50 ran on one handle | 0 | 250 minutes and counting |
+| After | 3, 3, 3, 3, then out of the run | 3 | 60 minutes, plus setups and 90 s of pauses |
+
+Reverting the fix makes `fifty_silent_batches_recycle_the_simulator_until_its_recoveries_run_out_d39` and
+`silent_batches_take_the_simulator_out_with_the_default_settings_d39` fail. `silent_batches_with_progress_keep_the_simulator_d39`
+passes both ways, as it pins what must not change.
+
+### What it does not do
+
+- It adds no limit on a batch with progress that then goes silent. Such a batch still resets the count.
+- On the last device of a pool the run now ends when the recoveries run out, with the usual pool ending. No real simulator went
+  silent for this; the scenario is on a fake worker.
+
 ## Verified
 
 - `cargo test -p marathon-apple --test apple_logparser --test batch_failure_policy` and the whole of `marathon-ios`; see the WP report.
@@ -77,7 +121,7 @@ No, not on the forms that were checked.
 ## Incidental bugs
 
 - Nested Swift test classes are never discovered by the default `nm` parser, as `parse_symbols` needs exactly three parts. Such
-  a test silently does not run. Kotlin does the same (`NmTestParser`). Not fixed, and it has no ledger row yet because this WP
+  a test silently does not run. Kotlin does the same (`NmTestParser.kt:84`). Not fixed, and it has no ledger row yet because this WP
   was assigned no row numbers.
-- `failed (1.2.3 seconds)` still aborts a batch with `NumberFormatException`, and repeats as A47 did. Real Xcode can't print it,
-  but an application's log line can be parsed as a result line only if it matches the whole pattern. Not fixed.
+- `failed (1.2.3 seconds)` still aborts a batch with `NumberFormatException`, and it would repeat as A47 did. Real Xcode can't
+  print it. An application could, by logging a whole line of exactly that form. Not fixed.

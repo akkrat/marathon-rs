@@ -575,14 +575,20 @@ Some real failures are now missed:
   three sentences. The batch waits for its timeout if the runner has died.
 
 A missed failure ends when xcodebuild's output has been silent for `testOutputTimeoutMillis` (300 s by default), once per
-batch. Such a timeout does not count towards the three batch failures in a row, so with the default settings the simulator is
-never recycled for it, however often it repeats ([U165](found-bugs.md)). `maxBatchesWithoutProgress` (0, which is off, by
-default) does count batches in which no test passed or failed, timeouts included. In Kotlin the failure text itself counted as a batch failure.
+batch. In Kotlin the failure text itself counted as a batch failure, so since 2026-11-07 ([U165](found-bugs.md)) any such
+timeout before a test has passed or failed counts as one too, with or without a missed text, because the silence is all
+that's left to see. Three in a row, about 15 minutes by default, and the simulator is set up again. A batch in which a test
+passed or failed resets the count, as Kotlin does for every timeout.
+
+This also reaches a test that goes silent past the timeout with no failure text at all, which Kotlin never recycled for. A
+simulator has 3 recoveries, so if every batch goes silent it takes at most 12 batches, about 60 minutes plus setups and
+pauses of 30 and 60 s, and it then leaves the run. On the last device the run then ends, where Kotlin repeats the batch until
+CI kills the job. `uncompletedTestRetryQuota` can end it sooner.
 
 Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A48](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).
 
-**Migration action:** none unless a batch waits out its timeout or a sick simulator keeps taking batches. Then read the failing line in the log, and consider setting `maxBatchesWithoutProgress`.
+**Migration action:** none unless a batch waits out its timeout or a sick simulator keeps taking batches. Then read the failing line in the log, and consider setting `maxBatchesWithoutProgress`. A test that is silent for longer than `testOutputTimeoutMillis` and passes needs that timeout raised, as before; three such batches in a row now also recycle the simulator.
 
 ## D40 — A stale disconnect leaves a device's replacement alone
 

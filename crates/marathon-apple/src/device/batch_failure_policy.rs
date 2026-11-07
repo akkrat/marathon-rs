@@ -66,6 +66,18 @@ impl BatchFailurePolicy {
         if !reason.is_batch_failure() {
             return Some(BatchLoss::new(error));
         }
+        self.count_failure(error, passed_tests, progress)
+    }
+    /// D39 (U165): output that went silent before any test passed or failed counts as a batch failure. D39 left
+    /// such a silence as the only sign of a real failure it misses, where Kotlin counted the failure's text.
+    /// A batch with progress resets the count, as Kotlin does for every timeout.
+    pub fn on_batch_timed_out(&mut self, error: Failure, progress: bool) -> Option<BatchLoss> {
+        if progress {
+            return self.on_batch_completed(true);
+        }
+        self.count_failure(error, false, false)
+    }
+    fn count_failure(&mut self, error: Failure, passed_tests: bool, progress: bool) -> Option<BatchLoss> {
         if let Some(mut loss) = self.count_progress(progress) {
             loss.suppressed.push(error);
             return Some(loss);

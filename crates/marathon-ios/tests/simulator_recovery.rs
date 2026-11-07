@@ -61,6 +61,51 @@ async fn a_simulator_that_keeps_getting_lost_is_set_up_again_a_limited_number_of
     );
     p.balanced().await
 }
+/// D39 (U165), the audit's scenario for U165: every batch goes silent. Up to 50 batches are offered, and the
+/// simulator is set up again after every third until its recoveries, the default 3, run out. The pause is short
+/// only because the default's third, 60 s, would meet this harness's watchdog.
+#[tokio::test(start_paused = true)]
+async fn fifty_silent_batches_recycle_the_simulator_until_its_recoveries_run_out_d39() -> TestResult {
+    let p = RecoveryHarness::settings(|_| {}, 3, 500)?;
+    p.start(&["a", "b"]).await?;
+    p.connected(2).await;
+    let silent = Arc::new(BatchScript::default());
+    *silent.plan.lock().unwrap() = OutputPlan {
+        lines: vec!["Test Case '-[Suite test1]' started.".into()],
+        failure: Some(marathon_apple::cmd::failure(
+            "java.util.concurrent.TimeoutException",
+            "idle timeout reached",
+        )),
+        ..Default::default()
+    };
+    silent.attach(&p.h().worker);
+    let mut handle = p.current("a");
+    p.h().prepare(&handle).await.unwrap();
+    let (mut batches, mut per_handle, mut recycled) = (0, vec![], 0);
+    let mut on_handle = 0;
+    while batches < 50 {
+        batches += 1;
+        on_handle += 1;
+        let outcome = run(p.h(), &handle).await.0;
+        if !matches!(outcome, Err(marathon_core::error::VendorError::DeviceLost(_))) {
+            continue;
+        }
+        per_handle.push(on_handle);
+        on_handle = 0;
+        if recycled == 3 {
+            break;
+        }
+        handle = p.connected(1).await.remove(0);
+        recycled += 1;
+        p.h().prepare(&handle).await.unwrap();
+    }
+    assert_eq!(per_handle, [3, 3, 3, 3]);
+    assert_eq!(batches, 12);
+    eventually(|| p.log("has been lost 4 times")).await;
+    advance(2000).await;
+    assert!(p.current("a").disposed());
+    p.balanced().await
+}
 #[tokio::test(start_paused = true)]
 async fn a_simulator_lost_for_the_rest_of_the_run_stays_out_of_device_updates_and_connection_recovery() -> TestResult {
     let p = RecoveryHarness::fast()?;

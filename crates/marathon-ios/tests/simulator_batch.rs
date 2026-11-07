@@ -116,6 +116,59 @@ async fn batches_stopped_by_the_idle_timeout_before_any_test_finished_take_the_s
     h.finish(&[d]).await;
     Ok(())
 }
+/// D39 (U165) with the default settings: three silent batches, where Kotlin kept the simulator for ever.
+#[tokio::test(start_paused = true)]
+async fn silent_batches_take_the_simulator_out_with_the_default_settings_d39() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    *s.plan.lock().unwrap() = OutputPlan {
+        lines: vec!["Test Case '-[Suite test1]' started.".into()],
+        failure: Some(failure("java.util.concurrent.TimeoutException", "idle timeout reached")),
+        ..Default::default()
+    };
+    for _ in 0..2 {
+        let e = run(&h, &d).await.0.unwrap_err();
+        assert_eq!(
+            e.failure().class.to_string_lossy(),
+            "java.util.concurrent.TimeoutException"
+        );
+        assert!(!d.lost());
+    }
+    let e = run(&h, &d).await.0.unwrap_err();
+    assert!(matches!(e, VendorError::DeviceLost(_)));
+    assert!(
+        e.failure()
+            .stack_trace()
+            .to_string_lossy()
+            .contains("idle timeout reached")
+    );
+    assert!(d.lost());
+    h.finish(&[d]).await;
+    Ok(())
+}
+/// D39 (U165): a batch in which a test finished keeps the simulator however often its output then goes silent.
+#[tokio::test(start_paused = true)]
+async fn silent_batches_with_progress_keep_the_simulator_d39() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    let mut lines = failed(1);
+    lines.push("Test Case '-[Suite test2]' started.".into());
+    *s.plan.lock().unwrap() = OutputPlan {
+        lines,
+        failure: Some(failure("java.util.concurrent.TimeoutException", "idle timeout reached")),
+        ..Default::default()
+    };
+    for _ in 0..10 {
+        let e = run(&h, &d).await.0.unwrap_err();
+        assert_eq!(
+            e.failure().class.to_string_lossy(),
+            "java.util.concurrent.TimeoutException"
+        );
+        assert!(!d.lost());
+    }
+    h.finish(&[d]).await;
+    Ok(())
+}
 #[tokio::test(start_paused = true)]
 async fn a_cancelled_batch_doesn_t_lose_the_simulator() -> TestResult {
     let h = Harness::new(|_| {})?;
