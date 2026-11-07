@@ -104,7 +104,7 @@ links to its entry in the [deviations guide](deviations.md).
 | depend on a simulator being set up once ([D33](deviations.md#d33--a-simulator-whose-setup-failed-is-set-up-again)) | A simulator whose setup failed is set up again 30, 60 and 90 s after each failure, even on a removed worker's profile. | `attempts: 1` with `lateJoin: false` in `workerConnection` turns it off. |
 | have a worker with no algorithm in common with marathon ([D35](deviations.md#d35--a-failed-key-exchange-is-not-retried-as-a-network-fault)) | It is no longer retried. | Fix the worker's SSH configuration. |
 | pull slow artifacts from password-authenticated workers ([D31](deviations.md#d31--an-rsync-send-that-stops-moving-fails), U155) | A pull that takes more than 30 s is now really cut. Kotlin's rsync finished it in the background. | Nothing yet: there is no setting for the 30 s. Expect the file to be missing and `.rsync-partial/<name>` to be left in the output directory. |
-| have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
+| have devices that go `offline` often ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)) | A device gets up to 10 s to come back, at most 5 times per adb server in a run. While another device that returned does not answer, that can stretch by up to the `shell` timeout (30 s by default). The count is never reset. From the sixth `offline` on the device is disconnected at once, as in Kotlin. | Fix the transport. A device that drops more than five times in one run is lost for the rest of that run. |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D23, D26, D28–D30, D34, D36, D37, D40, D42 and D45. D2, D3,
 D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections below.
@@ -306,8 +306,9 @@ These fix bugs that Kotlin has, and need no configuration change.
   ([D47](deviations.md#d47--an-unlimited-uncompletedtestretryquota-is-refused)).
 - **A brief `offline` no longer loses a device**
   ([D41](deviations.md#d41--a-brief-offline-does-not-lose-the-device)). A device gets up to 10 s, 3 s if it also leaves
-  the list, so a killed emulator takes about 3.25 s to reach the retry path, where it was immediate. A device has at most
-  5 of these per adb server per run, and the count is never reset.
+  the list, so a killed emulator takes about 3.25 s to reach the retry path, where it was immediate. Both can run longer,
+  by up to `timeoutConfiguration.shell` (30 s by default), while another device that returned does not answer its
+  `getprop` (U170). A device has at most 5 of these per adb server per run, and the count is never reset.
 - **A file sync push that never verifies fails after `pushFile`**
   ([D23](deviations.md#d23--waiting-for-a-pushed-file-has-a-limit)).
 - **`networkState` can read `DISCONNECTED`** in a lost Android device's per-test JSON
