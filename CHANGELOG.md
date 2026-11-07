@@ -119,8 +119,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A Graphite series with no points in the window no longer loses the whole history query (D51, C38).
 - A cancelled run writes its reports and terminates its devices whatever `debug` says, so a cancelled CI job has results and leaves
   less behind on workers. SIGINT or SIGTERM stops the tests, writes the reports first, and exits with the same 130 or 143 within
-  25 s. A second signal exits at once. Tests no longer bounce after the signal, which added false INCOMPLETE results to the
-  reports (D52, C10, U161).
+  25 s. A second signal exits at once, however soon after the first; two of the same signal that arrive together count as
+  one. Tests no longer bounce after the signal, which added false INCOMPLETE results to the reports (D52, C10, U161).
 - A failed reporter or close no longer skips the ones after it, such as a later report or terminating the devices. Each failure
   is logged, and the exit code is unchanged (D51, C11, C25).
 - A run whose filters removed every test logs an error line saying what each filter removed, so a mistyped filter is visible. It still exits 0 (D51).

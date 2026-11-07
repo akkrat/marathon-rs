@@ -95,10 +95,12 @@ doesn't wait for any of this. In-process tests see the same, and a task that ign
 | `a_stuck_provider_holds_a_cancel_only_up_to_the_limit_d52` | Real signal and clock: 143, no sooner than the limit |
 | `a_stuck_console_does_not_hold_a_cancel_d52` | A console that stops taking output blocks neither cleanup nor exit |
 | `a_second_signal_exits_at_once_d52` | Exit with the second signal's number, and no second termination |
+| `a_second_signal_right_after_the_first_is_not_lost_d52` | A second SIGTERM sent just after the relay took the first still exits at once (review round 2) |
 | `a_blocked_vendor_thread_does_not_hold_the_exit_after_the_run_d52` | An hour's blocking call on a vendor thread doesn't hold the process |
 | `a_cancel_mid_test_writes_the_reports_and_does_not_bounce_the_test_d52_u161` | The built binary on the fake adb: both debug modes, both signals, a finished test in the reports, the test in flight not, and it started once |
 | `a_cancel_writes_reports_first_and_stops_a_slow_worker_process_d52` | The built binary on the fake worker with an `xcodebuild` that ignores TERM: reports before the KILL, TERM then KILL within the limit, 143, in both debug modes |
 | `a_second_signal_leaves_the_slow_worker_process_behind_d52` | The same, with a second signal during TERM's wait: 130, and no KILL sent |
+| `a_test_that_ends_during_the_cleanup_is_not_started_again_u161` | The built binary on the fake adb, with an InfluxDB holding its last write: the test in flight ends during the cleanup on a live device and is not started again (review round 2) |
 
 `signals_finish_only_with_debug_and_exit_like_the_jvm` was the old pin. It is renamed to the first test above; the rows are unchanged.
 
@@ -109,6 +111,8 @@ Each was put back after the run.
 | Taken out | Fails |
 |---|---|
 | `stop_execution`, with the provider closed first and a window after it, as the audit described | `a_cancel_mid_test…`: 1,002 report rows for one test with `uncompletedTestRetryQuota: 1000`, against 1 |
+| `stop_execution` alone (review round 2) | `a_test_that_ends_during_the_cleanup_is_not_started_again_u161`, and no other CLI shutdown test |
+| Registering a signal again after its first delivery (review round 2) | `a_second_signal_right_after_the_first_is_not_lost_d52`: exit with 143 at the limit, 24.0 s, instead of at once |
 | The hook with `debug: false` | Three witnesses and `a_signal_terminates_the_provider_whatever_debug_says_d52` |
 | Going on when `cleaned_up` is already set | `a_signal_during_the_runs_own_finish_writes_the_reports_now_d52` |
 | The second signal's exit | `a_second_signal_exits_at_once_d52`: 143 at the limit instead of 130 |
@@ -116,7 +120,8 @@ Each was put back after the run.
 | The outer limit | `a_provider_that_never_ends_cannot_hold_a_cancel_past_its_limit_d52` |
 
 `stop_execution` alone, on the fake worker, fails nothing: there the session's close ends the batch and the device is gone, so that
-test's `started == 1` is only a check. U161 is an Android matter in practice, and the fix sits in core.
+test's `started == 1` is only a check. U161 is an Android matter in practice, and the fix sits in core. Review round 2 added the
+test that `stop_execution` alone fails.
 
 ### Real emulator
 
@@ -141,16 +146,33 @@ request sent while closing; I left it out of scope.
 - A real worker and a real Mac: only the fake worker, with its SSH server, and earlier D30 measurements. Whether a process on a real
   worker dies if the process exits before KILL depends on the server, as D30 says. `macos-cancel` was not repeated.
 - A real CI's kill sequence. The 10 to 30 s is the brief's figure and general knowledge, not measured.
-- A wrapper's double delivery, process group plus forward, costs the cleanup and exits at once with the right status. It follows from
-  the second-signal rule and has no test. I did not add a debounce: a second signal must exit at once, and the only cost is the old behaviour.
+- A wrapper's double delivery, process group plus forward, costs the cleanup and exits at once with the right status if the two
+  arrive apart, and counts as one if both arrive before the relay takes the first, since a pending signal is recorded once. It
+  follows from the second-signal rule and has no test of its own. I did not add a debounce: a second signal must exit at once,
+  and the only cost is the old behaviour.
 - A blocked core thread: the limit runs on it, so a future blocking core would defeat it, but it would have stopped the run too, and
   the rule is that nothing blocks core. A second signal still exits, since that runs off core, unless the vendor threads are also stuck.
 
 ## Incidental bugs
 
-- **D51's filter warning doesn't show by default.** `No tests left to run after filtering` is logged at WARN by the Marathon logger,
-  which `RunConsoleSink` registers at ERROR with `debug: false`, so a default run prints nothing and the green run stays silent. Seen by
-  this WP's own first cancel line, at WARN, not appearing in a `debug: false` run. D51's tests read the log records, with `debug: true`
-  or the recording console, so they don't catch it. Severity low. Not changed here, since x34's scope and D51's text are the owner's;
-  moving it to ERROR is one line. Status: open.
+- **D51's filter warning didn't show by default.** `No tests left to run after filtering` was logged at WARN by the Marathon
+  logger, which `RunConsoleSink` registers at ERROR with `debug: false`. Status: resolved on main before this branch was rebased
+  (x36, `6b9ac1a0`), which logs it at ERROR.
 - **`Device execution has been cancelled` and `Pool is closed…`** appear only with `debug: true`, for the same reason. That's fine; recorded so that nobody reads their absence as the path not running.
+
+## Review round 2
+
+A cross-family review found four things. All are fixed.
+
+| Finding | Fix | Test |
+|---|---|---|
+| S-x35-1 (major). A second signal could be lost: the relay dropped the stream of the signal that fired and registered a new one, and a repeat in between was missed. The process ran on to the limit, or a third signal exited with its own status | Each signal keeps the one stream it was registered with for both deliveries. `SignalRegistration` returns a stream, not a one-shot future | `a_second_signal_right_after_the_first_is_not_lost_d52`: SIGTERM's stream sends the process a second SIGTERM on its first delivery, and hands the first on only once a stream of its own has seen the second. Registering again fails it at 24.0 s |
+| S-x35-2 (minor). Deleting `stop_execution` failed no CLI test, since the process exited before a batch could come back | A test where the cleanup lasts: an InfluxDB that holds its writes keeps the reports step going, and the test in flight ends by itself 8 s after it started, on a device that is still up | `a_test_that_ends_during_the_cleanup_is_not_started_again_u161`. With `stop_execution` deleted, it fails and the three other CLI shutdown tests pass |
+| S-x35-3 (minor). The signal tests read stderr with blocking calls before their deadlines, so a regression that stopped both the marker and the exit hung them | stderr is read on a thread through a channel, every wait has the 60 s patience, and a failing test kills and reaps its child | All 11 `signal_windows` tests |
+| S-x35-4 (nit). The incidental finding on D51's filter line was out of date | Marked resolved | |
+
+The new U161 test's window is the one wait not on an event: after the test's end it gives a live queue 3 s to start the test
+again, which takes milliseconds. A slow host can only narrow it, so it can miss a bounce but not invent one.
+
+The second-signal text in D52, the changelog, the migration guide and PLAN now says what the relay does: a second signal exits
+at once however soon it comes, and two of the same signal that arrive before the relay takes the first count as one.

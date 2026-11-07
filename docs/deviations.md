@@ -808,9 +808,11 @@ is still running at 24 s is abandoned, with one error line. A CI's kill after SI
 come first, so a shorter grace costs cleanup and not results, and 25 s fits the longer ones and leaves room for D30's TERM,
 20 s and KILL. Without a stuck worker, a cancel takes well under a second.
 
-**A second signal exits at once**, with 128 + its own number. It doesn't run anything again, and what the first hadn't finished
-stays unfinished. A wrapper that sends the signal to the process group and also forwards it delivers two, which skips the
-cleanup; the exit code is still right.
+**A second signal exits at once**, with 128 + its own number, however soon after the first it comes. It doesn't run anything
+again, and what the first hadn't finished stays unfinished. Two of the same signal that arrive before the first has been taken
+count as one, since a pending signal is recorded once, and then the cleanup runs as for one. So a wrapper that sends SIGTERM to
+the process group and also forwards it may deliver one or two, and the cleanup runs or is skipped accordingly; the exit code is
+right either way.
 
 **What the reports hold.** Every result that had reached the queue. The test in flight is not in them, nor are the finished tests
 of a batch still in flight. Its absence is what Kotlin's captures show, and it no longer races ([A99](known-kotlin-bugs.md)).

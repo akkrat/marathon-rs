@@ -414,7 +414,8 @@ log. A run whose filters removed every test still exits 0, and now logs an error
 ## Cancelling a run
 
 SIGINT or SIGTERM now writes the reports and terminates the provider whatever `debug` says, in at most 25 s, and a second signal
-exits at once. The exit codes are still 130 and 143. A cancelled run's output directory now holds reports with the results so
+exits at once, however soon after the first. Two of the same signal that arrive together count as one. The exit codes are still
+130 and 143. A cancelled run's output directory now holds reports with the results so
 far, so read the exit code to tell whether a run finished. A harness that waits less than 25 s for the exit should allow for it.
 See [D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit).
 
