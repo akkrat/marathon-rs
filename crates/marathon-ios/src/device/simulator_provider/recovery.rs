@@ -504,8 +504,11 @@ impl SimulatorRecovery {
                         && !state.exhausted.contains(&id)
                         && !old.retired();
                     if parked {
+                        state.park_epoch = state.park_epoch.wrapping_add(1);
+                        let epoch = state.park_epoch;
                         state.parked.push(Parked {
                             handle: old.clone(),
+                            epoch,
                             for_: match *refused {
                                 true => ParkedFor::Refused,
                                 false => ParkedFor::Retry,

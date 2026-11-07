@@ -345,6 +345,103 @@ async fn a_refused_simulator_that_is_removed_and_added_back_is_set_up_again() ->
     assert_eq!(home(&lost.fresh, "a"), 1);
     p.finish().await
 }
+/// a and b wait for the same worker retry, so its plan names both. a is refused, and b's setup then loses the planning
+/// connection, which sends what failed back to the retry: but not a, whose own connection said no.
+#[tokio::test(start_paused = true)]
+async fn a_refusal_stays_final_when_the_same_plan_loses_its_planning_connection() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a", "b"]).await?;
+    p.connected(2).await;
+    let lost = lose_worker(&p, &["a", "b"]);
+    let (boot, worker, dropped) = (p.h().boot.clone(), lost.fresh.clone(), Arc::new(AtomicBool::new(false)));
+    *lost.fresh.before.lock().unwrap() = Arc::new(move |cmd| {
+        let answer = boot.answer(&cmd);
+        let b_home = cmd.last().is_some_and(|s| s == "HOME") && cmd.len() >= 2 && cmd[cmd.len() - 2] == "b";
+        let drop = b_home && !dropped.swap(true, Ordering::SeqCst);
+        if drop {
+            worker.connected.store(false, Ordering::SeqCst);
+        }
+        Box::pin(async move {
+            if drop {
+                Err(support::error("connection lost"))
+            } else {
+                Ok(answer)
+            }
+        })
+    });
+    let (worker, simulators) = (lost.fresh.clone(), Arc::new(AtomicUsize::new(0)));
+    // The first attempt reaches neither; at 10 s a, which comes first, is refused. Everything after that connects.
+    p.answer(move |_, planning, _| {
+        if planning {
+            worker.connected.store(true, Ordering::SeqCst);
+        }
+        let k = if planning {
+            0
+        } else {
+            simulators.fetch_add(1, Ordering::SeqCst) + 1
+        };
+        Box::pin(async move {
+            match k {
+                1 | 2 => Err(unreachable()),
+                3 => Err(auth()),
+                _ => Ok(None),
+            }
+        })
+    });
+    let mut seen = Seen::default();
+    seen.until_connected(&p, 1).await;
+    pass(300).await;
+    seen.drain(&p).await;
+    assert_eq!(seen.connected, ["b@local"]);
+    assert_eq!((home(&lost.fresh, "a"), home(&lost.fresh, "b")), (0, 2));
+    // Two at once, two at 10 s, and b alone at 30 s.
+    assert_seconds(&attempts_since(&p, &lost, false), &[0, 0, 10, 10, 30]);
+    p.finish().await
+}
+/// A plan that was setting up a parked simulator when the devices file dropped it and added it back: its result is about
+/// the old claim, and the update's own plan decides.
+#[tokio::test(start_paused = true)]
+async fn a_refusal_seen_by_a_plan_that_outlived_a_remove_and_re_add_does_not_stop_the_new_one() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    p.connected(1).await;
+    let lost = lose_worker(&p, &["a"]);
+    let gate = SharedDeferred::new();
+    let (release, simulators) = (gate.clone(), Arc::new(AtomicUsize::new(0)));
+    // The first attempt finds the worker gone; the worker retry's plan at 10 s waits on its connection to a, and is
+    // then refused. Later ones work.
+    p.answer(move |_, worker, _| {
+        let k = if worker {
+            0
+        } else {
+            simulators.fetch_add(1, Ordering::SeqCst) + 1
+        };
+        let release = release.clone();
+        Box::pin(async move {
+            match k {
+                1 => Err(unreachable()),
+                2 => {
+                    release.wait().await.map_err(ConnectionError::from)?;
+                    Err(auth())
+                }
+                _ => Ok(None),
+            }
+        })
+    });
+    pass(11).await;
+    p.update(&[]).await?;
+    let (added, ()) = tokio::join!(p.update(&["a"]), async {
+        pass(1).await;
+        gate.complete(Ok(()));
+    });
+    added?;
+    let mut seen = Seen::default();
+    seen.until_connected(&p, 1).await;
+    assert!(p.current("a").connected());
+    assert_eq!(home(&lost.fresh, "a"), 1);
+    p.finish().await
+}
 /// A simulator its retry gave up on stays out when a devices update plans its worker for another one: D33's budget
 /// spent, and the worker retry at its limit.
 #[tokio::test(start_paused = true)]
@@ -607,4 +704,169 @@ async fn borrow_waits_while_a_simulator_waits_for_its_worker_and_takes_its_repla
     let device = watchdog(borrowed).await?.map_err(test_error)?;
     assert!(Arc::ptr_eq(&device.0, &(p.current("a") as Arc<dyn Device>)));
     p.finish().await
+}
+
+/// D33's four setups per simulator hold when two retries run on one worker: neither plan takes the other along.
+#[tokio::test(start_paused = true)]
+async fn two_simulators_lost_with_their_connection_up_get_four_setups_each() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a", "b"]).await?;
+    let old = p.connected(2).await;
+    fail_home(&p.h().worker, p.h(), usize::MAX);
+    p.lose(old.iter().find(|d| d.udid() == "a").unwrap()).await;
+    eventually(|| p.log("setup of a failed")).await;
+    pass(5).await;
+    p.lose(old.iter().find(|d| d.udid() == "b").unwrap()).await;
+    eventually(|| p.log("setup of b failed")).await;
+    pass(300).await;
+    let a = home(&p.h().worker, "a") - 1;
+    let b = home(&p.h().worker, "b") - 1;
+    p.finish().await?;
+    assert!(a <= 4 && b <= 4, "setup attempts after loss: a={a}, b={b}");
+    Ok(())
+}
+
+/// a is refused in the worker retry's plan while b, on D33, drops the planning connection or not: a is asked once.
+#[tokio::test(start_paused = true)]
+async fn a_refusal_in_a_later_plan_is_final_even_when_the_planning_connection_drops() -> TestResult {
+    for drop_planning in [false, true] {
+        let p = RecoveryHarness::new(|_| {})?;
+        p.start(&["a", "b"]).await?;
+        p.connected(2).await;
+        let lost = lose_worker(&p, &["a", "b"]);
+        let boot = p.h().boot.clone();
+        let worker = lost.fresh.clone();
+        let homes = AtomicUsize::new(0);
+        *lost.fresh.before.lock().unwrap() = Arc::new(move |cmd| {
+            let answer = boot.answer(&cmd);
+            let b_home = cmd.last().is_some_and(|s| s == "HOME") && cmd.len() >= 2 && cmd[cmd.len() - 2] == "b";
+            if b_home && homes.fetch_add(1, Ordering::SeqCst) == 1 && drop_planning {
+                worker.connected.store(false, Ordering::SeqCst);
+            }
+            Box::pin(async move {
+                if b_home {
+                    Err(support::error("setup failed"))
+                } else {
+                    Ok(answer)
+                }
+            })
+        });
+        let refused = Arc::new(AtomicUsize::new(0));
+        let count = refused.clone();
+        let worker = lost.fresh.clone();
+        p.answer(move |_, planning, n| {
+            if planning {
+                worker.connected.store(true, Ordering::SeqCst);
+            }
+            let failure = if !planning && n == 3 {
+                Some(unreachable())
+            } else if !planning && (n == 5 || n >= 7) {
+                count.fetch_add(1, Ordering::SeqCst);
+                Some(auth())
+            } else {
+                None
+            };
+            Box::pin(async move { failure.map_or(Ok(None), Err) })
+        });
+        pass(25).await;
+        assert_eq!(refused.load(Ordering::SeqCst), 1);
+        pass(10).await;
+        let a_failures = p
+            .h()
+            .logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, _, message, _)| message.contains("to set up simulator a"))
+            .count();
+        p.finish().await?;
+        assert_eq!(a_failures, 2, "drop_planning={drop_planning}: a refused twice");
+    }
+    Ok(())
+}
+
+/// The way back from each way a retry gives up: its limit, `attempts` with `lateJoin: false`, no retry, D33's budget.
+#[tokio::test(start_paused = true)]
+async fn every_given_up_simulator_comes_back_when_removed_and_added_back() -> TestResult {
+    for mode in 0..4 {
+        let p = RecoveryHarness::new(|v| {
+            if mode == 1 {
+                v.worker_connection.late_join = false;
+            }
+            if mode == 2 {
+                v.worker_connection.late_join = false;
+                v.worker_connection.attempts = 1;
+            }
+        })?;
+        p.start(&["a"]).await?;
+        let old = p.connected(1).await.remove(0);
+        let lost = lose_worker(&p, &["a"]);
+        if mode == 3 {
+            fail_home(&lost.fresh, p.h(), usize::MAX);
+            lost.down.store(false, Ordering::SeqCst);
+        }
+        pass(700).await;
+        lost.down.store(false, Ordering::SeqCst);
+        let boot = p.h().boot.clone();
+        *lost.fresh.before.lock().unwrap() = Arc::new(move |cmd| {
+            let answer = boot.answer(&cmd);
+            Box::pin(async move { Ok(answer) })
+        });
+        p.update(&[]).await?;
+        p.update(&["a"]).await?;
+        let mut seen = Seen::default();
+        seen.until_connected(&p, 1).await;
+        pass(300).await;
+        seen.drain(&p).await;
+        assert_eq!(seen.connected.len(), 1, "mode={mode}");
+        assert!(!Arc::ptr_eq(&old, &p.current("a")));
+        assert!(p.current("a").connected());
+        p.finish().await?;
+    }
+    Ok(())
+}
+
+/// A D33 retry waiting for its connection when the simulator is removed and added back: its refusal is about the old
+/// claim, and the new one is the worker retry's.
+#[tokio::test(start_paused = true)]
+async fn a_setup_retry_from_before_a_removal_cannot_give_up_the_simulator_added_back() -> TestResult {
+    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a"]).await?;
+    let old = p.connected(1).await.remove(0);
+    fail_home(&p.h().worker, p.h(), 1);
+    let gate = SharedDeferred::new();
+    let waiting = Arc::new(AtomicBool::new(false));
+    let flag = waiting.clone();
+    let release = gate.clone();
+    p.answer(move |_, planning, n| {
+        let release = release.clone();
+        let flag = flag.clone();
+        Box::pin(async move {
+            if planning && n == 2 {
+                flag.store(true, Ordering::SeqCst);
+                release.wait().await.map_err(ConnectionError::from)?;
+                return Err(auth());
+            }
+            if !planning && n == 3 {
+                return Err(unreachable());
+            }
+            Ok(None)
+        })
+    });
+    p.lose(&old).await;
+    eventually(|| p.log("setup of a failed")).await;
+    pass(31).await;
+    assert!(waiting.load(Ordering::SeqCst));
+    p.update(&[]).await?;
+    p.update(&["a"]).await?;
+    assert!(p.log("1 devices could not connect, retrying"));
+    // This error belongs to the retry from before removal, not the new generation's transient failure.
+    gate.complete(Ok(()));
+    pass(200).await;
+    let mut seen = Seen::default();
+    seen.drain(&p).await;
+    p.finish().await?;
+    assert_eq!(seen.connected, ["a@local"]);
+    Ok(())
 }

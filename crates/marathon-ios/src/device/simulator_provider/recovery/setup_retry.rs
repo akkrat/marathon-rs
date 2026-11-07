@@ -287,6 +287,13 @@ impl SimulatorRecovery {
         self.log_late(provider, transport, &reason, total - due.len(), !due.is_empty());
         Ok(due)
     }
+    /// D44: what a removal hasn't taken from this retry since it was scheduled.
+    fn current_generation(&self, due: Vec<Waiting>) -> Vec<Waiting> {
+        let state = self.state();
+        due.into_iter()
+            .filter(|waiting| waiting.generation == state.setup.generation(&waiting.key))
+            .collect()
+    }
     async fn setup_retry_attempt(
         &self,
         provider: &Arc<AppleSimulatorProvider>,
@@ -312,14 +319,22 @@ impl SimulatorRecovery {
                     return Err(error.into_vendor());
                 }
                 // The worker is what failed now: its own retry policy decides, as for a first connection.
-                let targets = due.into_iter().map(|waiting| waiting.target).collect();
+                // D44: only for what this retry still owns; one removed and added back meanwhile has a retry of its own.
+                let targets: Vec<_> = self
+                    .current_generation(due)
+                    .into_iter()
+                    .map(|waiting| waiting.target)
+                    .collect();
+                if targets.is_empty() {
+                    return Ok(());
+                }
                 return self
                     .connect_failed(transport.clone(), targets, started, error, caller.clone())
                     .await;
             }
         };
         // A removal during the connection takes the target out before anything is planned for it.
-        let due = match wanted(provider, transport, due) {
+        let due = match wanted(provider, transport, self.current_generation(due)) {
             Ok(due) => due,
             Err(error) => {
                 let _ = provider.services.connections.release(executor).await;
@@ -367,15 +382,10 @@ impl SimulatorRecovery {
                 }
             }
         };
-        if !unfinished.missing.is_empty() {
-            self.missing(transport.clone(), unfinished.missing, started, caller.clone())
-                .await?;
-        }
         // A target removed during the attempt lost its budget and generation with it, whatever it was added back as.
-        let failed = {
+        let owned = |targets: Vec<AppleTarget>| -> Vec<AppleTarget> {
             let state = self.state();
-            unfinished
-                .failed
+            targets
                 .into_iter()
                 .filter(|target| {
                     let key = apple_id(&target_id(target), transport);
@@ -384,6 +394,12 @@ impl SimulatorRecovery {
                 })
                 .collect()
         };
+        let missing = owned(unfinished.missing);
+        if !missing.is_empty() {
+            self.missing(transport.clone(), missing, started, caller.clone())
+                .await?;
+        }
+        let failed = owned(unfinished.failed);
         self.schedule_setup_retry(provider, transport, failed, started)
     }
 }

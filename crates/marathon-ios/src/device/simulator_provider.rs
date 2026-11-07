@@ -144,6 +144,8 @@ struct PendingConnect {
 struct Parked {
     handle: Simulator,
     for_: ParkedFor,
+    /// Changes when it is parked or added back, so that a plan which outlived that knows its result is stale.
+    epoch: u64,
     /// Run time of the failure, or of the devices update that added it back. The worker retry's limit counts from here.
     since: i64,
     /// Whether its replacement keeps the old lease for release at termination (A90).
@@ -174,6 +176,7 @@ struct State {
     skipped_removed: IndexSet<JavaString>,
     recovering: Vec<Simulator>,
     parked: Vec<Parked>,
+    park_epoch: u64,
     exhausted: IndexSet<JavaString>,
     replaced: Vec<Simulator>,
     initialized: bool,
@@ -692,6 +695,7 @@ impl AppleSimulatorProvider {
         caller: VendorContext,
     ) -> ProvisioningResult<UnfinishedSetup> {
         let connected = self.services.timing.elapsed()?;
+        let epochs = self.parked_epochs(transport);
         let gate = self
             .setup_gates
             .lock()
@@ -768,17 +772,26 @@ impl AppleSimulatorProvider {
         }
         let lost = !executor.connected();
         let mut unfinished = UnfinishedSetup::default();
+        let now = self.parked_epochs(transport);
+        let mut taken_along = Vec::new();
         for failure in failures {
-            // D44: also one that this plan took along because it was parked, which isn't among its targets.
+            // D44: a parked simulator added back during this plan belongs to the plan of that update.
+            if let FailedSetup::Existing { udid, .. } = &failure
+                && epochs.get(udid).is_some_and(|epoch| now.get(udid) != Some(epoch))
+            {
+                continue;
+            }
+            // D44: the simulator's own connection was refused, which a dropped planning connection doesn't change.
             if let FailedSetup::Existing {
                 udid,
                 unreachable: false,
                 refused: true,
             } = &failure
-                && !lost
+                && self.give_up_parked(transport, &[udid.as_str()], ParkedFor::Refused)
             {
-                self.give_up_parked(transport, &[udid.as_str()], ParkedFor::Refused);
+                continue;
             }
+            let failure_udid = failure.clone();
             let (target, unreachable, refused) = match failure {
                 FailedSetup::Existing {
                     udid,
@@ -804,14 +817,40 @@ impl AppleSimulatorProvider {
                     refused,
                 } => (Some(AppleTarget::SimulatorProfile(profile)), unreachable, refused),
             };
-            let Some(target) = target else { continue };
+            let Some(target) = target else {
+                // D44: a parked simulator this plan took along, which a retry owns. A setup that failed with the worker
+                // answering counts against its D33 budget like any other, which the budget's end stops. Anything else
+                // leaves it to its owner.
+                if let FailedSetup::Existing { udid, .. } = &failure_udid
+                    && !(unreachable || lost || refused)
+                    && self.parked_for(transport, udid) == Some(ParkedFor::Retry)
+                {
+                    taken_along.push(AppleTarget::Simulator {
+                        udid: udid.as_str().into(),
+                    });
+                }
+                continue;
+            };
             if unreachable || lost {
                 unfinished.missing.push(target);
             } else if !refused {
                 unfinished.failed.push(target);
             }
         }
+        if !taken_along.is_empty() {
+            self.services
+                .recovery
+                .setup_failed(transport.clone(), taken_along, started)
+                .await?;
+        }
         Ok(unfinished)
+    }
+    fn parked_for(&self, transport: &Transport, udid: &str) -> Option<ParkedFor> {
+        self.state()
+            .parked
+            .iter()
+            .find(|p| p.handle.transport() == transport && p.handle.udid() == udid)
+            .map(|p| p.for_)
     }
     /// D44: the devices file changed, and that is bounded by its owner, so a simulator added back starts over.
     fn restart_parked(&self, id: &JavaString) -> ProvisioningResult<()> {
@@ -819,22 +858,39 @@ impl AppleSimulatorProvider {
             return Ok(());
         }
         let now = self.services.timing.elapsed()?;
-        if let Some(parked) = self.state().parked.iter_mut().find(|p| parked_id(p) == *id) {
+        let mut state = self.state();
+        state.park_epoch = state.park_epoch.wrapping_add(1);
+        let epoch = state.park_epoch;
+        if let Some(parked) = state.parked.iter_mut().find(|p| parked_id(p) == *id) {
             parked.since = now;
             parked.for_ = ParkedFor::Retry;
+            parked.epoch = epoch;
         }
         Ok(())
     }
+    fn parked_epochs(&self, transport: &Transport) -> IndexMap<String, u64> {
+        self.state()
+            .parked
+            .iter()
+            .filter(|p| p.handle.transport() == transport)
+            .map(|p| (p.handle.udid().to_owned(), p.epoch))
+            .collect()
+    }
+
     /// D44: the parked simulators among `udids` on this worker are out of the run until the devices file adds them back.
-    fn give_up_parked(&self, transport: &Transport, udids: &[&str], reason: ParkedFor) {
+    /// True if one was parked.
+    fn give_up_parked(&self, transport: &Transport, udids: &[&str], reason: ParkedFor) -> bool {
         let mut state = self.state();
+        let mut found = false;
         for parked in state
             .parked
             .iter_mut()
             .filter(|p| p.handle.transport() == transport && udids.contains(&p.handle.udid()))
         {
             parked.for_ = reason;
+            found = true;
         }
+        found
     }
     /// As `give_up_parked`, for the simulators among a retry's targets.
     fn give_up_targets(&self, transport: &Transport, targets: &[AppleTarget], reason: ParkedFor) {
