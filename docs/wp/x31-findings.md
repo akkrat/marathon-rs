@@ -35,7 +35,8 @@ ready, and ends the pool with Kotlin's lines once every device has reported Term
 waited for it; a live device is one that was in the pool before it lacked one, or came back and reported ready. If no test ends and no
 returned device is ready at `start + deviceInitializationTimeoutMillis`, the pool ends at that time plus the longest cleanup still running then
 (a cancelled batch or prepare of a device leaving, or of one the pool stops), which the vendor's timeouts bound. If a returned device is ready
-then, the pool ends when that device leaves, plus its cleanup. Any test ending starts it afresh.
+then, the pool ends when that device leaves, plus its cleanup. Any test ending starts it afresh (round 3: with no live device, at that
+moment, timer included).
 
 **On iOS.** A worker lost for less than the limit recovers into the same pool. `a_replacement_within_the_limit_takes_over_the_pool_d48` shows that
 through the real provider, recovery and scheduler on the fake worker. A recovery takes up to 70 s for its sessions to close, plus its connection attempts,
@@ -71,6 +72,24 @@ after the scheduler's join is still missed.
 Not changed: what a vendor's cleanup costs. A cancelled batch or prepare that never returns holds the pool, as it did before D48. The
 reviewer's whole-run return at 15 s on Android was not run: the fake adb server restarts after real time, not virtual time, so a return at a
 set virtual time can't be placed. The pool-level test runs the same numbers on the real scheduler instead.
+
+## Review round 3
+
+The re-check of 2686fca0 found S-x31-2 fixed, and S-x31-1 not fully fixed, both through one line in `device_completed`, plus a slow test.
+
+| Finding | Fix | Tests |
+|---|---|---|
+| **S-x31-3** (major). A test that ended cleared `returning` for every device, so a replacement still preparing counted as live, and the run stayed open past 200 s, also with quota 0, when the leaving device's passed result came in after the replacement was admitted | A returning device stays not live until its own IsReady or its removal. Nothing else clears it, except the stop at the limit, which terminates those devices | `review_completed_result_must_not_promote_a_preparing_replacement`, quotas default and 0: no end by 200 s before, now 80,500 (the limit from the result at 500, then the replacement's 20 s cleanup) |
+| **S-x31-1, the rest** (major). A test reported by a device that had already left cleared the wait and its timer, so the next wait began when that device's cleanup ended. Android reports a batch before it pulls its files, so this order is the usual one | A test that ends with no live device starts a whole new wait at that moment, timer included. With a live device it clears the wait as before | `review_completed_result_must_not_move_deadline_to_cleanup_end`: 80,500 before, now 60,500 |
+| **S-x31-4** (minor). `cutoff_crossed_during_real_prepare_leaves_the_pool_without_requesting_a_first_batch` waited out D48's default 180 s on a real clock | A 200 ms limit, as the other recovery tests use | 180.07 s before, 0.27 s now |
+
+Both witnesses are in `crates/marathon-core/tests/pool_scheduler.rs` and use a device that reports its batch passed at once, then holds it until
+cancelled and cleans up for 20 s. Each half of the fix was reverted alone. Without the fresh wait, both witnesses fail (100,500 and 80,500).
+With the global clear put back, the first never ends by 200 s and the second passes. The order of the result and the replacement's admission
+is not forced: with the fix the outcome is the same either way.
+
+The docs now say that a device that comes back is live only once ready, whatever else happens, and that a result from a device that has left
+starts the wait at that moment.
 
 ## D49: what Kotlin does
 

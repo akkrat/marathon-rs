@@ -136,8 +136,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A pool that loses its last device waits for one to return, instead of ending with its tests unrun: an `adb reboot` on a
   single emulator now exits 0, and an iOS simulator recovered after its worker dropped finds its tests still there. The wait
   is up to `deviceInitializationTimeoutMillis` (180 s by default) from when the pool's last working device went away, which
-  includes D22's and D41's waits for that device. It runs on while the devices leaving clean up, and while devices come back
-  without getting ready. When it is up, the pool stops the devices still getting ready, takes no new ones, and ends once
+  includes D22's and D41's waits for that device, or from a test that the device leaving reports after that. It runs on
+  while the devices leaving clean up, and while devices come back without getting ready: a device that comes back counts
+  only once it is ready. When it is up, the pool stops the devices still getting ready, takes no new ones, and ends once
   every device has finished cleaning up. A device that came back and got ready keeps the pool while it stays; when it
   leaves without a test having ended, the pool ends once it has cleaned up. Any test that ends gives the pool a whole new wait. macOS does
   not wait (D48).

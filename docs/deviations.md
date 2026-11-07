@@ -753,8 +753,11 @@ same order, same retry counts. If none returns, the pool ends as before, with `r
 limit is up and the devices leaving have finished cleaning up. A device that joins after the limit is dropped.
 
 - **The bound.** The time starts when the pool's last live device leaves. A live device is one that was in the pool before
-  it lacked one, or one that came back and reported ready. The start is the latest such departure since a test last ended,
-  less what the vendor had already waited for that device, whichever order the devices are removed in. With `L` for
+  it lacked one. A device added while it lacks one is live only once it reports ready, and stays not live until then
+  whatever else happens, a test ending included. The start is the latest such departure since a test last ended, less what
+  the vendor had already waited for that device, whichever order the devices are removed in. A test that ends while no
+  device is live, reported by a device that has already left, starts the wait afresh at that moment: Android reports a
+  batch before it pulls its files, so this is common, and the wait does not move to the end of that cleanup. With `L` for
   `deviceInitializationTimeoutMillis`: if no test ends and no device that came back is ready at `start + L`, the pool stops
   the devices still getting ready, takes no new ones, and ends when every device has reported Terminated, so that their
   outcomes count. It ends at `start + L` plus the longest cleanup still running then: a leaving device's cancelled batch or
@@ -765,7 +768,8 @@ limit is up and the devices leaving have finished cleaning up. A device that joi
   outage counts from the outage, not from another device's grace. If `waitForDevicesTimeoutMillis` is that long or longer,
   there is no wait after the outage.
 - **A device that came back and got ready.** If one is in the pool at `start + L`, the pool goes on with it, and ends when it
-  leaves and has cleaned up, unless a test has ended meanwhile. Any test that ends, passed or failed, gives the pool a whole new wait.
+  leaves and has cleaned up, unless a test has ended meanwhile. Any test that ends, passed or failed, gives the pool a whole
+  new wait: with a live device in the pool the wait is off until the next departure, and with none it starts at once.
   So a device that keeps coming back and leaving without finishing a test can't stretch the limit, but one that stays keeps
   the pool for as long as it stays, and a test that ends on it starts the wait afresh. Such a run is bounded by its
   retries and timeouts, as any run is.
