@@ -1,3 +1,4 @@
+// Modified by marathon-rs (open failure description): see vendor/russh/README.marathon.md for each change.
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::{Future, Pending};
@@ -150,6 +151,14 @@ pub enum Error {
     /// Server refused to open a channel.
     #[error("Failed to open channel ({0:?})")]
     ChannelOpenFailure(ChannelOpenFailure),
+
+    /// Server refused to open a channel, with its description. Returned only by
+    /// [`client::Handle::channel_open_session_described`].
+    #[error("Failed to open channel ({reason:?}): {description}")]
+    ChannelOpenRefused {
+        reason: ChannelOpenFailure,
+        description: String,
+    },
 
     /// Disconnected
     #[error("Disconnected")]

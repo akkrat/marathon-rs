@@ -1,3 +1,4 @@
+// Modified by marathon-rs (open failure description): see vendor/russh/README.marathon.md for each change.
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -111,6 +112,11 @@ pub enum ChannelMsg {
     /// (server only)
     Failure,
     OpenFailure(ChannelOpenFailure),
+    /// (client only) The peer's description of a refused open, sent to the opener just before
+    /// [`ChannelMsg::OpenFailure`]. See [`crate::client::Handle::channel_open_session_described`].
+    OpenFailureDescription {
+        description: String,
+    },
 }
 
 #[derive(Clone, Debug)]

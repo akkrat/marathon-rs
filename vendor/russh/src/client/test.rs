@@ -21,6 +21,8 @@ mod tests {
     struct TestServer {
         clients: Arc<Mutex<HashMap<(usize, ChannelId), server::Handle>>>,
         id: usize,
+        /// Session opens to refuse, in this order, before any is accepted.
+        refusals: Arc<Mutex<std::collections::VecDeque<crate::ChannelOpenFailure>>>,
     }
 
     impl server::Server for TestServer {
@@ -42,6 +44,11 @@ mod tests {
             reply: server::ChannelOpenHandle,
             session: &mut Session,
         ) -> Result<(), Self::Error> {
+            let refusal = self.refusals.lock().unwrap().pop_front();
+            if let Some(reason) = refusal {
+                reply.reject(reason).await;
+                return Ok(());
+            }
             {
                 let mut clients = self.clients.lock().unwrap();
                 clients.insert((self.id, channel.id()), session.handle());
@@ -132,6 +139,14 @@ mod tests {
         client_config: Config,
         handler: H,
     ) -> crate::client::Handle<H> {
+        authenticated_session_refusing(client_config, handler, Default::default()).await
+    }
+
+    async fn authenticated_session_refusing<H: Handler + Send + 'static>(
+        client_config: Config,
+        handler: H,
+        refusals: Arc<Mutex<std::collections::VecDeque<crate::ChannelOpenFailure>>>,
+    ) -> crate::client::Handle<H> {
         let client_key = PrivateKey::random(&mut rng(), ssh_key::Algorithm::Ed25519).unwrap();
         let mut config = server::Config::default();
         config.inactivity_timeout = None;
@@ -142,6 +157,7 @@ mod tests {
         let mut server = TestServer {
             clients: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
+            refusals,
         };
         let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = socket.local_addr().unwrap();
@@ -222,6 +238,45 @@ mod tests {
         assert_eq!(received_bytes(&mut channel, 1000).await, 1000);
         session.adjust_window(channel.id(), 10_000).await.unwrap();
         assert_eq!(received_bytes(&mut channel, 10_000 - 5096).await, 10_000 - 5096);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_refusals_each_carry_their_own_description() {
+        use crate::ChannelOpenFailure::{AdministrativelyProhibited, ResourceShortage};
+        let _ = env_logger::try_init();
+        let refusals = Arc::new(Mutex::new(
+            [AdministrativelyProhibited, ResourceShortage, ResourceShortage].into(),
+        ));
+        let session = authenticated_session_refusing(Config::default(), Client {}, refusals).await;
+        let (first, second) = tokio::join!(
+            session.channel_open_session_described(),
+            session.channel_open_session_described()
+        );
+        let mut descriptions = Vec::new();
+        for refused in [first, second] {
+            match refused {
+                Err(Error::ChannelOpenRefused {
+                    reason,
+                    description,
+                }) => {
+                    // The server describes a refusal by its reason, so a swapped text would not match.
+                    assert_eq!(description, reason.description());
+                    descriptions.push(description);
+                }
+                other => panic!("expected a described refusal, got {other:?}"),
+            }
+        }
+        descriptions.sort();
+        assert_eq!(
+            descriptions,
+            ["Administratively prohibited", "Resource shortage"]
+        );
+        // Without asking for it, a refusal is reported as before.
+        assert!(matches!(
+            session.channel_open_session().await,
+            Err(Error::ChannelOpenFailure(ResourceShortage))
+        ));
+        assert!(session.channel_open_session_described().await.is_ok());
     }
 
     #[tokio::test]
@@ -317,6 +372,7 @@ mod tests {
         let mut server = TestServer {
             clients: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
+            refusals: Default::default(),
         };
 
         // Start the TCP listener for our mock server
@@ -395,6 +451,7 @@ mod tests {
         let mut server = TestServer {
             clients: Arc::new(Mutex::new(HashMap::new())),
             id: 0,
+            refusals: Default::default(),
         };
 
         let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();

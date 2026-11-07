@@ -1,4 +1,4 @@
-// Modified by marathon-rs (close after local close (R1/U1), manual window adjust): see vendor/russh/README.marathon.md for each change.
+// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, open failure description): see vendor/russh/README.marathon.md for each change.
 // Copyright 2016 Pierre-Étienne Meunier
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -565,6 +565,13 @@ impl Session {
                 }
 
                 if let Some(sender) = self.channels.remove(&channel_num) {
+                    // The description goes to this open's own opener, so that concurrent refusals
+                    // cannot swap texts. Openers that do not ask for it skip it.
+                    let _ = sender
+                        .send(ChannelMsg::OpenFailureDescription {
+                            description: descr.clone(),
+                        })
+                        .await;
                     let _ = sender
                         .send(ChannelMsg::OpenFailure(reason_code.clone()))
                         .await;

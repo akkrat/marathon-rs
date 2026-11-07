@@ -1,0 +1,252 @@
+diff --git a/src/channels/mod.rs b/src/channels/mod.rs
+index 2573e238..6baeb6b8 100644
+--- a/src/channels/mod.rs
++++ b/src/channels/mod.rs
+@@ -1,3 +1,4 @@
++// Modified by marathon-rs (open failure description): see vendor/russh/README.marathon.md for each change.
+ use std::sync::Arc;
+ 
+ use bytes::Bytes;
+@@ -111,6 +112,11 @@ pub enum ChannelMsg {
+     /// (server only)
+     Failure,
+     OpenFailure(ChannelOpenFailure),
++    /// (client only) The peer's description of a refused open, sent to the opener just before
++    /// [`ChannelMsg::OpenFailure`]. See [`crate::client::Handle::channel_open_session_described`].
++    OpenFailureDescription {
++        description: String,
++    },
+ }
+ 
+ #[derive(Clone, Debug)]
+diff --git a/src/client/encrypted.rs b/src/client/encrypted.rs
+index ddcd7454..bd03f7ff 100644
+--- a/src/client/encrypted.rs
++++ b/src/client/encrypted.rs
+@@ -1,4 +1,4 @@
+-// Modified by marathon-rs (close after local close (R1/U1), manual window adjust): see vendor/russh/README.marathon.md for each change.
++// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, open failure description): see vendor/russh/README.marathon.md for each change.
+ // Copyright 2016 Pierre-Étienne Meunier
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -565,6 +565,13 @@ impl Session {
+                 }
+ 
+                 if let Some(sender) = self.channels.remove(&channel_num) {
++                    // The description goes to this open's own opener, so that concurrent refusals
++                    // cannot swap texts. Openers that do not ask for it skip it.
++                    let _ = sender
++                        .send(ChannelMsg::OpenFailureDescription {
++                            description: descr.clone(),
++                        })
++                        .await;
+                     let _ = sender
+                         .send(ChannelMsg::OpenFailure(reason_code.clone()))
+                         .await;
+diff --git a/src/client/mod.rs b/src/client/mod.rs
+index 86f46fc4..a9aa60a0 100644
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -1,4 +1,4 @@
+-// Modified by marathon-rs (close after local close (R1/U1), manual window adjust): see vendor/russh/README.marathon.md for each change.
++// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, open failure description): see vendor/russh/README.marathon.md for each change.
+ // Copyright 2016 Pierre-Étienne Meunier
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -723,10 +723,23 @@ impl<H: Handler> Handle<H> {
+ 
+     /// Wait for confirmation that a channel is open
+     async fn wait_channel_confirmation(
++        &self,
++        receiver: Receiver<ChannelMsg>,
++        window_size_ref: WindowSizeRef,
++    ) -> Result<Channel<Msg>, crate::Error> {
++        self.wait_channel_reply(receiver, window_size_ref, false)
++            .await
++    }
++
++    /// With `described`, a refusal is [`crate::Error::ChannelOpenRefused`], carrying the
++    /// description the peer sent for this channel.
++    async fn wait_channel_reply(
+         &self,
+         mut receiver: Receiver<ChannelMsg>,
+         window_size_ref: WindowSizeRef,
++        described: bool,
+     ) -> Result<Channel<Msg>, crate::Error> {
++        let mut description = None;
+         loop {
+             match receiver.recv().await {
+                 Some(ChannelMsg::Open {
+@@ -746,6 +759,15 @@ impl<H: Handler> Handle<H> {
+                         read_half: ChannelReadHalf { receiver },
+                     });
+                 }
++                Some(ChannelMsg::OpenFailureDescription { description: text }) => {
++                    description = Some(text);
++                }
++                Some(ChannelMsg::OpenFailure(reason)) if described => {
++                    return Err(crate::Error::ChannelOpenRefused {
++                        reason,
++                        description: description.unwrap_or_default(),
++                    });
++                }
+                 Some(ChannelMsg::OpenFailure(reason)) => {
+                     return Err(crate::Error::ChannelOpenFailure(reason));
+                 }
+@@ -838,6 +860,22 @@ impl<H: Handler> Handle<H> {
+             .await
+     }
+ 
++    /// [`Handle::channel_open_session`], but a refusal is [`crate::Error::ChannelOpenRefused`]
++    /// with the description the peer sent for this open, which
++    /// [`Handler::channel_open_failure`] alone cannot tie to its opener.
++    pub async fn channel_open_session_described(&self) -> Result<Channel<Msg>, crate::Error> {
++        let (sender, receiver) = channel(self.channel_buffer_size);
++        let channel_ref = ChannelRef::new(sender);
++        let window_size_ref = channel_ref.window_size().clone();
++
++        self.sender
++            .send(Msg::ChannelOpenSession { channel_ref })
++            .await
++            .map_err(|_| crate::Error::SendError)?;
++        self.wait_channel_reply(receiver, window_size_ref, true)
++            .await
++    }
++
+     /// Request an X11 channel, on which the X11 protocol may be tunneled.
+     pub async fn channel_open_x11<A: Into<String>>(
+         &self,
+diff --git a/src/client/test.rs b/src/client/test.rs
+index fde0fd9b..b01b5dba 100644
+--- a/src/client/test.rs
++++ b/src/client/test.rs
+@@ -21,6 +21,8 @@ mod tests {
+     struct TestServer {
+         clients: Arc<Mutex<HashMap<(usize, ChannelId), server::Handle>>>,
+         id: usize,
++        /// Session opens to refuse, in this order, before any is accepted.
++        refusals: Arc<Mutex<std::collections::VecDeque<crate::ChannelOpenFailure>>>,
+     }
+ 
+     impl server::Server for TestServer {
+@@ -42,6 +44,11 @@ mod tests {
+             reply: server::ChannelOpenHandle,
+             session: &mut Session,
+         ) -> Result<(), Self::Error> {
++            let refusal = self.refusals.lock().unwrap().pop_front();
++            if let Some(reason) = refusal {
++                reply.reject(reason).await;
++                return Ok(());
++            }
+             {
+                 let mut clients = self.clients.lock().unwrap();
+                 clients.insert((self.id, channel.id()), session.handle());
+@@ -131,6 +138,14 @@ mod tests {
+     async fn authenticated_session_with<H: Handler + Send + 'static>(
+         client_config: Config,
+         handler: H,
++    ) -> crate::client::Handle<H> {
++        authenticated_session_refusing(client_config, handler, Default::default()).await
++    }
++
++    async fn authenticated_session_refusing<H: Handler + Send + 'static>(
++        client_config: Config,
++        handler: H,
++        refusals: Arc<Mutex<std::collections::VecDeque<crate::ChannelOpenFailure>>>,
+     ) -> crate::client::Handle<H> {
+         let client_key = PrivateKey::random(&mut rng(), ssh_key::Algorithm::Ed25519).unwrap();
+         let mut config = server::Config::default();
+@@ -142,6 +157,7 @@ mod tests {
+         let mut server = TestServer {
+             clients: Arc::new(Mutex::new(HashMap::new())),
+             id: 0,
++            refusals,
+         };
+         let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+         let addr = socket.local_addr().unwrap();
+@@ -224,6 +240,45 @@ mod tests {
+         assert_eq!(received_bytes(&mut channel, 10_000 - 5096).await, 10_000 - 5096);
+     }
+ 
++    #[tokio::test]
++    async fn test_concurrent_refusals_each_carry_their_own_description() {
++        use crate::ChannelOpenFailure::{AdministrativelyProhibited, ResourceShortage};
++        let _ = env_logger::try_init();
++        let refusals = Arc::new(Mutex::new(
++            [AdministrativelyProhibited, ResourceShortage, ResourceShortage].into(),
++        ));
++        let session = authenticated_session_refusing(Config::default(), Client {}, refusals).await;
++        let (first, second) = tokio::join!(
++            session.channel_open_session_described(),
++            session.channel_open_session_described()
++        );
++        let mut descriptions = Vec::new();
++        for refused in [first, second] {
++            match refused {
++                Err(Error::ChannelOpenRefused {
++                    reason,
++                    description,
++                }) => {
++                    // The server describes a refusal by its reason, so a swapped text would not match.
++                    assert_eq!(description, reason.description());
++                    descriptions.push(description);
++                }
++                other => panic!("expected a described refusal, got {other:?}"),
++            }
++        }
++        descriptions.sort();
++        assert_eq!(
++            descriptions,
++            ["Administratively prohibited", "Resource shortage"]
++        );
++        // Without asking for it, a refusal is reported as before.
++        assert!(matches!(
++            session.channel_open_session().await,
++            Err(Error::ChannelOpenFailure(ResourceShortage))
++        ));
++        assert!(session.channel_open_session_described().await.is_ok());
++    }
++
+     #[tokio::test]
+     async fn test_automatic_window_is_the_default() {
+         let _ = env_logger::try_init();
+@@ -317,6 +372,7 @@ mod tests {
+         let mut server = TestServer {
+             clients: Arc::new(Mutex::new(HashMap::new())),
+             id: 0,
++            refusals: Default::default(),
+         };
+ 
+         // Start the TCP listener for our mock server
+@@ -395,6 +451,7 @@ mod tests {
+         let mut server = TestServer {
+             clients: Arc::new(Mutex::new(HashMap::new())),
+             id: 0,
++            refusals: Default::default(),
+         };
+ 
+         let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+diff --git a/src/lib_inner.rs b/src/lib_inner.rs
+index 5bb73a15..09a86ff1 100644
+--- a/src/lib_inner.rs
++++ b/src/lib_inner.rs
+@@ -1,3 +1,4 @@
++// Modified by marathon-rs (open failure description): see vendor/russh/README.marathon.md for each change.
+ use std::convert::TryFrom;
+ use std::fmt::{Debug, Display, Formatter};
+ use std::future::{Future, Pending};
+@@ -151,6 +152,14 @@ pub enum Error {
+     #[error("Failed to open channel ({0:?})")]
+     ChannelOpenFailure(ChannelOpenFailure),
+ 
++    /// Server refused to open a channel, with its description. Returned only by
++    /// [`client::Handle::channel_open_session_described`].
++    #[error("Failed to open channel ({reason:?}): {description}")]
++    ChannelOpenRefused {
++        reason: ChannelOpenFailure,
++        description: String,
++    },
++
+     /// Disconnected
+     #[error("Disconnected")]
+     Disconnect,

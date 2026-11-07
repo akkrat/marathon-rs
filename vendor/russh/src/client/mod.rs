@@ -1,4 +1,4 @@
-// Modified by marathon-rs (close after local close (R1/U1), manual window adjust): see vendor/russh/README.marathon.md for each change.
+// Modified by marathon-rs (close after local close (R1/U1), manual window adjust, open failure description): see vendor/russh/README.marathon.md for each change.
 // Copyright 2016 Pierre-Étienne Meunier
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -724,9 +724,22 @@ impl<H: Handler> Handle<H> {
     /// Wait for confirmation that a channel is open
     async fn wait_channel_confirmation(
         &self,
-        mut receiver: Receiver<ChannelMsg>,
+        receiver: Receiver<ChannelMsg>,
         window_size_ref: WindowSizeRef,
     ) -> Result<Channel<Msg>, crate::Error> {
+        self.wait_channel_reply(receiver, window_size_ref, false)
+            .await
+    }
+
+    /// With `described`, a refusal is [`crate::Error::ChannelOpenRefused`], carrying the
+    /// description the peer sent for this channel.
+    async fn wait_channel_reply(
+        &self,
+        mut receiver: Receiver<ChannelMsg>,
+        window_size_ref: WindowSizeRef,
+        described: bool,
+    ) -> Result<Channel<Msg>, crate::Error> {
+        let mut description = None;
         loop {
             match receiver.recv().await {
                 Some(ChannelMsg::Open {
@@ -744,6 +757,15 @@ impl<H: Handler> Handle<H> {
                             window_size: window_size_ref,
                         },
                         read_half: ChannelReadHalf { receiver },
+                    });
+                }
+                Some(ChannelMsg::OpenFailureDescription { description: text }) => {
+                    description = Some(text);
+                }
+                Some(ChannelMsg::OpenFailure(reason)) if described => {
+                    return Err(crate::Error::ChannelOpenRefused {
+                        reason,
+                        description: description.unwrap_or_default(),
                     });
                 }
                 Some(ChannelMsg::OpenFailure(reason)) => {
@@ -835,6 +857,22 @@ impl<H: Handler> Handle<H> {
             .await
             .map_err(|_| crate::Error::SendError)?;
         self.wait_channel_confirmation(receiver, window_size_ref)
+            .await
+    }
+
+    /// [`Handle::channel_open_session`], but a refusal is [`crate::Error::ChannelOpenRefused`]
+    /// with the description the peer sent for this open, which
+    /// [`Handler::channel_open_failure`] alone cannot tie to its opener.
+    pub async fn channel_open_session_described(&self) -> Result<Channel<Msg>, crate::Error> {
+        let (sender, receiver) = channel(self.channel_buffer_size);
+        let channel_ref = ChannelRef::new(sender);
+        let window_size_ref = channel_ref.window_size().clone();
+
+        self.sender
+            .send(Msg::ChannelOpenSession { channel_ref })
+            .await
+            .map_err(|_| crate::Error::SendError)?;
+        self.wait_channel_reply(receiver, window_size_ref, true)
             .await
     }
 

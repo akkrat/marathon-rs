@@ -33,9 +33,22 @@ Applied changes, in order:
      own channel and never the session loop;
    - two client tests (manual window, default unchanged).
 
+4. `crates/marathon-apple/russh-open-failure-description.patch` (WP x38, U157):
+   - client `Handle::channel_open_session_described()`. A refused open returns the
+     new `Error::ChannelOpenRefused { reason, description }`, with the description
+     the peer sent for that channel. `Handler::channel_open_failure` gets the text
+     too, but nothing there ties it to the opener, so concurrent or abandoned
+     refusals could take each other's text;
+   - the session sends the new `ChannelMsg::OpenFailureDescription` to the opener
+     just before `ChannelMsg::OpenFailure`. `channel_open_session` and the other
+     openers skip it, so they still return `Error::ChannelOpenFailure(reason)`;
+   - one client test (concurrent refusals each get their own text; the plain open
+     is unchanged). The test server can refuse a list of session opens.
+
 Each file these changes touch starts with a `Modified by marathon-rs` line (Apache-2.0 section 4(b)):
-`Cargo.toml`, `src/client/{encrypted,mod,session,test}.rs`, `src/helpers.rs`, `src/keys/{known_hosts,mod}.rs`,
-`src/pty.rs`, `src/server/{encrypted,mod,session}.rs` and `src/session.rs`. The upstream archive holds no NOTICE file.
+`Cargo.toml`, `src/channels/mod.rs`, `src/client/{encrypted,mod,session,test}.rs`, `src/helpers.rs`,
+`src/keys/{known_hosts,mod}.rs`, `src/lib_inner.rs`, `src/pty.rs`, `src/server/{encrypted,mod,session}.rs` and
+`src/session.rs`. The upstream archive holds no NOTICE file.
 
 No process-wide environment flag changes protocol behavior. All default hooks
 retain the upstream wire behavior. These patches have not been submitted upstream.
@@ -48,7 +61,7 @@ CARGO_TARGET_DIR="$PWD/target/vendor-tests" cargo test --manifest-path vendor/ru
 cargo test -p fake-worker
 ```
 
-The original R1 suite contains 27 client tests; with patch 3 the `client::` filter runs 29.
+The original R1 suite contains 27 client tests; with patch 3 the `client::` filter runs 29, and with patch 4, 30.
 `scripts/check.sh` runs them. The harness tests exercise CLOSE
 withholding, output during suppressed keep-alives, delayed reply interoperability,
 wire disconnect reasons, and owned shutdown against this same patched dependency.
