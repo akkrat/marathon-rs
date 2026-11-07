@@ -692,7 +692,10 @@ A simulator that was already in the run is not a late joiner, so the late-join c
 an hour into a run can still come back. It gets its own limit of `lateJoinCutoff`, counted from the first failure, and
 `lateJoinCutoff: 0` means no limit, so the end of the run ends it. Other settings work as they do for any worker:
 `lateJoin: false` stops after `attempts`, and `attempts: 1` with `lateJoin: false` leaves only the first attempt. After the
-limit an error line says the simulator stays out of the run.
+limit an error line says the simulator stays out of the run. The limit is looked at when a pause ends and when an attempt has
+connected, not on a timer of its own, so the end comes at the first such point past it: 630 s with the defaults when every
+attempt fails at once. It can be late by at most one pause (`retryInterval`) plus the time of an attempt in flight, which that
+attempt's own connection and setup timeouts bound.
 
 The old device raises one disconnect, where Kotlin raised one per attempt, and a worker that comes back gives one
 connect and one actor per simulator. Termination cancels a retry that is waiting.

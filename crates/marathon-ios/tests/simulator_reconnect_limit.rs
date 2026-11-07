@@ -144,7 +144,12 @@ async fn a_worker_that_stays_down_is_tried_at_capped_pauses_until_the_limit_and_
     p.start(&["a", "b"]).await?;
     p.connected(2).await;
     let lost = lose_worker(&p, &["a", "b"]);
-    pass(700).await;
+    // The limit is looked at when a pause ends, so the end comes with the pause after the attempt at 570 s.
+    pass(625).await;
+    assert!(!p.log("has no connection"));
+    pass(10).await;
+    assert!(p.log("has no connection"));
+    pass(65).await;
     // One connection each for the two simulators, then one per worker however many simulators wait on it.
     assert_seconds(&attempts_since(&p, &lost, false), &[0, 0]);
     assert_seconds(&attempts_since(&p, &lost, true), &CAPPED);

@@ -38,7 +38,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   the readiness probe of iOS 18 and later, where it was `launchctl dumpstate user/foreground/com.apple.SpringBoard`. iOS 16 and
   17 still send `dumpstate`.
 - **A lost iOS worker has a limit now** (D44). A simulator whose worker stays down is no longer tried every 16 ms until the run
-  ends: it is tried at `workerConnection`'s pace for `lateJoinCutoff` (600 s) after the first failure, and then stays out. With
+  ends: it is tried at `workerConnection`'s pace for `lateJoinCutoff` (600 s) after the first failure, and then stays out. The
+  end is noticed when the next pause is over, at 630 s with the defaults. With
   `attempts: 1` and `lateJoin: false` it gets one try. Set `lateJoinCutoff: 0` to wait until the run ends.
 - **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
   report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the

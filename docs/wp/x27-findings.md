@@ -61,7 +61,8 @@ eligible, so one simulator can't be set up twice at once.
 
 Those attempts run one at a time on a worker however many simulators wait, so the count is per worker. **At the end** an ERROR
 says `Simulator a@local has no connection 600 s after it lost its worker, it stays out of the run`, and the run carries on with
-the rest. On a pool whose last device that was, the pool has already ended (C50; x31 owns it).
+the rest. The limit is looked at when a pause ends and after an attempt connects, so that line comes at 630 s with the defaults,
+and at most one pause plus an attempt in flight late (review round 2). On a pool whose last device that was, the pool has already ended (C50; x31 owns it).
 
 Other limits: `lateJoinCutoff: 0` means the end of the run, at the same capped pace. `lateJoin: false` means `attempts`.
 `attempts: 1` with `lateJoin: false` means the first attempt only. That last one is a real change for those users, so it is in
