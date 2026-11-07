@@ -67,10 +67,10 @@ pub struct RunServices {
     pub live_output: bool,
 }
 
-/// One registered signal: completes on its next delivery.
-pub type SignalReceipt = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+/// One registered signal: yields once per delivery for as long as it is kept.
+pub type SignalStream = std::pin::Pin<Box<dyn futures_util::Stream<Item = ()> + Send>>;
 /// Installs the handler for a signal number; runs on the vendor runtime.
-pub type SignalRegistration = Arc<dyn Fn(i32) -> std::io::Result<SignalReceipt> + Send + Sync>;
+pub type SignalRegistration = Arc<dyn Fn(i32) -> std::io::Result<SignalStream> + Send + Sync>;
 
 /// Test seams for the OS relay. The default registers through tokio and announces nothing.
 #[derive(Clone, Default)]
@@ -83,14 +83,13 @@ pub struct SignalHooks {
 
 /// The tokio registration of `number`: the handler stays installed for the process's life.
 #[cfg(unix)]
-pub fn tokio_registration(number: i32) -> std::io::Result<SignalReceipt> {
+pub fn tokio_registration(number: i32) -> std::io::Result<SignalStream> {
     use tokio::signal::unix::{SignalKind, signal};
-    let mut stream = signal(SignalKind::from_raw(number))?;
-    Ok(Box::pin(async move {
-        if stream.recv().await.is_none() {
-            std::future::pending::<()>().await;
-        }
-    }))
+    let stream = signal(SignalKind::from_raw(number))?;
+    Ok(Box::pin(futures_util::stream::unfold(
+        stream,
+        |mut stream| async move { stream.recv().await.map(|()| ((), stream)) },
+    )))
 }
 
 /// Whether `number`'s current disposition is SIG_IGN. HotSpot installs no handler for a
@@ -122,7 +121,9 @@ pub fn signal_ignored(number: i32) -> bool {
 /// process started with ignored is not registered at all and stays ignored, as on HotSpot.
 ///
 /// D52: after the first signal the listener keeps listening, off core, and a second one exits at once. The hook is
-/// not asked to run again, so nothing is done twice; whatever it has not done by then is lost.
+/// not asked to run again, so nothing is done twice; whatever it has not done by then is lost. Each signal keeps the
+/// one stream it was registered with for both deliveries: a stream dropped and registered again would miss a signal
+/// that came in between.
 pub struct SignalRelay {
     signal: Arc<SharedDeferred<i32>>,
     source: Option<Arc<dyn VendorRuntime>>,
@@ -167,15 +168,11 @@ impl SignalRelay {
         let exit = self.exit.clone();
         let listener = vendor.spawn_cancellable(Box::new(move |cancelled| {
             Box::pin(async move {
-                let numbered =
-                    |number: i32| -> Option<std::pin::Pin<Box<dyn std::future::Future<Output = i32> + Send>>> {
-                        let receipt = registration(number).ok()?;
-                        Some(Box::pin(async move {
-                            receipt.await;
-                            number
-                        }))
-                    };
-                let receipts: Vec<_> = [2, 15]
+                let numbered = |number: i32| {
+                    let stream = registration(number).ok()?;
+                    Some(futures_util::StreamExt::map(stream, move |()| number))
+                };
+                let streams: Vec<_> = [2, 15]
                     .into_iter()
                     .filter(|&number| !signal_ignored(number))
                     .filter_map(numbered)
@@ -183,22 +180,22 @@ impl SignalRelay {
                 if let Some(ready) = ready {
                     ready();
                 }
-                if receipts.is_empty() {
+                if streams.is_empty() {
                     return Ok(());
                 }
-                let (number, mut receipts) = tokio::select! {
-                    (number, _, rest) = futures_util::future::select_all(receipts) => (number, rest),
+                let mut deliveries = futures_util::stream::select_all(streams);
+                let next = futures_util::StreamExt::next(&mut deliveries);
+                let number = tokio::select! {
+                    number = next => match number {
+                        Some(number) => number,
+                        None => return Ok(()),
+                    },
                     _ = cancelled.cancelled() => return Ok(()),
                 };
                 output.complete(Ok(number));
-                // A receipt completes once, so the signal that fired needs a new one. Tokio's handler stays
-                // installed meanwhile: a repeat in this instant is the only one that goes unnoticed.
-                receipts.extend(numbered(number));
-                if receipts.is_empty() {
-                    return Ok(());
-                }
+                let next = futures_util::StreamExt::next(&mut deliveries);
                 tokio::select! {
-                    (number, _, _) = futures_util::future::select_all(receipts) => exit(128 + number),
+                    Some(number) = next => exit(128 + number),
                     _ = cancelled.cancelled() => {}
                 }
                 Ok(())

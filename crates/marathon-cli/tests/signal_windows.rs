@@ -6,7 +6,7 @@
 //! suspended, the P3 relay exits with that status itself in both debug modes. A signal whose
 //! registration fails keeps its default disposition; the other one is still relayed. A signal
 //! the process started with ignored stays ignored, as on HotSpot. D52: the hook runs in both debug modes and is bounded,
-//! and a second signal exits at once.
+//! and a second signal exits at once, however soon after the first it comes.
 //!
 //! Every read of the child's stderr has a deadline, and a test that fails kills and reaps its child.
 #![cfg(unix)]
@@ -18,7 +18,7 @@ use marathon_cli::{
 };
 use marathon_core::{
     executor::SharedChannel,
-    marathon::{SignalHooks, signal_ignored, tokio_registration},
+    marathon::{SignalHooks, SignalStream, signal_ignored, tokio_registration},
     model::{ExecutionCommand, Test},
     runtime::VendorFuture,
     vendor::{LocalTestParser, TestParser, VendorContext, VendorServices},
@@ -88,10 +88,10 @@ impl LocalTestParser for NoTests {
     }
 }
 
-/// Announces the provider's termination; `run-stuck` never ends it, and `blocked-thread` leaves a blocking call behind,
-/// as a stuck name lookup would.
+/// Announces the provider's termination; `run-stuck` and `run-repeat` never end it, and `blocked-thread` leaves a
+/// blocking call behind, as a stuck name lookup would.
 fn on_terminate(provider: &StubDeviceProvider, mode: &str) {
-    let (stuck, blocked) = (mode == "run-stuck", mode == "blocked-thread");
+    let (stuck, blocked) = (matches!(mode, "run-stuck" | "run-repeat"), mode == "blocked-thread");
     *provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
         let _ = writeln!(std::io::stderr(), "MARKER terminate");
         Box::pin(async move {
@@ -134,6 +134,27 @@ fn factories(mode: &str) -> VendorFactories {
     factories
 }
 
+/// SIGTERM's stream for `run-repeat`: on its first delivery it sends the process a second SIGTERM, and hands the first
+/// on only once a stream of its own has seen the second. So the second comes after the relay's stream has yielded the
+/// first and before the relay could ask for the next, which is where a relay that registers again loses it.
+fn repeating(number: i32) -> std::io::Result<SignalStream> {
+    use futures_util::StreamExt;
+    let (inner, observer) = (tokio_registration(number)?, tokio_registration(number)?);
+    Ok(Box::pin(futures_util::stream::unfold(
+        (inner, Some(observer)),
+        |(mut inner, observer)| async move {
+            inner.next().await?;
+            if let Some(mut observer) = observer {
+                observer.next().await?;
+                kill(Pid::this(), Signal::SIGTERM).ok()?;
+                observer.next().await?;
+                let _ = writeln!(std::io::stderr(), "MARKER repeated");
+            }
+            Some(((), (inner, None)))
+        },
+    )))
+}
+
 /// Announces the registrations; `run-fail-<signal>` makes that signal's registration fail.
 fn hooks(mode: &str) -> SignalHooks {
     let failing = match mode {
@@ -141,10 +162,14 @@ fn hooks(mode: &str) -> SignalHooks {
         "run-fail-term" => Some(15),
         _ => None,
     };
+    let repeat = mode == "run-repeat";
     SignalHooks {
         registration: Some(Arc::new(move |number| {
             if Some(number) == failing {
                 return Err(std::io::Error::other("injected registration failure"));
+            }
+            if repeat && number == 15 {
+                return repeating(number);
             }
             tokio_registration(number)
         })),
@@ -458,6 +483,28 @@ fn a_second_signal_exits_at_once_d52() {
             "{first} then {second}: the provider was terminated once"
         );
     }
+}
+
+/// D52 (S-x35-1): a second SIGTERM that comes just after the first was delivered, before the relay waits for the next,
+/// still exits at once. A relay that dropped the first one's stream and registered a new one missed it, and the process
+/// went on to the limit. Only the time tells the two apart, since both exit with 143.
+#[test]
+fn a_second_signal_right_after_the_first_is_not_lost_d52() {
+    if inherited_ignored(Signal::SIGTERM) {
+        return;
+    }
+    let (mut child, stderr) = started_with_stderr("run-repeat", None);
+    let signalled_at = Instant::now();
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    assert!(stderr.saw("MARKER repeated"), "the second SIGTERM was never sent");
+    let status = signalled_wait(&mut child, PATIENCE);
+    let waited = signalled_at.elapsed();
+    assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
+    let limit = u64::try_from(marathon_core::marathon::CANCEL_LIMIT_MILLIS).unwrap();
+    assert!(
+        waited < Duration::from_millis(limit),
+        "the second SIGTERM was lost: exit after {waited:?}"
+    );
 }
 
 /// D52: once the run is over, a blocking call left on a vendor thread doesn't hold the process, which by then no longer

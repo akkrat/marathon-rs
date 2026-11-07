@@ -1566,6 +1566,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "fake-worker",
+ "futures-util",
  "jcompat",
  "marathon-adb",
  "marathon-analytics",
