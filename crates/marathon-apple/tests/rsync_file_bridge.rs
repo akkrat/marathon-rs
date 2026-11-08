@@ -1847,10 +1847,13 @@ impl marathon_core::runtime::VendorClock for SlowClock {
 }
 /// D54: the 5 s step before TERM that D31 gives a stalled rsync would take 150 s on this clock.
 const SLOW: i64 = 30;
-/// D54: a stand-in that records its pid, starts `ssh`, a child standing in for rsync's ssh, and then does `body`. A send to
-/// `.../next` succeeds at once, so that a send queued behind a stopped one shows whether it went on.
-fn stoppable_rsync(root: &Path, ssh: &str, body: &str) -> std::path::PathBuf {
+/// D54: a stand-in that records its pid and starts `ssh`, a child standing in for rsync's ssh, which says `ssh-ready` once it
+/// has set up its own signal handling. Then the stand-in sets up its own, `body.0`, says `ready`, and does `body.1`. The test
+/// stops it only after `ready`, so the stop meets the handling each test is about (review round 2). A send to `.../next`
+/// succeeds at once, so that a send queued behind a stopped one shows whether it went on.
+fn stoppable_rsync(root: &Path, ssh: &str, body: (&str, &str)) -> std::path::PathBuf {
     let program = root.join("rsync");
+    let (handling, then) = body;
     script(
         &program,
         &format!(
@@ -1860,22 +1863,25 @@ echo $$ > "$MRS_D31_ROOT/pid"
 echo stuck >> "$MRS_D31_ROOT/order"
 {ssh} &
 echo $! > "$MRS_D31_ROOT/ssh-pid"
-{body}
+until [ -e "$MRS_D31_ROOT/ssh-ready" ]; do /bin/sleep 0.01; done
+{handling}
+echo > "$MRS_D31_ROOT/ready"
+{then}
 "#
         ),
     );
     program
 }
-const SSH: &str = "/bin/sleep 100043";
+const SSH: &str = r#"(echo > "$MRS_D31_ROOT/ssh-ready"; exec /bin/sleep 100043)"#;
 /// A child that ignores TERM, as an ssh can, so that only KILL ends it.
-const SSH_IGNORING_TERM_TOO: &str = "(trap '' TERM; exec /bin/sleep 100044)";
-const WAITS: &str = "wait";
-const IGNORES_TERM_AND_WAITS: &str = "trap '' TERM\nwhile :; do /bin/sleep 0.05; done";
+const SSH_IGNORING_TERM_TOO: &str = r#"(trap '' TERM; echo > "$MRS_D31_ROOT/ssh-ready"; exec /bin/sleep 100044)"#;
+const WAITS: (&str, &str) = ("", "wait");
+const IGNORES_TERM_AND_WAITS: (&str, &str) = ("trap '' TERM", "while :; do /bin/sleep 0.05; done");
 /// A wrapper that reports success when it is stopped.
-const EXITS_0_ON_TERM: &str = "trap 'exit 0' TERM\nwhile :; do /bin/sleep 0.05; done";
+const EXITS_0_ON_TERM: (&str, &str) = ("trap 'exit 0' TERM", "while :; do /bin/sleep 0.05; done");
 /// D54: a transfer stopped mid-way. An rsync that ends on TERM runs on the slow clock; one that ignores TERM on a real one, so
 /// that its KILL comes after D31's real 5 s. The parent checks that nothing the transfer started is left.
-fn stopped_transfer(mode: &str, ssh: &str, body: &str) {
+fn stopped_transfer(mode: &str, ssh: &str, body: (&str, &str)) {
     let dir = tempfile::tempdir().unwrap();
     let program = stoppable_rsync(dir.path(), ssh, body);
     run_stalled_send(StalledSend {
@@ -1959,9 +1965,10 @@ async fn stopped_transfer_runs() {
             }
         })
     };
-    let ssh_pid = root.join("ssh-pid");
+    // Only once the stand-in and its child have both set up their signal handling.
+    let ready = root.join("ready");
     tokio::time::timeout(HANG, async {
-        while std::fs::read_to_string(&ssh_pid).map_or(true, |text| text.trim().is_empty()) {
+        while !ready.exists() {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     })

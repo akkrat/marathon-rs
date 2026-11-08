@@ -381,9 +381,9 @@ async fn frozen_run(keep_alive: &str) -> Result<Frozen> {
              at() {{ /usr/bin/perl -MTime::HiRes=time -e 'printf \"%.3f\", time'; }}\n\
              case \"$*\" in *\" -p {frozen_port} \"*) who=frozen;; *\" -p \"*) who=healthy;; *) who=probe;; esac\n\
              case \"$*\" in *.xctest*) what=bundle;; *) what=other;; esac\n\
+             trap 'echo \"$(at) stopped $who $what\" >> \"{log}\"; exit 143' TERM\n\
              if [ $who = frozen ] && [ ! -e \"{mark}\" ]; then at > \"{mark}\"; kill -STOP {pid}; fi\n\
              echo \"$(at) start $who $what\" >> \"{log}\"\n\
-             trap 'echo \"$(at) stopped $who $what\" >> \"{log}\"; exit 143' TERM\n\
              /usr/bin/rsync \"$@\" &\n\
              wait $!\n\
              status=$?\n\
