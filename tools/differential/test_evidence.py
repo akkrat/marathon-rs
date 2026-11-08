@@ -91,6 +91,20 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotEqual(value('-.inf'), value('.inf'))
         self.assertEqual(value('.NaN'), value('.nan'))
 
+    def test_native_yaml_matches_shared_implicit_scalar_contract(self):
+        for line in (ROOT / 'fixtures/contract/yaml-scalars.tsv').read_text().splitlines():
+            scalar, expected = line.split('\t')
+            with self.subTest(scalar=scalar):
+                self.assertEqual(e.yaml_implicit_type(scalar), expected)
+                if scalar not in ('._', '-'):  # malformed number or YAML sequence indicator
+                    document = e.structured_yaml(('a: ' + scalar + '\n').encode())
+                    self.assertEqual(document[0][2][0][1][1], expected)
+        self.assertEqual(e.structured_yaml(b'a: 1._0\n'), e.structured_yaml(b'a: 1.0\n'))
+        self.assertNotEqual(e.structured_yaml(b'a: .inf\n'), e.structured_yaml(b'a: .iNF\n'))
+
+    def test_native_yaml_rejects_changed_infinity_to_string(self):
+        self.reject_changed_yaml(b'a: .inf\n', b'a: .iNF\n')
+
     def test_native_console_ignores_other_diagnostics(self):
         values = {'serial': 'device-1'}
         first = b'diagnostic one\n00% | [omni]-[device-1] C#t passed\n'

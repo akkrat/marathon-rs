@@ -1206,3 +1206,7 @@ are not copies from the Kotlin repository. No other byte of a recorded observati
 The live comparison uses the stand-in in `tools/differential/evidence.py` (`PARSER_STAND_IN`).
 The recordings kept the host and run identities they were made with. See
 `docs/design/differential.md` and `docs/wp/x11-findings.md`.
+
+## WP 8.1 native scalar contract
+
+- `contract/yaml-scalars.tsv` — hand-authored scalar and expected-type cases derived from the resolver patterns in `crates/snakeyaml/src/resolve.rs`. Both the Rust resolver test and the differential comparator test read this same table.

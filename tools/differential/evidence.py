@@ -525,6 +525,45 @@ def structured_json(data):
     return tagged(value)
 
 
+# Port of crates/snakeyaml/src/resolve.rs: registration order and UTF-16 limits matter.
+_YAML_BOOL = re.compile(r'(?:yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF)')
+_YAML_INT = re.compile(r'[-+]?(?:0b_*[01][01_]*|0_*[0-7][0-7_]*|0|[1-9][0-9_]*|0x_*[0-9a-fA-F][0-9a-fA-F_]*|[1-9][0-9_]*(?::[0-5]?[0-9])+)')
+_YAML_FLOAT = re.compile(r'(?:[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+]?[0-9]+)?|[-+]?[0-9][0-9_]*[eE][-+]?[0-9]+|[-+]?\.[0-9_]+(?:[eE][-+]?[0-9]+)?|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))')
+
+
+def yaml_implicit_type(value):
+    length = len(value.encode('utf-16-le', 'surrogatepass')) // 2
+    if length <= 10 and _YAML_BOOL.fullmatch(value):
+        return 'bool'
+    if length <= 1024 and _YAML_INT.fullmatch(value):
+        return 'int'
+    if length <= 1024 and _YAML_FLOAT.fullmatch(value):
+        return 'float'
+    if length <= 10 and value in ('', '~', 'null', 'Null', 'NULL'):
+        return 'null'
+    # Jackson exposes YAML's merge, timestamp and YAML indicator tags as strings.
+    return 'str'
+
+
+def yaml_integer(value):
+    raw = value.replace('_', '')
+    sign = -1 if raw.startswith('-') else 1
+    raw = raw.lstrip('+-')
+    if ':' in raw:
+        number = 0
+        for part in raw.split(':'):
+            number = number * 60 + int(part)
+    elif raw.startswith('0b'):
+        number = int(raw[2:], 2)
+    elif raw.startswith('0x'):
+        number = int(raw[2:], 16)
+    elif len(raw) > 1 and raw.startswith('0'):
+        number = int(raw, 8)
+    else:
+        number = int(raw, 10)
+    return str(sign * number)
+
+
 def structured_yaml(data):
     # Psych exposes the syntax tree, preserving mapping order and scalar types.
     script = r"""require 'psych'; require 'json'
@@ -544,39 +583,8 @@ def node(n, anchors)
     end
     [kind, tag == base + kind ? nil : tag, children]
   when Psych::Nodes::Scalar
-    scanner = Psych::ScalarScanner.new(Psych::ClassLoader::Restricted.new([], []))
     raise 'invalid scalar tag' if tag && [base + 'map', base + 'seq'].include?(tag)
-    known = %w[str int float bool null].map { |v| base + v }
-    typed = tag && known.include?(tag) && tag != base + 'str'
-    scientific = /\A[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9_]+)[eE][-+]?[0-9]+\z/.match?(n.value)
-    special = /\A(?:[-+]?\.inf|\.nan)\z/i.match?(n.value)
-    numeric = (scientific || special) && (n.plain || typed) && tag != base + 'str'
-    scalar = if tag == base + 'str' || (!n.plain && !typed)
-      n.value
-    elsif numeric
-      0.0
-    else
-      scanner.tokenize(n.value)
-    end
-    type = case scalar
-    when NilClass then 'null'
-    when TrueClass, FalseClass then 'bool'
-    when Integer then 'int'
-    when Float then 'float'
-    when String then 'str'
-    else raise 'unsupported scalar type'
-    end
-    if typed
-      expected = tag.delete_prefix(base)
-      raise 'invalid scalar tag value' unless type == expected || (expected == 'float' && type == 'int')
-      type = expected
-    end
-    if type == 'int'
-      scalar = scalar.to_s
-    elsif type == 'float'
-      scalar = n.value
-    end
-    ['scalar', type, tag && !known.include?(tag) ? tag : nil, scalar]
+    ['scalar-source', tag, n.plain, n.value]
   else raise 'unsupported YAML node'
   end
   anchors[n.anchor] = value if n.respond_to?(:anchor) && n.anchor
@@ -590,33 +598,54 @@ puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d, {})
         raise Invalid('invalid YAML: ' + error.stderr.decode(errors='replace').strip()) from error
     def canonical(value):
         if isinstance(value, list):
-            if len(value) == 4 and value[0] == 'scalar' and value[1] == 'float':
-                raw = value[3].replace('_', '')
-                special = raw.lower()
-                if special in ('.inf', '+.inf', '-.inf', '.nan'):
-                    value[3] = {
-                        '.inf': 'Infinity', '+.inf': 'Infinity', '-.inf': '-Infinity', '.nan': 'NaN'
-                    }[special]
+            if len(value) == 4 and value[0] == 'scalar-source':
+                _, tag, plain, raw = value
+                base = 'tag:yaml.org,2002:'
+                known = {base + kind for kind in ('str', 'int', 'float', 'bool', 'null')}
+                implicit = yaml_implicit_type(raw)
+                if tag in (None, '!'):
+                    kind = implicit if plain or tag == '!' else 'str'
+                elif tag in known:
+                    kind = tag.removeprefix(base)
+                    if kind not in ('str', 'null') and implicit != kind and not (kind == 'float' and implicit == 'int'):
+                        raise Invalid('invalid YAML scalar tag value')
                 else:
-                    try:
-                        if ':' in raw:
-                            sign = -1 if raw.startswith('-') else 1
-                            parts = raw.lstrip('+-').split(':')
-                            with decimal.localcontext() as context:
-                                context.prec = sum(len(part) for part in parts) + 10
-                                number = decimal.Decimal(0)
-                                for part in parts:
-                                    number = number * 60 + decimal.Decimal(part)
-                                number *= sign
-                        else:
-                            number = decimal.Decimal(raw)
-                    except decimal.InvalidOperation as error:
-                        raise Invalid('invalid YAML float: ' + raw) from error
-                    sign, digits, exponent = number.as_tuple()
-                    digits = list(digits)
-                    while len(digits) > 1 and digits[-1] == 0:
-                        digits.pop(); exponent += 1
-                    value[3] = ('-' if sign and number else '') + ''.join(map(str, digits)) + 'e' + str(exponent if number else 0)
+                    kind = 'str'
+                custom_tag = tag if tag not in known and tag not in (None, '!') else None
+                if kind == 'bool':
+                    scalar = raw.lower() in ('yes', 'true', 'on')
+                elif kind == 'null':
+                    scalar = None
+                elif kind == 'int':
+                    scalar = yaml_integer(raw)
+                elif kind == 'float':
+                    clean = raw.replace('_', '')
+                    special = clean.lower()
+                    if special in ('.inf', '+.inf', '-.inf', '.nan'):
+                        scalar = {'.inf': 'Infinity', '+.inf': 'Infinity', '-.inf': '-Infinity', '.nan': 'NaN'}[special]
+                    else:
+                        try:
+                            if ':' in clean:
+                                sign = -1 if clean.startswith('-') else 1
+                                parts = clean.lstrip('+-').split(':')
+                                with decimal.localcontext() as context:
+                                    context.prec = sum(len(part) for part in parts) + 10
+                                    number = decimal.Decimal(0)
+                                    for part in parts:
+                                        number = number * 60 + decimal.Decimal(part)
+                                    number *= sign
+                            else:
+                                number = decimal.Decimal(clean)
+                        except decimal.InvalidOperation as error:
+                            raise Invalid('invalid YAML float: ' + clean) from error
+                        sign, digits, exponent = number.as_tuple()
+                        digits = list(digits)
+                        while len(digits) > 1 and digits[-1] == 0:
+                            digits.pop(); exponent += 1
+                        scalar = ('-' if sign and number else '') + ''.join(map(str, digits)) + 'e' + str(exponent if number else 0)
+                else:
+                    scalar = raw
+                return ['scalar', kind, custom_tag, scalar]
             return [canonical(item) for item in value]
         return value
     return canonical(json.loads(result.stdout))
