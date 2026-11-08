@@ -205,10 +205,34 @@ async fn a_stalled_send_while_parsing_is_sent_once_per_borrowed_device_u163() ->
     let output = tokio::time::timeout(STALL_CATCH, command.output()).await??;
     let text = String::from_utf8_lossy(&output.stdout);
     let errors = String::from_utf8_lossy(&output.stderr);
-    // Core's three borrows, and not three more on each.
+    // Core's three borrows, and not three more on each. With one device D53 changes nothing, so this is also A103's
+    // witness: Kotlin's three attempts, all on the stuck worker.
     assert_eq!(output.status.code(), Some(1), "{text}\n{errors}");
     assert_eq!(sends(root), 3, "{text}\n{errors}");
     stuck.shutdown().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "each stall takes 295 s on the real clock (D31); run by hand with --ignored"]
+async fn a_stalled_send_while_parsing_leaves_the_parse_to_the_healthy_worker_d53() -> Result {
+    let dir = tempfile::tempdir()?;
+    let root = dir.path();
+    fixture(root)?;
+    let (stuck, healthy) = (worker(root, "stuck").await?, worker(root, "healthy").await?);
+    let stuck_port = stuck.ready.endpoint.port();
+    let healthy_port = healthy.ready.endpoint.port();
+    let mut command = run(root, &[stuck_port, healthy_port], stuck_port, STALL, true, None)?;
+    let output = tokio::time::timeout(STALL_CATCH, command.output()).await??;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let errors = String::from_utf8_lossy(&output.stderr);
+    // The first borrow is random. If it takes the stuck worker, its stall is one send and the second attempt takes the
+    // healthy one; the stuck simulator's own prepare may send once more. Kotlin's random retry fails the run one time in
+    // eight, and sends to the stuck worker three or more times one time in four.
+    assert_eq!(output.status.code(), Some(0), "{text}\n{errors}");
+    assert!(text.contains("test1"), "{text}\n{errors}");
+    assert!(sends(root) <= 2, "{} sends\n{text}\n{errors}", sends(root));
+    stuck.shutdown().await.map_err(|e| e.to_string())?;
+    healthy.shutdown().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

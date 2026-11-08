@@ -4,6 +4,7 @@
 //! replay driver delivering connect/disconnect events into that queue at scripted times
 //! (`ControlledReplay::event`), so no task is launched from the synchronous `subscribe`.
 use crate::lock;
+use jcompat::writers::JavaString;
 use marathon_core::{
     error::*,
     executor::shared::SharedChannel,
@@ -25,6 +26,9 @@ pub struct StubDeviceProvider {
     pub on_terminate: Mutex<Option<TerminateHook>>,
     /// Replaces the borrowed device with this failure (remote-parse retry witnesses).
     pub borrow_error: Mutex<Option<VendorError>>,
+    /// D53 witnesses: when set, a remote parse borrows from these instead of `borrowing_device`, taking the first whose
+    /// serial number no earlier attempt failed on, or the first of all.
+    pub borrowable: Mutex<Vec<DeviceRef>>,
     pub on_subscribe: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     /// Virtual time `borrow` takes before returning the device.
     pub borrow_delay_millis: Mutex<i64>,
@@ -38,6 +42,7 @@ impl StubDeviceProvider {
             on_initialize: Mutex::new(None),
             on_terminate: Mutex::new(None),
             borrow_error: Mutex::new(None),
+            borrowable: Mutex::default(),
             on_subscribe: Mutex::new(None),
             borrow_delay_millis: Mutex::new(0),
             calls: Mutex::default(),
@@ -80,6 +85,31 @@ impl DeviceProvider for StubDeviceProvider {
                     "lateinit property borrowingDevice has not been initialized",
                 ))
             })
+        })
+    }
+    fn borrow_untried(
+        &self,
+        tried: Vec<JavaString>,
+        context: VendorContext,
+    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
+        let devices = lock(&self.borrowable).clone();
+        if devices.is_empty() {
+            let borrowed = self.borrow(context);
+            return Box::pin(async move {
+                let device = borrowed.await?;
+                let key = device.0.info().serial_number;
+                Ok((device, key))
+            });
+        }
+        lock(&self.calls).push("borrow");
+        let device = devices
+            .iter()
+            .find(|d| !tried.contains(&d.0.info().serial_number))
+            .unwrap_or(&devices[0])
+            .clone();
+        Box::pin(async move {
+            let key = device.0.info().serial_number;
+            Ok((device, key))
         })
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {

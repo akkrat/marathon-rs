@@ -315,19 +315,31 @@ impl DeviceProvider for AppleMacosProvider {
         })
     }
     fn borrow(&self, context: VendorContext) -> VendorFuture<'_, DeviceRef> {
+        Box::pin(async move { Ok(self.borrow_untried(Vec::new(), context).await?.0) })
+    }
+    fn borrow_untried(
+        &self,
+        tried: Vec<JavaString>,
+        context: VendorContext,
+    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
         Box::pin(async move {
             loop {
-                let devices = self.snapshot();
-                if !devices.is_empty() {
-                    let keys = devices.iter().map(|d| d.info().serial_number).collect::<Vec<_>>();
+                // D53 (U171): nothing removes a Mac whose connection is lost, and nothing reconnects it, so a parse on one
+                // fails an attempt. As iOS's D44: only a Mac that is connected, and a healthy run's keys are all of them.
+                let mut devices = self.snapshot();
+                devices.retain(|d| d.executor().connected());
+                let keys = devices.iter().map(|d| d.info().serial_number).collect::<Vec<_>>();
+                let untried: Vec<_> = keys.iter().filter(|k| !tried.contains(k)).cloned().collect();
+                let keys = if untried.is_empty() { keys } else { untried };
+                if !keys.is_empty() {
                     let key = context
                         .hooks
                         .choose_key("macos.AppleMacosProvider.borrow", &keys)
                         .map_err(crate::clock_error)?;
-                    let index = keys.iter().position(|k| k == &key).ok_or_else(|| {
+                    let device = devices.iter().find(|d| d.info().serial_number == key).ok_or_else(|| {
                         VendorError::Other(failure("marathon.ReplayError", "Unknown macOS device selection"))
                     })?;
-                    return Ok(DeviceRef(devices[index].clone()));
+                    return Ok((DeviceRef(device.clone()), key));
                 }
                 context.clock.delay(200, context.cancellation.clone()).await?;
             }

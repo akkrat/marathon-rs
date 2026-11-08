@@ -79,6 +79,23 @@ pub trait DeviceProvider: Send + Sync {
     fn initialize(&self, context: VendorContext) -> VendorFuture<'_, ()>;
     /// Before consuming subscribe's channel. No invented release/lease protocol.
     fn borrow(&self, context: VendorContext) -> VendorFuture<'_, DeviceRef>;
+    /// D53: `borrow` for one attempt of remote parsing, which passes the keys of the devices its earlier attempts failed
+    /// on. Picks among the available devices whose key is not in `tried`, as `borrow` picks among all, and among all once
+    /// every one has been tried; it never waits for an untried device. Returns the device with its key: the one the
+    /// provider borrows by, so that a device that comes back as a new object keeps it. With `tried` empty this is
+    /// `borrow`. The default ignores `tried` and names a device by its serial number.
+    fn borrow_untried(
+        &self,
+        tried: Vec<JavaString>,
+        context: VendorContext,
+    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
+        let _ = tried;
+        Box::pin(async move {
+            let device = self.borrow(context).await?;
+            let key = device.0.info().serial_number;
+            Ok((device, key))
+        })
+    }
     fn terminate(&self) -> VendorFuture<'_, ()>;
     /// Repeated calls return handles to the same consuming queue, not broadcasts.
     fn subscribe(&self) -> Arc<dyn EventChannel<DeviceEvent>>;

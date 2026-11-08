@@ -620,6 +620,7 @@ impl Marathon {
 
     /// `withTimeoutOrNull(deviceInitializationTimeoutMillis) { withRetry(3, 0) { borrow; extract } }`.
     /// Only this scope's own expiry becomes NoDevices; the last attempt's typed error survives.
+    /// D53 (A103): an attempt borrows a device that no earlier attempt failed on, if one is available.
     async fn extract_remotely(
         &self,
         parser: Arc<dyn crate::vendor::RemoteTestParser>,
@@ -627,8 +628,9 @@ impl Marathon {
     ) -> VendorResult<Vec<Test>> {
         let tests: RefCell<Option<Vec<Test>>> = RefCell::new(None);
         let last: RefCell<Option<VendorError>> = RefCell::new(None);
+        let tried: RefCell<Vec<JavaString>> = RefCell::new(Vec::new());
         let millis = self.deps.vendor.configuration.device_initialization_timeout_millis;
-        let (tests_cell, last_cell) = (&tests, &last);
+        let (tests_cell, last_cell, tried) = (&tests, &last, &tried);
         let outcome = self
             .deps
             .timeouts
@@ -641,7 +643,7 @@ impl Marathon {
                         let attempt = || {
                             let parser = parser.clone();
                             async move {
-                                let result = self.borrow_and_extract(parser, scope_ref).await;
+                                let result = self.borrow_and_extract(parser, tried, scope_ref).await;
                                 result.map_err(|error| {
                                     let operation = match &error {
                                         VendorError::Cancelled(reason) => OperationError::Cancelled(reason.clone()),
@@ -678,19 +680,24 @@ impl Marathon {
     async fn borrow_and_extract(
         &self,
         parser: Arc<dyn crate::vendor::RemoteTestParser>,
+        tried: &RefCell<Vec<JavaString>>,
         scope: &TaskContext,
     ) -> VendorResult<Vec<Test>> {
         let wait_started = self.elapsed()?;
         let provider = self.deps.provider.clone();
         let context = self.context(scope.job.cancellation_signal());
-        let device: DeviceRef = self
+        let avoid = tried.borrow().clone();
+        let (device, key): (DeviceRef, JavaString) = self
             .vendor(scope, move |signal| {
                 Box::pin(async move {
                     provider
-                        .borrow(VendorContext {
-                            cancellation: signal,
-                            ..context
-                        })
+                        .borrow_untried(
+                            avoid,
+                            VendorContext {
+                                cancellation: signal,
+                                ..context
+                            },
+                        )
                         .await
                 })
             })
@@ -712,7 +719,18 @@ impl Marathon {
                         .await
                 })
             })
-            .await?;
+            .await;
+        // D53: a cancellation says nothing about the device. A failed borrow never gets here, so it marks none.
+        let tests = match tests {
+            Err(error) if !matches!(error, VendorError::Cancelled(_)) => {
+                let mut tried = tried.borrow_mut();
+                if !tried.contains(&key) {
+                    tried.push(key);
+                }
+                return Err(error);
+            }
+            other => other?,
+        };
         self.timing(|| {
             Ok(format!(
                 "Parsed {} tests in {} ms on {}, which took {} ms to become available",

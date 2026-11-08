@@ -407,3 +407,120 @@ async fn a_failed_abi_probe_on_a_live_connection_still_gives_the_default_abi() -
     assert_eq!(d.abi().to_string_lossy(), "Unknown");
     Ok(())
 }
+
+/// Hands out its workers in turn, one per transport.
+struct Workers {
+    workers: Vec<Arc<Worker>>,
+    bridge: Arc<RecordingBridge>,
+    next: std::sync::atomic::AtomicUsize,
+}
+impl marathon_macos::provider::MacosConnections for Workers {
+    fn create(
+        &self,
+        _: marathon_config::devices::Transport,
+        _: marathon_core::vendor::VendorContext,
+    ) -> marathon_core::runtime::VendorFuture<
+        '_,
+        (
+            Option<marathon_apple::device::connection_factory::Executor>,
+            marathon_apple::device::connection_factory::Bridge,
+        ),
+    > {
+        Box::pin(async move {
+            let worker = self.workers[self.next.fetch_add(1, Ordering::SeqCst)].clone();
+            Ok((
+                Some(worker as marathon_apple::device::connection_factory::Executor),
+                self.bridge.clone() as marathon_apple::device::connection_factory::Bridge,
+            ))
+        })
+    }
+    fn release(
+        &self,
+        _: marathon_apple::device::connection_factory::Executor,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// D53 (A103, U171): remote parsing's borrow avoids a Mac it has tried and, as iOS's D44, takes only a Mac whose
+/// connection is up, since nothing reconnects a lost one. With every Mac tried it takes any; with none connected it waits.
+#[tokio::test]
+async fn borrow_untried_avoids_a_tried_mac_and_takes_only_a_connected_one_d53() -> R {
+    use marathon_core::vendor::DeviceRef;
+    let h = Harness::new("")?;
+    let other = Harness::new("")?;
+    let original = other.worker.fake.before.lock().unwrap().clone();
+    *other.worker.fake.before.lock().unwrap() = Arc::new(move |cmd| {
+        if cmd.iter().any(|s| s.contains("system_profiler")) {
+            return Box::pin(async {
+                Ok(Some(marathon_test_support::apple::fake_simulator_worker::ok([
+                    "Provisioning UDID: other",
+                ])))
+            });
+        }
+        original(cmd)
+    });
+    let p = marathon_macos::AppleMacosProvider::new(
+        h.options.clone(),
+        Arc::new(marathon_apple::apple_device_registry::AppleDeviceRegistry::default()),
+        Arc::new(Workers {
+            workers: vec![h.worker.clone(), other.worker.clone()],
+            bridge: h.bridge.clone(),
+            next: std::sync::atomic::AtomicUsize::new(0),
+        }),
+        jcompat::file_manager::JavaPath::from_text(&h.root.path().to_string_lossy()),
+        vec![],
+    );
+    for _ in 0..2 {
+        v(
+            p.initialize_transport(marathon_config::devices::Transport::Local, h.context.clone())
+                .await,
+        )?;
+    }
+    let macs = p.snapshot();
+    assert_eq!(macs.len(), 2);
+    let (a, b) = (DeviceRef(macs[0].clone()), DeviceRef(macs[1].clone()));
+    let (key_a, key_b) = (a.0.info().serial_number, b.0.info().serial_number);
+    assert_ne!(key_a, key_b);
+    let mut keys = std::collections::HashSet::new();
+    for _ in 0..40 {
+        let (device, key) = v(p.borrow_untried(vec![], h.context.clone()).await)?;
+        assert_eq!(device.0.info().serial_number, key);
+        keys.insert(key);
+    }
+    assert_eq!(keys.len(), 2);
+    for _ in 0..20 {
+        let (device, key) = v(p.borrow_untried(vec![key_a.clone()], h.context.clone()).await)?;
+        assert_eq!((device, key), (b.clone(), key_b.clone()));
+    }
+    let mut keys = std::collections::HashSet::new();
+    for _ in 0..40 {
+        keys.insert(
+            v(p.borrow_untried(vec![key_a.clone(), key_b.clone()], h.context.clone())
+                .await)?
+            .1,
+        );
+    }
+    assert_eq!(keys.len(), 2, "every Mac tried: the pick is among all of them");
+    // b's connection is lost: only a is left, whatever was tried.
+    other.worker.fake.connected.store(false, Ordering::SeqCst);
+    for _ in 0..20 {
+        assert_eq!(v(p.borrow(h.context.clone()).await)?, a);
+        assert_eq!(v(p.borrow_untried(vec![key_a.clone()], h.context.clone()).await)?.0, a);
+    }
+    // None connected: borrow waits, as for no Mac at all, and takes one that is connected again.
+    h.worker.fake.connected.store(false, Ordering::SeqCst);
+    let waiting = {
+        let (p, context) = (p.clone(), h.context.clone());
+        tokio::spawn(async move { p.borrow(context).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(450)).await;
+    assert!(!waiting.is_finished(), "borrow returned a Mac whose connection is lost");
+    h.worker.fake.connected.store(true, Ordering::SeqCst);
+    let borrowed = v(tokio::time::timeout(std::time::Duration::from_secs(60), waiting).await)?;
+    assert_eq!(v(v(borrowed)?)?, a);
+    other.worker.fake.connected.store(true, Ordering::SeqCst);
+    v(p.terminate().await)?;
+    v(p.join_pending().await)?;
+    Ok(())
+}

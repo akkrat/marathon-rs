@@ -1270,11 +1270,22 @@ impl DeviceProvider for AppleSimulatorProvider {
         })
     }
     fn borrow(&self, caller: VendorContext) -> VendorFuture<'_, DeviceRef> {
+        Box::pin(async move { Ok(self.borrow_untried(Vec::new(), caller).await?.0) })
+    }
+    fn borrow_untried(
+        &self,
+        tried: Vec<JavaString>,
+        caller: VendorContext,
+    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
         Box::pin(async move {
             let this = self.this()?;
             self.dispatch(async move {
                 loop {
-                    let devices = this.borrowable();
+                    let mut devices = this.borrowable();
+                    // D53: the key stays a simulator's across a reconnect that gives it a new object.
+                    if devices.keys().any(|key| !tried.contains(key)) {
+                        devices.retain(|key, _| !tried.contains(key));
+                    }
                     if !devices.is_empty() {
                         let keys: Vec<_> = devices.keys().cloned().collect();
                         let key = caller
@@ -1283,7 +1294,7 @@ impl DeviceProvider for AppleSimulatorProvider {
                             .map_err(clock_error)?;
                         return devices
                             .get(&key)
-                            .map(|d| d.device.clone())
+                            .map(|d| (d.device.clone(), key.clone()))
                             .ok_or_else(|| other("ReplayError", "Borrow selection is not a device key"));
                     }
                     caller.clock.delay(200, caller.cancellation.clone()).await?;

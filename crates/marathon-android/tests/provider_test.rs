@@ -164,6 +164,75 @@ fn multi_server_disconnect_keeps_identity_and_borrow_skips_the_lost_device_d24()
         })
     });
 }
+/// D53 (A103): remote parsing's borrow avoids what it has tried, by server and serial, so the same serial on another server
+/// is another device and a device that comes back as a new object is the same one; with every device tried it takes any.
+#[test]
+fn borrow_untried_avoids_a_tried_device_by_server_and_serial_and_falls_back_to_any_d53() {
+    let _ports = shared_ports();
+    run(configuration(), |runtime, context| {
+        Box::pin(async move {
+            // The same serial on two servers: D18's case.
+            let mut first = server(base_script(27, vec![])).await;
+            let mut second = server(base_script(27, vec![])).await;
+            let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[first.port(), second.port()]))?;
+            provider.initialize(context.clone()).await?;
+            for _ in 0..2 {
+                let DeviceEvent::Connected(_) = event(&provider).await else {
+                    panic!("connections")
+                };
+            }
+            logcat_streams(&[(&first, 1), (&second, 1)]).await;
+            let mut keys = std::collections::HashMap::new();
+            for _ in 0..40 {
+                let (device, key) = provider.borrow_untried(vec![], context.clone()).await?;
+                keys.insert(key, device);
+            }
+            assert_eq!(keys.len(), 2, "{:?}", keys.keys().collect::<Vec<_>>());
+            let on_first = format!("emulator-5554@/127.0.0.1:{}", first.port());
+            let on_second = format!("emulator-5554@/127.0.0.1:{}", second.port());
+            let (on_first, on_second) = (js(&on_first), js(&on_second));
+            assert!(keys.contains_key(&on_first) && keys.contains_key(&on_second));
+            for _ in 0..20 {
+                let (device, key) = provider.borrow_untried(vec![on_first.clone()], context.clone()).await?;
+                assert_eq!((&device, &key), (&keys[&on_second], &on_second));
+            }
+            let mut seen = std::collections::HashSet::new();
+            for _ in 0..40 {
+                let tried = vec![on_first.clone(), on_second.clone()];
+                seen.insert(provider.borrow_untried(tried, context.clone()).await?.1);
+            }
+            assert_eq!(seen.len(), 2, "every device tried: the pick is among all of them");
+            // The device on the first server comes back as a new object, and is still the one that was tried.
+            checked(first.disconnect_device("emulator-5554"));
+            let DeviceEvent::Disconnected(_) = event(&provider).await else {
+                panic!("disconnect")
+            };
+            checked(first.connect_device("emulator-5554"));
+            let DeviceEvent::Connected(again) = event(&provider).await else {
+                panic!("reconnect")
+            };
+            assert_ne!(again, keys[&on_first]);
+            logcat_streams(&[(&first, 2)]).await;
+            for _ in 0..20 {
+                let (device, key) = provider.borrow_untried(vec![on_first.clone()], context.clone()).await?;
+                assert_eq!((&device, &key), (&keys[&on_second], &on_second));
+            }
+            // A plain borrow still picks among all.
+            let mut plain = std::collections::HashSet::new();
+            for _ in 0..40 {
+                let device = provider.borrow(context.clone()).await?;
+                plain.insert(if device == again { 1 } else { 2 });
+            }
+            assert_eq!(plain.len(), 2);
+            provider.terminate().await?;
+            assert_eq!(first.warnings(), 0, "{:?}", first.transcript());
+            assert_eq!(second.warnings(), 0, "{:?}", second.transcript());
+            checked(first.shutdown().await);
+            checked(second.shutdown().await);
+            Ok(())
+        })
+    });
+}
 #[test]
 fn disconnect_before_setup_has_no_connected_event() {
     let _ports = shared_ports();

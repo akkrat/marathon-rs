@@ -101,6 +101,27 @@ impl marathon_core::vendor::RemoteTestParser for NoTests {
         Box::pin(async { Ok(vec![]) })
     }
 }
+/// D53: a remote parser that fails on the devices named, and records where each attempt ran.
+struct FailsOn {
+    failing: Vec<&'static str>,
+    extracted: Trace,
+}
+impl marathon_core::vendor::RemoteTestParser for FailsOn {
+    fn extract(&self, device: marathon_core::vendor::DeviceRef, _: VendorContext) -> VendorFuture<'_, Vec<Test>> {
+        let serial = device.0.info().serial_number.to_string_lossy();
+        self.extracted.lock().unwrap().push(serial.clone());
+        let fails = self.failing.contains(&serial.as_str());
+        Box::pin(async move {
+            if fails {
+                return Err(VendorError::Other(failure(
+                    "java.lang.IllegalStateException",
+                    &format!("parse failed on {serial}"),
+                )));
+            }
+            Ok(vec![test("method1")])
+        })
+    }
+}
 struct Source {
     trace: Trace,
     fail: Option<String>,
@@ -150,6 +171,8 @@ struct Options {
     fail: Option<&'static str>,
     /// Remote parser; borrow fails (`Some(false)`) or never returns (`Some(true)`).
     remote_hang: Option<bool>,
+    /// D53: a remote parse over these stub devices, failing on those also in the second list.
+    remote_devices: Option<(Vec<&'static str>, Vec<&'static str>)>,
     /// A signal number delivered at 1000 ms through the relay.
     signal: Option<i32>,
     /// D52: the signal comes when the parser starts, before the output directory is wiped.
@@ -165,6 +188,8 @@ type Exits = Arc<Mutex<Vec<(i32, Vec<String>)>>>;
 
 struct Result {
     exits: Vec<(i32, Vec<String>)>,
+    /// D53: the serial number of each device a remote parse ran on, in order.
+    extracted: Vec<String>,
     outcome: scenario::Outcome,
     trace: Vec<String>,
     out: PathBuf,
@@ -217,7 +242,13 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
     let hold: Hold = marathon_core::executor::SharedDeferred::new();
     let trigger = marathon_core::executor::SharedDeferred::<i32>::new();
     factory.log_configurator = Some(Arc::new(Configurator(trace.clone())));
-    if o.remote_hang.is_some() {
+    let extracted: Trace = Arc::default();
+    if let Some((_, failing)) = &o.remote_devices {
+        factory.parser = Some(TestParser::Remote(Arc::new(FailsOn {
+            failing: failing.clone(),
+            extracted: extracted.clone(),
+        })));
+    } else if o.remote_hang.is_some() {
         factory.parser = Some(TestParser::Remote(Arc::new(NoTests)));
     } else {
         factory.parser = Some(TestParser::Local(Arc::new(Parser {
@@ -231,6 +262,7 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
         })));
     }
     let remote_hang = o.remote_hang;
+    let remote_devices = o.remote_devices.clone();
     let source = Arc::new(Source {
         trace: trace.clone(),
         fail: fail.clone(),
@@ -306,6 +338,14 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
                 }
                 None => {}
             }
+            if let Some((serials, _)) = &remote_devices {
+                *built.provider.borrowable.lock().unwrap() = serials
+                    .iter()
+                    .map(|s| {
+                        marathon_core::vendor::DeviceRef(marathon_test_support::stub_device::StubDevice::with_serial(s))
+                    })
+                    .collect();
+            }
             *built.provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
                 let result = push(&t3, "terminate", &fail);
                 if let (Some(number), trigger) = &terminating {
@@ -323,8 +363,10 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
     );
     let trace = trace.lock().unwrap().clone();
     let exits = exits.lock().unwrap().clone();
+    let extracted = extracted.lock().unwrap().clone();
     Result {
         exits,
+        extracted,
         outcome,
         trace,
         out,
@@ -740,6 +782,63 @@ fn remote_parsing_retries_borrow_three_times() {
     assert_eq!(r.outcome.provider_calls.iter().filter(|c| **c == "borrow").count(), 3);
     let jvm: Vec<String> = serde_json::from_value(row["trace"].clone()).unwrap();
     assert_eq!(borrows(&jvm), 3);
+}
+
+/// D53 (A103): the parse's next attempt borrows a device it has not failed on.
+#[test]
+fn a_parse_that_fails_on_one_device_takes_the_other_next_d53() {
+    let o = Options {
+        debug: true,
+        remote_devices: Some((vec!["a", "b"], vec!["a"])),
+        ..Options::default()
+    };
+    let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
+    assert_eq!(r.extracted, ["a", "b"]);
+    let parsed: Vec<_> = rust_events(&r.outcome.lines, TIMINGS)
+        .into_iter()
+        .map(|(_, message, _)| message)
+        .filter(|m| m.starts_with("Parsed "))
+        .collect();
+    assert_eq!(parsed.len(), 1, "{parsed:?}");
+    assert!(
+        parsed[0].starts_with("Parsed 1 tests in ") && parsed[0].contains(" on b, "),
+        "{parsed:?}"
+    );
+    // The run goes on to wait for a pool's device, which this scenario never connects.
+    let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
+    assert!(matches!(e, VendorError::NoDevices(_)), "{e:?}");
+}
+
+/// D53: with one device, its three attempts are Kotlin's, and the last failure is the run's.
+#[test]
+fn a_parse_on_one_device_tries_it_three_times_as_before_d53() {
+    let o = Options {
+        remote_devices: Some((vec!["a"], vec!["a"])),
+        ..Options::default()
+    };
+    let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
+    assert_eq!(r.extracted, ["a", "a", "a"]);
+    let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
+    assert_eq!(
+        e.failure().message.as_ref().unwrap().to_string_lossy(),
+        "parse failed on a"
+    );
+}
+
+/// D53: once every device has been tried, an attempt takes any of them, without waiting.
+#[test]
+fn a_parse_that_has_tried_every_device_takes_any_again_d53() {
+    let o = Options {
+        remote_devices: Some((vec!["a", "b"], vec!["a", "b"])),
+        ..Options::default()
+    };
+    let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
+    assert_eq!(r.extracted, ["a", "b", "a"]);
+    let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
+    assert_eq!(
+        e.failure().message.as_ref().unwrap().to_string_lossy(),
+        "parse failed on a"
+    );
 }
 
 /// Only the enclosing timeout becomes NoDevices with its own message.

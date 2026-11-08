@@ -9,6 +9,7 @@ use crate::{
 use jcompat::{
     file_manager::JavaPath,
     logging::{Level, Logger},
+    writers::JavaString,
 };
 use marathon_adb::client::{
     AdamLogging, AdbError, AndroidDebugBridgeClient, ChannelStream, SocketFactory,
@@ -788,6 +789,13 @@ impl DeviceProvider for AdamDeviceProvider {
         ))
     }
     fn borrow(&self, context: VendorContext) -> VendorFuture<'_, DeviceRef> {
+        Box::pin(async move { Ok(self.borrow_untried(Vec::new(), context).await?.0) })
+    }
+    fn borrow_untried(
+        &self,
+        tried: Vec<JavaString>,
+        context: VendorContext,
+    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
         Box::pin(async move {
             loop {
                 let available: Vec<_> = lock(&self.inner.devices)
@@ -807,16 +815,26 @@ impl DeviceProvider for AdamDeviceProvider {
                             } else {
                                 serial.clone()
                             };
-                            (key, reference.clone())
+                            // D53: a device is the same one for remote parsing while its server and serial are, as for D18.
+                            let identity: JavaString = format!("{serial}@{server}").as_str().into();
+                            (key, identity, reference.clone())
                         })
                         .collect();
-                    let keys = available.iter().map(|(s, _)| s.as_str().into()).collect::<Vec<_>>();
+                    let untried: Vec<_> = available
+                        .iter()
+                        .filter(|(_, id, _)| !tried.contains(id))
+                        .cloned()
+                        .collect();
+                    let available = if untried.is_empty() { available } else { untried };
+                    let keys = available.iter().map(|(s, _, _)| s.as_str().into()).collect::<Vec<_>>();
                     let selected = context
                         .hooks
                         .choose_key("android.AdamDeviceProvider.borrow", &keys)
                         .map_err(|e| other("ReplayError", e.message))?;
-                    if let Some((_, device)) = available.into_iter().find(|(s, _)| selected == s.as_str().into()) {
-                        return Ok(device);
+                    if let Some((_, identity, device)) =
+                        available.into_iter().find(|(s, _, _)| selected == s.as_str().into())
+                    {
+                        return Ok((device, identity));
                     }
                 }
                 context.clock.delay(200, context.cancellation.clone()).await?;

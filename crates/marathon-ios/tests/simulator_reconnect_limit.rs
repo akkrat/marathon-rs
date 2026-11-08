@@ -705,6 +705,43 @@ async fn borrow_waits_while_a_simulator_waits_for_its_worker_and_takes_its_repla
     assert!(Arc::ptr_eq(&device.0, &(p.current("a") as Arc<dyn Device>)));
     p.finish().await
 }
+/// D53 (A103): remote parsing's borrow avoids a simulator it has tried, by its key, also once it has come back as a new
+/// object, and with every one tried takes any. The harness picks the first key, so without D53 each pick here is a.
+#[tokio::test(start_paused = true)]
+async fn borrow_untried_avoids_a_tried_simulator_across_its_reconnect_and_falls_back_to_any_d53() -> TestResult {
+    let p = RecoveryHarness::new(|_| {})?;
+    p.start(&["a", "b"]).await?;
+    p.connected(2).await;
+    let context = p.h().services.context.clone();
+    let (first, a) = watchdog(p.provider.borrow_untried(vec![], context.clone()))
+        .await
+        .map_err(test_error)?;
+    assert!(Arc::ptr_eq(&first.0, &(p.current("a") as Arc<dyn Device>)));
+    let (device, b) = watchdog(p.provider.borrow_untried(vec![a.clone()], context.clone()))
+        .await
+        .map_err(test_error)?;
+    assert!(Arc::ptr_eq(&device.0, &(p.current("b") as Arc<dyn Device>)));
+    assert_ne!(a, b);
+    let (device, key) = watchdog(p.provider.borrow_untried(vec![a.clone(), b.clone()], context.clone()))
+        .await
+        .map_err(test_error)?;
+    assert!(Arc::ptr_eq(&device.0, &(p.current("a") as Arc<dyn Device>)));
+    assert_eq!(key, a);
+    // Both come back as new objects after their worker returns; a is still the one tried.
+    let old = p.current("a");
+    let lost = lose_worker(&p, &["a", "b"]);
+    pass(5).await;
+    lost.down.store(false, Ordering::SeqCst);
+    let mut seen = Seen::default();
+    seen.until_connected(&p, 2).await;
+    assert!(!Arc::ptr_eq(&old, &p.current("a")));
+    let (device, key) = watchdog(p.provider.borrow_untried(vec![a.clone()], context.clone()))
+        .await
+        .map_err(test_error)?;
+    assert!(Arc::ptr_eq(&device.0, &(p.current("b") as Arc<dyn Device>)));
+    assert_eq!(key, b);
+    p.finish().await
+}
 
 /// D33's four setups per simulator hold when two retries run on one worker: neither plan takes the other along.
 #[tokio::test(start_paused = true)]
