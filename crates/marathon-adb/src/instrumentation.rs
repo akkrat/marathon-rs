@@ -213,8 +213,7 @@ impl InstrumentationResponseTransformer {
         last: &str,
         atom: &[String],
     ) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
-        let value_units = last
-            .get(TokenType::InstrumentationStatusCode.name().len() + 1..)
+        let value_units = code_value(last, TokenType::InstrumentationStatusCode)
             .ok_or_else(|| InstrumentationError::MalformedAtom(last.to_string()))?;
         let code = to_int_or_null(value_units);
         let status = Status::value_of(code);
@@ -323,8 +322,7 @@ impl InstrumentationResponseTransformer {
         last: &str,
         atom: &[String],
     ) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
-        let value_units = last
-            .get(TokenType::InstrumentationCode.name().len() + 1..)
+        let value_units = code_value(last, TokenType::InstrumentationCode)
             .ok_or_else(|| InstrumentationError::MalformedAtom(last.to_string()))?;
         let code = to_int_or_null(value_units);
         self.session_ended = true;
@@ -378,6 +376,13 @@ impl InstrumentationResponseTransformer {
             ]))
         }
     }
+}
+
+// adam skips an unchecked separator after the token; it need not be ASCII.
+fn code_value(line: &str, token: TokenType) -> Option<&str> {
+    let mut rest = line.strip_prefix(token.name())?.chars();
+    rest.next()?;
+    Some(rest.as_str())
 }
 
 fn test_id(parameters: &MetricMap) -> Option<TestIdentifier> {
@@ -579,6 +584,46 @@ mod tests {
     const LOG_12_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_12.expected");
     const LOG_13_INPUT: &str = include_str!("../../../fixtures/adam/instrumentation/log_13.input");
     const LOG_13_EXPECTED: &str = include_str!("../../../fixtures/adam/instrumentation/log_13.expected");
+
+    #[test]
+    fn non_ascii_code_separators_preserve_events() -> Result<(), InstrumentationError> {
+        for separator in ['Ж', '界', '😀'] {
+            let mut parser = InstrumentationResponseTransformer::new();
+            let input = format!(
+                "INSTRUMENTATION_STATUS: numtests=1\n\
+                 INSTRUMENTATION_STATUS: class=pkg.Класс\n\
+                 INSTRUMENTATION_STATUS: test=тест😀\n\
+                 INSTRUMENTATION_STATUS_CODE{separator}1\n"
+            );
+            assert_eq!(
+                parser.process(input.as_bytes())?,
+                Some(vec![
+                    TestEvent::TestRunStartedEvent { test_count: 1 },
+                    TestEvent::TestStarted {
+                        id: TestIdentifier {
+                            class_name: "pkg.Класс".into(),
+                            test_name: "тест😀".into()
+                        }
+                    },
+                ])
+            );
+            assert_eq!(
+                parser.process(format!("INSTRUMENTATION_CODE{separator}-1\n").as_bytes())?,
+                Some(vec![TestEvent::TestRunEnded {
+                    elapsed_time_millis: 0,
+                    metrics: MetricMap::new()
+                }])
+            );
+        }
+        for token in [TokenType::InstrumentationStatusCode, TokenType::InstrumentationCode] {
+            let mut parser = InstrumentationResponseTransformer::new();
+            assert_eq!(
+                parser.process(format!("{}\n", token.name()).as_bytes()),
+                Err(InstrumentationError::MalformedAtom(token.name().into()))
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_single_failure() {
