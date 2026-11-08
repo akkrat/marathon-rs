@@ -719,7 +719,8 @@ device log listener carries on and leaves the remote log, and the result bundle 
 **`--timeout` is not enough on its own.** Between two rsync 3 installs a pull that stops mid-file never reports: the generator's keep-alives count as I/O, so rsync waits for ever where the total
 deadline used to end it. So the bridge also looks every 10 s at the pull's own files, and stops it once they have not changed for 300 s, which is 300 to 310 s after the last change. Its own
 files are the destination (all of it, for a folder), rsync's temporary `.<name>.XXXXXX` beside it and `.rsync-partial/<name>`; another transfer into the same folder doesn't count. A
-source ending in `/` fills the folder itself, and then the whole folder counts. openrsync reports either way, and so does rsync 3 with a worker that has openrsync.
+source ending in `/` fills the folder itself, and then the whole folder counts. openrsync reports either way, and so does rsync 3 with a worker that has openrsync,
+about 1.5 times `--timeout` after the bytes stop, so after the look at files. rsync 3.5 behaves as 3.4 here ([x50 findings](wp/x50-findings.md)).
 
 The look at files can stop a pull that is still moving: rsync 3 writes in pieces of 256 KiB, so a link slower than about 1 KiB/s can look stalled, and so can an rsync that a wrapper sends
 elsewhere, such as with another `--partial-dir`.

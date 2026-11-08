@@ -1542,8 +1542,9 @@ async fn throttled_listener(upstream: u16, throttle: Throttle) -> u16 {
     });
     port
 }
-/// One real pull in a child process, since rsync's path is process-wide. `io_timeout` makes the stalled run short: `bin/rsync`
-/// asks for it and `bin/ssh` gives the worker back the 300 an rsync 3 passes on, which is all its router allows.
+/// One real pull in a child process, since rsync's path is process-wide. `io_timeout` is the host rsync's `--timeout` on a
+/// stalled run: `bin/rsync` asks for it and `bin/ssh` gives the worker back the 300 an rsync 3 passes on, which is all its
+/// router allows.
 fn real_pull(sshpass: bool, io_timeout: Option<u32>) {
     let shims = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../tools/fake-worker/shims")
@@ -1645,13 +1646,20 @@ fn a_pull_longer_than_the_old_deadline_finishes_while_it_moves_d43() {
 fn a_pull_longer_than_the_old_deadline_finishes_under_sshpass_while_it_moves_d43() {
     real_pull(true, None);
 }
+/// x50: the host rsync's `--timeout` on a stalled pull. The worker's rsync is `/usr/bin/rsync`, which on macOS is
+/// openrsync, and rsync 3 on the host reports against that, 1.5 times its `--timeout` after the bytes stop, as measured
+/// (x50 findings). On the pull's clock, compressed by 20, the report has to come after the 285 s before it counts, and
+/// the bridge's own look at the files stops the pull 15 s after they stopped. 20 s is past both. 2 s was enough only for
+/// an rsync that never reports, or that reports and then waits for ssh, as openrsync does: an rsync 3 that reports and
+/// exits after 2 s failed too soon to stall.
+const STALLED_PULL_TIMEOUT: u32 = 20;
 #[test]
 fn a_pull_that_stops_moving_is_stopped_and_leaves_its_partial_file_d43() {
-    real_pull(false, Some(2));
+    real_pull(false, Some(STALLED_PULL_TIMEOUT));
 }
 #[test]
 fn a_pull_that_stops_moving_under_sshpass_is_stopped_and_leaves_its_partial_file_d43() {
-    real_pull(true, Some(2));
+    real_pull(true, Some(STALLED_PULL_TIMEOUT));
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn real_pull_child() {
