@@ -900,6 +900,12 @@ fn lookups_on_another_thread_see_one_value_or_the_other_while_refreshes_land() {
                     }
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
+                // One look after the stop, which comes after the refresh landed: without it a reader that slept through
+                // the refresh saw only the old value (U182).
+                let value = lookup.execution_time(&test, 80.0, limit());
+                if seen.last() != Some(&value) {
+                    seen.push(value);
+                }
                 seen
             })
         };
