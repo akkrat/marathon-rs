@@ -224,9 +224,11 @@ fn cutoff_crossed_during_real_prepare_leaves_the_pool_without_requesting_a_first
                 provider: provider.clone(),
                 analytics: Arc::new(Analytics::from_lookup(Arc::new(pool_support::NoMetrics))),
                 // D48: the pool that lost its only device waits for nothing here, so not the default 180 s on a real clock.
+                // The same setting bounds the wait for the first device, which took longer than 200 ms on a loaded macOS
+                // CI runner (U180), so it is 5 s: the pool ends that much later, and nothing here waits on it.
                 configuration: {
                     let mut configuration = (*p.h().services.configuration).clone();
-                    configuration.device_initialization_timeout_millis = 200;
+                    configuration.device_initialization_timeout_millis = 5_000;
                     Arc::new(configuration)
                 },
                 shard: TestShard {

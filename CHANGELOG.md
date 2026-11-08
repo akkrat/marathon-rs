@@ -105,6 +105,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   seen and can still tell apart from later ones, including an ssh left behind by `sshpass` or rsync and one that ignores TERM. Each pull that hangs on a stuck worker costs about 305 to 330 s, and
   nothing bounds the total over a run (D43).
   A receive whose process ended can be held up by a child holding its output, such as a hung ssh, for at most 5 s (D31, U158).
+- With password authentication through `sshpass` 1.10, a stalled or stopped transfer whose ssh had not yet reached its
+  password prompt used to count as a success, because that sshpass exits 0 when stopped then. The stop now goes to rsync
+  and ssh, so the transfer fails as it should; this works with every sshpass version (D31, D43, D54, U181).
 - xcodebuild on a worker runs with `NSUnbufferedIO=YES`, as was always intended, so its output arrives as it is produced and
   the output idle timeout measures real silence (D32).
 - A worker that shares no key exchange, cipher, MAC or host key algorithm with marathon is no longer retried as if the
