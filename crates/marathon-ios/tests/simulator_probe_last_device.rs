@@ -34,6 +34,10 @@ const BOOT_RETRY_PAUSE: i64 = 10_000 / SCALE;
 const BOOT_POLL: i64 = 1_000 / SCALE;
 const RECOVERY_PAUSE: i64 = 30_000 / SCALE;
 const DEVICE_WAIT: i64 = 180_000 / SCALE;
+/// How long the re-setup is held before it can register, so that it joins the pool well into D48's wait. A wait that its
+/// arrival restarted would end at least this much later than the one its loss started, which is what the upper bounds
+/// below tell apart; the correct outcome gets all of this as its margin.
+const READMISSION_DELAY: i64 = 1_500;
 
 /// From which setup of the simulator on the probe fails: 1 is the first setup, 2 the first re-setup after a loss.
 #[derive(Clone, Copy)]
@@ -49,6 +53,8 @@ struct Timeline {
     boots: Vec<i64>,
     shutdowns: Vec<i64>,
     first_failed_probe: Option<i64>,
+    /// When the held re-setup was let go, just before it registers with the pool.
+    released: Option<i64>,
     batch_starts: Vec<i64>,
     batches: usize,
     ended: i64,
@@ -83,9 +89,12 @@ fn probe_never_succeeds_on_the_only_simulator(from: From) -> TestResult<Timeline
             let now = clock.now();
             let cmd: Vec<_> = command.iter().map(String::as_str).collect();
             let mut t = timeline.lock().unwrap();
+            let mut hold = 0;
             let answer = match cmd.as_slice() {
                 ["xcrun", "simctl", "getenv", _, "HOME"] => {
-                    setups.fetch_add(1, Ordering::SeqCst);
+                    if setups.fetch_add(1, Ordering::SeqCst) + 1 == 2 {
+                        hold = READMISSION_DELAY;
+                    }
                     t.setups.push(now);
                     boot.answer(&command)
                 }
@@ -108,7 +117,16 @@ fn probe_never_succeeds_on_the_only_simulator(from: From) -> TestResult<Timeline
                 }
                 _ => boot.answer(&command),
             };
-            Box::pin(async move { Ok(answer) })
+            drop(t);
+            let clock = clock.clone();
+            let timeline = timeline.clone();
+            Box::pin(async move {
+                if hold > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(hold as u64)).await;
+                    timeline.lock().unwrap().released = Some(clock.now());
+                }
+                Ok(answer)
+            })
         });
     }
     let silent = Arc::new(BatchScript::default());
@@ -211,9 +229,9 @@ fn count(lines: &[String], text: &str) -> usize {
 }
 
 /// The probe fails from the first setup: the simulator joined the pool, so it is live (D48), and its first prepare fails
-/// after two boot waits. D48's wait starts there; the first recovery has no pause and comes back at once, but a device
-/// added while the pool lacks one is not live until it is ready, so it does not move the start, and it is stopped when the
-/// wait ends. The run ends one failed prepare plus one wait after it began, with `remaining tests will not run`, during
+/// after two boot waits. D48's wait starts there; the first recovery has no pause, and the test holds its registration
+/// until well into the wait. A device added while the pool lacks one is not live until it is ready, so its arrival neither
+/// moves nor restarts the wait, and it is stopped when the wait ends. The run ends one failed prepare plus one wait after it began, with `remaining tests will not run`, during
 /// the second setup: the later recoveries never start.
 #[test]
 fn a_probe_failing_from_the_first_setup_of_the_only_simulator_ends_the_run_one_wait_after_the_first_failed_prepare_d38_d48()
@@ -237,14 +255,18 @@ fn a_probe_failing_from_the_first_setup_of_the_only_simulator_ends_the_run_one_w
         "{t:?}"
     );
     assert_eq!(count(&t.pool_lines, "remaining tests will not run"), 1, "{t:?}");
-    // The run ends no earlier than one wait after the failed prepare, and well before a second prepare could fail.
+    assert_eq!(count(&t.pool_lines, "is not ready when the wait ends"), 1, "{t:?}");
+    // The run ends no earlier than one wait after the failed prepare, and at the end of that wait, not of one restarted
+    // when the held re-setup arrived, which would end at least READMISSION_DELAY later.
+    let released = t.released.ok_or("the re-setup was held")?;
+    assert!(released < t.ended, "{t:?}");
     assert!(t.ended - failed >= DEVICE_WAIT, "{t:?}");
-    assert!(t.ended - failed < DEVICE_WAIT + 2 * BOOT_WAIT, "{t:?}");
+    assert!(t.ended - failed < DEVICE_WAIT + READMISSION_DELAY, "{t:?}");
     Ok(())
 }
 
 /// The probe fails from the first re-setup after the simulator was in the pool running batches: its loss starts D48's
-/// wait, the re-setup comes back at once and is not live, and the run ends one wait after the loss, before the re-setup's
+/// wait, the re-setup, held until well into the wait, arrives and is not live, and the run ends one wait after the loss, before the re-setup's
 /// prepare has failed, so no recovery pause and no further setup counts.
 #[test]
 fn a_probe_failing_from_a_re_setup_of_the_only_simulator_ends_the_run_one_wait_after_its_loss_d38_d48() -> TestResult {
@@ -265,8 +287,12 @@ fn a_probe_failing_from_a_re_setup_of_the_only_simulator_ends_the_run_one_wait_a
         "{t:?}"
     );
     assert_eq!(count(&t.pool_lines, "remaining tests will not run"), 1, "{t:?}");
-    // At least one wait after the loss, and over well before the re-setup's prepare could have failed both boot attempts.
+    assert_eq!(count(&t.pool_lines, "is not ready when the wait ends"), 1, "{t:?}");
+    // At least one wait after the loss, and at the end of that wait, not of one restarted when the held re-setup arrived,
+    // which would end at least READMISSION_DELAY later; the re-setup's prepare cannot have failed by then either.
+    let released = t.released.ok_or("the re-setup was held")?;
+    assert!(released < t.ended, "{t:?}");
     assert!(t.ended - lost >= DEVICE_WAIT, "{t:?}");
-    assert!(t.ended - lost < 2 * BOOT_WAIT + BOOT_RETRY_PAUSE, "{t:?}");
+    assert!(t.ended - lost < DEVICE_WAIT + READMISSION_DELAY, "{t:?}");
     Ok(())
 }
