@@ -2,7 +2,9 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## Unreleased
+## 0.12.0-rc.1
+
+A release candidate of 0.12.0, published as a pre-release for trial runs on real farms before 0.12.0.
 
 This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D54). Most Kotlin bugs remain; the
 [bug ledger](docs/known-kotlin-bugs.md) marks the ones that are fixed. Read

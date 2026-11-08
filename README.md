@@ -5,8 +5,8 @@ for running Android, iOS and macOS tests with the existing Marathonfile,
 Marathondevices, CLI and report formats, apart from the approved differences in
 [the deviations guide](docs/deviations.md). A Marathonfile must set a finite `uncompletedTestRetryQuota`.
 
-**0.11.0 is the first public release.** The changelog lists fixes made since, which are not
-released yet. The Kotlin tests are ported or marked not applicable with a reason, differential suites compare
+**0.11.0 is the first public release, and 0.12.0-rc.1 a release candidate of the next.** The changelog lists the fixes
+since 0.11.0, which the release candidate carries for trial runs. The Kotlin tests are ported or marked not applicable with a reason, differential suites compare
 whole runs with the JVM program, and the real iOS, macOS and Android runs recorded in this repository were compared
 on an earlier commit, the Android ones with a glibc build, before those fixes. Outside this repository the
 maintainer also compared earlier builds on private CI farms, which cannot be checked here and predate the fixes.
