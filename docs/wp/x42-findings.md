@@ -40,7 +40,7 @@ KILL (`executor.rs:289`, `channel.rs:42`). The probe runs under `shell` (`simula
 | (a) probe exits non-zero, from the first setup | boot, 180 s, shutdown, 10 s, boot, 180 s, shutdown: prepare fails at 371 s; re-setup at once; wait ends at 551 s and stops it | **About 9 minutes** after the first boot (551 s), with `remaining tests will not run` | Measured: `a_probe_failing_from_the_first_setup_of_the_only_simulator_ends_the_run_one_wait_after_the_first_failed_prepare_d38_d48`, 5,510 to 5,519 ms at 1/100 in three runs |
 | (b) probe times out at `shell`, from the first setup | As (a); a probe in flight at each of the two deadlines can run 30 s past it | **Up to about 10 minutes**: 2 × (180 + 30) + 10 + 180 = 610 s | Computed from the constants above |
 | (c) probe hangs and needs KILL, from the first setup | As (b), with 30 + 20 s per hung probe | **Up to about 11 minutes**: 2 × (180 + 50) + 10 + 180 = 650 s | Computed |
-| (a), (b) or (c), from a re-setup after the simulator ran batches | Loss; re-setup at once, not live; the wait ends 180 s after the loss, before the re-setup's prepare could fail, and stops it | **About 3 minutes** after the loss (180 s), with `remaining tests will not run` | Measured for (a): `a_probe_failing_from_a_re_setup_of_the_only_simulator_ends_the_run_one_wait_after_its_loss_d38_d48`, 1,808 to 1,827 ms after the run began at 1/100, the loss at about 5 to 16 ms, also with the re-setup held 1.5 s into the wait (review round 1). (b) and (c) follow, since nothing in the sequence depends on the probe |
+| (a), (b) or (c), from a re-setup after the simulator ran batches | Loss; re-setup at once, not live; the wait ends 180 s after the loss, before the re-setup's prepare could fail, and stops it | **About 3 minutes** after the loss (180 s), with `remaining tests will not run` | Measured for (a): `a_probe_failing_from_a_re_setup_of_the_only_simulator_ends_the_run_one_wait_after_its_loss_d38_d48`, 1,808 to 1,827 ms after the run began at 1/100, the loss at about 5 to 16 ms, also with the re-setup held halfway into the wait (review rounds 1 and 2). (b) and (c) follow, since nothing in the sequence depends on the probe |
 | (d) every command hangs | Not re-derived | — | See below |
 
 The first-setup times count from the first `simctl boot`; the setup before it (connection, install) comes on top.
@@ -68,9 +68,10 @@ measured in this pass. For a probe that needs KILL the same count gives 4 × (2 
 `crates/marathon-ios/tests/simulator_probe_last_device.rs` runs the real scheduler, pool, device actor, iOS provider,
 recovery and boot loop on the fake worker, with every default above divided by 100 and the probe answering exit status 1
 with a ready marker in its output. A first-setup run takes about 5.5 s and a re-setup run about 1.8 s of real time. The
-re-setup is held 1.5 s at its `simctl getenv … HOME` before it can register, so it joins the pool well into the wait. The
-upper bound, the departure plus the wait plus that hold, separates the wait ending as started from a wait restarted by the
-arrival, which cannot end earlier than the bound; the correct outcome has the whole 1.5 s as margin (docs/testing.md rule 6). The probe's failure starts at the first setup or, counted by `simctl getenv … HOME`, at the
+re-setup is held 900 ms, half the wait, at its `simctl getenv … HOME` before it can register, so it joins the pool halfway
+into the wait. The upper bound, the departure plus the wait plus that hold, separates the wait ending as started from a wait
+restarted by the arrival, which cannot end earlier than the bound. The rest of the re-setup has about 900 ms to register
+before the wait expires, and the correct end has about 900 ms below the bound (docs/testing.md rule 6). The probe's failure starts at the first setup or, counted by `simctl getenv … HOME`, at the
 second; the loss in the re-setup case comes from three silent batches (D39, U165), as in `simulator_pool_recovery.rs`.
 
 ## Corrected
@@ -112,9 +113,30 @@ Two observations, not bugs:
   before departure + wait + hold, and that the held device was in the pool and stopped when the wait ended. With the
   reviewer's mutation applied temporarily (`add_device` resets `away_since` and starts a fresh full wait), both tests fail:
   the first-setup run ended 3,310 ms after the failed prepare and the re-setup run 3,322 ms after the loss, against a bound
-  of 3,300 ms. Without it they pass, ending 1,803 to 1,806 ms after in both cases, in three runs.
+  of 3,300 ms. Without it they pass, ending 1,803 to 1,806 ms after in both cases, in three runs. The margin claimed here
+was one-sided: the 1.5 s hold left only about 300 ms for the re-setup to register before the 1,800 ms wait expired, so a
+slow host could fail the test for the wrong reason (corrected in round 2).
 - **S-x42-3.** The claim that the run owner joins the stopped preparation is removed; `join_retained` has no production
   caller. Recorded under "Incidental bugs".
 
 Run for this round: `cargo fmt --check` and `cargo clippy -p marathon-ios --all-targets -- -D warnings` clean; the new test
 three times, 2 passed each time; `simulator_pool_recovery` 8 passed; the local name check clean before each commit.
+
+## Review round 2
+
+- **S-x42-2, margins.** With a 1,500 ms hold the re-setup had about 300 ms to register before the wait expired; the
+  reviewer showed that 350 ms more on its `SIMULATOR_MODEL_IDENTIFIER` command failed both tests with the pool ending
+  correctly. The hold is now half the wait (`READMISSION_DELAY = DEVICE_WAIT / 2`, 900 ms at 1/100), which leaves about 900
+  ms on each side: the re-setup registers about 918 to 922 ms after the departure, and the correct end, 1,804 to 1,807 ms
+  after it in three runs, is about 900 ms below the bound of 2,700 ms. Virtual time was not used: the test runs on
+  `CoreExecutor` and the fake worker's tokio runtime, which the test cannot pause.
+- **Mutation witness.** `add_device` temporarily made to reset `away_since` and start a fresh full wait: both tests fail,
+  ending 2,725 ms (first setup) and 2,722 ms (re-setup) after the departure against the 2,700 ms bound. A restarted wait
+  cannot end before departure + hold + wait, so this side does not depend on the host's speed.
+- **Slow re-setup witness.** The reviewer's change, 350 ms more on the re-setup's `simctl getenv … SIMULATOR_MODEL_IDENTIFIER`,
+  temporarily added with production code unchanged: both tests pass, the re-setup registering about 1,270 ms after the
+  departure and the run ending 1,803 ms after it in both tests.
+
+Run for this round: `cargo fmt --check` and `cargo clippy -p marathon-ios --all-targets -- -D warnings` clean; the new test
+three times, 2 passed each time; `simulator_pool_recovery` 8 passed; the local name check clean before the commit. Both
+witnesses were reverted before it.

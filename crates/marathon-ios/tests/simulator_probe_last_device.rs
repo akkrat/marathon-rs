@@ -34,10 +34,11 @@ const BOOT_RETRY_PAUSE: i64 = 10_000 / SCALE;
 const BOOT_POLL: i64 = 1_000 / SCALE;
 const RECOVERY_PAUSE: i64 = 30_000 / SCALE;
 const DEVICE_WAIT: i64 = 180_000 / SCALE;
-/// How long the re-setup is held before it can register, so that it joins the pool well into D48's wait. A wait that its
-/// arrival restarted would end at least this much later than the one its loss started, which is what the upper bounds
-/// below tell apart; the correct outcome gets all of this as its margin.
-const READMISSION_DELAY: i64 = 1_500;
+/// How long the re-setup is held before it can register, so that it joins the pool halfway into D48's wait. Half the wait
+/// is left for the rest of its setup to register before the wait expires, and a wait that its arrival restarted would end
+/// at least this much later than the one its loss started, which is what the upper bounds below tell apart: each side has
+/// half the wait, 900 ms, as its margin (docs/testing.md rule 6).
+const READMISSION_DELAY: i64 = DEVICE_WAIT / 2;
 
 /// From which setup of the simulator on the probe fails: 1 is the first setup, 2 the first re-setup after a loss.
 #[derive(Clone, Copy)]
