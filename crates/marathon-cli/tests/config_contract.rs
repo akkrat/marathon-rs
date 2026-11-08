@@ -133,30 +133,59 @@ fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::err
         };
         rows.insert(rel, row);
     }
-    // The schema corpus embeds Marathonfiles in JSONL rather than storing each as a file.
-    let schema = fs::read_to_string(root.join("oracle/config-validation-corpus.jsonl"))?;
-    for (index, line) in schema.lines().enumerate() {
-        let case: Value = serde_json::from_str(line)?;
-        if case["kind"] != "case" {
+    // These cases use the same filesystem and environment as validation_corpus.rs.
+    let schema = fs::read_to_string(root.join("oracle/coverage-c95b2128/config-validation-corpus.jsonl"))?;
+    let mut cases: Vec<Value> = schema.lines().map(serde_json::from_str).collect::<Result<_, _>>()?;
+    if cfg!(target_os = "linux") {
+        let linux = fs::read_to_string(root.join("oracle/config-validation-corpus-linux.jsonl"))?;
+        for line in linux.lines().skip(1) {
+            let replacement: Value = serde_json::from_str(line)?;
+            let row = cases
+                .iter_mut()
+                .find(|row| row["id"] == replacement["id"])
+                .ok_or("missing Linux schema case")?;
+            *row = replacement;
+        }
+    }
+    for (index, case) in cases.iter().enumerate() {
+        let kind = case["kind"].as_str().unwrap_or_default();
+        if kind != "case" && kind != "fixture" {
             continue;
         }
         let work = tmp_root.join(format!("schema-{index}"));
         fs::create_dir(&work)?;
-        let input = work.join("Marathonfile");
-        let text = case["input"]
-            .as_str()
-            .ok_or("missing schema input")?
-            .replace("$DIR", &work.to_string_lossy());
-        fs::write(&input, text)?;
+        let input = if kind == "case" {
+            let source = root.join("configuration/fixture/config/ios/derivedDataDir");
+            let status = Command::new("cp")
+                .arg("-R")
+                .arg(source)
+                .arg(work.join("derivedDataDir"))
+                .status()?;
+            assert!(status.success(), "copy schema fixture");
+            fs::write(work.join("app.apk"), "")?;
+            fs::create_dir(work.join("apkdir"))?;
+            fs::write(work.join("known_hosts"), "")?;
+            std::os::unix::fs::symlink(work.join("loop"), work.join("loop"))?;
+            let input = work.join("Marathonfile");
+            let text = case["input"]
+                .as_str()
+                .ok_or("missing schema input")?
+                .replace("@DIR@", &work.to_string_lossy());
+            fs::write(&input, format!("{text}\n"))?;
+            input
+        } else {
+            let source = root.join("configuration/fixture/config");
+            let status = Command::new("cp").arg("-R").arg(source.join(".")).arg(&work).status()?;
+            assert!(status.success(), "copy schema fixtures");
+            work.join(case["input"].as_str().ok_or("missing fixture input")?)
+        };
         let env_file = tmp_root.join(format!("schema-{index}.env"));
-        fs::write(
-            &env_file,
-            if case["noSdk"] == true {
-                ""
-            } else {
-                "ANDROID_HOME=/android-sdk\n"
-            },
-        )?;
+        let sdk = if case["noSdk"] == true {
+            ""
+        } else {
+            "ANDROID_HOME=/android-sdk\n"
+        };
+        fs::write(&env_file, format!("{sdk}A=${{B}}\nB=${{A}}\n"))?;
         let output = Command::new(env!("CARGO_BIN_EXE_marathon"))
             .current_dir(&work)
             .env_clear()
@@ -167,25 +196,36 @@ fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::err
             .args(["--now", "1970-01-12T13:46:40Z"])
             .output()?;
         let code = output.status.code();
-        let row = if code != Some(0) {
-            json!({"exit": code, "accepted": false})
-        } else {
-            let text = String::from_utf8(output.stdout)?.replace(&tmp_root.to_string_lossy().to_string(), "<ROOT>");
-            let dump: Value = serde_json::from_str(&text)?;
-            let accepted = dump["stage"] == "ok";
-            json!({"exit": code, "accepted": accepted, "config": if accepted { dump["config"].clone() } else { Value::Null }})
-        };
-        rows.insert(
-            format!("schema/{}", case["id"].as_str().ok_or("missing schema id")?),
-            row,
+        let id = case["id"].as_str().ok_or("missing schema id")?;
+        assert_eq!(
+            code,
+            Some(0),
+            "schema {id}: {}",
+            String::from_utf8_lossy(&output.stderr)
         );
+        let text = String::from_utf8(output.stdout)?.replace(&tmp_root.to_string_lossy().to_string(), "<ROOT>");
+        let dump: Value = serde_json::from_str(&text)?;
+        assert_eq!(dump["stage"], case["stage"], "schema {id}: {}", dump["error"]);
+        let stage = dump["stage"].as_str().ok_or("missing stage")?;
+        let accepted = stage == "ok";
+        let row = json!({"exit": code, "stage": stage, "accepted": accepted, "config": if accepted { dump["config"].clone() } else { Value::Null }});
+        rows.insert(format!("schema/{id}"), row);
     }
     let golden = root.join("contract/config/corpus.json");
     if std::env::var_os("MARATHON_BLESS_CONFIG").as_deref() == Some(std::ffi::OsStr::new("1")) {
         fs::create_dir_all(golden.parent().unwrap())?;
         fs::write(&golden, format!("{}\n", serde_json::to_string_pretty(&rows)?))?;
     } else {
-        let expected: BTreeMap<String, Value> = serde_json::from_slice(&fs::read(&golden)?)?;
+        let mut expected: BTreeMap<String, Value> = serde_json::from_slice(&fs::read(&golden)?)?;
+        // The source corpus records canonicalization of symlink loops separately on Linux.
+        if cfg!(target_os = "linux") {
+            for id in ["a-devices-symlink-loop", "a-known-hosts-symlink-loop"] {
+                expected.insert(
+                    format!("schema/{id}"),
+                    json!({"exit": 0, "stage": "parse", "accepted": false, "config": null}),
+                );
+            }
+        }
         assert_eq!(rows, expected);
     }
     Ok(())
