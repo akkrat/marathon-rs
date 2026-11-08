@@ -235,7 +235,7 @@ Feature negotiation must match adam: shell v2, sync v2, `cmd` and `abb_exec` cho
 | D2 | `MARATHON_OPTS` / `JAVA_OPTS`; the Windows start script that the Gradle `application` plugin generates | Ignored. No Windows build |
 | D3 | Gson leaks `safeSerialNumber$delegate`, with a non-deterministic value, into `devices/*.json`, `bill/*.json` **and every per-test `test_result/**.json`** (through `TestResult.device`) | Omit it everywhere. Keep `isTimeInfoAvailable` |
 | D4 | Influx/Graphite access through Java client libraries | Our own HTTP and TCP clients with the same lifecycle, requests and timeouts (§3.8) |
-| D5 | Known Kotlin bugs (e.g. `clazz == pkg` lookup, no dynamic-provider reconnect after EOF, TeamCity auto-detect checking env values) | **Most are kept.** Every one is listed in `docs/known-kotlin-bugs.md` (Kotlin location, behaviour, WP, status). Implementers and reviewers add to the list as they find more. D14–D19 and D21–D42 fix the ones they name, and the ledger marks each of those rows as fixed; the others remain a backlog |
+| D5 | Known Kotlin bugs (e.g. `clazz == pkg` lookup, no dynamic-provider reconnect after EOF, TeamCity auto-detect checking env values) | **Most are kept.** Every one is listed in `docs/known-kotlin-bugs.md` (Kotlin location, behaviour, WP, status). Implementers and reviewers add to the list as they find more. D14–D19 and D21–D52 fix the ones they name, and the ledger marks each of those rows as fixed; the others remain a backlog |
 | D6 | Kotlin compiles user-supplied regexes (test filters, `excludeSerialRegexes` and the other regex config fields) with `java.util.regex` | They are compiled with the Rust `regex` crate instead: its syntax, Unicode classes and linear-time matching. `matches` stays a full match, and `find`, `split` and `replace` keep Kotlin's semantics around the match. A pattern the crate rejects (lookaround, backreferences, possessive quantifiers and other Java-only syntax) fails at config load, with an error naming the pattern and field. Decided by the user 2026-10-23, after spike 0.3c and WP 1.4 showed that exact Java parity costs more than the few users need. Supersedes the earlier "reject only what the backend can't express" D6 and its runtime-budget extension |
 | D7 | When a worker command dies from a signal other than TERM, sshj sends a stale TERM request on the already-closed channel; OpenSSH treats it as a protocol error and drops the whole connection (every simulator on that worker loses its connection, batches are rescheduled, the worker is re-provisioned) | Not reproduced: the command still reports no exit code, but the other channels on the worker survive (approved 2026-10-12; `docs/research/ssh-spike-results.md`, R2) |
 | D8 | Kotlin formats the HTML summary footer date (month names) and the progress and file-transfer percentages and decimals (`String.format`) with the JVM default locale, taken from the user's machine (e.g. `janv.` and `2,68` on fr) | Always formatted as en-US, whatever the machine locale; on an en-US machine the output is identical to Kotlin's. Pinned-locale outputs (JUnit, Graphite) are unaffected (approved 2026-10-23; WP 1.2) |
@@ -778,8 +778,9 @@ What Muse checks:
 
 1. **Deviations:**
    - D1, with an INFO line saying the telemetry options are ignored;
-   - D5, with the maintained list `docs/known-kotlin-bugs.md`;
-   - D2, D3, D4 and D6 as proposed.
+   - D2, D3, D4 and D6 as proposed;
+   - D5, with the maintained list `docs/known-kotlin-bugs.md`.
+   - D6 rewritten (2026-10-23): user-supplied regexes use the Rust `regex` crate, not Java regex semantics. This supersedes the original D6 and its runtime-budget extension, which was decided earlier the same day.
    - D7, added after the SSH spike: the stale TERM after a non-TERM signal is not reproduced.
    - D8 (2026-10-23), after WP 1.2: locale-dependent output is always formatted as en-US.
    - D9 (2026-10-24), from the WP 2.1 brief: simplified Jackson binding edge cases (proposals P1, P2, P4, P5 and P6). P3 (canonicalising absolute paths) was rejected because keeping Kotlin's verbatim spelling is simpler.
@@ -788,6 +789,13 @@ What Muse checks:
    - D12 (2026-10-24), from the WP 2.5 decisions: JVM runtime artefacts in CLI output (the SLF4J line, stack frames, identity hashes, argfiles and completion, TTY help width) are not reproduced.
    - D12 extended (2026-10-25), from the WP 3.10 decisions: native `System Information:` lines instead of JVM properties; a native signal relay instead of JVM shutdown hooks, with the JVM exit statuses kept.
    - D13 (2026-10-24), from the WP 3.2 decisions: each pool's metrics history is prefetched when its queue is built (superseding 0.6 decision D4); a pool that never compares tests makes one extra history query and timing line.
+   - D14 (2026-10-25), from WP 6.5 (P1, P3 and P5a): Tokio tasks replace the Android thread pools, the provider owns the effective file sync set, and a failed reverse port-forward removal at dispose is logged. See `docs/wp/6.5-findings.md`.
+   - D15 (2026-10-25), from WP 6.6a (P2): a failed Android remote-parsing attempt always unregisters its log accumulator and cancels its instrumentation producers (N36, N37). See `docs/wp/6.6a-findings.md`.
+   - D16 (2026-10-26), from WP 6.6b (P1, P3, P4 and P5; P2 rejected): Android artifact cleanup without blocking sleeps or recorder races, and profiling stopped on run failure. See `docs/wp/6.6b-findings.md`.
+   - D17 (2026-10-31), from WP 5.3: an iOS screen-recording stop whose recorder has already exited counts as successful (U100). See `docs/wp/5.3-findings.md`.
+   - D18 (2026-11-02), by the user's decision: Android devices are keyed by adb server and serial, the same-serial half of N27. See `docs/wp/x1-findings.md` and `docs/wp/x2-findings.md`.
+   - D19 (2026-11-03), by the user's decision: the Apple command reader reads output that arrives with EOF (U145). See `docs/wp/x9-findings.md`.
+   - D20 (2026-11-04), by the user's decision: the `xctest` parser library is supplied by the user, not shipped. See `docs/wp/x11-findings.md`.
    - D21–D28 (2026-11-06), from WP x12, by the project owner's decision: eight Android bugs kept for parity are fixed (N12, N16, N5, N27's retention with N29, N38, N10, N4, N35). See `docs/wp/x12-findings.md`. D22 and D25 were extended the same day by WP x18, after the real-emulator checks: `docs/wp/x18-findings.md`.
    - D29–D32 (2026-11-06), from WP x13, by the project owner's decision: four SSH and rsync bugs kept for parity are fixed (A33, A14, A3, and of A2 only `NSUnbufferedIO`). See `docs/wp/x13-findings.md`.
    - D33 (2026-11-06), from WP x14, by the project owner's decision: a simulator whose setup failed is set up again, a bounded number of times (A81). See `docs/wp/x14-findings.md`.
@@ -799,11 +807,12 @@ What Muse checks:
    - D43 (2026-11-07), from WP x26, by the project owner's decision: an rsync receive has a limit on progress, not a 30 s total. See `docs/wp/x26-findings.md`.
    - D44 (2026-11-07), from WP x27, by the project owner's decision: a lost simulator's reconnect has a limit, a failed re-provisioning is retried, and `borrow` skips simulators that cannot work (A101, A80). See `docs/wp/x27-findings.md`.
    - D45 (2026-11-07), from WP x28, by the project owner's decision: a hung test is a failure, whatever form its allowance is printed in (A47), and D39 extended so that an output timeout with no progress counts as a batch failure (U165). See `docs/wp/x28-findings.md`.
+   - D46 (2026-11-07), from WP x29, by the project owner's decision: the readiness probe is `launchctl print user/foreground` from runtime 18, with `dumpstate` kept for 16 and 17 (A41's cost). See `docs/wp/x29-findings.md`.
    - D47 (2026-11-07), from WP x30, by the project owner's decision: a run with an unlimited `uncompletedTestRetryQuota` is refused at config parsing, since nothing else bounds the uncompleted loop (C85). See `docs/wp/x30-findings.md`.
    - D48 and D49 (2026-11-07), from WP x31, by the project owner's decision: an emptied pool waits for a device to return, and a lost adb request does not retire a device still there (C50, N15). See `docs/wp/x31-findings.md`.
+   - D50 (2026-11-07), from WP x32, by the project owner's decision: a test that `fixed-size` batching rejects does not use a batch slot (C33). See `docs/wp/x32-findings.md`.
    - D51 (2026-11-07), from WP x34, by the project owner's decision: analytics and cleanup failures do not stop a run, a Graphite `None` is skipped, and an empty filtered run logs an error (C62, C38, C11, C25). See `docs/wp/x34-findings.md`.
    - D52 (2026-11-07), from WP x35, by the project owner's decision: a cancel always writes what it can, within a limit, whatever `debug` says (C10, U161). See `docs/wp/x35-findings.md`.
-   - D6 rewritten (2026-10-23): user-supplied regexes use the Rust `regex` crate, not Java regex semantics. This supersedes the original D6 and its runtime-budget extension, which was decided earlier the same day.
 2. **Repository:** a new private GitHub repository. The code is derived from marathon, which is GPL-2.0, so the repository carries the same `LICENSE`.
 3. **JDK:** The fork's CI uses Temurin 21.0.x. The oracle uses Android Studio's OpenJDK 21.0.10. The CI version is confirmed from a CI job log in WP 0.2a, and JVM-specific log text is normalised.
 4. **Farm:**

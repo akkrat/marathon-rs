@@ -1,6 +1,6 @@
 # Known bugs in the Kotlin marathon (e47352f2)
 
-Decision D5 (2026-10-12): the Rust port reproduces most of these, so it can be compared with Kotlin directly. The approved deviations D14–D19 and D21–D42 fix some of them; such a row says so in its status cell ("Fixed by D…"). The others stay open as candidates for a later fix.
+Decision D5 (2026-10-12): the Rust port reproduces most of these, so it can be compared with Kotlin directly. The approved deviations D14–D19 and D21–D52 fix some of them; such a row says so in its status cell ("Fixed by D…"). The others stay open as candidates for a later fix.
 
 **How to maintain this list**
 - Implementers and reviewers add an entry whenever they find a bug that the port has to preserve.

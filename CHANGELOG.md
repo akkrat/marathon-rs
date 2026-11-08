@@ -4,7 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D42). Most Kotlin bugs remain; the
+This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D52). Most Kotlin bugs remain; the
 [bug ledger](docs/known-kotlin-bugs.md) marks the ones that are fixed. Read
 [Changes that need action](docs/migration.md#changes-that-need-action) before you upgrade, and the
 [deviations guide](docs/deviations.md) for each change in full.
@@ -190,7 +190,7 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D52 ran through the built binary with real signals on the fake adb and fake worker, and with a test in flight on an Android
   API 36 emulator in both debug modes. It did not run on a real worker or Mac.
 - D45 ran on real hanging tests: an iOS 18.6 simulator under Xcode 27.2, with allowances that print `1 minute` and `2 minutes`.
-- The comparisons on real devices and private farms predate D21–D42.
+- The comparisons on real devices and private farms predate D21–D52.
 
 ### Known limits
 

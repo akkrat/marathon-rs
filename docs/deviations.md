@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D42, D45, D47, D50 and D51; implementation availability
+canonical. This guide covers D1–D52; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -45,7 +45,7 @@ client replacement does not itself disable writes or require a service migration
 ## D5 — Retained defects
 
 Most Kotlin defects remain, including metadata lookup, dynamic-provider EOF and
-CI detection quirks. D14–D19 and D21–D42 fix the ones described in this guide, and
+CI detection quirks. D14–D19 and D21–D52 fix the ones described in this guide, and
 the [ledger](known-kotlin-bugs.md) marks the rows they fix as fixed. Consult the
 ledger and its per-row status, and the
 [migration shortlist](migration.md#retained-behavior-to-account-for).
