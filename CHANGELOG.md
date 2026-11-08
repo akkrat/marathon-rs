@@ -2,9 +2,7 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## 0.12.0-rc.1
-
-A release candidate of 0.12.0, published as a pre-release for trial runs on real farms before 0.12.0.
+## 0.12.0
 
 This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D54). Most Kotlin bugs remain; the
 [bug ledger](docs/known-kotlin-bugs.md) marks the ones that are fixed. Read
@@ -218,7 +216,15 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D54 ran with stand-in rsync and ssh processes in the bridge's tests, against the fake worker's real SSH keep-alive, and
   through the built binary with two fake iOS workers, one frozen with SIGSTOP, with openrsync on a Mac. It did not run on
   Linux, with rsync 3, or on a real worker.
-- The comparisons on real devices and private farms predate D21–D54.
+- The release candidate 0.12.0-rc.1, the same code as this release, ran on real hosts: the macOS build on a Mac with Xcode
+  27.2, with iOS 18.6 and 26.4 simulators and macOS tests, locally and over SSH to a second Mac as a real worker; the static
+  Linux build on API 36 Android emulators. The results were as expected, including SIGTERM and SIGINT cancels, a simulator
+  shut down mid-batch, a killed adb server and a killed emulator. A lost simulator's re-setup (D33, D44) and stalled or
+  stopped transfers (D31, D43, D54) did not happen there.
+- Outside this repository, the maintainer ran the release candidate and the JVM build side by side on private CI farms: the
+  macOS build on 80 iOS simulators and the static Linux build on up to 32 Android emulators, with the same results apart from
+  flaky tests seen on both sides. Those farms copy the app to the workers themselves, so marathon's rsync path did not run
+  there. These runs are private and cannot be checked here.
 
 ### Known limits
 
@@ -226,9 +232,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   older than the build and test hosts are not tested.
 - The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
   [migration guide](docs/migration.md#install-the-native-entry-point).
-- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container. The real Android runs
-  recorded in this repository used a glibc build, and musl's allocator and DNS resolver differ from glibc's, so try it on
-  your workload.
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container, and the release
+  candidate ran on real emulators and a CI farm. musl's resolver asks DNS directly, so an adb host given as a name that only
+  the system's own name service knows, such as a `.local` name, is not found; use `localhost` or an address.
 - The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
   stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
   licence does not cover it.
@@ -238,6 +244,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
 - An emulator that restarted during an adb outage (D22) repeats its failing batches until `uncompletedTestRetryQuota` runs
   out.
+- A cancelled run on a worker whose SSH server ignores signals can leave xcodebuild running there, with only a debug line
+  saying how long the close took (D30, U183).
 - A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
   If only the probe hangs and needs KILL it takes about 33 minutes. On the last device the run ends 180 s (D48's wait) after the
   simulator left the pool, or after a test result it reports later, with "remaining tests will not run": about 9 to 11
@@ -251,6 +259,11 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A remote parse cut after other text, before its first status atom, can't be told from output that is not the
   instrumentation protocol: it gives no tests for that bundle and is not retried. With several bundles the run goes on
   without them (D25).
+
+## 0.12.0-rc.1
+
+The release candidate of 0.12.0, published on 2026-11-08 as a pre-release for trial runs. 0.12.0 has the same code; only
+its documentation changed.
 
 ## 0.11.0
 

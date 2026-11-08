@@ -387,7 +387,9 @@ can wait without any limit. It never sends KILL. Native builds send TERM, give t
 send KILL if it did not, close the channel and give the worker up to 10 s more. After that the session is
 abandoned, so no close takes more than 30 s, and the run carries on. On iOS an abandoned session retires its
 simulator, so when that simulator was the last device of the pool, the pool waits for [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s limit, then ends, and so does the run. The close fails with the same error
-as Kotlin's, and one error line names the command.
+as Kotlin's, and one error line names the command. A worker that confirms the close although the process ignored TERM
+and KILL gives no error line: the session closes normally after 20 s, a debug line says how long that took, and the process
+may still be running ([U183](found-bugs.md)).
 
 **A process can survive this.** A signal over an SSH channel is a request that the server may ignore: some servers
 do, such as Tailscale SSH and old OpenSSH versions, and there KILL has no effect. The limit, not the KILL, is what keeps the
