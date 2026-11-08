@@ -125,7 +125,8 @@ borrows.
 
 ## What is unchanged
 
-Three attempts with no pause; `deviceInitializationTimeoutMillis` around them; the error a failed parse reports; the
+Three attempts with no pause; `deviceInitializationTimeoutMillis` around them; the rules for which error a failed parse
+reports (the error itself can differ: see review round 1); the
 `Parsed …` timing line; the commands sent to devices and workers; and, for a healthy run, every `choose_key` call with the same
 label and candidates, so replay tapes and recordings are unaffected. A narrowed candidate list appears only after a failed
 attempt. No log line was added, so failed parses also log as before.
@@ -146,3 +147,13 @@ attempt. No log line was added, so failed parses also log as before.
 ## Incidental bugs
 
 None found.
+
+## Review round 1
+
+gpt-6.1-sol: merge after one documentation fix; no code defect.
+
+- S-x44-1 (minor): D53 and this file said a parse takes no longer and reports the same error. A slower untried device can
+  use more of the time and change the final error: in the reviewer's virtual-time witness, three quick failures on one device
+  ended at 0 ms with the parser's error, while with D53 a slow second device reached the 50 ms bound and the run ended with
+  `NoDevices`. D53 now says only that nothing waits for an untried device and that the timeout and the rules for which error
+  is reported are unchanged.

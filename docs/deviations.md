@@ -1084,7 +1084,9 @@ is one run in eight.
 
 Native builds remember, for one parse, the devices its attempts failed on, and the next attempt picks among the available
 devices it hasn't tried, with the same random choice over that smaller set. Only when every available device has been tried
-does it pick among all of them, as before. It never waits for an untried device, so a parse takes no longer than it did. A
+does it pick among all of them, as before. It never waits for an untried device. That is not a promise that a parse takes no longer or ends with the same error: a
+slower untried device can use more of the time, and the run can then end with the timeout's error where three quick
+failures on one device ended with the parser's. A
 device counts as tried when the parse on it failed; a failed borrow, or a cancellation, marks none. A device is known by the
 key its provider borrows it by, so one that comes back as a new object, after a reconnect, is still the one that failed:
 on Android its adb server and serial, as [D18](#d18--android-devices-are-keyed-by-adb-server-and-serial) tells them apart; on iOS the
@@ -1097,8 +1099,8 @@ it waits, and `deviceInitializationTimeoutMillis` bounds that as for no devices 
 connection before the parse now fails with `Timed out waiting for a temporary device for remote test parsing` after that
 limit, where it used to fail its three attempts at once.
 
-**Unchanged:** the three attempts with no pause between them, the `deviceInitializationTimeoutMillis` bound, which error the
-run reports, the `Parsed … tests` timing line, the commands sent to devices and workers, and a healthy run's logs and replay
+**Unchanged:** the three attempts with no pause between them, the `deviceInitializationTimeoutMillis` bound, the rules for
+which error the run reports, the `Parsed … tests` timing line, the commands sent to devices and workers, and a healthy run's logs and replay
 choices: the smaller set of keys is offered only after a failed attempt. A run with one device makes its three attempts on
 it, as before. No log line was added. **Limit:** a stalled send is decided after 285 s or more ([D31](#d31--an-rsync-send-that-stops-moving-fails)),
 longer than the default 180 s of `deviceInitializationTimeoutMillis`, so with the default a stall during the first attempt still
