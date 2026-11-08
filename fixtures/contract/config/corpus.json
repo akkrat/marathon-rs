@@ -1,0 +1,1371 @@
+{
+  "configuration/fixture/config/android/sample_1.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/android/sample_2.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/android/sample_3.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/android/sample_4.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/android/sample_5.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/android/sample_6.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/ios/sample_1.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/ios/sample_2.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/ios/sample_3.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/ios/sample_4.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/ios/sample_5.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/ios/sample_6.yaml": {
+    "exit": 0,
+    "accepted": true,
+    "config": {
+      "analyticsConfiguration": {
+        "type": "disabled"
+      },
+      "analyticsTracking": true,
+      "batchingStrategy": {
+        "type": "isolate"
+      },
+      "bugsnagReporting": true,
+      "ciConfiguration": {
+        "type": "none"
+      },
+      "debug": true,
+      "deviceInitializationTimeoutMillis": 180000,
+      "excludeSerialRegexes": [],
+      "executionStrategy": {
+        "fast": true,
+        "mode": "ANY_SUCCESS"
+      },
+      "filteringConfiguration": {
+        "allowlist": [],
+        "blocklist": []
+      },
+      "flakinessStrategy": {
+        "type": "ignore"
+      },
+      "ignoreFailures": false,
+      "includeSerialRegexes": [],
+      "isCodeCoverageEnabled": false,
+      "name": "sample-app tests",
+      "outputConfiguration": {
+        "maxFilename": 255,
+        "maxPath": 0
+      },
+      "outputDir": "<ROOT>/11/input/ios/marathon",
+      "poolingStrategy": {
+        "type": "omni"
+      },
+      "retryStrategy": {
+        "type": "no-retry"
+      },
+      "screenRecordingPolicy": "ON_FAILURE",
+      "shardingStrategy": {
+        "type": "parallel"
+      },
+      "sortingStrategy": {
+        "type": "no-sorting"
+      },
+      "testBatchTimeoutMillis": 1800000,
+      "testOutputTimeoutMillis": 300000,
+      "uncompletedTestRetryQuota": 2147483647,
+      "vendorConfiguration": {
+        "bundle": {
+          "app": "<ROOT>/11/input/ios/derivedDataDir/sample.app",
+          "application": null,
+          "derivedDataDir": "<ROOT>/11/input/ios/derivedDataDir",
+          "extraApplications": null,
+          "testApp": null,
+          "testApplication": null,
+          "testType": null,
+          "xctest": "<ROOT>/11/input/ios/derivedDataDir/ui.xctest",
+          "xctestrun": null
+        },
+        "compactOutput": false,
+        "dataContainerClear": false,
+        "deviceLog": false,
+        "deviceProvider": {
+          "path": null,
+          "type": "static"
+        },
+        "devicesFile": "<ROOT>/11/input/ios/Marathondevices",
+        "hideRunnerOutput": false,
+        "lifecycleConfiguration": {
+          "onDispose": [],
+          "onPrepare": [],
+          "shutdownUnused": true
+        },
+        "maxBatchesWithoutProgress": 0,
+        "mediaFiles": null,
+        "permissions": {
+          "grant": [],
+          "lifecycle": "BEFORE_TEST_RUN"
+        },
+        "rsync": {
+          "remotePath": "/usr/bin/rsync"
+        },
+        "screenRecordConfiguration": {
+          "preferableRecorderType": null,
+          "screenshotConfiguration": {
+            "delay": "PT0.5S",
+            "display": "INTERNAL",
+            "enabled": true,
+            "height": 1280,
+            "mask": "BLACK",
+            "type": "JPEG",
+            "width": 720
+          },
+          "videoConfiguration": {
+            "codec": "H264",
+            "display": "INTERNAL",
+            "enabled": true,
+            "mask": "BLACK",
+            "transcoding": {
+              "binary": "/opt/homebrew/bin/ffmpeg",
+              "enabled": false,
+              "size": "hd720"
+            }
+          }
+        },
+        "signing": {
+          "testRunnerProvisioningProfile": null
+        },
+        "skipCopyingDerivedData": false,
+        "ssh": {
+          "authentication": null,
+          "debug": false,
+          "keepAliveInterval": "PT15S",
+          "keepAliveMaxCount": 4,
+          "knownHostsPath": null,
+          "shareWorkerConnection": false
+        },
+        "testParserConfiguration": {
+          "testClassRegexes": [
+            "^((?!Abstract).)*Test[s]*$"
+          ],
+          "type": "nm"
+        },
+        "threadingConfiguration": {
+          "deviceProviderThreads": 8,
+          "deviceThreads": 2,
+          "provisioningConcurrency": 2
+        },
+        "timeoutConfiguration": {
+          "boot": "PT30S",
+          "bootWait": "PT3M",
+          "create": "PT30S",
+          "delete": "PT30S",
+          "erase": "PT30S",
+          "importMedia": "PT30S",
+          "install": "PT30S",
+          "reachability": "PT5S",
+          "screenshot": "PT10S",
+          "shell": "PT30S",
+          "shellIdle": "PT30S",
+          "shutdown": "PT30S",
+          "testDestination": "PT30S",
+          "uninstall": "PT30S",
+          "video": "PT5M",
+          "xcresulttool": "PT2M"
+        },
+        "type": "iOS",
+        "workerConnection": {
+          "attempts": 3,
+          "backoff": "PT10S",
+          "lateJoin": true,
+          "lateJoinCutoff": "PT10M",
+          "retryInterval": "PT1M"
+        },
+        "xcodebuildTestArgs": {},
+        "xcresult": {
+          "attachments": {
+            "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
+            "userAttachmentLifetime": "KEEP_ALWAYS"
+          },
+          "preferredScreenCaptureFormat": null,
+          "pull": true,
+          "pullingPolicy": "ALWAYS",
+          "queue": {
+            "capacity": 8,
+            "concurrency": 4,
+            "workerCapacity": null
+          },
+          "remoteClean": false
+        },
+        "xctestrunEnv": {
+          "appEnvs": {},
+          "testEnvs": {}
+        }
+      }
+    }
+  },
+  "configuration/fixture/config/ios/sample_7.yaml": {
+    "exit": 0,
+    "accepted": true,
+    "config": {
+      "analyticsConfiguration": {
+        "type": "disabled"
+      },
+      "analyticsTracking": true,
+      "batchingStrategy": {
+        "type": "isolate"
+      },
+      "bugsnagReporting": true,
+      "ciConfiguration": {
+        "type": "none"
+      },
+      "debug": true,
+      "deviceInitializationTimeoutMillis": 180000,
+      "excludeSerialRegexes": [],
+      "executionStrategy": {
+        "fast": true,
+        "mode": "ANY_SUCCESS"
+      },
+      "filteringConfiguration": {
+        "allowlist": [],
+        "blocklist": []
+      },
+      "flakinessStrategy": {
+        "type": "ignore"
+      },
+      "ignoreFailures": false,
+      "includeSerialRegexes": [],
+      "isCodeCoverageEnabled": false,
+      "name": "sample-app tests",
+      "outputConfiguration": {
+        "maxFilename": 255,
+        "maxPath": 0
+      },
+      "outputDir": "<ROOT>/12/input/ios/marathon",
+      "poolingStrategy": {
+        "type": "omni"
+      },
+      "retryStrategy": {
+        "type": "no-retry"
+      },
+      "screenRecordingPolicy": "ON_FAILURE",
+      "shardingStrategy": {
+        "type": "parallel"
+      },
+      "sortingStrategy": {
+        "type": "no-sorting"
+      },
+      "testBatchTimeoutMillis": 1800000,
+      "testOutputTimeoutMillis": 300000,
+      "uncompletedTestRetryQuota": 2147483647,
+      "vendorConfiguration": {
+        "bundle": {
+          "app": "<ROOT>/12/input/ios/derivedDataDir/sample.app",
+          "application": null,
+          "derivedDataDir": "<ROOT>/12/input/ios/derivedDataDir",
+          "extraApplications": null,
+          "testApp": null,
+          "testApplication": null,
+          "testType": null,
+          "xctest": "<ROOT>/12/input/ios/derivedDataDir/ui.xctest",
+          "xctestrun": null
+        },
+        "compactOutput": false,
+        "dataContainerClear": false,
+        "deviceLog": false,
+        "deviceProvider": {
+          "path": null,
+          "type": "static"
+        },
+        "devicesFile": "<ROOT>/12/input/ios/Marathondevices",
+        "hideRunnerOutput": false,
+        "lifecycleConfiguration": {
+          "onDispose": [],
+          "onPrepare": [],
+          "shutdownUnused": true
+        },
+        "maxBatchesWithoutProgress": 0,
+        "mediaFiles": null,
+        "permissions": {
+          "grant": [],
+          "lifecycle": "BEFORE_TEST_RUN"
+        },
+        "rsync": {
+          "remotePath": "/usr/bin/rsync"
+        },
+        "screenRecordConfiguration": {
+          "preferableRecorderType": null,
+          "screenshotConfiguration": {
+            "delay": "PT0.5S",
+            "display": "INTERNAL",
+            "enabled": true,
+            "height": 1280,
+            "mask": "BLACK",
+            "type": "JPEG",
+            "width": 720
+          },
+          "videoConfiguration": {
+            "codec": "H264",
+            "display": "INTERNAL",
+            "enabled": true,
+            "mask": "BLACK",
+            "transcoding": {
+              "binary": "/opt/homebrew/bin/ffmpeg",
+              "enabled": false,
+              "size": "hd720"
+            }
+          }
+        },
+        "signing": {
+          "testRunnerProvisioningProfile": null
+        },
+        "skipCopyingDerivedData": false,
+        "ssh": {
+          "authentication": null,
+          "debug": false,
+          "keepAliveInterval": "PT15S",
+          "keepAliveMaxCount": 4,
+          "knownHostsPath": null,
+          "shareWorkerConnection": false
+        },
+        "testParserConfiguration": {
+          "testClassRegexes": [
+            "^((?!Abstract).)*Test[s]*$"
+          ],
+          "type": "nm"
+        },
+        "threadingConfiguration": {
+          "deviceProviderThreads": 8,
+          "deviceThreads": 2,
+          "provisioningConcurrency": 2
+        },
+        "timeoutConfiguration": {
+          "boot": "PT30S",
+          "bootWait": "PT3M",
+          "create": "PT30S",
+          "delete": "PT30S",
+          "erase": "PT30S",
+          "importMedia": "PT30S",
+          "install": "PT30S",
+          "reachability": "PT5S",
+          "screenshot": "PT10S",
+          "shell": "PT30S",
+          "shellIdle": "PT30S",
+          "shutdown": "PT30S",
+          "testDestination": "PT30S",
+          "uninstall": "PT30S",
+          "video": "PT5M",
+          "xcresulttool": "PT2M"
+        },
+        "type": "iOS",
+        "workerConnection": {
+          "attempts": 3,
+          "backoff": "PT10S",
+          "lateJoin": true,
+          "lateJoinCutoff": "PT10M",
+          "retryInterval": "PT1M"
+        },
+        "xcodebuildTestArgs": {},
+        "xcresult": {
+          "attachments": {
+            "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
+            "userAttachmentLifetime": "KEEP_ALWAYS"
+          },
+          "preferredScreenCaptureFormat": null,
+          "pull": false,
+          "pullingPolicy": "NEVER",
+          "queue": {
+            "capacity": 8,
+            "concurrency": 4,
+            "workerCapacity": null
+          },
+          "remoteClean": false
+        },
+        "xctestrunEnv": {
+          "appEnvs": {},
+          "testEnvs": {}
+        }
+      }
+    }
+  },
+  "configuration/fixture/config/ios/sample_8.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/ios/sample_9.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_1.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_10.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_11.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_12.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_1_no_tracking.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_1_rp.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_2.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_5.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_6.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_7.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_8.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "configuration/fixture/config/sample_9.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "fake-adb/android-two-devices/in/Marathonfile": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "fake-worker/apple/ios-media/in/Marathondevices": {
+    "accepted": false
+  },
+  "fake-worker/apple/ios-media/in/Marathonfile": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "fake-worker/apple/ios-screenshot/in/Marathondevices": {
+    "accepted": false
+  },
+  "fake-worker/apple/ios-screenshot/in/Marathonfile": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "fake-worker/apple/ios-smoke/in/Marathondevices": {
+    "accepted": false
+  },
+  "fake-worker/apple/ios-smoke/in/Marathonfile": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "fake-worker/apple/macos-smoke/in/Marathondevices": {
+    "accepted": false
+  },
+  "fake-worker/apple/macos-smoke/in/Marathonfile": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "oracle/config-dump-inputs/ios/oracle_coverage.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "oracle/config-dump-inputs/ios/oracle_coverage_macos.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "oracle/config-dump-inputs/ios/oracle_ipa.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "oracle/config-dump-inputs/ios/oracle_zip.yaml": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "oracle/config-dump-inputs/oracle_map_keys.yaml": {
+    "exit": 0,
+    "accepted": true,
+    "config": {
+      "analyticsConfiguration": {
+        "type": "disabled"
+      },
+      "analyticsTracking": true,
+      "batchingStrategy": {
+        "type": "isolate"
+      },
+      "bugsnagReporting": true,
+      "ciConfiguration": {
+        "type": "none"
+      },
+      "debug": true,
+      "deviceInitializationTimeoutMillis": 180000,
+      "excludeSerialRegexes": [],
+      "executionStrategy": {
+        "fast": true,
+        "mode": "ANY_SUCCESS"
+      },
+      "filteringConfiguration": {
+        "allowlist": [],
+        "blocklist": []
+      },
+      "flakinessStrategy": {
+        "type": "ignore"
+      },
+      "ignoreFailures": false,
+      "includeSerialRegexes": [],
+      "isCodeCoverageEnabled": false,
+      "name": "map key order",
+      "outputConfiguration": {
+        "maxFilename": 255,
+        "maxPath": 0
+      },
+      "outputDir": "<ROOT>/40/input/marathon",
+      "poolingStrategy": {
+        "type": "omni"
+      },
+      "retryStrategy": {
+        "type": "no-retry"
+      },
+      "screenRecordingPolicy": "ON_FAILURE",
+      "shardingStrategy": {
+        "type": "parallel"
+      },
+      "sortingStrategy": {
+        "type": "no-sorting"
+      },
+      "testBatchTimeoutMillis": 1800000,
+      "testOutputTimeoutMillis": 300000,
+      "uncompletedTestRetryQuota": 2147483647,
+      "vendorConfiguration": {
+        "adbInitTimeoutMillis": 30000,
+        "adbServers": [
+          {
+            "host": "127.0.0.1",
+            "port": 5037
+          }
+        ],
+        "allureConfiguration": {
+          "enabled": false,
+          "pathRoot": "APP_DATA",
+          "relativeResultsDirectory": "/files/allure-results"
+        },
+        "androidSdk": "/opt/android-sdk",
+        "applicationOutput": null,
+        "applicationPmClear": false,
+        "autoGrantPermission": false,
+        "disableWindowAnimation": true,
+        "extraApplicationsOutput": null,
+        "fileSyncConfiguration": {
+          "pull": [],
+          "push": []
+        },
+        "installOptions": "",
+        "instrumentationArgs": {
+          "Z": "U+005A",
+          "a": "U+0061",
+          "é": "U+00E9",
+          "😀": "U+1F600",
+          "ｚ": "fullwidth z, U+FF5A"
+        },
+        "mockLocation": false,
+        "outputs": null,
+        "profilingConfiguration": {
+          "enabled": false,
+          "pbtxt": null,
+          "urlTemplate": "https://cloud.marathonlabs.io/"
+        },
+        "screenRecordConfiguration": {
+          "preferableRecorderType": null,
+          "screenshotConfiguration": {
+            "delayMs": 500,
+            "enabled": true,
+            "height": 1280,
+            "width": 720
+          },
+          "videoConfiguration": {
+            "bitrateMbps": 1,
+            "enabled": true,
+            "height": 1280,
+            "timeLimit": 180,
+            "timeLimitUnits": "SECONDS",
+            "width": 720
+          }
+        },
+        "serialStrategy": "AUTOMATIC",
+        "splitApks": null,
+        "testAccessConfiguration": {
+          "adb": false,
+          "console": false,
+          "consoleToken": "",
+          "grpc": false
+        },
+        "testApplicationOutput": null,
+        "testApplicationPmClear": false,
+        "testParserConfiguration": {
+          "type": "local"
+        },
+        "threadingConfiguration": {
+          "adbIoThreads": 4,
+          "bootWaitingThreads": 4,
+          "installThreads": 8
+        },
+        "timeoutConfiguration": {
+          "boot": "PT30S",
+          "install": "PT1M",
+          "listFiles": "PT20S",
+          "portForward": "PT20S",
+          "pullFile": "PT30S",
+          "pushFile": "PT1M",
+          "pushFolder": "PT1M",
+          "screencapturer": "PT0.3S",
+          "screenrecorder": "PT3M20S",
+          "shell": "PT20S",
+          "socketIdleTimeout": "PT30S",
+          "uninstall": "PT20S"
+        },
+        "type": "Android",
+        "waitForDevicesTimeoutMillis": 30000
+      }
+    }
+  },
+  "schema/a-binding-wrapped": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-bundle-before-devices": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-bundle-missing-derived": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-devices-symlink-loop": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-empty-vendor": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-known-hosts-symlink-loop": {
+    "exit": 0,
+    "accepted": true,
+    "config": {
+      "analyticsConfiguration": {
+        "type": "disabled"
+      },
+      "analyticsTracking": true,
+      "batchingStrategy": {
+        "type": "isolate"
+      },
+      "bugsnagReporting": true,
+      "ciConfiguration": {
+        "type": "none"
+      },
+      "debug": true,
+      "deviceInitializationTimeoutMillis": 180000,
+      "excludeSerialRegexes": [],
+      "executionStrategy": {
+        "fast": true,
+        "mode": "ANY_SUCCESS"
+      },
+      "filteringConfiguration": {
+        "allowlist": [],
+        "blocklist": []
+      },
+      "flakinessStrategy": {
+        "type": "ignore"
+      },
+      "ignoreFailures": false,
+      "includeSerialRegexes": [],
+      "isCodeCoverageEnabled": false,
+      "name": "t",
+      "outputConfiguration": {
+        "maxFilename": 255,
+        "maxPath": 0
+      },
+      "outputDir": "<ROOT>/schema-9/out",
+      "poolingStrategy": {
+        "type": "omni"
+      },
+      "retryStrategy": {
+        "type": "no-retry"
+      },
+      "screenRecordingPolicy": "ON_FAILURE",
+      "shardingStrategy": {
+        "type": "parallel"
+      },
+      "sortingStrategy": {
+        "type": "no-sorting"
+      },
+      "testBatchTimeoutMillis": 1800000,
+      "testOutputTimeoutMillis": 300000,
+      "uncompletedTestRetryQuota": 2147483647,
+      "vendorConfiguration": {
+        "bundle": null,
+        "compactOutput": false,
+        "deviceProvider": {
+          "path": null,
+          "type": "static"
+        },
+        "devicesFile": "<ROOT>/schema-9/Marathondevices",
+        "hideRunnerOutput": false,
+        "permissions": {
+          "grant": {}
+        },
+        "rsync": {
+          "remotePath": "/usr/bin/rsync"
+        },
+        "ssh": {
+          "authentication": null,
+          "debug": false,
+          "keepAliveInterval": "PT15S",
+          "keepAliveMaxCount": 4,
+          "knownHostsPath": "<ROOT>/schema-9/loop/kh",
+          "shareWorkerConnection": false
+        },
+        "testParserConfiguration": {
+          "testClassRegexes": [
+            "^((?!Abstract).)*Test[s]*$"
+          ],
+          "type": "nm"
+        },
+        "threadingConfiguration": {
+          "deviceProviderThreads": 8,
+          "deviceThreads": 2,
+          "provisioningConcurrency": 2
+        },
+        "timeoutConfiguration": {
+          "boot": "PT30S",
+          "bootWait": "PT3M",
+          "create": "PT30S",
+          "delete": "PT30S",
+          "erase": "PT30S",
+          "importMedia": "PT30S",
+          "install": "PT30S",
+          "reachability": "PT5S",
+          "screenshot": "PT10S",
+          "shell": "PT30S",
+          "shellIdle": "PT30S",
+          "shutdown": "PT30S",
+          "testDestination": "PT30S",
+          "uninstall": "PT30S",
+          "video": "PT5M",
+          "xcresulttool": "PT2M"
+        },
+        "type": "macOS",
+        "xcodebuildTestArgs": {},
+        "xcresult": {
+          "attachments": {
+            "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
+            "userAttachmentLifetime": "KEEP_ALWAYS"
+          },
+          "preferredScreenCaptureFormat": null,
+          "pull": null,
+          "pullingPolicy": "ALWAYS",
+          "queue": {
+            "capacity": 8,
+            "concurrency": 4,
+            "workerCapacity": null
+          },
+          "remoteClean": true
+        },
+        "xctestrunEnv": {
+          "appEnvs": {},
+          "testEnvs": {}
+        }
+      }
+    }
+  },
+  "schema/a-no-sdk": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-null-document": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-stub": {
+    "exit": 0,
+    "accepted": true,
+    "config": {
+      "analyticsConfiguration": {
+        "type": "disabled"
+      },
+      "analyticsTracking": true,
+      "batchingStrategy": {
+        "type": "isolate"
+      },
+      "bugsnagReporting": true,
+      "ciConfiguration": {
+        "type": "none"
+      },
+      "debug": true,
+      "deviceInitializationTimeoutMillis": 180000,
+      "excludeSerialRegexes": [],
+      "executionStrategy": {
+        "fast": true,
+        "mode": "ANY_SUCCESS"
+      },
+      "filteringConfiguration": {
+        "allowlist": [],
+        "blocklist": []
+      },
+      "flakinessStrategy": {
+        "type": "ignore"
+      },
+      "ignoreFailures": false,
+      "includeSerialRegexes": [],
+      "isCodeCoverageEnabled": false,
+      "name": "t",
+      "outputConfiguration": {
+        "maxFilename": 255,
+        "maxPath": 0
+      },
+      "outputDir": "<ROOT>/schema-11/out",
+      "poolingStrategy": {
+        "type": "omni"
+      },
+      "retryStrategy": {
+        "type": "no-retry"
+      },
+      "screenRecordingPolicy": "ON_FAILURE",
+      "shardingStrategy": {
+        "type": "parallel"
+      },
+      "sortingStrategy": {
+        "type": "no-sorting"
+      },
+      "testBatchTimeoutMillis": 1800000,
+      "testOutputTimeoutMillis": 300000,
+      "uncompletedTestRetryQuota": 2147483647,
+      "vendorConfiguration": {
+        "type": "stub"
+      }
+    }
+  },
+  "schema/a-substitution-cycle": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/a-unknown-vendor-type": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-all-success-flakiness": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-all-success-ok": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-all-success-retry": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-analytics-graphite-negative": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-analytics-influx": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-android-apk-is-dir": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-android-missing-apk": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-android-ok": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-android-split-missing": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-any-success-count": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-any-success-count-one": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-filter-allowlist-none": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-filter-allowlist-two": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-filter-blocklist-after-allowlist": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-filter-blocklist-only": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-filter-composition-nested": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-flakiness-parallel-ok": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-flakiness-sharding": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ignore-count-ok": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-known-hosts-missing": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-max-batches": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-no-bundle": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-precedence-max-batches-before-ssh": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-queue": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-ssh-key-missing": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-threading": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-tvos-ok": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-ios-worker-connection": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-macos-device-threads-ok": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-macos-f6-no-bundle": {
+    "exit": 0,
+    "accepted": true,
+    "config": {
+      "analyticsConfiguration": {
+        "type": "disabled"
+      },
+      "analyticsTracking": true,
+      "batchingStrategy": {
+        "type": "isolate"
+      },
+      "bugsnagReporting": true,
+      "ciConfiguration": {
+        "type": "none"
+      },
+      "debug": true,
+      "deviceInitializationTimeoutMillis": 180000,
+      "excludeSerialRegexes": [],
+      "executionStrategy": {
+        "fast": true,
+        "mode": "ANY_SUCCESS"
+      },
+      "filteringConfiguration": {
+        "allowlist": [],
+        "blocklist": []
+      },
+      "flakinessStrategy": {
+        "type": "ignore"
+      },
+      "ignoreFailures": false,
+      "includeSerialRegexes": [],
+      "isCodeCoverageEnabled": false,
+      "name": "t",
+      "outputConfiguration": {
+        "maxFilename": 255,
+        "maxPath": 0
+      },
+      "outputDir": "<ROOT>/schema-43/out",
+      "poolingStrategy": {
+        "type": "omni"
+      },
+      "retryStrategy": {
+        "type": "no-retry"
+      },
+      "screenRecordingPolicy": "ON_FAILURE",
+      "shardingStrategy": {
+        "type": "parallel"
+      },
+      "sortingStrategy": {
+        "type": "no-sorting"
+      },
+      "testBatchTimeoutMillis": 1800000,
+      "testOutputTimeoutMillis": 300000,
+      "uncompletedTestRetryQuota": 2147483647,
+      "vendorConfiguration": {
+        "bundle": null,
+        "compactOutput": false,
+        "deviceProvider": {
+          "path": null,
+          "type": "static"
+        },
+        "devicesFile": "<ROOT>/schema-43/Marathondevices",
+        "hideRunnerOutput": false,
+        "permissions": {
+          "grant": {}
+        },
+        "rsync": {
+          "remotePath": "/usr/bin/rsync"
+        },
+        "ssh": {
+          "authentication": null,
+          "debug": false,
+          "keepAliveInterval": "PT15S",
+          "keepAliveMaxCount": 4,
+          "knownHostsPath": null,
+          "shareWorkerConnection": false
+        },
+        "testParserConfiguration": {
+          "testClassRegexes": [
+            "^((?!Abstract).)*Test[s]*$"
+          ],
+          "type": "nm"
+        },
+        "threadingConfiguration": {
+          "deviceProviderThreads": 8,
+          "deviceThreads": 2,
+          "provisioningConcurrency": 2
+        },
+        "timeoutConfiguration": {
+          "boot": "PT30S",
+          "bootWait": "PT3M",
+          "create": "PT30S",
+          "delete": "PT30S",
+          "erase": "PT30S",
+          "importMedia": "PT30S",
+          "install": "PT30S",
+          "reachability": "PT5S",
+          "screenshot": "PT10S",
+          "shell": "PT30S",
+          "shellIdle": "PT30S",
+          "shutdown": "PT30S",
+          "testDestination": "PT30S",
+          "uninstall": "PT30S",
+          "video": "PT5M",
+          "xcresulttool": "PT2M"
+        },
+        "type": "macOS",
+        "xcodebuildTestArgs": {},
+        "xcresult": {
+          "attachments": {
+            "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
+            "userAttachmentLifetime": "KEEP_ALWAYS"
+          },
+          "preferredScreenCaptureFormat": null,
+          "pull": null,
+          "pullingPolicy": "ALWAYS",
+          "queue": {
+            "capacity": 8,
+            "concurrency": 4,
+            "workerCapacity": null
+          },
+          "remoteClean": true
+        },
+        "xctestrunEnv": {
+          "appEnvs": {},
+          "testEnvs": {}
+        }
+      }
+    }
+  },
+  "schema/b-macos-f6-ssh-key-missing": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-macos-provisioning": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-macos-provisioning-zero": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-macos-queue": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-macos-queue-before-provisioning": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-precedence-analytics-before-vendor": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-precedence-filter-before-analytics": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-precedence-flakiness-before-filter": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/b-precedence-vendor-before-execution": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-android-full": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-explicit-null-queue-worker-capacity": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-filter-null-value": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-filters": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-graphite": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-influxdb-rp": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-influxdb2": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-ios-full": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-ios-nm-explicit": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-macos-full": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-sorting-success-rate": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-strategies": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "schema/m-strategies-singletons": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "vendor-apple-base/fixtures/devices/Marathondevices": {
+    "accepted": false
+  },
+  "vendor-apple-base/fixtures/marathondevices/sample_1.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Local, devices: [Simulator { udid: JavaString([88, 88, 88]) }, Physical { udid: JavaString([89, 89, 89]) }] }, Worker { transport: Ssh { addr: JavaString([110, 111, 100, 101, 45, 49, 46, 100, 101, 118, 105, 99, 101, 45, 102, 97, 114, 109, 46, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109]), port: 44, authentication: Some(Password { username: JavaString([118, 97, 115, 121, 97]), password: \"<redacted>\" }), check_reachability: true }, devices: [SimulatorProfile(SimulatorProfile { device_type_id: JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 68, 101, 118, 105, 99, 101, 84, 121, 112, 101, 46, 105, 80, 104, 111, 110, 101, 45, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 54, 45, 50])), new_name_prefix: JavaString([112, 114, 101, 102, 105, 120]) })] }] }"
+  },
+  "vendor-apple-base/sample-xcworkspace/Marathondevices": {
+    "accepted": false
+  },
+  "vendor-apple-base/sample-xcworkspace/Marathonfile": {
+    "exit": 0,
+    "accepted": false,
+    "config": null
+  },
+  "vendor-apple-ios/fixtures/marathondevices/all.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [Simulator { udid: JavaString([49, 50, 51, 52, 53, 45, 65, 66, 67, 68, 69, 45, 53, 52, 51, 50, 49]) }, Physical { udid: JavaString([57, 56, 55, 54, 53, 45, 90, 89, 88, 87, 86, 45, 53, 54, 55, 56, 57]) }, SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), Host] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/allx2.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [Simulator { udid: JavaString([49, 50, 51, 52, 53, 45, 65, 66, 67, 68, 69, 45, 53, 52, 51, 50, 49]) }, Physical { udid: JavaString([57, 56, 55, 54, 53, 45, 90, 89, 88, 87, 86, 45, 53, 54, 55, 56, 57]) }, SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), Host, Simulator { udid: JavaString([49, 50, 51, 52, 53, 45, 65, 66, 67, 68, 69, 45, 53, 52, 51, 50, 50]) }, Physical { udid: JavaString([57, 56, 55, 54, 53, 45, 90, 89, 88, 87, 86, 45, 53, 54, 55, 56, 48]) }, SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) })] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/empty.yaml": {
+    "accepted": false
+  },
+  "vendor-apple-ios/fixtures/marathondevices/host.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [Host] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/simulator.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [Simulator { udid: JavaString([49, 50, 51, 52, 53, 45, 65, 66, 67, 68, 69, 45, 53, 52, 51, 50, 49]) }] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/simulatorprofile.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) })] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/simulatorprofilex2.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) })] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/simulatorprofilex3.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) })] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/simulatorprofilex4.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) }), SimulatorProfile(SimulatorProfile { device_type_id: JavaString([105, 80, 104, 111, 110, 101, 32, 88]), runtime_id: Some(JavaString([99, 111, 109, 46, 97, 112, 112, 108, 101, 46, 67, 111, 114, 101, 83, 105, 109, 117, 108, 97, 116, 111, 114, 46, 83, 105, 109, 82, 117, 110, 116, 105, 109, 101, 46, 105, 79, 83, 45, 49, 52, 45, 53])), new_name_prefix: JavaString([116, 101, 115, 116, 83, 105, 109]) })] }] }"
+  },
+  "vendor-apple-ios/fixtures/marathondevices/udid.yaml": {
+    "accepted": true,
+    "config": "MarathonDevices { workers: [Worker { transport: Ssh { addr: JavaString([49, 57, 50, 46, 49, 54, 56, 46, 49, 46, 49, 48]), port: 22, authentication: Some(PublicKey { username: JavaString([117, 115, 101, 114, 49, 50, 51]), key: JavaPath([47, 112, 97, 116, 104, 47, 116, 111, 47, 112, 114, 105, 118, 97, 116, 101, 47, 107, 101, 121]) }), check_reachability: true }, devices: [Physical { udid: JavaString([57, 56, 55, 54, 53, 45, 90, 89, 88, 87, 86, 45, 53, 54, 55, 56, 57]) }] }] }"
+  }
+}
