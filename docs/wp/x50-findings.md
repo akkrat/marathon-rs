@@ -53,7 +53,8 @@ Under `sshpass` 1.06 and 1.10 the statuses and text are the same while rsync end
 | openrsync | openrsync | `poll: timeout`, then waits for ssh |
 
 The `received SIGUSR1 (code 19)` in CI's text is the receiver child's line: the generator, which is the process the bridge
-waits for, exits 30 and `kill_all(SIGUSR1)`s the receiver (`cleanup.c`, unchanged from 3.4.1). Nothing exits 19. rsync 3.5
+waits for, exits 30 and `kill_all(SIGUSR1)`s the receiver (`cleanup.c`, unchanged from 3.4.1). The receiver exits 19; the process the
+bridge waits for exits 30 (review: S-x50-1). rsync 3.5
 changed nothing here that matters to the bridge: `check_timeout`, `maybe_send_keepalive` and `_exit_cleanup` read the same in
 both, and a pull that moves for 38 s with `--timeout=6` finishes on both.
 
