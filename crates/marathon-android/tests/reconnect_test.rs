@@ -61,7 +61,9 @@ const LIMIT_MILLIS: i64 = 400_000;
 const MAX_LATE_MILLIS: i64 = 3000;
 const HELD_IN_KOTLIN: &str = "rm ";
 const HELD_NOW: &str = "logcat -c";
-const RUN_TIMEOUT: Duration = Duration::from_secs(120);
+/// A hang catcher, not a timing assertion. A scenario that waits out D48's 180 s steps the virtual clock through about
+/// 190,000 ms, which took more than 120 s of real time on a loaded macOS CI runner while 22 other scenarios ran (U180).
+const RUN_TIMEOUT: Duration = Duration::from_secs(480);
 /// How long (real time) a due event may hold the virtual clock while its state is not reached.
 const HOLD: Duration = Duration::from_secs(20);
 
