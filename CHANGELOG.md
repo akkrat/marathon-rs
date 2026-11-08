@@ -25,6 +25,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   on every prepare. A test suite that relies on an empty external storage must now clear it itself. Videos left behind
   by an aborted run, or by a recording that a lost connection cut short in a run that still exits 0, are no longer
   removed by the next one.
+- **A cancelled run now takes up to 25 s to exit, with `debug: false` too** (D52). On SIGINT or SIGTERM it writes its reports
+  and terminates its devices before it exits with 130 or 143; Kotlin did that only with `debug: true`. Give the job at least
+  30 s between SIGTERM and SIGKILL, or the reports may be cut short. A second signal still exits at once.
 - **`socketIdleTimeout` is now real milliseconds** (D21). Kotlin read it as seconds, so `PT30S` lasted 30,000 s. It now
   bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal
   of port forwards at dispose. Remove the setting, or keep it at 30 s or more; `PT2S` now fails those on a slow adb server.
