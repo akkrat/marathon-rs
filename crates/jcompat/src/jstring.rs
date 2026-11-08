@@ -23,6 +23,17 @@ pub fn take_utf16(text: &str, count: usize) -> String {
         .collect()
 }
 
+/// D55: diagnostics stop before a character that would exceed the unit limit.
+pub fn take_utf16_complete(text: &str, mut count: usize) -> &str {
+    for (index, character) in text.char_indices() {
+        if character.len_utf16() > count {
+            return &text[..index];
+        }
+        count -= character.len_utf16();
+    }
+    text
+}
+
 /// Kotlin `String.lines()`: splits around `\r\n`, `\n` and `\r`. The segment
 /// after the last separator is always present, so an empty string is one
 /// empty line and a trailing separator yields a trailing empty line.
@@ -77,7 +88,6 @@ mod tests {
         assert_eq!(take_utf16("a😀z", 3), "a😀");
         assert_eq!(take_utf16("a😀z", 8), "a😀z");
         assert_eq!(take_utf16("a�z", 2), "a�");
-        assert_eq!(crate::file_manager::path_diagnostic(&[97, 0xd800]), "a?");
     }
 
     #[test]

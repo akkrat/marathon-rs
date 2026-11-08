@@ -27,12 +27,10 @@ impl JavaPath {
     }
 }
 
-/// Path truncation can split a pair even for valid input. Its diagnostic text
-/// must keep the JVM encoder's `?`, independently of D55's input replacement.
+/// D55: diagnostic text omits incomplete characters left by path truncation.
+/// The path itself keeps its UTF-16 units and its existing filesystem behavior.
 pub fn path_diagnostic(units: &[u16]) -> String {
-    char::decode_utf16(units.iter().copied())
-        .map(|c| c.unwrap_or('?'))
-        .collect()
+    char::decode_utf16(units.iter().copied()).flatten().collect()
 }
 
 /// Java's negated ASCII character class consumes a supplementary code point once.
@@ -448,4 +446,22 @@ pub fn relative_file(path: &JavaPath, base: &JavaPath, cwd: &JavaPath) -> String
     let common = target.iter().zip(&base).take_while(|(a, b)| a == b).count();
     let parts = std::iter::repeat_n(vec![46, 46], base.len() - common).chain(target.into_iter().skip(common));
     String::from_utf16_lossy(&parts.collect::<Vec<_>>().join(&47))
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn truncated_path_diagnostics_keep_only_complete_characters() {
+        let plan = FileManager::new(0, 2, "/out", "/").plan_test_result_file("a😀z");
+        assert!(plan.path.0.ends_with(&[97, 0xd83d]));
+        assert_eq!(plan.diagnostics.len(), 1);
+        assert_eq!(
+            path_diagnostic(&plan.diagnostics[0].0),
+            "File name length cannot exceed 2 characters and has been trimmed to a and can create a conflict.This usually happens because the test name is too long."
+        );
+        assert_eq!(path_diagnostic(&[97, 0xd83d]), "a");
+        assert_eq!(path_diagnostic(&[97, 0xd83d, 0xde00, 0xfffd]), "a😀�");
+    }
 }

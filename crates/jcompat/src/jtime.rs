@@ -160,7 +160,7 @@ enum Stop {
 pub fn parse_instant_detailed(s: &str) -> Result<Instant, InstantParseError> {
     let t: Vec<u16> = s.encode_utf16().collect();
     let abbr = if t.len() > 64 {
-        crate::jstring::take_utf16(s, 64) + "..."
+        crate::jstring::take_utf16_complete(s, 64).to_owned() + "..."
     } else {
         s.to_owned()
     };
@@ -590,6 +590,24 @@ pub fn influx_epoch_millis(instant: Instant) -> i128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn instant_error_abbreviation_keeps_complete_characters() {
+        for (input, abbreviation) in [
+            (format!("{}😀", "a".repeat(63)), format!("{}...", "a".repeat(63))),
+            (format!("{}😀z", "a".repeat(62)), format!("{}😀...", "a".repeat(62))),
+            (format!("{}😀", "a".repeat(62)), format!("{}😀", "a".repeat(62))),
+            (format!("{}�z", "a".repeat(63)), format!("{}�...", "a".repeat(63))),
+        ] {
+            assert_eq!(
+                parse_instant_detailed(&input).unwrap_err().chain,
+                vec![(
+                    PARSE_EXCEPTION,
+                    format!("Text '{abbreviation}' could not be parsed at index 0")
+                )]
+            );
+        }
+    }
 
     #[test]
     fn instants() {
