@@ -499,3 +499,30 @@ fn twenty_thousand_tests_construct_and_transition_in_linear_time() {
         })
     });
 }
+
+#[test]
+fn progress_line_contract_for_each_status() {
+    run(|core| {
+        Box::pin(async move {
+            for (status, label) in [
+                (TestStatus::Passed, "passed"),
+                (TestStatus::Failure, "failed"),
+                (TestStatus::Ignored, "ignored"),
+                (TestStatus::AssumptionFailure, "ignored"),
+                (TestStatus::Incomplete, "incomplete"),
+            ] {
+                let t = test("method");
+                let d = device("1");
+                let mut h = Harness::new(&core, vec![t.clone()], ExecutionMode::AnySuccess, false);
+                h.end(result(&t, &d, "1", status, 0, 1), false).await;
+                assert_eq!(
+                    h.raw(),
+                    vec![JavaString::from(format!(
+                        "00% | [test]-[1] com.example.Class#method {label}\n"
+                    ))]
+                );
+            }
+            Ok(())
+        })
+    });
+}

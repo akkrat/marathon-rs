@@ -302,3 +302,9 @@ fn malformed_primitive_array_metadata_falls_back_to_generic_projection() {
         assert_eq!(parse_results(&[make(array)], &[]), parse_results(&[make(list)], &[]));
     }
 }
+
+#[test]
+fn stdout_summary_contract() {
+    let (_, output, _) = generate("failed");
+    assert_eq!(output, b"Marathon run finished:\nDevice pool myPool:\n\t0 passed, 3 failed, 0 ignored tests\n\tFailed tests:\n\t\tcom.example#test1\n\t\tcom.example#test2\n\t\tcom.example#test3\n\tFlakiness overhead: 0H 00m 11s\n\tRaw: 0 passed, 3 failed, 0 ignored, 1 incomplete tests\n\tFailed tests:\n\t\tcom.example#test1 failed 1 time(s)\n\t\tcom.example#test2 failed 1 time(s)\n\t\tcom.example#test3 failed 1 time(s)\n\tIncomplete tests:\n\t\tcom.example#test2 incomplete 1 time(s)\nTotal time: 0H 00m 00s\n\n");
+}
