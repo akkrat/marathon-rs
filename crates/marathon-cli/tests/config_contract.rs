@@ -1,7 +1,9 @@
 use jcompat::{file_manager::JavaPath, jtime::instant_of};
 use marathon_config::{
     binding::{BindingContext, Profile},
+    devices::{AppleTarget, MarathonDevices, Transport},
     loader::MarathonConfigurationLoader,
+    vendor::SshAuthentication,
 };
 use serde_json::{Value, json};
 use std::{
@@ -10,6 +12,30 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
+
+fn devices_dump(devices: &MarathonDevices, root: &Path) -> Value {
+    let path = |units: &[u16]| String::from_utf16_lossy(units).replace(&root.to_string_lossy().to_string(), "<ROOT>");
+    json!(devices.workers.iter().map(|worker| {
+        let transport = match &worker.transport {
+            Transport::Local => json!({"type": "local"}),
+            Transport::Ssh { addr, port, authentication, check_reachability } => {
+                let authentication = match authentication {
+                    None => Value::Null,
+                    Some(SshAuthentication::Password { username, password }) => json!({"type": "password", "username": username.0, "password": password.0}),
+                    Some(SshAuthentication::PublicKey { username, key }) => json!({"type": "public-key", "username": username.0, "key": path(&key.0)}),
+                };
+                json!({"type": "ssh", "addr": addr.0, "port": port, "authentication": authentication, "checkReachability": check_reachability})
+            }
+        };
+        let targets: Vec<Value> = worker.devices.iter().map(|target| match target {
+            AppleTarget::Host => json!({"type": "host"}),
+            AppleTarget::Simulator { udid } => json!({"type": "simulator", "udid": udid.0}),
+            AppleTarget::Physical { udid } => json!({"type": "physical", "udid": udid.0}),
+            AppleTarget::SimulatorProfile(profile) => json!({"type": "simulator-profile", "deviceTypeId": profile.device_type_id.0, "runtimeId": profile.runtime_id.as_ref().map(|x| &x.0), "newNamePrefix": profile.new_name_prefix.0}),
+        }).collect();
+        json!({"transport": transport, "devices": targets})
+    }).collect::<Vec<_>>())
+}
 
 fn collect(dir: &Path, root: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for entry in fs::read_dir(dir)? {
@@ -79,7 +105,7 @@ fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::err
             };
             match MarathonConfigurationLoader.devices_sync(&fs::read(&input)?, &context) {
                 Ok(value) => {
-                    json!({"accepted": true, "config": format!("{value:?}").replace(&tmp_root.to_string_lossy().to_string(), "<ROOT>")})
+                    json!({"accepted": true, "config": devices_dump(&value, &tmp_root)})
                 }
                 Err(_) => json!({"accepted": false}),
             }
