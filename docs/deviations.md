@@ -455,7 +455,8 @@ started and left behind between two looks is missed; so is an orphan that a subr
 fails or takes over 5 s only the bridge's own child is stopped. rsync isn't put in a process group of its own, so that a terminal's Ctrl-C or a CI job's cancel
 still reaches it as in Kotlin.
 
-**Under `sshpass`** the TERM goes to rsync and what it started, and not to `sshpass`, which then exits with rsync's own status. `sshpass` 1.10 exits 0
+**Under `sshpass`** the TERM goes to rsync and what it started, rsync first and each process before those it started, and not to
+`sshpass`, which then exits with rsync's own status. `sshpass` 1.10 exits 0
 at once on a TERM of its own that comes before ssh has prompted, without waiting for rsync, so until x50 a transfer under it to a worker
 whose ssh hung, stalled or stopped, counted as a success ([U181](found-bugs.md)). Only where no listing found rsync does `sshpass` get the TERM, and then a 0 from it counts as a failure. Measured with
 rsync 3.4.1, 3.5.2 and openrsync, and `sshpass` 1.06, 1.09 and 1.10 ([x50 findings](wp/x50-findings.md)).

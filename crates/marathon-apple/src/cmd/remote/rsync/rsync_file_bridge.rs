@@ -761,7 +761,10 @@ impl Descendants {
     }
     /// Sends `signal` to those seen that are still this transfer's, checked by a listing just before: the same pid with the
     /// same start, and a parent that is one of them or init, as for an orphan. The child itself is the caller's to signal,
-    /// and counts as a parent only while `unreaped`. With no listing, nobody. Returns those signalled.
+    /// and counts as a parent only while `unreaped`. With no listing, nobody. Returns those signalled, in the order sent.
+    ///
+    /// Each gets it before the processes it started, as the child does before them (x50). Under `sshpass` rsync is one of
+    /// these, and an rsync that its ssh's end reached before its own TERM could finish all the same, which counts as success.
     async fn signal(&self, signal: nix::sys::signal::Signal, unreaped: bool) -> Vec<i32> {
         let Some(listing) = self.list(unreaped).await else {
             return Vec::new();
@@ -771,6 +774,8 @@ impl Descendants {
         if unreaped {
             ours.insert(self.root);
         }
+        // Found a generation at a time, so a process comes after its parent.
+        let mut order = Vec::new();
         loop {
             let found: Vec<i32> = seen
                 .iter()
@@ -786,15 +791,14 @@ impl Descendants {
             if found.is_empty() {
                 break;
             }
-            ours.extend(found);
+            ours.extend(&found);
+            order.extend(found);
         }
         drop(seen);
-        ours.remove(&self.root);
-        let ours: Vec<i32> = ours.into_iter().collect();
-        for pid in &ours {
+        for pid in &order {
             let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(*pid), signal);
         }
-        ours
+        order
     }
     /// After a stall, with the child reaped: TERM to what it started, 5 s for them to go, then KILL to any still there.
     async fn end(&self, clock: &dyn VendorClock) {
@@ -1013,6 +1017,46 @@ mod tests {
         );
         child.kill().await.unwrap();
         assert_eq!(processes().await.unwrap().get(&pid), None);
+    }
+
+    /// x50: a stop's signal reaches each process before the ones it started. Sent in no order, a TERM to ssh could come
+    /// first, and an rsync under `sshpass` that saw its ssh end before its own TERM could exit 0, which counts as success:
+    /// GitHub's ubuntu-22.04 runner did that once. A chain of five below the child, so that no order but the right one passes
+    /// (the old one did 1 time in 120). SIGCONT, so that nothing ends before the order is read.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_stop_signals_each_process_before_the_ones_it_started_u181() {
+        use nix::{sys::signal, unistd::Pid};
+        let dir = tempfile::tempdir().unwrap();
+        let chain = dir.path().join("chain");
+        std::fs::write(
+            &chain,
+            "#!/bin/sh\nif [ \"$1\" -gt 0 ]; then \"$0\" $(($1 - 1)) & wait; else exec /bin/sleep 100041; fi\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&chain, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+        let mut child = Command::new(&chain).arg("5").kill_on_drop(true).spawn().unwrap();
+        let root = child.id().unwrap() as i32;
+        let descendants = Descendants::of(&child);
+        tokio::time::timeout(std::time::Duration::from_secs(60), async {
+            while descendants.seen().len() < 6 {
+                descendants.list(true).await;
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let listing = processes().await.unwrap();
+        let order = descendants.signal(signal::Signal::SIGCONT, true).await;
+        for pid in order.iter().rev() {
+            let _ = signal::kill(Pid::from_raw(*pid), signal::Signal::SIGKILL);
+        }
+        child.kill().await.unwrap();
+        assert_eq!(order.len(), 5, "{order:?}");
+        let mut parent = root;
+        for pid in &order {
+            assert_eq!(listing.get(pid).map(|(parent, _)| *parent), Some(parent), "{order:?}");
+            parent = *pid;
+        }
     }
 
     #[test]

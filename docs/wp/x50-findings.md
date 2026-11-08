@@ -154,6 +154,41 @@ eight runs out of eight, since 1.06 doesn't return 0. The four `_u181` stand-in 
 and the new one (4 failed, then 5 passed). The library's rsync bridge unit tests: 4 passed. The worker's rsync in all of
 these is this Mac's openrsync, as on CI.
 
+## Follow-up: an rsync that saw its ssh go first (ubuntu-22.04)
+
+After merge review, GitHub's `ubuntu-22.04` gate (procps-ng 3.3.17, bash 5.1.16, rsync 3.2.7, `sshpass` 1.09) failed
+`a_cancelled_send_under_sshpass_1_10_is_cancelled_u181` once: the cancelled send returned `Ok(true)` in 0.08 s. Every other
+gate passed it, and so did the other four `_u181` tests there.
+
+**The cause is the order of the stop's signals, not `ps`.** Under `sshpass` the bridge's TERM goes to the processes the
+listing knows, and `Descendants::signal` sent it in a `HashSet`'s order, so the stand-in for ssh could get it before the
+stand-in for rsync. The rsync stand-in waits for its ssh (`wait`); if the thread sending the signals is preempted between
+the two, ssh dies, `wait` returns 0, and rsync runs to its end and exits 0 before its own TERM comes. `sshpass` passes that
+0 on, which D54 keeps as a transfer that finished all the same. Without `sshpass` the child, rsync, gets its TERM before
+anything else, so only the wrapped path had the race, and it needs the sending thread preempted, as on a busy CI runner.
+
+- **Confirmed** with a temporary build that sent the TERMs children first with 100 ms between them: both cancelled-send tests
+  under a stand-in `sshpass`, the `_u181` one and D54's `a_cancelled_send_under_sshpass_also_stops_rsync_d54`, returned
+  CI's `Ok(true)` 3 times out of 3 each; parents first, they passed 3 out of 3. So D54's test had the same race and passed on
+  ubuntu-22.04 by luck.
+- **Ruled out:** procps-ng 3.3.17, built on the Linux gate box, prints `ps -A -o pid=,ppid=,lstart=` exactly as 4.0.4
+  does, and both take `lstart` from `/proc/stat`'s boot time, unchanged over 60 calls for a new process. bash 5.1.16 and
+  5.3, built or installed there, always die with 143 on a TERM while in `wait`, whichever of rsync and ssh is signalled
+  first, 30 out of 30 each: without a trap, a non-interactive bash has no TERM handler (bash's `sig.c`), so a TERMed
+  stand-in can't exit 0. On that 16-core box, with bash 5.1.16 and `ps` 3.3.17 first, the test passed 20 out of 20 alone
+  in each of four combinations, the whole file 3 out of 3, and both cancelled-send tests 160 out of 160 at 16 at a time.
+  The race was not reproduced without forcing the preemption.
+
+**The fix.** `Descendants::signal` finds the processes a generation at a time and signals them in that order, so each
+process gets its signal before the processes it started, as the child already did before them. An rsync then has its TERM
+before its ssh can end. A real rsync whose ssh ended first fails anyway (connection closed); the stand-in's `wait` is
+what made it a success, and the order makes the test independent of it.
+
+**The test.** `a_stop_signals_each_process_before_the_ones_it_started_u181` (unit) starts a chain of five processes below
+the child and checks that each one signalled (with SIGCONT) is the child of the one before. It failed 5 out of 5 with the
+old order, which matches the chain 1 time in 120, and passes 5 out of 5. The cancelled-send tests are unchanged: with the
+order fixed, the stand-in rsync is always TERMed first.
+
 ## Limits
 
 - Where `ps` fails, under `sshpass` 1.10 a transfer that finished just as the TERM came counts as failed, since `sshpass`'s 0
