@@ -1,7 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/PropertyList.kt
 
-use super::{PlistError, PlistResult};
-
 fn number(bytes: &[u8]) -> Option<usize> {
     if bytes.is_empty() || bytes.len() > 8 {
         return None;
@@ -14,13 +12,18 @@ fn number(bytes: &[u8]) -> Option<usize> {
 /// D55: replace lone units in binary plist string objects before the strict
 /// plist decoder runs. Replacements have the same width, so object offsets and
 /// lengths remain intact; data objects are deliberately never interpreted.
-pub(super) fn decode(bytes: &mut [u8]) -> PlistResult<()> {
-    normalize(bytes).ok_or_else(|| PlistError::NotAPlist {
-        message: "invalid binary plist string or offset table".into(),
-    })
+pub(super) fn decode(bytes: &mut [u8]) {
+    // Leave malformed layouts to the existing decoder; this boundary must not
+    // introduce new validation rules or partially rewrite structural bytes.
+    if let Some(replacements) = lone_units(bytes) {
+        for at in replacements {
+            bytes[at..at + 2].copy_from_slice(&0xfffdu16.to_be_bytes());
+        }
+    }
 }
 
-fn normalize(bytes: &mut [u8]) -> Option<()> {
+fn lone_units(bytes: &[u8]) -> Option<Vec<usize>> {
+    let mut replacements = Vec::new();
     let trailer_start = bytes.len().checked_sub(32)?;
     let trailer = bytes.get(trailer_start..)?;
     let width = usize::from(trailer[6]);
@@ -43,10 +46,8 @@ fn normalize(bytes: &mut [u8]) -> Option<()> {
         let mut length = usize::from(marker & 15);
         if length == 15 {
             let marker = *bytes.get(start)?;
-            if marker >> 4 != 1 || marker & 15 > 3 {
-                return None;
-            }
-            let width = 1usize << (marker & 15);
+            // Match plist's existing compressed-length interpretation.
+            let width = 1usize << (marker & 3);
             start = start.checked_add(1)?;
             length = number(bytes.get(start..start.checked_add(width)?)?)?;
             start = start.checked_add(width)?;
@@ -55,7 +56,7 @@ fn normalize(bytes: &mut [u8]) -> Option<()> {
         if end > table {
             return None;
         }
-        let text = bytes.get_mut(start..end)?;
+        let text = bytes.get(start..end)?;
         let mut i = 0;
         while i < text.len() {
             let unit = u16::from_be_bytes([text[i], text[i + 1]]);
@@ -67,17 +68,18 @@ fn normalize(bytes: &mut [u8]) -> Option<()> {
                 continue;
             }
             if (0xd800..=0xdfff).contains(&unit) {
-                text[i..i + 2].copy_from_slice(&0xfffdu16.to_be_bytes());
+                replacements.push(start + i);
             }
             i += 2;
         }
     }
-    Some(())
+    Some(replacements)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plist::PlistResult;
 
     fn binary(marker: u8, payload: &[u8]) -> Vec<u8> {
         let mut bytes = b"bplist00".to_vec();
@@ -96,14 +98,14 @@ mod tests {
     fn binary_strings_decode_lossily_without_touching_pairs_or_data() -> PlistResult<()> {
         let payload = [0xd8, 0, 0, b'x', 0xdc, 0, 0xd8, 0x3d, 0xde, 0];
         let mut bytes = binary(0x65, &payload);
-        decode(&mut bytes)?;
+        decode(&mut bytes);
         assert_eq!(
             super::super::parse_value(bytes)?,
             super::super::PlistValue::String("�x�😀".into())
         );
         let mut data = binary(0x4a, &payload);
         let original = data.clone();
-        decode(&mut data)?;
+        decode(&mut data);
         assert_eq!(data, original);
         Ok(())
     }
@@ -113,13 +115,23 @@ mod tests {
         let mut payload = vec![0x10, 16];
         payload.extend([0xd8, 0].repeat(16));
         let mut bytes = binary(0x6f, &payload);
-        decode(&mut bytes)?;
+        decode(&mut bytes);
         assert_eq!(
             super::super::parse_value(bytes)?,
             super::super::PlistValue::String("�".repeat(16))
         );
+        // The existing decoder reads only the length marker's low two bits.
+        let mut nonstandard = binary(0x6f, &[0x80, 1, 0xd8, 0]);
+        decode(&mut nonstandard);
+        assert_eq!(
+            super::super::parse_value(nonstandard)?,
+            super::super::PlistValue::String("�".into())
+        );
         for size in 0..48 {
-            assert!(decode(&mut vec![0; size]).is_err());
+            let mut malformed = vec![0; size];
+            decode(&mut malformed);
+            assert_eq!(malformed, vec![0; size]);
+            assert!(super::super::parse_value(malformed).is_err());
         }
         Ok(())
     }

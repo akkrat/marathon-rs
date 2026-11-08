@@ -742,9 +742,7 @@ impl DexFile {
             .get_or_init(|| {
                 let mut result = None;
                 for (index, type_id) in self.type_ids.iter().enumerate() {
-                    if crate::parser::parse_descriptor(self, *type_id)?
-                        == crate::parser::java_string("Ljava/lang/annotation/Inherited;")
-                    {
+                    if crate::parser::parse_descriptor(self, *type_id)? == "Ljava/lang/annotation/Inherited;" {
                         result = Some(index as i32);
                     }
                 }

@@ -4,7 +4,7 @@
 //! TestMethod, TestAnnotation, FormatUtils, ParseUtils, DexFileUtils.
 //! The Clikt CLI (`main`, findTestNames) is not ported (WP 6.4 P6).
 //!
-//! Strings are jcompat `String` (UTF-16) exactly once, at decode.
+//! Strings are native UTF-8, decoded once at the input boundary.
 //! DEX string data is MUTF-8, but ParseUtils decodes it with
 //! `String(bytes)`, the default charset, which is UTF-8 on the reference
 //! JDK (JEP 400). That decode is reproduced (WP 6.4 P1 withdrawn): an
@@ -27,10 +27,6 @@ use std::{
     sync::Arc,
 };
 
-pub fn java_string(text: &str) -> String {
-    text.into()
-}
-
 /// TestAnnotation (TestAnnotation.kt): insertion-ordered values; duplicate
 /// element names keep the first position with the last value (Kotlin Map).
 #[derive(Clone, Debug)]
@@ -42,8 +38,7 @@ pub struct TestAnnotation {
 
 impl TestAnnotation {
     pub fn value(&self, name: &str) -> Option<&DecodedValue> {
-        let key = java_string(name);
-        self.values.iter().find(|(k, _)| *k == key).map(|(_, v)| v)
+        self.values.iter().find(|(k, _)| k == name).map(|(_, v)| v)
     }
 }
 
@@ -267,7 +262,7 @@ pub fn parse_string_at(dex: &DexFile, offset: i32) -> DexResult<String> {
 /// starts a (surrogate) sequence that becomes ONE U+FFFD. Checked against
 /// the JVM in fixtures/oracle/dex/string-bytes.txt.
 pub fn decode_string_bytes(bytes: &[u8]) -> String {
-    jcompat::utf8::decode_utf8(bytes).as_str().into()
+    jcompat::utf8::decode_utf8(bytes)
 }
 
 /// ParseUtils.parseDescriptor: the raw `L…;` string for a type id.
@@ -525,7 +520,7 @@ const JUNIT_TEST_ANNOTATION_NAME: &str = "org.junit.Test";
 /// containsTestAnnotation checks the MERGED annotation list, so a
 /// class-level @Test would promote every annotated method.
 fn contains_test_annotation(method: &TestMethod, custom_annotations: &[String]) -> bool {
-    let junit = java_string(JUNIT_TEST_ANNOTATION_NAME);
+    let junit = JUNIT_TEST_ANNOTATION_NAME;
     method
         .annotations
         .iter()
@@ -745,7 +740,7 @@ const DEFAULT_DESCRIPTORS: [&str; 15] = [
 /// duplicated tests in abstract-class-in-second-dex.apk). The recursion
 /// shape is therefore replicated exactly; see docs/wp/6.4-findings.md.
 fn find_junit3_tests(dex_files: &[DexFile]) -> DexResult<Vec<TestMethod>> {
-    let mut descriptors: Vec<String> = DEFAULT_DESCRIPTORS.iter().map(|d| java_string(d)).collect();
+    let mut descriptors: Vec<String> = DEFAULT_DESCRIPTORS.iter().map(|d| (*d).to_owned()).collect();
     let mut test_names: Vec<TestMethod> = Vec::new();
     for prefix in (1..=dex_files.len()).rev() {
         for dex in &dex_files[..prefix] {

@@ -1210,3 +1210,11 @@ The recordings kept the host and run identities they were made with. See
 ## WP 8.1 native scalar contract
 
 - `contract/yaml-scalars.tsv` — hand-authored scalar and expected-type cases derived from the resolver patterns in `crates/snakeyaml/src/resolve.rs`. Both the Rust resolver test and the differential comparator test read this same table.
+
+`fixtures/oracle/jcompat/writer_native_strings.jsonl` is new WP 8.2 oracle data.
+It contains the 47 rows whose outputs differ after replacing lone UTF-16 input units
+with U+FFFD (D55), independently generated with
+`tools/oracle/writer-probes/run --native-strings` and the same pinned JVM libraries
+as `writer_edges.jsonl`. Retain only rows differing from that original table;
+raw input units stay in each row. Valid-input rows continue to use the unchanged
+original oracle. No copied resource or original oracle table was edited.

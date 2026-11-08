@@ -18,10 +18,6 @@ pub struct InstrumentationInfo {
     pub test_runner_class: String,
 }
 
-fn java_string(text: &str) -> String {
-    text.into()
-}
-
 /// ZipFile(apk).getEntry("AndroidManifest.xml") + getInputStream(entry):
 /// a missing entry is the platform NPE from getInputStream(null), which
 /// ApkParser's IOException catch does not wrap (probed: class
@@ -89,16 +85,16 @@ fn parse_instrumentation_info_inner(apk: &Path) -> DexResult<InstrumentationInfo
     while event_type != END_DOCUMENT {
         if event_type == START_TAG {
             let parser_name = parser.name()?;
-            let is_manifest = parser_name.as_ref() == Some(&java_string("manifest"));
-            let is_instrumentation = parser_name.as_ref() == Some(&java_string("instrumentation"));
+            let is_manifest = parser_name.as_deref() == Some("manifest");
+            let is_instrumentation = parser_name.as_deref() == Some("instrumentation");
             if is_manifest || is_instrumentation {
                 for i in 0..parser.attribute_count() {
                     let attribute_name = parser.attribute_name(i)?;
-                    if is_manifest && attribute_name.as_ref() == Some(&java_string("package")) {
+                    if is_manifest && attribute_name.as_deref() == Some("package") {
                         test_package = parser.attribute_value_string(i)?;
-                    } else if is_instrumentation && attribute_name.as_ref() == Some(&java_string("targetPackage")) {
+                    } else if is_instrumentation && attribute_name.as_deref() == Some("targetPackage") {
                         app_package = parser.attribute_value_string(i)?;
-                    } else if is_instrumentation && attribute_name.as_ref() == Some(&java_string("name")) {
+                    } else if is_instrumentation && attribute_name.as_deref() == Some("name") {
                         test_runner_class = parser.attribute_value_string(i)?;
                     }
                 }
@@ -149,9 +145,9 @@ fn parse_app_package_name_inner(apk: &Path) -> DexResult<String> {
     while event_type != END_DOCUMENT {
         if event_type == START_TAG {
             let parser_name = parser.name()?;
-            if parser_name.as_ref() == Some(&java_string("manifest")) {
+            if parser_name.as_deref() == Some("manifest") {
                 for i in 0..parser.attribute_count() {
-                    if parser.attribute_name(i)?.as_ref() == Some(&java_string("package")) {
+                    if parser.attribute_name(i)?.as_deref() == Some("package") {
                         app_package = parser.attribute_value_string(i)?;
                         break; // first package attribute wins; the walk continues
                     }

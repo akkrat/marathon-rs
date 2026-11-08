@@ -42,7 +42,7 @@ fn check_writer_rows(table: &str) -> Result<(), Box<dyn std::error::Error>> {
         let row: Value = serde_json::from_str(line)?;
         let value = input(&row["input"]);
         // Same pinned JVM writers, with only the input units normalized for D55.
-        let native = include_str!("data/writer_native_strings.jsonl")
+        let native = include_str!("../../../fixtures/oracle/jcompat/writer_native_strings.jsonl")
             .lines()
             .map(serde_json::from_str::<Value>)
             .collect::<Result<Vec<_>, _>>()?;
