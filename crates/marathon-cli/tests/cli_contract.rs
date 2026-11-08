@@ -39,8 +39,33 @@ fn cli_syntax_and_effects() {
         assert_eq!(String::from_utf16_lossy(&marathonfile.0), "Marathonfile");
         assert!(analytics_tracking && bugsnag_reporting);
     }
+    let Invocation::Execute(CliConfiguration::Parse {
+        marathonfile,
+        output_file_name,
+        include_flaky_tests,
+    }) = invocation(&["parse"])
+    else {
+        panic!("parse defaults")
+    };
+    assert_eq!(String::from_utf16_lossy(&marathonfile.0), "Marathonfile");
+    assert_eq!(output_file_name, None);
+    assert!(!include_flaky_tests);
+    let Invocation::Execute(CliConfiguration::Run {
+        analytics_tracking,
+        bugsnag_reporting,
+        ..
+    }) = invocation(&["--analyticsTracking", "false", "--bugsnag", "false"])
+    else {
+        panic!("root options")
+    };
+    assert!(!analytics_tracking && !bugsnag_reporting);
     for flag in ["-m", "--marathonfile"] {
         let Invocation::Execute(CliConfiguration::Run { marathonfile, .. }) = invocation(&["run", flag, "custom"])
+        else {
+            panic!("{flag}")
+        };
+        assert_eq!(String::from_utf16_lossy(&marathonfile.0), "custom");
+        let Invocation::Execute(CliConfiguration::Parse { marathonfile, .. }) = invocation(&["parse", flag, "custom"])
         else {
             panic!("{flag}")
         };
