@@ -935,8 +935,27 @@ fn a_failed_send_without_a_stall_report_keeps_its_message_and_stderr_d31() {
     let program = fake_rsync(dir.path(), "echo 'rsync: some other failure' >&2\nexit 23");
     stalled_send_child("other", &program, None, dir.path());
 }
-/// What `sshpass` does on TERM, measured with the real one: it exits at once, and rsync and ssh stay. See the real test.
+/// What `sshpass` 1.06 does on TERM, measured with the real one: it exits at once, and rsync and ssh stay. See the real test.
+/// Left alone, it exits with rsync's status.
 const FAKE_SSHPASS: &str = "#!/bin/bash\nshift 2\ntrap 'exit 143' TERM\n\"$@\" &\nwait $!\n";
+/// U181: what `sshpass` 1.10 does on TERM before ssh has prompted, measured with the real one: it exits 0 at once, whatever
+/// rsync does.
+const SSHPASS_1_10: &str = "#!/bin/bash\nshift 2\ntrap 'exit 0' TERM\n\"$@\" &\nwait $!\n";
+#[test]
+fn a_stalled_send_under_sshpass_1_10_is_still_a_stall_u181() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = fake_rsync(
+        dir.path(),
+        "echo 'rsync(1): error: poll: timeout' >&2\nexec /bin/sleep 100037",
+    );
+    let sshpass = dir.path().join("sshpass");
+    script(&sshpass, SSHPASS_1_10);
+    run_stalled_send(StalledSend {
+        sshpass: Some(&sshpass),
+        factor: 100,
+        ..StalledSend::new("hung", &program, dir.path())
+    });
+}
 #[test]
 fn a_stalled_send_under_sshpass_also_stops_rsync_d31() {
     let dir = tempfile::tempdir().unwrap();
@@ -970,7 +989,7 @@ fn rsync_under_sshpass_that_ignores_term_is_killed_d31() {
 }
 #[test]
 fn rsync_under_sshpass_gets_its_step_after_term_d31() {
-    // sshpass is gone at once, and that must not cost rsync the step before KILL: 0.5 s at this factor against 0.05 s here.
+    // An sshpass gone at once must not cost rsync the step before KILL: 0.5 s at this factor against 0.05 s here.
     let dir = tempfile::tempdir().unwrap();
     let program = fake_rsync(
         dir.path(),
@@ -1059,16 +1078,15 @@ exec {} "${{args[@]}}"
 fn the_real_rsync_gives_up_on_a_hung_ssh_d31() {
     real_rsync_with_a_hung_ssh(None, "stalled_send_runs");
 }
-fn real_sshpass() -> Option<&'static Path> {
-    ["/opt/homebrew/bin/sshpass", "/usr/bin/sshpass"]
-        .into_iter()
-        .map(Path::new)
-        .find(|path| path.exists())
+/// The `sshpass` on this host's `PATH`, so that a build of another version can be tried, else Homebrew's.
+fn real_sshpass() -> Option<std::path::PathBuf> {
+    real_tool("sshpass")
+        .or_else(|| Some(std::path::PathBuf::from("/opt/homebrew/bin/sshpass")).filter(|path| path.exists()))
 }
 #[test]
 fn the_real_rsync_under_the_real_sshpass_gives_up_on_a_hung_ssh_d31() {
     match real_sshpass() {
-        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(sshpass), "stalled_send_runs"),
+        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(&sshpass), "stalled_send_runs"),
         None => eprintln!("skipped: no sshpass on this host"),
     }
 }
@@ -1079,12 +1097,13 @@ fn the_real_rsync_is_stopped_when_a_receive_stalls_d43() {
 #[test]
 fn the_real_rsync_under_the_real_sshpass_is_stopped_when_a_receive_stalls_d43() {
     match real_sshpass() {
-        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(sshpass), "stalled_receive_runs"),
+        Some(sshpass) => real_rsync_with_a_hung_ssh(Some(&sshpass), "stalled_receive_runs"),
         None => eprintln!("skipped: no sshpass on this host"),
     }
 }
-/// A stand-in for rsync on a receive that records its pid, reports a stall as openrsync does, and does `body`.
-fn stalled_receive(root: &Path, body: &str, sshpass: bool, extra_path: Option<&Path>) {
+/// A stand-in for rsync on a receive that records its pid, reports a stall as openrsync does, and does `body`, under a
+/// stand-in for `sshpass` if one is given.
+fn stalled_receive(root: &Path, body: &str, sshpass: Option<&str>, extra_path: Option<&Path>) {
     let program = root.join("rsync");
     script(
         &program,
@@ -1093,9 +1112,9 @@ fn stalled_receive(root: &Path, body: &str, sshpass: bool, extra_path: Option<&P
         ),
     );
     let fake_sshpass = root.join("sshpass");
-    script(&fake_sshpass, FAKE_SSHPASS);
+    script(&fake_sshpass, sshpass.unwrap_or(FAKE_SSHPASS));
     run_stalled_send(StalledSend {
-        sshpass: sshpass.then_some(fake_sshpass.as_path()),
+        sshpass: sshpass.is_some().then_some(fake_sshpass.as_path()),
         extra_path,
         factor: 100,
         child: "stalled_receive_runs",
@@ -1137,17 +1156,22 @@ const IGNORES_TERM: &str = "trap '' TERM\nwhile :; do /bin/sleep 0.05; done";
 #[test]
 fn a_stalled_receive_that_ignores_term_is_killed_d43() {
     let dir = tempfile::tempdir().unwrap();
-    stalled_receive(dir.path(), IGNORES_TERM, false, None);
+    stalled_receive(dir.path(), IGNORES_TERM, None, None);
 }
 #[test]
 fn a_stalled_receive_under_sshpass_also_stops_rsync_d43() {
     let dir = tempfile::tempdir().unwrap();
-    stalled_receive(dir.path(), "exec /bin/sleep 100037", true, None);
+    stalled_receive(dir.path(), "exec /bin/sleep 100037", Some(FAKE_SSHPASS), None);
+}
+#[test]
+fn a_stalled_receive_under_sshpass_1_10_returns_false_u181() {
+    let dir = tempfile::tempdir().unwrap();
+    stalled_receive(dir.path(), "exec /bin/sleep 100037", Some(SSHPASS_1_10), None);
 }
 #[test]
 fn rsync_that_ignores_term_on_a_stalled_receive_under_sshpass_is_killed_d43() {
     let dir = tempfile::tempdir().unwrap();
-    stalled_receive(dir.path(), IGNORES_TERM, true, None);
+    stalled_receive(dir.path(), IGNORES_TERM, Some(FAKE_SSHPASS), None);
 }
 /// A stand-in for ssh under the rsync stand-in, which ignores TERM as a wedged one might.
 const SSH_IGNORING_TERM: &str = "(trap '' TERM; exec /bin/sleep 100039) &\necho $! > \"$MRS_D31_ROOT/grandchild\"\n";
@@ -1890,11 +1914,20 @@ const EXITS_0_ON_TERM: (&str, &str) = ("trap 'exit 0' TERM", "while :; do /bin/s
 /// D54: a transfer stopped mid-way. An rsync that ends on TERM runs on the slow clock; one that ignores TERM on a real one, so
 /// that its KILL comes after D31's real 5 s. The parent checks that nothing the transfer started is left.
 fn stopped_transfer(mode: &str, ssh: &str, body: (&str, &str)) {
+    stopped_transfer_under(None, mode, ssh, body);
+}
+/// `stopped_transfer` under a stand-in for `sshpass`, if one is given.
+fn stopped_transfer_under(sshpass: Option<&str>, mode: &str, ssh: &str, body: (&str, &str)) {
     let dir = tempfile::tempdir().unwrap();
     let program = stoppable_rsync(dir.path(), ssh, body);
+    let fake_sshpass = dir.path().join("sshpass");
+    if let Some(text) = sshpass {
+        script(&fake_sshpass, text);
+    }
     run_stalled_send(StalledSend {
         factor: 1,
         slow: (ssh == SSH && body == WAITS).then_some(SLOW),
+        sshpass: sshpass.is_some().then_some(fake_sshpass.as_path()),
         child: "stopped_transfer_runs",
         ..StalledSend::new(mode, &program, dir.path())
     });
@@ -1922,17 +1955,25 @@ fn a_receive_whose_connection_is_lost_returns_false_and_stops_rsync_d54() {
 }
 #[test]
 fn a_cancelled_send_under_sshpass_also_stops_rsync_d54() {
-    let dir = tempfile::tempdir().unwrap();
-    let program = stoppable_rsync(dir.path(), SSH, WAITS);
-    let fake_sshpass = dir.path().join("sshpass");
-    script(&fake_sshpass, FAKE_SSHPASS);
-    run_stalled_send(StalledSend {
-        factor: 1,
-        slow: Some(SLOW),
-        sshpass: Some(&fake_sshpass),
-        child: "stopped_transfer_runs",
-        ..StalledSend::new("cancel-send", &program, dir.path())
-    });
+    stopped_transfer_under(Some(FAKE_SSHPASS), "cancel-send", SSH, WAITS);
+}
+#[test]
+fn a_cancelled_send_under_sshpass_1_10_is_cancelled_u181() {
+    stopped_transfer_under(Some(SSHPASS_1_10), "cancel-send", SSH, WAITS);
+}
+#[test]
+fn a_receive_under_sshpass_1_10_whose_connection_is_lost_returns_false_u181() {
+    stopped_transfer_under(Some(SSHPASS_1_10), "lost-receive", SSH, WAITS);
+}
+/// D54's success for an rsync that exits 0 on TERM stays under `sshpass`, since `sshpass` now reports rsync's own status.
+#[test]
+fn a_cancelled_send_under_sshpass_1_10_whose_rsync_exits_0_on_term_keeps_its_success_u181() {
+    stopped_transfer_under(
+        Some(SSHPASS_1_10),
+        "cancel-send-exits-0",
+        SSH_IGNORING_TERM_TOO,
+        EXITS_0_ON_TERM,
+    );
 }
 /// D54's child: `MRS_D31_MODE` is `cancel` or `lost`, then `send` or `receive`, and `-stubborn` for an rsync that ignores
 /// TERM or `-exits-0` for one that exits 0 on it. The transfer returns its stop: on the slow clock at all only if TERM came

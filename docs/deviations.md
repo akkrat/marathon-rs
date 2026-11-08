@@ -455,6 +455,11 @@ started and left behind between two looks is missed; so is an orphan that a subr
 fails or takes over 5 s only the bridge's own child is stopped. rsync isn't put in a process group of its own, so that a terminal's Ctrl-C or a CI job's cancel
 still reaches it as in Kotlin.
 
+**Under `sshpass`** the TERM goes to rsync and what it started, and not to `sshpass`, which then exits with rsync's own status. `sshpass` 1.10 exits 0
+at once on a TERM of its own that comes before ssh has prompted, without waiting for rsync, so until x50 a transfer under it to a worker
+whose ssh hung, stalled or stopped, counted as a success ([U181](found-bugs.md)). Only where no listing found rsync does `sshpass` get the TERM, and then a 0 from it counts as a failure. Measured with
+rsync 3.4.1, 3.5.2 and openrsync, and `sshpass` 1.06, 1.09 and 1.10 ([x50 findings](wp/x50-findings.md)).
+
 Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A3](known-kotlin-bugs.md), the [x13 findings](wp/x13-findings.md) and the [x26 findings](wp/x26-findings.md).
@@ -1132,7 +1137,7 @@ Native builds, on iOS and macOS:
 - **A send ends when its call is cancelled.** rsync is stopped as [D31](#d31--an-rsync-send-that-stops-moving-fails) stops
   a stalled one, with the same signals and limits, but without the first 5 s, since rsync hasn't said anything and isn't on
   its way out: TERM to rsync and what it started, KILL 5 s later to what is left, and then the same for anything it left
-  behind, also when rsync exits 0 on the TERM, which keeps its success. That takes at most 15 s, with 5 s for output pipes
+  behind, also when rsync exits 0 on the TERM, which keeps its success, under `sshpass` too (see D31's note on `sshpass`). That takes at most 15 s, with 5 s for output pipes
   that such a child still holds, and up to 20 s more where `ps` is slow. The send returns as cancelled and logs nothing;
   its caller reports the cancellation as before.
 - **A receive is never ended by its caller's cancellation.** Every receive collects an artifact, and its callers are

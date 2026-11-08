@@ -111,6 +111,7 @@ impl RsyncFileBridge {
                             vec![rsync_program(), "--version".into(), "/tmp".into(), "/tmp".into()],
                             None,
                             None,
+                            false,
                         )
                         .await?;
                     let first = output.stdout.split('\n').next().unwrap_or_default().to_owned();
@@ -282,12 +283,13 @@ impl Inner {
         ]);
         Ok(args)
     }
-    /// `arriving` is where a receive's bytes land; `stop` ends it early (D54).
+    /// `arriving` is where a receive's bytes land; `stop` ends it early (D54). `wrapped` says the process is `sshpass`.
     async fn process(
         &self,
         argv: Vec<String>,
         arriving: Option<Arriving>,
         mut stop: Option<&mut TransferStop>,
+        wrapped: bool,
     ) -> VendorResult<Outcome> {
         blocking(self.runtime.as_ref(), initialize_binaries).await?;
         // The start is read on the vendor clock as the process starts, not when the spawn's result reaches this task, so a
@@ -334,17 +336,17 @@ impl Inner {
                 None => std::future::pending().await,
             }
         };
-        let status = tokio::select! {
+        let (status, wrapper_stopped) = tokio::select! {
             biased;
-            result = child.wait() => result.map_err(io_error),
+            result = child.wait() => (result.map_err(io_error), false),
             arrived = self.watch(arriving, &stall, &progress) => {
                 nothing_arrived = !arrived;
-                self.stop_child(&mut child, &descendants, true).await
+                self.stop_child(&mut child, &descendants, true, wrapped).await
             }
             // D54: rsync has said nothing and is not on its way out, so it gets no time to end by itself.
             why = stopping => {
                 stopped = Some(why);
-                self.stop_child(&mut child, &descendants, false).await
+                self.stop_child(&mut child, &descendants, false, wrapped).await
             }
             _ = descendants.follow() => unreachable!("following never ends"),
         };
@@ -376,18 +378,18 @@ impl Inner {
         };
         use std::os::unix::process::ExitStatusExt;
         let status = status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
+        // U181: sshpass 1.10 can exit 0 at once on a TERM of its own, whatever rsync then does, so that 0 is not rsync's.
+        let status = match status {
+            0 if wrapper_stopped => 128 + nix::sys::signal::Signal::SIGTERM as i32,
+            status => status,
+        };
         let stdout = out_rx.await.map_err(dropped)??;
         let stderr = err_rx.await.map_err(dropped)??;
         // D54: once a stop has been sent, what rsync started goes, whatever rsync's status says.
         let stop_sent = stopped.is_some();
         // D54: an rsync that finished all the same has done its transfer, and keeps its success.
         let stopped = stopped.filter(|_| status != 0);
-        let stalled = status != 0
-            && !stop_sent
-            && (nothing_arrived
-                || (quiet >= STALL_AFTER_MILLIS
-                    && (reports_stall(stderr.as_bytes())
-                        || (status == RSYNC_TIMEOUT_STATUS && !stderr.contains(STOPPED_AT_LIMIT)))));
+        let stalled = !stop_sent && is_stall(status, &stderr, quiet, nothing_arrived);
         // However the stall was decided, and also when rsync ended by itself, what it started goes with it. So too on a stop.
         if stalled || stop_sent {
             descendants.end(self.clock.as_ref()).await;
@@ -451,27 +453,47 @@ impl Inner {
     }
     /// D31, D43: rsync has stalled and may not end by itself: openrsync closes ssh's input and then waits for ssh, for ever if
     /// ssh is hung. So it gets 5 s if it has reported (`grace`), then TERM, together with what it started, since `sshpass`
-    /// exits on TERM at once and would leave rsync running; then 5 s more and KILL. On return the child is reaped, so a retry
+    /// may exit on TERM at once and leave rsync running; then 5 s more and KILL. On return the child is reaped, so a retry
     /// cannot overlap it; what it started is `Descendants::end`'s, once the outcome is known.
-    async fn stop_child(&self, child: &mut Child, descendants: &Descendants, grace: bool) -> VendorResult<ExitStatus> {
+    ///
+    /// Under `sshpass` (`wrapped`) the TERM goes only to what it started, and `sshpass` then exits with rsync's own status
+    /// (U181): 1.10 exits 0 at once on a TERM of its own before ssh has prompted, as when ssh hung, without waiting for
+    /// rsync, where 1.09 passes it on and waits, and 1.06 dies of it. Only where no listing found them does `sshpass` get
+    /// the TERM, and then the returned flag says so.
+    async fn stop_child(
+        &self,
+        child: &mut Child,
+        descendants: &Descendants,
+        grace: bool,
+        wrapped: bool,
+    ) -> (VendorResult<ExitStatus>, bool) {
         use nix::{sys::signal, unistd::Pid};
         let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
         let clock = self.clock.as_ref();
         // Still unreaped here, so whatever is attached to it now is found.
         descendants.list(true).await;
         if grace && let Some(status) = within(clock, scope.clone(), STOP_STEP_MILLIS, child.wait()).await {
-            return status.map_err(io_error);
+            return (status.map_err(io_error), false);
         }
         // Unreaped, so its pid is still its own.
-        if let Some(pid) = child.id() {
-            let _ = signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGTERM);
+        let term_child = || {
+            if let Some(pid) = child.id() {
+                let _ = signal::kill(Pid::from_raw(pid as i32), signal::Signal::SIGTERM);
+            }
+        };
+        if !wrapped {
+            term_child();
         }
-        descendants.signal(signal::Signal::SIGTERM, true).await;
+        let reached = descendants.signal(signal::Signal::SIGTERM, true).await;
+        let wrapper_stopped = wrapped && reached.is_empty();
+        if wrapper_stopped {
+            term_child();
+        }
         if let Some(status) = within(clock, scope, STOP_STEP_MILLIS, child.wait()).await {
-            return status.map_err(io_error);
+            return (status.map_err(io_error), wrapper_stopped);
         }
         let _ = child.start_kill();
-        child.wait().await.map_err(io_error)
+        (child.wait().await.map_err(io_error), wrapper_stopped)
     }
     async fn transfer(
         &self,
@@ -507,6 +529,7 @@ impl Inner {
                 self.arguments(source.clone(), destination.clone())?,
                 arriving,
                 Some(stop),
+                matches!(self.auth, Some(SshAuthentication::Password { .. })),
             )
             .await?;
         if let Some(stopped) = stopped {
@@ -834,6 +857,17 @@ async fn processes() -> Option<std::collections::HashMap<i32, (i32, String)>> {
     }
     Some(processes)
 }
+/// D31, D43: whether a transfer that failed with `status`, `quiet` ms after the last progress the bridge saw, stalled:
+/// the bridge saw nothing arrive for the limit, or rsync reported a stall after `STALL_AFTER_MILLIS`. On a receive from
+/// an openrsync worker, rsync 3.4 and 3.5 report from the generator, exit 30 and add the receiver's line `received SIGUSR1
+/// (code 19)`.
+fn is_stall(status: i32, stderr: &str, quiet: i64, nothing_arrived: bool) -> bool {
+    status != 0
+        && (nothing_arrived
+            || (quiet >= STALL_AFTER_MILLIS
+                && (reports_stall(stderr.as_bytes())
+                    || (status == RSYNC_TIMEOUT_STATUS && !stderr.contains(STOPPED_AT_LIMIT)))))
+}
 /// D31: whether a whole line of `stderr` is rsync's own report that `--timeout` expired: openrsync's
 /// `rsync(<pid>): error: poll: timeout`, or rsync 3's `[<role>] io timeout after <n> seconds -- exiting`, without the role
 /// before 3.1. The same words inside a file name or another message are not one. Only lines that have ended count.
@@ -1015,6 +1049,44 @@ mod tests {
         ] {
             assert!(!reports_stall(other.as_bytes()), "{other:?}");
         }
+    }
+
+    /// x50: what a stalled pull from rsync 3.5.2 to an openrsync worker printed, as measured, and its status 30. The 19 is
+    /// the receiver child's line, not the status, but a 19 with the report is a stall too. Never before the limit: then it is
+    /// a quick failure.
+    #[test]
+    fn rsync_3_5s_report_from_the_generator_is_a_stall_only_after_the_limit_d43() {
+        let said = "Warning: Permanently added '[127.0.0.1]:62259' (ED25519) to the list of known hosts.\n\
+            [generator] io timeout after 300 seconds -- exiting\n\
+            rsync error: timeout in data send/receive (code 30) at io.c(266) [generator=3.5.2]\n\
+            rsync error: received SIGUSR1 (code 19) at main.c(1691) [receiver=3.5.2]\n";
+        // The same with rsync 3.4.1 and an openrsync worker.
+        let said_by_3_4 = "[generator] io timeout after 300 seconds -- exiting\n\
+            rsync error: timeout in data send/receive (code 30) at io.c(201) [generator=3.4.1]\n\
+            rsync error: received SIGUSR1 (code 19) at main.c(1600) [receiver=3.4.1]\n";
+        for stderr in [said, said_by_3_4] {
+            for status in [30, 19] {
+                assert!(
+                    is_stall(status, stderr, STALL_AFTER_MILLIS, false),
+                    "{status} {stderr:?}"
+                );
+                assert!(is_stall(status, stderr, 450_000, false), "{status} {stderr:?}");
+                assert!(
+                    !is_stall(status, stderr, STALL_AFTER_MILLIS - 1, false),
+                    "{status} {stderr:?}"
+                );
+                assert!(!is_stall(status, stderr, 40_000, false), "{status} {stderr:?}");
+            }
+            // A status of 0 is never a stall, whatever was said.
+            assert!(!is_stall(0, stderr, 450_000, true));
+        }
+        // Nothing arriving for the limit is a stall whatever rsync said, and 30 alone is one after the limit.
+        assert!(is_stall(143, "", 0, true));
+        assert!(is_stall(30, "", STALL_AFTER_MILLIS, false));
+        assert!(!is_stall(30, "", STALL_AFTER_MILLIS - 1, false));
+        // The receiver's line alone is not a report.
+        let receiver = "rsync error: received SIGUSR1 (code 19) at main.c(1691) [receiver=3.5.2]\n";
+        assert!(!is_stall(19, receiver, 450_000, false));
     }
 
     #[test]
