@@ -568,10 +568,10 @@ to 30 minutes of booting and shutting down per simulator with the defaults, and 
 That figure holds while another simulator keeps the pool alive, and leaves out the waits for shutdown and for the session to
 close. When only the probe hangs and needs KILL, the same count gives about 33 minutes. On the last device
 [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait decides instead: the run ends
-`deviceInitializationTimeoutMillis` (180 s) after the simulator left the pool, with `remaining tests will not run`, because a
-re-setup that never gets ready neither moves nor extends that wait. That is about 9 minutes after the first setup began when
-the probe fails from the start, up to about 11 with a probe that times out or needs KILL, and about 3 minutes after the loss
-when the probe starts failing at a re-setup ([x42 findings](wp/x42-findings.md)).
+`deviceInitializationTimeoutMillis` (180 s) after the simulator left the pool, or after a test result it reports later, with
+`remaining tests will not run`, because a re-setup that never gets ready neither moves nor extends that wait. That is about
+9 minutes after the first boot when the probe fails from the start, up to about 11 with a probe that times out or needs
+KILL, and about 3 minutes after the loss when the probe starts failing at a re-setup ([x42 findings](wp/x42-findings.md)).
 On runtimes 16 and 17 each probe returns about 20 MB, so a host or link too slow to deliver that within `shell` now takes
 this path, where Kotlin counted the marker once about 80% of it had arrived. From runtime 18 on [D46](#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)
 sends a probe of about 100 KB, which makes this risk a small one there. The 26 to 30 minute bound above does not depend on the probe's size. No probe result erases a simulator; a configured

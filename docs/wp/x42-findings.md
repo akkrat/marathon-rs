@@ -18,8 +18,9 @@ On a pool's only simulator D48's wait decides, not the number of setups:
    (`recovery.rs:547`). The re-setup is added to the pool while it lacks a device, so it is not live until it reports ready,
    and its own departure would not move the start (`pool.rs:453-466`). The pool logs `device <serial> has arrived` for it.
 4. At `start + deviceInitializationTimeoutMillis` the pool stops the device still getting ready (`pool.rs:490`,
-   `pool.rs:507`). The device actor cancels its prepare and joins it (`actor.rs:537`); the prepare returns as soon as it is
-   cancelled (`prepare.rs:80`), so this takes no time of its own. The pool then logs `all devices terminated, remaining
+   `pool.rs:507`). The device actor cancels its prepare job and joins it (`actor.rs:537`); `prepare_device` returns as soon
+   as it is cancelled (`prepare.rs:80`), so this takes no time of its own. The preparation it started runs on as retained
+   work, which nothing in production joins (see "Incidental bugs"). The pool then logs `all devices terminated, remaining
    tests will not run` and ends.
 
 So D48's wait runs alongside the re-setups, not after them. Only the first recovery starts within it; the 30 and 60 s pauses
@@ -39,15 +40,14 @@ KILL (`executor.rs:289`, `channel.rs:42`). The probe runs under `shell` (`simula
 | (a) probe exits non-zero, from the first setup | boot, 180 s, shutdown, 10 s, boot, 180 s, shutdown: prepare fails at 371 s; re-setup at once; wait ends at 551 s and stops it | **About 9 minutes** after the first boot (551 s), with `remaining tests will not run` | Measured: `a_probe_failing_from_the_first_setup_of_the_only_simulator_ends_the_run_one_wait_after_the_first_failed_prepare_d38_d48`, 5,510 to 5,519 ms at 1/100 in three runs |
 | (b) probe times out at `shell`, from the first setup | As (a); a probe in flight at each of the two deadlines can run 30 s past it | **Up to about 10 minutes**: 2 × (180 + 30) + 10 + 180 = 610 s | Computed from the constants above |
 | (c) probe hangs and needs KILL, from the first setup | As (b), with 30 + 20 s per hung probe | **Up to about 11 minutes**: 2 × (180 + 50) + 10 + 180 = 650 s | Computed |
-| (a), (b) or (c), from a re-setup after the simulator ran batches | Loss; re-setup at once, not live; the wait ends 180 s after the loss, before the re-setup's prepare could fail, and stops it | **About 3 minutes** after the loss (180 s), with `remaining tests will not run` | Measured for (a): `a_probe_failing_from_a_re_setup_of_the_only_simulator_ends_the_run_one_wait_after_its_loss_d38_d48`, 1,808 to 1,827 ms after the run began at 1/100, the loss at about 16 ms. (b) and (c) follow, since nothing in the sequence depends on the probe |
+| (a), (b) or (c), from a re-setup after the simulator ran batches | Loss; re-setup at once, not live; the wait ends 180 s after the loss, before the re-setup's prepare could fail, and stops it | **About 3 minutes** after the loss (180 s), with `remaining tests will not run` | Measured for (a): `a_probe_failing_from_a_re_setup_of_the_only_simulator_ends_the_run_one_wait_after_its_loss_d38_d48`, 1,808 to 1,827 ms after the run began at 1/100, the loss at about 5 to 16 ms, also with the re-setup held 1.5 s into the wait (review round 1). (b) and (c) follow, since nothing in the sequence depends on the probe |
 | (d) every command hangs | Not re-derived | — | See below |
 
-The first-setup times count from the first `simctl boot`; the setup before it (connection, install) comes on top. All
-times leave out what happens after the pool has ended: the run owner still joins the stopped prepare, and with a probe hung
-in it that is the TERM, KILL and CLOSE sequence, up to 30 s (D30), not measured here.
+The first-setup times count from the first `simctl boot`; the setup before it (connection, install) comes on top.
 
-A test that ends after the loss, reported by the device that left, would start the wait again at that moment (D48); the
-re-setup figure assumes none does.
+A test that ends after the departure, reported later by the device that left, starts the wait again at that moment
+(`pool.rs`, `device_completed`), so the end is 180 s after the departure or after the last such result. The figures
+assume none comes.
 
 **(d) was not re-derived.** With every command hung the probe path is not the one taken: the descriptor read (`cat
 device.plist`) times out too, which reads as state `UNKNOWN` and fails a boot attempt at once instead of after `bootWait`
@@ -67,9 +67,10 @@ measured in this pass. For a probe that needs KILL the same count gives 4 × (2 
 
 `crates/marathon-ios/tests/simulator_probe_last_device.rs` runs the real scheduler, pool, device actor, iOS provider,
 recovery and boot loop on the fake worker, with every default above divided by 100 and the probe answering exit status 1
-with a ready marker in its output. A first-setup run takes about 5.5 s and a re-setup run about 1.8 s of real time. Their
-upper bounds only separate "the wait ended the run" from "a further prepare failed first", with margins of 3.6 s and 1.9 s
-(docs/testing.md rule 6). The probe's failure starts at the first setup or, counted by `simctl getenv … HOME`, at the
+with a ready marker in its output. A first-setup run takes about 5.5 s and a re-setup run about 1.8 s of real time. The
+re-setup is held 1.5 s at its `simctl getenv … HOME` before it can register, so it joins the pool well into the wait. The
+upper bound, the departure plus the wait plus that hold, separates the wait ending as started from a wait restarted by the
+arrival, which cannot end earlier than the bound; the correct outcome has the whole 1.5 s as margin (docs/testing.md rule 6). The probe's failure starts at the first setup or, counted by `simctl getenv … HOME`, at the
 second; the loss in the re-setup case comes from three silent batches (D39, U165), as in `simulator_pool_recovery.rs`.
 
 ## Corrected
@@ -86,7 +87,14 @@ D38 in `docs/deviations.md` and PLAN §3.11, `docs/migration.md`, CHANGELOG's "C
 
 ## Incidental bugs
 
-None found. Two observations, not bugs:
+- **The stopped preparation's retained work is not joined in production.** `prepare_device` runs the preparation as a
+  retained task (`prepare.rs:44`) and returns at once when cancelled. `AppleSimulatorDevice::join_retained`
+  (`apple_simulator_device/mod.rs:299`), whose comment says the run owner joins that work, has no caller outside tests, and
+  disposal does not join it: in the reviewer's paused-clock witness disposal returned in 0 ns while a gated retained probe
+  was still running. A probe hung in a stopped preparation can therefore outlive its device and, at the end of the run, its
+  run. Not fixed here (no product change in this package).
+
+Two observations, not bugs:
 
 - The pool logs `device <serial> has arrived` for a re-setup that never gets ready, so a log of this case shows an arrival
   just before `no device returned within deviceInitializationTimeoutMillis`.
@@ -94,3 +102,19 @@ None found. Two observations, not bugs:
   the wait are both 180 s and the re-setup starts after the loss, so a simulator that needs nearly all of `bootWait`, or a
   second boot attempt, to come up is stopped first. That is D48 as approved; raising `deviceInitializationTimeoutMillis`
   gives such a simulator room.
+
+## Review round 1
+
+- **S-x42-1.** Every corrected text (D38, PLAN's D38 row, CHANGELOG, `docs/migration.md`, the x25 table) now counts the 9 to
+  11 minutes from the first boot, as the measurement does, and says the 180 s run from the departure or from a test result
+  the departed device reports later.
+- **S-x42-2.** The tests now hold the re-setup 1.5 s (`READMISSION_DELAY`) before it registers and assert that the run ends
+  before departure + wait + hold, and that the held device was in the pool and stopped when the wait ended. With the
+  reviewer's mutation applied temporarily (`add_device` resets `away_since` and starts a fresh full wait), both tests fail:
+  the first-setup run ended 3,310 ms after the failed prepare and the re-setup run 3,322 ms after the loss, against a bound
+  of 3,300 ms. Without it they pass, ending 1,803 to 1,806 ms after in both cases, in three runs.
+- **S-x42-3.** The claim that the run owner joins the stopped preparation is removed; `join_retained` has no production
+  caller. Recorded under "Incidental bugs".
+
+Run for this round: `cargo fmt --check` and `cargo clippy -p marathon-ios --all-targets -- -D warnings` clean; the new test
+three times, 2 passed each time; `simulator_pool_recovery` 8 passed; the local name check clean before each commit.
