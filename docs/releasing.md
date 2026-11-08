@@ -83,12 +83,12 @@ again:
 |---|---|---|
 | `preflight` | every run | Strict version (`X.Y.Z` or `X.Y.Z-prerelease`, no `v`), a `CHANGELOG.md` section for exactly this version, and no embedded asset with an unresolved status. On a tag, also that the tag is the version and its commit is an ancestor of `origin/main`. |
 | `no-existing-release` | tag push | No release or draft for the tag. It has `contents: write` because a token that can only read does not see drafts. |
-| `gate` | every run | `gate.yml`, the same reusable workflow `ci.yml` calls: the full `scripts/check.sh` and packaging checks on `ubuntu-22.04` (gnu) and `macos-14`, at this commit. |
-| `build` | every run | One archive per asset with the release version: `aarch64-apple-darwin` on `macos-14`, `x86_64-unknown-linux-musl` on `ubuntu-22.04`. Includes the extracted smoke. |
+| `gate` | every run | `gate.yml`, the same reusable workflow `ci.yml` calls: the full `scripts/check.sh` and packaging checks on `ubuntu-22.04` (gnu) and `macos-15`, at this commit. |
+| `build` | every run | One archive per asset with the release version: `aarch64-apple-darwin` on `macos-15`, `x86_64-unknown-linux-musl` on `ubuntu-22.04`. Includes the extracted smoke. |
 | `musl-proof` | every run | From the zip artifact, not the build tree: `version` and `--help` in an Alpine image pinned by digest, with no network, compared with the CLI matrix. The image is `ALPINE_IMAGE` in `release.py`. |
 | `dry-run` | not a tag push | `release.py prepare`, then uploads the archives, metadata, `SHA256SUMS` and notes as the artifact `dry-run-<version>`. |
 | `publish` | tag push, after all of the above | Rechecks the archives, attests each with `actions/attest-build-provenance`, creates a draft, attaches the assets and publishes. Uses the `release` environment and one concurrency group. |
-| `verify` | tag push, after `publish` | On `macos-14` and `ubuntu-22.04`: checks the release state and asset list, downloads with `gh release download`, checks `SHA256SUMS`, unzips and compares `marathon version` with the tag. |
+| `verify` | tag push, after `publish` | On `macos-15` and `ubuntu-22.04`: checks the release state and asset list, downloads with `gh release download`, checks `SHA256SUMS`, unzips and compares `marathon version` with the tag. |
 
 `release.py publish` refuses any event other than a tag push, and the job's `if`
 says the same, so a manual run cannot publish, even one started from a tag. A plain
@@ -247,8 +247,8 @@ and cargo-zigbuild versions. `prove-musl` needs Docker.
 
 ## Platforms and tools
 
-macOS output requests macOS 11.0 or later on arm64. The `macos-14` (arm64) release
-runner's binary has LC_BUILD_VERSION 11.0, SDK 14.5, with dependencies on Security,
+macOS output requests macOS 11.0 or later on arm64. The release runner is `macos-15` (arm64), since GitHub retired
+`macos-14` in November 2026. On `macos-14`, which built 0.11.0, the binary had LC_BUILD_VERSION 11.0, SDK 14.5, with dependencies on Security,
 CoreFoundation, libiconv.2 and libSystem.B only. This is a linker deployment floor, not
 a certification that an old OS or real workers have passed tests.
 

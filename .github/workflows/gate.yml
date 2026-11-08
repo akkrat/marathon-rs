@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-22.04
     # Variables may contain a JSON label array, e.g. ["self-hosted", "macOS", "ARM64"].
