@@ -61,6 +61,54 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<(
     Ok(())
 }
 
+const PLATFORM_CASES: [&str; 2] = ["a-devices-symlink-loop", "a-known-hosts-symlink-loop"];
+
+fn platform_rows(
+    rows: &mut BTreeMap<String, Value>,
+    previous: &BTreeMap<String, Value>,
+    linux: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for id in PLATFORM_CASES {
+        let key = format!("schema/{id}");
+        let actual = rows.remove(&key).ok_or("missing platform case")?;
+        let linux_value = json!({"exit": 0, "stage": "parse", "accepted": false, "config": null});
+        let macos_value = if linux {
+            assert_eq!(actual, linux_value, "Linux schema {id}");
+            let old = previous.get(&key).ok_or("missing macOS platform golden")?;
+            old.get("platforms").map_or_else(|| old.clone(), |v| v["macos"].clone())
+        } else {
+            actual
+        };
+        if macos_value["stage"] != "ok" || macos_value["config"].is_null() {
+            return Err(format!("missing accepted macOS golden for {id}").into());
+        }
+        rows.insert(key, json!({"platforms": {"macos": macos_value, "linux": linux_value}}));
+    }
+    Ok(())
+}
+
+#[test]
+fn platform_golden_is_identical_for_either_host() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("MARATHON_BLESS_CONFIG").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        return Ok(());
+    }
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/contract/config/corpus.json");
+    let previous: BTreeMap<String, Value> = serde_json::from_slice(&fs::read(golden)?)?;
+    for linux in [false, true] {
+        let mut actual = previous.clone();
+        for id in PLATFORM_CASES {
+            let row = actual.get_mut(&format!("schema/{id}")).ok_or("missing platform case")?;
+            *row = row["platforms"][if linux { "linux" } else { "macos" }].clone();
+        }
+        platform_rows(&mut actual, &previous, linux)?;
+        assert_eq!(
+            serde_json::to_vec_pretty(&actual)?,
+            serde_json::to_vec_pretty(&previous)?
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::error::Error>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -212,21 +260,12 @@ fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::err
         rows.insert(format!("schema/{id}"), row);
     }
     let golden = root.join("contract/config/corpus.json");
+    let previous: BTreeMap<String, Value> = serde_json::from_slice(&fs::read(&golden)?)?;
+    platform_rows(&mut rows, &previous, cfg!(target_os = "linux"))?;
     if std::env::var_os("MARATHON_BLESS_CONFIG").as_deref() == Some(std::ffi::OsStr::new("1")) {
-        fs::create_dir_all(golden.parent().unwrap())?;
         fs::write(&golden, format!("{}\n", serde_json::to_string_pretty(&rows)?))?;
     } else {
-        let mut expected: BTreeMap<String, Value> = serde_json::from_slice(&fs::read(&golden)?)?;
-        // The source corpus records canonicalization of symlink loops separately on Linux.
-        if cfg!(target_os = "linux") {
-            for id in ["a-devices-symlink-loop", "a-known-hosts-symlink-loop"] {
-                expected.insert(
-                    format!("schema/{id}"),
-                    json!({"exit": 0, "stage": "parse", "accepted": false, "config": null}),
-                );
-            }
-        }
-        assert_eq!(rows, expected);
+        assert_eq!(rows, previous);
     }
     Ok(())
 }

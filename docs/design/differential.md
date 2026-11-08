@@ -56,7 +56,9 @@ config_contract`. Set `MARATHON_BLESS_CONFIG=1` only when deliberately
 rewriting `fixtures/contract/config/corpus.json`; review that diff. The corpus
 pins accepted configuration dumps and rejection outcomes with a fixed environment
 and clock. Marathondevices are bound directly because config-dump handles
-Marathonfiles; their full bound value is recorded separately.
+Marathonfiles; their full bound value is recorded separately. The two symlink-loop
+cases store both platform outcomes; a Linux re-bless retains the recorded macOS
+configuration, and updating that configuration requires a macOS re-bless.
 
 `progress_oracle::progress_line_contract_for_each_status` and
 `reporters::stdout_summary_contract` pin progress and summary text. The existing

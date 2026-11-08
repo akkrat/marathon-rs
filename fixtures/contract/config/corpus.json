@@ -714,187 +714,197 @@
     "config": null
   },
   "schema/a-devices-symlink-loop": {
-    "exit": 0,
-    "stage": "ok",
-    "accepted": true,
-    "config": {
-      "analyticsConfiguration": {
-        "type": "disabled"
-      },
-      "analyticsTracking": true,
-      "batchingStrategy": {
-        "type": "isolate"
-      },
-      "bugsnagReporting": true,
-      "ciConfiguration": {
-        "type": "none"
-      },
-      "debug": true,
-      "deviceInitializationTimeoutMillis": 180000,
-      "excludeSerialRegexes": [],
-      "executionStrategy": {
-        "fast": true,
-        "mode": "ANY_SUCCESS"
-      },
-      "filteringConfiguration": {
-        "allowlist": [],
-        "blocklist": []
-      },
-      "flakinessStrategy": {
-        "type": "ignore"
-      },
-      "ignoreFailures": false,
-      "includeSerialRegexes": [],
-      "isCodeCoverageEnabled": false,
-      "name": "t",
-      "outputConfiguration": {
-        "maxFilename": 255,
-        "maxPath": 0
-      },
-      "outputDir": "<ROOT>/schema-8/out",
-      "poolingStrategy": {
-        "type": "omni"
-      },
-      "retryStrategy": {
-        "type": "no-retry"
-      },
-      "screenRecordingPolicy": "ON_FAILURE",
-      "shardingStrategy": {
-        "type": "parallel"
-      },
-      "sortingStrategy": {
-        "type": "no-sorting"
-      },
-      "testBatchTimeoutMillis": 1800000,
-      "testOutputTimeoutMillis": 300000,
-      "uncompletedTestRetryQuota": 2147483647,
-      "vendorConfiguration": {
-        "bundle": {
-          "app": "<ROOT>/schema-8/derivedDataDir/sample.app",
-          "application": null,
-          "derivedDataDir": "<ROOT>/schema-8/derivedDataDir",
-          "extraApplications": null,
-          "testApp": null,
-          "testApplication": null,
-          "testType": null,
-          "xctest": "<ROOT>/schema-8/derivedDataDir/ui.xctest",
-          "xctestrun": null
-        },
-        "compactOutput": false,
-        "dataContainerClear": false,
-        "deviceLog": false,
-        "deviceProvider": {
-          "path": null,
-          "type": "static"
-        },
-        "devicesFile": "<ROOT>/schema-8/loop/Marathondevices",
-        "hideRunnerOutput": false,
-        "lifecycleConfiguration": {
-          "onDispose": [],
-          "onPrepare": [],
-          "shutdownUnused": true
-        },
-        "maxBatchesWithoutProgress": 0,
-        "mediaFiles": null,
-        "permissions": {
-          "grant": [],
-          "lifecycle": "BEFORE_TEST_RUN"
-        },
-        "rsync": {
-          "remotePath": "/usr/bin/rsync"
-        },
-        "screenRecordConfiguration": {
-          "preferableRecorderType": null,
-          "screenshotConfiguration": {
-            "delay": "PT0.5S",
-            "display": "INTERNAL",
-            "enabled": true,
-            "height": 1280,
-            "mask": "BLACK",
-            "type": "JPEG",
-            "width": 720
+    "platforms": {
+      "macos": {
+        "exit": 0,
+        "stage": "ok",
+        "accepted": true,
+        "config": {
+          "analyticsConfiguration": {
+            "type": "disabled"
           },
-          "videoConfiguration": {
-            "codec": "H264",
-            "display": "INTERNAL",
-            "enabled": true,
-            "mask": "BLACK",
-            "transcoding": {
-              "binary": "/opt/homebrew/bin/ffmpeg",
-              "enabled": false,
-              "size": "hd720"
+          "analyticsTracking": true,
+          "batchingStrategy": {
+            "type": "isolate"
+          },
+          "bugsnagReporting": true,
+          "ciConfiguration": {
+            "type": "none"
+          },
+          "debug": true,
+          "deviceInitializationTimeoutMillis": 180000,
+          "excludeSerialRegexes": [],
+          "executionStrategy": {
+            "fast": true,
+            "mode": "ANY_SUCCESS"
+          },
+          "filteringConfiguration": {
+            "allowlist": [],
+            "blocklist": []
+          },
+          "flakinessStrategy": {
+            "type": "ignore"
+          },
+          "ignoreFailures": false,
+          "includeSerialRegexes": [],
+          "isCodeCoverageEnabled": false,
+          "name": "t",
+          "outputConfiguration": {
+            "maxFilename": 255,
+            "maxPath": 0
+          },
+          "outputDir": "<ROOT>/schema-8/out",
+          "poolingStrategy": {
+            "type": "omni"
+          },
+          "retryStrategy": {
+            "type": "no-retry"
+          },
+          "screenRecordingPolicy": "ON_FAILURE",
+          "shardingStrategy": {
+            "type": "parallel"
+          },
+          "sortingStrategy": {
+            "type": "no-sorting"
+          },
+          "testBatchTimeoutMillis": 1800000,
+          "testOutputTimeoutMillis": 300000,
+          "uncompletedTestRetryQuota": 2147483647,
+          "vendorConfiguration": {
+            "bundle": {
+              "app": "<ROOT>/schema-8/derivedDataDir/sample.app",
+              "application": null,
+              "derivedDataDir": "<ROOT>/schema-8/derivedDataDir",
+              "extraApplications": null,
+              "testApp": null,
+              "testApplication": null,
+              "testType": null,
+              "xctest": "<ROOT>/schema-8/derivedDataDir/ui.xctest",
+              "xctestrun": null
+            },
+            "compactOutput": false,
+            "dataContainerClear": false,
+            "deviceLog": false,
+            "deviceProvider": {
+              "path": null,
+              "type": "static"
+            },
+            "devicesFile": "<ROOT>/schema-8/loop/Marathondevices",
+            "hideRunnerOutput": false,
+            "lifecycleConfiguration": {
+              "onDispose": [],
+              "onPrepare": [],
+              "shutdownUnused": true
+            },
+            "maxBatchesWithoutProgress": 0,
+            "mediaFiles": null,
+            "permissions": {
+              "grant": [],
+              "lifecycle": "BEFORE_TEST_RUN"
+            },
+            "rsync": {
+              "remotePath": "/usr/bin/rsync"
+            },
+            "screenRecordConfiguration": {
+              "preferableRecorderType": null,
+              "screenshotConfiguration": {
+                "delay": "PT0.5S",
+                "display": "INTERNAL",
+                "enabled": true,
+                "height": 1280,
+                "mask": "BLACK",
+                "type": "JPEG",
+                "width": 720
+              },
+              "videoConfiguration": {
+                "codec": "H264",
+                "display": "INTERNAL",
+                "enabled": true,
+                "mask": "BLACK",
+                "transcoding": {
+                  "binary": "/opt/homebrew/bin/ffmpeg",
+                  "enabled": false,
+                  "size": "hd720"
+                }
+              }
+            },
+            "signing": {
+              "testRunnerProvisioningProfile": null
+            },
+            "skipCopyingDerivedData": false,
+            "ssh": {
+              "authentication": null,
+              "debug": false,
+              "keepAliveInterval": "PT15S",
+              "keepAliveMaxCount": 4,
+              "knownHostsPath": null,
+              "shareWorkerConnection": false
+            },
+            "testParserConfiguration": {
+              "testClassRegexes": [
+                "^((?!Abstract).)*Test[s]*$"
+              ],
+              "type": "nm"
+            },
+            "threadingConfiguration": {
+              "deviceProviderThreads": 8,
+              "deviceThreads": 2,
+              "provisioningConcurrency": 2
+            },
+            "timeoutConfiguration": {
+              "boot": "PT30S",
+              "bootWait": "PT3M",
+              "create": "PT30S",
+              "delete": "PT30S",
+              "erase": "PT30S",
+              "importMedia": "PT30S",
+              "install": "PT30S",
+              "reachability": "PT5S",
+              "screenshot": "PT10S",
+              "shell": "PT30S",
+              "shellIdle": "PT30S",
+              "shutdown": "PT30S",
+              "testDestination": "PT30S",
+              "uninstall": "PT30S",
+              "video": "PT5M",
+              "xcresulttool": "PT2M"
+            },
+            "type": "iOS",
+            "workerConnection": {
+              "attempts": 3,
+              "backoff": "PT10S",
+              "lateJoin": true,
+              "lateJoinCutoff": "PT10M",
+              "retryInterval": "PT1M"
+            },
+            "xcodebuildTestArgs": {},
+            "xcresult": {
+              "attachments": {
+                "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
+                "userAttachmentLifetime": "KEEP_ALWAYS"
+              },
+              "preferredScreenCaptureFormat": null,
+              "pull": null,
+              "pullingPolicy": "ALWAYS",
+              "queue": {
+                "capacity": 8,
+                "concurrency": 4,
+                "workerCapacity": null
+              },
+              "remoteClean": true
+            },
+            "xctestrunEnv": {
+              "appEnvs": {},
+              "testEnvs": {}
             }
           }
-        },
-        "signing": {
-          "testRunnerProvisioningProfile": null
-        },
-        "skipCopyingDerivedData": false,
-        "ssh": {
-          "authentication": null,
-          "debug": false,
-          "keepAliveInterval": "PT15S",
-          "keepAliveMaxCount": 4,
-          "knownHostsPath": null,
-          "shareWorkerConnection": false
-        },
-        "testParserConfiguration": {
-          "testClassRegexes": [
-            "^((?!Abstract).)*Test[s]*$"
-          ],
-          "type": "nm"
-        },
-        "threadingConfiguration": {
-          "deviceProviderThreads": 8,
-          "deviceThreads": 2,
-          "provisioningConcurrency": 2
-        },
-        "timeoutConfiguration": {
-          "boot": "PT30S",
-          "bootWait": "PT3M",
-          "create": "PT30S",
-          "delete": "PT30S",
-          "erase": "PT30S",
-          "importMedia": "PT30S",
-          "install": "PT30S",
-          "reachability": "PT5S",
-          "screenshot": "PT10S",
-          "shell": "PT30S",
-          "shellIdle": "PT30S",
-          "shutdown": "PT30S",
-          "testDestination": "PT30S",
-          "uninstall": "PT30S",
-          "video": "PT5M",
-          "xcresulttool": "PT2M"
-        },
-        "type": "iOS",
-        "workerConnection": {
-          "attempts": 3,
-          "backoff": "PT10S",
-          "lateJoin": true,
-          "lateJoinCutoff": "PT10M",
-          "retryInterval": "PT1M"
-        },
-        "xcodebuildTestArgs": {},
-        "xcresult": {
-          "attachments": {
-            "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
-            "userAttachmentLifetime": "KEEP_ALWAYS"
-          },
-          "preferredScreenCaptureFormat": null,
-          "pull": null,
-          "pullingPolicy": "ALWAYS",
-          "queue": {
-            "capacity": 8,
-            "concurrency": 4,
-            "workerCapacity": null
-          },
-          "remoteClean": true
-        },
-        "xctestrunEnv": {
-          "appEnvs": {},
-          "testEnvs": {}
         }
+      },
+      "linux": {
+        "exit": 0,
+        "stage": "parse",
+        "accepted": false,
+        "config": null
       }
     }
   },
@@ -905,133 +915,143 @@
     "config": null
   },
   "schema/a-known-hosts-symlink-loop": {
-    "exit": 0,
-    "stage": "ok",
-    "accepted": true,
-    "config": {
-      "analyticsConfiguration": {
-        "type": "disabled"
-      },
-      "analyticsTracking": true,
-      "batchingStrategy": {
-        "type": "isolate"
-      },
-      "bugsnagReporting": true,
-      "ciConfiguration": {
-        "type": "none"
-      },
-      "debug": true,
-      "deviceInitializationTimeoutMillis": 180000,
-      "excludeSerialRegexes": [],
-      "executionStrategy": {
-        "fast": true,
-        "mode": "ANY_SUCCESS"
-      },
-      "filteringConfiguration": {
-        "allowlist": [],
-        "blocklist": []
-      },
-      "flakinessStrategy": {
-        "type": "ignore"
-      },
-      "ignoreFailures": false,
-      "includeSerialRegexes": [],
-      "isCodeCoverageEnabled": false,
-      "name": "t",
-      "outputConfiguration": {
-        "maxFilename": 255,
-        "maxPath": 0
-      },
-      "outputDir": "<ROOT>/schema-9/out",
-      "poolingStrategy": {
-        "type": "omni"
-      },
-      "retryStrategy": {
-        "type": "no-retry"
-      },
-      "screenRecordingPolicy": "ON_FAILURE",
-      "shardingStrategy": {
-        "type": "parallel"
-      },
-      "sortingStrategy": {
-        "type": "no-sorting"
-      },
-      "testBatchTimeoutMillis": 1800000,
-      "testOutputTimeoutMillis": 300000,
-      "uncompletedTestRetryQuota": 2147483647,
-      "vendorConfiguration": {
-        "bundle": null,
-        "compactOutput": false,
-        "deviceProvider": {
-          "path": null,
-          "type": "static"
-        },
-        "devicesFile": "<ROOT>/schema-9/Marathondevices",
-        "hideRunnerOutput": false,
-        "permissions": {
-          "grant": {}
-        },
-        "rsync": {
-          "remotePath": "/usr/bin/rsync"
-        },
-        "ssh": {
-          "authentication": null,
-          "debug": false,
-          "keepAliveInterval": "PT15S",
-          "keepAliveMaxCount": 4,
-          "knownHostsPath": "<ROOT>/schema-9/loop/kh",
-          "shareWorkerConnection": false
-        },
-        "testParserConfiguration": {
-          "testClassRegexes": [
-            "^((?!Abstract).)*Test[s]*$"
-          ],
-          "type": "nm"
-        },
-        "threadingConfiguration": {
-          "deviceProviderThreads": 8,
-          "deviceThreads": 2,
-          "provisioningConcurrency": 2
-        },
-        "timeoutConfiguration": {
-          "boot": "PT30S",
-          "bootWait": "PT3M",
-          "create": "PT30S",
-          "delete": "PT30S",
-          "erase": "PT30S",
-          "importMedia": "PT30S",
-          "install": "PT30S",
-          "reachability": "PT5S",
-          "screenshot": "PT10S",
-          "shell": "PT30S",
-          "shellIdle": "PT30S",
-          "shutdown": "PT30S",
-          "testDestination": "PT30S",
-          "uninstall": "PT30S",
-          "video": "PT5M",
-          "xcresulttool": "PT2M"
-        },
-        "type": "macOS",
-        "xcodebuildTestArgs": {},
-        "xcresult": {
-          "attachments": {
-            "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
-            "userAttachmentLifetime": "KEEP_ALWAYS"
+    "platforms": {
+      "macos": {
+        "exit": 0,
+        "stage": "ok",
+        "accepted": true,
+        "config": {
+          "analyticsConfiguration": {
+            "type": "disabled"
           },
-          "preferredScreenCaptureFormat": null,
-          "pull": null,
-          "pullingPolicy": "ALWAYS",
-          "queue": {
-            "capacity": 8,
-            "concurrency": 4,
-            "workerCapacity": null
+          "analyticsTracking": true,
+          "batchingStrategy": {
+            "type": "isolate"
           },
-          "remoteClean": true
-        },
-        "xctestrunEnv": {
-          "appEnvs": {},
-          "testEnvs": {}
+          "bugsnagReporting": true,
+          "ciConfiguration": {
+            "type": "none"
+          },
+          "debug": true,
+          "deviceInitializationTimeoutMillis": 180000,
+          "excludeSerialRegexes": [],
+          "executionStrategy": {
+            "fast": true,
+            "mode": "ANY_SUCCESS"
+          },
+          "filteringConfiguration": {
+            "allowlist": [],
+            "blocklist": []
+          },
+          "flakinessStrategy": {
+            "type": "ignore"
+          },
+          "ignoreFailures": false,
+          "includeSerialRegexes": [],
+          "isCodeCoverageEnabled": false,
+          "name": "t",
+          "outputConfiguration": {
+            "maxFilename": 255,
+            "maxPath": 0
+          },
+          "outputDir": "<ROOT>/schema-9/out",
+          "poolingStrategy": {
+            "type": "omni"
+          },
+          "retryStrategy": {
+            "type": "no-retry"
+          },
+          "screenRecordingPolicy": "ON_FAILURE",
+          "shardingStrategy": {
+            "type": "parallel"
+          },
+          "sortingStrategy": {
+            "type": "no-sorting"
+          },
+          "testBatchTimeoutMillis": 1800000,
+          "testOutputTimeoutMillis": 300000,
+          "uncompletedTestRetryQuota": 2147483647,
+          "vendorConfiguration": {
+            "bundle": null,
+            "compactOutput": false,
+            "deviceProvider": {
+              "path": null,
+              "type": "static"
+            },
+            "devicesFile": "<ROOT>/schema-9/Marathondevices",
+            "hideRunnerOutput": false,
+            "permissions": {
+              "grant": {}
+            },
+            "rsync": {
+              "remotePath": "/usr/bin/rsync"
+            },
+            "ssh": {
+              "authentication": null,
+              "debug": false,
+              "keepAliveInterval": "PT15S",
+              "keepAliveMaxCount": 4,
+              "knownHostsPath": "<ROOT>/schema-9/loop/kh",
+              "shareWorkerConnection": false
+            },
+            "testParserConfiguration": {
+              "testClassRegexes": [
+                "^((?!Abstract).)*Test[s]*$"
+              ],
+              "type": "nm"
+            },
+            "threadingConfiguration": {
+              "deviceProviderThreads": 8,
+              "deviceThreads": 2,
+              "provisioningConcurrency": 2
+            },
+            "timeoutConfiguration": {
+              "boot": "PT30S",
+              "bootWait": "PT3M",
+              "create": "PT30S",
+              "delete": "PT30S",
+              "erase": "PT30S",
+              "importMedia": "PT30S",
+              "install": "PT30S",
+              "reachability": "PT5S",
+              "screenshot": "PT10S",
+              "shell": "PT30S",
+              "shellIdle": "PT30S",
+              "shutdown": "PT30S",
+              "testDestination": "PT30S",
+              "uninstall": "PT30S",
+              "video": "PT5M",
+              "xcresulttool": "PT2M"
+            },
+            "type": "macOS",
+            "xcodebuildTestArgs": {},
+            "xcresult": {
+              "attachments": {
+                "systemAttachmentLifetime": "DELETE_ON_SUCCESS",
+                "userAttachmentLifetime": "KEEP_ALWAYS"
+              },
+              "preferredScreenCaptureFormat": null,
+              "pull": null,
+              "pullingPolicy": "ALWAYS",
+              "queue": {
+                "capacity": 8,
+                "concurrency": 4,
+                "workerCapacity": null
+              },
+              "remoteClean": true
+            },
+            "xctestrunEnv": {
+              "appEnvs": {},
+              "testEnvs": {}
+            }
+          }
         }
+      },
+      "linux": {
+        "exit": 0,
+        "stage": "parse",
+        "accepted": false,
+        "config": null
       }
     }
   },
