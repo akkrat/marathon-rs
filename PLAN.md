@@ -287,6 +287,18 @@ Feature negotiation must match adam: shell v2, sync v2, `cmd` and `abb_exec` cho
 | D54 | A transfer blocks in `monitor` inside a suspend function (`RsyncFileBridge.kt:40-66`), so neither its caller's cancellation nor the loss of its device's connection ends it, and a send has no limit (A3): `deviceInitializationTimeoutMillis` cannot end a remote parse sending to a frozen worker, which can hang for ever (A104) | An iOS or macOS send takes its call's cancellation, and every transfer, send or receive, the loss of its device's own SSH connection; a receive never takes a cancellation, since every receive collects an artifact that its callers are cancelled around on purpose. A stop ends rsync with D31's signals and limits, without the first 5 s: TERM, then KILL 5 s later, to rsync and what it started, whatever rsync's status. A cancellation returns as one and logs nothing. A loss fails a send with `ConnectionException: Lost the connection to <worker> during a transfer` and leaves a receive `false`, with one ERROR line. A send waiting for the worker's or the destination's earlier send gives up its wait on its own stop; the earlier send and those behind go on. With the default keep-alive a frozen worker's parse attempt fails at about 75 to 80 s and D53 moves on; with keep-alive off the 180 s limit ends the parse at its limit. rsync and ssh argv, worker commands, receives and healthy runs are unchanged |
 
 
+### 3.12 Phase 8 contract
+
+`0.12.0-rc.1` is the JVM-parity baseline. Phase 8 preserves:
+
+1. All Marathonfile and Marathondevices inputs accepted today, with the same meaning, including YAML 1.1 scalars, environment substitutions (`${VAR}` and `${VAR:-default}`), ISO-8601 durations and instants, and binder coercions. Rejected inputs remain rejected; error wording may change.
+2. CLI subcommands, flags, defaults and exit codes. Help, usage and error wording may change.
+3. Result paths and names and their data. Compare JSON, XML and YAML as parsed data, preserving key and element order and attribute sets; equivalent numeric and escaped forms compare equal. Text, images and binaries compare as today. Fragmentation hashes and Allure history IDs remain exact.
+4. Commands sent to workers (adb, ssh, rsync, xcrun and xcodebuild).
+5. Per-test progress lines and the end-of-run summary block, including `Marathon run finished` and the `\tRaw: ...` lines, retain their text format; other logs may change.
+
+Changes require a D-row in §3.11 and, for result files, a reviewed golden update. JVM artefacts such as identity strings, array identity values and Java exception class names may be replaced with real values. Exotic Kotlin bugs, including lone-surrogate and supplementary-plane sorting quirks, may be removed when preserving them requires emulation.
+
 ## 4. Target architecture
 
 ### 4.1 Cargo workspace
@@ -674,6 +686,27 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 7.4 | Docs: README, fork notes, deviations, migration | L | – |
 | 7.5 | Drain the port queue: port each fork commit after `e47352f2`, then re-run every differential gate on the release source SHA | M | every WP except 7.6 |
 | 7.6 | Isolated shadow runs, then canary cutover (§6.7) | – | 7.5 |
+
+### Phase 8: Native cleanup
+
+| WP | Content | Opus | Depends on |
+|---|---|---|---|
+| 8.1 | Native contract and goldens | M | – |
+| 8.2 | Replace `JavaString` with `String` (docs/wp/8.2.md) | M | – |
+
+Later candidates:
+
+- `JavaPath` and small jcompat modules (jnum, jtime, utf8, net).
+- Typed errors in `Failure` instead of Java class strings.
+- Serde writers instead of Gson/Jackson emulation.
+- `tracing` instead of logback emulation.
+- Plain async reads instead of Apple polling readers.
+- `BTreeMap` with a sequence tie-breaker instead of `JavaPriorityQueue`.
+- `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
+- `Display`/serde instead of Kotlin `toString` rendering.
+- Tokio `JoinSet`/`CancellationToken` instead of coroutine emulation.
+- `clap` instead of Clikt emulation.
+- A YAML library with a small YAML 1.1 scalar layer instead of the SnakeYAML port, last because input risk is highest.
 
 **Critical path**, effort-weighted and computed by `scripts/check_plan_dag.py` (which also fails on unknown dependencies and cycles):
 
