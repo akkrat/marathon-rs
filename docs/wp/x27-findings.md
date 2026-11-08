@@ -388,7 +388,7 @@ fix is enough for these two, so each was reverted alone without a failure; with 
 
 ## Incidental bugs
 
-No number was assigned for these, so they have no rows yet:
+Recorded since in [found-bugs.md](../found-bugs.md) by WP x40, as U171 and U172:
 
 - **macOS `borrow`** has A80's shape: `AppleMacosProvider::borrow` picks from an unfiltered snapshot. Whether its map keeps
   disposed devices wasn't checked. Left alone, as A80 is an iOS row.

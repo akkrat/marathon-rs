@@ -121,7 +121,7 @@ passes both ways, as it pins what must not change.
 ## Incidental bugs
 
 - Nested Swift test classes are never discovered by the default `nm` parser, as `parse_symbols` needs exactly three parts. Such
-  a test silently does not run. Kotlin does the same (`NmTestParser.kt:84`). Not fixed, and it has no ledger row yet because this WP
-  was assigned no row numbers.
+  a test silently does not run. Kotlin does the same (`NmTestParser.kt:84`). Not fixed; ledger row
+  [A102](../known-kotlin-bugs.md).
 - `failed (1.2.3 seconds)` still aborts a batch with `NumberFormatException`, and it would repeat as A47 did. Real Xcode can't
-  print it. An application could, by logging a whole line of exactly that form. Not fixed.
+  print it. An application could, by logging a whole line of exactly that form. Not fixed; row [U169](../found-bugs.md).

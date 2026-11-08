@@ -109,4 +109,4 @@ PLAN already say "counts against", which is accurate.
 - PLAN §3.11's D51 row still says an empty filtered run "logs a WARN"; since x36 it is an ERROR line, as D51's text in
   `docs/deviations.md` says. Not changed here.
 - S-x34-1 and S-x30-1 are flaws in our own code, but they have no `docs/found-bugs.md` rows: other branches in flight add
-  rows there, and a U number picked here could collide. The orchestrator can number them at merge.
+  rows there, and a U number picked here could collide. WP x40 recorded them as U174 and U175.
