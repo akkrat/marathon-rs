@@ -134,5 +134,5 @@ pub(crate) fn dex_error(e: marathon_dex::DexError) -> VendorError {
     VendorError::Other(convert(e))
 }
 pub(crate) fn trim(s: &str) -> String {
-    JavaString(jcompat::jstring::trim(&JavaString::from(s).0).to_vec()).to_string_lossy()
+    s.trim_matches(jcompat::jstring::is_whitespace_char).to_owned()
 }

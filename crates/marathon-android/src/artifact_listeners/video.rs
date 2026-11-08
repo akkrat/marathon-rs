@@ -11,7 +11,7 @@ use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorConte
 pub fn grep_pid(output: &str) -> String {
     let last = output.split(['\r', '\n']).rfind(|s| !s.is_empty()).unwrap_or("");
     last.split(' ')
-        .filter(|s| !s.encode_utf16().all(jcompat::jstring::is_whitespace))
+        .filter(|s| !s.chars().all(jcompat::jstring::is_whitespace_char))
         .nth(1)
         .and_then(jcompat::jnum::parse_int)
         .map(|i| i.to_string())
@@ -32,7 +32,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
                 .map(|r| r.output.to_string_lossy())
                 .unwrap_or_default();
             let pid = grep_pid(&output);
-            if !output.encode_utf16().all(jcompat::jstring::is_whitespace) {
+            if !output.chars().all(jcompat::jstring::is_whitespace_char) {
                 device.log_named(
                     "ScreenRecorder",
                     Level::Trace,

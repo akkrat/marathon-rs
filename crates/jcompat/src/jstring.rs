@@ -24,6 +24,11 @@ pub fn is_whitespace(c: u16) -> bool {
     )
 }
 
+/// Kotlin whitespace for native Rust strings.
+pub fn is_whitespace_char(c: char) -> bool {
+    u16::try_from(u32::from(c)).is_ok_and(is_whitespace)
+}
+
 /// Kotlin `String.trim()` over UTF-16 units.
 pub fn trim(units: &[u16]) -> &[u16] {
     trim_end(trim_start(units))
@@ -102,5 +107,8 @@ mod tests {
         let units: Vec<u16> = "\t\u{a0}x\u{3000}\u{1c}".encode_utf16().collect();
         assert_eq!(trim(&units), "x".encode_utf16().collect::<Vec<_>>().as_slice());
         assert!(!is_whitespace(0x200B)); // zero-width space is not Kotlin whitespace
+        assert!(is_whitespace_char('\u{a0}'));
+        assert!(!is_whitespace_char('\u{200b}'));
+        assert!(!is_whitespace_char('😀'));
     }
 }
