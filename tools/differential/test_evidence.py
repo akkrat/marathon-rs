@@ -56,6 +56,25 @@ class EvidenceTests(unittest.TestCase):
             return
         self.fail('comparator accepted a changed observable')
 
+    def reject_changed_yaml(self, before, after):
+        target = self.tree / 'result.yml'
+        target.write_bytes(before)
+        baseline = self.record('yaml-baseline')
+        expected = e.normalized(baseline, self.contract, native=True)
+        target.write_bytes(after)
+        actual = self.record('yaml-mutant')
+        with self.assertRaises(e.Invalid):
+            e.compare_native_views(expected, e.normalized(actual, self.contract, native=True))
+
+    def test_native_yaml_rejects_scalar_tag_on_mapping(self):
+        self.reject_changed_yaml(b'---\na: b\n', b'--- !!str\na: b\n')
+
+    def test_native_yaml_distinguishes_boolean_and_integer(self):
+        self.reject_changed_yaml(b'a: true\n', b'a: 1\n')
+
+    def test_native_yaml_preserves_full_decimal_precision(self):
+        self.reject_changed_yaml(b'a: 0.123456789012345678901\n', b'a: 0.123456789012345678902\n')
+
     def test_native_console_ignores_other_diagnostics(self):
         values = {'serial': 'device-1'}
         first = b'diagnostic one\n00% | [omni]-[device-1] C#t passed\n'

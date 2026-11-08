@@ -527,21 +527,51 @@ def structured_json(data):
 
 def structured_yaml(data):
     # Psych exposes the syntax tree, preserving mapping order and scalar types.
-    script = r"""require 'psych'; require 'json'
+    script = r"""require 'psych'; require 'json'; require 'bigdecimal'
 def node(n, anchors)
-  if n.is_a?(Psych::Nodes::Alias)
-    return anchors.fetch(n.anchor)
-  end
+  return anchors.fetch(n.anchor) if n.is_a?(Psych::Nodes::Alias)
+  tag = n.respond_to?(:tag) ? n.tag : nil
+  base = 'tag:yaml.org,2002:'
   value = case n
   when Psych::Nodes::Document then node(n.root, {})
-  when Psych::Nodes::Mapping then ['object', n.children.each_slice(2).map { |k,v| [node(k, anchors), node(v, anchors)] }]
-  when Psych::Nodes::Sequence then ['array', n.children.map { |v| node(v, anchors) }]
+  when Psych::Nodes::Mapping, Psych::Nodes::Sequence
+    kind = n.is_a?(Psych::Nodes::Mapping) ? 'map' : 'seq'
+    raise 'invalid collection tag' if tag && tag.start_with?(base) && tag != base + kind
+    children = if kind == 'map'
+      n.children.each_slice(2).map { |k,v| [node(k, anchors), node(v, anchors)] }
+    else
+      n.children.map { |v| node(v, anchors) }
+    end
+    [kind, tag == base + kind ? nil : tag, children]
   when Psych::Nodes::Scalar
     scanner = Psych::ScalarScanner.new(Psych::ClassLoader::Restricted.new([], []))
-    string_tag = n.tag == 'tag:yaml.org,2002:str'
-    typed_tag = ['tag:yaml.org,2002:int', 'tag:yaml.org,2002:float', 'tag:yaml.org,2002:bool', 'tag:yaml.org,2002:null'].include?(n.tag)
-    scalar = !string_tag && (n.plain || typed_tag) ? scanner.tokenize(n.value) : n.value
-    ['scalar', scalar]
+    raise 'invalid scalar tag' if tag && [base + 'map', base + 'seq'].include?(tag)
+    known = %w[str int float bool null].map { |v| base + v }
+    typed = tag && known.include?(tag) && tag != base + 'str'
+    scalar = tag == base + 'str' || (!n.plain && !typed) ? n.value : scanner.tokenize(n.value)
+    type = case scalar
+    when NilClass then 'null'
+    when TrueClass, FalseClass then 'bool'
+    when Integer then 'int'
+    when Float then 'float'
+    when String then 'str'
+    else raise 'unsupported scalar type'
+    end
+    if typed
+      expected = tag.delete_prefix(base)
+      raise 'invalid scalar tag value' unless type == expected || (expected == 'float' && type == 'int')
+      type = expected
+    end
+    if type == 'int'
+      scalar = scalar.to_s
+    elsif type == 'float'
+      scalar = if scalar.respond_to?(:finite?) && !scalar.finite?
+        scalar.to_s
+      else
+        BigDecimal(n.value.delete('_')).to_s('F')
+      end
+    end
+    ['scalar', type, tag && !known.include?(tag) ? tag : nil, scalar]
   else raise 'unsupported YAML node'
   end
   anchors[n.anchor] = value if n.respond_to?(:anchor) && n.anchor
@@ -549,8 +579,25 @@ def node(n, anchors)
 end
 puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d, {}) })
 """
-    result = subprocess.run(['ruby', '-e', script], input=data, capture_output=True, check=True)
-    return json.loads(result.stdout)
+    try:
+        result = subprocess.run(['ruby', '-e', script], input=data, capture_output=True, check=True)
+    except subprocess.CalledProcessError as error:
+        raise Invalid('invalid YAML: ' + error.stderr.decode(errors='replace').strip()) from error
+    def canonical(value):
+        if isinstance(value, list):
+            if len(value) == 4 and value[0] == 'scalar' and value[1] == 'float':
+                if value[3] not in ('Infinity', '-Infinity', 'NaN'):
+                    number = decimal.Decimal(value[3])
+                    # Decimal.normalize uses the current precision; strip zeros exactly instead.
+                    sign, digits, exponent = number.as_tuple()
+                    digits = list(digits)
+                    while len(digits) > 1 and digits[-1] == 0:
+                        digits.pop(); exponent += 1
+                    value[3] = ('-' if sign and number else '') + ''.join(map(str, digits)) + 'e' + str(exponent if number else 0)
+            return [canonical(item) for item in value]
+        return value
+    return canonical(json.loads(result.stdout))
+
 
 
 def native_content(name, data):
