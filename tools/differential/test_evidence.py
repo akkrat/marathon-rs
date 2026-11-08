@@ -56,6 +56,34 @@ class EvidenceTests(unittest.TestCase):
             return
         self.fail('comparator accepted a changed observable')
 
+    def test_native_structured_and_command_adversaries(self):
+        self.contract['paths'].remove('reports/log')
+        baseline = self.record('native-baseline')
+        expected = e.normalized(baseline, self.contract, native=True)
+        target = self.tree / 'result.json'
+        original = target.read_bytes()
+        for index, changed in enumerate((
+                b'{"status":"FAILED","failure":"","attachments":["log"],"tests":["a","b"]}',
+                b'{"failure":"","status":"PASSED","attachments":["log"],"tests":["a","b"]}')):
+            target.write_bytes(changed)
+            actual = self.record('changed-' + str(index))
+            with self.assertRaises(e.Invalid):
+                e.compare_native_views(expected, e.normalized(actual, self.contract, native=True))
+        target.write_bytes(original)
+        (self.tree / 'log').unlink()
+        actual = self.record('missing-native')
+        with self.assertRaises(e.Invalid):
+            e.compare_native_views(expected, e.normalized(actual, self.contract, native=True))
+        (self.tree / 'log').write_bytes(b'literal 12345678-1234-1234-1234-123456789abc\n')
+        self.artifacts['transcript.json'] = b'{"commands":[["xcodebuild","-destination-timeout","31"]],"cleanup":["close","join"],"terminal":"complete"}'
+        actual = self.record('command-native')
+        with self.assertRaises(e.Invalid):
+            e.compare_native_views(expected, e.normalized(actual, self.contract, native=True))
+        self.assertEqual(e.structured_json(b'{"a":"<","n":1.0E10}'),
+                         e.structured_json(b'{"a":"\\u003c","n":10000000000.0}'))
+        self.assertEqual(e.xml_value(b'<a>&lt;</a>'), e.xml_value(b'<a><![CDATA[<]]></a>'))
+        self.assertEqual(e.structured_yaml(b'a: 1.0\n'), e.structured_yaml(b'a: 1.00\n'))
+
     def test_exact_positive_and_symlink_without_dereference(self):
         actual = self.record('actual')
         e.compare(self.expected, actual, self.contract)

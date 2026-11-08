@@ -1,5 +1,7 @@
 """Versioned differential evidence. Harness serialization only; product bytes stay opaque."""
 import base64
+import decimal
+import subprocess
 import hashlib
 import gzip
 import zlib
@@ -475,7 +477,63 @@ def xml_value(data):
     return node(ET.fromstring(data))
 
 
-def normalized(directory, contract):
+def contract_console(data):
+    lines = data.decode('utf-8').splitlines(keepends=True)
+    selected = []
+    summary = False
+    for line in lines:
+        if line.startswith('Marathon run finished:'):
+            summary = True
+        if summary or re.match(r'^\d+% \| \[', line):
+            selected.append(line)
+        if summary and line.startswith('Total time:'):
+            summary = False
+            selected.append('\n')
+    return ''.join(selected).encode()
+
+
+def structured_json(data):
+    def pairs(items):
+        unique(items)
+        return ['object', [[key, value] for key, value in items]]
+    def number(value):
+        return ['number', str(decimal.Decimal(value).normalize())]
+    return json.loads(data, object_pairs_hook=pairs, parse_int=number, parse_float=number,
+                      parse_constant=lambda value: (_ for _ in ()).throw(Invalid('nonfinite JSON: ' + value)))
+
+
+def structured_yaml(data):
+    # Psych exposes the syntax tree, preserving mapping order and scalar types.
+    script = r"""require 'psych'; require 'json'
+def node(n)
+  case n
+  when Psych::Nodes::Document then node(n.root)
+  when Psych::Nodes::Mapping then ['object', n.children.each_slice(2).map { |k,v| [node(k), node(v)] }]
+  when Psych::Nodes::Sequence then ['array', n.children.map { |v| node(v) }]
+  when Psych::Nodes::Scalar
+    scanner = Psych::ScalarScanner.new(Psych::ClassLoader::Restricted.new([], []))
+    value = n.plain ? scanner.tokenize(n.value) : n.value
+    ['scalar', value]
+  else raise 'unsupported YAML node'
+  end
+end
+puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d) })
+"""
+    result = subprocess.run(['ruby', '-e', script], input=data, capture_output=True, check=True)
+    return json.loads(result.stdout)
+
+
+def native_content(name, data):
+    if name.endswith('.json'):
+        return structured_json(data)
+    if name.endswith('.xml'):
+        return xml_value(data)
+    if name.endswith(('.yml', '.yaml')):
+        return structured_yaml(data)
+    return None
+
+
+def normalized(directory, contract, native=False):
     record = validate(directory, contract)
     paths = canonical_paths(record, contract)
     files = {}
@@ -506,11 +564,16 @@ def normalized(directory, contract):
                     if contract['transport'] == 'ssh' and vendor_console.SSHPASS_FACT not in facts:
                         # Apple goldens predate the fact; their stderr shows the host had no default sshpass.
                         facts = dict(facts, **{vendor_console.SSHPASS_FACT: False})
-                    content = base64.b64encode(vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)).decode()
+                    console = vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)
+                    if native:
+                        console = contract_console(console)
+                    content = base64.b64encode(console).decode()
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(data,record['identities'],may_withhold(directory,record))
                 else:
                     content = vendor_transport.ssh(data,contract['vendor'],may_withhold(directory,record)) if contract['transport'] == 'ssh' else vendor_transport.adb(data,may_withhold(directory,record))
+            elif native and name.startswith(('reports/', 'tree/')) and name.endswith(('.json', '.xml', '.yml', '.yaml')):
+                content = native_content(name, data)
             elif mode == 'allure-json':
                 require(name.startswith('reports/allure-results/') and name.endswith('.json'), 'Allure scope')
                 # Numeric lexemes remain exact, arrays ordered, null distinct from omission.
@@ -538,6 +601,12 @@ def normalized(directory, contract):
         files[name] = entry
     require(used == set(rules), 'unused normalization rules')
     return files
+
+
+def compare_native_views(expected, actual):
+    expected = loads(encoded(expected))
+    actual = loads(encoded(actual))
+    require(expected == actual, 'native golden differs: ' + first_difference(expected, actual))
 
 
 def first_difference(left, right, pointer=''):

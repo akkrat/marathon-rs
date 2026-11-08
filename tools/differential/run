@@ -3,6 +3,7 @@
 import argparse
 import base64
 import datetime
+import gzip
 import json
 import os
 from pathlib import Path
@@ -55,8 +56,10 @@ def golden(name):
 
 
 def compare_golden(name, actual, mismatch=None):
-    expected = [golden(name), *[ROOT/path for path in adapters()[name].get('alternates',[])]]
-    return e.compare_variants(expected, actual, contract(name), mismatch)
+    expected = e.loads(gzip.decompress((ROOT / 'fixtures/contract/native-v1' / (name + '.json.gz')).read_bytes()))
+    actual_view = e.normalized(actual, contract(name), native=True)
+    # Round-trip converts tuples used by XML and GIF normalization into lists.
+    e.compare_native_views(expected, actual_view)
 
 def native_binary(work, local=False):
     argv = ['cargo', 'test', '--no-run', '-q', '-p', 'marathon-test-support', '--test', 'differential_local', '--message-format=json'] if local else [
@@ -215,7 +218,7 @@ def validate_all():
         case, run = relative.split('/')
         e.require(facts['provenance']['native_sha'] == manifest['native_sha'], 'verification source differs')
         e.require(facts['implementation'] == ('native' if run == 'native' else 'jvm'), 'verification implementation differs')
-        compare_golden(case, recording)
+        e.compare_variants([golden(case), *[ROOT/path for path in adapters()[case].get('alternates',[])]], recording, contract(case))
     if any(row['kind'] == 'vendor' for row in adapters().values()):
         verification = ROOT/'fixtures/differential/vendor-verification-c95b2128'
         manifest = e.load(verification/'manifest.json')
@@ -230,7 +233,7 @@ def validate_all():
             facts = e.load(recording/'evidence.json')
             e.require(facts['implementation'] == ('native' if run == 'native' else 'jvm'),'vendor verification implementation differs')
             e.require(facts['provenance']['native_sha'] == manifest['native_sha'],'vendor verification source differs')
-            compare_golden(case,recording)
+            e.compare_variants([golden(case), *[ROOT/path for path in adapters()[case].get('alternates',[])]], recording, contract(case))
     print('Validated committed evidence; profile=registered-offline; planned:', ', '.join(r['id'] for r in ledger['cases'] if r['state'] == 'planned'))
     return ledger
 
@@ -242,6 +245,7 @@ def main():
     sub = parser.add_subparsers(dest='operation', required=True)
     sub.add_parser('validate')
     sub.add_parser('check')
+    sub.add_parser('bless')
     for name in ('smoke', 'all'):
         p = sub.add_parser(name)
         p.add_argument('--profile', choices=['harness-first', 'macos-arm64', 'linux-x86_64'], required=True)
@@ -257,7 +261,24 @@ def main():
     for name in ('verify-local', 'verify-parse'):
         p = sub.add_parser(name); p.add_argument('raw', type=Path)
     args = parser.parse_args()
-    if args.operation == 'compare':
+    if args.operation == 'bless':
+        validate_registry()
+        destination = ROOT / 'fixtures/contract/native-v1'
+        e.require(not destination.exists(), 'native generation already exists; remove it explicitly before re-blessing')
+        with tempfile.TemporaryDirectory(prefix='native-bless-') as temp:
+            work = Path(temp).resolve()
+            binaries = build_vendor_binaries(work / 'binaries')
+            views = {}
+            for name in adapters():
+                case = work / name; case.mkdir()
+                recording = capture(name, 'native', case, binaries)
+                views[name] = e.encoded(e.normalized(recording, contract(name), native=True))
+                print('Captured', name, flush=True)
+            destination.mkdir(parents=True)
+            for name, view in views.items():
+                (destination / (name + '.json.gz')).write_bytes(gzip.compress(view, mtime=0))
+            (destination / 'provenance.json').write_bytes(e.encoded(provenance('native')))
+    elif args.operation == 'compare':
         e.compare(args.expected, args.actual, e.load(args.contract), args.mismatch)
     elif args.operation.startswith('verify-'):
         name = args.operation.removeprefix('verify-')
