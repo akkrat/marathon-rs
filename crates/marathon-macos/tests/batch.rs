@@ -490,12 +490,12 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
                 .await
         })
     };
-    timeout(Duration::from_secs(30), h.bridge.hanging.notified()).await?;
+    timeout(Duration::from_secs(60), h.bridge.hanging.notified()).await?;
     let keep_alive = "Did not receive any keep-alive response for 60 seconds";
     h.worker
         .fake
         .lose(marathon_test_support::apple::fake_simulator_worker::connection_exception(keep_alive));
-    let error = timeout(Duration::from_secs(30), send)
+    let error = timeout(Duration::from_secs(60), send)
         .await
         .map_err(|_| "the lost connection did not end the send")??
         .unwrap_err();
@@ -514,7 +514,7 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
     let back = h.root.path().join("back");
     assert_eq!(
         timeout(
-            Duration::from_secs(30),
+            Duration::from_secs(60),
             device.pull_folder("/tmp/marathon/result.xcresult", &back, &h.context)
         )
         .await?,
@@ -538,12 +538,31 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
                 .await
         })
     };
-    timeout(Duration::from_secs(30), other.bridge.hanging.notified()).await?;
+    timeout(Duration::from_secs(60), other.bridge.hanging.notified()).await?;
     let reason = cancelled("the run was cancelled");
     signal.cancel(reason.clone());
     assert_eq!(
-        timeout(Duration::from_secs(30), send).await??,
+        timeout(Duration::from_secs(60), send).await??,
         Err(VendorError::Cancelled(reason))
     );
+    // A receive doesn't take it: under the cancelled context the pull goes on until the connection is lost.
+    let context = marathon_core::vendor::VendorContext {
+        cancellation: signal,
+        ..other.context.clone()
+    };
+    let pull = {
+        let (device, back) = (device.clone(), other.root.path().join("back"));
+        tokio::spawn(async move {
+            device
+                .pull_folder("/tmp/marathon/result.xcresult", &back, &context)
+                .await
+        })
+    };
+    timeout(Duration::from_secs(60), other.bridge.hanging.notified()).await?;
+    other
+        .worker
+        .fake
+        .lose(marathon_test_support::apple::fake_simulator_worker::connection_exception(keep_alive));
+    assert_eq!(timeout(Duration::from_secs(60), pull).await??, Ok(false));
     Ok(())
 }

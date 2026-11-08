@@ -486,9 +486,13 @@ impl MacosDevice {
         }
         Ok(())
     }
-    /// D54: a transfer for this Mac ends on its caller's cancellation or when the Mac's own connection is lost.
-    fn transfer_stop(&self, context: &VendorContext) -> marathon_apple::cmd::TransferStop {
-        marathon_apple::cmd::transfer_stop(self.binary.command_executor.as_ref(), context)
+    /// D54: a send to this Mac ends on its caller's cancellation or when the Mac's own connection is lost.
+    fn send_stop(&self, context: &VendorContext) -> marathon_apple::cmd::TransferStop {
+        marathon_apple::cmd::send_stop(self.binary.command_executor.as_ref(), context)
+    }
+    /// D54: a receive from it ends only when that connection is lost.
+    fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
+        marathon_apple::cmd::receive_stop(self.binary.command_executor.as_ref())
     }
     fn measurement(&self) -> TransferMeasurement {
         let logging = self.options.logging.clone();
@@ -836,17 +840,17 @@ impl AppleDevice for MacosDevice {
             self.measurement()
                 .measure_file_transfer(
                     JavaPath::from_text(&src.to_string_lossy()),
-                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
         })
     }
-    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_file_transfer(
                     JavaPath::from_text(&dst.to_string_lossy()),
-                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
                 .await
         })
@@ -856,17 +860,17 @@ impl AppleDevice for MacosDevice {
             self.measurement()
                 .measure_folder_transfer(
                     JavaPath::from_text(&src.to_string_lossy()),
-                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
         })
     }
-    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_folder_transfer(
                     JavaPath::from_text(&dst.to_string_lossy()),
-                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
                 .await
         })
@@ -879,6 +883,7 @@ impl AppleDevice for MacosDevice {
                     &self.transport.id().to_string_lossy(),
                     src,
                     dst,
+                    self.send_stop(context),
                     || self.remote.exists(dst, context),
                     || async {
                         if tokio::fs::metadata(src).await.is_ok_and(|m| m.is_dir()) {

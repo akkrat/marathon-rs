@@ -667,6 +667,15 @@ impl marathon_apple::cmd::FileBridge for StopsAtCall {
     fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
         Box::pin(async { Ok(true) })
     }
+    fn send_with<'a>(
+        &'a self,
+        _: &'a std::path::Path,
+        _: &'a str,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.0.lock().unwrap().push(stop.now().is_some());
+        Box::pin(async { Ok(true) })
+    }
     fn receive_with<'a>(
         &'a self,
         _: &'a str,
@@ -677,10 +686,11 @@ impl marathon_apple::cmd::FileBridge for StopsAtCall {
         Box::pin(async { Ok(true) })
     }
 }
-/// D54 leaves a screenshot's pull to finish when the capture is cancelled, which it is at the end of every test, so that
-/// the frame on its way is kept as in Kotlin. Any other pull stops.
+/// D54: a receive never takes its caller's cancellation, only the loss of its connection. Every receive collects an artifact
+/// that its caller is cancelled around on purpose: a screenshot's capture at the end of every test, the artifact queue 300 s
+/// after the run. A send does take it.
 #[tokio::test(start_paused = true)]
-async fn a_screenshots_pull_finishes_when_its_capture_is_cancelled_d54() -> TestResult {
+async fn a_receive_never_takes_its_callers_cancellation_but_a_send_does_d54() -> TestResult {
     use marathon_apple::apple_device::AppleDevice;
     let h = Harness::new(|_| {})?;
     let bridge = Arc::new(StopsAtCall::default());
@@ -715,7 +725,17 @@ async fn a_screenshots_pull_finishes_when_its_capture_is_cancelled_d54() -> Test
     let timeout = jcompat::jtime::Duration::of_seconds(10);
     assert_eq!(d.get_screenshot(timeout, &frame, &cancelled).await, Ok(true));
     assert_eq!(d.pull_file("/tmp/marathon/log", &frame, &cancelled).await, Ok(true));
-    assert_eq!(*bridge.0.lock().unwrap(), [false, true]);
+    assert_eq!(
+        d.pull_folder("/tmp/marathon/a.xcresult", h.dir.path(), &cancelled)
+            .await,
+        Ok(true)
+    );
+    let src = h.dir.path().join("tests.xctest");
+    assert_eq!(
+        d.push_folder(&src, "/tmp/marathon/tests.xctest", &cancelled).await,
+        Ok(true)
+    );
+    assert_eq!(*bridge.0.lock().unwrap(), [false, false, false, true]);
     *h.worker.before.lock().unwrap() = Arc::new(|_| Box::pin(async { Ok(None) }));
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())

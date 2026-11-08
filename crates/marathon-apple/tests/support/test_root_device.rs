@@ -450,7 +450,14 @@ impl AppleDevice for Fake {
             };
             if b(&self.input, "installer") {
                 self.shared
-                    .send("local", src, dst, || self.manager.exists(dst, context), transfer)
+                    .send(
+                        "local",
+                        src,
+                        dst,
+                        marathon_apple::cmd::TransferStop::new(context.cancellation.clone()),
+                        || self.manager.exists(dst, context),
+                        transfer,
+                    )
                     .await
             } else {
                 transfer().await

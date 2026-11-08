@@ -230,6 +230,15 @@ pub enum TransferStopped {
     /// The device's own connection was lost; the transfer fails with this.
     Lost(Failure),
 }
+impl TransferStopped {
+    /// What a send returns for it: the cancellation as one, a loss as an ordinary failure.
+    pub fn into_error(self) -> VendorError {
+        match self {
+            Self::Cancelled(reason) => VendorError::Cancelled(reason),
+            Self::Lost(failure) => VendorError::Other(failure),
+        }
+    }
+}
 impl TransferStop {
     /// Stops on the caller's cancellation only.
     pub fn new(cancellation: Arc<dyn CancellationSignal>) -> Self {
@@ -284,20 +293,29 @@ impl TransferStop {
         }
     }
 }
-/// D54: the stop for a transfer to or from the device that `executor` is the connection of: the call's cancellation, or the
-/// loss of that connection, which fails the transfer as a connection failure naming the worker. The loss is the one that the
-/// provider sees as a disconnect (D36), such as keep-alive's; closing the connection ourselves is not one.
-pub fn transfer_stop(executor: &dyn CommandExecutor, context: &VendorContext) -> TransferStop {
+/// D54: the stop for a send to the device that `executor` is the connection of: the call's cancellation, or the loss of that
+/// connection, which fails the send as a connection failure naming the worker. The loss is the one that the provider sees as
+/// a disconnect (D36), such as keep-alive's; closing the connection ourselves is not one.
+pub fn send_stop(executor: &dyn CommandExecutor, context: &VendorContext) -> TransferStop {
+    TransferStop::new(context.cancellation.clone()).or_lost(connection_loss(executor))
+}
+/// D54: the stop for a receive from that device: only the loss of its connection. Every receive collects an artifact, and
+/// its callers are cancelled on purpose while it runs, as the artifact queue is 300 s after a run, before a 60 s grace to
+/// finish. Kotlin's receive finishes then, and so does this one.
+pub fn receive_stop(executor: &dyn CommandExecutor) -> TransferStop {
+    TransferStop::never().or_lost(connection_loss(executor))
+}
+fn connection_loss(executor: &dyn CommandExecutor) -> impl Future<Output = Failure> + Send + 'static {
     let lost = executor.connection_lost();
     let worker = executor.host().id.clone();
-    TransferStop::new(context.cancellation.clone()).or_lost(async move {
+    async move {
         let mut lost_with = failure(
             remote::ssh::sshj::error::CONNECTION_EXCEPTION,
             format!("Lost the connection to {worker} during a transfer"),
         );
         lost_with.cause = Some(Box::new(lost.await));
         lost_with
-    })
+    }
 }
 
 pub(crate) async fn blocking<T: Send + 'static>(

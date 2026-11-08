@@ -151,6 +151,7 @@ fn factory_and_shared_transfers_cross_the_production_core_vendor_bridge() {
                                 "worker:22",
                                 std::path::Path::new("/generated"),
                                 "/tmp/marathon/shared/generated",
+                                marathon_apple::cmd::TransferStop::never(),
                                 || async { Ok(Some(true)) },
                                 || async {
                                     pushes += 1;

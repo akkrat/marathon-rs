@@ -413,3 +413,28 @@ async fn bundles_registered_around_queue_shutdown_are_kept_and_reported_once() -
     h.finish(&[d, late]).await;
     Ok(())
 }
+/// D54 (review round 1): a receive does not take its caller's cancellation. The artifact queue is cancelled 300 s after the
+/// run and then given 60 s, so a healthy pull that ends at 330 s is delivered, as in Kotlin, though the bridge stops a
+/// receive on its stop.
+#[tokio::test(start_paused = true)]
+async fn review_healthy_artifact_pull_keeps_existing_shutdown_grace() -> TestResult {
+    let h = Harness::new(|v| v.xcresult.pulling_policy = PullingPolicy::Always)?;
+    let bridge = Arc::new(BundleBridge::default());
+    bridge.pull_millis.store(330_000, Ordering::SeqCst);
+    let (d, _) = device(&h, bridge.clone()).await?;
+    assert!(run(&h, &d).await.0.is_ok());
+    bridge.entered.wait().await.unwrap();
+    let started = tokio::time::Instant::now();
+    let undelivered = h
+        .services
+        .artifacts
+        .close_and_join(300_000, 60_000, &h.services.context)
+        .await
+        .unwrap();
+    assert!(undelivered.is_empty(), "{undelivered:?}");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(300));
+    assert_eq!(bridge.pulls.load(Ordering::SeqCst), 1);
+    assert_eq!(result_folders(h.dir.path()).len(), 1);
+    h.finish(&[d]).await;
+    Ok(())
+}

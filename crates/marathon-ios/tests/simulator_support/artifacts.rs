@@ -22,10 +22,31 @@ pub struct BundleBridge {
     pub mode: AtomicUsize,
     pub pulls: AtomicUsize,
     pub trace: Arc<Mutex<Vec<String>>>,
+    /// How long a pull takes, on the test's clock.
+    pub pull_millis: std::sync::atomic::AtomicU64,
 }
 impl FileBridge for BundleBridge {
     fn send<'a>(&'a self, _: &'a Path, _: &'a str) -> VendorFuture<'a, bool> {
         Box::pin(async { Ok(true) })
+    }
+    /// D54: stopped as the rsync bridge stops a receive: a cancellation returns it, a lost connection makes it `false`.
+    fn receive_with<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> VendorFuture<'a, bool> {
+        use marathon_apple::cmd::TransferStopped;
+        Box::pin(async move {
+            tokio::select! {
+                biased;
+                stopped = stop.stopped() => match stopped {
+                    TransferStopped::Cancelled(reason) => Err(VendorError::Cancelled(reason)),
+                    TransferStopped::Lost(_) => Ok(false),
+                },
+                pulled = self.receive(src, dst) => pulled,
+            }
+        })
     }
     fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
         Box::pin(async move {
@@ -35,6 +56,10 @@ impl FileBridge for BundleBridge {
             let gate = self.gate.lock().unwrap().clone();
             if let Some(gate) = gate {
                 gate.wait().await?;
+            }
+            let millis = self.pull_millis.load(Ordering::SeqCst);
+            if millis > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
             }
             match self.mode.load(Ordering::SeqCst) {
                 1 => return Ok(false),

@@ -52,9 +52,13 @@ impl AppleSimulatorDevice {
     pub(crate) fn setup_failure(&self, message: String) -> VendorError {
         super::setup::setup_error(message)
     }
-    /// D54: a transfer for this simulator ends on its caller's cancellation or when the simulator's own connection is lost.
-    fn transfer_stop(&self, context: &VendorContext) -> marathon_apple::cmd::TransferStop {
-        marathon_apple::cmd::transfer_stop(self.executor.as_ref(), context)
+    /// D54: a send to this simulator ends on its caller's cancellation or when the simulator's own connection is lost.
+    fn send_stop(&self, context: &VendorContext) -> marathon_apple::cmd::TransferStop {
+        marathon_apple::cmd::send_stop(self.executor.as_ref(), context)
+    }
+    /// D54: a receive from it ends only when that connection is lost.
+    fn receive_stop(&self) -> marathon_apple::cmd::TransferStop {
+        marathon_apple::cmd::receive_stop(self.executor.as_ref())
     }
     fn measurement(&self) -> TransferMeasurement {
         let logging = self.services.logging.clone();
@@ -222,17 +226,17 @@ impl AppleDevice for AppleSimulatorDevice {
             self.measurement()
                 .measure_file_transfer(
                     jcompat::file_manager::file_path(src.to_string_lossy().as_ref()),
-                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
         })
     }
-    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_file_transfer(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
-                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
                 .await
         })
@@ -242,17 +246,17 @@ impl AppleDevice for AppleSimulatorDevice {
             self.measurement()
                 .measure_folder_transfer(
                     jcompat::file_manager::file_path(src.to_string_lossy().as_ref()),
-                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
         })
     }
-    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_folder_transfer(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
-                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
+                    self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
                 .await
         })
@@ -299,6 +303,7 @@ impl AppleDevice for AppleSimulatorDevice {
                     &self.transport.id().to_string_lossy(),
                     src,
                     dst,
+                    self.send_stop(context),
                     || self.remote.exists(dst, context),
                     || async {
                         if folder {
@@ -341,13 +346,7 @@ impl AppleDevice for AppleSimulatorDevice {
             {
                 return Ok(false);
             }
-            // D54 leaves this pull to finish when its caller is cancelled, as Kotlin's does: the capture is cancelled at the
-            // end of every test, and the frame on its way then is kept. A lost connection still ends it.
-            let finishing = VendorContext {
-                cancellation: marathon_core::executor::shared::Signal::new(),
-                ..context.clone()
-            };
-            self.pull_file(&path, dst, &finishing).await
+            self.pull_file(&path, dst, context).await
         })
     }
     fn start_video_recording<'a>(

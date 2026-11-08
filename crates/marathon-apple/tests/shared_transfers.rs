@@ -28,6 +28,7 @@ async fn push(
         worker,
         Path::new(src),
         dst,
+        marathon_apple::cmd::TransferStop::never(),
         || async { Ok(exists) },
         || async {
             count.fetch_add(1, Ordering::SeqCst);
@@ -51,6 +52,7 @@ async fn concurrent_pushes_to_the_same_worker_transfer_once() {
                 "worker-1:22",
                 Path::new(SRC),
                 DST,
+                marathon_apple::cmd::TransferStop::never(),
                 || async { Ok(Some(true)) },
                 || async {
                     count.fetch_add(1, Ordering::SeqCst);
@@ -140,6 +142,7 @@ async fn existence_is_not_checked_before_the_first_transfer() {
             "worker-1:22",
             Path::new(SRC),
             DST,
+            marathon_apple::cmd::TransferStop::never(),
             || async { panic!("first exists") },
             || async { Ok(true) }
         )
@@ -157,6 +160,7 @@ async fn callback_errors_clear_only_a_new_transfer_and_release_the_destination()
             "worker",
             Path::new(SRC),
             DST,
+            marathon_apple::cmd::TransferStop::never(),
             || async { Ok(Some(true)) },
             || async { Err(error.clone()) }
         )
@@ -169,6 +173,7 @@ async fn callback_errors_clear_only_a_new_transfer_and_release_the_destination()
             "worker",
             Path::new(SRC),
             DST,
+            marathon_apple::cmd::TransferStop::never(),
             || async { Err(error.clone()) },
             || async { panic!("transfer after exists error") }
         )
@@ -215,6 +220,7 @@ async fn behind(
                 "worker-1:22",
                 Path::new(SRC),
                 DST,
+                marathon_apple::cmd::TransferStop::never(),
                 || async { Ok(Some(true)) },
                 || async {
                     count.fetch_add(1, Ordering::SeqCst);
@@ -234,6 +240,7 @@ async fn behind(
                 "worker-1:22",
                 Path::new(SRC),
                 dst,
+                marathon_apple::cmd::TransferStop::never(),
                 || async { Ok(Some(true)) },
                 || async {
                     count.fetch_add(1, Ordering::SeqCst);
@@ -276,6 +283,7 @@ async fn a_send_that_starts_after_a_stall_tries_again_u163() {
             "worker-1:22",
             Path::new(SRC),
             DST,
+            marathon_apple::cmd::TransferStop::never(),
             || async { Ok(Some(true)) },
             || async { Err::<bool, _>(stalled()) },
         )
@@ -298,4 +306,90 @@ async fn a_cancelled_or_lost_send_lets_who_waited_behind_it_send_d54() {
         assert_eq!((same, other), (Ok(true), Ok(true)));
         assert_eq!(transfers, 3);
     }
+}
+/// D54 (review round 1): a caller waiting behind another simulator's transfer to the same destination observes its own stop,
+/// here its 180 s scope while the transfer ahead runs to 240 s, or the loss of its own connection. The transfer ahead is left
+/// alone and records nothing, so a caller that waited alongside goes on after it.
+#[tokio::test(start_paused = true)]
+async fn a_shared_send_waiter_observes_its_own_timeout_d54() {
+    use marathon_apple::cmd::{TransferStop, remote::ssh::sshj::error::CONNECTION_EXCEPTION};
+    use marathon_core::error::Cancellation;
+    use std::time::Duration;
+    let (logging, events) = support::ssh::logging(false);
+    let t = Arc::new(SharedTransfers::new(Arc::new(Runtime), logging));
+    let started = tokio::time::Instant::now();
+    let (entered, entered_rx) = tokio::sync::oneshot::channel::<()>();
+    let send = |stop: TransferStop, runs: Option<tokio::sync::oneshot::Sender<()>>| {
+        let t = t.clone();
+        tokio::spawn(async move {
+            t.send(
+                "worker-1:22",
+                Path::new(SRC),
+                DST,
+                stop,
+                || async { Ok(Some(true)) },
+                || async move {
+                    let Some(entered) = runs else {
+                        panic!("a send behind the first one reuses it");
+                    };
+                    entered.send(()).unwrap();
+                    tokio::time::sleep(Duration::from_secs(240)).await;
+                    Ok(true)
+                },
+            )
+            .await
+        })
+    };
+    let holder = send(TransferStop::never(), Some(entered));
+    entered_rx.await.unwrap();
+    let scope = marathon_core::executor::shared::Signal::new();
+    let expired = Cancellation::Timeout {
+        scope: 7,
+        detail: failure(
+            "kotlinx.coroutines.TimeoutCancellationException",
+            "Timed out waiting for 180000 ms",
+        ),
+    };
+    {
+        let (scope, expired) = (scope.clone(), expired.clone());
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(180)).await;
+            scope.cancel(expired);
+        });
+    }
+    let loss = failure(
+        CONNECTION_EXCEPTION,
+        "Lost the connection to worker-1:22 during a transfer",
+    );
+    let lost = {
+        let loss = loss.clone();
+        send(
+            TransferStop::never().or_lost(async move {
+                tokio::time::sleep(Duration::from_secs(100)).await;
+                loss
+            }),
+            None,
+        )
+    };
+    let alongside = send(TransferStop::never(), None);
+    let timed_out = send(TransferStop::new(scope), None);
+    assert_eq!(lost.await.unwrap(), Err(VendorError::Other(loss)));
+    assert_eq!(started.elapsed(), Duration::from_secs(100));
+    assert_eq!(timed_out.await.unwrap(), Err(VendorError::Cancelled(expired)));
+    assert_eq!(started.elapsed(), Duration::from_secs(180));
+    assert!(!holder.is_finished());
+    assert_eq!(holder.await.unwrap(), Ok(true));
+    assert_eq!(started.elapsed(), Duration::from_secs(240));
+    assert_eq!(alongside.await.unwrap(), Ok(true));
+    let errors: Vec<_> = support::ssh::lines(&events)
+        .into_iter()
+        .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+        .map(|(.., message)| message)
+        .collect();
+    assert_eq!(
+        errors,
+        [format!(
+            "Not sending {SRC} to worker-1:22:{DST}: the device's connection was lost while this one waited"
+        )]
+    );
 }
