@@ -29,3 +29,8 @@ gpt-6.1-sol: merge after fixes.
   2026-10-23 and D13 2026-10-24. The sentence now says PLAN dates them.
 - S-x43-2 (nit): A103 cited the parsers' own `withRetry(3, 0)`, which retries extraction on the device it was given.
   The borrow happens in the outer loop of `Marathon.kt:131-143`, which the row now cites.
+
+## Added after review
+
+[U179](../found-bugs.md) records x42's incidental finding: production disposal does not join a stopped preparation's
+retained work. x42 leaves `found-bugs.md` to this branch.
