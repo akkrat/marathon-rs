@@ -32,6 +32,13 @@ fn bundle(root: &Path, name: &str, extension: &str) -> Result {
 }
 /// One fake worker with one simulator and one passing test.
 async fn worker(root: &Path, name: &str) -> Result<fake_worker::server::RunningWorker> {
+    worker_with(root, name, Default::default()).await
+}
+async fn worker_with(
+    root: &Path,
+    name: &str,
+    script: fake_worker::script::Script,
+) -> Result<fake_worker::server::RunningWorker> {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let host = root.join(format!("{name}-host"));
     key(&host)?;
@@ -63,7 +70,7 @@ async fn worker(root: &Path, name: &str) -> Result<fake_worker::server::RunningW
             max_sessions: 32,
             rsync_binary: "/usr/bin/rsync".into(),
             rsync_remote: "/usr/bin/rsync".into(),
-            script: Default::default(),
+            script,
             fixtures: repo.join("fixtures/fake-worker"),
             run: format!("stall-{name}"),
         },
@@ -84,21 +91,11 @@ fn run(
     parsing: bool,
     held: Option<u16>,
 ) -> Result<tokio::process::Command> {
-    let workers: String = ports
-        .iter()
-        .map(|port| {
-            format!(
-                "- transport: {{type: ssh, addr: 127.0.0.1, port: {port}, checkReachability: false}}\n  devices: [{{type: simulator, udid: {UDID}}}]\n"
-            )
-        })
-        .collect();
-    std::fs::write(root.join("Marathondevices"), format!("workers:\n{workers}"))?;
-    std::fs::write(
-        root.join("Marathonfile"),
-        format!(
-            "name: stall\noutputDir: report\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\ndeviceInitializationTimeoutMillis: 1200000\nvendorConfiguration:\n  type: iOS\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {{type: publicKey, username: fixture, key: '{}'}}\n    keepAliveInterval: PT15S\n  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: [SHUTDOWN]\n  xcresult:\n    pullingPolicy: NEVER\n  screenRecordConfiguration:\n    videoConfiguration:\n      enabled: false\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
-            root.join("key").display()
-        ),
+    files(
+        root,
+        ports,
+        "deviceInitializationTimeoutMillis: 1200000\n",
+        "    keepAliveInterval: PT15S\n",
     )?;
     let spared = if parsing { "" } else { "*.xctest*) ;; " };
     let hold = held.map_or(String::new(), |port| {
@@ -125,6 +122,26 @@ fn run(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     Ok(command)
+}
+/// The devices file for one simulator on each port, and a Marathonfile with the given top-level and `ssh` lines.
+fn files(root: &Path, ports: &[u16], top: &str, ssh: &str) -> Result {
+    let workers: String = ports
+        .iter()
+        .map(|port| {
+            format!(
+                "- transport: {{type: ssh, addr: 127.0.0.1, port: {port}, checkReachability: false}}\n  devices: [{{type: simulator, udid: {UDID}}}]\n"
+            )
+        })
+        .collect();
+    std::fs::write(root.join("Marathondevices"), format!("workers:\n{workers}"))?;
+    std::fs::write(
+        root.join("Marathonfile"),
+        format!(
+            "name: stall\noutputDir: report\nanalyticsTracking: false\nbugsnagReporting: false\nuncompletedTestRetryQuota: 0\nretryStrategy: {{type: no-retry}}\n{top}vendorConfiguration:\n  type: iOS\n  bundle:\n    application: App.app\n    testApplication: Tests.xctest\n    testType: xctest\n  ssh:\n    authentication: {{type: publicKey, username: fixture, key: '{}'}}\n{ssh}  lifecycle:\n    shutdownUnused: false\n    onPrepare: []\n    onDispose: [SHUTDOWN]\n  xcresult:\n    pullingPolicy: NEVER\n  screenRecordConfiguration:\n    videoConfiguration:\n      enabled: false\n      transcoding: {{enabled: false}}\n    screenshotConfiguration: {{enabled: false}}\n",
+            root.join("key").display()
+        ),
+    )?;
+    Ok(())
 }
 fn sends(root: &Path) -> usize {
     std::fs::read_to_string(root.join("sends")).map_or(0, |text| text.lines().count())
@@ -267,5 +284,199 @@ async fn keeps_both_retries(failure: &str) -> Result {
         sends(root)
     );
     stuck.shutdown().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+/// The environment variable that turns `frozen_worker_process` into a worker for `a_worker_frozen_while_parsing_*`: the root
+/// the worker lives in. A worker frozen with SIGSTOP has to be a process of its own, and this one is the test binary itself.
+const FROZEN_ROOT: &str = "MARATHON_X45_FROZEN_ROOT";
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "a worker process for a_worker_frozen_while_parsing_*; does nothing unless that test starts it"]
+async fn frozen_worker_process() -> Result {
+    let Some(root) = std::env::var_os(FROZEN_ROOT) else {
+        return Ok(());
+    };
+    let root = Path::new(&root);
+    let worker = worker(root, "frozen").await?;
+    let port = root.join("frozen-port");
+    std::fs::write(root.join("frozen-port.tmp"), worker.ready.endpoint.port().to_string())?;
+    std::fs::rename(root.join("frozen-port.tmp"), &port)?;
+    // Until the test kills it.
+    std::future::pending::<()>().await;
+    Ok(())
+}
+/// Seconds since the Unix epoch with milliseconds, as the stand-in rsync below writes them.
+fn now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
+}
+/// What one run with a frozen worker showed.
+struct Frozen {
+    exit: Option<i32>,
+    seconds: f64,
+    /// When each rsync the run started began and ended, in seconds after the start, with the worker (`frozen`, `healthy`, or
+    /// `probe` for the version check), whether it sent the test bundle, and its status. One stopped by the bridge has no end,
+    /// since the bridge's TERM ends the stand-in too.
+    sends: Vec<String>,
+    frozen_at: Option<f64>,
+    stdout: String,
+    stderr: String,
+}
+/// Two workers, the first a process of its own that is frozen with SIGSTOP as the first rsync to it starts, as x26 did, so
+/// that nothing answers while its kernel still accepts connections. The healthy worker answers the first session of each
+/// connection 5 s late, so that its simulator is set up after the frozen one and the parse's first borrow, which picks at
+/// random among the simulators set up by then, takes the frozen one. Times are read from the wall clock, which goes on while
+/// a Mac sleeps, so run it under `caffeinate -i`.
+async fn frozen_run(keep_alive: &str) -> Result<Frozen> {
+    let dir = tempfile::tempdir()?;
+    let root = dir.path();
+    fixture(root)?;
+    let mut child = tokio::process::Command::new(std::env::current_exe()?)
+        .args([
+            "frozen_worker_process",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(FROZEN_ROOT, root)
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let pid = child.id().ok_or("the worker process has no pid")?;
+    let frozen_port: u16 = tokio::time::timeout(CATCH, async {
+        loop {
+            if let Ok(text) = std::fs::read_to_string(root.join("frozen-port")) {
+                return text.trim().parse::<u16>();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await??;
+    let healthy = worker_with(
+        root,
+        "healthy",
+        fake_worker::script::Script {
+            faults: fake_worker::script::Faults {
+                late_open: Some(fake_worker::script::LateOpen {
+                    delay_millis: 5_000,
+                    reject: false,
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .await?;
+    let healthy_port = healthy.ready.endpoint.port();
+    files(root, &[frozen_port, healthy_port], "", keep_alive)?;
+    let log = root.join("sends");
+    let mark = root.join("frozen");
+    let rsync = root.join("rsync");
+    std::fs::write(
+        &rsync,
+        format!(
+            "#!/bin/bash\n\
+             at() {{ /usr/bin/perl -MTime::HiRes=time -e 'printf \"%.3f\", time'; }}\n\
+             case \"$*\" in *\" -p {frozen_port} \"*) who=frozen;; *\" -p \"*) who=healthy;; *) who=probe;; esac\n\
+             case \"$*\" in *.xctest*) what=bundle;; *) what=other;; esac\n\
+             if [ $who = frozen ] && [ ! -e \"{mark}\" ]; then at > \"{mark}\"; kill -STOP {pid}; fi\n\
+             echo \"$(at) start $who $what\" >> \"{log}\"\n\
+             /usr/bin/rsync \"$@\"\n\
+             status=$?\n\
+             echo \"$(at) end $who $what $status\" >> \"{log}\"\n\
+             exit $status\n",
+            mark = mark.display(),
+            log = log.display(),
+        ),
+    )?;
+    std::fs::set_permissions(&rsync, std::fs::Permissions::from_mode(0o700))?;
+    let started = now();
+    let output = tokio::time::timeout(
+        STALL_CATCH,
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_marathon"))
+            .current_dir(root)
+            .env("RSYNC4J_RSYNC", &rsync)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await??;
+    let seconds = now() - started;
+    // SIGKILL ends a stopped process too.
+    child.kill().await?;
+    healthy.shutdown().await.map_err(|e| e.to_string())?;
+    let at = |text: &str| text.parse::<f64>().map_or(f64::NAN, |t| t - started);
+    let sends = std::fs::read_to_string(&log)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| match line.split_once(' ') {
+            Some((time, event)) => format!("{:.1} s {event}", at(time)),
+            None => line.to_owned(),
+        })
+        .collect();
+    Ok(Frozen {
+        exit: output.status.code(),
+        seconds,
+        sends,
+        frozen_at: std::fs::read_to_string(&mark).ok().map(|text| at(text.trim())),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+}
+impl std::fmt::Display for Frozen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "exit {:?} after {:.1} s, frozen at {:?} s",
+            self.exit, self.seconds, self.frozen_at
+        )?;
+        for send in &self.sends {
+            writeln!(f, "send: {send}")?;
+        }
+        write!(f, "--- stdout\n{}\n--- stderr\n{}", self.stdout, self.stderr)
+    }
+}
+/// What x45 measured, either way: the parse's first attempt is not ended by the frozen device's lost connection, only by
+/// rsync's own 300 s (D31), and the 180 s of `deviceInitializationTimeoutMillis` cannot end the attempt either, since the
+/// send doesn't see the cancellation. The second attempt borrows the healthy worker under the expired scope, and the run
+/// fails with the timeout's error once that attempt sees the cancellation, at about 310 s.
+fn assert_frozen_parse(run: &Frozen) {
+    let first = run.sends.iter().find(|send| !send.contains(" probe "));
+    assert!(first.is_some_and(|send| send.ends_with("start frozen bundle")), "{run}");
+    assert_eq!(run.exit, Some(1), "{run}");
+    assert!(run.stdout.contains("send error: no progress in 300 s"), "{run}");
+    assert!(
+        run.stdout
+            .contains("Timed out waiting for a temporary device for remote test parsing"),
+        "{run}"
+    );
+    assert!(
+        run.sends.iter().any(|send| send.ends_with("start healthy bundle")),
+        "{run}"
+    );
+    assert!(run.seconds > 285.0, "{run}");
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "takes minutes on the real clock; run by hand with --ignored --nocapture"]
+async fn a_worker_frozen_while_parsing_with_default_keep_alive_x45() -> Result {
+    let run = frozen_run("").await?;
+    println!("{run}");
+    assert_frozen_parse(&run);
+    // The borrowed simulator's own connection is lost at about 75 s, and that ends nothing of the parse.
+    assert!(
+        run.stdout
+            .contains("Did not receive any keep-alive response for 60 seconds"),
+        "{run}"
+    );
+    Ok(())
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "takes minutes on the real clock; run by hand with --ignored --nocapture"]
+async fn a_worker_frozen_while_parsing_with_keep_alive_off_x45() -> Result {
+    let run = frozen_run("    keepAliveInterval: PT0S\n").await?;
+    println!("{run}");
+    assert_frozen_parse(&run);
+    assert!(!run.stdout.contains("keep-alive response"), "{run}");
     Ok(())
 }
