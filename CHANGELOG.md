@@ -176,16 +176,17 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - Remote test parsing no longer spends all three attempts on one broken device while another is healthy: after an attempt
   fails on a device, the next one picks among the devices not yet tried, and among all once each has been tried, so a
   run with one device is unchanged. A device that reconnects counts as the same one. It never waits for an untried device.
-  With the default 180 s `deviceInitializationTimeoutMillis`, a stalled send, decided after 285 s, still ends the parse
-  after its first attempt. On macOS, parsing also skips a Mac whose connection is lost, and waits within that limit if no
+  A worker that freezes while the test bundle is sent to it is left at about 75 s with the default keep-alive (D54); with
+  keep-alive off, the default 180 s `deviceInitializationTimeoutMillis` ends the parse with its timeout error. On macOS, parsing also skips a Mac whose connection is lost, and waits within that limit if no
   Mac is connected (D53, A103, U171).
-- An iOS or macOS file transfer now stops when the work it belongs to is cancelled or when its simulator's or Mac's
-  connection is lost, with the same TERM and KILL as a stalled send. So remote test parsing no longer hangs on a worker that
-  froze while the test bundle was being sent to it: with the default keep-alive the attempt fails after about 75 s and the
-  next one uses another device, and with keep-alive off `deviceInitializationTimeoutMillis` ends the parse at its limit.
-  Before, the run failed after about 311 s even with a healthy second worker. A lost connection logs one
-  `send error: the device's connection was lost …` or `receive error: …` line. A cancelled run, or a batch cancelled
-  because its device left, no longer waits for a pull in flight, and that artifact is not delivered (D54, A104).
+- An iOS or macOS send now stops when the work it belongs to is cancelled, and any transfer stops when its simulator's or
+  Mac's connection is lost, with the same TERM and KILL as a stalled send. A pull is never stopped by a cancellation, so
+  artifacts arrive as before. Remote test parsing no longer hangs on a worker that froze while the test bundle was being
+  sent to it: with the default keep-alive the attempt fails after about 75 s and the next one uses another device, and with
+  keep-alive off `deviceInitializationTimeoutMillis` ends the parse at its limit. Before, the run failed after about 311 s
+  even with a healthy second worker. A send waiting behind another to the same worker or destination gives up its wait
+  when it is cancelled. A lost connection logs one `send error: the device's connection was lost …` or
+  `receive error: …` line (D54, A104).
 - A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40). No
   known path triggers this, so you are unlikely to have met it.
 

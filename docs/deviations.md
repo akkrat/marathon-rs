@@ -422,7 +422,7 @@ actor, counting sends: one stalled send, where the same run with any other failu
 - A healthy worker that is silent for 300 s therefore loses every simulator waiting to send to it at that moment. That is the price of not waiting 7.6 hours.
 - Any other failed send, such as an rsync error or a connection that failed, keeps the three attempts and the 30 retries, up to 90 sends.
 - While parsing, a stalled send isn't repeated on the same device. Core's own three borrows still apply, and since
-  [D54](#d54--an-apple-transfer-stops-when-its-call-is-cancelled-or-its-devices-connection-is-lost) all of it stays within
+  [D54](#d54--an-apple-send-stops-when-its-call-is-cancelled-and-any-transfer-when-its-devices-connection-is-lost) all of it stays within
   `deviceInitializationTimeoutMillis`, whose expiry now ends a send in progress. Before D54 it did not: a stalled send ended
   the parse 305 s after it started, whatever the limit ([x45 findings](wp/x45-findings.md)). A remote parse that fails
   still fails the run; [D53](#d53--remote-parsing-tries-another-device-after-a-failed-attempt) gives its next attempt another device.
@@ -1106,7 +1106,7 @@ limit, where it used to fail its three attempts at once.
 which error the run reports, the `Parsed … tests` timing line, the commands sent to devices and workers, and a healthy run's logs and replay
 choices: the smaller set of keys is offered only after a failed attempt. A run with one device makes its three attempts on
 it, as before. No log line was added. **Limit:** a worker that freezes while the parse sends to it is caught by the
-borrowed device's keep-alive, at about 75 to 80 s with the default `keepAliveInterval`. [D54](#d54--an-apple-transfer-stops-when-its-call-is-cancelled-or-its-devices-connection-is-lost)
+borrowed device's keep-alive, at about 75 to 80 s with the default `keepAliveInterval`. [D54](#d54--an-apple-send-stops-when-its-call-is-cancelled-and-any-transfer-when-its-devices-connection-is-lost)
 then ends the send and fails the attempt, and the next one borrows another device within the default 180 s. With keep-alive
 off nothing notices it, a stall is decided only after 285 s or more ([D31](#d31--an-rsync-send-that-stops-moving-fails)),
 and the 180 s limit ends the parse first, with the timeout's error. To give that case a second attempt, keep keep-alive on
@@ -1119,49 +1119,53 @@ Approved 2026-11-08 (project owner's decision). See [PLAN §3.11](../PLAN.md#311
 
 **Migration action:** none needed.
 
-## D54 — An Apple transfer stops when its call is cancelled or its device's connection is lost
+## D54 — An Apple send stops when its call is cancelled, and any transfer when its device's connection is lost
 
 Kotlin's rsync bridge blocks in `monitor` inside a suspend function, so nothing ends a transfer before rsync does: not the
 cancellation of its caller, and not the loss of its device's connection. A send has no limit of its own ([A3](known-kotlin-bugs.md)),
 so `deviceInitializationTimeoutMillis` cannot end a remote parse whose send is to a worker that has frozen, and the parse can
 hang for ever ([A104](known-kotlin-bugs.md)). The port's D31 ended such a send after 305 s, too late for the default 180 s.
 
-Native builds, for every transfer to or from a simulator or a Mac, iOS and macOS, sends and receives:
+Native builds, on iOS and macOS:
 
-- **The call's cancellation ends it.** rsync is stopped as [D31](#d31--an-rsync-send-that-stops-moving-fails) stops a
-  stalled one, with the same signals and limits, but without the first 5 s, since rsync hasn't said anything and isn't on
+- **A send ends when its call is cancelled.** rsync is stopped as [D31](#d31--an-rsync-send-that-stops-moving-fails) stops
+  a stalled one, with the same signals and limits, but without the first 5 s, since rsync hasn't said anything and isn't on
   its way out: TERM to rsync and what it started, KILL 5 s later to what is left, and then the same for anything it left
-  behind. The call returns as cancelled and logs nothing; its caller reports the cancellation as before. A transfer still
-  waiting for another to the same worker leaves the queue at once. **The transfers queued behind a cancelled one go on** as
-  if it had ended, where D31's stall fails them, because a cancellation says nothing about the worker.
-- **The loss of the device's own connection ends it**, the same way. That is the connection the provider watches, so it is
-  the loss that the provider already acts on (D36, D44): keep-alive's, or the worker closing it. A send fails with
-  `ConnectionException: Lost the connection to <worker> during a transfer`, caused by the loss, which is not a cancellation,
-  so remote parsing counts the device as tried ([D53](#d53--remote-parsing-tries-another-device-after-a-failed-attempt)). A
-  receive returns `false`, which its listener deals with as for [D43](#d43--an-rsync-receive-has-a-limit-on-progress). Each
-  logs one ERROR line on the bridge's logger: `send error: the device's connection was lost while sending to <host>:<path>`
-  or `receive error: the device's connection was lost while receiving <host>:<path>`, with the loss as its cause. Closing
-  the connection ourselves, as disposal does, is not a loss.
+  behind, also when rsync exits 0 on the TERM, which keeps its success. The send returns as cancelled and logs nothing; its
+  caller reports the cancellation as before.
+- **A receive is never ended by its caller's cancellation.** Every receive collects an artifact, and its callers are
+  cancelled around it on purpose: a screenshot's capture at the end of every test, iOS's artifact queue 300 s after the run,
+  before a 60 s grace for what is still being pulled. A pull runs to its end then, as in Kotlin.
+- **Any transfer ends when its device's own connection is lost**, the same way. That is the connection the provider
+  watches, so it is the loss that the provider already acts on (D36, D44): keep-alive's, or the worker closing it. A send
+  fails with `ConnectionException: Lost the connection to <worker> during a transfer`, caused by the loss, which is not a
+  cancellation, so remote parsing counts the device as tried ([D53](#d53--remote-parsing-tries-another-device-after-a-failed-attempt)).
+  A receive returns `false`, which its listener deals with as for [D43](#d43--an-rsync-receive-has-a-limit-on-progress).
+  Each logs one ERROR line on the bridge's logger: `send error: the device's connection was lost while sending to
+  <host>:<path>` or `receive error: the device's connection was lost while receiving <host>:<path>`, with the loss as its
+  cause. Closing the connection ourselves, as disposal does, is not a loss.
+- **Waiting sends.** Sends to one worker go one at a time, and a simulator's send of a shared bundle waits while another
+  simulator sends it to the same destination. A send that is waiting gives up its wait when its own call is cancelled or
+  its own device's connection is lost, and returns as above; on a loss `SharedTransfers` logs an ERROR line, `Not sending
+  <path> to <worker>:<destination>: the device's connection was lost while this one waited`. The send it waited for is left
+  running, and nothing is recorded against the worker, so the sends behind a cancelled or lost one go on as if it had
+  ended, where D31's stall fails them.
 
 **Remote parsing with a frozen worker.** With the default `keepAliveInterval` of 15 s and `keepAliveMaxCount` of 4, the
 borrowed simulator's connection is lost about 75 s after the worker froze. The parse's send to it then fails, and D53's next
-attempt parses on another device, well within 180 s. With `keepAliveInterval: PT0S` nothing notices the frozen worker, and
+attempt parses on another device, well within 180 s. With `keepAliveInterval: PT0S` nothing notices the frozen worker,
 `deviceInitializationTimeoutMillis` ends the send at its limit, and the run fails with `Timed out waiting for a temporary
 device for remote test parsing`. Measured on fake workers: the parse ended at 180 s and the run exited 1 at about 211 s, after
 disposing the frozen simulator waited 30 s on its connection. It used to exit 1 at about 311 s with the default keep-alive,
 and 346 s without it; with the default keep-alive it now exits 0 at about 91 s.
 
-**What else ends sooner.** A prepare cancelled when its device is lost or its pool ends (D48), or by provider termination;
-D52's cancel; and a batch cancelled while D30 closes its session, all used to leave an rsync running to its end and now
-stop it. None of them waits longer, and none reports anything new, but what was being pulled at that moment is lost with
-the pull: a result bundle, video or device log of the batch in flight is not delivered, and may leave a partial file. On
-iOS a result bundle still being pulled when the artifact queue is cancelled, 300 s after the run, is reported undelivered
-at once, rather than delivered if it finished within 60 s more.
+**What else ends sooner.** A prepare cancelled when its device is lost or its pool ends (D48), or by provider termination,
+and D52's cancel used to leave a send running to its end and now stop it. They report what they reported before. A send
+stopped part-way leaves rsync's partial file on the worker, and the next send of it transfers it again.
 
 **Unchanged:** the rsync and ssh command lines, with no `ConnectTimeout` or `ServerAliveInterval` added (see the
-[x26 findings](wp/x26-findings.md)), the commands sent to workers, and a healthy run's logs and results. A screenshot's pull
-is left to finish when its capture is cancelled, as Kotlin's is, since that happens at the end of every test and the frame
-on its way is kept; a lost connection still ends it. A transfer on a local worker is a copy, which is not stopped.
+[x26 findings](wp/x26-findings.md)), the commands sent to workers, every receive in a run whose connections stay up, and
+a healthy run's logs and results: nothing cancels a send there. A transfer on a local worker is a copy, which is not stopped.
 
 Approved 2026-11-08 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A104 and A3](known-kotlin-bugs.md), the [x45 findings](wp/x45-findings.md) and the [x46 findings](wp/x46-findings.md).
