@@ -92,7 +92,7 @@ D38 in `docs/deviations.md` and PLAN §3.11, `docs/migration.md`, CHANGELOG's "C
   (`apple_simulator_device/mod.rs:299`), whose comment says the run owner joins that work, has no caller outside tests, and
   disposal does not join it: in the reviewer's paused-clock witness disposal returned in 0 ns while a gated retained probe
   was still running. A probe hung in a stopped preparation can therefore outlive its device and, at the end of the run, its
-  run. Not fixed here (no product change in this package).
+  run. Not fixed here (no product change in this package). Recorded as [U179](../found-bugs.md) by WP x43.
 
 Two observations, not bugs:
 
