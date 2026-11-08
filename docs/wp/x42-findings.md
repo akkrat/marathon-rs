@@ -140,3 +140,14 @@ three times, 2 passed each time; `simulator_pool_recovery` 8 passed; the local n
 Run for this round: `cargo fmt --check` and `cargo clippy -p marathon-ios --all-targets -- -D warnings` clean; the new test
 three times, 2 passed each time; `simulator_pool_recovery` 8 passed; the local name check clean before the commit. Both
 witnesses were reverted before it.
+
+## Review round 3
+
+gpt-6.1-sol: x43 merge, x42 merge after one fix.
+
+- S-x42-4 (major, test only): the first-setup test bounded the failed prepare by two whole `bootWait`s and the pause
+  counted from the first `simctl boot`. Each `bootWait` deadline starts before its descriptor read, which comes before the
+  boot (`boot.rs:117`), so a slow read made a correct run fail: the reviewer delayed the first boot's descriptor answer by
+  50 ms and got 3,653 ms against the 3,700 ms bound, with the run ending correctly 1,808 ms after the departure. The bound
+  now counts from the setup's first command (`simctl getenv … HOME`), which comes before both deadlines start, so it holds
+  however slow the reads are, and still shows that the prepare failed only after two whole boot waits.

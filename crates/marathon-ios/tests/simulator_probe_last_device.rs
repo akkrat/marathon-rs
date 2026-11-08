@@ -240,10 +240,12 @@ fn a_probe_failing_from_the_first_setup_of_the_only_simulator_ends_the_run_one_w
     let t = probe_never_succeeds_on_the_only_simulator(From::FirstSetup)?;
     assert!(!t.passed);
     assert_eq!(t.batches, 0, "no batch runs");
-    // The first prepare: boot, a whole bootWait, shutdown, the pause, boot again, a whole bootWait, shutdown.
+    // The first prepare: boot, a whole bootWait, shutdown, the pause, boot again, a whole bootWait, shutdown. Each
+    // bootWait starts before its descriptor read, ahead of `simctl boot`, so the bound counts from the setup's first
+    // command, which comes before both; counting from the first boot would fail a correct run whose read is slow.
     assert!(t.shutdowns.len() >= 2, "{t:?}");
     let failed = t.shutdowns[1];
-    assert!(failed - t.boots[0] >= 2 * BOOT_WAIT + BOOT_RETRY_PAUSE, "{t:?}");
+    assert!(failed - t.setups[0] >= 2 * BOOT_WAIT + BOOT_RETRY_PAUSE, "{t:?}");
     // One re-setup, which the end of the wait stops; none after it.
     assert_eq!(t.setups.len(), 2, "{t:?}");
     assert!(t.setups[1] >= failed, "{t:?}");
