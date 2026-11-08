@@ -476,3 +476,99 @@ fn every_device_failing_ends_in_no_devices_no_earlier_than_the_timeout() -> Test
 fn every_device_failing_ends_in_no_devices_at_the_timeout_with_a_retry_still_pending() -> TestResult {
     no_devices_with_failing_setups(120_000, false)
 }
+
+/// What one simulator whose every batch goes silent gets through the real scheduler, pool, device, policy and recovery:
+/// (batches run, devices the pool saw connect, whether the run passed). The third silent batch in a row returns
+/// `DeviceLost` (D39, U165), which empties the pool; D48's wait then decides whether the recovery finds it still there.
+fn silent_batches_on_one_simulator(pause: i64, wait_millis: i64) -> TestResult<(usize, usize, bool)> {
+    let mut p = recovery_support::RecoveryHarness::settings(|_| {}, 3, pause)?;
+    std::fs::write(
+        p.h().dir.path().join("Marathondevices"),
+        "workers:\n- transport: {type: local}\n  devices: [{type: simulator, udid: a}]\n",
+    )?;
+    let outcome = CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            p.base.h.services.runtime = core.vendor();
+            let provider = AppleSimulatorProvider::new(provider_support::ProviderHarness::services(
+                p.h(),
+                p.connections.clone(),
+                SimulatorRecovery::with_recovery_settings(3, pause),
+            ))
+            .map_err(|e| e.failure())?;
+            let silent = Arc::new(BatchScript::default());
+            *silent.plan.lock().unwrap() = OutputPlan {
+                lines: vec!["Test Case '-[Suite test1]' started.".into()],
+                failure: Some(marathon_apple::cmd::failure(
+                    "java.util.concurrent.TimeoutException",
+                    "idle timeout reached",
+                )),
+                ..Default::default()
+            };
+            silent.attach(&p.h().worker);
+            provider
+                .initialize(p.h().services.context.clone())
+                .await
+                .map_err(|e| e.failure().clone())?;
+            let hooks = RuntimeHooks::live();
+            let parent = core.job(JobKind::Supervisor, None);
+            let tracker = Arc::new(pool_support::RecordingTracker::default());
+            let scheduler = Scheduler::new(SchedulerParts {
+                core: core.clone(),
+                provider: provider.clone(),
+                analytics: Arc::new(Analytics::from_lookup(Arc::new(pool_support::NoMetrics))),
+                configuration: {
+                    let mut configuration = (*p.h().services.configuration).clone();
+                    configuration.device_initialization_timeout_millis = wait_millis;
+                    // Far more than these batches charge, so the quota (D47) is not what ends the run here.
+                    configuration.uncompleted_test_retry_quota = 100;
+                    Arc::new(configuration)
+                },
+                shard: TestShard {
+                    tests: tests(),
+                    flaky_tests: vec![],
+                },
+                tracker: tracker.clone(),
+                timer: p.h().services.timer.clone(),
+                bundle_identifier: Some(p.h().services.identifier.clone()),
+                hooks: hooks.clone(),
+                barriers: hooks.barriers(),
+                ci: Ci::None,
+                output: OutputDriver {
+                    vendor: core.vendor(),
+                    sink: Arc::new(pool_support::NullSink),
+                },
+                context: core.context(parent.clone()),
+            });
+            let passed = scheduler.execute().await.map_err(|e| e.failure().clone())?;
+            assert_eq!(scheduler.pools().len(), 1);
+            assert!(scheduler.pools()[0].1.terminated());
+            // Termination ends a recovery pause that is still running.
+            provider.terminate().await.map_err(|e| e.failure().clone())?;
+            let connected = tracker.connected.lock().unwrap().len();
+            parent.cancel(requested("test finished"));
+            let _ = parent.join().await;
+            Ok((silent.count.load(Ordering::SeqCst), connected, passed))
+        })
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(outcome)
+}
+
+/// S-x28-1, with the default ratio of recovery pauses (0, 30 and 60 s) to D48's wait (180 s) kept and shortened: each
+/// recovery is back within the wait, so the simulator runs 3 silent batches on each of its 4 setups, 12 in all. After the
+/// fourth loss it stays out, and the pool ends with its tests unrun once the wait is over.
+#[test]
+fn silent_batches_on_the_only_simulator_run_twelve_when_each_recovery_returns_within_the_wait_d39_d48() -> TestResult {
+    let (batches, connected, passed) = silent_batches_on_one_simulator(100, 5_000)?;
+    assert_eq!((batches, connected, passed), (12, 4, false));
+    Ok(())
+}
+
+/// S-x28-1: a recovery whose pause is longer than D48's wait finds the pool gone. The first recovery has no pause, so the
+/// simulator gets 6 batches, and the replacement that comes later does not bring the pool back (C50).
+#[test]
+fn silent_batches_on_the_only_simulator_stop_at_the_first_recovery_that_misses_the_wait_d39_d48() -> TestResult {
+    let (batches, connected, passed) = silent_batches_on_one_simulator(3_000, 500)?;
+    assert_eq!((batches, connected, passed), (6, 2, false));
+    Ok(())
+}
