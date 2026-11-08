@@ -1,7 +1,22 @@
 use marathon_cli::args::{CliConfiguration, Invocation, parse};
 
 fn invocation(args: &[&str]) -> Invocation {
-    parse(&args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>())
+    let parsed = parse(&args.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>());
+    let expected_exit = match &parsed {
+        Invocation::Help(_) | Invocation::Execute(CliConfiguration::Version) => 0,
+        Invocation::UsageError(_) | Invocation::Execute(_) => 1,
+        Invocation::ConfigDump(_) => panic!("unexpected hidden command"),
+    };
+    // Every non-version execution here names a missing Marathonfile in an isolated directory.
+    let cwd = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_marathon"))
+        .args(args)
+        .current_dir(cwd.path())
+        .env_clear()
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(expected_exit), "{args:?}");
+    parsed
 }
 
 #[test]
