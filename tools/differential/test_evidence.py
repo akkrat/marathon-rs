@@ -606,6 +606,9 @@ class VendorEvidenceTests(unittest.TestCase):
             self.mutate(path,change)
             with self.subTest(option=old),self.assertRaises(e.Invalid):
                 e.compare(self.source,self.actual,self.contract)
+            with self.subTest(native_option=old), self.assertRaises(e.Invalid):
+                e.compare_native_views(e.normalized(self.source, self.contract, native=True),
+                                       e.normalized(self.actual, self.contract, native=True))
 
     @staticmethod
     def as_live_native(directory, record):
