@@ -2698,6 +2698,7 @@ name = "snakeyaml"
 version = "0.0.0"
 dependencies = [
  "jcompat",
+ "serde_json",
 ]
 
 [[package]]

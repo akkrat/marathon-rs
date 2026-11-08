@@ -12,5 +12,6 @@ To re-bless intentionally, remove the existing `fixtures/contract/native-v1`
 generation and run `./run bless`; review the generated views and provenance.
 For the configuration corpus, use `MARATHON_BLESS_CONFIG=1 cargo test -p
 marathon-cli --test config_contract`, then review `fixtures/contract/config/`.
-Changes to the contract require a D-row in PLAN.md §3.11. Ruby with Psych is
-required for YAML result comparison.
+Changes to the contract require a D-row in PLAN.md §3.11. Before running the
+harness directly, build its YAML parser helper with `cargo build -q -p
+snakeyaml --example yaml_tree`; the gate builds it automatically.

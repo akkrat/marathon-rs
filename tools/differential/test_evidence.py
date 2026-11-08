@@ -91,6 +91,11 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotEqual(value('-.inf'), value('.inf'))
         self.assertEqual(value('.NaN'), value('.nan'))
 
+    def test_missing_yaml_helper_reports_build_command(self):
+        with mock.patch.dict(os.environ, {'CARGO_TARGET_DIR': str(self.root / 'missing-target')}):
+            with self.assertRaisesRegex(e.Invalid, 'cargo build -q -p snakeyaml --example yaml_tree'):
+                e.structured_yaml(b'a: 1\n')
+
     def test_native_yaml_matches_shared_implicit_scalar_contract(self):
         for line in (ROOT / 'fixtures/contract/yaml-scalars.tsv').read_text().splitlines():
             scalar, expected = line.split('\t')

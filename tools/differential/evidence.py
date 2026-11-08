@@ -525,24 +525,25 @@ def structured_json(data):
     return tagged(value)
 
 
-# Port of crates/snakeyaml/src/resolve.rs: registration order and UTF-16 limits matter.
-_YAML_BOOL = re.compile(r'(?:yes|Yes|YES|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF)')
-_YAML_INT = re.compile(r'[-+]?(?:0b_*[01][01_]*|0_*[0-7][0-7_]*|0|[1-9][0-9_]*|0x_*[0-9a-fA-F][0-9a-fA-F_]*|[1-9][0-9_]*(?::[0-5]?[0-9])+)')
-_YAML_FLOAT = re.compile(r'(?:[-+]?[0-9][0-9_]*\.[0-9_]*(?:[eE][-+]?[0-9]+)?|[-+]?[0-9][0-9_]*[eE][-+]?[0-9]+|[-+]?\.[0-9_]+(?:[eE][-+]?[0-9]+)?|[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))')
+def yaml_tree(data, classify=False):
+    root = Path(__file__).resolve().parents[2]
+    target = Path(os.environ.get('CARGO_TARGET_DIR', root / 'target'))
+    if not target.is_absolute():
+        target = root / target
+    executable = target / 'debug/examples/yaml_tree'
+    require(executable.is_file(), 'missing YAML helper; run cargo build -q -p snakeyaml --example yaml_tree')
+    try:
+        result = subprocess.run([str(executable), *(['--classify'] if classify else [])],
+                                input=data, capture_output=True, check=True)
+    except subprocess.CalledProcessError as error:
+        raise Invalid('invalid YAML: ' + error.stderr.decode(errors='replace').strip()) from error
+    except OSError as error:
+        raise Invalid('cannot execute YAML helper: ' + str(error)) from error
+    return loads(result.stdout)
 
 
 def yaml_implicit_type(value):
-    length = len(value.encode('utf-16-le', 'surrogatepass')) // 2
-    if length <= 10 and _YAML_BOOL.fullmatch(value):
-        return 'bool'
-    if length <= 1024 and _YAML_INT.fullmatch(value):
-        return 'int'
-    if length <= 1024 and _YAML_FLOAT.fullmatch(value):
-        return 'float'
-    if length <= 10 and value in ('', '~', 'null', 'Null', 'NULL'):
-        return 'null'
-    # Jackson exposes YAML's merge, timestamp and YAML indicator tags as strings.
-    return 'str'
+    return yaml_tree(value.encode('utf-8'), classify=True)
 
 
 def yaml_integer(value):
@@ -565,46 +566,16 @@ def yaml_integer(value):
 
 
 def structured_yaml(data):
-    # Psych exposes the syntax tree, preserving mapping order and scalar types.
-    script = r"""require 'psych'; require 'json'
-def node(n, anchors)
-  return anchors.fetch(n.anchor) if n.is_a?(Psych::Nodes::Alias)
-  tag = n.respond_to?(:tag) ? n.tag : nil
-  base = 'tag:yaml.org,2002:'
-  value = case n
-  when Psych::Nodes::Document then node(n.root, {})
-  when Psych::Nodes::Mapping, Psych::Nodes::Sequence
-    kind = n.is_a?(Psych::Nodes::Mapping) ? 'map' : 'seq'
-    raise 'invalid collection tag' if tag && tag.start_with?(base) && tag != base + kind
-    children = if kind == 'map'
-      n.children.each_slice(2).map { |k,v| [node(k, anchors), node(v, anchors)] }
-    else
-      n.children.map { |v| node(v, anchors) }
-    end
-    [kind, tag == base + kind ? nil : tag, children]
-  when Psych::Nodes::Scalar
-    raise 'invalid scalar tag' if tag && [base + 'map', base + 'seq'].include?(tag)
-    ['scalar-source', tag, n.plain, n.value]
-  else raise 'unsupported YAML node'
-  end
-  anchors[n.anchor] = value if n.respond_to?(:anchor) && n.anchor
-  value
-end
-puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d, {}) })
-"""
-    try:
-        result = subprocess.run(['ruby', '-e', script], input=data, capture_output=True, check=True)
-    except subprocess.CalledProcessError as error:
-        raise Invalid('invalid YAML: ' + error.stderr.decode(errors='replace').strip()) from error
+    # The helper uses the product's parser and resolves aliases and scalar types.
+    tree = yaml_tree(data)
     def canonical(value):
         if isinstance(value, list):
-            if len(value) == 4 and value[0] == 'scalar-source':
-                _, tag, plain, raw = value
+            if len(value) == 5 and value[0] == 'scalar-source':
+                _, tag, style, raw, implicit = value
                 base = 'tag:yaml.org,2002:'
                 known = {base + kind for kind in ('str', 'int', 'float', 'bool', 'null')}
-                implicit = yaml_implicit_type(raw)
                 if tag in (None, '!'):
-                    kind = implicit if plain or tag == '!' else 'str'
+                    kind = implicit if style == 'plain' or tag == '!' else 'str'
                 elif tag in known:
                     kind = tag.removeprefix(base)
                     if kind not in ('str', 'null') and implicit != kind and not (kind == 'float' and implicit == 'int'):
@@ -648,7 +619,7 @@ puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d, {})
                 return ['scalar', kind, custom_tag, scalar]
             return [canonical(item) for item in value]
         return value
-    return canonical(json.loads(result.stdout))
+    return canonical(tree)
 
 
 

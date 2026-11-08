@@ -63,6 +63,9 @@ PY
 step "Apple scenario evidence (offline)"
 python3 -I tools/fake-worker/test_apple_evidence.py
 
+step "build native YAML comparison helper"
+cargo build -q -p snakeyaml --example yaml_tree
+
 step "differential evidence and comparator (offline; native cases run in cargo test below)"
 python3 -I tools/differential/run validate
 python3 -I tools/differential/test_evidence.py

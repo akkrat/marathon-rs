@@ -42,8 +42,9 @@ zeroed `stdin`. `write_record` applies these rules, and a JVM capture's redactio
 `tools/differential/run check` validates historical evidence and runs the native
 contracts and comparator self-tests. `scripts/check.sh` runs the offline checks
 and the native targets through the workspace tests. `native-vendors --output
-NEW_DIRECTORY` runs the 15 whole-vendor cases. Ruby with Psych is required for
-YAML comparison. No JVM or JDK is needed for these checks.
+NEW_DIRECTORY` runs the 15 whole-vendor cases. The gate builds the YAML helper
+with `cargo build -q -p snakeyaml --example yaml_tree` before comparison; run
+that command first when using the harness directly. No JVM or JDK is needed.
 
 `tools/differential/run bless` explicitly captures all registered cases and
 publishes normalized, compressed views and commit/host provenance under
