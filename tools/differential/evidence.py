@@ -495,11 +495,31 @@ def contract_console(data):
 def structured_json(data):
     def pairs(items):
         unique(items)
-        return ['object', [[key, value] for key, value in items]]
+        return ('object', items)
     def number(value):
-        return ['number', str(decimal.Decimal(value).normalize())]
-    return json.loads(data, object_pairs_hook=pairs, parse_int=number, parse_float=number,
-                      parse_constant=lambda value: (_ for _ in ()).throw(Invalid('nonfinite JSON: ' + value)))
+        sign, digits, exponent = decimal.Decimal(value).as_tuple()
+        if not any(digits):
+            return ('number', '0')
+        digits = list(digits)
+        while digits[-1] == 0:
+            digits.pop()
+            exponent += 1
+        return ('number', ('-' if sign else '') + ''.join(map(str, digits)) + 'e' + str(exponent))
+    def tagged(value):
+        if isinstance(value, tuple):
+            if value[0] == 'object':
+                return ['object', [[k, tagged(v)] for k, v in value[1]]]
+            return list(value)
+        if isinstance(value, list):
+            return ['array', [tagged(v) for v in value]]
+        if value is None:
+            return ['null']
+        if isinstance(value, bool):
+            return ['bool', value]
+        return ['string', value]
+    value = json.loads(data, object_pairs_hook=pairs, parse_int=number, parse_float=number,
+                       parse_constant=lambda value: (_ for _ in ()).throw(Invalid('nonfinite JSON: ' + value)))
+    return tagged(value)
 
 
 def structured_yaml(data):
