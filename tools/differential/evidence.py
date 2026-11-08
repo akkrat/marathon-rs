@@ -477,7 +477,7 @@ def xml_value(data):
     return node(ET.fromstring(data))
 
 
-def contract_console(data):
+def contract_console(data, values):
     lines = data.decode('utf-8').splitlines(keepends=True)
     selected = []
     summary = False
@@ -489,7 +489,10 @@ def contract_console(data):
         if summary and line.startswith('Total time:'):
             summary = False
             selected.append('\n')
-    return ''.join(selected).encode()
+    text = ''.join(selected)
+    if 'serial' in values:
+        text = text.replace('[' + values['serial'] + ']', '[{serial}]')
+    return text.encode()
 
 
 def structured_json(data):
@@ -584,9 +587,10 @@ def normalized(directory, contract, native=False):
                     if contract['transport'] == 'ssh' and vendor_console.SSHPASS_FACT not in facts:
                         # Apple goldens predate the fact; their stderr shows the host had no default sshpass.
                         facts = dict(facts, **{vendor_console.SSHPASS_FACT: False})
-                    console = vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)
                     if native:
-                        console = contract_console(console)
+                        console = contract_console(data, record['identities'])
+                    else:
+                        console = vendor_console.normalize(data,record['identities'],record['implementation'],name,facts)
                     content = base64.b64encode(console).decode()
                 elif name == 'host-argv.jsonl':
                     content = vendor_transport.host_argv(data,record['identities'],may_withhold(directory,record))

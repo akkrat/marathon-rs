@@ -56,6 +56,13 @@ class EvidenceTests(unittest.TestCase):
             return
         self.fail('comparator accepted a changed observable')
 
+    def test_native_console_ignores_other_diagnostics(self):
+        values = {'serial': 'device-1'}
+        first = b'diagnostic one\n00% | [omni]-[device-1] C#t passed\n'
+        second = b'different diagnostic\n00% | [omni]-[device-1] C#t passed\n'
+        self.assertEqual(e.contract_console(first, values), e.contract_console(second, values))
+        self.assertNotEqual(e.contract_console(first, values), e.contract_console(second.replace(b'passed', b'failed'), values))
+
     def test_native_structured_and_command_adversaries(self):
         self.contract['paths'].remove('reports/log')
         baseline = self.record('native-baseline')
