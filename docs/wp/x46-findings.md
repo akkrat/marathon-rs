@@ -84,7 +84,9 @@ No caller sends under a context it has already cancelled and expects the send to
 makes no transfers. Receives (video, device log, result bundles, screenshots) take no cancellation and are as before.
 
 **Nothing waits longer, and nothing reports differently.** Each of these used to leave rsync running to its own end while
-its caller was cancelled, and now stops it at once; the stop takes at most D31's 5 s + 5 s, plus `ps`. A cancelled prepare's
+its caller was cancelled, and now stops it at once. The stop takes at most 15 s: 5 s for rsync to end after TERM before KILL,
+5 s for pipes that a child it left still holds (U158), and 5 s for what it started to end after TERM before KILL; and up to
+20 s more where `ps` is slow, since each of its four listings may take 5 s. A cancelled prepare's
 result is dropped, a cancelled parse ends with its own cancellation, and a batch cancelled during a test root push used to
 fail its next command on the same cancellation. A send stopped part-way leaves rsync's partial file, and the next send of it
 transfers it again, since `SharedTransfers` keeps a source only after a success. A healthy run cancels no send.
@@ -234,3 +236,27 @@ marathon`; exits on the test's clock.
 | Exit | 0 at 91.4 s | 1 at 210.8 s |
 
 The same as round 0's runs to within 0.1 s.
+
+## Review round 2
+
+Reviewer gpt-6.1-sol: the product fixes hold; two minor findings, both fixed.
+
+- **S-x46-6: the stop tests' stand-in could be stopped before its signal handling existed.** It published `ssh-pid`, which
+  the test waited for, before its TERM trap, and its child's trap had no handshake. The reviewer's witness, a 200 ms delay
+  before the trap, failed the exit-0 test with `Err(Cancelled)` instead of `Ok(true)`. Now the child sets up its handling
+  and writes `ssh-ready`, the stand-in waits for that, sets up its own, and writes `ready`, and the test stops it only
+  after `ready` (`stoppable_rsync` in `crates/marathon-apple/tests/rsync_file_bridge.rs`). Checked: with a 200 ms delay
+  before each trap, in the stand-in and in its child, all seven D54 bridge tests pass; the same delay on round 1's stand-in
+  fails the exit-0 test with the reviewer's `Err(Cancelled)`. The delay was then removed. The other stand-ins: the
+  `sshpass` stand-in already set its trap before starting rsync, and the real-clock CLI tests' stand-in logged `start`
+  before its trap; nothing waits on that line, since the stops come at 75 s and 180 s, but the trap now comes first too.
+  Those two CLI tests were not run again for this ordering change; they compile and pass clippy.
+- **S-x46-7: the cleanup bound was understated.** "At most D31's 5 s + 5 s, plus `ps`" left out the wait for output pipes.
+  When rsync and its child both ignore TERM, the bridge waits 5 s for rsync, 5 s for the pipes the child holds, then 5 s
+  for the child; the reviewer measured 15.35 s. The findings and D54 now say at most 15 s, and up to 20 s more where `ps`
+  is slow (four listings of up to 5 s each: before the TERM, at it, and at each of the cleanup's TERM and KILL). The
+  CHANGELOG states no bound and is unchanged.
+
+**Runs.** `cargo fmt --check`, `cargo clippy -p marathon-apple -p marathon-cli --all-targets -- -D warnings` and the local
+name check: clean. `cargo test -p marathon-apple`: 57 test binaries, 546 passed, 0 failed, 26 ignored. Its
+`rsync_file_bridge` tests three more times: 55 passed each time, in 38.7 s, 38.0 s and 38.0 s.

@@ -1131,8 +1131,9 @@ Native builds, on iOS and macOS:
 - **A send ends when its call is cancelled.** rsync is stopped as [D31](#d31--an-rsync-send-that-stops-moving-fails) stops
   a stalled one, with the same signals and limits, but without the first 5 s, since rsync hasn't said anything and isn't on
   its way out: TERM to rsync and what it started, KILL 5 s later to what is left, and then the same for anything it left
-  behind, also when rsync exits 0 on the TERM, which keeps its success. The send returns as cancelled and logs nothing; its
-  caller reports the cancellation as before.
+  behind, also when rsync exits 0 on the TERM, which keeps its success. That takes at most 15 s, with 5 s for output pipes
+  that such a child still holds, and up to 20 s more where `ps` is slow. The send returns as cancelled and logs nothing;
+  its caller reports the cancellation as before.
 - **A receive is never ended by its caller's cancellation.** Every receive collects an artifact, and its callers are
   cancelled around it on purpose: a screenshot's capture at the end of every test, iOS's artifact queue 300 s after the run,
   before a 60 s grace for what is still being pulled. A pull runs to its end then, as in Kotlin.
