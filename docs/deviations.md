@@ -1,7 +1,7 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D52; implementation availability
+canonical. This guide covers D1–D53; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences.
@@ -45,7 +45,7 @@ client replacement does not itself disable writes or require a service migration
 ## D5 — Retained defects
 
 Most Kotlin defects remain, including metadata lookup, dynamic-provider EOF and
-CI detection quirks. D14–D19 and D21–D52 fix the ones described in this guide, and
+CI detection quirks. D14–D19 and D21–D53 fix the ones described in this guide, and
 the [ledger](known-kotlin-bugs.md) marks the rows they fix as fixed. Consult the
 ledger and its per-row status, and the
 [migration shortlist](migration.md#retained-behavior-to-account-for).
@@ -1073,6 +1073,42 @@ with `debug: false`. Approved 2026-11-07 (project owner's decision). See
 mean the run finished: the exit code says so. A process that used to die at once can take up to 25 s; a harness that waits
 less than that should allow for it, or send a second signal. A test in flight on Android leaves `screenrecord` running until its
 limit of 180 s, and its video on the device, as an exit always has.
+
+## D53 — Remote parsing tries another device after a failed attempt
+
+Kotlin parses a remote test list in up to three attempts within `deviceInitializationTimeoutMillis`, and each attempt borrows
+a device at random (`Marathon.kt:131-143`). Nothing remembers the device an attempt failed on, so all three can land on one
+that cannot parse, such as a simulator whose worker stalls its sends or answers with errors, or an Android device whose
+instrumentation keeps failing, and the run fails although another device is healthy. With two devices and one broken, that
+is one run in eight.
+
+Native builds remember, for one parse, the devices its attempts failed on, and the next attempt picks among the available
+devices it hasn't tried, with the same random choice over that smaller set. Only when every available device has been tried
+does it pick among all of them, as before. It never waits for an untried device, so a parse takes no longer than it did. A
+device counts as tried when the parse on it failed; a failed borrow, or a cancellation, marks none. A device is known by the
+key its provider borrows it by, so one that comes back as a new object, after a reconnect, is still the one that failed:
+on Android its adb server and serial, as [D18](#d18--android-devices-are-keyed-by-adb-server-and-serial) tells them apart; on iOS the
+simulator's key in the devices file; on macOS the Mac's serial number.
+
+**macOS (U171).** The macOS provider never drops a Mac and has nothing to reconnect one, so a Mac whose connection was lost
+stayed in its list and could be handed to the parse, which then failed an attempt on it. As on iOS with
+[D44](#d44--a-lost-simulators-reconnect-has-a-limit), remote parsing now takes only a Mac whose connection is up. With none,
+it waits, and `deviceInitializationTimeoutMillis` bounds that as for no devices at all: a run whose only Mac lost its
+connection before the parse now fails with `Timed out waiting for a temporary device for remote test parsing` after that
+limit, where it used to fail its three attempts at once.
+
+**Unchanged:** the three attempts with no pause between them, the `deviceInitializationTimeoutMillis` bound, which error the
+run reports, the `Parsed … tests` timing line, the commands sent to devices and workers, and a healthy run's logs and replay
+choices: the smaller set of keys is offered only after a failed attempt. A run with one device makes its three attempts on
+it, as before. No log line was added. **Limit:** a stalled send is decided after 285 s or more ([D31](#d31--an-rsync-send-that-stops-moving-fails)),
+longer than the default 180 s of `deviceInitializationTimeoutMillis`, so with the default a stall during the first attempt still
+ends the parse with that timeout before a second attempt can start. A failure that comes sooner gets its second attempt on
+another device; to give a stall one, raise `deviceInitializationTimeoutMillis`.
+
+Approved 2026-11-08 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[A103](known-kotlin-bugs.md), [U171](found-bugs.md) and the [x44 findings](wp/x44-findings.md).
+
+**Migration action:** none needed.
 
 ## Other accepted text differences
 

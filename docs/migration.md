@@ -110,8 +110,8 @@ links to its entry in the [deviations guide](deviations.md).
 | use `fixed-size` batching with flaky copies or several test APKs, and set `testBatchTimeoutMillis` close to what a batch took ([D50](deviations.md#d50--a-rejected-test-does-not-use-a-batch-slot)) | Only the tests a batch accepts count against `size` and `durationMillis`, so batches that used to end early hold more tests and take longer. | Check `testBatchTimeoutMillis`. [See below](#batches-hold-more-tests-with-flaky-copies-or-several-test-apks). |
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
-These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49
-and D51. D2, D3, D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections
+These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
+D51 and D53. D2, D3, D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections
 below.
 
 ### A finite `uncompletedTestRetryQuota` (D47)

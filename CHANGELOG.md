@@ -4,7 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D52). Most Kotlin bugs remain; the
+This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D53). Most Kotlin bugs remain; the
 [bug ledger](docs/known-kotlin-bugs.md) marks the ones that are fixed. Read
 [Changes that need action](docs/migration.md#changes-that-need-action) before you upgrade, and the
 [deviations guide](docs/deviations.md) for each change in full.
@@ -173,6 +173,12 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - `fixed-size` batching counts only the tests a batch accepts, against both `size` and `durationMillis`, so flaky copies and
   tests of another test APK no longer end a batch early. With two test APKs in sorted order, 1,000 tests at size 10 take 100
   batches instead of 150. A batch rejects at most twice its size. A batch with nothing rejected is unchanged (D50).
+- Remote test parsing no longer spends all three attempts on one broken device while another is healthy: after an attempt
+  fails on a device, the next one picks among the devices not yet tried, and among all once each has been tried, so a
+  run with one device is unchanged. A device that reconnects counts as the same one. It never waits for an untried device.
+  With the default 180 s `deviceInitializationTimeoutMillis`, a stalled send, decided after 285 s, still ends the parse
+  after its first attempt. On macOS, parsing also skips a Mac whose connection is lost, and waits within that limit if no
+  Mac is connected (D53, A103, U171).
 - A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40). No
   known path triggers this, so you are unlikely to have met it.
 
@@ -194,7 +200,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D52 ran through the built binary with real signals on the fake adb and fake worker, and with a test in flight on an Android
   API 36 emulator in both debug modes. It did not run on a real worker or Mac.
 - D45 ran on real hanging tests: an iOS 18.6 simulator under Xcode 27.2, with allowances that print `1 minute` and `2 minutes`.
-- The comparisons on real devices and private farms predate D21–D52.
+- D53 ran against the fake adb server and fake workers in each vendor's tests, and through the built binary with two fake iOS
+  workers, one stalling its sends. It did not run on real devices.
+- The comparisons on real devices and private farms predate D21–D53.
 
 ### Known limits
 
