@@ -92,7 +92,7 @@ The audit's logs aren't in this repository, so its 50 batches are rebuilt here: 
 batch failures and the default 3 recoveries, through the real device, policy and provider recovery on a fake worker. The test
 sets a short recovery pause, because the default's 60 s meets the harness's watchdog.
 
-| | Batches before the simulator is lost | Recycled | Time at 300 s per batch |
+| | Batches before the simulator is lost (another device keeps the pool) | Recycled | Time at 300 s per batch |
 |---|---|---|---|
 | Before (fix reverted) | never, all 50 ran on one handle | 0 | 250 minutes and counting |
 | After | 3, 3, 3, 3, then out of the run | 3 | 60 minutes, plus setups and 90 s of pauses |
@@ -104,8 +104,12 @@ passes both ways, as it pins what must not change.
 ### What it does not do
 
 - It adds no limit on a batch with progress that then goes silent. Such a batch still resets the count.
-- On the last device of a pool the run now ends when the recoveries run out, with the usual pool ending. No real simulator went
-  silent for this; the scenario is on a fake worker.
+- The scenario above has no scheduler, so it is what a simulator gets while another device keeps the pool alive. On a pool's
+  only simulator each recycle empties the pool. Before D48 the pool then ended at once, after 3 batches (S-x28-1, a review of
+  this WP after merge). Since D48 the pool waits up to `deviceInitializationTimeoutMillis` for the recovery: one that is ready
+  within it gives the same 12 batches, and the pool ends that long after the fourth loss with its tests unrun; one that
+  misses it ends the pool after 3, 6 or 9. `simulator_pool_recovery.rs::silent_batches_on_the_only_simulator_*` (WP x40) pin
+  both through the real scheduler. No real simulator went silent for this; it is all on a fake worker.
 
 ## Verified
 

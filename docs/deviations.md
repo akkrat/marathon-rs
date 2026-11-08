@@ -610,9 +610,15 @@ that's left to see. Three in a row, about 15 minutes by default, and the simulat
 passed or failed resets the count, as Kotlin does for every timeout.
 
 This also reaches a test that goes silent past the timeout with no failure text at all, which Kotlin never recycled for. A
-simulator has 3 recoveries, so if every batch goes silent it takes at most 12 batches, about 60 minutes plus setups and
-pauses of 30 and 60 s, and it then leaves the run. On the last device the run then ends, where Kotlin repeats the batch until
-CI kills the job. `uncompletedTestRetryQuota` can end it sooner.
+simulator has 3 recoveries: the first starts at once, the others after pauses of 30 and 60 s. While another device keeps the
+pool alive, a simulator on which every batch goes silent takes 12 batches, 3 on each of its 4 setups, about 60 minutes plus
+setups and those pauses, and then leaves the run. On a pool's only simulator each recycle empties the pool, and
+[D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait (`deviceInitializationTimeoutMillis`, 180 s by
+default) decides. A recovery that is set up and ready within it finds the pool and its tests still there, so with the
+defaults and a setup shorter than about 2 minutes it is the same 12 batches, and the pool ends 180 s after the fourth loss
+with its tests unrun. A recovery that misses the wait ends the pool after 3, 6 or 9 batches; before D48 it ended after 3.
+Either way the run ends, where Kotlin repeats the batch until CI kills the job. `uncompletedTestRetryQuota` can end it
+sooner. `crates/marathon-ios/tests/simulator_pool_recovery.rs` pins both outcomes through the real scheduler.
 
 Approved 2026-11-06 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A48](known-kotlin-bugs.md) and the [x17 findings](wp/x17-findings.md).

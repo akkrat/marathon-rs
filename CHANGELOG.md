@@ -134,8 +134,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   batch goes on, and a simulator is no longer dropped after 3 such batches in a row (D39).
 - Three output timeouts in a row with no test passed or failed now set a simulator up again, so a real failure that D39 misses
   no longer keeps a sick simulator in the run. This also reaches a test that stays silent past `testOutputTimeoutMillis`, which
-  Kotlin repeated on the same simulator for ever. A simulator that does this after each of its 3 recoveries leaves the run (D39,
-  U165).
+  Kotlin repeated on the same simulator for ever. While another device keeps the pool alive, a simulator that does this after
+  each of its 3 recoveries leaves the run after 12 such batches. On a pool's only simulator each recovery must also be ready
+  within D48's wait, 180 s by default, or the pool ends sooner (D39, U165).
 - A test that hangs past its execution time allowance now fails, with the hang's line as its text, whatever form the allowance
   is printed in. With `1 minute`, which a 60 s allowance prints, Kotlin aborted the batch and repeated the test until CI killed
   the job (D45).
