@@ -392,10 +392,18 @@ mod tests {
             ));
             assert_eq!(buf.filled(), expected);
             buf.clear();
-            assert!(matches!(
-                Pin::new(&mut pipe).poll_read(&mut cx, &mut buf),
-                Poll::Ready(Ok(()))
-            ));
+            // EOF needs every write end closed. A process that another test in this binary forks at this moment
+            // holds a copy until it execs, so the read can be Pending for that long (once in 28 Linux runs).
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            loop {
+                match Pin::new(&mut pipe).poll_read(&mut cx, &mut buf) {
+                    Poll::Ready(Ok(())) => break,
+                    Poll::Pending if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(1))
+                    }
+                    other => panic!("no EOF: {other:?}"),
+                }
+            }
             assert!(buf.filled().is_empty());
         }
         check(PollingPipe(stdout), b"stdout tail");
