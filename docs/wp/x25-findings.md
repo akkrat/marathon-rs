@@ -12,9 +12,9 @@ them say what they rest on.
 |---|---|---|
 | D30: time from TERM to the exit of xcodebuild | 5–16 ms on Xcode 27.2 with iOS 18.6, 26.4 and 27.0 simulators; at most 3.06 s with parallel clones; 46 runs; one Mac only | D30 |
 | D30: a UI test's application under test after xcodebuild has ended | Stays running for at least 90 s, until the next run | D30 |
-| D38: a failed readiness probe on the last device | The run ends after about 6–13 minutes with `remaining tests will not run` | D38 |
-| D38: only the probe hangs and needs KILL | About 33 minutes | D38 |
-| D38: every command hangs | About 50 minutes | D38 |
+| D38: a failed readiness probe on the last device | The run ends after about 6–13 minutes with `remaining tests will not run`. Superseded after D48: 180 s after the simulator left the pool, about 9 to 11 minutes after the first setup began or about 3 minutes after a loss ([x42](x42-findings.md)) | D38 |
+| D38: only the probe hangs and needs KILL | About 33 minutes. Recomputed in [x42](x42-findings.md) from the constants, with another simulator alive | D38 |
+| D38: every command hangs | About 50 minutes. Not re-derived in [x42](x42-findings.md), and taken out of the documents | D38 |
 | U160: a batch held at D22's gate, quota 0 | 4 of 4 devices on the fake adb lost a batch that never started | U160 |
 | U161: tests bounce after SIGINT with `debug: true` | A zero-time loop until exit, with false INCOMPLETE results | U161 |
 

@@ -101,7 +101,8 @@ the condition.
 - CHANGELOG's "Check before you upgrade" is not a copy of the migration table: D33, D35, D39, D41, D50 and D52 are only in
   the table. That was already so for the first four; whether D52, which affects CI harnesses, belongs there too is for the
   owner.
-- D38's known limit (on the last device, 6 to 13 minutes plus D48's wait) was not re-derived after D48 and D44.
+- D38's known limit (on the last device, 6 to 13 minutes plus D48's wait) was not re-derived after D48 and D44. Done in
+  [x42](x42-findings.md).
 - x26's other incidentals have no rows: a stalled send during remote parsing ends the run even with a healthy second worker
   (Kotlin does the same, so it would be an A row), no test reads `fixtures/oracle/connections/deadlines.jsonl`, and the fake
   worker's `ssh` shim offers the developer's default keys on password runs.

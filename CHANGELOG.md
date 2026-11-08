@@ -215,8 +215,9 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - An emulator that restarted during an adb outage (D22) repeats its failing batches until `uncompletedTestRetryQuota` runs
   out.
 - A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
-  On the last device the run ends after about 6 to 13 minutes plus D48's wait, with "remaining tests will not run". If only the probe hangs and
-  needs KILL it takes about 33 minutes, and if every command hangs about 50 (D38).
+  If only the probe hangs and needs KILL it takes about 33 minutes. On the last device the run ends 180 s (D48's wait) after the
+  simulator left the pool, with "remaining tests will not run": about 9 to 11 minutes after its first setup began, or about 3
+  minutes after a loss if the probe starts failing at a re-setup (D38).
 - A failed xcodebuild close retires its simulator, and a pool whose last device it was waits (D48), then ends (D30).
 - An Android device that left its pool but not adb's list, after a failed prepare or D49's limit, returns only if the list changes,
   so a pool waiting for it uses up the limit for nothing (D48).

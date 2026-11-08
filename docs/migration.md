@@ -357,8 +357,10 @@ batch that rejected a test.
   host or link too slow to deliver that within `shell` (30 s by default), every probe now times out, where Kotlin counted
   the marker once about 80% had arrived. A simulator then takes up to four setups of two `bootWait`s each, about 26 to
   30 minutes per simulator with the defaults, before it is out of the run. That holds while another simulator keeps the pool
-  alive, and leaves out the waits for shutdown and for the session to close. On the last device the run ends after about 6
-  to 13 minutes plus [D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait, with `remaining tests will not run`. Raise `shell` if that happens. A configured
+  alive, and leaves out the waits for shutdown and for the session to close. On the last device the run ends 180 s
+  ([D48](deviations.md#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait) after the simulator left the
+  pool, with `remaining tests will not run`: about 9 to 11 minutes after its first setup began, or about 3 minutes after a
+  loss if the probe starts failing at a re-setup. Raise `shell` if that happens. A configured
   `onPrepare: [ERASE]` erases on each re-setup, as on any setup.
 - **The readiness probe is `launchctl print user/foreground` from iOS 18**
   ([D46](deviations.md#d46--the-readiness-probe-is-launchctl-print-userforeground-from-runtime-18)). The answer is about
