@@ -90,6 +90,8 @@ class EvidenceTests(unittest.TestCase):
                          e.structured_json(b'{"a":"\\u003c","n":10000000000.0}'))
         self.assertEqual(e.xml_value(b'<a>&lt;</a>'), e.xml_value(b'<a><![CDATA[<]]></a>'))
         self.assertEqual(e.structured_yaml(b'a: 1.0\n'), e.structured_yaml(b'a: 1.00\n'))
+        self.assertEqual(e.structured_yaml(b'a: !!str true\n'), e.structured_yaml(b'a: "true"\n'))
+        self.assertEqual(e.structured_yaml(b'a: &x [1, 2]\nb: *x\n'), e.structured_yaml(b'a: [1, 2]\nb: [1, 2]\n'))
 
     def test_exact_positive_and_symlink_without_dereference(self):
         actual = self.record('actual')

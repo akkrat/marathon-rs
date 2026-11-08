@@ -528,19 +528,26 @@ def structured_json(data):
 def structured_yaml(data):
     # Psych exposes the syntax tree, preserving mapping order and scalar types.
     script = r"""require 'psych'; require 'json'
-def node(n)
-  case n
-  when Psych::Nodes::Document then node(n.root)
-  when Psych::Nodes::Mapping then ['object', n.children.each_slice(2).map { |k,v| [node(k), node(v)] }]
-  when Psych::Nodes::Sequence then ['array', n.children.map { |v| node(v) }]
+def node(n, anchors)
+  if n.is_a?(Psych::Nodes::Alias)
+    return anchors.fetch(n.anchor)
+  end
+  value = case n
+  when Psych::Nodes::Document then node(n.root, {})
+  when Psych::Nodes::Mapping then ['object', n.children.each_slice(2).map { |k,v| [node(k, anchors), node(v, anchors)] }]
+  when Psych::Nodes::Sequence then ['array', n.children.map { |v| node(v, anchors) }]
   when Psych::Nodes::Scalar
     scanner = Psych::ScalarScanner.new(Psych::ClassLoader::Restricted.new([], []))
-    value = n.plain ? scanner.tokenize(n.value) : n.value
-    ['scalar', value]
+    string_tag = n.tag == 'tag:yaml.org,2002:str'
+    typed_tag = ['tag:yaml.org,2002:int', 'tag:yaml.org,2002:float', 'tag:yaml.org,2002:bool', 'tag:yaml.org,2002:null'].include?(n.tag)
+    scalar = !string_tag && (n.plain || typed_tag) ? scanner.tokenize(n.value) : n.value
+    ['scalar', scalar]
   else raise 'unsupported YAML node'
   end
+  anchors[n.anchor] = value if n.respond_to?(:anchor) && n.anchor
+  value
 end
-puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d) })
+puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d, {}) })
 """
     result = subprocess.run(['ruby', '-e', script], input=data, capture_output=True, check=True)
     return json.loads(result.stdout)
