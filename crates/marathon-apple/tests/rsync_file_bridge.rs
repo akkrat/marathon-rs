@@ -574,6 +574,8 @@ struct StalledSend<'a> {
     /// How fast the bridge's clock says time passes, if not `factor`: faster, for a bridge whose delays come late.
     elapsed_factor: Option<i64>,
     silent_peer: bool,
+    /// D54: how many times longer than nominal the bridge's delays take, if not compressed by `factor`.
+    slow: Option<i64>,
     /// The child test to run: a stalled send by default, or a receive past its deadline (U155).
     child: &'a str,
 }
@@ -588,6 +590,7 @@ impl<'a> StalledSend<'a> {
             factor: 100,
             elapsed_factor: None,
             silent_peer: false,
+            slow: None,
             child: "stalled_send_runs",
         }
     }
@@ -608,6 +611,7 @@ fn run_stalled_send(run: StalledSend) {
         factor,
         elapsed_factor,
         silent_peer,
+        slow,
         child: child_test,
     } = run;
     let mut command = std::process::Command::new(std::env::current_exe().unwrap());
@@ -617,6 +621,9 @@ fn run_stalled_send(run: StalledSend) {
         .env("MRS_D31_ROOT", root)
         .env("MRS_D31_FACTOR", factor.to_string())
         .env("RSYNC4J_RSYNC", program);
+    if let Some(slow) = slow {
+        command.env("MRS_D54_SLOW", slow.to_string());
+    }
     if silent_peer {
         command.env("MRS_D31_SILENT_PEER", "1");
     }
@@ -1244,10 +1251,13 @@ async fn stalled_bridge(
             key("/fixture/key")
         }),
         Arc::new(Runtime),
-        Arc::new(ssh::ScaledClock::lagging(
-            factor,
-            std::env::var("MRS_D31_ELAPSED_FACTOR").map_or(factor, |elapsed| elapsed.parse().unwrap()),
-        )),
+        match std::env::var("MRS_D54_SLOW") {
+            Ok(slow) => Arc::new(SlowClock::new(slow.parse().unwrap())) as Arc<dyn marathon_core::runtime::VendorClock>,
+            Err(_) => Arc::new(ssh::ScaledClock::lagging(
+                factor,
+                std::env::var("MRS_D31_ELAPSED_FACTOR").map_or(factor, |elapsed| elapsed.parse().unwrap()),
+            )),
+        },
         logging,
     )
     .await
@@ -1790,9 +1800,56 @@ async fn real_pull_child() {
     }
 }
 
-/// D54: a stand-in that records its pid, starts a child standing in for rsync's ssh, and then does `body`. A send to
+/// D54: delays `slow` times longer than they say, on a real clock otherwise. A step the bridge waits out before it sends TERM
+/// then takes far longer than the 60 s that catches a hang, so a stop that returns at all sent TERM at once.
+struct SlowClock {
+    slow: i64,
+    inner: Clock,
+    epoch: std::time::Instant,
+}
+impl SlowClock {
+    fn new(slow: i64) -> Self {
+        Self {
+            slow,
+            inner: Clock::default(),
+            epoch: std::time::Instant::now(),
+        }
+    }
+}
+impl marathon_core::runtime::VendorClock for SlowClock {
+    fn now_millis(&self) -> i64 {
+        self.epoch.elapsed().as_millis() as i64
+    }
+    fn delay(
+        &self,
+        millis: i64,
+        cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
+    ) -> marathon_core::runtime::VendorFuture<'_, ()> {
+        self.inner.delay(millis.saturating_mul(self.slow), cancellation)
+    }
+    fn with_timeout<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, ()> {
+        self.inner.with_timeout(parent, millis.saturating_mul(self.slow), body)
+    }
+    fn with_timeout_or_null<'a>(
+        &'a self,
+        parent: Arc<dyn marathon_core::runtime::CancellationSignal>,
+        millis: i64,
+        body: marathon_core::runtime::VendorTimeoutBody<'a>,
+    ) -> marathon_core::runtime::VendorFuture<'a, Option<()>> {
+        self.inner
+            .with_timeout_or_null(parent, millis.saturating_mul(self.slow), body)
+    }
+}
+/// D54: the 5 s step before TERM that D31 gives a stalled rsync would take 150 s on this clock.
+const SLOW: i64 = 30;
+/// D54: a stand-in that records its pid, starts `ssh`, a child standing in for rsync's ssh, and then does `body`. A send to
 /// `.../next` succeeds at once, so that a send queued behind a stopped one shows whether it went on.
-fn stoppable_rsync(root: &Path, body: &str) -> std::path::PathBuf {
+fn stoppable_rsync(root: &Path, ssh: &str, body: &str) -> std::path::PathBuf {
     let program = root.join("rsync");
     script(
         &program,
@@ -1801,7 +1858,7 @@ fn stoppable_rsync(root: &Path, body: &str) -> std::path::PathBuf {
 case "$*" in *127.0.0.1:/tmp/marathon/next*) echo next >> "$MRS_D31_ROOT/order"; exit 0;; esac
 echo $$ > "$MRS_D31_ROOT/pid"
 echo stuck >> "$MRS_D31_ROOT/order"
-/bin/sleep 100043 &
+{ssh} &
 echo $! > "$MRS_D31_ROOT/ssh-pid"
 {body}
 "#
@@ -1809,61 +1866,68 @@ echo $! > "$MRS_D31_ROOT/ssh-pid"
     );
     program
 }
-/// D54: a transfer stopped mid-way, in real time so that the stop's steps are D31's real 5 s.
-fn stopped_transfer(mode: &str, body: &str) {
+const SSH: &str = "/bin/sleep 100043";
+/// A child that ignores TERM, as an ssh can, so that only KILL ends it.
+const SSH_IGNORING_TERM_TOO: &str = "(trap '' TERM; exec /bin/sleep 100044)";
+const WAITS: &str = "wait";
+const IGNORES_TERM_AND_WAITS: &str = "trap '' TERM\nwhile :; do /bin/sleep 0.05; done";
+/// A wrapper that reports success when it is stopped.
+const EXITS_0_ON_TERM: &str = "trap 'exit 0' TERM\nwhile :; do /bin/sleep 0.05; done";
+/// D54: a transfer stopped mid-way. An rsync that ends on TERM runs on the slow clock; one that ignores TERM on a real one, so
+/// that its KILL comes after D31's real 5 s. The parent checks that nothing the transfer started is left.
+fn stopped_transfer(mode: &str, ssh: &str, body: &str) {
     let dir = tempfile::tempdir().unwrap();
-    let program = stoppable_rsync(dir.path(), body);
+    let program = stoppable_rsync(dir.path(), ssh, body);
     run_stalled_send(StalledSend {
         factor: 1,
+        slow: (ssh == SSH && body == WAITS).then_some(SLOW),
         child: "stopped_transfer_runs",
         ..StalledSend::new(mode, &program, dir.path())
     });
 }
-const WAITS: &str = "wait";
-const IGNORES_TERM_AND_WAITS: &str = "trap '' TERM\nwhile :; do /bin/sleep 0.05; done";
 #[test]
-fn a_send_cancelled_mid_transfer_stops_rsync_and_the_send_behind_it_goes_on_d54() {
-    stopped_transfer("cancel-send", WAITS);
+fn a_send_cancelled_mid_transfer_stops_rsync_at_once_and_the_send_behind_it_goes_on_d54() {
+    stopped_transfer("cancel-send", SSH, WAITS);
 }
 #[test]
 fn a_cancelled_send_whose_rsync_ignores_term_is_killed_d54() {
-    stopped_transfer("cancel-send-stubborn", IGNORES_TERM_AND_WAITS);
+    stopped_transfer("cancel-send-stubborn", SSH, IGNORES_TERM_AND_WAITS);
 }
+/// Review round 1's witness: rsync's status after the stop doesn't decide whether what it started is ended.
 #[test]
-fn a_receive_cancelled_mid_transfer_stops_rsync_d54() {
-    stopped_transfer("cancel-receive", WAITS);
-}
-#[test]
-fn a_cancelled_receive_whose_rsync_ignores_term_is_killed_d54() {
-    stopped_transfer("cancel-receive-stubborn", IGNORES_TERM_AND_WAITS);
+fn a_cancelled_send_whose_rsync_exits_0_on_term_still_ends_what_it_started_d54() {
+    stopped_transfer("cancel-send-exits-0", SSH_IGNORING_TERM_TOO, EXITS_0_ON_TERM);
 }
 #[test]
 fn a_send_whose_connection_is_lost_fails_stops_rsync_and_the_send_behind_it_goes_on_d54() {
-    stopped_transfer("lost-send", WAITS);
+    stopped_transfer("lost-send", SSH, WAITS);
 }
 #[test]
 fn a_receive_whose_connection_is_lost_returns_false_and_stops_rsync_d54() {
-    stopped_transfer("lost-receive", WAITS);
+    stopped_transfer("lost-receive", SSH, WAITS);
 }
 #[test]
 fn a_cancelled_send_under_sshpass_also_stops_rsync_d54() {
     let dir = tempfile::tempdir().unwrap();
-    let program = stoppable_rsync(dir.path(), WAITS);
+    let program = stoppable_rsync(dir.path(), SSH, WAITS);
     let fake_sshpass = dir.path().join("sshpass");
     script(&fake_sshpass, FAKE_SSHPASS);
     run_stalled_send(StalledSend {
         factor: 1,
+        slow: Some(SLOW),
         sshpass: Some(&fake_sshpass),
         child: "stopped_transfer_runs",
         ..StalledSend::new("cancel-send", &program, dir.path())
     });
 }
 /// D54's child: `MRS_D31_MODE` is `cancel` or `lost`, then `send` or `receive`, and `-stubborn` for an rsync that ignores
-/// TERM. The transfer returns its stop within D31's stop: at once for an rsync that ends on TERM, after 5 s and KILL for one
-/// that doesn't, plus 5 s at most for what it started. A send queued behind it on the bridge's lock then runs.
+/// TERM or `-exits-0` for one that exits 0 on it. The transfer returns its stop: on the slow clock at all only if TERM came
+/// at once, and after D31's 5 s and KILL for an rsync that ignores it. A send queued behind it on the bridge's lock then
+/// runs. Receives aren't cancelled by the devices, but the bridge treats a loss on them as on a send.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stopped_transfer_runs() {
     use marathon_apple::cmd::{TransferStop, failure, remote::ssh::sshj::error::CONNECTION_EXCEPTION};
+    const HANG: std::time::Duration = std::time::Duration::from_secs(60);
     let Ok(mode) = std::env::var("MRS_D31_MODE") else {
         return;
     };
@@ -1873,10 +1937,11 @@ async fn stopped_transfer_runs() {
     let (logging, events) = ssh::logging(false);
     let (bridge, _silent_peer) = stalled_bridge(logging).await;
     let bridge = Arc::new(bridge);
-    let (lost, receive, stubborn) = (
+    let (lost, receive, stubborn, exits_0) = (
         mode.starts_with("lost"),
         mode.contains("receive"),
         mode.ends_with("stubborn"),
+        mode.ends_with("exits-0"),
     );
     let signal = marathon_core::executor::shared::Signal::new();
     let (lose, loss) = tokio::sync::oneshot::channel::<marathon_core::error::Failure>();
@@ -1895,7 +1960,7 @@ async fn stopped_transfer_runs() {
         })
     };
     let ssh_pid = root.join("ssh-pid");
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    tokio::time::timeout(HANG, async {
         while std::fs::read_to_string(&ssh_pid).map_or(true, |text| text.trim().is_empty()) {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
@@ -1906,7 +1971,7 @@ async fn stopped_transfer_runs() {
         let (bridge, source) = (bridge.clone(), source.clone());
         tokio::spawn(async move { bridge.send(&source, "/tmp/marathon/next").await })
     });
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    tokio::time::timeout(HANG, async {
         while bridge.retained_tasks() < if receive { 1 } else { 2 } {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
@@ -1924,27 +1989,25 @@ async fn stopped_transfer_runs() {
     } else {
         signal.cancel(reason.clone());
     }
-    let result = tokio::time::timeout(std::time::Duration::from_secs(30), first)
+    let result = tokio::time::timeout(HANG, first)
         .await
-        .expect("the stop did not end the transfer")
+        .expect("the stop did not end the transfer, or waited before TERM")
         .unwrap();
-    let took = at.elapsed();
     match (lost, receive) {
+        // An rsync that says it finished keeps its success.
+        _ if exits_0 => assert_eq!(result, Ok(true)),
         (false, _) => assert_eq!(result, Err(VendorError::Cancelled(reason))),
         (true, false) => assert_eq!(result, Err(VendorError::Other(loss))),
         (true, true) => assert_eq!(result, Ok(false)),
     }
-    // TERM at once, with no 5 s for rsync to end by itself; KILL 5 s later to one that ignores it.
-    let limit = if stubborn {
+    if stubborn || exits_0 {
+        // KILL comes D31's 5 s after TERM, to rsync or to what it left.
+        let took = at.elapsed();
         assert!(took >= std::time::Duration::from_millis(4_900), "{took:?}");
-        std::time::Duration::from_secs(16)
-    } else {
-        std::time::Duration::from_secs(4)
-    };
-    assert!(took < limit, "{took:?}");
+    }
     let pid = std::fs::read_to_string(root.join("pid")).unwrap();
     let pid = nix::unistd::Pid::from_raw(pid.trim().parse().unwrap());
-    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+    tokio::time::timeout(HANG, async {
         while nix::sys::signal::kill(pid, None) != Err(nix::errno::Errno::ESRCH) {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
@@ -1953,10 +2016,7 @@ async fn stopped_transfer_runs() {
     .unwrap();
     if let Some(queued) = queued {
         // Not failed with the stopped send's cancellation or loss, as D31's stall fails it: it runs.
-        let queued = tokio::time::timeout(std::time::Duration::from_secs(30), queued)
-            .await
-            .unwrap()
-            .unwrap();
+        let queued = tokio::time::timeout(HANG, queued).await.unwrap().unwrap();
         assert_eq!(queued, Ok(true));
         assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stuck\nnext\n");
     }

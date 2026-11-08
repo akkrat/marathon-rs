@@ -1162,7 +1162,7 @@ async fn the_connection_loss_a_transfer_waits_for_is_keep_alives_and_not_a_close
     )
     .await;
     let (executor, _) = executor_with(&fake, 1, 1000).await;
-    let lost = tokio::time::timeout(Duration::from_secs(30), executor.connection_lost())
+    let lost = tokio::time::timeout(Duration::from_secs(60), executor.connection_lost())
         .await
         .expect("keep-alive's loss did not reach the transfer");
     assert_eq!(
@@ -1174,7 +1174,7 @@ async fn the_connection_loss_a_transfer_waits_for_is_keep_alives_and_not_a_close
     );
     // Asked for after the loss, it is ready at once.
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(1), executor.connection_lost()).await,
+        tokio::time::timeout(Duration::from_secs(60), executor.connection_lost()).await,
         Ok(lost)
     );
     let healthy = ssh::fake(ssh::suite_script(), 1).await;

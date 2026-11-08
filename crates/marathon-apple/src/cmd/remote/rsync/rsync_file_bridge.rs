@@ -378,16 +378,18 @@ impl Inner {
         let status = status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
         let stdout = out_rx.await.map_err(dropped)??;
         let stderr = err_rx.await.map_err(dropped)??;
-        // D54: an rsync that finished all the same has done its transfer.
+        // D54: once a stop has been sent, what rsync started goes, whatever rsync's status says.
+        let stop_sent = stopped.is_some();
+        // D54: an rsync that finished all the same has done its transfer, and keeps its success.
         let stopped = stopped.filter(|_| status != 0);
         let stalled = status != 0
-            && stopped.is_none()
+            && !stop_sent
             && (nothing_arrived
                 || (quiet >= STALL_AFTER_MILLIS
                     && (reports_stall(stderr.as_bytes())
                         || (status == RSYNC_TIMEOUT_STATUS && !stderr.contains(STOPPED_AT_LIMIT)))));
         // However the stall was decided, and also when rsync ended by itself, what it started goes with it. So too on a stop.
-        if stalled || stopped.is_some() {
+        if stalled || stop_sent {
             descendants.end(self.clock.as_ref()).await;
         }
         Ok(Outcome {

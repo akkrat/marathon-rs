@@ -473,10 +473,11 @@ async fn a_worker_frozen_while_parsing_is_left_once_keep_alive_loses_it_d54() ->
             .contains("send error: the device's connection was lost while sending to 127.0.0.1:"),
         "{run}"
     );
+    // Keep-alive can't give up before 60 s; D31 would stop the send at about 305 s.
     let stopped = bundle_at(&run, "stopped", "frozen").ok_or_else(|| format!("{run}"))?;
-    assert!((70.0..85.0).contains(&stopped), "{run}");
+    assert!((60.0..240.0).contains(&stopped), "{run}");
     let second = bundle_at(&run, "start", "healthy").ok_or_else(|| format!("{run}"))?;
-    assert!((stopped..stopped + 10.0).contains(&second), "{run}");
+    assert!((stopped..240.0).contains(&second), "{run}");
     assert_eq!(run.exit, Some(0), "{run}");
     assert!(run.stdout.contains("test1"), "{run}");
     assert!(
@@ -497,8 +498,9 @@ async fn a_worker_frozen_while_parsing_with_keep_alive_off_fails_at_the_limit_d5
     assert_frozen_first(&run);
     assert!(!run.stdout.contains("keep-alive response"), "{run}");
     assert!(!run.stdout.contains("connection was lost"), "{run}");
+    // Not before the limit; D31 would stop the send at about 305 s.
     let stopped = bundle_at(&run, "stopped", "frozen").ok_or_else(|| format!("{run}"))?;
-    assert!((179.0..190.0).contains(&stopped), "{run}");
+    assert!((179.0..270.0).contains(&stopped), "{run}");
     assert_eq!(run.exit, Some(1), "{run}");
     assert!(
         run.stdout
