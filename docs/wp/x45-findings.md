@@ -1,5 +1,9 @@
 # X45: a worker frozen while remote parsing sends to it
 
+> Superseded by [D54](../deviations.md#d54--an-apple-transfer-stops-when-its-call-is-cancelled-or-its-devices-connection-is-lost)
+> (WP x46): a transfer now stops on its call's cancellation and on its device's lost connection. The tests below were
+> renamed and assert the new outcome; see the [x46 findings](x46-findings.md). This record is otherwise as measured.
+
 A measurement, not a product change. The question: with the default settings, does a worker that freezes while remote
 parsing sends to it make D53 move the parse to a healthy second worker within `deviceInitializationTimeoutMillis` (180 s)?
 

@@ -4,7 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D53). Most Kotlin bugs remain; the
+This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D54). Most Kotlin bugs remain; the
 [bug ledger](docs/known-kotlin-bugs.md) marks the ones that are fixed. Read
 [Changes that need action](docs/migration.md#changes-that-need-action) before you upgrade, and the
 [deviations guide](docs/deviations.md) for each change in full.
@@ -179,6 +179,13 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   With the default 180 s `deviceInitializationTimeoutMillis`, a stalled send, decided after 285 s, still ends the parse
   after its first attempt. On macOS, parsing also skips a Mac whose connection is lost, and waits within that limit if no
   Mac is connected (D53, A103, U171).
+- An iOS or macOS file transfer now stops when the work it belongs to is cancelled or when its simulator's or Mac's
+  connection is lost, with the same TERM and KILL as a stalled send. So remote test parsing no longer hangs on a worker that
+  froze while the test bundle was being sent to it: with the default keep-alive the attempt fails after about 75 s and the
+  next one uses another device, and with keep-alive off `deviceInitializationTimeoutMillis` ends the parse at its limit.
+  Before, the run failed after about 311 s even with a healthy second worker. A lost connection logs one
+  `send error: the device's connection was lost …` or `receive error: …` line. A cancelled run, or a batch cancelled
+  because its device left, no longer waits for a pull in flight, and that artifact is not delivered (D54, A104).
 - A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40). No
   known path triggers this, so you are unlikely to have met it.
 
@@ -202,7 +209,10 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D45 ran on real hanging tests: an iOS 18.6 simulator under Xcode 27.2, with allowances that print `1 minute` and `2 minutes`.
 - D53 ran against the fake adb server and fake workers in each vendor's tests, and through the built binary with two fake iOS
   workers, one stalling its sends. It did not run on real devices.
-- The comparisons on real devices and private farms predate D21–D53.
+- D54 ran with stand-in rsync and ssh processes in the bridge's tests, against the fake worker's real SSH keep-alive, and
+  through the built binary with two fake iOS workers, one frozen with SIGSTOP, with openrsync on a Mac. It did not run on
+  Linux, with rsync 3, or on a real worker.
+- The comparisons on real devices and private farms predate D21–D54.
 
 ### Known limits
 
