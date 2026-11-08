@@ -1,18 +1,16 @@
 # Differential harness
 
-See [the contract](../../docs/design/differential.md) for capture, comparison,
-provenance and normalization rules. `./run check` validates all pinned JVM
-records and runs the registered native contracts. `./run native-vendors
---output runs/new-native` runs the 15 bounded whole-vendor cases without a JDK.
+The [Phase 8 contract and workflow](../../docs/design/differential.md) describe
+the native goldens, normalization and provenance. JVM captures are historical;
+do not generate new JVM records.
 
-`./run smoke --profile macos-arm64 --output runs/new-pairs` runs two fresh JVM
-captures and one native capture of every registered adapter. `linux-x86_64`
-selects that host; `harness-first` explicitly reduces selection to actual-local
-transport and injected parse. `./run all` also executes the offline/native gate.
-Full host profiles reject a host mismatch, missing adapter, tool or recording.
+`./run check` validates historical evidence and checks native cases against
+`fixtures/contract/native-v1`. `./run native-vendors --output runs/new-native`
+runs the 15 bounded vendor cases. The gate does not write goldens.
 
-`./run capture ios-smoke --output fixtures/differential/vendors/ios-smoke/jvm-v3`
-is an explicit, immutable new JVM generation. Adapter, contract and selected
-generation paths live in `registry.json`; capture never changes that selection.
-Refresh only intentionally with `python3 -I tools/differential/make_registry.py`.
-The gate uses `--check` and never rewrites fixtures or the ledger.
+To re-bless intentionally, remove the existing `fixtures/contract/native-v1`
+generation and run `./run bless`; review the generated views and provenance.
+For the configuration corpus, use `MARATHON_BLESS_CONFIG=1 cargo test -p
+marathon-cli --test config_contract`, then review `fixtures/contract/config/`.
+Changes to the contract require a D-row in PLAN.md §3.11. Ruby with Psych is
+required for YAML result comparison.

@@ -1,10 +1,10 @@
 # Differential evidence and vendor suites
 
-The reviewed [registry](../../tools/differential/registry.json) contains 52 active
-case groups and 17 capture adapters: the original actual-local/injected-parse
-contracts and 15 whole-vendor CLI scenarios. The vendor scenarios compare a
-fresh private fake-worker or scripted-ADB world against independent JVM evidence
-from frozen `e47352f2`. There are no source/parity rows assigned to 7.1a/7.1b.
+The Phase 8 contract is in [PLAN.md §3.12](../../PLAN.md#312-phase-8-contract).
+`0.12.0-rc.1` is the JVM-parity baseline. JVM captures and their verification
+records are historical; do not generate new JVM records. The gate compares fresh
+native captures against the selected Rust-owned `native-v1` views for all 17
+adapters, including 15 bounded vendor cases.
 
 ## The external-storage wipe (D27)
 
@@ -37,50 +37,30 @@ A new native transcript may hold no marked row and at most 16 KiB in that transf
 retained stream in it, far below any of the libraries; a recorded one has that bound on all but its
 zeroed `stdin`. `write_record` applies these rules, and a JVM capture's redaction, before storing a payload.
 
-## Commands and activation
+## Checking and re-blessing
 
-Run from the checkout with the documented Rust PATH:
+`tools/differential/run check` validates historical evidence and runs the native
+contracts and comparator self-tests. `scripts/check.sh` runs the offline checks
+and the native targets through the workspace tests. `native-vendors --output
+NEW_DIRECTORY` runs the 15 whole-vendor cases. Ruby with Psych is required for
+YAML comparison. No JVM or JDK is needed for these checks.
 
-```sh
-tools/differential/run validate
-tools/differential/run check
-tools/differential/run native-vendors --output tools/differential/runs/new-native
-tools/differential/run smoke --profile macos-arm64 --output tools/differential/runs/new-pairs
-tools/differential/run all --profile linux-x86_64 --output tools/differential/runs/new-all
-tools/differential/run smoke --profile harness-first --output tools/differential/runs/reduced
-tools/differential/run capture ios-smoke --output fixtures/differential/vendors/ios-smoke/jvm-v3
-tools/differential/run compare EXPECTED ACTUAL --contract CONTRACT --mismatch NEW_DIRECTORY
-```
+`tools/differential/run bless` explicitly captures all registered cases and
+publishes normalized, compressed views and commit/host provenance under
+`fixtures/contract/native-v1`. It refuses to overwrite an existing generation;
+remove the old generation explicitly before a deliberate re-bless. Review every
+golden change, and add a D-row for a contract change. The gate never blesses.
 
-`validate` checks the generated ledger, pinned legacy evidence, all golden
-manifests and both verification manifests. It compares every repeatability
-record against its independent JVM golden. `check` adds adversarial Python tests
-and all registered native targets. `scripts/check.sh` runs offline validation
-and Python tests; its ordinary workspace test pass executes the native targets,
-including `marathon-cli/tests/differential_vendors.rs`, once. No JDK, Gradle,
-Xcode, real ADB executable or download is needed for that gate. Native executable
-builds use the existing Cargo toolchain/cache outside runtime sandboxes.
+The configuration corpus runs as `cargo test -p marathon-cli --test
+config_contract`. Set `MARATHON_BLESS_CONFIG=1` only when deliberately
+rewriting `fixtures/contract/config/corpus.json`; review that diff. The corpus
+pins accepted configuration dumps and rejection outcomes with a fixed environment
+and clock. Marathondevices are bound directly because config-dump handles
+Marathonfiles; their full bound value is recorded separately.
 
-`native-vendors` runs all 15 whole-vendor adapters against committed goldens.
-`smoke` builds/verifies the reference and patched JVM distributions, then runs two
-fresh JVM captures and one native capture per selected adapter. `all` also runs
-the offline/native gate. `macos-arm64` and `linux-x86_64` require the matching
-host; selecting another host cannot claim success. `harness-first` explicitly
-reduces selection to the two portable adapters. Every attempt has a fresh
-sandbox, HOME/TMPDIR, process logs and bounded watchdog. There is no retry loop.
-
-The registry selects each adapter's contract and immutable golden generation.
-Neither capture nor comparison changes that selection. Refresh intentionally
-with `python3 -I tools/differential/make_registry.py`; the gate only uses
-`--check`. Factory tripwires cover the CLI factory expression and vendor
-registration function, so unrelated CLI functions do not force activation.
-Missing adapters, factories, evidence or tools fail instead of reducing coverage.
-
-The existing manual/tag workflow remains separate from ordinary CI. It requires
-provisioned runners with the read-only frozen source, JBR and cached build
-inputs. Release tags select the full host profile. Actual local, Linux and
-Actions results must be reported separately; recording a macOS profile does not
-claim a Linux or Actions execution.
+`progress_oracle::progress_line_contract_for_each_status` and
+`reporters::stdout_summary_contract` pin progress and summary text. The existing
+`started_ci_passes_fraction_and_prints_after_ci` also pins the started line.
 
 ## Scenario scope
 
@@ -150,13 +130,9 @@ JVM parse driver transcript and recomputes local/parse/vendor outcomes. Unknown
 scenario adapters are rejected. The artifact-only adapter is for synthetic
 adversarial tests, not an active suite.
 
-Capture starts in a new ignored sibling directory. Complete JVM evidence is
-validated before a same-filesystem rename publishes a **new** generation.
-Existing generations cannot be overwritten. Registry hashes pin each selected
-golden and the verification manifest; the latter pins every fresh JVM/native
-record. Provenance includes source base, jars, patches, hook sources, JDK and
-waited processes. It describes origin, not cryptographic attestation: fabricated
-but shaped metadata is not proof without the reviewed evidence pins.
+Historical JVM capture generations were published only after validation and
+include source, JDK and process provenance. They are retained as historical
+records, not as native references.
 
 The driver and all probe processes use umask `0022`; source NIO temporaries remain 0600/0700.
 File/directory permissions remain exact. The single `ios-media` runner symlink
@@ -176,9 +152,9 @@ hashes and scenario inputs are pinned in the ledger.
 
 Each run binds explicit scenario device/worker, endpoint, sandbox and temporary
 file roles. Device assignment is not inferred from a passing test. Bindings are
-bijective by identity type and shared across paths and references. Product JSON
-is edited at declared token locations, preserving other bytes, numeric spelling,
-null/omission, array order, statuses, messages and metadata. D3 removes only the
+bijective by identity type and shared across paths and references. Product JSON is edited at declared token locations before comparison; structured
+results compare as parsed data with key and array order, null/omission, statuses,
+messages and metadata preserved. Numeric spellings and JSON escapes are not significant. D3 removes only the
 root/nested DeviceInfo delegate; similarly named user metadata is preserved.
 Literal UUID-shaped text is never globally replaced. Taped clocks/batch/Allure
 and DEX identity values remain exact. D12/F29 configuration-object identities
@@ -186,13 +162,12 @@ validate the JVM tape value and native class-name hash before substituting the
 same typed object role. Temporary source/receive file roles come from declared
 rsync operands; transferred/consumed bytes remain exact.
 
-Allure JSON and environment XML retain 3.9c's approved structural comparison:
-exact scalar values, numeric lexemes, ordered arrays/environment entries and
-references. Allure trees always use the explicit harness alias
-`reports/allure-results/`, independent of the physical `outputDir`; other roots
-cannot opt in accidentally. Other Gson/JUnit/HTML bytes remain exact outside
-the designated token substitutions. Opaque globs use path components: `*` does
-not cross `/`, while `**` explicitly does.
+JSON, XML and YAML result files compare as parsed data. JSON object key order,
+XML element order and attribute sets, and YAML mapping order remain observable;
+equivalent JSON numeric and escaped-string forms compare equal. Other text and
+binary data retain their existing comparison. Vendor console comparison retains
+only progress and summary lines. Allure history IDs and fragmentation hashes
+remain exact. Historical JVM comparisons retain their original rules.
 
 GIF comparison decodes every composited RGBA frame and compares frame order,
 rectangle/count, delay, disposal, transparency, user-input flag, dimensions,
@@ -218,8 +193,9 @@ Host negotiation/transport selections remain raw protocol diagnostics.
 
 Stdout and stderr remain separate. Only exact D1 telemetry lines, D12's provider
 line/system facts/thread fields and narrowly identified SSH entropy/cipher
-handshake diagnostics are projected. Other log text, external tool warnings,
-progress, summaries, final messages and their stream/exit remain significant.
+handshake diagnostics are projected. In historical JVM comparisons, other log
+text and warnings were also significant; the native contract retains progress
+and summary lines.
 The first explicit unordered stdout block is the adjacent artifact-admission and
 worker-queue-wait pair: submit launches an independent worker before logging
 its admission, so either order is source-observed. Both complete lines and their
@@ -227,14 +203,12 @@ multiplicity/values are retained. The other block is the caller's provider-initi
 timing line and the independent iOS update-consumer's adjacent two-line event;
 either can run first. Other stdout order is unchanged.
 
-Apple inputs add 30 ms line spacing (the named settled video variant uses 1000 ms) to let event consumers settle before the
-next scripted line. Both fresh JVM repetitions and native captures compare every
-log/attachment exactly. Unpaced A20 mismatches remain diagnostics; no log family
-is omitted and no optional-log variant was promoted. P4's finite complete JVM
-variant comparator remains available for a future explicitly witnessed case.
+Apple inputs add 30 ms line spacing (the named settled video variant uses
+1000 ms) to let event consumers settle before the next scripted line. Historical
+JVM comparisons used complete finite variants. Native comparisons use the
+selected normalized view.
 
-A mismatch retains the original records, normalized views and path-level
-failure list (or validation error). Adversarial checks cover missing/extra
+The vendor test retains its run directory after a mismatch. Adversarial checks cover missing/extra
 files/directories, status/failure/reference/array changes, mode, identity
 collision/inconsistency, GIF timing, literal messages, stream/exit changes,
 removed cleanup, truncation, unused tapes, malformed transcripts, forged outcome
