@@ -527,7 +527,7 @@ def structured_json(data):
 
 def structured_yaml(data):
     # Psych exposes the syntax tree, preserving mapping order and scalar types.
-    script = r"""require 'psych'; require 'json'; require 'bigdecimal'
+    script = r"""require 'psych'; require 'json'
 def node(n, anchors)
   return anchors.fetch(n.anchor) if n.is_a?(Psych::Nodes::Alias)
   tag = n.respond_to?(:tag) ? n.tag : nil
@@ -548,7 +548,16 @@ def node(n, anchors)
     raise 'invalid scalar tag' if tag && [base + 'map', base + 'seq'].include?(tag)
     known = %w[str int float bool null].map { |v| base + v }
     typed = tag && known.include?(tag) && tag != base + 'str'
-    scalar = tag == base + 'str' || (!n.plain && !typed) ? n.value : scanner.tokenize(n.value)
+    scientific = /\A[-+]?(?:[0-9][0-9_]*(?:\.[0-9_]*)?|\.[0-9_]+)[eE][-+]?[0-9]+\z/.match?(n.value)
+    special = /\A(?:[-+]?\.inf|\.nan)\z/i.match?(n.value)
+    numeric = (scientific || special) && (n.plain || typed) && tag != base + 'str'
+    scalar = if tag == base + 'str' || (!n.plain && !typed)
+      n.value
+    elsif numeric
+      0.0
+    else
+      scanner.tokenize(n.value)
+    end
     type = case scalar
     when NilClass then 'null'
     when TrueClass, FalseClass then 'bool'
@@ -565,11 +574,7 @@ def node(n, anchors)
     if type == 'int'
       scalar = scalar.to_s
     elsif type == 'float'
-      scalar = if scalar.respond_to?(:finite?) && !scalar.finite?
-        scalar.to_s
-      else
-        BigDecimal(n.value.delete('_')).to_s('F')
-      end
+      scalar = n.value
     end
     ['scalar', type, tag && !known.include?(tag) ? tag : nil, scalar]
   else raise 'unsupported YAML node'
@@ -586,9 +591,27 @@ puts JSON.generate(Psych.parse_stream(STDIN.read).children.map { |d| node(d, {})
     def canonical(value):
         if isinstance(value, list):
             if len(value) == 4 and value[0] == 'scalar' and value[1] == 'float':
-                if value[3] not in ('Infinity', '-Infinity', 'NaN'):
-                    number = decimal.Decimal(value[3])
-                    # Decimal.normalize uses the current precision; strip zeros exactly instead.
+                raw = value[3].replace('_', '')
+                special = raw.lower()
+                if special in ('.inf', '+.inf', '-.inf', '.nan'):
+                    value[3] = {
+                        '.inf': 'Infinity', '+.inf': 'Infinity', '-.inf': '-Infinity', '.nan': 'NaN'
+                    }[special]
+                else:
+                    try:
+                        if ':' in raw:
+                            sign = -1 if raw.startswith('-') else 1
+                            parts = raw.lstrip('+-').split(':')
+                            with decimal.localcontext() as context:
+                                context.prec = sum(len(part) for part in parts) + 10
+                                number = decimal.Decimal(0)
+                                for part in parts:
+                                    number = number * 60 + decimal.Decimal(part)
+                                number *= sign
+                        else:
+                            number = decimal.Decimal(raw)
+                    except decimal.InvalidOperation as error:
+                        raise Invalid('invalid YAML float: ' + raw) from error
                     sign, digits, exponent = number.as_tuple()
                     digits = list(digits)
                     while len(digits) > 1 and digits[-1] == 0:

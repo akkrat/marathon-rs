@@ -75,6 +75,22 @@ class EvidenceTests(unittest.TestCase):
     def test_native_yaml_preserves_full_decimal_precision(self):
         self.reject_changed_yaml(b'a: 0.123456789012345678901\n', b'a: 0.123456789012345678902\n')
 
+    def test_native_yaml_distinguishes_finite_floats_above_binary_range(self):
+        self.reject_changed_yaml(b'a: 1.0e+309\n', b'a: 2.0e+309\n')
+
+    def test_native_yaml_accepts_equivalent_numeric_spellings(self):
+        def value(text):
+            return e.structured_yaml(('a: ' + text + '\n').encode())
+        for equivalent in ['1.', '+1.0', '1.00']:
+            self.assertEqual(value('1.0'), value(equivalent), equivalent)
+        self.assertEqual(value('.5'), value('0.5'))
+        self.assertEqual(value('1e3'), value('1_000.0'))
+        self.assertEqual(value('1:20.5'), value('80.5'))
+        self.assertEqual(value('.Inf'), value('+.INF'))
+        self.assertNotEqual(value('1.0e+309'), value('.inf'))
+        self.assertNotEqual(value('-.inf'), value('.inf'))
+        self.assertEqual(value('.NaN'), value('.nan'))
+
     def test_native_console_ignores_other_diagnostics(self):
         values = {'serial': 'device-1'}
         first = b'diagnostic one\n00% | [omni]-[device-1] C#t passed\n'
