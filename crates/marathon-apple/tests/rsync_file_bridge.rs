@@ -1789,3 +1789,228 @@ async fn real_pull_child() {
         assert!(!root.join(".rsync-partial").exists());
     }
 }
+
+/// D54: a stand-in that records its pid, starts a child standing in for rsync's ssh, and then does `body`. A send to
+/// `.../next` succeeds at once, so that a send queued behind a stopped one shows whether it went on.
+fn stoppable_rsync(root: &Path, body: &str) -> std::path::PathBuf {
+    let program = root.join("rsync");
+    script(
+        &program,
+        &format!(
+            r#"#!/bin/bash
+case "$*" in *127.0.0.1:/tmp/marathon/next*) echo next >> "$MRS_D31_ROOT/order"; exit 0;; esac
+echo $$ > "$MRS_D31_ROOT/pid"
+echo stuck >> "$MRS_D31_ROOT/order"
+/bin/sleep 100043 &
+echo $! > "$MRS_D31_ROOT/ssh-pid"
+{body}
+"#
+        ),
+    );
+    program
+}
+/// D54: a transfer stopped mid-way, in real time so that the stop's steps are D31's real 5 s.
+fn stopped_transfer(mode: &str, body: &str) {
+    let dir = tempfile::tempdir().unwrap();
+    let program = stoppable_rsync(dir.path(), body);
+    run_stalled_send(StalledSend {
+        factor: 1,
+        child: "stopped_transfer_runs",
+        ..StalledSend::new(mode, &program, dir.path())
+    });
+}
+const WAITS: &str = "wait";
+const IGNORES_TERM_AND_WAITS: &str = "trap '' TERM\nwhile :; do /bin/sleep 0.05; done";
+#[test]
+fn a_send_cancelled_mid_transfer_stops_rsync_and_the_send_behind_it_goes_on_d54() {
+    stopped_transfer("cancel-send", WAITS);
+}
+#[test]
+fn a_cancelled_send_whose_rsync_ignores_term_is_killed_d54() {
+    stopped_transfer("cancel-send-stubborn", IGNORES_TERM_AND_WAITS);
+}
+#[test]
+fn a_receive_cancelled_mid_transfer_stops_rsync_d54() {
+    stopped_transfer("cancel-receive", WAITS);
+}
+#[test]
+fn a_cancelled_receive_whose_rsync_ignores_term_is_killed_d54() {
+    stopped_transfer("cancel-receive-stubborn", IGNORES_TERM_AND_WAITS);
+}
+#[test]
+fn a_send_whose_connection_is_lost_fails_stops_rsync_and_the_send_behind_it_goes_on_d54() {
+    stopped_transfer("lost-send", WAITS);
+}
+#[test]
+fn a_receive_whose_connection_is_lost_returns_false_and_stops_rsync_d54() {
+    stopped_transfer("lost-receive", WAITS);
+}
+#[test]
+fn a_cancelled_send_under_sshpass_also_stops_rsync_d54() {
+    let dir = tempfile::tempdir().unwrap();
+    let program = stoppable_rsync(dir.path(), WAITS);
+    let fake_sshpass = dir.path().join("sshpass");
+    script(&fake_sshpass, FAKE_SSHPASS);
+    run_stalled_send(StalledSend {
+        factor: 1,
+        sshpass: Some(&fake_sshpass),
+        child: "stopped_transfer_runs",
+        ..StalledSend::new("cancel-send", &program, dir.path())
+    });
+}
+/// D54's child: `MRS_D31_MODE` is `cancel` or `lost`, then `send` or `receive`, and `-stubborn` for an rsync that ignores
+/// TERM. The transfer returns its stop within D31's stop: at once for an rsync that ends on TERM, after 5 s and KILL for one
+/// that doesn't, plus 5 s at most for what it started. A send queued behind it on the bridge's lock then runs.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stopped_transfer_runs() {
+    use marathon_apple::cmd::{TransferStop, failure, remote::ssh::sshj::error::CONNECTION_EXCEPTION};
+    let Ok(mode) = std::env::var("MRS_D31_MODE") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(std::env::var_os("MRS_D31_ROOT").unwrap());
+    let source = root.join("source");
+    std::fs::write(&source, b"payload").unwrap();
+    let (logging, events) = ssh::logging(false);
+    let (bridge, _silent_peer) = stalled_bridge(logging).await;
+    let bridge = Arc::new(bridge);
+    let (lost, receive, stubborn) = (
+        mode.starts_with("lost"),
+        mode.contains("receive"),
+        mode.ends_with("stubborn"),
+    );
+    let signal = marathon_core::executor::shared::Signal::new();
+    let (lose, loss) = tokio::sync::oneshot::channel::<marathon_core::error::Failure>();
+    let mut stop = TransferStop::new(signal.clone());
+    if lost {
+        stop = stop.or_lost(async move { loss.await.unwrap() });
+    }
+    let first = {
+        let (bridge, source, back) = (bridge.clone(), source.clone(), root.join("back"));
+        tokio::spawn(async move {
+            if receive {
+                bridge.receive_with("/tmp/marathon/stuck", &back, stop).await
+            } else {
+                bridge.send_with(&source, "/tmp/marathon/stuck", stop).await
+            }
+        })
+    };
+    let ssh_pid = root.join("ssh-pid");
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while std::fs::read_to_string(&ssh_pid).map_or(true, |text| text.trim().is_empty()) {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let queued = (!receive).then(|| {
+        let (bridge, source) = (bridge.clone(), source.clone());
+        tokio::spawn(async move { bridge.send(&source, "/tmp/marathon/next").await })
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while bridge.retained_tasks() < if receive { 1 } else { 2 } {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let reason = marathon_apple::cmd::cancelled("the caller was cancelled");
+    let loss = failure(
+        CONNECTION_EXCEPTION,
+        "Lost the connection to the worker during a transfer",
+    );
+    let at = std::time::Instant::now();
+    if lost {
+        lose.send(loss.clone()).unwrap();
+    } else {
+        signal.cancel(reason.clone());
+    }
+    let result = tokio::time::timeout(std::time::Duration::from_secs(30), first)
+        .await
+        .expect("the stop did not end the transfer")
+        .unwrap();
+    let took = at.elapsed();
+    match (lost, receive) {
+        (false, _) => assert_eq!(result, Err(VendorError::Cancelled(reason))),
+        (true, false) => assert_eq!(result, Err(VendorError::Other(loss))),
+        (true, true) => assert_eq!(result, Ok(false)),
+    }
+    // TERM at once, with no 5 s for rsync to end by itself; KILL 5 s later to one that ignores it.
+    let limit = if stubborn {
+        assert!(took >= std::time::Duration::from_millis(4_900), "{took:?}");
+        std::time::Duration::from_secs(16)
+    } else {
+        std::time::Duration::from_secs(4)
+    };
+    assert!(took < limit, "{took:?}");
+    let pid = std::fs::read_to_string(root.join("pid")).unwrap();
+    let pid = nix::unistd::Pid::from_raw(pid.trim().parse().unwrap());
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        while nix::sys::signal::kill(pid, None) != Err(nix::errno::Errno::ESRCH) {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    if let Some(queued) = queued {
+        // Not failed with the stopped send's cancellation or loss, as D31's stall fails it: it runs.
+        let queued = tokio::time::timeout(std::time::Duration::from_secs(30), queued)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(queued, Ok(true));
+        assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stuck\nnext\n");
+    }
+    let errors: Vec<_> = ssh::lines(&events)
+        .into_iter()
+        .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+        .map(|(.., message)| message)
+        .collect();
+    let expected: Vec<String> = match (lost, receive) {
+        (false, _) => vec![],
+        (true, false) => {
+            vec!["send error: the device's connection was lost while sending to 127.0.0.1:/tmp/marathon/stuck".into()]
+        }
+        (true, true) => {
+            vec!["receive error: the device's connection was lost while receiving 127.0.0.1:/tmp/marathon/stuck".into()]
+        }
+    };
+    assert_eq!(errors, expected);
+    bridge.join_pending().await.unwrap();
+}
+/// D54: a transfer whose stop has come before it starts returns that stop.
+#[tokio::test]
+async fn a_transfer_stopped_before_it_starts_returns_its_stop_d54() {
+    use marathon_apple::cmd::TransferStop;
+    let (logging, events) = ssh::logging(false);
+    let b = bridge(Some(key("/fixture/key")), false, false, 0, 22, logging).await;
+    let signal = marathon_core::executor::shared::Signal::new();
+    let reason = marathon_apple::cmd::cancelled("before");
+    signal.cancel(reason.clone());
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(
+        b.send_with(dir.path(), "/tmp/marathon/dst", TransferStop::new(signal.clone()))
+            .await,
+        Err(VendorError::Cancelled(reason.clone()))
+    );
+    assert_eq!(
+        b.receive_with("/tmp/marathon/src", dir.path(), TransferStop::new(signal.clone()))
+            .await,
+        Err(VendorError::Cancelled(reason))
+    );
+    let loss = marathon_apple::cmd::failure("lost", "gone");
+    let lost =
+        TransferStop::new(marathon_core::executor::shared::Signal::new()).or_lost(std::future::ready(loss.clone()));
+    assert_eq!(
+        b.send_with(dir.path(), "/tmp/marathon/dst", lost).await,
+        Err(VendorError::Other(loss))
+    );
+    // Only the loss says anything.
+    assert_eq!(
+        ssh::lines(&events)
+            .into_iter()
+            .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+            .count(),
+        1
+    );
+    b.join_pending().await.unwrap();
+}

@@ -284,3 +284,18 @@ async fn a_send_that_starts_after_a_stall_tries_again_u163() {
     assert!(push(&t, "worker-1:22", SRC, DST, Some(true), true, &count).await);
     assert_eq!(count.load(Ordering::SeqCst), 1);
 }
+#[tokio::test]
+async fn a_cancelled_or_lost_send_lets_who_waited_behind_it_send_d54() {
+    // Unlike a stall, a cancellation says nothing about the worker, and a lost connection is that device's alone.
+    for error in [
+        VendorError::Cancelled(marathon_apple::cmd::cancelled("the caller was cancelled")),
+        VendorError::Other(failure(
+            marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION,
+            "Lost the connection to worker-1:22 during a transfer",
+        )),
+    ] {
+        let (same, other, transfers) = behind(error, "/tmp/marathon/shared/other.app").await;
+        assert_eq!((same, other), (Ok(true), Ok(true)));
+        assert_eq!(transfers, 3);
+    }
+}

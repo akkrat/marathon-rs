@@ -113,6 +113,14 @@ impl ConnectionShared {
         let mut rx = self.dead.subscribe();
         let _ = rx.wait_for(|dead| *dead).await;
     }
+    /// D54: once the transport has died other than by our own `close()`, why it died. Never after our own close.
+    pub async fn wait_lost(&self) -> SshFailure {
+        self.wait_dead().await;
+        if self.closed_locally.load(Ordering::SeqCst) {
+            return std::future::pending().await;
+        }
+        self.channel_failure_cause()
+    }
     /// `TransportImpl.die`: the first cause wins, is logged at ERROR and is delivered to every channel.
     pub fn die(&self, cause: SshFailure) -> bool {
         self.set_death(cause, true, false)

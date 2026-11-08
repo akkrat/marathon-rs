@@ -1146,6 +1146,48 @@ async fn keep_alive_loss_fails_the_in_flight_await_while_output_flows() {
     )));
 }
 
+/// D54: what ends an Apple transfer when its device's connection is lost: keep-alive's loss, with its cause, and not our own
+/// close.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_connection_loss_a_transfer_waits_for_is_keep_alives_and_not_a_close_d54() {
+    let fake = ssh::fake(
+        fake_worker::script::Script {
+            faults: Faults {
+                keepalive: Keepalive::Withhold,
+                ..Default::default()
+            },
+            ..rules(vec![])
+        },
+        4,
+    )
+    .await;
+    let (executor, _) = executor_with(&fake, 1, 1000).await;
+    let lost = tokio::time::timeout(Duration::from_secs(30), executor.connection_lost())
+        .await
+        .expect("keep-alive's loss did not reach the transfer");
+    assert_eq!(
+        class_chain(&lost),
+        [(
+            CONNECTION_EXCEPTION.into(),
+            Some("Did not receive any keep-alive response for 2 seconds".into())
+        )]
+    );
+    // Asked for after the loss, it is ready at once.
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), executor.connection_lost()).await,
+        Ok(lost)
+    );
+    let healthy = ssh::fake(ssh::suite_script(), 1).await;
+    let (executor, _) = executor_with(&healthy, 1, 0).await;
+    let waiting = executor.connection_lost();
+    executor.close().await.unwrap();
+    assert!(!executor.connected());
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), waiting).await.is_err(),
+        "our own close is not a loss"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn delayed_keep_alive_replies_keep_the_connection() {
     let fake = ssh::fake(

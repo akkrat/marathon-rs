@@ -87,8 +87,15 @@ pub struct FakeSimulatorWorker {
     pub xcodebuild_version: Mutex<Vec<String>>,
     pub before: Mutex<BeforeHook>,
     pub session: Mutex<SessionHook>,
+    /// D54: why the connection was lost, once `lose` has been called.
+    lost: tokio::sync::watch::Sender<Option<Failure>>,
 }
 impl FakeSimulatorWorker {
+    /// D54: the connection is lost, as keep-alive loses it: not connected, and `connection_lost` is ready with `cause`.
+    pub fn lose(&self, cause: Failure) {
+        self.connected.store(false, Ordering::SeqCst);
+        self.lost.send_replace(Some(cause));
+    }
     pub fn new(runtime: Arc<dyn VendorRuntime>, logging: &mut MarathonLogging) -> Self {
         Self {
             runtime,
@@ -106,6 +113,7 @@ impl FakeSimulatorWorker {
             xcodebuild_version: Mutex::new(vec!["Xcode 16.4".into(), "Build version 16F6".into()]),
             before: Mutex::new(Arc::new(|_| Box::pin(async { Ok(None) }))),
             session: Mutex::new(Arc::new(|_| Ok(None))),
+            lost: tokio::sync::watch::channel(None).0,
         }
     }
     pub fn with_host_id(mut self, host_id: &str) -> Self {
@@ -255,5 +263,18 @@ impl CommandExecutor for FakeSimulatorWorker {
     }
     fn close(&self) -> VendorFuture<'_, ()> {
         Box::pin(async { Ok(()) })
+    }
+    fn connection_lost(&self) -> std::pin::Pin<Box<dyn Future<Output = Failure> + Send>> {
+        let mut lost = self.lost.subscribe();
+        Box::pin(async move {
+            let cause = match lost.wait_for(Option::is_some).await {
+                Ok(cause) => cause.clone(),
+                Err(_) => None,
+            };
+            match cause {
+                Some(cause) => cause,
+                None => std::future::pending().await,
+            }
+        })
     }
 }

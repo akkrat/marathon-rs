@@ -52,6 +52,10 @@ impl AppleSimulatorDevice {
     pub(crate) fn setup_failure(&self, message: String) -> VendorError {
         super::setup::setup_error(message)
     }
+    /// D54: a transfer for this simulator ends on its caller's cancellation or when the simulator's own connection is lost.
+    fn transfer_stop(&self, context: &VendorContext) -> marathon_apple::cmd::TransferStop {
+        marathon_apple::cmd::transfer_stop(self.executor.as_ref(), context)
+    }
     fn measurement(&self) -> TransferMeasurement {
         let logging = self.services.logging.clone();
         TransferMeasurement {
@@ -213,42 +217,42 @@ impl AppleDevice for AppleSimulatorDevice {
             context,
         )
     }
-    fn push_file<'a>(&'a self, src: &'a Path, dst: &'a str, _: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn push_file<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_file_transfer(
                     jcompat::file_manager::file_path(src.to_string_lossy().as_ref()),
-                    self.bridge.send(src, dst),
+                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
                 )
                 .await
         })
     }
-    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_file_transfer(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
-                    self.bridge.receive(src, dst),
+                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
                 )
                 .await
         })
     }
-    fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, _: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_folder_transfer(
                     jcompat::file_manager::file_path(src.to_string_lossy().as_ref()),
-                    self.bridge.send(src, dst),
+                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
                 )
                 .await
         })
     }
-    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_folder_transfer(
                     jcompat::file_manager::file_path(dst.to_string_lossy().as_ref()),
-                    self.bridge.receive(src, dst),
+                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
                 )
                 .await
         })
@@ -337,7 +341,13 @@ impl AppleDevice for AppleSimulatorDevice {
             {
                 return Ok(false);
             }
-            self.pull_file(&path, dst, context).await
+            // D54 leaves this pull to finish when its caller is cancelled, as Kotlin's does: the capture is cancelled at the
+            // end of every test, and the frame on its way then is kept. A lost connection still ends it.
+            let finishing = VendorContext {
+                cancellation: marathon_core::executor::shared::Signal::new(),
+                ..context.clone()
+            };
+            self.pull_file(&path, dst, &finishing).await
         })
     }
     fn start_video_recording<'a>(

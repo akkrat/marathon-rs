@@ -486,6 +486,10 @@ impl MacosDevice {
         }
         Ok(())
     }
+    /// D54: a transfer for this Mac ends on its caller's cancellation or when the Mac's own connection is lost.
+    fn transfer_stop(&self, context: &VendorContext) -> marathon_apple::cmd::TransferStop {
+        marathon_apple::cmd::transfer_stop(self.binary.command_executor.as_ref(), context)
+    }
     fn measurement(&self) -> TransferMeasurement {
         let logging = self.options.logging.clone();
         TransferMeasurement {
@@ -827,36 +831,42 @@ impl AppleDevice for MacosDevice {
     ) -> VendorFuture<'a, Option<CommandResult>> {
         self.commands.execute_worker_command(command, context)
     }
-    fn push_file<'a>(&'a self, src: &'a Path, dst: &'a str, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
-        Box::pin(async move {
-            self.measurement()
-                .measure_file_transfer(JavaPath::from_text(&src.to_string_lossy()), self.bridge.send(src, dst))
-                .await
-        })
-    }
-    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn push_file<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_file_transfer(
-                    JavaPath::from_text(&dst.to_string_lossy()),
-                    self.bridge.receive(src, dst),
+                    JavaPath::from_text(&src.to_string_lossy()),
+                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
                 )
                 .await
         })
     }
-    fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn pull_file<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
-                .measure_folder_transfer(JavaPath::from_text(&src.to_string_lossy()), self.bridge.send(src, dst))
+                .measure_file_transfer(
+                    JavaPath::from_text(&dst.to_string_lossy()),
+                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
+                )
                 .await
         })
     }
-    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, _context: &'a VendorContext) -> VendorFuture<'a, bool> {
+    fn push_folder<'a>(&'a self, src: &'a Path, dst: &'a str, context: &'a VendorContext) -> VendorFuture<'a, bool> {
+        Box::pin(async move {
+            self.measurement()
+                .measure_folder_transfer(
+                    JavaPath::from_text(&src.to_string_lossy()),
+                    self.bridge.send_with(src, dst, self.transfer_stop(context)),
+                )
+                .await
+        })
+    }
+    fn pull_folder<'a>(&'a self, src: &'a str, dst: &'a Path, context: &'a VendorContext) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             self.measurement()
                 .measure_folder_transfer(
                     JavaPath::from_text(&dst.to_string_lossy()),
-                    self.bridge.receive(src, dst),
+                    self.bridge.receive_with(src, dst, self.transfer_stop(context)),
                 )
                 .await
         })

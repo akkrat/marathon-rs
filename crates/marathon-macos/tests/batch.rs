@@ -472,3 +472,78 @@ async fn a_stalled_send_ends_prepare_after_one_send_u163() -> R {
     assert_eq!(h.bridge.stalled_sends.load(std::sync::atomic::Ordering::SeqCst), 1);
     Ok(())
 }
+/// D54: a transfer for a Mac whose connection is lost fails as a connection failure, not as a cancellation, and a receive
+/// is the `false` its listener deals with. Kotlin's waits for rsync, without a limit if the Mac stopped answering (A104).
+#[tokio::test]
+async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54() -> R {
+    use marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION;
+    use std::sync::atomic::Ordering;
+    let h = Harness::new("")?;
+    let device = h.device();
+    h.bridge.hang.store(true, Ordering::SeqCst);
+    let src = h.root.path().join("MacApp.app");
+    let send = {
+        let (device, src, context) = (device.clone(), src.clone(), h.context.clone());
+        tokio::spawn(async move {
+            device
+                .push_folder(&src, "/tmp/marathon/shared/MacApp.app", &context)
+                .await
+        })
+    };
+    timeout(Duration::from_secs(30), h.bridge.hanging.notified()).await?;
+    let keep_alive = "Did not receive any keep-alive response for 60 seconds";
+    h.worker
+        .fake
+        .lose(marathon_test_support::apple::fake_simulator_worker::connection_exception(keep_alive));
+    let error = timeout(Duration::from_secs(30), send)
+        .await
+        .map_err(|_| "the lost connection did not end the send")??
+        .unwrap_err();
+    let VendorError::Other(failure) = error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(failure.class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(
+        failure.message.map(|m| m.to_string_lossy()),
+        Some("Lost the connection to local during a transfer".into())
+    );
+    assert_eq!(
+        failure.cause.and_then(|c| c.message).map(|m| m.to_string_lossy()),
+        Some(keep_alive.into())
+    );
+    let back = h.root.path().join("back");
+    assert_eq!(
+        timeout(
+            Duration::from_secs(30),
+            device.pull_folder("/tmp/marathon/result.xcresult", &back, &h.context)
+        )
+        .await?,
+        Ok(false)
+    );
+    // The caller's cancellation still returns as one.
+    h.worker.fake.connected.store(true, Ordering::SeqCst);
+    let other = Harness::new("")?;
+    other.bridge.hang.store(true, Ordering::SeqCst);
+    let device = other.device();
+    let signal = Signal::new();
+    let context = marathon_core::vendor::VendorContext {
+        cancellation: signal.clone(),
+        ..other.context.clone()
+    };
+    let send = {
+        let (device, src) = (device.clone(), src.clone());
+        tokio::spawn(async move {
+            device
+                .push_folder(&src, "/tmp/marathon/shared/MacApp.app", &context)
+                .await
+        })
+    };
+    timeout(Duration::from_secs(30), other.bridge.hanging.notified()).await?;
+    let reason = cancelled("the run was cancelled");
+    signal.cancel(reason.clone());
+    assert_eq!(
+        timeout(Duration::from_secs(30), send).await??,
+        Err(VendorError::Cancelled(reason))
+    );
+    Ok(())
+}

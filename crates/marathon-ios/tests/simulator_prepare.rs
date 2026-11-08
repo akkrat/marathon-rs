@@ -3,8 +3,8 @@ mod simulator_support;
 mod support;
 use marathon_apple::cmd::{CommandResult, cancelled};
 use marathon_core::{
-    error::{LeavePoolReason, VendorError},
-    vendor::Device,
+    error::{LeavePoolReason, VendorError, VendorResult},
+    vendor::{Device, VendorContext},
 };
 use simulator_support::*;
 use std::sync::{
@@ -515,5 +515,208 @@ async fn a_send_that_errs_any_other_way_keeps_the_installers_three_attempts_u163
     assert!(matches!(error, VendorError::Other(_)), "{error:?}");
     assert_eq!(sends, 3);
     assert!(!retired);
+    Ok(())
+}
+/// D54: transfers that run until they are stopped, and end as the rsync bridge ends them: a cancellation returns it, a lost
+/// connection fails a send and leaves a receive `false`. The plain calls, which carry no stop, would never end.
+#[derive(Default)]
+struct HangingTransfers {
+    started: tokio::sync::Notify,
+}
+impl HangingTransfers {
+    async fn run(&self, mut stop: marathon_apple::cmd::TransferStop, receive: bool) -> VendorResult<bool> {
+        use marathon_apple::cmd::TransferStopped;
+        self.started.notify_one();
+        match stop.stopped().await {
+            TransferStopped::Cancelled(reason) => Err(VendorError::Cancelled(reason)),
+            TransferStopped::Lost(_) if receive => Ok(false),
+            TransferStopped::Lost(failure) => Err(VendorError::Other(failure)),
+        }
+    }
+}
+impl marathon_apple::cmd::FileBridge for HangingTransfers {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.started.notify_one();
+        Box::pin(std::future::pending())
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.started.notify_one();
+        Box::pin(std::future::pending())
+    }
+    fn send_with<'a>(
+        &'a self,
+        _: &'a std::path::Path,
+        _: &'a str,
+        stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(self.run(stop, false))
+    }
+    fn receive_with<'a>(
+        &'a self,
+        _: &'a str,
+        _: &'a std::path::Path,
+        stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(self.run(stop, true))
+    }
+}
+async fn on_hanging_transfers(
+    h: &Harness,
+) -> TestResult<(
+    Arc<marathon_ios::apple_simulator_device::AppleSimulatorDevice>,
+    Arc<HangingTransfers>,
+)> {
+    let bridge = Arc::new(HangingTransfers::default());
+    let d = h
+        .device_on_bridge(
+            h.worker.clone(),
+            "a",
+            Arc::new(
+                marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                    marathon_config::devices::Transport::Local,
+                    h.clock.clone(),
+                ),
+            ),
+            bridge.clone(),
+        )
+        .await?;
+    Ok((d, bridge))
+}
+#[tokio::test(start_paused = true)]
+async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54() -> TestResult {
+    use marathon_apple::{apple_device::AppleDevice, cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION};
+    let h = Harness::new(|_| {})?;
+    let (d, bridge) = on_hanging_transfers(&h).await?;
+    let src = h.dir.path().join("tests.xctest");
+    let send = {
+        let (d, src, context) = (d.clone(), src.clone(), h.services.context.clone());
+        tokio::spawn(async move { d.push_folder(&src, "/tmp/marathon/shared/tests.xctest", &context).await })
+    };
+    bridge.started.notified().await;
+    let keep_alive = "Did not receive any keep-alive response for 60 seconds";
+    h.worker
+        .lose(marathon_test_support::apple::fake_simulator_worker::connection_exception(keep_alive));
+    let error = tokio::time::timeout(std::time::Duration::from_secs(600), send)
+        .await
+        .expect("the lost connection did not end the send")?
+        .unwrap_err();
+    // Not a cancellation: core's D53 counts the simulator as tried and borrows another.
+    let VendorError::Other(failure) = error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(failure.class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(
+        failure.message.map(|m| m.to_string_lossy()),
+        Some("Lost the connection to local during a transfer".into())
+    );
+    assert_eq!(
+        failure.cause.and_then(|c| c.message).map(|m| m.to_string_lossy()),
+        Some(keep_alive.into())
+    );
+    // A receive on the lost connection is the `false` its listener deals with.
+    let back = h.dir.path().join("back");
+    assert_eq!(
+        d.pull_file("/tmp/marathon/log", &back, &h.services.context).await,
+        Ok(false)
+    );
+    h.worker.connected.store(true, Ordering::SeqCst);
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+/// D54 (A104): the limit on remote parsing ends a send to a worker that has stopped answering, at the limit.
+#[tokio::test(start_paused = true)]
+async fn the_parses_limit_ends_a_hung_send_at_the_limit_d54() -> TestResult {
+    use marathon_apple::apple_device::AppleDevice;
+    use marathon_core::runtime::VendorClock;
+    let h = Harness::new(|_| {})?;
+    let (d, _bridge) = on_hanging_transfers(&h).await?;
+    let src = h.dir.path().join("tests.xctest");
+    let context = h.services.context.clone();
+    let started = tokio::time::Instant::now();
+    let parse = h.clock.with_timeout_or_null(
+        context.cancellation.clone(),
+        180_000,
+        Box::new(|scope| {
+            let context = VendorContext {
+                cancellation: scope,
+                ..context.clone()
+            };
+            let (d, src) = (d.clone(), src.clone());
+            Box::pin(async move {
+                d.push_shared(&src, "/tmp/marathon/shared/tests.xctest", &context)
+                    .await?;
+                Ok(())
+            })
+        }),
+    );
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(3_600), parse)
+        .await
+        .expect("the limit did not end the send");
+    assert_eq!(outcome, Ok(None));
+    assert_eq!(started.elapsed(), std::time::Duration::from_secs(180));
+    h.finish(std::slice::from_ref(&d)).await;
+    Ok(())
+}
+/// Whether each transfer's stop had already come when it was called.
+#[derive(Default)]
+struct StopsAtCall(std::sync::Mutex<Vec<bool>>);
+impl marathon_apple::cmd::FileBridge for StopsAtCall {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+    fn receive_with<'a>(
+        &'a self,
+        _: &'a str,
+        _: &'a std::path::Path,
+        mut stop: marathon_apple::cmd::TransferStop,
+    ) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.0.lock().unwrap().push(stop.now().is_some());
+        Box::pin(async { Ok(true) })
+    }
+}
+/// D54 leaves a screenshot's pull to finish when the capture is cancelled, which it is at the end of every test, so that
+/// the frame on its way is kept as in Kotlin. Any other pull stops.
+#[tokio::test(start_paused = true)]
+async fn a_screenshots_pull_finishes_when_its_capture_is_cancelled_d54() -> TestResult {
+    use marathon_apple::apple_device::AppleDevice;
+    let h = Harness::new(|_| {})?;
+    let bridge = Arc::new(StopsAtCall::default());
+    let d = h
+        .device_on_bridge(
+            h.worker.clone(),
+            "a",
+            Arc::new(
+                marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                    marathon_config::devices::Transport::Local,
+                    h.clock.clone(),
+                ),
+            ),
+            bridge.clone(),
+        )
+        .await?;
+    *h.worker.before.lock().unwrap() = Arc::new(|_| {
+        Box::pin(async {
+            Ok(Some(marathon_test_support::apple::fake_simulator_worker::ok(Vec::<
+                String,
+            >::new(
+            ))))
+        })
+    });
+    let signal = marathon_core::executor::shared::Signal::new();
+    signal.cancel(cancelled("Recording finished"));
+    let cancelled = VendorContext {
+        cancellation: signal,
+        ..h.services.context.clone()
+    };
+    let frame = h.dir.path().join("frame.png");
+    let timeout = jcompat::jtime::Duration::of_seconds(10);
+    assert_eq!(d.get_screenshot(timeout, &frame, &cancelled).await, Ok(true));
+    assert_eq!(d.pull_file("/tmp/marathon/log", &frame, &cancelled).await, Ok(true));
+    assert_eq!(*bridge.0.lock().unwrap(), [false, true]);
+    *h.worker.before.lock().unwrap() = Arc::new(|_| Box::pin(async { Ok(None) }));
+    h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }

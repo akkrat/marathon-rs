@@ -2,7 +2,7 @@
 
 use super::RsyncTarget;
 use crate::cmd::{
-    FileBridge, SessionScope, blocking, failure, io_error,
+    FileBridge, SessionScope, TransferStop, TransferStopped, blocking, failure, io_error,
     remote::ssh::sshj::{client::within, config::SshLogging},
     retained_tasks::RetainedTasks,
     stall_record::StallRecord,
@@ -110,9 +110,10 @@ impl RsyncFileBridge {
                         .process(
                             vec![rsync_program(), "--version".into(), "/tmp".into(), "/tmp".into()],
                             None,
+                            None,
                         )
                         .await?;
-                    let first = output.1.split('\n').next().unwrap_or_default().to_owned();
+                    let first = output.stdout.split('\n').next().unwrap_or_default().to_owned();
                     inner.logging.log(&inner.logger, Level::Debug, || first, None);
                     Ok(true)
                 })
@@ -281,12 +282,13 @@ impl Inner {
         ]);
         Ok(args)
     }
-    /// `arriving` is where a receive's bytes land. The process's result, what it wrote, and whether it stalled.
+    /// `arriving` is where a receive's bytes land; `stop` ends it early (D54).
     async fn process(
         &self,
         argv: Vec<String>,
         arriving: Option<Arriving>,
-    ) -> VendorResult<(i32, String, String, bool)> {
+        mut stop: Option<&mut TransferStop>,
+    ) -> VendorResult<Outcome> {
         blocking(self.runtime.as_ref(), initialize_binaries).await?;
         // The start is read on the vendor clock as the process starts, not when the spawn's result reaches this task, so a
         // late delivery can't shorten the time a send has been quiet.
@@ -325,12 +327,24 @@ impl Inner {
         // Errors are held until the child is reaped and both readers are joined.
         let progress = AtomicI64::new(started);
         let mut nothing_arrived = false;
+        let mut stopped = None;
+        let stopping = async {
+            match stop.as_deref_mut() {
+                Some(stop) => stop.stopped().await,
+                None => std::future::pending().await,
+            }
+        };
         let status = tokio::select! {
             biased;
             result = child.wait() => result.map_err(io_error),
             arrived = self.watch(arriving, &stall, &progress) => {
                 nothing_arrived = !arrived;
-                self.stop_child(&mut child, &descendants).await
+                self.stop_child(&mut child, &descendants, true).await
+            }
+            // D54: rsync has said nothing and is not on its way out, so it gets no time to end by itself.
+            why = stopping => {
+                stopped = Some(why);
+                self.stop_child(&mut child, &descendants, false).await
             }
             _ = descendants.follow() => unreachable!("following never ends"),
         };
@@ -364,16 +378,25 @@ impl Inner {
         let status = status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
         let stdout = out_rx.await.map_err(dropped)??;
         let stderr = err_rx.await.map_err(dropped)??;
+        // D54: an rsync that finished all the same has done its transfer.
+        let stopped = stopped.filter(|_| status != 0);
         let stalled = status != 0
+            && stopped.is_none()
             && (nothing_arrived
                 || (quiet >= STALL_AFTER_MILLIS
                     && (reports_stall(stderr.as_bytes())
                         || (status == RSYNC_TIMEOUT_STATUS && !stderr.contains(STOPPED_AT_LIMIT)))));
-        // However the stall was decided, and also when rsync ended by itself, what it started goes with it.
-        if stalled {
+        // However the stall was decided, and also when rsync ended by itself, what it started goes with it. So too on a stop.
+        if stalled || stopped.is_some() {
             descendants.end(self.clock.as_ref()).await;
         }
-        Ok((status, stdout, stderr, stalled))
+        Ok(Outcome {
+            status,
+            stdout,
+            stderr,
+            stalled,
+            stopped,
+        })
     }
     /// D31, D43: keeps in `progress` when progress was last seen, on the vendor clock: the start for a send, the last change of
     /// its own files for a receive, which are looked at every 10 s. Ends once rsync has reported a stall and the time since
@@ -425,16 +448,16 @@ impl Inner {
         }
     }
     /// D31, D43: rsync has stalled and may not end by itself: openrsync closes ssh's input and then waits for ssh, for ever if
-    /// ssh is hung. So it gets 5 s, then TERM, together with what it started, since `sshpass` exits on TERM at once and would
-    /// leave rsync running; then 5 s more and KILL. On return the child is reaped, so a retry cannot overlap it; what it
-    /// started is `Descendants::end`'s, once the outcome is known.
-    async fn stop_child(&self, child: &mut Child, descendants: &Descendants) -> VendorResult<ExitStatus> {
+    /// ssh is hung. So it gets 5 s if it has reported (`grace`), then TERM, together with what it started, since `sshpass`
+    /// exits on TERM at once and would leave rsync running; then 5 s more and KILL. On return the child is reaped, so a retry
+    /// cannot overlap it; what it started is `Descendants::end`'s, once the outcome is known.
+    async fn stop_child(&self, child: &mut Child, descendants: &Descendants, grace: bool) -> VendorResult<ExitStatus> {
         use nix::{sys::signal, unistd::Pid};
         let scope: Arc<dyn CancellationSignal> = Arc::new(SessionScope::default());
         let clock = self.clock.as_ref();
         // Still unreaped here, so whatever is attached to it now is found.
         descendants.list(true).await;
-        if let Some(status) = within(clock, scope.clone(), STOP_STEP_MILLIS, child.wait()).await {
+        if grace && let Some(status) = within(clock, scope.clone(), STOP_STEP_MILLIS, child.wait()).await {
             return status.map_err(io_error);
         }
         // Unreaped, so its pid is still its own.
@@ -448,7 +471,13 @@ impl Inner {
         let _ = child.start_kill();
         child.wait().await.map_err(io_error)
     }
-    async fn transfer(&self, local: PathBuf, remote: String, receive: bool) -> VendorResult<bool> {
+    async fn transfer(
+        &self,
+        local: PathBuf,
+        remote: String,
+        receive: bool,
+        stop: &mut TransferStop,
+    ) -> VendorResult<bool> {
         let local = blocking(self.runtime.as_ref(), move || {
             let cwd = std::env::current_dir().map_err(io_error)?;
             let path = absolute_file_path(&local.to_string_lossy(), &cwd.to_string_lossy());
@@ -461,10 +490,26 @@ impl Inner {
         .await?;
         let arriving = receive.then(|| Arriving::new(&local, &remote));
         let remote = format!("{}:{remote}", self.target.addr.to_string_lossy());
+        if let Some(stopped) = stop.now() {
+            return self.stopped(stopped, receive, &remote);
+        }
         let (source, destination) = if receive { (remote, local) } else { (local, remote) };
-        let (status, _, stderr, stalled) = self
-            .process(self.arguments(source.clone(), destination.clone())?, arriving)
+        let Outcome {
+            status,
+            stderr,
+            stalled,
+            stopped,
+            ..
+        } = self
+            .process(
+                self.arguments(source.clone(), destination.clone())?,
+                arriving,
+                Some(stop),
+            )
             .await?;
+        if let Some(stopped) = stopped {
+            return self.stopped(stopped, receive, if receive { &source } else { &destination });
+        }
         if stalled || (status != 0 && !stderr.is_empty()) {
             let text = stderr.clone();
             self.logging.log(
@@ -500,6 +545,37 @@ impl Inner {
         }
         Ok(status == 0)
     }
+    /// D54: the outcome of a transfer to or from `remote` that `stopped` ended, or kept from starting. A cancellation is the
+    /// caller's to report. A lost connection fails a send, which nothing retries on that device since its commands fail too,
+    /// and leaves a receive the `false` its listener deals with, as D43 does.
+    fn stopped(&self, stopped: TransferStopped, receive: bool, remote: &str) -> VendorResult<bool> {
+        match stopped {
+            TransferStopped::Cancelled(reason) => Err(VendorError::Cancelled(reason)),
+            TransferStopped::Lost(lost) => {
+                if self.logging.enabled(&self.logger, Level::Error) {
+                    let message = if receive {
+                        format!("receive error: the device's connection was lost while receiving {remote}")
+                    } else {
+                        format!("send error: the device's connection was lost while sending to {remote}")
+                    };
+                    (self.logging.sink)(&self.logger, Level::Error, message, Some(lost.clone()));
+                }
+                if receive {
+                    Ok(false)
+                } else {
+                    Err(VendorError::Other(lost))
+                }
+            }
+        }
+    }
+}
+/// What a process did: its status, what it wrote, whether it stalled (D31, D43), and what stopped it early (D54).
+struct Outcome {
+    status: i32,
+    stdout: String,
+    stderr: String,
+    stalled: bool,
+    stopped: Option<TransferStopped>,
 }
 /// D43: where this receive's own bytes land, so that another transfer into the same folder cannot pass for its progress.
 /// rsync writes `name` into `folder` through a temporary file beside it (`is_temporary_of`), moves an interrupted one to
@@ -835,11 +911,25 @@ async fn read_stderr<R: tokio::io::AsyncRead + Unpin>(
 }
 impl FileBridge for RsyncFileBridge {
     fn send<'a>(&'a self, src: &'a Path, dst: &'a str) -> VendorFuture<'a, bool> {
+        self.send_with(src, dst, TransferStop::never())
+    }
+    fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
+        self.receive_with(src, dst, TransferStop::never())
+    }
+    fn send_with<'a>(&'a self, src: &'a Path, dst: &'a str, mut stop: TransferStop) -> VendorFuture<'a, bool> {
         let (inner, src, dst) = (self.0.clone(), src.to_owned(), dst.to_owned());
         Box::pin(async move {
             let arrived = inner.stalls.ticket();
             self.owned(async move {
-                let _send = inner.send.lock().await;
+                // D54: a send stopped while it waits for another's ends here, and the ones behind it go on.
+                let _send = tokio::select! {
+                    biased;
+                    send = inner.send.lock() => send,
+                    stopped = stop.stopped() => {
+                        let remote = format!("{}:{dst}", inner.target.addr.to_string_lossy());
+                        return inner.stopped(stopped, false, &remote);
+                    }
+                };
                 // U163: this send waited out another's 300 s to the same worker, and would most likely spend as long itself.
                 if let Some(error) = inner.stalls.since(arrived) {
                     inner.logging.log(
@@ -850,14 +940,17 @@ impl FileBridge for RsyncFileBridge {
                     );
                     return Err(error);
                 }
-                inner.transfer(src, dst, false).await
+                inner.transfer(src, dst, false, &mut stop).await
             })
             .await
         })
     }
-    fn receive<'a>(&'a self, src: &'a str, dst: &'a Path) -> VendorFuture<'a, bool> {
+    fn receive_with<'a>(&'a self, src: &'a str, dst: &'a Path, mut stop: TransferStop) -> VendorFuture<'a, bool> {
         let (inner, src, dst) = (self.0.clone(), src.to_owned(), dst.to_owned());
-        Box::pin(async move { self.owned(async move { inner.transfer(dst, src, true).await }).await })
+        Box::pin(async move {
+            self.owned(async move { inner.transfer(dst, src, true, &mut stop).await })
+                .await
+        })
     }
 }
 

@@ -79,6 +79,9 @@ impl CommandExecutor for Worker {
     fn close(&self) -> VendorFuture<'_, ()> {
         self.fake.close()
     }
+    fn connection_lost(&self) -> std::pin::Pin<Box<dyn Future<Output = marathon_core::error::Failure> + Send>> {
+        self.fake.connection_lost()
+    }
 }
 #[derive(Default)]
 pub struct RecordingBridge {
@@ -90,8 +93,46 @@ pub struct RecordingBridge {
     /// Every send ends as a stalled one does, counted.
     pub stalled_sends: std::sync::atomic::AtomicUsize,
     pub stalled: std::sync::atomic::AtomicBool,
+    /// D54: every transfer runs until it is stopped, and ends as the rsync bridge ends it.
+    pub hang: std::sync::atomic::AtomicBool,
+    pub hanging: Notify,
+}
+impl RecordingBridge {
+    async fn until_stopped(&self, mut stop: marathon_apple::cmd::TransferStop, receive: bool) -> VendorResult<bool> {
+        use marathon_apple::cmd::TransferStopped;
+        self.hanging.notify_one();
+        match stop.stopped().await {
+            TransferStopped::Cancelled(reason) => Err(VendorError::Cancelled(reason)),
+            TransferStopped::Lost(_) if receive => Ok(false),
+            TransferStopped::Lost(failure) => Err(VendorError::Other(failure)),
+        }
+    }
 }
 impl FileBridge for RecordingBridge {
+    fn send_with<'a>(
+        &'a self,
+        src: &'a Path,
+        dst: &'a str,
+        stop: marathon_apple::cmd::TransferStop,
+    ) -> VendorFuture<'a, bool> {
+        if self.hang.load(Ordering::SeqCst) {
+            Box::pin(self.until_stopped(stop, false))
+        } else {
+            self.send(src, dst)
+        }
+    }
+    fn receive_with<'a>(
+        &'a self,
+        src: &'a str,
+        dst: &'a Path,
+        stop: marathon_apple::cmd::TransferStop,
+    ) -> VendorFuture<'a, bool> {
+        if self.hang.load(Ordering::SeqCst) {
+            Box::pin(self.until_stopped(stop, true))
+        } else {
+            self.receive(src, dst)
+        }
+    }
     fn send<'a>(&'a self, src: &'a Path, dst: &'a str) -> VendorFuture<'a, bool> {
         Box::pin(async move {
             if self.stalled.load(Ordering::SeqCst) {

@@ -312,6 +312,10 @@ impl CommandExecutor for SshCommandExecutor {
     fn connected(&self) -> bool {
         self.connection.is_connected()
     }
+    fn connection_lost(&self) -> std::pin::Pin<Box<dyn Future<Output = Failure> + Send>> {
+        let shared = self.connection.shared.clone();
+        Box::pin(async move { shared.wait_lost().await.to_failure() })
+    }
     fn log_error(&self, message: String) {
         self.logging.log(&self.logger, Level::Error, || message, None);
     }
