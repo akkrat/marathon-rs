@@ -128,7 +128,7 @@ impl Bundle {
             let start = self.now("apple.ResultBundleRunListener.processBundle")?;
             self.device
                 .remote_file_manager()
-                .remove_remote_path(&self.remote().to_owned(), &context)
+                .remove_remote_path(self.remote(), &context)
                 .await?;
             let elapsed = self
                 .now("apple.ResultBundleRunListener.processBundle")?
@@ -170,7 +170,7 @@ impl Bundle {
                         (self.logging.sink)(
                             &fm_logger,
                             Level::Error,
-                            String::from_utf16_lossy(message).to_owned(),
+                            jcompat::file_manager::path_diagnostic(message),
                             None,
                         );
                     }
@@ -222,13 +222,13 @@ impl Bundle {
         let mut diagnostic = String::from("xcresult bundle of batch ");
         diagnostic.push_str(&self.batch.id.clone());
         diagnostic.push_str(" was not delivered (");
-        diagnostic.push_str(&reason.to_owned());
+        diagnostic.push_str(reason);
         diagnostic.push_str("); remote bundle kept on worker ");
         diagnostic.push_str(&self.device.transport().id());
         diagnostic.push_str(" (");
         diagnostic.push_str(&self.owner());
         diagnostic.push_str(") at ");
-        diagnostic.push_str(&self.remote().to_owned());
+        diagnostic.push_str(self.remote());
         diagnostic.push_str("; local copy: ");
         diagnostic.push_str(&local);
         if self

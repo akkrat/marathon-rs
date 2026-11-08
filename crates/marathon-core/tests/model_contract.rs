@@ -61,14 +61,14 @@ fn annotation_arrays_retain_identity_and_maps_ignore_entry_order() {
     );
 }
 #[test]
-fn java_boxed_values_and_utf16_are_not_rust_numeric_or_unicode_equality() {
+fn java_boxed_values_and_native_string_ordering() {
     assert_ne!(MetaValue::Int(1), MetaValue::Long(1));
     assert_ne!(MetaValue::Double(0.0), MetaValue::Double(-0.0));
     assert_eq!(
         MetaValue::Double(f64::NAN),
         MetaValue::Double(f64::from_bits(0x7ff8_0000_0000_0001))
     );
-    assert!(String::from("😀") < String::from("ｚ"));
+    assert!("😀" > "ｚ");
     assert_eq!(String::from_utf16_lossy(&[0xd800]), "\u{fffd}");
 }
 
@@ -155,7 +155,7 @@ fn decoded_array_elements_keep_pinned_wrapper_rendering() {
     assert_eq!(DecodedChar(0xd800).kotlin_value("abc").render(), {
         let mut text = String::from("DecodedChar(value=");
         text.push('\u{fffd}');
-        text.push_str(")");
+        text.push(')');
         text
     });
 }

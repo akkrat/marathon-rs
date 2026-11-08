@@ -99,7 +99,7 @@ fn run_results(
             let (listener, deferred) = results_listener(&runtime, &device, tests);
             checked(listener.before_test_run(None).await);
             for event in events {
-                if matches!(&event, E::TestFailed { id, .. } if id.test_name == "method2".to_owned()) {
+                if matches!(&event, E::TestFailed { id, .. } if id.test_name == "method2") {
                     checked(listener.attachments.on_attachment(
                         &test("method2"),
                         Attachment {
@@ -499,7 +499,7 @@ impl LogWriter for Writer {
         Box::pin(async move {
             self.saved.lock().unwrap().push((target.test.clone(), logs.to_vec()));
             Ok(JavaPath::from_text(
-                if target.test.as_ref().is_some_and(|t| t.method == "method1".to_owned()) {
+                if target.test.as_ref().is_some_and(|t| t.method == "method1") {
                     "/log1"
                 } else {
                     "/log0"

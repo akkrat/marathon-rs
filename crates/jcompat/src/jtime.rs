@@ -160,18 +160,11 @@ enum Stop {
 pub fn parse_instant_detailed(s: &str) -> Result<Instant, InstantParseError> {
     let t: Vec<u16> = s.encode_utf16().collect();
     let abbr = if t.len() > 64 {
-        let mut a = t[..64].to_vec();
-        a.extend("...".encode_utf16());
-        a
+        crate::jstring::take_utf16(s, 64) + "..."
     } else {
-        t.clone()
+        s.to_owned()
     };
-    let text = |tail: &str| {
-        let mut m: Vec<u16> = "Text '".encode_utf16().collect();
-        m.extend_from_slice(&abbr);
-        m.extend(tail.encode_utf16());
-        String::from_utf16_lossy(&m)
-    };
+    let text = |tail: &str| format!("Text '{abbr}{tail}");
     match parse_iso_instant(&t) {
         Err(Stop::At(index)) => Err(InstantParseError {
             chain: vec![(

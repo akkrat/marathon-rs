@@ -14,9 +14,7 @@ impl Ci {
             CiConfiguration::None => Self::None,
             CiConfiguration::Teamcity => Self::Teamcity,
             // C3: Kotlin checks values, not the TEAMCITY_VERSION key.
-            CiConfiguration::Auto if environment.iter().any(|(_, v)| *v == String::from("TEAMCITY_VERSION")) => {
-                Self::Teamcity
-            }
+            CiConfiguration::Auto if environment.iter().any(|(_, v)| *v == "TEAMCITY_VERSION") => Self::Teamcity,
             CiConfiguration::Auto => Self::None,
         }
     }

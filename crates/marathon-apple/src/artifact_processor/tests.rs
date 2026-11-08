@@ -64,7 +64,7 @@ impl Harness {
         self.p.close_and_join(300_000, 60_000, &self.context).await.unwrap()
     }
     async fn barrier(&self, owner: &str) {
-        self.p.await_owner(&owner, &self.context).await.unwrap();
+        self.p.await_owner(owner, &self.context).await.unwrap();
     }
     fn messages(&self) -> Vec<String> {
         self.logs.lock().unwrap().iter().map(|(_, m, _)| m.clone()).collect()
@@ -141,7 +141,7 @@ impl Model {
     }
     fn complete(&mut self, owner: &str, worker: &str) -> Vec<Admission> {
         self.q
-            .complete(&owner, &worker, self.now)
+            .complete(owner, worker, self.now)
             .admitted
             .into_iter()
             .map(|(_, d, a)| {
@@ -151,7 +151,7 @@ impl Model {
             .collect()
     }
     fn take(&mut self, worker: &str) -> usize {
-        self.q.take(&worker).unwrap().payload
+        self.q.take(worker).unwrap().payload
     }
 }
 #[test]
@@ -1347,7 +1347,7 @@ fn frozen_jvm_transitions_match_the_admission_core_field_by_field() {
                     assert_eq!(item.id, id, "{scenario}: worker queue order");
                 }
                 "idle" => {
-                    assert!(q.take(&row["worker"].as_str().unwrap()).is_none());
+                    assert!(q.take(row["worker"].as_str().unwrap()).is_none());
                 }
                 "cancel" => {
                     assert!(q.cancel_waiter(id).is_some());

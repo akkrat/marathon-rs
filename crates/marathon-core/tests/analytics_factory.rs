@@ -40,7 +40,7 @@ impl MetricsSetup for Setup {
         Box::pin(async { Err(failure("java.lang.IllegalArgumentException", "invalid URL").into()) })
     }
     fn graphite<'a>(&'a self, host: &'a str) -> ServiceFuture<'a, Arc<dyn GraphiteQuery>> {
-        assert_eq!(host, "not a host");
+        assert!(matches!(host, "not a host" | "�"));
         Box::pin(async { Ok(Arc::new(BadGraphite) as Arc<dyn GraphiteQuery>) })
     }
 }
@@ -359,18 +359,18 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
 }
 
 #[test]
-fn lone_surrogate_graphite_text_fails_queries_instead_of_setup_under_p2() {
+fn normalized_surrogates_reach_graphite_setup_and_query_failures_retry() {
     run(async {
         for host in [false, true] {
             let h = Harness::new();
             let config = AnalyticsConfiguration::Graphite(GraphiteConfiguration {
                 host: if host {
-                    String::from_utf16_lossy(&vec![0xd800])
+                    String::from_utf16_lossy(&[0xd800])
                 } else {
                     "not a host".into()
                 },
                 port: None,
-                prefix: (!host).then(|| String::from_utf16_lossy(&vec![0xd800])),
+                prefix: (!host).then(|| String::from_utf16_lossy(&[0xd800])),
                 defaults: defaults(300000, None),
                 read_only: false,
             });

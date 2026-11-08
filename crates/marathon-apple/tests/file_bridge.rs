@@ -65,10 +65,10 @@ async fn default_copy_errors_propagate_instead_of_becoming_false() {
     std::fs::write(&dst, "old").unwrap();
     let bridge = JvmFileBridge::new(Arc::new(Runtime), false);
     assert!(
-        matches!(bridge.send(&src, dst.to_str().unwrap()).await, Err(VendorError::Other(f)) if f.class == "kotlin.io.FileAlreadyExistsException".to_owned())
+        matches!(bridge.send(&src, dst.to_str().unwrap()).await, Err(VendorError::Other(f)) if f.class == "kotlin.io.FileAlreadyExistsException")
     );
     assert!(
-        matches!(bridge.send(&root.path().join("missing"), dst.to_str().unwrap()).await, Err(VendorError::Other(f)) if f.class == "kotlin.io.NoSuchFileException".to_owned())
+        matches!(bridge.send(&root.path().join("missing"), dst.to_str().unwrap()).await, Err(VendorError::Other(f)) if f.class == "kotlin.io.NoSuchFileException")
     );
     assert!(bridge.send(&src, src.join("child").to_str().unwrap()).await.is_err());
 }

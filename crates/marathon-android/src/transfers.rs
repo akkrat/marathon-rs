@@ -585,7 +585,7 @@ impl AndroidDevice {
         options: &marathon_config::vendor::AndroidVideoConfiguration,
         context: VendorContext,
     ) -> VendorResult<()> {
-        let cmd = to_screen_recorder_command(options, &remote, self.api_level() >= 34).to_owned();
+        let cmd = to_screen_recorder_command(options, remote, self.api_level() >= 34).to_owned();
         let result = timed(
             &context,
             millis(self.runtime().configuration.timeout_configuration.screenrecorder)?,

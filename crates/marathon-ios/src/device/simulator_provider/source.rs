@@ -319,10 +319,7 @@ mod tests {
         ] {
             let error = file_read_error(Path::new("/Marathondevices"), &io::Error::from(kind));
             assert_eq!(error.failure().class, "java.io.FileNotFoundException".to_owned());
-            assert_eq!(
-                error.failure().message,
-                Some(format!("/Marathondevices ({reason})").into())
-            );
+            assert_eq!(error.failure().message, Some(format!("/Marathondevices ({reason})")));
         }
     }
 }

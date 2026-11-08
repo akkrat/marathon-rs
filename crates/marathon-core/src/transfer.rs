@@ -96,14 +96,14 @@ impl TransferMeasurement {
         ) else {
             return;
         };
-        // Retain UTF-16 basename and serial until the log sink's encoding boundary.
+        // A truncated JavaPath can still contain a split pair.
         let mut name = file.0.as_slice();
         while name.len() > 1 && name.last() == Some(&47) {
             name = &name[..name.len() - 1];
         }
         let base = name.iter().rposition(|&u| u == 47).map_or(name, |i| &name[i + 1..]);
         let mut message = String::from("Transferred ");
-        message.push_str(&String::from_utf16_lossy(base));
+        message.push_str(&jcompat::file_manager::path_diagnostic(base));
         if folder {
             message.push_str(" with ");
             message.push_str(&dirs.to_string());

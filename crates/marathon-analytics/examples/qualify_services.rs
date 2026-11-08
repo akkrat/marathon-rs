@@ -129,7 +129,7 @@ async fn ingested(env: &Env, backend: &str, key: &str, anchor: i64) -> Operation
             config.db_name = key.into();
             let client = InfluxClient::connect(&config, false, env.context.clone(), env.io.clone()).await?;
             let result = client
-                .query("SELECT count(\"duration\") FROM \"rpMarathon\".\"tests\"", &key)
+                .query("SELECT count(\"duration\") FROM \"rpMarathon\".\"tests\"", key)
                 .await;
             client.shutdown().await?;
             number(
@@ -148,7 +148,7 @@ async fn ingested(env: &Env, backend: &str, key: &str, anchor: i64) -> Operation
             let flux = format!(
                 "from(bucket: \"{key}\") |> range(start: 0) |> filter(fn: (r) => r._measurement == \"tests\" and r._field == \"duration\") |> group() |> count()"
             );
-            let result = client.query(&flux.as_str()).await;
+            let result = client.query(flux.as_str()).await;
             client.shutdown().await?;
             number(result?.first().and_then(|r| r.get("_value")))
         }

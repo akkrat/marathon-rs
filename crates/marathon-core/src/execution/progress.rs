@@ -218,7 +218,7 @@ impl PoolProgressAccumulator {
     }
     fn log(&self, level: Level, prefix: &str, test: &str, suffix: &str) {
         let mut message = String::from(prefix);
-        message.push_str(&test.to_owned());
+        message.push_str(test);
         message.push_str(suffix);
         self.logs.log(
             "com.malinskiy.marathon.execution.progress.PoolProgressAccumulator",

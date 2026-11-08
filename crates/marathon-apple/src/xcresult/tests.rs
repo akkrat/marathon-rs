@@ -27,7 +27,7 @@ impl Project for f64 {
         if self.is_finite() {
             JsonNode::Number(text)
         } else {
-            JsonNode::String(String::from(text))
+            JsonNode::String(text)
         }
     }
 }
@@ -208,6 +208,7 @@ fn recursive_models_decode_at_the_nesting_limit_on_a_default_stack() {
 fn approved_key_simplifications_p4_p5() {
     let metrics = decode_legacy::<ResultMetrics>(r#"{"testsCount":{"_value":"oops"},"testsCount":{"_value":1}}"#);
     assert_eq!(metrics.unwrap().unwrap().tests_count, 1);
-    let error = decode_legacy::<ResultMetrics>(r#"{"\ud800":1}"#).unwrap_err();
-    assert_eq!(error.kind, DecodeErrorKind::JsonSyntax);
+    // D55 normalizes object keys before unknown-field handling.
+    let metrics = decode_legacy::<ResultMetrics>(r#"{"\ud800":1}"#).unwrap().unwrap();
+    assert_eq!(metrics.tests_count, 0);
 }

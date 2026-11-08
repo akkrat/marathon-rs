@@ -157,7 +157,7 @@ impl TestRunResultsAccumulator {
         self.elapsed_time
     }
     pub fn run_failure_message(&self) -> Option<&str> {
-        self.run_failure_message.as_ref().map(|x| x.as_str())
+        self.run_failure_message.as_deref()
     }
     pub fn is_run_failure(&self) -> bool {
         self.run_failure_message.is_some()
@@ -209,8 +209,8 @@ impl TestRunResultsAccumulator {
     /// instrumentation is the current one, or never ran because the current one ended the batch.
     fn failure_of(&self, test: &Test) -> Option<&str> {
         match self.finished_instrumentations.iter().find(|i| i.tests.contains(test)) {
-            Some(finished) => finished.failure.as_ref().map(|x| x.as_str()),
-            None => self.run_failure_message.as_ref().map(|x| x.as_str()),
+            Some(finished) => finished.failure.as_deref(),
+            None => self.run_failure_message.as_deref(),
         }
     }
     /// D25 (Android): this run's output broke off, and that is why a test in progress never finished. Other run

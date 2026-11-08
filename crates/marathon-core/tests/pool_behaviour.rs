@@ -67,9 +67,7 @@ fn stale_disconnect_leaves_the_replacement_d40() {
                 assert!(!pool.terminated());
                 let mismatch = |logs: Vec<LogRecord>| {
                     logs.iter()
-                        .filter(|r| {
-                            r.message.to_owned() == "device same: another instance is in this pool, nothing to remove"
-                        })
+                        .filter(|r| r.message == "device same: another instance is in this pool, nothing to remove")
                         .count()
                 };
                 assert_eq!(mismatch(h.logs()), 1);
@@ -460,7 +458,7 @@ fn duplicate_serial_add_keeps_the_original_device() {
             h.run_current().await;
             assert_eq!(pool.actors.borrow().len(), 1);
             assert!(h.logs().iter().any(|l| l.level == jcompat::logging::Level::Warn
-                && l.message.to_owned() == "device same already present in pool scheduling"));
+                && l.message == "device same already present in pool scheduling"));
             prepared.open();
             h.await_pool_termination().await;
             assert_eq!(first.batches().len(), 1);

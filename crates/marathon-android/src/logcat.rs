@@ -152,7 +152,7 @@ impl LogCatMessageParser {
     /// whole-line header grammar (which has no year — see U26).
     pub fn process_log_header(&mut self, line: &str) -> Option<LogCatHeader> {
         let text = line;
-        let captures = LOGCAT_HEADER.find(&text)?;
+        let captures = LOGCAT_HEADER.find(text)?;
         let whole = captures.get(0)?;
         // Java Matcher.matches(): the match must cover the whole line.
         if whole.start() != 0 || whole.end() != text.len() {

@@ -48,7 +48,7 @@ impl MetricsProvider for NoOpMetricsProvider {
                 (Level::Info, "analytics is disabled")
             };
             let mut message = String::from("Execution time history for ");
-            message.push_str(&usage.to_owned());
+            message.push_str(usage);
             message.push_str(&format!(
                 ": 0 of {count} tests have it, {reason}, so every test is expected to take 0 ms"
             ));

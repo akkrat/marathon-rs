@@ -35,12 +35,7 @@ impl Failure {
             text.push('\n');
             if let Some(frames) = &failure.stacktrace {
                 text.push_str(&frames.clone());
-                if frames
-                    .encode_utf16()
-                    .collect::<Vec<_>>()
-                    .last()
-                    .is_some_and(|unit| *unit != u16::from(b'\n'))
-                {
+                if !frames.is_empty() && !frames.ends_with('\n') {
                     text.push('\n');
                 }
             }

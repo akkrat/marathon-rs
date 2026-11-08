@@ -635,7 +635,7 @@ fn allure_file_supplier_precedence_json_dispatch_and_p2_replay_the_jvm() -> Oper
                 let value = if text.is_empty() {
                     "".into()
                 } else {
-                    tmp.0.join(text).to_string_lossy().into_owned().into()
+                    tmp.0.join(text).to_string_lossy().into_owned()
                 };
                 (k.clone(), value)
             })
@@ -715,11 +715,20 @@ fn p2_plans_jackson_accepts_warn_and_become_absent() -> OperationResult<()> {
         let logs = Arc::new(Logs::default());
         let path = tmp.0.join("plan.json").to_string_lossy().into_owned();
         let supplier = FileTestPlanSupplier {
-            environment: Arc::new(Env([("ALLURE_TESTPLAN_PATH".into(), path.into())]
-                .into_iter()
-                .collect())),
+            environment: Arc::new(Env([("ALLURE_TESTPLAN_PATH".into(), path)].into_iter().collect())),
             logger: logs.clone(),
         };
+        if json.contains("\\ud800") {
+            assert_eq!(
+                supplier.supply()?,
+                Some(TestPlan::V1_0(vec![PlanTest {
+                    id: Some("�x".into()),
+                    selector: Some("s".into()),
+                }]))
+            );
+            assert!(logs.0.lock().expect("logs").is_empty());
+            continue;
+        }
         assert_eq!(supplier.supply()?, None, "{json}");
         let records = logs.0.lock().expect("logs");
         assert_eq!(records.len(), 1, "{json}");
@@ -768,20 +777,11 @@ fn array_identity_registry_scales_and_survives_address_reuse() -> OperationResul
     Ok(())
 }
 #[test]
-fn malformed_utf16_has_context_and_literal_equality_stays_lossless() -> OperationResult<()> {
+fn normalized_surrogates_match_regex_and_literal_filters() -> OperationResult<()> {
     let mut t = test("pkg", "Class", "method");
-    t.clazz = String::from_utf16_lossy(&vec![0xd800]);
+    t.clazz = String::from_utf16_lossy(&[0xd800]);
     let c = C::SimpleClassname(config(Some(".*"), None, true));
-    let Err(OperationError::Failed(error)) = apply(filter(&c), vec![t.clone()], false) else {
-        panic!("expected checked conversion")
-    };
-    assert!(
-        error
-            .message
-            .expect("message")
-            .to_owned()
-            .contains("test filter name for regex .*")
-    );
+    check(c, &[t.clone()], false, &[t.clone()])?;
     let mut c = config(None, None, true);
     c.values = Some(vec![t.clazz.clone()]);
     check(C::SimpleClassname(c), &[t.clone()], false, &[t])?;

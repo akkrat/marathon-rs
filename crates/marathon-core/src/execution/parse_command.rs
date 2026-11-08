@@ -122,7 +122,7 @@ mod tests {
     #[test]
     fn java_child_matches_file_parent_child() {
         let parent = JavaPath::from_text("/out");
-        let child = |c: &str| String::from_utf16_lossy(&java_child(&parent, &c).0);
+        let child = |c: &str| String::from_utf16_lossy(&java_child(&parent, c).0);
         assert_eq!(child("r.yml"), "/out/r.yml");
         assert_eq!(child("/abs.yml"), "/out/abs.yml");
         assert_eq!(child("a//b/.yml"), "/out/a/b/.yml");

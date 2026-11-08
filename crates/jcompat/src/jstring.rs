@@ -77,6 +77,7 @@ mod tests {
         assert_eq!(take_utf16("a😀z", 3), "a😀");
         assert_eq!(take_utf16("a😀z", 8), "a😀z");
         assert_eq!(take_utf16("a�z", 2), "a�");
+        assert_eq!(crate::file_manager::path_diagnostic(&[97, 0xd800]), "a?");
     }
 
     #[test]

@@ -110,7 +110,7 @@ impl RemoteFileManager<'_> {
     }
     fn filename(&self, test: &Test, batch: &str, extension: &str, chunk: Option<i64>) -> VendorResult<String> {
         let mut suffix = String::from("-");
-        suffix.push_str(&batch.to_owned());
+        suffix.push_str(batch);
         if let Some(chunk) = chunk {
             suffix.push_str(&format!("-{chunk}"));
         }

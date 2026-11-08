@@ -646,8 +646,8 @@ pub fn ran_on(observed: &Observed) -> (usize, BTreeMap<String, (bool, bool)>) {
     let mut allowed = std::collections::BTreeSet::new();
     for (server, serial, start) in &observed.batches {
         let mine = observed.events.iter().filter(|e| e.server == *server);
-        let drop = mine.clone().find(|e| !e.connect).map(|e| e.at_ms.clone());
-        let back = drop.and_then(|d| mine.clone().find(|e| e.connect && e.at_ms > d).map(|e| e.at_ms.clone()));
+        let drop = mine.clone().find(|e| !e.connect).map(|e| e.at_ms);
+        let back = drop.and_then(|d| mine.clone().find(|e| e.connect && e.at_ms > d).map(|e| e.at_ms));
         // D27: the step that now holds the dropped device in prepare, `logcat -c`, only logs its failure, where the
         // JVM's `rm -r` fails prepare. So the drop that ends the hold can finish prepare first, and one batch can start
         // on a device whose Disconnected is on its way. It is returned at once and runs again elsewhere. Only one per
@@ -730,7 +730,7 @@ fn reconnected_device_gets_work_after_prepare_was_interrupted() {
         .filter(|r| r.1.ends_with(":emulator-5556"))
         .collect();
     assert_eq!(
-        of_5556.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
+        of_5556.iter().map(|r| r.0).collect::<Vec<_>>(),
         [true, false, true],
         "Connected, Disconnected, Connected"
     );
@@ -818,7 +818,7 @@ fn same_adb_serial_on_two_servers_keeps_the_healthy_device_working_d18() {
     assert_eq!(per_device.len(), 2, "{per_device:?}");
     let mut sequences: Vec<_> = per_device
         .values()
-        .map(|events| events.iter().map(|r| r.0.clone()).collect::<Vec<_>>())
+        .map(|events| events.iter().map(|r| r.0).collect::<Vec<_>>())
         .collect();
     sequences.sort();
     assert_eq!(sequences, [vec![true], vec![true, false, true]]);

@@ -176,7 +176,7 @@ async fn retries_log_each_failure_and_rethrow_the_last() {
                 logger,
                 jcompat::logging::Level::Warn,
                 "Retrying after failure",
-                Some(format!("attempt {n}").into())
+                Some(format!("attempt {n}"))
             ))
             .collect::<Vec<_>>()
     );

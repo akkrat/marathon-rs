@@ -14,7 +14,7 @@ use marathon_core::{
 use report_probe_support::*;
 use std::sync::{Arc, Mutex};
 fn model_json(value: &jcompat::writers::WriterValue) -> serde_json::Value {
-    checked(serde_json::from_slice(&jackson_json(value).as_bytes().to_vec()))
+    checked(serde_json::from_slice(jackson_json(value).as_bytes()))
 }
 #[test]
 fn all_statuses_attempts_defaults_and_package_collision_match_library() {
@@ -23,11 +23,16 @@ fn all_statuses_attempts_defaults_and_package_collision_match_library() {
     ));
     let cfg = config(&root);
     for (i, e) in mixed().test_events().iter().enumerate() {
-        let uuid: String = format!("00000000-0000-0000-0000-{i:012}").into();
+        let uuid: String = format!("00000000-0000-0000-0000-{i:012}");
         if i == 0 {
             let expected = checked(std::fs::read(fixture(
                 "allure/00000000-0000-0000-0000-000000000000-result.json",
             )));
+            // D55 changes the single escaped lone surrogate in this trace.
+            let expected = String::from_utf8(expected)
+                .unwrap()
+                .replace("\\uD800", "�")
+                .into_bytes();
             assert_eq!(
                 jackson_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root))
                     .as_bytes()
@@ -256,7 +261,7 @@ fn environment_cases() -> Vec<String> {
         ),
         String::from_utf16_lossy(&"trailing".encode_utf16().chain([0xd800]).collect::<Vec<_>>()),
         String::from_utf16_lossy(&[0x78, 0xd800, 0x79]),
-        String::from_utf16_lossy(&vec![0xdc00]),
+        String::from_utf16_lossy(&[0xdc00]),
     ]
 }
 #[test]
@@ -294,6 +299,20 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
             })
         }));
         let written = checked(std::fs::read(temp.0.join("environment.xml")));
+        if i >= 2 {
+            // D55: malformed input units have already become XML-safe U+FFFD.
+            let value = ["trailing�", "x�y", "�"][i - 2];
+            let single = checked(single);
+            assert!(single.contains(&format!("<value>{value}</value>")));
+            assert!(
+                std::str::from_utf8(&written)
+                    .unwrap()
+                    .contains(&format!("<value>{value}</value>"))
+            );
+            assert!(errors.lock().unwrap().is_empty());
+            assert_eq!(stdout.0.lock().unwrap().len(), 1);
+            continue;
+        }
         let headers: Vec<_> = row["stderrHeaders"]
             .as_array()
             .unwrap()

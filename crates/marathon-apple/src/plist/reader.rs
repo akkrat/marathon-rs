@@ -408,7 +408,9 @@ mod native_string_tests {
         };
         assert_eq!(dict.get_cloned("k"), Some(super::PlistValue::String(expected.into())));
         for big_endian in [false, true] {
-            let mut units: Vec<u16> = "<plist><dict><key>k</key><string>".encode_utf16().collect();
+            let mut units: Vec<u16> = r#"<?xml version="1.0" encoding="UTF-16"?><plist><dict><key>k</key><string>"#
+                .encode_utf16()
+                .collect();
             units.extend([0xd800, 120, 0xdc00, 0xd83d, 0xde00]);
             units.extend("</string></dict></plist>".encode_utf16());
             let mut bytes = if big_endian { vec![0xfe, 0xff] } else { vec![0xff, 0xfe] };

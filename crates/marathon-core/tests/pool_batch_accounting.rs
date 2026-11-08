@@ -80,7 +80,7 @@ fn mixed_batch_reported_before_device_loss_retries_only_eligible_tests_and_count
                         .map(|t| {
                             (
                                 t.clone(),
-                                if t.method == "failed".to_owned() {
+                                if t.method == "failed" {
                                     TestStatus::Failure
                                 } else {
                                     TestStatus::Incomplete

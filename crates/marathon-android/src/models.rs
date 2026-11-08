@@ -224,6 +224,6 @@ pub fn to_screen_recorder_command(c: &AndroidVideoConfiguration, path: &str, inf
             if infinite { seconds } else { seconds.min(180) }
         ));
     }
-    result.push_str(&path.to_owned());
+    result.push_str(path);
     result
 }

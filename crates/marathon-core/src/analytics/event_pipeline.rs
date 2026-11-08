@@ -245,7 +245,7 @@ impl BackendGuard {
         };
         if first_of_kind {
             let text = "Cannot send test metrics to the analytics backend; the run carries on. Each kind of failure is logged once";
-            (self.log)(&self.logger, Level::Warn, &text, Some(failure));
+            (self.log)(&self.logger, Level::Warn, text, Some(failure));
         }
         if announce {
             let text = format!(

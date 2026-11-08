@@ -487,7 +487,7 @@ impl Device for InvalidSerial {
 }
 
 #[test]
-fn serial_filters_reject_unpaired_surrogates_for_both_provider_events() {
+fn serial_filters_match_normalized_surrogates_for_both_provider_events() {
     for connected in [true, false] {
         scheduling_test(move |h| {
             Box::pin(async move {
@@ -495,7 +495,6 @@ fn serial_filters_reject_unpaired_surrogates_for_both_provider_events() {
                 c.include_serial_regexes = vec![jcompat::JavaRegex::compile("\u{fffd}", "include").unwrap()];
                 let run = Run::new(&h, c);
                 h.run_current().await;
-                let children = run.parent.children_snapshot();
                 let d = DeviceRef(Arc::new(InvalidSerial(device("actual", "test", 0, true))));
                 let event = if connected {
                     DeviceEvent::Connected(d)
@@ -504,16 +503,13 @@ fn serial_filters_reject_unpaired_surrogates_for_both_provider_events() {
                 };
                 assert!(run.provider.channel.try_send(event).is_ok());
                 h.run_current().await;
-                assert!(run.scheduler.pools().is_empty());
-                assert!(lock(&h.tracker.connected).is_empty());
-                let expected = marathon_core::executor::shared::failure(
-                    "java.lang.IllegalArgumentException",
-                    "Scheduler serial filter: device serial contains unpaired UTF-16 surrogates",
-                );
+                assert_eq!(run.scheduler.pools().is_empty(), !connected);
+                assert_eq!(lock(&h.tracker.connected).len(), usize::from(connected));
                 assert!(
-                    children
+                    run.parent
+                        .children_snapshot()
                         .iter()
-                        .any(|job| job.state() == JobState::Completed(Completion::Failed(expected.clone())))
+                        .all(|job| !matches!(job.state(), JobState::Completed(Completion::Failed(_))))
                 );
                 run.finish(&h).await;
             })

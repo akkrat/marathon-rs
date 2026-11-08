@@ -434,7 +434,7 @@ impl MacosDevice {
                 facts.env.get("USER").cloned().unwrap_or_else(|| "null".into()),
             )
         };
-        let major = version.to_owned().split('.').next().and_then(jcompat::jnum::parse_int);
+        let major = version.split('.').next().and_then(jcompat::jnum::parse_int);
         if !major.is_some_and(|n| n > 10) {
             return Err(VendorError::IncompatibleDevice(failure(
                 "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
@@ -544,7 +544,7 @@ fn classify_run(run: RunError) -> VendorError {
         Some(DeviceFailureReason::IncompatibleDevice) => {
             let mut f = failure(
                 "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
-                &error.failure().to_java_string(),
+                error.failure().to_java_string(),
             );
             f.cause = Some(Box::new(error.failure().clone()));
             VendorError::IncompatibleDevice(f)
@@ -959,7 +959,7 @@ mod tests {
             let mut chain = vec![];
             let mut current = Some(error.failure());
             while let Some(f) = current {
-                chain.push(json!({"class":f.class.to_owned(),"message":f.message.as_ref().map(String::clone)}));
+                chain.push(json!({"class":f.class.to_owned(),"message":f.message.clone()}));
                 current = f.cause.as_deref();
             }
             assert_eq!(json!(chain), row["error"], "{case}");

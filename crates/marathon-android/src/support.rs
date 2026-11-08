@@ -52,8 +52,8 @@ pub fn adb_error(e: AdbError) -> VendorError {
 /// What `execution_error` turns into a lost device: the adb server refused the device or the connection went.
 pub(crate) fn means_device_loss(e: &VendorError) -> bool {
     let class = &e.failure().class;
-    *class == "com.malinskiy.adam.exception.RequestRejectedException".to_owned()
-        || *class == "com.malinskiy.marathon.android.exception.CommandRejectedException".to_owned()
+    *class == "com.malinskiy.adam.exception.RequestRejectedException"
+        || *class == "com.malinskiy.marathon.android.exception.CommandRejectedException"
 }
 pub fn execution_error(e: VendorError) -> VendorError {
     if means_device_loss(&e) {

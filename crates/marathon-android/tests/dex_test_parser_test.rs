@@ -130,7 +130,7 @@ fn should_return_proper_list_of_test_methods() {
     let metadata = &properties[0];
     let has_wrapped_array = metadata.values.entries().iter().any(|(_, v)| match v {
         MetaValue::Array(array) => {
-            array.jvm_class.to_owned() == "[Lcom.linkedin.dex.parser.DecodedValue;"
+            array.jvm_class == "[Lcom.linkedin.dex.parser.DecodedValue;"
                 && array.elements.iter().all(|e| matches!(e, MetaValue::Decoded(_)))
         }
         _ => false,

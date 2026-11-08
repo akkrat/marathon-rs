@@ -228,12 +228,12 @@ fn generator_sorts_stably_and_explicit_close_regenerates() {
                     Event::DevicePreparing(DevicePreparingEvent {
                         start: i,
                         finish: i,
-                        serial_number: time.to_string().into(),
+                        serial_number: time.to_string(),
                     }),
                     Event::DeviceProviderPreparing(DeviceProviderPreparingEvent {
                         start: i,
                         finish: i,
-                        serial_number: time.to_string().into(),
+                        serial_number: time.to_string(),
                     }),
                 ] {
                     generator.track(&e).await.unwrap();

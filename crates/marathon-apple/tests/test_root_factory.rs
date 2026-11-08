@@ -294,10 +294,9 @@ async fn lone_surrogate_environment_values_stage_as_replacement_characters() -> 
         let bundle = bundle(&c, temp.path(), device.logging.clone()).await?;
         let mut env = env(&c);
         if field == "appEnvs" {
-            env.app_envs.push(("K".into(), String::from_utf16_lossy(&vec![0xd800])));
+            env.app_envs.push(("K".into(), String::from_utf16_lossy(&[0xd800])));
         } else {
-            env.test_envs
-                .push(("K".into(), String::from_utf16_lossy(&vec![0xdfff])));
+            env.test_envs.push(("K".into(), String::from_utf16_lossy(&[0xdfff])));
         }
         let xcresult = xcresult(&c);
         v(

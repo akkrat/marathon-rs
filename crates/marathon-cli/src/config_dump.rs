@@ -172,7 +172,7 @@ fn failure_json(f: &Failure) -> DumpValue {
         causes.push((c.class.clone(), c.message.to_owned()));
         cause = c.cause.as_deref();
     }
-    error_json(&f.class, f.message.as_ref().map(|x| x.as_str()), &causes)
+    error_json(&f.class, f.message.as_deref(), &causes)
 }
 
 /// `parseAndValidate`: stage (a) with both tracking flags true, then the logical validator.

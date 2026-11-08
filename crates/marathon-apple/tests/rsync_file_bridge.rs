@@ -454,9 +454,7 @@ async fn process_failure_child() {
             "java.io.IOException"
         };
         for result in [send, receive] {
-            assert!(
-                matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.class.to_owned()==class)
-            );
+            assert!(matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.class==class));
         }
     }
     b.join_pending().await.unwrap();

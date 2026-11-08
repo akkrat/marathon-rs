@@ -106,7 +106,7 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                     "{line}"
                 );
                 assert_eq!(json!(aggregate), row["aggregate"], "{line}");
-                let stdout = h.raw().iter().map(|s| s.clone()).collect::<String>();
+                let stdout = h.raw().iter().cloned().collect::<String>();
                 assert_eq!(json!(stdout), row["stdout"], "{line}");
                 let effects = h.capture.effects.lock().unwrap().clone();
                 let mut logs = Vec::new();
@@ -152,7 +152,7 @@ fn auto_ci_checks_values_and_teamcity_bytes_are_literal() {
             .collect();
         let ci = Ci::from_config(CiConfiguration::Auto, &env);
         assert_eq!(
-            ci.build_progress(-1).map(|s| s.clone()).unwrap_or_default(),
+            ci.build_progress(-1).unwrap_or_default(),
             row["stdout"].as_str().unwrap()
         );
         assert_eq!(

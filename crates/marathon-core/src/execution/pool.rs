@@ -188,7 +188,7 @@ fn text(parts: &[Part<'_>]) -> String {
     for part in parts {
         match part {
             Part::S(s) => out.push_str(s),
-            Part::J(j) => out.push_str(&(*j).to_owned()),
+            Part::J(j) => out.push_str(j),
         }
     }
     out

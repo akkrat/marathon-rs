@@ -29,7 +29,10 @@ struct Output {
 }
 impl Output {
     fn push(&mut self, s: &str) {
-        self.units(&s.encode_utf16().collect::<Vec<_>>());
+        for c in s.chars() {
+            self.column = if c == '\n' { 0 } else { self.column + c.len_utf16() };
+        }
+        self.text.push_str(s);
     }
     fn units(&mut self, s: &[u16]) {
         for &c in s {
@@ -126,8 +129,8 @@ fn scalar(value: &WriterValue, indent: usize, out: &mut Output) {
     }
 }
 fn key_scalar(key: &str, indent: usize, split: bool, out: &mut Output) {
-    let text = Some(key);
-    let reserved = text.is_some_and(|s| {
+    let s = key;
+    let reserved = {
         matches!(
             s,
             "" | "false"
@@ -156,18 +159,17 @@ fn key_scalar(key: &str, indent: usize, split: bool, out: &mut Output) {
                 | "Yes"
                 | "YES"
         ) || s.starts_with('~')
-    });
+    };
     let forced = reserved
         || key
             .encode_utf16()
             .next()
             .is_some_and(|c| matches!(c, 43 | 45 | 46 | 48..=57))
         || key.encode_utf16().any(|c| c < 32);
-    if forced || text.is_none() {
+    if forced {
         quoted(key, indent, split, out);
         return;
     }
-    let s = text.unwrap_or_default();
     let whitespace = |c: char| matches!(c, '\0' | ' ' | '\t' | '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}');
     let chars: Vec<char> = s.chars().collect();
     let special = chars

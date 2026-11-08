@@ -26,11 +26,7 @@ pub fn apple_worker_id(transport: &Transport) -> Option<String> {
 /// Kotlin's UDID heuristic, including macOS and non-iOS simulators (A45).
 pub fn apple_arch(sdk: Sdk, abi: &str, udid: &str) -> Arch {
     if sdk == Sdk::IphoneSimulator {
-        if *abi == String::from("x86_64") {
-            Arch::x86_64
-        } else {
-            Arch::arm64
-        }
+        if abi == "x86_64" { Arch::x86_64 } else { Arch::arm64 }
     } else if udid.contains('-') {
         Arch::arm64e
     } else {

@@ -284,7 +284,7 @@ impl Harness {
         )
     }
     fn remote(&self, id: &str) -> String {
-        self.device.manager.remote_xcresult_for_id(&id)
+        self.device.manager.remote_xcresult_for_id(id)
     }
     fn local(&self, id: &str) -> PathBuf {
         self.tmp

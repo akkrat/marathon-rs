@@ -84,7 +84,7 @@ impl RemoteFileManager {
     }
     pub fn remote_xcresult_for_id(&self, batch_id: &str) -> String {
         let mut result = String::from(resolve(self.remote_directory(), &format!("{}.", self.udid)).as_str());
-        result.push_str(&batch_id.to_owned());
+        result.push_str(batch_id);
         result.push_str(".xcresult");
         result
     }
@@ -113,7 +113,7 @@ impl RemoteFileManager {
         let mut result = String::from(format!("{}/", self.storage_path).as_str());
         result.push_str(&escape(&name));
         result.push('-');
-        result.push_str(&batch_id.to_owned());
+        result.push_str(batch_id);
         result.push_str(if temporary { "-temp.mp4" } else { ".mp4" });
         result
     }

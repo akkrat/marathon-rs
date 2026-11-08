@@ -22,7 +22,7 @@ impl Write for Bytes {
     }
 }
 #[test]
-fn raw_lines_and_logs_share_startup_console_and_jvm_utf8_encoding() {
+fn raw_lines_and_logs_share_startup_console_and_native_utf8_encoding() {
     let bytes = Arc::new(Mutex::new(vec![]));
     let console = Arc::new(Console::new(
         Box::new(Bytes(bytes.clone())),
@@ -35,7 +35,7 @@ fn raw_lines_and_logs_share_startup_console_and_jvm_utf8_encoding() {
     CoreExecutor::run(move |core| {
         Box::pin(async move {
             let q = core.log_queue();
-            q.raw(String::from_utf16_lossy(&vec![0xd800, 10]));
+            q.raw(String::from_utf16_lossy(&[0xd800, 10]));
             q.log("progress", 0, Level::Error, "diagnostic".into(), None);
             q.raw("finished\n".into());
             OutputDriver {
@@ -51,10 +51,10 @@ fn raw_lines_and_logs_share_startup_console_and_jvm_utf8_encoding() {
     .unwrap();
     console.write_text("after\n");
     let text = String::from_utf8(bytes.lock().unwrap().clone()).unwrap();
-    assert!(text.starts_with("startup\n?\n"));
+    assert!(text.starts_with("startup\n�\n"));
     assert!(text.find("diagnostic").unwrap() < text.find("finished").unwrap());
     assert!(text.ends_with("finished\nafter\n"));
-    assert!(!text.contains('\u{fffd}'));
+    assert_eq!(text.matches('\u{fffd}').count(), 1);
     assert!(!text.contains('\u{1b}'));
 }
 struct Broken;

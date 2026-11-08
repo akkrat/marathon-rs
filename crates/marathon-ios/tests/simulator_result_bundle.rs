@@ -57,7 +57,7 @@ async fn next_real_runner_batch_starts_during_blocked_transfer_while_finalizatio
     assert!(!bridge.trace.lock().unwrap().iter().any(|s| s.starts_with("rm ")));
     let close = h.services.artifacts.close_and_join(1000, 1000, &h.services.context);
     let owner = "a@local";
-    let barrier = h.services.artifacts.await_owner(&owner, &h.services.context);
+    let barrier = h.services.artifacts.await_owner(owner, &h.services.context);
     tokio::pin!(close, barrier);
     assert!(futures_util::poll!(close.as_mut()).is_pending());
     assert!(futures_util::poll!(barrier.as_mut()).is_pending());

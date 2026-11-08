@@ -78,7 +78,7 @@ impl Cleaner {
         normalize_hashes(&s)
     }
     fn java(&self, s: &str) -> String {
-        self.clean(&s.to_owned())
+        self.clean(s)
     }
 }
 

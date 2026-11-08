@@ -145,7 +145,7 @@ impl AndroidAppInstaller {
                     })?;
                 if jcompat::jstring::lines(&response.output)
                     .iter()
-                    .any(|line| *line == format!("package:{}", package.to_owned()).as_str().to_owned())
+                    .any(|line| *line == format!("package:{package}"))
                 {
                     self.log(
                         Level::Info,
@@ -156,10 +156,7 @@ impl AndroidAppInstaller {
                         ),
                         None,
                     );
-                    if let Some(r) = device
-                        .safe_uninstall_package(&package.to_owned(), false, context.clone())
-                        .await?
-                    {
+                    if let Some(r) = device.safe_uninstall_package(package, false, context.clone()).await? {
                         self.log(Level::Debug, &trim(&r.output.to_owned()), None);
                     }
                 }

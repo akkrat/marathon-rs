@@ -60,7 +60,7 @@ pub fn report(events: Vec<TestEvent>) -> ExecutionReport {
     )
 }
 pub fn names(names: &[String]) -> Vec<String> {
-    names.iter().map(|n| n.clone()).collect()
+    names.to_vec()
 }
 
 /// Fail a fixture setup explicitly; production services return their errors.

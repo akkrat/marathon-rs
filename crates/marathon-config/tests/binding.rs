@@ -63,9 +63,9 @@ fn kotlin_creator_oracle_and_regex_exception_chain() -> std::result::Result<(), 
                 let item = match target {
                     "RequiredInt" => Some(json!(value.int()?)),
                     "RequiredString" => value.string()?.map(|s| json!(s)),
-                    "RequiredList" => value.list(|v| Ok(v.string()?))?.map(|v| json!(v)),
+                    "RequiredList" => value.list(|v| v.string())?.map(|v| json!(v)),
                     "RequiredMap" => value
-                        .map(|v| Ok(v.string()?))?
+                        .map(|v| v.string())?
                         .map(|v| Json::Object(v.into_iter().map(|(k, v)| (k, json!(v))).collect())),
                     "Regex" => value.regex()?.map(|r| json!(r.pattern())),
                     _ => unreachable!(),
@@ -393,7 +393,7 @@ fn read_tree_materialization_matches_jvm() -> std::result::Result<(), Box<dyn st
                     k = match target {
                         "TreeString" => value.string()?.map_or(Json::Null, |s| json!(s)),
                         "TreeDouble" => json!(value.double()?),
-                        "TreeMap" => value.map(|v| Ok(v.string()?))?.map_or(Json::Null, |pairs| {
+                        "TreeMap" => value.map(|v| v.string())?.map_or(Json::Null, |pairs| {
                             Json::Object(pairs.into_iter().map(|(k, v)| (k, json!(v))).collect())
                         }),
                         _ => unreachable!(),

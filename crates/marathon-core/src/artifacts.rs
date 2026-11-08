@@ -41,8 +41,15 @@ impl FileManagerOutput {
     async fn materialize(&self, plan: PathPlan) -> OperationResult<JavaPath> {
         let (logger, log) = (self.logger.clone(), self.log.clone());
         blocking(self.io.as_ref(), move || {
-            plan.materialize(|text| log(&logger, Level::Error, &String::from_utf16_lossy(text), None))
-                .map_err(|error| nio_error(error, &plan.directory))
+            plan.materialize(|text| {
+                log(
+                    &logger,
+                    Level::Error,
+                    &jcompat::file_manager::path_diagnostic(text),
+                    None,
+                )
+            })
+            .map_err(|error| nio_error(error, &plan.directory))
         })
         .await
         .map_err(operation_error)
@@ -328,7 +335,7 @@ impl LineListener for LogListener {
     fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
-            buffer.push_str(&line.to_owned());
+            buffer.push_str(line);
             buffer.push('\n');
             Ok(())
         })

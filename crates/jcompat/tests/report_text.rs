@@ -110,3 +110,12 @@ fn awt_nearest_index_matches_jvm_axis_maps() {
     // 2→1 ties go up, 2→3 ties go down.
     assert_eq!((map(2, 1), map(2, 3)), (vec![1], vec![0, 0, 1]));
 }
+
+#[test]
+fn supplementary_history_ids_keep_the_exact_utf8_digest() {
+    assert_eq!(
+        allure_history_id("pkg.😀ｚ", "méthod🧪"),
+        "b5c2c5d7e93ca7b446dc49bd416783f7"
+    );
+    assert_eq!(allure_history_id("pkg.�", "test"), "d0a5450b2b886bab70cd9c7067997c13");
+}

@@ -260,13 +260,14 @@ impl Http {
     }
 }
 pub(crate) fn json(body: &str, class: &str) -> OperationResult<serde_json::Value> {
-    serde_json::from_str(body).map_err(|e| failure(class, &e.to_string()).into())
+    serde_json::from_str(&jcompat::jackson::normalize_json_strings(body))
+        .map_err(|e| failure(class, &e.to_string()).into())
 }
 pub(crate) fn checked(reply: Reply, v2: bool) -> OperationResult<String> {
     if (200..300).contains(&reply.status) {
         return Ok(reply.body);
     }
-    let error = serde_json::from_str::<serde_json::Value>(&reply.body).ok();
+    let error = serde_json::from_str::<serde_json::Value>(&jcompat::jackson::normalize_json_strings(&reply.body)).ok();
     let message = error
         .as_ref()
         .and_then(|v| v[if v2 { "message" } else { "error" }].as_str())

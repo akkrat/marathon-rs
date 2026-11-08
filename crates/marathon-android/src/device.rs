@@ -613,7 +613,7 @@ impl AndroidDevice {
             message.tag().to_owned(),
             message.message.to_owned()
         );
-        self.on_line(&line.as_str().to_owned()).await?;
+        self.on_line(line.as_str()).await?;
         let listeners = lock(&self.inner.logcat_listeners).clone();
         for listener in listeners {
             listener.on_message(message)

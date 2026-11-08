@@ -144,7 +144,15 @@ async fn influx_case(time: bool, policy: &str) {
     } else {
         "MEAN(\"success\")"
     };
-    assert_eq!(*client.commands.lock().unwrap(),vec![(format!("SELECT {select}\nFROM \"{policy}\".\"tests\"\nWHERE time >= '2019-08-24T08:25:09.219Z'\nGROUP BY \"testname\"").into(),"test".into())]);
+    assert_eq!(
+        *client.commands.lock().unwrap(),
+        vec![(
+            format!(
+                "SELECT {select}\nFROM \"{policy}\".\"tests\"\nWHERE time >= '2019-08-24T08:25:09.219Z'\nGROUP BY \"testname\""
+            ),
+            "test".into()
+        )]
+    );
 }
 mod influx_tests {
     use super::*;

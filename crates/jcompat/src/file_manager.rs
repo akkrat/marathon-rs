@@ -27,12 +27,25 @@ impl JavaPath {
     }
 }
 
+/// Path truncation can split a pair even for valid input. Its diagnostic text
+/// must keep the JVM encoder's `?`, independently of D55's input replacement.
+pub fn path_diagnostic(units: &[u16]) -> String {
+    char::decode_utf16(units.iter().copied())
+        .map(|c| c.unwrap_or('?'))
+        .collect()
+}
+
 /// Java's negated ASCII character class consumes a supplementary code point once.
 pub fn escape(input: &str) -> String {
-    // All output units are ASCII.
-    escape_utf16(&input.encode_utf16().collect::<Vec<_>>())
-        .into_iter()
-        .map(|u| char::from(u as u8))
+    input
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '#' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -224,7 +237,7 @@ pub fn absolute_file_path_utf16(path: &[u16], cwd: &[u16]) -> JavaPath {
     }
 }
 
-/// Raw Java strings for callers that retain malformed UTF-16 from configuration.
+/// Internal path-unit inputs and oracle probes; application strings use FileRequest.
 #[derive(Clone, Copy, Debug)]
 pub struct Utf16FileRequest<'a> {
     pub file_type: FileType,

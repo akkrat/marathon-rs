@@ -22,7 +22,7 @@ pub fn run(cwd: &Path, home: &Path, tmp: &Path, args: &[String], env: &[(String,
         .env("HOME", home)
         .env("TMPDIR", format!("{}/", tmp.display()))
         .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-        .envs(env.iter().map(|(k, v)| (k, v)))
+        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::null())
         .output()
         .expect("the marathon binary runs");

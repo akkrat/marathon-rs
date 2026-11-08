@@ -59,7 +59,7 @@ impl AndroidRuntime {
         lock(&self.dependencies.logging).logger(name, None)
     }
     pub fn emit(&self, logger: &Logger, level: Level, message: &str, error: Option<&Failure>) {
-        (self.log)(logger, level, &message, error)
+        (self.log)(logger, level, message, error)
     }
 }
 struct AndroidLogConfigurator {

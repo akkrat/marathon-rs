@@ -238,7 +238,8 @@ pub(super) trait Decode: Sized {
 /// Decode the first JSON value, as ObjectMapper.readValue does with trailing-token
 /// validation disabled. JSON null succeeds as None; blank output is WP 4.4's policy.
 pub fn decode_legacy<T: LegacyDecode>(json: &str) -> Result<Option<T>, XcresultDecodeError> {
-    let raw = serde_json::Deserializer::from_str(json)
+    let json = jackson::normalize_json_strings(json);
+    let raw = serde_json::Deserializer::from_str(&json)
         .into_iter::<Box<RawValue>>()
         .next()
         .unwrap_or_else(|| serde_json::from_str::<Box<RawValue>>(""))

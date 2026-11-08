@@ -18,7 +18,7 @@ impl ComplexRequest for GetPropRequest {
     type Output = HashMap<String, String>;
     async fn read_element(&mut self, socket: &mut Socket) -> Result<Self::Output, AdbError> {
         let response = ShellCommandRequest::new("getprop").read_element(socket).await?;
-        parse_props(&response.output().as_str().to_owned())
+        parse_props(response.output().as_str())
     }
 }
 pub fn parse_props(text: &str) -> Result<HashMap<String, String>, AdbError> {
@@ -48,7 +48,7 @@ pub fn parse_props(text: &str) -> Result<HashMap<String, String>, AdbError> {
             line.encode_utf16()
                 .collect::<Vec<_>>()
                 .get(opens[index] + 1..closes[index])
-                .map(|s| String::from_utf16_lossy(s))
+                .map(String::from_utf16_lossy)
                 .ok_or_else(|| {
                     AdbError::StringIndexOutOfBounds(format!(
                         "Range [{}, {}) out of bounds for length {}",

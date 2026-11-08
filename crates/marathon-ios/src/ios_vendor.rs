@@ -153,7 +153,7 @@ pub async fn construct_with_parser_libraries(
                 at_millis: 0,
                 wall_millis: wall(),
                 level,
-                message: message,
+                message,
                 cause,
             });
         }),

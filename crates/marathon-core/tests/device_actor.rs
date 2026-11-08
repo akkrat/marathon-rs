@@ -326,7 +326,7 @@ fn thirty_failing_preparations_retry_every_ten_seconds_and_log_each_attempt() {
         .logs()
         .iter()
         .filter(|r| r.message.to_owned().ends_with("initialization failed. Retrying"))
-        .map(|r| r.at_millis.clone())
+        .map(|r| r.at_millis)
         .collect();
     // K2: the 30th failure is logged as "Retrying" too.
     assert_eq!(retries, (0..30).map(|i| i * 10_000).collect::<Vec<_>>());

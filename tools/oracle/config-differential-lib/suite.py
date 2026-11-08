@@ -229,11 +229,15 @@ def f29(value):
     classes = r'com\.malinskiy\.marathon\.config\.(?:strategy\.[A-Za-z]+StrategyConfiguration\$[A-Za-z]+|CIConfiguration\$[A-Za-z]+)'
     return re.sub(r'(?<![\w.$])(' + classes + r')@[0-9a-f]{1,8}(?![\w])', r'\1@<hash>', value)
 
-def compare(got, want, path=()):
+def compare(got, want, path=(), native_strings=False):
     label = '$' + ''.join('[' + str(p) + ']' if isinstance(p, int) else '.' + p for p in path)
     if type(got) is not type(want):
         return f'{label}: type/value {got!r} != {want!r}'
     if isinstance(want, dict):
+        # D55 changes only the UTF-16/scalar ordering of these canonical map keys.
+        if native_strings and path == ('config', 'vendorConfiguration', 'instrumentationArgs'):
+            assert list(want) == sorted(want, key=lambda s: s.encode('utf-16-be'))
+            want = dict(sorted(want.items()))
         if list(got) != list(want):
             for key in want:
                 if key not in got:
@@ -244,7 +248,7 @@ def compare(got, want, path=()):
             index = next(i for i, (g, w) in enumerate(zip(got, want)) if g != w)
             return f'{label}: key order at {index}: {list(got)[index]!r} != {list(want)[index]!r}'
         for k in want:
-            d = compare(got[k], want[k], path + (k,))
+            d = compare(got[k], want[k], path + (k,), native_strings)
             if d:
                 return d
     elif isinstance(want, list):
@@ -262,7 +266,7 @@ def compare(got, want, path=()):
             for i, (g, w) in enumerate(zip(got, want)):
                 if path == ('error', 'causes'):
                     g, w = diagnostic(g), diagnostic(w)
-                d = compare(g, w, path + (i,))
+                d = compare(g, w, path + (i,), native_strings)
                 if d:
                     return d
     elif path[:1] == ('toMap',) and len(path) == 2 and path[1] in {
@@ -481,7 +485,7 @@ def replay(binary, run, selected=None):
                     if compare(parent[key], patch['jvm']):
                         raise ValueError('alternative no longer matches JVM row: ' + case['id'])
                     parent[key] = patch['rust']
-        difference = compare(got, want) or compare(tree, loads(json.dumps(oracle['tree'])), ('filesystem',))
+        difference = compare(got, want, native_strings=True) or compare(tree, loads(json.dumps(oracle['tree'])), ('filesystem',))
         return case['id'], got['stage'], difference
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         for i, (id, stage, diff) in enumerate(pool.map(one, rows), 1):
@@ -620,6 +624,10 @@ def self_test():
         try: verify_evidence(manifest,[fixture],entries,content)
         except ValueError: pass
         else: raise AssertionError('corrupt evidence accepted')
+    path = ('config', 'vendorConfiguration', 'instrumentationArgs')
+    assert compare({'ｚ': 'bmp', '😀': 'supplementary'}, {'😀': 'supplementary', 'ｚ': 'bmp'}, path, native_strings=True) is None
+    assert compare({'b': 2, 'a': 1}, {'a': 1, 'b': 2}, path, native_strings=True)
+    assert compare({'ｚ': 'changed', '😀': 'supplementary'}, {'😀': 'supplementary', 'ｚ': 'bmp'}, path, native_strings=True)
     print('comparator sensitivity: pass')
 
 def build_rust(run):

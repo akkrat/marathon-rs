@@ -535,11 +535,7 @@ impl Marathon {
             let name = output_file_name.clone();
             let tests = parsed_filtered_tests.clone();
             self.vendor(task, move |_| {
-                Box::pin(async move {
-                    output
-                        .execute(&tests, &flaky_tests, name.as_ref().map(|x| x.as_str()))
-                        .await
-                })
+                Box::pin(async move { output.execute(&tests, &flaky_tests, name.as_deref()).await })
             })
             .await?;
             self.flush(task.job.cancellation_signal()).await?;

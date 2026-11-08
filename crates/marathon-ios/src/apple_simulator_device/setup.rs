@@ -15,9 +15,7 @@ pub(super) fn setup_error(message: impl AsRef<str>) -> VendorError {
     ))
 }
 pub(super) fn env_value(env: &[(String, String)], key: &str) -> Option<String> {
-    env.iter()
-        .find(|(k, _)| *k == String::from(key))
-        .map(|(_, v)| v.to_owned())
+    env.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_owned())
 }
 impl AppleSimulatorDevice {
     pub async fn setup_record(

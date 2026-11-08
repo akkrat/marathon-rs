@@ -774,7 +774,7 @@ fn ordinary_ends_are_not_called_a_stream_cut_off_d25() {
                     results
                         .uncompleted
                         .iter()
-                        .find(|r| r.test.method.to_owned() == method)
+                        .find(|r| r.test.method == method)
                         .and_then(|r| r.stacktrace.as_ref())
                         .map(|s| s.to_owned())
                 };
@@ -866,7 +866,7 @@ fn a_stream_cut_off_does_not_explain_an_earlier_runs_crash_d25_d28() {
                 results
                     .uncompleted
                     .iter()
-                    .find(|r| r.test.method.to_owned() == method)
+                    .find(|r| r.test.method == method)
                     .unwrap()
                     .stacktrace
                     .as_ref()
@@ -1320,7 +1320,7 @@ fn text_of(results: &TestBatchResults, method: &str) -> String {
     results
         .uncompleted
         .iter()
-        .find(|r| r.test.method.to_owned() == method)
+        .find(|r| r.test.method == method)
         .and_then(|r| r.stacktrace.as_ref())
         .map(|s| s.to_owned())
         .unwrap_or_else(|| panic!("no text for {method}"))

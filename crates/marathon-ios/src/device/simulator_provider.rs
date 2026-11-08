@@ -747,7 +747,7 @@ impl AppleSimulatorProvider {
             .devices
             .values()
             .filter(|d| d.handle.transport() == transport)
-            .map(|d| apple_id(&d.handle.udid(), transport))
+            .map(|d| apple_id(d.handle.udid(), transport))
             .collect();
         let claims = self.claim(targets.iter().map(|t| target_key(t, transport)).chain(registered));
         with_claims(
@@ -846,7 +846,7 @@ impl AppleSimulatorProvider {
         for failure in failures {
             // D44: a simulator removed or added back during this plan belongs to that update now.
             if let FailedSetup::Existing { udid, .. } = &failure
-                && self.stale(&apple_id(&udid.as_str(), transport))
+                && self.stale(&apple_id(udid.as_str(), transport))
             {
                 continue;
             }
@@ -1017,7 +1017,7 @@ impl AppleSimulatorProvider {
     /// D44: the parked simulators among `udids` on this worker are out of the run until the devices file adds them back.
     /// True if one was parked and the running operation may still decide for it.
     fn give_up_parked(&self, transport: &Transport, udids: &[&str], reason: ParkedFor) -> bool {
-        let keys: Vec<_> = udids.iter().map(|udid| apple_id(&(*udid), transport)).collect();
+        let keys: Vec<_> = udids.iter().map(|udid| apple_id(udid, transport)).collect();
         self.settle(&keys, |state, current| {
             let mut found = false;
             for parked in state
@@ -1084,7 +1084,7 @@ impl AppleSimulatorProvider {
         let (eligible, unclaimed): (Vec<_>, Vec<_>) = current
             .eligible_disposed
             .into_iter()
-            .partition(|udid| self.claimed(&apple_id(&udid.as_str(), transport)));
+            .partition(|udid| self.claimed(&apple_id(udid.as_str(), transport)));
         current.eligible_disposed = eligible;
         current.kept.extend(unclaimed);
         Ok(current)
@@ -1095,7 +1095,7 @@ impl AppleSimulatorProvider {
             kept: Vec::new(),
         };
         for device in self.devices().into_iter().filter(|d| d.handle.transport() == transport) {
-            let id = apple_id(&device.handle.udid(), transport);
+            let id = apple_id(device.handle.udid(), transport);
             let free = device.handle.disposed() && device.handle.connected();
             let eligible = !device.handle.retired() && {
                 let state = self.state();
@@ -1329,7 +1329,7 @@ fn bump(state: &mut State, id: &str) {
     *generation = generation.wrapping_add(1);
 }
 fn parked_id(parked: &Parked) -> String {
-    apple_id(&parked.handle.udid(), parked.handle.transport())
+    apple_id(parked.handle.udid(), parked.handle.transport())
 }
 pub fn apple_id(udid: &str, transport: &Transport) -> String {
     let mut id = udid.to_owned();

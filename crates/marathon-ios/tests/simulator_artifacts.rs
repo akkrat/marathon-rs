@@ -104,7 +104,7 @@ async fn real_device_dispose_leaves_active_artifact_work_alive_and_rejects_subse
     assert!(run(&h, &d).await.0.is_err());
     assert_eq!(s.count.load(std::sync::atomic::Ordering::SeqCst), 1);
     let owner = "a@local";
-    let barrier = h.services.artifacts.await_owner(&owner, &h.services.context);
+    let barrier = h.services.artifacts.await_owner(owner, &h.services.context);
     tokio::pin!(barrier);
     assert!(futures_util::poll!(barrier.as_mut()).is_pending());
     gate.complete(Ok(()));

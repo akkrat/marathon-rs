@@ -140,12 +140,7 @@ pub(super) fn matches(
         if !matches_regex(name, &property.name, "annotation-data.name")? {
             continue;
         }
-        let Some((_, data)) = property
-            .values
-            .entries()
-            .iter()
-            .find(|(k, _)| *k == std::string::String::from("value"))
-        else {
+        let Some((_, data)) = property.values.entries().iter().find(|(k, _)| *k == "value") else {
             continue;
         };
         match data {

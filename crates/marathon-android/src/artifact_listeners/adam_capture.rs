@@ -26,7 +26,7 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
     fn on_event_in<'a>(&'a self, event: &'a TestEvent, context: VendorContext) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if let TestEvent::TestEnded { id, metrics } = event {
-                for (_, path) in metrics.entries().iter().filter(|(key, _)| *key == METRIC.to_owned()) {
+                for (_, path) in metrics.entries().iter().filter(|(key, _)| *key == METRIC) {
                     let path = path.to_owned();
                     let pair = match path.rsplit('.').next().unwrap_or("") {
                         "jpeg" | "jpg" => Some((FileType::ScreenshotJpg, AttachmentType::ScreenshotJpeg)),

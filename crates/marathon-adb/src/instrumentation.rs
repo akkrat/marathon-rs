@@ -335,8 +335,8 @@ impl InstrumentationResponseTransformer {
             let mut time = 0i64;
             if let Some(stream) = parameters.get_str("stream") {
                 for line in jstring::lines(stream) {
-                    if line.starts_with("Time: ") {
-                        time = parse_time(&line[6..]);
+                    if let Some(value) = line.strip_prefix("Time: ") {
+                        time = parse_time(value);
                     }
                 }
             }
@@ -356,10 +356,10 @@ impl InstrumentationResponseTransformer {
             let mut short_message: Option<String> = None;
             let mut time = 0i64;
             for line in atom {
-                if line.starts_with("INSTRUMENTATION_RESULT: shortMsg=") {
-                    short_message = Some(line[33..].to_owned());
-                } else if line.starts_with("Time: ") {
-                    time = parse_time(&line[6..]);
+                if let Some(value) = line.strip_prefix("INSTRUMENTATION_RESULT: shortMsg=") {
+                    short_message = Some(value.to_owned());
+                } else if let Some(value) = line.strip_prefix("Time: ") {
+                    time = parse_time(value);
                 }
             }
             Ok(Some(vec![

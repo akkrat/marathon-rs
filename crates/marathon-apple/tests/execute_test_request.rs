@@ -166,7 +166,7 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, TestEvent::TestStarted { id } if id.pkg == String::from("RequestTarget")))
+            .any(|e| matches!(e, TestEvent::TestStarted { id } if id.pkg == "RequestTarget"))
     );
     let seen = lines.seen.lock().unwrap();
     assert_eq!(seen.len(), 3);

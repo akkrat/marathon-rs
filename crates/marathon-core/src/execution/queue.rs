@@ -341,10 +341,7 @@ impl QueueActor {
             .log(&self.logger, self.clock.now_millis(), level, message, None);
     }
     fn debug(&self, prefix: &str, serial: &str) {
-        self.log(
-            Level::Debug,
-            text(&[&|m| m.push_str(prefix), &|m| m.push_str(&serial.to_owned())]),
-        );
+        self.log(Level::Debug, text(&[&|m| m.push_str(prefix), &|m| m.push_str(serial)]));
     }
 
     async fn send_pool(&self, message: FromQueue) -> OperationResult<()> {
@@ -646,7 +643,7 @@ impl QueueActor {
         while !pending.is_empty() && !self.terminated {
             let index = pending
                 .iter()
-                .position(|request| !self.only_own_retries(request.worker_id.as_ref().map(|x| x.as_str())))
+                .position(|request| !self.only_own_retries(request.worker_id.as_deref()))
                 .unwrap_or(0);
             let next = pending.remove(index);
             self.on_request_batch(next.device, next.worker_id).await?;
@@ -740,7 +737,7 @@ impl QueueActor {
         // Don't separate the condition and the mutator into separate suspending blocks
         if !self.queue.is_empty() && !self.active_batches.contains_key(&serial) {
             self.debug("sending next batch for device ", &serial);
-            let batch = self.next_batch(&device, worker_id.as_ref().map(|x| x.as_str()))?;
+            let batch = self.next_batch(&device, worker_id.as_deref())?;
             self.active_batches.insert(serial, batch.clone());
             #[cfg(any(test, feature = "test-support"))]
             if let Some(hook) = &self.before_execute {

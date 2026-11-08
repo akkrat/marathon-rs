@@ -24,12 +24,12 @@ impl AppleSimulatorDevice {
         let started = self.timing.elapsed()?;
         self.services
             .artifacts
-            .await_owner(&self.serial.as_str(), &context)
+            .await_owner(self.serial.as_str(), &context)
             .await?;
         let keep = self
             .services
             .artifacts
-            .kept_sources(&self.serial.as_str())
+            .kept_sources(self.serial.as_str())
             .iter()
             .map(String::clone)
             .collect::<Vec<_>>();

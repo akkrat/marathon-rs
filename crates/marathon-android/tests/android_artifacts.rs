@@ -675,7 +675,7 @@ fn adam_extensions_and_missing_file_still_attach() {
             }
             let values = attachments.get(&test()).unwrap();
             assert_eq!(
-                values.iter().map(|a| a.kind.clone()).collect::<Vec<_>>(),
+                values.iter().map(|a| a.kind).collect::<Vec<_>>(),
                 [
                     AttachmentType::ScreenshotJpeg,
                     AttachmentType::ScreenshotJpeg,

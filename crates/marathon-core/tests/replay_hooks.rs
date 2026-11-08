@@ -194,12 +194,12 @@ fn barriers_admit_in_order_and_cancelled_wait_does_not_consume_token() {
             );
             let barriers = hooks.barriers();
             let b = "b";
-            let mut waiting = barriers.enter("core.DeviceActor.prepare", &b);
+            let mut waiting = barriers.enter("core.DeviceActor.prepare", b);
             assert!(futures_util::poll!(waiting.as_mut()).is_pending());
             drop(waiting);
             let a = "a";
-            let first = replay(barriers.enter("core.DeviceActor.prepare", &a).await);
-            let mut waiting = barriers.enter("core.DeviceActor.prepare", &b);
+            let first = replay(barriers.enter("core.DeviceActor.prepare", a).await);
+            let mut waiting = barriers.enter("core.DeviceActor.prepare", b);
             assert!(futures_util::poll!(waiting.as_mut()).is_pending());
             replay(first.finish());
             let second = replay(waiting.await);
@@ -224,8 +224,8 @@ fn duplicate_and_missing_barriers_are_sticky_errors() {
             );
             let barriers = hooks.barriers();
             let key = "a";
-            let first = replay(barriers.enter("core.DeviceActor.prepare", &key).await);
-            assert!(barriers.enter("core.DeviceActor.prepare", &key).await.is_err());
+            let first = replay(barriers.enter("core.DeviceActor.prepare", key).await);
+            assert!(barriers.enter("core.DeviceActor.prepare", key).await.is_err());
             replay(first.finish());
             assert!(hooks.verify_consumed().is_err());
             Ok(())
@@ -286,7 +286,7 @@ fn live_and_unspecified_barriers_pass_through() {
             ] {
                 let barriers = hooks.barriers();
                 let key = "device";
-                let permit = replay(barriers.enter("core.DeviceActor.prepare", &key).await);
+                let permit = replay(barriers.enter("core.DeviceActor.prepare", key).await);
                 replay(permit.finish());
                 replay(hooks.verify_consumed());
             }

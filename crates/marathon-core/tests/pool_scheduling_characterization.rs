@@ -58,7 +58,7 @@ fn devices_stay_busy_while_the_queue_has_work() {
                     .iter()
                     .filter(|r| r.message.to_owned().starts_with("request next batch for device"))
                     .count();
-                let wakes = logs.iter().filter(|r| r.message.to_owned() == "Notify devices").count() * count;
+                let wakes = logs.iter().filter(|r| r.message == "Notify devices").count() * count;
                 println!(
                     "SCHEDULING_CHARACTERIZATION {count} {} {first_wave} {makespan} {idle} {requests} {wakes}",
                     count * 4

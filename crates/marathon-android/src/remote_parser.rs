@@ -143,7 +143,7 @@ impl AmInstrumentTestParser {
                 AndroidTestParserConfiguration::Remote { instrumentation_args } => instrumentation_args
                     .iter()
                     .filter(|(key, value)| {
-                        !(fallback && key == "listener" && *value == TEST_ANNOTATION_PRODUCER.to_owned())
+                        !(fallback && key == "listener" && *value == TEST_ANNOTATION_PRODUCER)
                     })
                     .map(|(key, value)| (key.as_str().into(), value.clone()))
                     .collect(),
@@ -317,7 +317,7 @@ fn failure_of_session(device: &AndroidDevice, reason: &str) -> Failure {
     let mut message = String::from("Unable to parse test list using ");
     message.push_str(&device.serial_number());
     message.push_str(": ");
-    message.push_str(&reason.to_owned());
+    message.push_str(reason);
     self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
 }
 fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {

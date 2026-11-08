@@ -93,6 +93,10 @@ impl AllurePlanSupplier for FileTestPlanSupplier {
 /// objects, unknown fields and unknown/missing version dispatch retain parity.
 pub fn decode_plan(bytes: &[u8]) -> Result<TestPlan, crate::error::Failure> {
     let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+    let text = std::str::from_utf8(bytes)
+        .ok()
+        .map(jcompat::jackson::normalize_json_strings);
+    let bytes = text.as_deref().map_or(bytes, str::as_bytes);
     // serde_json keeps the last duplicate key where Jackson's type dispatch can
     // see the first, so a duplicate `version` could silently flip V1 to
     // Unknown. Duplicate keys at any depth are malformed under P2 instead.
@@ -212,7 +216,7 @@ impl AllureFilter {
                 .iter()
                 .find(|p| p.name == "io.qameta.allure.AllureId" || p.name == "io.qameta.allure.kotlin.AllureId");
             let id = first
-                .and_then(|p| p.values.entries().iter().find(|(k, _)| *k == String::from("value")))
+                .and_then(|p| p.values.entries().iter().find(|(k, _)| *k == "value"))
                 .and_then(|(_, v)| if let MetaValue::String(s) = v { Some(s) } else { None });
             Ok(plan.is_selected(id.map(|x| x.as_str()), &test.to_test_name('.', '.')))
         })

@@ -191,7 +191,7 @@ impl TestResultsListener {
         }
         for (test, trace) in traces {
             self.accumulator
-                .update(|a| a.test_failed(&test, &kt::trim(&trace), None, None))?;
+                .update(|a| a.test_failed(&test, kt::trim(&trace), None, None))?;
         }
         Ok(())
     }

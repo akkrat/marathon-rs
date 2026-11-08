@@ -32,7 +32,7 @@ impl ArtifactFinderListener {
 impl LineListener for ArtifactFinderListener {
     fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if let Some(path) = find_artifact(&self.pattern, &line.to_owned()) {
+            if let Some(path) = find_artifact(&self.pattern, line) {
                 let path = kt::trim(path).to_owned();
                 let mut matches = self.matches.lock().unwrap_or_else(|e| e.into_inner());
                 if !matches.contains(&path) {

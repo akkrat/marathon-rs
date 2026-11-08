@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if let Ok(borrow) = std::env::var("MRS_DIFFERENTIAL_BORROW") {
         let label = std::env::var("MRS_DIFFERENTIAL_BORROW_LABEL")?;
-        tape.draws.insert(label, vec![Draw::Key(borrow.into())]);
+        tape.draws.insert(label, vec![Draw::Key(borrow)]);
     }
     if let Ok(barriers) = std::env::var("MRS_DIFFERENTIAL_BARRIERS") {
         tape.barriers = serde_json::from_str(&barriers)?;
@@ -67,9 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hooks = CoreExecutor::run(move |core| Box::pin(async move { Ok(RuntimeHooks::taped(tape, &core.clock())) }))
         .map_err(|e| format!("{e:?}"))?;
     let cwd: PathBuf = std::env::current_dir()?;
-    let environment = std::env::vars()
-        .map(|(k, v)| (String::from(k), String::from(v)))
-        .collect();
+    let environment = std::env::vars().collect();
     let process = Process {
         cwd: cwd.clone(),
         environment,

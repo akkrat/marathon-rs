@@ -98,7 +98,7 @@ pub fn trace() -> String {
         "06 V verbose\r\nD debug\nI info\nW warning\nE <&>\nA assert\nα default\n\0\u{1}\u{b}\u{c}\u{e}\u{7f}\u{85}\u{9f}\u{fffe}\u{ffff}",
     );
     s.push('\u{fffd}');
-    s.push_str("\n");
+    s.push('\n');
     s
 }
 pub fn mixed() -> ExecutionReport {

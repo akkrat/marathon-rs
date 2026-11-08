@@ -281,7 +281,8 @@ fn device_list(raw: &RawValue) -> Result<SimctlDeviceList> {
 
 /// `gson.fromJson(json, SimctlListDevicesOutput::class.java)` for the supported shapes.
 pub fn decode_list_devices_output(json: &str) -> Result<SimctlListDevicesOutput> {
-    let root: Object = serde_json::from_str(json).map_err(|e| error(format!("output: {e}")))?;
+    let json = jcompat::jackson::normalize_json_strings(json);
+    let root: Object = serde_json::from_str(&json).map_err(|e| error(format!("output: {e}")))?;
     let devices = root
         .get("devices")
         .filter(|raw| !is_null(raw))

@@ -282,7 +282,7 @@ fn blank_trace_preserves_previous_and_assumptions_have_distinct_success_and_coun
     let mut a = zero();
     let t = test("a");
     a.test_failed(&t, "trace", None, None).unwrap();
-    a.test_failed(&t, &String::from_utf16_lossy(&vec![0x2003, 0x1c]), None, None)
+    a.test_failed(&t, &String::from_utf16_lossy(&[0x2003, 0x1c]), None, None)
         .unwrap();
     assert_eq!(
         a.temporal_test_results.get(&t).unwrap().stack_trace,
@@ -431,13 +431,13 @@ fn run_lifecycle_replays_the_jvm_snapshots() {
                         &device("1"),
                     )
                     .unwrap();
-                let actual = json!({"op":op,"results":results.iter().map(|r|json!({"test":r.test.method,"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.as_ref().map(|s|s),"batch":r.test_batch_id})).collect::<Vec<_>>(),"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
+                let actual = json!({"op":op,"results":results.iter().map(|r|json!({"test":r.test.method,"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.as_ref(),"batch":r.test_batch_id})).collect::<Vec<_>>(),"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
                 assert_eq!(actual, row);
                 continue;
             }
             _ => panic!("unknown oracle operation"),
         }
-        let records=a.temporal_test_results.entries().iter().map(|(t,r)|json!({"test":t.method,"metadata":t.meta_properties.iter().map(|m|m.name.clone()).collect::<Vec<_>>(),"status":status(r.status),"start":r.start_time,"end":r.end_time,"trace":r.stack_trace.as_ref().map(|s|s),"metrics":r.metrics.as_ref().map(m),"successful":r.is_successful()})).collect::<Vec<_>>();
+        let records=a.temporal_test_results.entries().iter().map(|(t,r)|json!({"test":t.method,"metadata":t.meta_properties.iter().map(|m|m.name.clone()).collect::<Vec<_>>(),"status":status(r.status),"start":r.start_time,"end":r.end_time,"trace":r.stack_trace.as_ref(),"metrics":r.metrics.as_ref().map(m),"successful":r.is_successful()})).collect::<Vec<_>>();
         let counts = [
             TestStatus::Failure,
             TestStatus::Passed,
@@ -446,7 +446,7 @@ fn run_lifecycle_replays_the_jvm_snapshots() {
             TestStatus::AssumptionFailure,
         ]
         .map(|s| a.num_tests_in_state(s));
-        let actual = json!({"op":op,"records":records,"name":a.name(),"complete":a.is_run_complete,"failure":a.run_failure_message().map(|s|s),"elapsed":a.elapsed_time(),"metrics":m(&a.run_metrics),"completed":a.completed_tests().iter().map(|t|t.method.clone()).collect::<Vec<_>>(),"failed":a.num_all_failed_tests(),"counts":counts,"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
+        let actual = json!({"op":op,"records":records,"name":a.name(),"complete":a.is_run_complete,"failure":a.run_failure_message(),"elapsed":a.elapsed_time(),"metrics":m(&a.run_metrics),"completed":a.completed_tests().iter().map(|t|t.method.clone()).collect::<Vec<_>>(),"failed":a.num_all_failed_tests(),"counts":counts,"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
         assert_eq!(actual, row, "{op}");
     }
 }

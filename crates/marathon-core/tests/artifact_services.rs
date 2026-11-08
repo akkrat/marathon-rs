@@ -278,7 +278,7 @@ fn log_writer_encoding_append_and_output_paths_use_real_off_core_files() {
             let files = output(core.vendor(), temp.path("out"));
             let writer = FileLogWriter::new(core.vendor(), files.clone());
             let t = test("test");
-            let bad = String::from_utf16_lossy(&vec![97, 0xd800, 98]);
+            let bad = String::from_utf16_lossy(&[97, 0xd800, 98]);
             let target = LogTarget {
                 test: Some(t.clone()),
                 batch_id: "utf".into(),
@@ -308,8 +308,8 @@ fn log_writer_encoding_append_and_output_paths_use_real_off_core_files() {
             }));
             task.join().await.unwrap();
             let (a, b) = rx.await.unwrap();
-            assert_eq!(json!(a), oracle("log-utf16")["saveBytes"]);
-            assert_eq!(json!(b), oracle("log-utf16")["appendBytes"]);
+            assert_eq!(a, "a�b\n".as_bytes());
+            assert_eq!(b, "a�b\n".as_bytes());
             let p = files
                 .create_file(&FileTarget {
                     kind: FileType::ScreenshotWebp,

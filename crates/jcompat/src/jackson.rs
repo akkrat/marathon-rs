@@ -200,3 +200,68 @@ pub fn date(value: Scalar<'_>) -> Result<Option<JavaDate>, ScalarError> {
         _ => Err(ScalarError::Shape),
     }
 }
+
+/// Normalize lone UTF-16 escapes before a native JSON decoder reads strings or
+/// object keys. Replacements keep the six-byte escape width, preserving parser
+/// positions. Malformed JSON is left for the decoder to reject.
+pub fn normalize_json_strings(text: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = text.as_bytes();
+    let mut output = None;
+    let mut quoted = false;
+    let mut i = 0;
+    fn unit(bytes: &[u8], at: usize) -> Option<u16> {
+        let token = bytes.get(at..at.checked_add(6)?)?;
+        if !token.starts_with(b"\\u") {
+            return None;
+        }
+        token[2..]
+            .iter()
+            .try_fold(0u16, |n, c| Some(n * 16 + char::from(*c).to_digit(16)? as u16))
+    }
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => quoted = !quoted,
+            b'\\' if quoted => {
+                if let Some(u) = unit(bytes, i) {
+                    if (0xd800..=0xdbff).contains(&u)
+                        && unit(bytes, i + 6).is_some_and(|v| (0xdc00..=0xdfff).contains(&v))
+                    {
+                        i += 12;
+                        continue;
+                    }
+                    if (0xd800..=0xdfff).contains(&u) {
+                        let output = output.get_or_insert_with(|| bytes.to_vec());
+                        output[i..i + 6].copy_from_slice(b"\\uFFFD");
+                    }
+                    i += 6;
+                    continue;
+                }
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    match output {
+        // Only ASCII escape bytes were replaced, so UTF-8 validity is unchanged.
+        Some(bytes) => std::borrow::Cow::Owned(String::from_utf8(bytes).unwrap()),
+        None => std::borrow::Cow::Borrowed(text),
+    }
+}
+
+#[cfg(test)]
+mod native_string_tests {
+    use super::*;
+
+    #[test]
+    fn json_normalization_preserves_pairs_literals_and_error_positions() {
+        let original = r#"{"\uD800":"\udc00x\ud83d\ude00", "literal":"\\uD800", "escaped":"\"\uD800"}"#;
+        let expected = r#"{"\uFFFD":"\uFFFDx\ud83d\ude00", "literal":"\\uD800", "escaped":"\"\uFFFD"}"#;
+        assert_eq!(normalize_json_strings(original), expected);
+        assert_eq!(original.len(), expected.len());
+        for text in [r#""😀\ud83d\ude00""#, r#""\uZZZZ""#, r#""\uD80""#] {
+            assert!(matches!(normalize_json_strings(text), std::borrow::Cow::Borrowed(_)));
+        }
+        assert_eq!(json_string(r#""\ud800x\udc00\ud83d\ude00""#), Some("�x�😀".into()));
+    }
+}

@@ -67,7 +67,7 @@ fn with_retries_should_include_only_one_instance_of_test2_and_it_s_passed() {
         .pools
         .iter()
         .flat_map(|p| &p.tests)
-        .filter(|r| r.test.method == "test2".to_owned())
+        .filter(|r| r.test.method == "test2")
         .collect();
     assert_eq!(tests.len(), 1);
     assert_eq!(tests[0].status, TestStatus::Passed);
@@ -80,7 +80,7 @@ fn with_retries_should_include_only_one_instance_of_test3_and_it_s_failed() {
         .pools
         .iter()
         .flat_map(|p| &p.tests)
-        .filter(|r| r.test.method == "test3".to_owned())
+        .filter(|r| r.test.method == "test3")
         .collect();
     assert_eq!(tests.len(), 1);
     assert_eq!(tests[0].status, TestStatus::Failure);

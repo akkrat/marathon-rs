@@ -166,9 +166,7 @@ fn failures_preempt_progress_and_class_split_keeps_a5_a7() -> Result<(), ParseEr
         let events = p
             .process(&format!("Test Case '-[{class} m]' started."))?
             .unwrap_or_default();
-        assert!(
-            matches!(&events[0],TestEvent::TestStarted{id} if id.pkg==String::from(pkg) && id.clazz==String::from(clazz))
-        );
+        assert!(matches!(&events[0],TestEvent::TestStarted{id} if id.pkg==pkg && id.clazz==clazz));
     }
     Ok(())
 }
@@ -334,7 +332,7 @@ fn a_test_name_an_assertion_or_an_app_log_line_is_not_a_failure_d39() -> Result<
     let events = p
         .process("Test Case '-[a.b.C Test runner exited]' started.")?
         .unwrap_or_default();
-    assert!(matches!(&events[0], TestEvent::TestStarted { id } if id.clazz == String::from("b.C Test runner")));
+    assert!(matches!(&events[0], TestEvent::TestStarted { id } if id.clazz == "b.C Test runner"));
     // An assertion's message reaches the failing test's trace.
     let mut p = XctestEventProducer::new(parser("target"));
     p.process("Test Case '-[p.C m]' started.")?;
@@ -582,7 +580,7 @@ fn a_real_stream_with_hung_tests_reports_every_test_and_no_batch_failure_d45() -
                     id.clazz.to_owned(),
                     id.method.to_owned(),
                     end_time - start_time,
-                    trace.is_some_and(|t| t.to_owned() == line)
+                    trace.is_some_and(|t| t == line)
                 ),
                 TestEvent::TestPassed { id, .. } => format!(
                     "passed {}.{}.{}",

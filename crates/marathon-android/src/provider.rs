@@ -119,7 +119,7 @@ impl AdamDeviceProvider {
             let logging = AdamLogging::new(registry, move |name, level, text, error| {
                 let logger = lock(&registered).slf4j_logger(name);
                 let f = error.map(|e| throwable(e.to_throwable()));
-                sink(&logger, level, &text.as_str(), f.as_ref())
+                sink(&logger, level, text.as_str(), f.as_ref())
             });
             let client = AndroidDebugBridgeClient::new(ip, port, self.inner.factory.clone(), Some(logging))
                 .with_host_name(&host);

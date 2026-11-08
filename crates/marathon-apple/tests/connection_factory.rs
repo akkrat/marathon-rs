@@ -207,12 +207,7 @@ impl Connector for TestConnector {
                     let active = c.active.fetch_add(1, Ordering::SeqCst) + 1;
                     c.peak.fetch_max(active, Ordering::SeqCst);
                     c.started.add_permits(1);
-                    let blocked = c
-                        .block_only
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .is_none_or(|id| *id == t.id().to_owned());
+                    let blocked = c.block_only.lock().unwrap().as_ref().is_none_or(|id| *id == t.id());
                     if blocked {
                         wait(&c.release, 1).await;
                     }

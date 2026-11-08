@@ -133,7 +133,7 @@ impl LineListener for Buffer {
     fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let mut buffer = self.0.lock().unwrap_or_else(|e| e.into_inner());
-            buffer.push_str(&line.to_owned());
+            buffer.push_str(line);
             buffer.push('\n');
             Ok(())
         })

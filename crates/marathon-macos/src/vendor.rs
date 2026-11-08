@@ -38,7 +38,7 @@ pub fn logging(dependencies: &VendorDependencies) -> SshLogging {
                 at_millis: 0,
                 wall_millis: wall(),
                 level,
-                message: message,
+                message,
                 cause,
             });
         }),

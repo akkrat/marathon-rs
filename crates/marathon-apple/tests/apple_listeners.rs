@@ -524,7 +524,7 @@ async fn xcode27_result_bundle_gives_the_trace_of_a_failed_test() {
             &test,
             0,
             1,
-            Some(&"/Users/runner/marathon/sample/ios-app/sample-appUITests/FailingTests.swift:31:XCTAssertTrue failed"),
+            Some("/Users/runner/marathon/sample/ios-app/sample-appUITests/FailingTests.swift:31:XCTAssertTrue failed"),
         )
         .await
         .unwrap();
@@ -564,7 +564,7 @@ async fn clean_invocation_record_skips_target_summary_lookups() {
         h.assert_queries(&[], None);
         let r = h.result();
         assert_eq!(
-            r.finished.iter().map(|r| r.status.clone()).collect::<Vec<_>>(),
+            r.finished.iter().map(|r| r.status).collect::<Vec<_>>(),
             vec![TestStatus::Passed, TestStatus::Ignored]
         );
         assert_eq!(r.finished[0].attachments, vec![attachment()]);
@@ -640,7 +640,7 @@ fn oracle_rows() -> Vec<Value> {
 }
 fn projection(results: &[TestResult]) -> Value {
     let hooks = marathon_core::executor::hooks::RuntimeHooks::live();
-    json!(results.iter().map(|r|json!({"test":r.test.kotlin_value(&*hooks).unwrap().render().to_owned(),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.as_ref().map(String::clone)})).collect::<Vec<_>>())
+    json!(results.iter().map(|r|json!({"test":r.test.kotlin_value(&*hooks).unwrap().render().to_owned(),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.clone()})).collect::<Vec<_>>())
 }
 #[tokio::test]
 async fn jvm_listener_production_and_test_sequences_keep_a6_and_incomplete_zero_end() {

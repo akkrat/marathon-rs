@@ -45,7 +45,6 @@ pub fn validation_error_to_configuration_error(error: ValidationError, stage: Va
 
 /// A plain stage error with no node context (P4).
 fn stage_error(stage: ValidationStage, class: &str, message: Option<String>) -> Box<ConfigurationError> {
-    let message = message;
     Box::new(ConfigurationError {
         stage,
         class: class.into(),

@@ -56,7 +56,7 @@ pub(crate) async fn remote_test_bundle(
     .await?;
     Ok(fm.join_path(
         &fm.remote_test_runner_application(),
-        &relative.to_owned().split('/').collect::<Vec<_>>(),
+        &relative.split('/').collect::<Vec<_>>(),
     ))
 }
 

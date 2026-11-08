@@ -166,7 +166,7 @@ fn architecture_is_recomputed_for_every_sdk_abi_and_udid() {
             .find(|sdk| sdk.name() == string(&row["sdk"]))
             .unwrap();
         assert_eq!(
-            apple_arch(sdk, &string(&row["abi"]), string(&row["udid"])).value(),
+            apple_arch(sdk, string(&row["abi"]), string(&row["udid"])).value(),
             string(&row["arch"])
         );
     }

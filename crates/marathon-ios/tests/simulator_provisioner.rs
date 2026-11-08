@@ -578,7 +578,7 @@ async fn release_failure_replaces_disposal_and_registration_errors_in_the_finall
     );
     assert!(logs.lock().unwrap().iter().any(|(_, _, _, e)| {
         e.as_ref()
-            .is_some_and(|e| e.message.as_ref().is_some_and(|m| m.to_owned() == "release"))
+            .is_some_and(|e| e.message.as_ref().is_some_and(|m| m == "release"))
     }));
     assert_eq!(h.creating.devices.lock().unwrap()[0].disposed.load(Ordering::SeqCst), 1);
     Ok(())

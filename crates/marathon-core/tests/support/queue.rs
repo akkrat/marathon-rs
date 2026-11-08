@@ -240,7 +240,7 @@ impl Sink {
                     .push(json!(["stdout", text.strip_suffix('\n').unwrap_or(&text)]));
             }
             // The actor's exception handler logs under the queue's logger too (Actor.kt:22–23).
-            OutputRecord::Log(record) if record.logger == self.logger && record.message.to_owned() == UNRECOVERABLE => {
+            OutputRecord::Log(record) if record.logger == self.logger && record.message == UNRECOVERABLE => {
                 self.trace.push_at(
                     record.wall_millis,
                     json!(["handler", level_name(record.level), record.logger, UNRECOVERABLE]),
@@ -379,7 +379,7 @@ impl ReplayHooks for Hooks {
     fn allocate_id(&self, _label: &'static str) -> ClockResult<String> {
         let mut ids = lock(&self.ids);
         *ids += 1;
-        Ok(format!("batch-{ids}").into())
+        Ok(format!("batch-{ids}"))
     }
     fn identity_suffix(&self, label: &'static str, _identity: ObjectIdentity) -> ClockResult<String> {
         Err(ReplayError {

@@ -139,7 +139,7 @@ impl ArtifactProcessor {
                             ", batch ",
                             &batch.to_owned(),
                             " was not processed: ",
-                            &reason.to_owned(),
+                            reason,
                         ]),
                         None,
                     );
@@ -147,7 +147,7 @@ impl ArtifactProcessor {
                     diagnostic.push_str(", batch ");
                     diagnostic.push_str(&batch.clone());
                     diagnostic.push_str(": ");
-                    diagnostic.push_str(&reason.to_owned());
+                    diagnostic.push_str(reason);
                     this.report_undelivered(&owner, None, diagnostic);
                 }
                 Ok(())
@@ -425,7 +425,7 @@ impl ArtifactProcessor {
         if let Err(error) = callback(reason) {
             self.log(
                 Level::Error,
-                text(&["Reporting an undelivered artifact failed: ", &reason.to_owned()]),
+                text(&["Reporting an undelivered artifact failed: ", reason]),
                 Some(&error),
             );
         }
@@ -500,7 +500,7 @@ impl ArtifactProcessor {
         }
         for work in stuck {
             self.report_safely(
-                &format!("still running {cancel_timeout} ms after shutdown cancelled it").as_str(),
+                format!("still running {cancel_timeout} ms after shutdown cancelled it").as_str(),
                 &work.payload.undelivered,
             );
             self.complete(&work).await?;

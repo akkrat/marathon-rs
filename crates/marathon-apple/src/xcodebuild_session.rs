@@ -287,7 +287,7 @@ impl XcodebuildSession {
 pub(crate) fn device_lost(cause: Failure) -> VendorError {
     let mut detail = failure(
         "com.malinskiy.marathon.exceptions.DeviceLostException",
-        &cause.to_java_string(),
+        cause.to_java_string(),
     );
     detail.cause = Some(Box::new(cause));
     VendorError::DeviceLost(detail)

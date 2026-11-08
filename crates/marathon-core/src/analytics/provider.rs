@@ -601,7 +601,7 @@ impl MetricsProvider for MetricsProviderImpl {
                 .count();
             let without = names.len() - with;
             let mut message = String::from("Execution time history for ");
-            message.push_str(&usage.to_owned());
+            message.push_str(usage);
             message.push_str(&format!(
                 " (percentile {} since {limit}): {with} of {} tests have it",
                 double_to_string(percentile),

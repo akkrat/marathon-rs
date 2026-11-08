@@ -176,7 +176,7 @@ async fn real_idle_timeout_is_cancellation_with_original_timeout_as_cause() {
     let result = session.await_result(&context()).await;
     session.close().await.unwrap();
     assert!(
-        matches!(result, Err(VendorError::Cancelled(Cancellation::Requested(f))) if f.cause.as_ref().is_some_and(|c| c.class == "java.util.concurrent.TimeoutException".to_owned()))
+        matches!(result, Err(VendorError::Cancelled(Cancellation::Requested(f))) if f.cause.as_ref().is_some_and(|c| c.class == "java.util.concurrent.TimeoutException"))
     );
     }).await;
 }
@@ -256,7 +256,7 @@ async fn execute_start_errors_propagate_and_signed_timeouts_remain_signed() {
     request.idle_timeout = duration(5000);
     let session = executor.execute(request, context()).await.unwrap();
     assert!(
-        matches!(session.await_result(&context()).await, Err(VendorError::Other(f)) if f.class == "java.lang.ArithmeticException".to_owned())
+        matches!(session.await_result(&context()).await, Err(VendorError::Other(f)) if f.class == "java.lang.ArithmeticException")
     );
     session.close().await.unwrap();
     }).await;
