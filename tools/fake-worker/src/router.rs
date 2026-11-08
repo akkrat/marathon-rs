@@ -247,8 +247,8 @@ pub fn rsync_args(args: &[&str]) -> Result<Vec<String>> {
             "--partial-dir=.rsync-partial",
         ]
         .contains(&a)
-            // D31: what the host's rsync 3 passes on from a send, so never on a receive. openrsync does not.
-            || (a == "--timeout=300" && !args.contains(&"--sender"))
+            // D31 on a send and D43 on a receive: what the host's rsync 3 passes on. openrsync does not.
+            || a == "--timeout=300"
         {
         } else {
             let short = a

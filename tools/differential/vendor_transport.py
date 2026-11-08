@@ -241,7 +241,8 @@ def ssh(data, name=None, before_d32=False):
 # D31: what today's program passes to rsync on a send, and a JVM record or a native record pinned from before D31 lacks.
 # Those records get exactly this flag at exactly its place, on exactly their sends (the caller decides, by
 # `evidence.may_withhold`). A native run of today's code is left as it is, so a send without the flag, or a receive with
-# it, differs from them.
+# it, differs from them. D43: the same flag on a receive, in `with_d43_flag`. Both go on the records from before D31, so a
+# record is either from before both or of today's code.
 #
 # RE-PINNING: a native record made after D31 and D32 already has the flag and the prefix, so pinning one in a verification
 # manifest makes `may_withhold` true for it, and this file then refuses it: "D31 flag in a record from before it" or "D32
@@ -258,13 +259,20 @@ def with_d31_flag(program, args):
     return args
 
 
+def with_d43_flag(program, args):
+    if program == 'rsync' and args[-2].startswith('127.0.0.1:'):
+        e.require(D31_FLAG not in args,'D43 flag in a record from before it')
+        args.insert(args.index('--times') + 1,D31_FLAG)
+    return args
+
+
 def host_argv(data, values, before_d31=False):
     lanes = defaultdict(list)
     for row in records(data):
         e.require(row['event'] == 'host_argv' and row['program'] in ('rsync','ssh'),'unknown host argv')
         row = dict(row); args = list(row['argv'])
         if before_d31:
-            args = with_d31_flag(row['program'],args)
+            args = with_d43_flag(row['program'],with_d31_flag(row['program'],args))
         for i,arg in enumerate(args):
             bound = next((key for key,value in values.items() if key.startswith('temp_') and arg == value),None)
             if bound:

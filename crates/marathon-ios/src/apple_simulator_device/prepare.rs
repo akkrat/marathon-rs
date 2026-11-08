@@ -89,7 +89,19 @@ impl AppleSimulatorDevice {
         };
         match result {
             Ok(()) => {}
-            Err(PrepareError::Vendor(error)) => return Err(error),
+            Err(PrepareError::Vendor(error)) => {
+                // U163: out of the run, like a simulator that is not admitted, so recovery doesn't set it up again.
+                if matches!(
+                    error,
+                    VendorError::LeavePool {
+                        reason: LeavePoolReason::TransferStalled,
+                        ..
+                    }
+                ) {
+                    self.retire();
+                }
+                return Err(error);
+            }
             Err(PrepareError::Boot(reason)) => {
                 self.mark_lost();
                 return Err(VendorError::LeavePool {

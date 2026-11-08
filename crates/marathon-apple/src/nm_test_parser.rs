@@ -145,7 +145,8 @@ impl RemoteTestParser for NmTestParser {
                 .await;
                 match attempt {
                     Ok(tests) => return Ok(tests),
-                    Err(e @ VendorError::Cancelled(_)) => return Err(e),
+                    // U163: a stalled send is not worth two more on this device. Core's retry may borrow another.
+                    Err(e @ (VendorError::Cancelled(_) | VendorError::LeavePool { .. })) => return Err(e),
                     Err(error) => {
                         if !is_error_class(&error.failure().class.to_string_lossy()) {
                             log(

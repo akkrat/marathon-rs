@@ -448,3 +448,27 @@ async fn only_first_concurrent_disposer_logs_join_failure() -> R {
     v(d.join_pending().await)?;
     Ok(())
 }
+/// U163: the installer doesn't retry a stalled send, and core takes the device out of its pool on this error.
+#[tokio::test]
+async fn a_stalled_send_ends_prepare_after_one_send_u163() -> R {
+    let h = Harness::new("")?;
+    h.bridge.stalled.store(true, std::sync::atomic::Ordering::SeqCst);
+    let device = h.device();
+    v(device.setup(&h.context).await)?;
+    let error = device
+        .prepare(h.options.dependencies.configuration.clone(), h.context.clone())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            VendorError::LeavePool {
+                reason: marathon_core::error::LeavePoolReason::TransferStalled,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(h.bridge.stalled_sends.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
+}

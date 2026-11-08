@@ -400,40 +400,56 @@ No configuration change is needed, and the durations are not configurable. Appro
 Kotlin's rsync send has no timeout, so a send to a worker that has stopped answering waits for ever, and the other sends of
 that worker wait behind it. Native builds pass `--timeout=300`: a send with no I/O for 300 s is stopped and fails with an
 error starting `send error: no progress in 300 s`. It is a limit on progress, not on the total, so a large bundle over a slow
-link is unaffected for as long as it keeps moving. Receives keep Kotlin's 30 s total deadline. No configuration change is
-needed, and the limit is not configurable.
+link is unaffected for as long as it keeps moving. No configuration change is needed, and the limit is not configurable.
+[D43](#d43--an-rsync-receive-has-a-limit-on-progress) gives a receive the same limit.
 
-**How long a dead worker takes.** One stalled send takes 300 s. The installer makes three attempts, and when it fails the
-device's own retry runs it again, up to 30 times, 10 s apart. One simulator can therefore spend 90 sends, about 7.6 hours,
-before it is given up. Sends to one worker and destination run one at a time, so N simulators on one worker take about N
-times that. A second worker that finishes the queue ends the run. Kotlin waits for ever here.
+**How long a stalled worker takes** (U163, approved 2026-11-07). A send that stalled does not retry. It ends in `LeavePool`, which neither the installer's
+three attempts nor the device's 30 repeat, so the device leaves its pool after one send, and an iOS simulator is retired and stays out of the run. Measured through the real scheduler and device
+actor, counting sends: one stalled send, where the same run with any other failure makes 90.
 
-This applies to a process wedged behind an sshd that still answers, to a peer that accepts the connection and says nothing,
-and to any stall with `keepAliveInterval` set to 0. With the default `keepAliveInterval` of 15 s and `keepAliveMaxCount` of 4,
-a dead link or a frozen peer ends ssh, and so that send, after about 60 s, with ssh's `Timeout, server … not responding` in
-the error. That still costs about 1.6 hours per simulator. Attempts after the first can also wait in ssh's connect for the
-host's TCP timeout, because `--rsh` sets no `ConnectTimeout`, which makes it longer.
+- One stalled send costs 300 s and 5 to 20 s to stop it, up to 20 s more where `ps` is slow.
+- Sends already waiting behind it fail at once with the same error, both those to the same worker and those to the same destination, so a
+  worker's queue costs one stall and not N. A send that starts afterwards tries again, because the worker may have come back, so simulators that reach
+  their send one after another can each cost one stall.
+- A second worker carries on. The simulator doesn't come back, even if its worker does. If it was the last device of its pool, the pool waits ([D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)), then ends.
+- A healthy worker that is silent for 300 s therefore loses every simulator waiting to send to it at that moment. That is the price of not waiting 7.6 hours.
+- Any other failed send, such as an rsync error or a connection that failed, keeps the three attempts and the 30 retries, up to 90 sends.
+- While parsing, a stalled send isn't repeated on the same device. Core's own three borrows still apply, and all of it stays within
+  `deviceInitializationTimeoutMillis`. A remote parse that fails still fails the run, even with a healthy second worker, as in Kotlin.
+
+**A dead link costs about a minute.** With the default `keepAliveInterval` of 15 s and `keepAliveMaxCount` of 4, the device's own connection dies when its keep-alive fails, the device
+is disconnected, and its prepare is cancelled. Measured with a frozen worker: 75 s and one send. What happens to that simulator next is D36's reconnect. This
+replaces the earlier estimate of 1.6 hours, which assumed that sends fail while the command connection stays up. With `keepAliveInterval` at 0, nothing but the send's own limit notices:
+one stalled send, then the simulator leaves. `--rsh` still sets no `ConnectTimeout`, and that is deliberate. See the [x26 findings](wp/x26-findings.md).
 
 **What a worker sees.** On a host with rsync 3, the flag also reaches the worker in `rsync --server … --timeout=300 …`, so a forced
 command or wrapper there that matches that string sees a new flag. openrsync, which macOS hosts have, does not pass it on.
 
-**What stays unbounded.** The bridge recognises a stall from what rsync prints: `poll: timeout` from openrsync, `io timeout after`
-from rsync. An rsync that words it differently, and then waits on a hung ssh, keeps Kotlin's wait.
+**How a stall is told apart.** A failed transfer counts as stalled only if two things hold. rsync ran for at least 285 s with no progress the bridge saw: since
+the start for a send, since its files last changed for a receive. That time is read from the bridge's clock, from when the process started or a look at its files returned, to when the bridge
+sees rsync end or report, so a bridge that wasn't scheduled for a while loses none of it. That is the 300 s less 10 s for how late a change is seen and 5 s of tolerance. And rsync said so:
+it printed its own report as a whole line, `rsync(<pid>): error: poll: timeout` from openrsync or `[sender] io timeout after 300 seconds -- exiting` from rsync 3
+(any role in the brackets, or none before 3.1), or it exited with 30, unless it printed `stopping at requested limit`, since rsync 3 ends `--stop-after` and
+`--stop-at` with 30 too. A failure that comes sooner keeps its retries whatever it says, even a report that a file name with newlines forged. The
+285 s are counted to when the bridge sees the exit, so a bridge paused across a quick failure can still classify
+timeout-looking stderr as a stall.
+
+**What stays unbounded.** An rsync that words its report differently, and then waits on a hung ssh, keeps Kotlin's wait on a send. Its failure also counts as an ordinary one, so it gets the retries.
+
+**What a stop leaves.** Every stall, also one decided after rsync exited by itself, ends the processes the transfer started: TERM, then KILL 5 s later to any
+left. The bridge knows them from `ps`, which it runs 1 s after the start, every 10 s after that, and at the stop, so ssh is known even after rsync, or `sshpass`, has
+exited and left it. Just before each signal it lists them again and signals only a process with the same pid and start time whose parent is one of them or init,
+never rsync's own process once it has been reaped. A pid reused within the same second can still be hit: between that listing and the signal, and earlier too,
+when a process the bridge saw exits and a new one takes its pid in the second it started, then is orphaned to init before that listing. A process
+started and left behind between two looks is missed; so is an orphan that a subreaper other than init adopts, as on some Linux desktops; and where `ps`
+fails or takes over 5 s only the bridge's own child is stopped. rsync isn't put in a process group of its own, so that a terminal's Ctrl-C or a CI job's cancel
+still reaches it as in Kotlin.
 
 Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
-[A3](known-kotlin-bugs.md) and the [x13 findings](wp/x13-findings.md).
+[A3](known-kotlin-bugs.md), the [x13 findings](wp/x13-findings.md) and the [x26 findings](wp/x26-findings.md).
 
-**A receive at its deadline** is stopped the same way (U155, approved 2026-11-07): TERM, 5 s, KILL, and under `sshpass` rsync gets them too.
-Kotlin's wrapper sends TERM to `sshpass` alone, which leaves rsync and ssh running, and then waits without a limit for a process that ignores it. The 30 s
-deadline itself and the receive's command line are unchanged. See the [x21 findings](wp/x21-findings.md).
-
-**This loses files on a password-authenticated worker.** In Kotlin, rsync went on after `sshpass` had gone, and finished the pull in the background, so a pull over 30 s returned
-`false` and its file still arrived. The video and device log listeners ignore the result, so those files still turned up in the report. Now the pull is really cut: the file is
-missing, and `.rsync-partial/<name>` is left in the output directory. That is what key authentication has always done. Measured with real `sshpass`, openrsync and sshd, 24 MiB at
-1 MiB/s, TERM at 5 s: TERM to `sshpass` alone, and the file was complete 27.4 s later; TERM to rsync too, or key authentication, and it never was.
-
-**A receive's output pipes** also have the send's limit (U158, approved 2026-11-07). A process that ended before the deadline, leaving a child that holds its pipes, such as a hung
+**A receive's output pipes** also have the send's limit (U158, approved 2026-11-07). A process that ended, leaving a child that holds its pipes, such as a hung
 ssh, holds up the receive for at most 5 s more. The process's status decides the result, and that child is not stopped.
 
 ## D32 — xcodebuild on a worker runs unbuffered
@@ -668,6 +684,37 @@ the batch runner's handling of the same endings. Approved 2026-11-07 (project ow
 [x20 findings](wp/x20-findings.md).
 
 **Migration action:** none for a normal test APK. A custom runner that stops listing its tests early and exits with a failing code now fails the run with its text, where it used to run the tests it had listed.
+
+## D43 — An rsync receive has a limit on progress
+
+Kotlin gives a pull 30 s in total, so a big video or result bundle over a slow link was cut while it was still moving. With key authentication the file was lost.
+Under `sshpass` the TERM reached only `sshpass`, and rsync finished in the background, until U155 stopped that too.
+
+Native builds pass `--timeout=300` on a receive as on a send, and a pull is not cut while it moves: while its own files change at least once every 300 s, and
+rsync's report counts only after 285 s without a change (see D31). Otherwise it is stopped as a stalled send is: 5 s to end by itself, then TERM, 5 s, and KILL to what the transfer started (see
+[D31](#d31--an-rsync-send-that-stops-moving-fails)). It then logs an error starting `receive error: no progress in 300 s` and returns `false`, usually with
+`.rsync-partial/<name>` left in the output directory. A failed pull has no retries, as before. The video listener carries on and removes the remote video, the
+device log listener carries on and leaves the remote log, and the result bundle listener records `pull failed`.
+
+**`--timeout` is not enough on its own.** Between two rsync 3 installs a pull that stops mid-file never reports: the generator's keep-alives count as I/O, so rsync waits for ever where the total
+deadline used to end it. So the bridge also looks every 10 s at the pull's own files, and stops it once they have not changed for 300 s, which is 300 to 310 s after the last change. Its own
+files are the destination (all of it, for a folder), rsync's temporary `.<name>.XXXXXX` beside it and `.rsync-partial/<name>`; another transfer into the same folder doesn't count. A
+source ending in `/` fills the folder itself, and then the whole folder counts. openrsync reports either way, and so does rsync 3 with a worker that has openrsync.
+
+The look at files can stop a pull that is still moving: rsync 3 writes in pieces of 256 KiB, so a link slower than about 1 KiB/s can look stalled, and so can an rsync that a wrapper sends
+elsewhere, such as with another `--partial-dir`.
+
+**What a stuck worker costs.** A stuck pull costs about 305 to 330 s where it used to cost 35 to 45 s, and up to 20 s more where `ps` is slow. Nothing bounds the total over a run: a worker whose rsync hangs while its commands still work costs that much for
+every pull of every batch, with the simulator held up meanwhile. On iOS result bundles are pulled in the background and are cancelled 300 s, then 60 s, after the run; on macOS they are pulled inline too. A dead link costs far less, because keep-alive ends
+ssh in about 60 s, and the device is disconnected soon after.
+
+**What a worker sees.** On a host with rsync 3, the worker's `rsync --server --sender` gets the flag. A wrapper set with `RSYNC4J_RSYNC` gets it on every transfer. openrsync doesn't pass it on.
+
+The diagnostic `Timeout of 30 seconds reached, terminating process...` is gone. Approved 2026-11-07 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [A3](known-kotlin-bugs.md) and the
+[x26 findings](wp/x26-findings.md).
+
+**Migration action:** a forced command or wrapper that matches rsync's arguments must accept `--timeout=300` on receives as well. Nothing else.
 
 ## D44 — A lost simulator's reconnect has a limit
 

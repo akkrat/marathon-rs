@@ -433,3 +433,87 @@ async fn a_null_readiness_probe_on_a_lost_connection_is_not_a_failed_boot_d36_d3
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }
+/// Every send ends in `outcome`, counted. Receives are not what these tests are about.
+struct FailingSends {
+    sends: AtomicUsize,
+    outcome: fn() -> marathon_core::error::VendorResult<bool>,
+}
+impl marathon_apple::cmd::FileBridge for FailingSends {
+    fn send<'a>(&'a self, _: &'a std::path::Path, _: &'a str) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        self.sends.fetch_add(1, Ordering::SeqCst);
+        let outcome = self.outcome;
+        Box::pin(async move { outcome() })
+    }
+    fn receive<'a>(&'a self, _: &'a str, _: &'a std::path::Path) -> marathon_core::runtime::VendorFuture<'a, bool> {
+        Box::pin(async { Ok(true) })
+    }
+}
+async fn prepare_with_failing_sends(
+    outcome: fn() -> marathon_core::error::VendorResult<bool>,
+) -> TestResult<(VendorError, usize, bool)> {
+    let h = Harness::new(|_| {})?;
+    let bridge = Arc::new(FailingSends {
+        sends: AtomicUsize::new(0),
+        outcome,
+    });
+    let d = h
+        .device_on_bridge(
+            h.worker.clone(),
+            "a",
+            Arc::new(
+                marathon_ios::device::worker_provisioning_context::WorkerProvisioningContext::new(
+                    marathon_config::devices::Transport::Local,
+                    h.clock.clone(),
+                ),
+            ),
+            bridge.clone(),
+        )
+        .await?;
+    let error = h.prepare(&d).await.unwrap_err();
+    Ok((error, bridge.sends.load(Ordering::SeqCst), d.retired()))
+}
+#[tokio::test(start_paused = true)]
+async fn a_stalled_send_is_not_retried_and_takes_the_simulator_out_of_the_run_u163() -> TestResult {
+    let (error, sends, retired) = prepare_with_failing_sends(|| {
+        Err(VendorError::LeavePool {
+            reason: LeavePoolReason::TransferStalled,
+            detail: marathon_apple::cmd::failure("TransferStalled", "no progress"),
+        })
+    })
+    .await?;
+    assert!(
+        matches!(
+            error,
+            VendorError::LeavePool {
+                reason: LeavePoolReason::TransferStalled,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(sends, 1);
+    assert!(retired);
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_send_that_fails_any_other_way_keeps_the_installers_three_attempts_u163() -> TestResult {
+    let (error, sends, retired) = prepare_with_failing_sends(|| Ok(false)).await?;
+    assert!(matches!(error, VendorError::DeviceSetup(_)), "{error:?}");
+    assert_eq!(sends, 3);
+    assert!(!retired);
+    Ok(())
+}
+#[tokio::test(start_paused = true)]
+async fn a_send_that_errs_any_other_way_keeps_the_installers_three_attempts_u163() -> TestResult {
+    let (error, sends, retired) = prepare_with_failing_sends(|| {
+        Err(VendorError::Other(marathon_apple::cmd::failure(
+            "java.io.IOException",
+            "x",
+        )))
+    })
+    .await?;
+    assert!(matches!(error, VendorError::Other(_)), "{error:?}");
+    assert_eq!(sends, 3);
+    assert!(!retired);
+    Ok(())
+}

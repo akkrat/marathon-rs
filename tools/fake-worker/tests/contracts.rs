@@ -731,15 +731,20 @@ async fn unsupported_requests_fail_and_fixture_output_survives_eof_fault() -> Re
 }
 
 #[test]
-fn rsync_server_takes_only_the_send_timeout_the_bridge_passes_d31() {
+fn rsync_server_takes_only_the_timeout_the_bridge_passes_d31_d43() {
     use fake_worker::router::rsync_args;
-    let with = |option| rsync_args(&["--server", "-logDtpr", option, ".", "/tmp/marathon/file"]);
-    assert!(with("--timeout=300").is_ok());
-    for option in ["--timeout=30", "--timeout=", "--timeout", "--contimeout=300"] {
-        assert!(with(option).is_err(), "{option}");
+    // The worker's `--sender` is marathon's receive.
+    for sender in [&["--server", "-logDtpr"][..], &["--server", "--sender", "-logDtpr"][..]] {
+        let with = |option| {
+            let mut args = sender.to_vec();
+            args.extend([option, ".", "/tmp/marathon/file"]);
+            rsync_args(&args)
+        };
+        assert!(with("--timeout=300").is_ok());
+        for option in ["--timeout=30", "--timeout=", "--timeout", "--contimeout=300"] {
+            assert!(with(option).is_err(), "{option}");
+        }
     }
-    // Only a send carries it: the worker's `--sender` is marathon's receive.
-    assert!(rsync_args(&["--server", "--sender", "--timeout=300", ".", "/tmp/marathon/file"]).is_err());
 }
 #[test]
 fn rsync_feature_flags_cannot_enable_symlink_following() -> Result<()> {

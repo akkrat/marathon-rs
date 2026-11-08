@@ -229,16 +229,29 @@ pub fn suite_script() -> Script {
 pub struct ScaledClock {
     pub factor: i64,
     pub inner: Clock,
+    /// How much faster than real time `now_millis` runs: `factor`, unless the delays are to lag behind it, as on a host
+    /// that doesn't schedule the bridge for a while.
+    pub elapsed_factor: i64,
+    epoch: std::time::Instant,
 }
 impl ScaledClock {
     pub fn new(factor: i64) -> Self {
+        Self::lagging(factor, factor)
+    }
+    /// Delays compressed by `factor`, and time passing `elapsed_factor` times faster than real time.
+    pub fn lagging(factor: i64, elapsed_factor: i64) -> Self {
         Self {
             factor,
             inner: Clock::default(),
+            elapsed_factor,
+            epoch: std::time::Instant::now(),
         }
     }
 }
 impl marathon_core::runtime::VendorClock for ScaledClock {
+    fn now_millis(&self) -> i64 {
+        self.epoch.elapsed().as_millis() as i64 * self.elapsed_factor
+    }
     fn delay(
         &self,
         millis: i64,

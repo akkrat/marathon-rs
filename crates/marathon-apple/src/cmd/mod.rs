@@ -8,6 +8,7 @@ pub mod local;
 pub mod remote;
 pub mod retained_tasks;
 pub mod shared_transfers;
+pub(crate) mod stall_record;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 pub mod write_file;

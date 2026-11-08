@@ -28,8 +28,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - **`socketIdleTimeout` is now real milliseconds** (D21). Kotlin read it as seconds, so `PT30S` lasted 30,000 s. It now
   bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal
   of port forwards at dispose. Remove the setting, or keep it at 30 s or more; `PT2S` now fails those on a slow adb server.
-- **xcodebuild on an iOS or macOS worker is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`** (D32), and sends carry
-  `--timeout=300` (D31). On a host with rsync 3 the worker's `rsync --server` gets the flag too, and so does a wrapper set
+- **xcodebuild on an iOS or macOS worker is sent as `env NSUnbufferedIO=YES xcrun xcodebuild …`** (D32), and sends and
+  pulls carry `--timeout=300` (D31, D43). On a host with rsync 3 the worker's `rsync --server` gets the flag too, and so does a wrapper set
   with `RSYNC4J_RSYNC`. A forced command or wrapper on the worker must match `env NSUnbufferedIO=YES xcrun xcodebuild`
   at the start of `SSH_ORIGINAL_COMMAND`, `env` must be on its `PATH`, and the flag must be accepted.
 - **iOS 16 and 17 simulators on a slow host or link:** a readiness probe returns about 20 MB and must arrive within `shell`
@@ -42,9 +42,10 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   end is noticed when the next pause is over, at 630 s with the defaults. With
   `attempts: 1` and `lateJoin: false` it gets one try. Set `lateJoinCutoff: 0` to wait until the run ends. A devices update
   that removes the simulator and adds it back starts these limits over.
-- **On a password-authenticated worker, a video or device log that takes over 30 s to pull is now missing** from the
-  report, with `.rsync-partial/<name>` left in the output directory (D31, U155). Kotlin's rsync finished it in the
-  background. Key authentication has always behaved this way.
+- **A worker silent for 5 minutes during a send can lose simulators for the run** (D31, U163). When rsync reports the stall, the
+  send isn't retried, its simulator is retired, and sends waiting behind it to that worker fail at once, so their simulators are
+  retired too. Any other failed send keeps its retries, as does any failure within the send's first 285 s, unless the run was held up
+  for that long as the failure came.
 - **A run that loses all its devices takes longer to fail** (D48). A pool with tests left waits up to
   `deviceInitializationTimeoutMillis` (180 s by default) for a device to return, so a killed emulator alone now exits 1 after
   about 180 s, not 12.5 s, plus whatever the devices leaving still spend cleaning up then. Lower that value if you need it
@@ -97,10 +98,16 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   worker does. A server that ignores signals may leave the process running. On iOS an abandoned session retires its
   simulator (D30).
 - An rsync send that makes no progress for 300 s is stopped and fails with a clear error, instead of blocking that worker's
-  sends for ever. A large bundle over a slow link is unaffected while it keeps moving (D31).
-- An rsync receive at its 30 s deadline no longer leaves rsync and ssh running under `sshpass`, and can no longer wait for
-  ever on a process that ignores TERM. A receive whose process ended can be held up by a child holding its output, such as
-  a hung ssh, for at most 5 s (D31, U155, U158).
+  sends for ever, when rsync says so: its own timeout report as a whole line, or rsync 3's status 30, after at least 285 s by
+  the bridge's clock. A failure that comes sooner keeps its retries, whatever its text. A large bundle over a slow link is
+  unaffected while it keeps moving (D31). A stalled send no longer costs a device 90 sends and about 7.6 hours: it isn't
+  retried, the device's prepare fails and it leaves its pool, an iOS simulator for the rest of the run, sends waiting behind it to
+  that worker fail at once, and another worker carries on (U163). A dead link ends in about 75 s with the default keep-alive.
+- An rsync pull is no longer cut at 30 s, so a big video or result bundle over a slow link arrives, as long as its files keep changing at least once
+  every 300 s; a link slower than about 1 KiB/s may not. A pull with no progress for 300 s is stopped, and so are the processes it started that the bridge has
+  seen and can still tell apart from later ones, including an ssh left behind by `sshpass` or rsync and one that ignores TERM. Each pull that hangs on a stuck worker costs about 305 to 330 s, and
+  nothing bounds the total over a run (D43).
+  A receive whose process ended can be held up by a child holding its output, such as a hung ssh, for at most 5 s (D31, U158).
 - xcodebuild on a worker runs with `NSUnbufferedIO=YES`, as was always intended, so its output arrives as it is produced and
   the output idle timeout measures real silence (D32).
 - A worker that shares no key exchange, cipher, MAC or host key algorithm with marathon is no longer retried as if the
@@ -203,9 +210,6 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
 - An emulator that restarted during an adb outage (D22) repeats its failing batches until `uncompletedTestRetryQuota` runs
   out.
-- A stalled rsync send costs 300 s, and a failed install is retried, so one simulator can spend about 7.6 hours on a worker
-  that never answers, and N simulators on one worker about N times that. With the default keep-alive a dead link still costs
-  about 1.6 hours per simulator. Another worker that finishes the queue ends the run. Kotlin waits for ever (D31, U163).
 - A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
   On the last device the run ends after about 6 to 13 minutes plus D48's wait, with "remaining tests will not run". If only the probe hangs and
   needs KILL it takes about 33 minutes, and if every command hangs about 50 (D38).

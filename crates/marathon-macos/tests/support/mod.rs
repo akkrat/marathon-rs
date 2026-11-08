@@ -87,10 +87,20 @@ pub struct RecordingBridge {
     pub pull_entered: Notify,
     pub pull_release: Notify,
     pub block_pull: std::sync::atomic::AtomicBool,
+    /// Every send ends as a stalled one does, counted.
+    pub stalled_sends: std::sync::atomic::AtomicUsize,
+    pub stalled: std::sync::atomic::AtomicBool,
 }
 impl FileBridge for RecordingBridge {
     fn send<'a>(&'a self, src: &'a Path, dst: &'a str) -> VendorFuture<'a, bool> {
         Box::pin(async move {
+            if self.stalled.load(Ordering::SeqCst) {
+                self.stalled_sends.fetch_add(1, Ordering::SeqCst);
+                return Err(VendorError::LeavePool {
+                    reason: marathon_core::error::LeavePoolReason::TransferStalled,
+                    detail: marathon_apple::cmd::failure("TransferStalled", "no progress"),
+                });
+            }
             let bytes = if src.is_file() {
                 std::fs::read(src).map_err(|e| {
                     VendorError::Other(marathon_apple::cmd::failure("java.io.IOException", e.to_string()))

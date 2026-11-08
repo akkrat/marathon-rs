@@ -14,7 +14,7 @@ use jcompat::{
 };
 use marathon_config::{CONFIGURATION_EXCEPTION_CLASS, VendorConfiguration, vendor::TestType};
 use marathon_core::{
-    error::{OperationError, VendorError},
+    error::{Cancellation, OperationError, VendorError},
     executor::retry::with_retry_send,
     runtime::VendorRuntime,
     vendor::VendorContext,
@@ -191,6 +191,12 @@ impl<'a> AppleApplicationInstaller<'a> {
                 .await;
                 result.map_err(|error| match error {
                     VendorError::Cancelled(reason) => OperationError::Cancelled(reason),
+                    // U163: never retried, here as in the device's own retry. Cancelled is what stops this helper.
+                    leave @ VendorError::LeavePool { .. } => {
+                        let reason = Cancellation::Requested(leave.failure().clone());
+                        *last.lock().unwrap_or_else(|e| e.into_inner()) = Some(leave);
+                        OperationError::Cancelled(reason)
+                    }
                     other => {
                         let detail = other.failure().clone();
                         *last.lock().unwrap_or_else(|e| e.into_inner()) = Some(other);
@@ -201,7 +207,14 @@ impl<'a> AppleApplicationInstaller<'a> {
             .await;
             match result {
                 Ok(()) => (),
-                Err(OperationError::Cancelled(reason)) => return Err(VendorError::Cancelled(reason).into()),
+                Err(OperationError::Cancelled(reason)) => {
+                    return Err(last
+                        .into_inner()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .filter(|e| matches!(e, VendorError::LeavePool { .. }))
+                        .unwrap_or(VendorError::Cancelled(reason))
+                        .into());
+                }
                 Err(OperationError::Failed(detail)) => {
                     return Err(last
                         .into_inner()

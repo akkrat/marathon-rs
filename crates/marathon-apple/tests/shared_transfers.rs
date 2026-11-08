@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/cmd/SharedTransfersTest.kt
 mod support;
 use marathon_apple::cmd::{failure, shared_transfers::SharedTransfers};
-use marathon_core::error::VendorError;
+use marathon_core::error::{LeavePoolReason, VendorError};
 use std::{
     path::Path,
     sync::{
@@ -191,4 +191,96 @@ async fn source_path_reuse_ignores_changed_bytes_but_retains_dot_dot() {
     let other = dir.path().join("sub/../source");
     assert!(push(&t, "worker", other.to_str().unwrap(), DST, Some(true), true, &n).await);
     assert_eq!(n.load(Ordering::SeqCst), 2);
+}
+fn stalled() -> VendorError {
+    VendorError::LeavePool {
+        reason: LeavePoolReason::TransferStalled,
+        detail: failure("TransferStalled", "no progress"),
+    }
+}
+/// The first send, held until the test has the others waiting, ends in `first`. Returns what each of the two waiters got and
+/// how many transfers ran.
+async fn behind(
+    first: VendorError,
+    other_destination: &'static str,
+) -> (Result<bool, VendorError>, Result<bool, VendorError>, usize) {
+    let t = Arc::new(transfers());
+    let count = Arc::new(AtomicUsize::new(0));
+    let (entered, entered_rx) = tokio::sync::oneshot::channel::<()>();
+    let (release, release_rx) = tokio::sync::oneshot::channel::<()>();
+    let head = {
+        let (t, count) = (t.clone(), count.clone());
+        tokio::spawn(async move {
+            t.send(
+                "worker-1:22",
+                Path::new(SRC),
+                DST,
+                || async { Ok(Some(true)) },
+                || async {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    entered.send(()).unwrap();
+                    release_rx.await.unwrap();
+                    Err(first)
+                },
+            )
+            .await
+        })
+    };
+    entered_rx.await.unwrap();
+    let waiter = |dst: &'static str| {
+        let (t, count) = (t.clone(), count.clone());
+        tokio::spawn(async move {
+            t.send(
+                "worker-1:22",
+                Path::new(SRC),
+                dst,
+                || async { Ok(Some(true)) },
+                || async {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    Ok(true)
+                },
+            )
+            .await
+        })
+    };
+    let same = waiter(DST);
+    let other = waiter(other_destination);
+    // Single-threaded runtime: once this yields, both have run up to the lock or through their transfer.
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    release.send(()).unwrap();
+    assert!(head.await.unwrap().is_err());
+    (same.await.unwrap(), other.await.unwrap(), count.load(Ordering::SeqCst))
+}
+#[tokio::test]
+async fn a_stall_fails_who_waited_for_that_destination_and_nobody_else_u163() {
+    let (same, other, transfers) = behind(stalled(), "/tmp/marathon/shared/other.app").await;
+    assert_eq!(same, Err(stalled()));
+    assert_eq!(other, Ok(true));
+    assert_eq!(transfers, 2);
+}
+#[tokio::test]
+async fn any_other_failure_lets_the_next_caller_try_u163() {
+    let error = VendorError::Other(failure("java.io.IOException", "broken"));
+    let (same, other, transfers) = behind(error, "/tmp/marathon/shared/other.app").await;
+    assert_eq!((same, other), (Ok(true), Ok(true)));
+    assert_eq!(transfers, 3);
+}
+#[tokio::test]
+async fn a_send_that_starts_after_a_stall_tries_again_u163() {
+    let t = transfers();
+    let count = AtomicUsize::new(0);
+    let failed = t
+        .send(
+            "worker-1:22",
+            Path::new(SRC),
+            DST,
+            || async { Ok(Some(true)) },
+            || async { Err::<bool, _>(stalled()) },
+        )
+        .await;
+    assert_eq!(failed, Err(stalled()));
+    assert!(push(&t, "worker-1:22", SRC, DST, Some(true), true, &count).await);
+    assert_eq!(count.load(Ordering::SeqCst), 1);
 }

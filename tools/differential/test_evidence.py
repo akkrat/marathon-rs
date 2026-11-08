@@ -579,7 +579,7 @@ class VendorEvidenceTests(unittest.TestCase):
         row = next(r for r in record['entries'] if r['path'] == 'host-argv.jsonl')
         rows = [json.loads(line) for line in e.payload(directory, row, record).splitlines()]
         for argv in rows:
-            argv['argv'] = t.with_d31_flag(argv['program'], argv['argv'])
+            argv['argv'] = t.with_d43_flag(argv['program'], t.with_d31_flag(argv['program'], argv['argv']))
         data = b''.join(json.dumps(r, separators=(',',':'), sort_keys=True).encode() + b'\n' for r in rows)
         (directory / 'blobs' / row['sha256']).unlink()
         row.update(sha256=e.sha(data), size=len(data))
@@ -645,26 +645,29 @@ class VendorEvidenceTests(unittest.TestCase):
         values = dict(sandbox='/sandbox',safe_serial='serial',port='1')
         return lambda before: t.host_argv(data,values,before)
 
-    def test_d31_a_send_of_an_older_record_gets_exactly_the_flag(self):
+    def test_d31_d43_a_transfer_of_an_older_record_gets_exactly_the_flag(self):
         send = lambda *flag: ['--recursive','--times',*flag,'--rsh','ssh -p 1 ','--delete','/src','127.0.0.1:/tmp/marathon/x']
         receive = lambda *flag: ['--recursive','--times',*flag,'--rsh','ssh -p 1 ','--delete','127.0.0.1:/tmp/marathon/x','/dst']
         version = ['--version','/tmp','/tmp']
+        flag = '--timeout=300'
         old = self.d31_argv(('rsync',send()),('rsync',receive()),('rsync',version))(True)
-        new = self.d31_argv(('rsync',send('--timeout=300')),('rsync',receive()),('rsync',version))(False)
+        new = self.d31_argv(('rsync',send(flag)),('rsync',receive(flag)),('rsync',version))(False)
         # Today's native run compares equal to the JVM's.
         self.assertEqual(old,new)
-        # The flag is missing, has another value or sits elsewhere: all differ.
-        for argv in [send(),send('--timeout=30'),['--timeout=300',*send()]]:
-            with self.subTest(argv):
-                self.assertNotEqual(old,self.d31_argv(('rsync',argv),('rsync',receive()),('rsync',version))(False))
-        # A receive with the flag differs, and an older record is not given it on a receive or the version form.
-        self.assertNotEqual(old,self.d31_argv(('rsync',send('--timeout=300')),('rsync',receive('--timeout=300')),('rsync',version))(False))
-        self.assertNotIn('--timeout=300',self.d31_argv(('rsync',receive()),('rsync',version))(True)['rsync:/dst'][0]['argv'])
+        # On either kind the flag is missing, has another value or sits elsewhere: all differ.
+        for build in [send,receive]:
+            for argv in [build(),build('--timeout=30'),[flag,*build()]]:
+                rows = [argv if build is send else send(flag), argv if build is receive else receive(flag)]
+                with self.subTest(argv):
+                    self.assertNotEqual(old,self.d31_argv(('rsync',rows[0]),('rsync',rows[1]),('rsync',version))(False))
+        # An older record is not given it on the version form, and neither program but rsync gets it.
         self.assertEqual(self.d31_argv(('rsync',version))(True)['rsync:/tmp'][0]['argv'],version)
 
-    def test_d31_an_older_record_that_already_has_the_flag_is_refused(self):
+    def test_d31_d43_an_older_record_that_already_has_the_flag_is_refused(self):
         with self.assertRaisesRegex(e.Invalid,'D31 flag'):
             self.d31_argv(('rsync',['--times','--timeout=300','/src','127.0.0.1:/tmp/marathon/x']))(True)
+        with self.assertRaisesRegex(e.Invalid,'D43 flag'):
+            self.d31_argv(('rsync',['--times','--timeout=300','127.0.0.1:/tmp/marathon/x','/dst']))(True)
 
     def test_d31_leaves_the_ssh_form_of_an_older_record_alone(self):
         ssh = ['-l','u','-p','1','127.0.0.1','/usr/bin/rsync','--server','--times','.','/tmp/marathon/x']

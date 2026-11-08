@@ -1,11 +1,14 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/SharedTransfers.kt
 
-use super::{blocking, io_error, remote::ssh::sshj::config::SshLogging};
+use super::{blocking, io_error, remote::ssh::sshj::config::SshLogging, stall_record::StallRecord};
 use jcompat::{
     file_manager::{JavaPath, absolute_file_path, file_path},
     logging::{Level, Logger},
 };
-use marathon_core::{error::VendorResult, runtime::VendorRuntime};
+use marathon_core::{
+    error::{LeavePoolReason, VendorError, VendorResult},
+    runtime::VendorRuntime,
+};
 use std::{
     collections::HashMap,
     future::Future,
@@ -14,7 +17,12 @@ use std::{
 };
 
 type Destination = (String, String);
-type TransferState = Arc<tokio::sync::Mutex<Option<JavaPath>>>;
+#[derive(Default)]
+struct DestinationState {
+    previous: tokio::sync::Mutex<Option<JavaPath>>,
+    stalls: StallRecord,
+}
+type TransferState = Arc<DestinationState>;
 pub struct SharedTransfers {
     destinations: Mutex<HashMap<Destination, TransferState>>,
     runtime: Arc<dyn VendorRuntime>,
@@ -55,9 +63,24 @@ impl SharedTransfers {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .entry((worker.to_owned(), dst.to_owned()))
-            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+            .or_default()
             .clone();
-        let mut previous = state.lock().await;
+        let arrived = state.stalls.ticket();
+        let mut previous = state.previous.lock().await;
+        // U163: whoever waited here while the send to this destination stalled does not start another.
+        if let Some(error) = state.stalls.since(arrived) {
+            self.logging.log(
+                &self.logger,
+                Level::Warn,
+                || {
+                    format!(
+                        "Not sending {display_path} to {worker}:{dst}: the send there stalled while this one waited"
+                    )
+                },
+                None,
+            );
+            return Err(error);
+        }
         let reusable = if previous.as_ref() == Some(&source) {
             match exists().await? {
                 Some(value) => value,
@@ -89,7 +112,18 @@ impl SharedTransfers {
             return Ok(true);
         }
         *previous = None;
-        let success = transfer().await?;
+        let success = match transfer().await {
+            Err(
+                error @ VendorError::LeavePool {
+                    reason: LeavePoolReason::TransferStalled,
+                    ..
+                },
+            ) => {
+                state.stalls.record(error.clone());
+                return Err(error);
+            }
+            other => other?,
+        };
         if success {
             *previous = Some(source);
         }

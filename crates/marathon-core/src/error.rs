@@ -85,6 +85,8 @@ pub type OperationResult<T> = Result<T, OperationError>;
 pub enum LeavePoolReason {
     NotBooted,
     NotAdmitted,
+    /// U163: a file transfer to the device's worker made no progress for its whole limit.
+    TransferStalled,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VendorError {
