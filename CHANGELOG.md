@@ -74,14 +74,6 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
   is retried instead of returning only the tests found so far, which could give a passing run with tests missing (D25).
 - A remote parse whose instrumentation fails before it has listed every test it announced is retried, and fails the run with
   the reason if it keeps failing. A failing exit code on a complete list is still accepted (D42).
-- A failed re-provisioning of an iOS simulator is retried instead of being final, whether its worker was lost, it was lost with
-  its connection up or it was added back. Each simulator gets at most four setups that fail with its worker answering; a setup
-  that can't reach the worker goes to the worker's connection retry instead, and a re-add starts the count over. One
-  whose own connection is refused is not tried again, by its own retry or by another simulator's setup, until the devices file
-  removes it and adds it back, which gives it one new attempt. Work that started before such a re-add doesn't decide for the
-  simulator after it. A simulator that was in the run can return after the late-join cut-off (D44).
-- Remote parsing on iOS no longer gets a removed, lost or disposed simulator, which could use up its attempts and fail the
-  run at the start. It waits for one that can work (D44).
 - Test APKs in DEX 040 and 041 are accepted, with every class of a 041 container found (D26).
 - In a batch that mixes test APKs, each instrumentation runs only its own tests, the batch reports one result, and a test
   that a later instrumentation did not report no longer carries an earlier one's failure text (D28, U151).
@@ -121,10 +113,16 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 ### iOS simulators
 
 - A simulator whose setup failed is set up again, up to three times, 30, 60 and 90 s after each failure, instead of being out
-  for the whole run. Setups that can't reach the worker are left to the worker's connection retry and aren't counted, and
-  removing the simulator and adding it back starts the count over. When another simulator's setup on the same worker also
-  fails it, the cap holds but the pauses can be shorter (D44). `attempts: 1` with `lateJoin: false` in `workerConnection`
-  turns this off (D33).
+  for the whole run (D33), and so is a failed re-provisioning, whether its worker was lost, it was lost with its connection
+  up or it was added back (D44). That makes at most four setups that fail with the worker answering. Setups that can't reach
+  the worker are left to the worker's connection retry and aren't counted, and removing the simulator and adding it back
+  starts the count over. When another simulator's setup on the same worker also fails it, the cap holds but the pauses can
+  be shorter. `attempts: 1` with `lateJoin: false` in `workerConnection` turns this off.
+- A simulator whose own connection is refused is not tried again, by its own retry or by another simulator's setup, until the
+  devices file removes it and adds it back, which gives it one new attempt. Work that started before such a re-add doesn't
+  decide for the simulator after it. A simulator that was in the run can return after the late-join cut-off (D44).
+- Remote parsing on iOS no longer gets a removed, lost or disposed simulator, which could use up its attempts and fail the
+  run at the start. It waits for one that can work (D44).
 - A failed or timed-out readiness probe means the simulator is not running yet, on every iOS runtime (D38).
 - The readiness probe of iOS 18 and later is `launchctl print user/foreground`, about 100 KB where `dumpstate` returned 10 to
   20 MB, with the same marker line. It may report a booted simulator ready up to one poll earlier. iOS 16 and 17 keep `dumpstate`
@@ -140,8 +138,6 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - A test that hangs past its execution time allowance now fails, with the hang's line as its text, whatever form the allowance
   is printed in. With `1 minute`, which a 60 s allowance prints, Kotlin aborted the batch and repeated the test until CI killed
   the job (D45).
-- A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40). No
-  known path triggers this, so you are unlikely to have met it.
 
 ### All platforms
 
@@ -174,6 +170,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - `fixed-size` batching counts only the tests a batch accepts, against both `size` and `durationMillis`, so flaky copies and
   tests of another test APK no longer end a batch early. With two test APKs in sorted order, 1,000 tests at size 10 take 100
   batches instead of 150. A batch rejects at most twice its size. A batch with nothing rejected is unchanged (D50).
+- A delayed disconnect for an old device no longer removes its replacement with the same serial from the pool (D40). No
+  known path triggers this, so you are unlikely to have met it.
 
 ### Evidence for these changes
 
@@ -184,6 +182,8 @@ This release fixes bugs of the Kotlin fork, each one an approved difference (D21
 - D48's `adb reboot` and killed-emulator cases and D49's closed requests ran on an API 36 emulator, and the reboot also on
   API 33. D48's iOS recovery ran on the fake worker only.
 - D29–D32 and D35–D37 ran against real OpenSSH on loopback.
+- D43 ran with real rsync, ssh and `sshpass` against the fake worker on loopback, with openrsync on a Mac and rsync 3 on
+  Linux; rsync 3 under `sshpass` was not run. D44 ran on the fake worker only.
 - D38 and D46 were measured on iOS 18.6, 26.4 and 27.0; iOS 16 and 17 were not measured. D30's TERM timing was measured on one Mac only.
 - D33, D34 and D40 had no real simulator, worker or analytics backend.
 - D50 was measured through the real pool and queue on a stub device, with no real test APKs.
