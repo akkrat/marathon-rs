@@ -411,196 +411,201 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
     };
     let configuration = checked(MarathonConfigurationLoader.parse_sync(&marathonfile(&ports, output.path()), &context));
     let driven = servers.clone();
-    let observed = CoreExecutor::run_virtual(move |core, replay| {
-        Box::pin(async move {
-            let logging = Arc::new(Mutex::new(MarathonLogging::default()));
-            let console = RecordingConsole::new(logging.clone());
-            let hooks = RuntimeHooks::live();
-            let barriers = hooks.barriers();
-            let metrics = MetricsBackends {
-                setup: Arc::new(NoMetricsSetup) as Arc<dyn MetricsSetup>,
-                backend: None::<Arc<dyn BackendFactory>>,
-            };
-            let inputs = RunInputs {
-                configuration: Arc::new(configuration),
-                logging,
-                console: console.clone(),
-                stderr: Arc::new(|_| {}),
-                cwd: JavaPath::from_text("/"),
-                environment: vec![],
-                system_information: vec![],
-                vendor: Box::new(move |dependencies| {
-                    Box::pin(async move {
-                        let executor = Arc::new(VirtualDuration {
-                            inner: AndroidRunnerExecutor::default(),
-                            clock: dependencies.clock.clone(),
-                            now: log_now,
-                            started: log_started,
-                            lost_requests,
-                        });
-                        let mut services = create_services_with_executor(dependencies, executor).await?;
-                        services.provider = Arc::new(TappedProvider {
-                            inner: services.provider,
-                            tap: log_tap,
-                            now: tap_now,
-                        });
-                        Ok::<VendorServices, VendorError>(services)
-                    })
-                }),
-                metrics: Box::new(move |_, _| metrics),
-                analytics: None,
-                extra_reporters: Box::new(marathon_core::construction::standard_reporters),
-                hooks,
-                barriers,
-                timer: None,
-                wall: Arc::new(host_millis),
-                exit: None,
-                signal_trigger: None,
-                signal_hooks: Default::default(),
-                live_output: false,
-            };
-            let marathon = construct(core.clone(), inputs).await.map_err(OperationError::Failed)?;
-            let job = core.job(JobKind::Ordinary, None);
-            let value: Rc<RefCell<Option<VendorResult<bool>>>> = Rc::new(RefCell::new(None));
-            let output = value.clone();
-            core.spawn(
-                job.clone(),
-                Box::new(move |task: TaskContext| {
-                    Box::pin(async move {
-                        let result = marathon.run_async(&ExecutionCommand::Run, &task).await;
-                        *output.borrow_mut() = Some(result);
-                        Ok(())
-                    })
-                }),
-            );
-            let step = |label: &'static str, e: marathon_core::time::ReplayError| {
-                OperationError::Failed(marathon_core::executor::shared::failure(
-                    label,
-                    &e.message.to_string_lossy(),
-                ))
-            };
-            let healthy_started = || {
-                let batches = checked_lock(&gate_started);
-                healthy
-                    .iter()
-                    .all(|(port, serial)| batches.iter().any(|b| b.0 == *port && b.1 == *serial))
-            };
-            let mut now = 0;
-            let mut next_event = 0;
-            let mut held_since: Option<std::time::Instant> = None;
-            let mut applied = (listed.values().filter(|n| **n > 0).count(), 0);
-            let deadline = std::time::Instant::now() + RUN_TIMEOUT;
-            while value.borrow().is_none() && now < LIMIT_MILLIS {
-                if std::time::Instant::now() > deadline {
-                    return Err(OperationError::Failed(marathon_core::executor::shared::failure(
-                        "RunTimeout",
-                        &format!("no result after {RUN_TIMEOUT:?} real time, {now} virtual ms"),
-                    )));
-                }
-                clock_now.store(now, Ordering::SeqCst);
-                // An event is applied once it is due and the run has reached the state the scenario needs:
-                // the provider's earlier events have reached the scheduler, every listed device has finished
-                // setup (its logcat stream is open), and a device about to drop is in the hung step of prepare
-                // (`logcat -c`) while the devices that are never dropped have started a batch. Until then virtual time is held (for
-                // `HOLD`, then it keeps stepping), so an event is applied at its time, late only on a stall, never early.
-                while next_event < events.len() && events[next_event].at_ms <= now {
-                    let event = &events[next_event];
-                    let received = checked_lock(&tap);
-                    let delivered = (
-                        received.iter().filter(|r| r.0).count(),
-                        received.iter().filter(|r| !r.0).count(),
-                    );
-                    drop(received);
-                    let ready = delivered.0 >= applied.0
-                        && delivered.1 >= applied.1
-                        && listed
-                            .iter()
-                            .filter(|(_, times)| **times > 0)
-                            .all(|((server, serial), times)| {
-                                requests(&driven[*server], serial, "logcat -v long") >= *times
-                            })
-                        && (event.connect
-                            || ((event.kill.is_some() || event.state.is_some()) && healthy_started())
-                            || (requests(&driven[event.server], &event.serial, HELD_NOW) >= 1 && healthy_started()));
-                    if !ready {
-                        assert!(
-                            now - event.at_ms <= MAX_LATE_MILLIS,
-                            "event {} {} (server {}) still not ready {} virtual ms after its time; delivered {delivered:?}, expected {applied:?}",
-                            if event.connect { "connect" } else { "disconnect" },
-                            event.serial,
-                            event.server,
-                            now - event.at_ms
+    // The executor's own watchdog must outlast RUN_TIMEOUT, or it fires first on a slow runner (U180).
+    let observed = CoreExecutor::run_virtual_with_watchdog(
+        RUN_TIMEOUT + Duration::from_secs(60),
+        move |core, replay| {
+            Box::pin(async move {
+                let logging = Arc::new(Mutex::new(MarathonLogging::default()));
+                let console = RecordingConsole::new(logging.clone());
+                let hooks = RuntimeHooks::live();
+                let barriers = hooks.barriers();
+                let metrics = MetricsBackends {
+                    setup: Arc::new(NoMetricsSetup) as Arc<dyn MetricsSetup>,
+                    backend: None::<Arc<dyn BackendFactory>>,
+                };
+                let inputs = RunInputs {
+                    configuration: Arc::new(configuration),
+                    logging,
+                    console: console.clone(),
+                    stderr: Arc::new(|_| {}),
+                    cwd: JavaPath::from_text("/"),
+                    environment: vec![],
+                    system_information: vec![],
+                    vendor: Box::new(move |dependencies| {
+                        Box::pin(async move {
+                            let executor = Arc::new(VirtualDuration {
+                                inner: AndroidRunnerExecutor::default(),
+                                clock: dependencies.clock.clone(),
+                                now: log_now,
+                                started: log_started,
+                                lost_requests,
+                            });
+                            let mut services = create_services_with_executor(dependencies, executor).await?;
+                            services.provider = Arc::new(TappedProvider {
+                                inner: services.provider,
+                                tap: log_tap,
+                                now: tap_now,
+                            });
+                            Ok::<VendorServices, VendorError>(services)
+                        })
+                    }),
+                    metrics: Box::new(move |_, _| metrics),
+                    analytics: None,
+                    extra_reporters: Box::new(marathon_core::construction::standard_reporters),
+                    hooks,
+                    barriers,
+                    timer: None,
+                    wall: Arc::new(host_millis),
+                    exit: None,
+                    signal_trigger: None,
+                    signal_hooks: Default::default(),
+                    live_output: false,
+                };
+                let marathon = construct(core.clone(), inputs).await.map_err(OperationError::Failed)?;
+                let job = core.job(JobKind::Ordinary, None);
+                let value: Rc<RefCell<Option<VendorResult<bool>>>> = Rc::new(RefCell::new(None));
+                let output = value.clone();
+                core.spawn(
+                    job.clone(),
+                    Box::new(move |task: TaskContext| {
+                        Box::pin(async move {
+                            let result = marathon.run_async(&ExecutionCommand::Run, &task).await;
+                            *output.borrow_mut() = Some(result);
+                            Ok(())
+                        })
+                    }),
+                );
+                let step = |label: &'static str, e: marathon_core::time::ReplayError| {
+                    OperationError::Failed(marathon_core::executor::shared::failure(
+                        label,
+                        &e.message.to_string_lossy(),
+                    ))
+                };
+                let healthy_started = || {
+                    let batches = checked_lock(&gate_started);
+                    healthy
+                        .iter()
+                        .all(|(port, serial)| batches.iter().any(|b| b.0 == *port && b.1 == *serial))
+                };
+                let mut now = 0;
+                let mut next_event = 0;
+                let mut held_since: Option<std::time::Instant> = None;
+                let mut applied = (listed.values().filter(|n| **n > 0).count(), 0);
+                let deadline = std::time::Instant::now() + RUN_TIMEOUT;
+                while value.borrow().is_none() && now < LIMIT_MILLIS {
+                    if std::time::Instant::now() > deadline {
+                        return Err(OperationError::Failed(marathon_core::executor::shared::failure(
+                            "RunTimeout",
+                            &format!("no result after {RUN_TIMEOUT:?} real time, {now} virtual ms"),
+                        )));
+                    }
+                    clock_now.store(now, Ordering::SeqCst);
+                    // An event is applied once it is due and the run has reached the state the scenario needs:
+                    // the provider's earlier events have reached the scheduler, every listed device has finished
+                    // setup (its logcat stream is open), and a device about to drop is in the hung step of prepare
+                    // (`logcat -c`) while the devices that are never dropped have started a batch. Until then virtual time is held (for
+                    // `HOLD`, then it keeps stepping), so an event is applied at its time, late only on a stall, never early.
+                    while next_event < events.len() && events[next_event].at_ms <= now {
+                        let event = &events[next_event];
+                        let received = checked_lock(&tap);
+                        let delivered = (
+                            received.iter().filter(|r| r.0).count(),
+                            received.iter().filter(|r| !r.0).count(),
                         );
-                        break;
-                    }
-                    let server = &driven[event.server];
-                    if let Some(restart_after) = event.kill {
-                        server.kill(restart_after);
+                        drop(received);
+                        let ready = delivered.0 >= applied.0
+                            && delivered.1 >= applied.1
+                            && listed
+                                .iter()
+                                .filter(|(_, times)| **times > 0)
+                                .all(|((server, serial), times)| {
+                                    requests(&driven[*server], serial, "logcat -v long") >= *times
+                                })
+                            && (event.connect
+                                || ((event.kill.is_some() || event.state.is_some()) && healthy_started())
+                                || (requests(&driven[event.server], &event.serial, HELD_NOW) >= 1
+                                    && healthy_started()));
+                        if !ready {
+                            assert!(
+                                now - event.at_ms <= MAX_LATE_MILLIS,
+                                "event {} {} (server {}) still not ready {} virtual ms after its time; delivered {delivered:?}, expected {applied:?}",
+                                if event.connect { "connect" } else { "disconnect" },
+                                event.serial,
+                                event.server,
+                                now - event.at_ms
+                            );
+                            break;
+                        }
+                        let server = &driven[event.server];
+                        if let Some(restart_after) = event.kill {
+                            server.kill(restart_after);
+                            next_event += 1;
+                            continue;
+                        }
+                        if let Some(state) = event.state {
+                            apply_state(server, &event.serial, state);
+                            next_event += 1;
+                            continue;
+                        }
+                        checked(if event.connect {
+                            server.connect_device(&event.serial)
+                        } else {
+                            server.disconnect_device(&event.serial)
+                        });
+                        let times = listed.entry((event.server, event.serial.clone())).or_default();
+                        *times = if event.connect { *times + 1 } else { 0 };
+                        if event.connect {
+                            applied.0 += 1;
+                        } else {
+                            applied.1 += 1;
+                        }
                         next_event += 1;
-                        continue;
                     }
-                    if let Some(state) = event.state {
-                        apply_state(server, &event.serial, state);
-                        next_event += 1;
-                        continue;
-                    }
-                    checked(if event.connect {
-                        server.connect_device(&event.serial)
+                    // A due event that is not ready yet holds the clock, so that a slow box does not turn the wait into
+                    // virtual lateness that the run's batches would be placed by. Stepping resumes after `HOLD` in case
+                    // the state the event needs depends on virtual time.
+                    // The clock also stops just before the next drop until the healthy devices have started a batch:
+                    // their first batch is placed by the virtual time at which the box gets to run it, so a clock that
+                    // ran ahead of the work would place it after the drop.
+                    let barrier = events[next_event..]
+                        .iter()
+                        .find(|e| !e.connect)
+                        .map(|e| e.at_ms - STEP_MILLIS)
+                        .filter(|barrier| now >= *barrier && !healthy_started());
+                    if barrier.is_some() || (next_event < events.len() && events[next_event].at_ms <= now) {
+                        let since = *held_since.get_or_insert_with(std::time::Instant::now);
+                        if since.elapsed() < HOLD {
+                            replay.advance_to(now).await.map_err(|e| step("replay", e))?;
+                            tokio::time::sleep(SETTLE).await;
+                            continue;
+                        }
                     } else {
-                        server.disconnect_device(&event.serial)
-                    });
-                    let times = listed.entry((event.server, event.serial.clone())).or_default();
-                    *times = if event.connect { *times + 1 } else { 0 };
-                    if event.connect {
-                        applied.0 += 1;
-                    } else {
-                        applied.1 += 1;
+                        held_since = None;
                     }
-                    next_event += 1;
+                    now += STEP_MILLIS;
+                    replay.advance_to(now).await.map_err(|e| step("replay", e))?;
+                    tokio::time::sleep(SETTLE).await;
                 }
-                // A due event that is not ready yet holds the clock, so that a slow box does not turn the wait into
-                // virtual lateness that the run's batches would be placed by. Stepping resumes after `HOLD` in case
-                // the state the event needs depends on virtual time.
-                // The clock also stops just before the next drop until the healthy devices have started a batch:
-                // their first batch is placed by the virtual time at which the box gets to run it, so a clock that
-                // ran ahead of the work would place it after the drop.
-                let barrier = events[next_event..]
-                    .iter()
-                    .find(|e| !e.connect)
-                    .map(|e| e.at_ms - STEP_MILLIS)
-                    .filter(|barrier| now >= *barrier && !healthy_started());
-                if barrier.is_some() || (next_event < events.len() && events[next_event].at_ms <= now) {
-                    let since = *held_since.get_or_insert_with(std::time::Instant::now);
-                    if since.elapsed() < HOLD {
-                        replay.advance_to(now).await.map_err(|e| step("replay", e))?;
-                        tokio::time::sleep(SETTLE).await;
-                        continue;
-                    }
-                } else {
-                    held_since = None;
+                let finished = value.borrow().is_some();
+                if !finished {
+                    job.cancel(marathon_core::executor::shared::requested("scenario teardown"));
+                    let _ = job.join().await;
                 }
-                now += STEP_MILLIS;
-                replay.advance_to(now).await.map_err(|e| step("replay", e))?;
-                tokio::time::sleep(SETTLE).await;
-            }
-            let finished = value.borrow().is_some();
-            if !finished {
-                job.cancel(marathon_core::executor::shared::requested("scenario teardown"));
-                let _ = job.join().await;
-            }
-            let result = value.take();
-            Ok(Observed {
-                result,
-                lines: console.lines(),
-                transcripts: Vec::new(),
-                virtual_millis: now,
-                batches: Vec::new(),
-                events: Vec::new(),
-                received: Vec::new(),
-                warnings: Vec::new(),
+                let result = value.take();
+                Ok(Observed {
+                    result,
+                    lines: console.lines(),
+                    transcripts: Vec::new(),
+                    virtual_millis: now,
+                    batches: Vec::new(),
+                    events: Vec::new(),
+                    received: Vec::new(),
+                    warnings: Vec::new(),
+                })
             })
-        })
-    });
+        },
+    );
     let mut observed = checked(observed);
     observed.events = script_events;
     observed.received = checked_lock(&final_tap).clone();
