@@ -145,6 +145,7 @@ concurrency. User file-sync entries still include Allure and coverage files.
 Kotlin can abort disposal on reverse-removal errors; native builds log those
 errors and continue cleanup. Remove reliance on the thread-count settings or
 on reverse cleanup failures aborting disposal.
+Approved 2026-10-25, from WP 6.5.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
 and [provider findings](wp/6.5-findings.md).
 
@@ -154,6 +155,7 @@ Kotlin can leave log collection and instrumentation running after remote-parsing
 failure or a failing execution after hook. Native execution cleans them up on
 every exit. No configuration change is needed; do not rely on leaked
 instrumentation continuing after failure.
+Approved 2026-10-25, from WP 6.6a.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
 and [runner findings](wp/6.6a-findings.md).
 
@@ -165,6 +167,7 @@ to stop during cleanup. On failure, perfetto stops but its trace stays on the
 worker without being downloaded. Video/GIF cancellation adds no remote cleanup
 commands; profiling setup failures still fail the batch. No configuration change
 is needed; account for retained remote traces.
+Approved 2026-10-26, from WP 6.6b.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
 and [artifact findings](wp/6.6b-findings.md).
 
@@ -179,6 +182,7 @@ longer exists the stop counts as successful and the pidfile is removed. A
 recorder that is still alive keeps the Kotlin warning and pidfile. No
 configuration change is needed; expect videos for later tests that Kotlin
 loses, and one extra worker command after a failed stop.
+Approved 2026-10-31, from WP 5.3.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
 and [follow-up findings](wp/5.3-findings.md).
 
@@ -196,6 +200,7 @@ all devices of a multi-host farm to keep working through reconnects. A device
 that disconnects stayed in the provider's map as in Kotlin until D24 removed it. When several servers
 expose the same serial, the replay key of `borrow` is `serial@server` instead of
 the bare serial.
+Approved 2026-11-02 (project owner's decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [x1 evidence](wp/x1-findings.md) and [x2 findings](wp/x2-findings.md).
 
@@ -213,6 +218,7 @@ whatever is still buffered after the second check before finishing, so every
 byte the worker sent before EOF is parsed. Idle timeouts, cancellation and the
 other reader behaviour are unchanged. No configuration change is needed;
 expect fewer spurious setup and parsing failures on busy workers.
+Approved 2026-11-03 (project owner's decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [A100](known-kotlin-bugs.md) and [x9 findings](wp/x9-findings.md).
 
@@ -232,6 +238,7 @@ supply. The push to the worker and the fake test run are unchanged. The default
 `nm` parser needs no library and never reads the variable, so only a Marathonfile
 that selects `xctest` needs action; see the
 [migration guide](migration.md#the-xctest-parser-needs-a-library-you-supply).
+Approved 2026-11-04 (project owner's decision).
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
 [x11 findings](wp/x11-findings.md).
 
