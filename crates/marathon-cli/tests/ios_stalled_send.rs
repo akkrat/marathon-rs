@@ -315,8 +315,8 @@ struct Frozen {
     exit: Option<i32>,
     seconds: f64,
     /// When each rsync the run started began and ended, in seconds after the start, with the worker (`frozen`, `healthy`, or
-    /// `probe` for the version check), whether it sent the test bundle, and its status. One stopped by the bridge has no end,
-    /// since the bridge's TERM ends the stand-in too.
+    /// `probe` for the version check), whether it sent the test bundle, and its status. One that the bridge stopped with TERM
+    /// says `stopped` and has no end.
     sends: Vec<String>,
     frozen_at: Option<f64>,
     stdout: String,
@@ -383,7 +383,9 @@ async fn frozen_run(keep_alive: &str) -> Result<Frozen> {
              case \"$*\" in *.xctest*) what=bundle;; *) what=other;; esac\n\
              if [ $who = frozen ] && [ ! -e \"{mark}\" ]; then at > \"{mark}\"; kill -STOP {pid}; fi\n\
              echo \"$(at) start $who $what\" >> \"{log}\"\n\
-             /usr/bin/rsync \"$@\"\n\
+             trap 'echo \"$(at) stopped $who $what\" >> \"{log}\"; exit 143' TERM\n\
+             /usr/bin/rsync \"$@\" &\n\
+             wait $!\n\
              status=$?\n\
              echo \"$(at) end $who $what $status\" >> \"{log}\"\n\
              exit $status\n",
@@ -437,46 +439,73 @@ impl std::fmt::Display for Frozen {
         write!(f, "--- stdout\n{}\n--- stderr\n{}", self.stdout, self.stderr)
     }
 }
-/// What x45 measured, either way: the parse's first attempt is not ended by the frozen device's lost connection, only by
-/// rsync's own 300 s (D31), and the 180 s of `deviceInitializationTimeoutMillis` cannot end the attempt either, since the
-/// send doesn't see the cancellation. The second attempt borrows the healthy worker under the expired scope, and the run
-/// fails with the timeout's error once that attempt sees the cancellation, at about 310 s.
-fn assert_frozen_parse(run: &Frozen) {
+/// When the run's first `event` (`start`, `stopped` or `end`) for the bundle to `who` came, in seconds after the start.
+fn bundle_at(run: &Frozen, event: &str, who: &str) -> Option<f64> {
+    let suffix = format!(" {event} {who} bundle");
+    run.sends
+        .iter()
+        .find(|send| send.ends_with(&suffix) || send.contains(&format!("{suffix} ")))
+        .and_then(|send| send.split_once(" s ").and_then(|(at, _)| at.parse().ok()))
+}
+/// Either way, the parse's first borrow takes the frozen worker, and its bundle's send is what the freeze catches.
+fn assert_frozen_first(run: &Frozen) {
     let first = run.sends.iter().find(|send| !send.contains(" probe "));
     assert!(first.is_some_and(|send| send.ends_with("start frozen bundle")), "{run}");
-    assert_eq!(run.exit, Some(1), "{run}");
-    assert!(run.stdout.contains("send error: no progress in 300 s"), "{run}");
-    assert!(
-        run.stdout
-            .contains("Timed out waiting for a temporary device for remote test parsing"),
-        "{run}"
-    );
-    assert!(
-        run.sends.iter().any(|send| send.ends_with("start healthy bundle")),
-        "{run}"
-    );
-    assert!(run.seconds > 285.0, "{run}");
+    // D31's limit plays no part.
+    assert!(!run.stdout.contains("no progress in 300 s"), "{run}");
 }
+/// D54 with the default keep-alive: the frozen simulator's connection is lost at about 75 s, which stops the parse's send
+/// to it and fails that attempt, and D53's next attempt parses on the healthy worker. Under x45 the send went on until D31
+/// stopped it at 305 s, and the run failed at about 311 s.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "takes minutes on the real clock; run by hand with --ignored --nocapture"]
-async fn a_worker_frozen_while_parsing_with_default_keep_alive_x45() -> Result {
+async fn a_worker_frozen_while_parsing_is_left_once_keep_alive_loses_it_d54() -> Result {
     let run = frozen_run("").await?;
     println!("{run}");
-    assert_frozen_parse(&run);
-    // The borrowed simulator's own connection is lost at about 75 s, and that ends nothing of the parse.
+    assert_frozen_first(&run);
     assert!(
         run.stdout
             .contains("Did not receive any keep-alive response for 60 seconds"),
         "{run}"
     );
+    assert!(
+        run.stdout
+            .contains("send error: the device's connection was lost while sending to 127.0.0.1:"),
+        "{run}"
+    );
+    let stopped = bundle_at(&run, "stopped", "frozen").ok_or_else(|| format!("{run}"))?;
+    assert!((70.0..85.0).contains(&stopped), "{run}");
+    let second = bundle_at(&run, "start", "healthy").ok_or_else(|| format!("{run}"))?;
+    assert!((stopped..stopped + 10.0).contains(&second), "{run}");
+    assert_eq!(run.exit, Some(0), "{run}");
+    assert!(run.stdout.contains("test1"), "{run}");
+    assert!(
+        !run.stdout
+            .contains("Timed out waiting for a temporary device for remote test parsing"),
+        "{run}"
+    );
     Ok(())
 }
+/// D54 with keep-alive off: nothing notices the frozen worker, and `deviceInitializationTimeoutMillis` (180 s) now ends the
+/// parse's send at its limit, so the run fails with the timeout's error at about 180 s. Under x45 it failed at about 311 s
+/// and exited at about 346 s.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "takes minutes on the real clock; run by hand with --ignored --nocapture"]
-async fn a_worker_frozen_while_parsing_with_keep_alive_off_x45() -> Result {
+async fn a_worker_frozen_while_parsing_with_keep_alive_off_fails_at_the_limit_d54() -> Result {
     let run = frozen_run("    keepAliveInterval: PT0S\n").await?;
     println!("{run}");
-    assert_frozen_parse(&run);
+    assert_frozen_first(&run);
     assert!(!run.stdout.contains("keep-alive response"), "{run}");
+    assert!(!run.stdout.contains("connection was lost"), "{run}");
+    let stopped = bundle_at(&run, "stopped", "frozen").ok_or_else(|| format!("{run}"))?;
+    assert!((179.0..190.0).contains(&stopped), "{run}");
+    assert_eq!(run.exit, Some(1), "{run}");
+    assert!(
+        run.stdout
+            .contains("Timed out waiting for a temporary device for remote test parsing"),
+        "{run}"
+    );
+    // A cancellation marks no device as tried, and `withRetry` ends on it, so the healthy worker gets no attempt.
+    assert_eq!(bundle_at(&run, "start", "healthy"), None, "{run}");
     Ok(())
 }
