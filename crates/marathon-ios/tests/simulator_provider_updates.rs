@@ -104,7 +104,7 @@ async fn an_update_that_removes_a_simulator_disposes_only_that_one_after_its_bat
                 disconnected = true;
             }
             DeviceEvent::Connected(d) => {
-                assert!(d.0.info().serial_number.to_string_lossy().starts_with("d@"));
+                assert!(d.0.info().serial_number.to_owned().starts_with("d@"));
                 added = true;
             }
         }

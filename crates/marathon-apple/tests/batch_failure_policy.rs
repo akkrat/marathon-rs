@@ -65,14 +65,7 @@ fn loses_the_device_after_consecutive_batches_in_which_no_test_passed_or_failed(
     assert!(p.on_batch_completed(false).is_none());
     let e = p.on_batch_completed(false).unwrap().into_vendor();
     assert_eq!(
-        e.failure()
-            .cause
-            .as_ref()
-            .unwrap()
-            .message
-            .as_ref()
-            .unwrap()
-            .to_string_lossy(),
+        e.failure().cause.as_ref().unwrap().message.as_ref().unwrap().to_owned(),
         "No test has passed or failed in 3 batches in a row"
     );
 }
@@ -130,7 +123,7 @@ fn progress_limit_precedes_passed_reset_and_preserves_suppression() {
         )
         .unwrap();
     assert_eq!(loss.suppressed.len(), 1);
-    let trace = loss.into_vendor().failure().stack_trace().to_string_lossy();
+    let trace = loss.into_vendor().failure().stack_trace().to_owned();
     assert!(trace.find("Suppressed:").unwrap() < trace.find("Caused by:").unwrap());
 }
 fn timed_out() -> marathon_core::error::Failure {
@@ -142,10 +135,7 @@ fn output_timeouts_without_progress_count_as_batch_failures_d39() {
     assert!(p.on_batch_timed_out(timed_out(), false).is_none());
     assert!(p.on_batch_timed_out(timed_out(), false).is_none());
     let loss = p.on_batch_timed_out(timed_out(), false).unwrap();
-    assert_eq!(
-        loss.cause.class.to_string_lossy(),
-        "java.util.concurrent.TimeoutException"
-    );
+    assert_eq!(loss.cause.class.to_owned(), "java.util.concurrent.TimeoutException");
 }
 #[test]
 fn an_output_timeout_with_progress_resets_the_failure_count_d39() {

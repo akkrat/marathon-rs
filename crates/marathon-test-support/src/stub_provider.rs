@@ -4,7 +4,7 @@
 //! replay driver delivering connect/disconnect events into that queue at scripted times
 //! (`ControlledReplay::event`), so no task is launched from the synchronous `subscribe`.
 use crate::lock;
-use jcompat::writers::JavaString;
+
 use marathon_core::{
     error::*,
     executor::shared::SharedChannel,
@@ -87,11 +87,7 @@ impl DeviceProvider for StubDeviceProvider {
             })
         })
     }
-    fn borrow_untried(
-        &self,
-        tried: Vec<JavaString>,
-        context: VendorContext,
-    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
+    fn borrow_untried(&self, tried: Vec<String>, context: VendorContext) -> VendorFuture<'_, (DeviceRef, String)> {
         let devices = lock(&self.borrowable).clone();
         if devices.is_empty() {
             let borrowed = self.borrow(context);

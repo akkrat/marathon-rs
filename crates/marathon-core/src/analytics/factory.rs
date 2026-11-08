@@ -76,8 +76,12 @@ impl MetricsProviderFactory {
                 )
             }
             AnalyticsConfiguration::Graphite(config) => {
-                let host = String::from_utf16(&config.host.0);
-                let prefix = config.prefix.as_ref().map(|s| String::from_utf16(&s.0)).transpose();
+                let host = String::from_utf16(&config.host.encode_utf16().collect::<Vec<_>>());
+                let prefix = config
+                    .prefix
+                    .as_ref()
+                    .map(|s| String::from_utf16(&s.encode_utf16().collect::<Vec<_>>()))
+                    .transpose();
                 let (client, prefix): (Arc<dyn GraphiteQuery>, _) = match (host, prefix) {
                     (Ok(host), Ok(prefix)) => (self.setup.graphite(&host).await?, prefix),
                     _ => (Arc::new(InvalidGraphiteQuery), None),

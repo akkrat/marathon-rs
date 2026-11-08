@@ -44,7 +44,7 @@ impl fmt::Display for DeviceState {
             Self::Connected => f.write_str("DeviceState.Connected"),
             Self::Ready => f.write_str("DeviceState.Ready"),
             Self::Initializing => f.write_str("DeviceState.Initializing"),
-            Self::Running(r) => write!(f, "DeviceState.Running(batch={})", r.test_batch.id.to_string_lossy()),
+            Self::Running(r) => write!(f, "DeviceState.Running(batch={})", r.test_batch.id.to_owned()),
             Self::Terminated => f.write_str("DeviceState.Terminated"),
         }
     }
@@ -52,7 +52,7 @@ impl fmt::Display for DeviceState {
 impl fmt::Display for DeviceEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Execute(batch) => write!(f, "DeviceEvent.Execute(batch={})", batch.id.to_string_lossy()),
+            Self::Execute(batch) => write!(f, "DeviceEvent.Execute(batch={})", batch.id.to_owned()),
             Self::Complete => f.write_str("DeviceEvent.Complete"),
             Self::Initialize => f.write_str("DeviceEvent.Initialize"),
             Self::Terminate => f.write_str("DeviceEvent.Terminate"),

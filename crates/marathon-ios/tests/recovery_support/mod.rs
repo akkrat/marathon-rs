@@ -99,17 +99,13 @@ impl ReplayHooks for Time {
     fn draw_int(&self, l: &'static str) -> ClockResult<i32> {
         self.clock.draw_int(l)
     }
-    fn choose_key(
-        &self,
-        l: &'static str,
-        keys: &[jcompat::writers::JavaString],
-    ) -> ClockResult<jcompat::writers::JavaString> {
+    fn choose_key(&self, l: &'static str, keys: &[String]) -> ClockResult<String> {
         self.clock.choose_key(l, keys)
     }
-    fn allocate_id(&self, l: &'static str) -> ClockResult<jcompat::writers::JavaString> {
+    fn allocate_id(&self, l: &'static str) -> ClockResult<String> {
         self.clock.allocate_id(l)
     }
-    fn identity_suffix(&self, l: &'static str, id: ObjectIdentity) -> ClockResult<jcompat::writers::JavaString> {
+    fn identity_suffix(&self, l: &'static str, id: ObjectIdentity) -> ClockResult<String> {
         self.clock.identity_suffix(l, id)
     }
     fn verify_consumed(&self) -> ClockResult<()> {
@@ -272,7 +268,7 @@ impl RecoveryHarness {
             message.contains(s)
                 || cause
                     .as_ref()
-                    .is_some_and(|e| e.to_java_string().to_string_lossy().contains(s))
+                    .is_some_and(|e| e.to_java_string().to_owned().contains(s))
         })
     }
     pub fn current(&self, id: &str) -> Simulator {

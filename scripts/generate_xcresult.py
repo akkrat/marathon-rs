@@ -15,7 +15,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = ROOT / 'fixtures/xcresult/schema-3.39.json'
 OUTPUT = ROOT / 'crates/marathon-apple/src/xcresult/generated.rs'
-WKT = {'String': 'JavaString', 'Int': 'i32', 'Double': 'f64', 'Bool': 'bool', 'Date': 'JavaDate'}
+WKT = {'String': 'String', 'Int': 'i32', 'Double': 'f64', 'Bool': 'bool', 'Date': 'JavaDate'}
 
 
 def included(prop):
@@ -89,7 +89,7 @@ def render(schema, digest):
         f'//! Schema {version["major"]}.{version["minor"]}, signature {schema["signature"]}; fixtures/xcresult/schema-3.39.json.',
         f'//! Schema SHA-256: {digest}.',
         '', 'use super::decoder::{Decode, Fields, JsonNode, Path, XcresultDecodeError};',
-        'use jcompat::{jackson::JavaDate, writers::JavaString};', '',
+        'use jcompat::jackson::JavaDate;', '',
         f'pub const OBJECT_TYPE_COUNT: usize = {len(objects)};', '',
     ]
     for name, fields in objects.items():

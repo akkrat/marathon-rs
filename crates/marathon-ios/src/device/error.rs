@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorFactory.kt
 //! (original exception and suppressed disposal errors), and SimulatorProvisioner.kt (SetupDropped).
 
-use jcompat::writers::JavaString;
 use marathon_apple::{cmd::failure, device::connection_factory::ConnectionError};
 use marathon_core::{
     error::{Failure, VendorError},
@@ -10,7 +9,7 @@ use marathon_core::{
 use std::{future::Future, pin::Pin};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SetupDropped(pub JavaString);
+pub struct SetupDropped(pub String);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SetupError {
     Connection(Box<ConnectionError>),
@@ -52,7 +51,7 @@ impl ProvisioningError {
         }
     }
     /// D12 omits JVM frames, while preserving the Throwable suppression relationship.
-    pub fn stack_trace(&self) -> JavaString {
+    pub fn stack_trace(&self) -> String {
         self.output_failure().stack_trace()
     }
     /// Bridge/5.2 boundary: retain the variant and suppression text without reopening core Failure.
@@ -85,19 +84,14 @@ impl ProvisioningError {
         if !self.suppressed.is_empty() {
             // Failure's stacktrace is its frame/body portion, not another exception header.
             let mut body = result.stacktrace.clone().unwrap_or_default();
-            if !body.0.is_empty() {
-                body.push_str("\n");
+            if !body.is_empty() {
+                body.push('\n');
             }
             for suppressed in &self.suppressed {
                 body.push_str("\tSuppressed: ");
-                for (i, line) in suppressed
-                    .stack_trace()
-                    .to_string_lossy()
-                    .split_inclusive('\n')
-                    .enumerate()
-                {
+                for (i, line) in suppressed.stack_trace().to_owned().split_inclusive('\n').enumerate() {
                     if i != 0 {
-                        body.push_str("\t");
+                        body.push('\t');
                     }
                     body.push_str(line);
                 }
@@ -129,11 +123,11 @@ impl From<SetupDropped> for ProvisioningError {
     }
 }
 pub fn clock_error(error: ReplayError) -> VendorError {
-    VendorError::Other(failure("ReplayError", error.message.to_string_lossy()))
+    VendorError::Other(failure("ReplayError", &error.message))
 }
 impl std::fmt::Display for ProvisioningError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.failure().to_java_string().to_string_lossy())
+        f.write_str(&self.failure().to_java_string().to_owned())
     }
 }
 impl std::error::Error for ProvisioningError {}

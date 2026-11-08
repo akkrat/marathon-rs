@@ -155,7 +155,7 @@ pub trait CommandExecutor: Send + Sync {
             .await;
             // Kotlin catches the two sshj classes and their subclasses (OpenFailException is a
             // ConnectionException), in this order.
-            let class = |f: &Failure| f.class.to_string_lossy();
+            let class = |f: &Failure| f.class.to_owned();
             match result {
                 Ok(value) => Ok(Some(value)),
                 Err(VendorError::Other(ref f)) if is_instance(&class(f), CONNECTION_EXCEPTION) => {

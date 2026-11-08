@@ -47,11 +47,7 @@ impl ProviderRecovery for Recovery {
         self.ticks.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     }
-    fn admit(
-        &self,
-        _: &jcompat::writers::JavaString,
-        _: &Simulator,
-    ) -> marathon_ios::device::error::ProvisioningResult<()> {
+    fn admit(&self, _: &String, _: &Simulator) -> marathon_ios::device::error::ProvisioningResult<()> {
         Ok(())
     }
     fn offer(&self, _: &Transport, _: &[AppleTarget]) -> bool {
@@ -75,7 +71,7 @@ impl ProviderRecovery for Recovery {
         self.failed.lock().unwrap().push(targets);
         Box::pin(async { Ok(()) })
     }
-    fn forget_setup(&self, _: &jcompat::writers::JavaString) {}
+    fn forget_setup(&self, _: &String) {}
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async {
             if self.fail_termination.load(Ordering::SeqCst) {
@@ -110,7 +106,7 @@ impl ProvisioningConnections for Connections {
             self.trace
                 .lock()
                 .unwrap()
-                .push(format!("acquire:{}", transport.id().to_string_lossy()));
+                .push(format!("acquire:{}", transport.id().to_owned()));
             Ok((worker, Arc::new(BridgeMock) as Bridge))
         })
     }
@@ -204,7 +200,7 @@ impl ProviderHarness {
     pub fn worker(&self, transport: Transport, ids: &[&str]) -> Arc<FakeSimulatorWorker> {
         let worker = Arc::new(
             FakeSimulatorWorker::new(Arc::new(Runtime), &mut self.h.services.logging.registry.lock().unwrap())
-                .with_host_id(&transport.id().to_string_lossy()),
+                .with_host_id(&transport.id().to_owned()),
         );
         worker.add(ids);
         let boot = self.h.boot.clone();

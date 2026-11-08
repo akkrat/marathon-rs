@@ -8,7 +8,7 @@ use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
 use jcompat::{
     logging::Level,
-    writers::{GsonWriter, JavaString, WriterValue},
+    writers::{GsonWriter, WriterValue},
 };
 use marathon_core::{analytics::MetricsContext, error::*, executor::shared::failure};
 use std::{
@@ -18,14 +18,12 @@ use std::{
 use tower_service::Service;
 use url::Url;
 
-pub(crate) fn text(value: &JavaString) -> OperationResult<String> {
-    value
-        .as_utf8()
-        .map_err(|_| failure("java.lang.IllegalArgumentException", "Analytics text must be UTF-8").into())
+pub(crate) fn text(value: &String) -> OperationResult<String> {
+    Ok(value.clone())
 }
 pub(crate) fn quote(value: &str) -> String {
     match GsonWriter::default().write(&WriterValue::String(value.into())) {
-        Ok(text) => text.to_string_lossy(),
+        Ok(text) => text.to_owned(),
         Err(_) => unreachable!("Gson string encoding is infallible"),
     }
 }
@@ -42,7 +40,7 @@ pub(crate) fn log(context: &MetricsContext, logger: &str, level: Level, message:
         at_millis,
         wall_millis,
         level,
-        message: message.into(),
+        message,
         cause,
     });
 }
@@ -69,7 +67,7 @@ pub(crate) struct Reply {
     pub retry_after: Option<String>,
 }
 impl Http {
-    pub fn new(base: &JavaString, auth: Option<String>, context: MetricsContext, debug: bool) -> OperationResult<Self> {
+    pub fn new(base: &String, auth: Option<String>, context: MetricsContext, debug: bool) -> OperationResult<Self> {
         let raw = text(base)?;
         // P4: reject URL forms which WHATWG would silently repair.
         if !raw
@@ -456,7 +454,7 @@ pub(crate) mod tests {
     async fn timeout(write: bool) -> OperationResult<()> {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|e| network_error(&e))?;
         let url = format!("http://{}", listener.local_addr().map_err(|e| network_error(&e))?);
-        let mut http = Http::new(&url.into(), None, context(), false)?;
+        let mut http = Http::new(&url, None, context(), false)?;
         // Shortened socket-idle timeout, retaining the independent other scopes.
         if write {
             http.connector.set_write_timeout(Some(Duration::from_millis(10)));
@@ -480,7 +478,7 @@ pub(crate) mod tests {
             let result = http.request("POST", "slow", Some("text/plain"), None, body).await;
             done.notify_one();
             assert!(
-                matches!(result,Err(OperationError::Failed(f)) if f.class==JavaString::from("java.net.SocketTimeoutException"))
+                matches!(result,Err(OperationError::Failed(f)) if f.class=="java.net.SocketTimeoutException")
             );
         };
         let (_, server) = futures_util::future::join(request, server).await;

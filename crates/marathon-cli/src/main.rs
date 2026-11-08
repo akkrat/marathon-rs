@@ -3,7 +3,7 @@
 //! The `marathon` binary: the process's arguments, working directory, environment, clock and standard streams
 //! around `marathon_cli::run_cli` (PLAN §3.1).
 
-use jcompat::{jtime::instant_of, logging::OutputTarget, writers::JavaString};
+use jcompat::{jtime::instant_of, logging::OutputTarget};
 use marathon_cli::{
     application::{CliOutput, Process, failure_exit},
     run_cli,
@@ -54,8 +54,8 @@ fn main() -> ExitCode {
         environment: std::env::vars_os()
             .map(|(k, v)| {
                 (
-                    JavaString::from(k.to_string_lossy().as_ref()),
-                    JavaString::from(v.to_string_lossy().as_ref()),
+                    String::from(k.to_string_lossy().as_ref()),
+                    String::from(v.to_string_lossy().as_ref()),
                 )
             })
             .collect(),

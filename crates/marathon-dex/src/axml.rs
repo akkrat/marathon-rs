@@ -20,7 +20,6 @@
 //! bounded by the bytes left in the document.
 
 use crate::error::{DexError, DexResult};
-use jcompat::writers::JavaString;
 
 pub const START_DOCUMENT: i32 = 0;
 pub const END_DOCUMENT: i32 = 1;
@@ -188,7 +187,7 @@ impl StringBlock {
 
     /// StringBlock.getString: null (None) for an invalid index or a
     /// string the charset decoder rejects.
-    fn get_string(&self, index: i32) -> DexResult<Option<JavaString>> {
+    fn get_string(&self, index: i32) -> DexResult<Option<String>> {
         if index < 0 || index as usize >= self.offsets.len() {
             return Ok(None);
         }
@@ -235,7 +234,7 @@ impl StringBlock {
         Ok((2, value * 2))
     }
 
-    fn decode(&self, offset: i32, length: i32) -> DexResult<Option<JavaString>> {
+    fn decode(&self, offset: i32, length: i32) -> DexResult<Option<String>> {
         let (Ok(offset), Ok(length)) = (usize::try_from(offset), usize::try_from(length)) else {
             return Err(range_out_of_bounds());
         };
@@ -265,7 +264,7 @@ impl StringBlock {
             if char::decode_utf16(units.iter().copied()).any(|c| c.is_err()) {
                 return Ok(None);
             }
-            Ok(Some(JavaString(units)))
+            Ok(Some(String::from_utf16_lossy(&units)))
         }
     }
 }
@@ -391,15 +390,15 @@ impl<'a> AxmlParser<'a> {
         Ok(self.tag_type)
     }
 
-    fn get_string(&self, index: i32) -> DexResult<Option<JavaString>> {
+    fn get_string(&self, index: i32) -> DexResult<Option<String>> {
         if index == -1 {
-            return Ok(Some(JavaString::default()));
+            return Ok(Some(String::default()));
         }
         self.strings.get_string(index)
     }
 
     /// getName: null when there is no current tag name.
-    pub fn name(&self) -> DexResult<Option<JavaString>> {
+    pub fn name(&self) -> DexResult<Option<String>> {
         if self.tag_name == -1 {
             return Ok(None);
         }
@@ -426,20 +425,20 @@ impl<'a> AxmlParser<'a> {
         Ok(attrs[index as usize])
     }
 
-    pub fn attribute_name(&self, index: i32) -> DexResult<Option<JavaString>> {
+    pub fn attribute_name(&self, index: i32) -> DexResult<Option<String>> {
         self.get_string(self.attribute(index)?.name)
     }
 
     /// getAttributeValueString: the pooled string for the raw
     /// valueString index, whatever the typed value says.
-    pub fn attribute_value_string(&self, index: i32) -> DexResult<Option<JavaString>> {
+    pub fn attribute_value_string(&self, index: i32) -> DexResult<Option<String>> {
         self.get_string(self.attribute(index)?.value_string)
     }
 
     // Kept for parity with the upstream surface ApkParser could reach;
     // marathon 1.0 callers use only name/valueString.
     #[allow(dead_code)]
-    fn attribute_namespace(&self, index: i32) -> DexResult<Option<JavaString>> {
+    fn attribute_namespace(&self, index: i32) -> DexResult<Option<String>> {
         self.get_string(self.attribute(index)?.namespace)
     }
 

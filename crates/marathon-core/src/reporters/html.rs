@@ -19,16 +19,16 @@ use jcompat::{
 };
 use std::sync::Arc;
 
-fn safe_serial(device: &DeviceInfo) -> JavaString {
-    JavaString(escape_utf16(&device.serial_number.0))
+fn safe_serial(device: &DeviceInfo) -> String {
+    String::from_utf16_lossy(&escape_utf16(&device.serial_number.encode_utf16().collect::<Vec<_>>()))
 }
-fn id(test: &TestResult) -> JavaString {
+fn id(test: &TestResult) -> String {
     test.test.to_test_name('.', '.')
 }
-pub fn filename(test: &TestResult) -> JavaString {
-    let mut units = escape_utf16(&id(test).0);
+pub fn filename(test: &TestResult) -> String {
+    let mut units = escape_utf16(&id(test).encode_utf16().collect::<Vec<_>>());
     units.truncate(128);
-    let mut name = JavaString(units);
+    let mut name = String::from_utf16_lossy(&units);
     name.push_str(".html");
     name
 }
@@ -84,7 +84,7 @@ pub fn pool_summary(p: &PoolSummary) -> WriterValue {
         ),
     ])
 }
-pub fn index(summary: &Summary, title: &JavaString) -> VendorResult<WriterValue> {
+pub fn index(summary: &Summary, title: &String) -> VendorResult<WriterValue> {
     let totals: Vec<i64> = summary
         .pools
         .iter()
@@ -120,15 +120,16 @@ pub fn index(summary: &Summary, title: &JavaString) -> VendorResult<WriterValue>
         ),
     ]))
 }
-pub fn logcat_html(log: &JavaString) -> JavaString {
-    if log.0.is_empty() {
-        return JavaString::default();
+pub fn logcat_html(log: &String) -> String {
+    if log.is_empty() {
+        return String::default();
     }
-    let mut out = JavaString::from("<div class=\"content\"><div class=\"card log\">");
+    let mut out = String::from("<div class=\"content\"><div class=\"card log\">");
     for line in lines(log) {
         // Kotlin Char.isLetter tests UTF-16 chars, so supplementary letters do not match.
         let first = line
-            .0
+            .encode_utf16()
+            .collect::<Vec<_>>()
             .iter()
             .copied()
             .find(|u| jcompat::jstring::is_letter(*u))
@@ -145,23 +146,23 @@ pub fn logcat_html(log: &JavaString) -> JavaString {
         out.push_str("<div class=\"log__");
         out.push_str(css);
         out.push_str("\">");
-        out.append(escape_xml11(&line));
+        out.push_str(&escape_xml11(&line));
         out.push_str("</div>\n");
     }
     out.push_str("</div></div>\n");
     out
 }
-fn url(path: &JavaPath, root: &JavaPath) -> JavaString {
-    let mut out = JavaString::from("../../../../");
-    out.append(replace(&relative_file(path, root, root), "#", &"%23".into()));
+fn url(path: &JavaPath, root: &JavaPath) -> String {
+    let mut out = String::from("../../../../");
+    out.push_str(&replace(&relative_file(path, root, root), "#", "%23"));
     out
 }
 fn full_test(
     r: &TestResult,
     pool: &DevicePoolId,
-    screenshot: JavaString,
+    screenshot: String,
     videos: Vec<WriterValue>,
-    log: JavaString,
+    log: String,
 ) -> WriterValue {
     object([
         ("pool_id", string(&pool.name)),
@@ -187,13 +188,13 @@ fn full_test(
         ("log_file", string(&log)),
     ])
 }
-fn page(path: &JavaPath, html: &JavaPath, data: JavaString, log: JavaString, date: &JavaString) -> VendorResult<()> {
+fn page(path: &JavaPath, html: &JavaPath, data: String, log: String, date: &String) -> VendorResult<()> {
     let parent = JavaPath(path.0[..path.0.iter().rposition(|u| *u == 47).unwrap_or(0)].to_vec());
     let mut prefix = relative_file(html, &parent, html);
-    if !prefix.0.is_empty() {
-        prefix.push_str("/")
+    if !prefix.is_empty() {
+        prefix.push('/')
     }
-    let mut text = JavaString::from(include_str!("../../../../fixtures/reporters/html/index.html"));
+    let mut text = String::from(include_str!("../../../../fixtures/reporters/html/index.html"));
     for (key, value) in [
         ("${relative_path}", &prefix),
         ("${data_json}", &data),
@@ -202,12 +203,12 @@ fn page(path: &JavaPath, html: &JavaPath, data: JavaString, log: JavaString, dat
     ] {
         text = replace(&text, key, value)
     }
-    write(path, &text.to_utf8_bytes())
+    write(path, text.as_bytes())
 }
-fn assignment(name: &str, value: &WriterValue) -> VendorResult<JavaString> {
-    let mut out = JavaString::from(name);
+fn assignment(name: &str, value: &WriterValue) -> VendorResult<String> {
+    let mut out = String::from(name);
     out.push_str(" = ");
-    out.append(gson(value)?);
+    out.push_str(&gson(value)?);
     Ok(out)
 }
 #[derive(Clone)]
@@ -215,7 +216,7 @@ pub struct HtmlSummaryReporter {
     io: Arc<dyn VendorRuntime>,
     files: Arc<dyn OutputFiles>,
     clock: Arc<dyn WallClock>,
-    title: JavaString,
+    title: String,
     root: JavaPath,
 }
 impl HtmlSummaryReporter {
@@ -223,7 +224,7 @@ impl HtmlSummaryReporter {
         io: Arc<dyn VendorRuntime>,
         files: Arc<dyn OutputFiles>,
         clock: Arc<dyn WallClock>,
-        title: JavaString,
+        title: String,
         process_dir: JavaPath,
     ) -> Self {
         let root = jcompat::file_manager::absolute_file_path_utf16(&files.output_dir().0, &process_dir.0);
@@ -254,12 +255,12 @@ impl HtmlSummaryReporter {
         })
         .await?;
         let Some(index) = index else { return Ok(()) };
-        let date = JavaString::from(format_date(
+        let date = format_date(
             self.clock
                 .millis("core.HtmlSummaryReporter.date")
                 .map_err(clock_error)?,
             DatePattern::Html,
-        ));
+        );
         let html = self
             .files
             .create_folder(FolderType::Html, None, None)
@@ -275,7 +276,7 @@ impl HtmlSummaryReporter {
                 &child(&h, "app.min.css"),
                 include_bytes!("../../../../fixtures/reporters/html/app.min.css"),
             )?;
-            page(&child(&h, "index.html"), &h, index, JavaString::default(), &d)?;
+            page(&child(&h, "index.html"), &h, index, String::default(), &d)?;
             mkdir(&child(&h, "pools"))
         })
         .await?;
@@ -286,16 +287,19 @@ impl HtmlSummaryReporter {
                 let mut name = p.pool_id.name.clone();
                 name.push_str(".html");
                 page(
-                    &child_file(&pools, &name.0),
+                    &child_file(&pools, &name.encode_utf16().collect::<Vec<_>>()),
                     &h,
                     assignment("window.pool", &pool_summary(&p))?,
-                    JavaString::default(),
+                    String::default(),
                     &d,
                 )?;
                 p.tests
                     .iter()
                     .map(|r| {
-                        let dir = child_file(&child_file(&pools, &p.pool_id.name.0), &safe_serial(&r.device).0);
+                        let dir = child_file(
+                            &child_file(&pools, &p.pool_id.name.encode_utf16().collect::<Vec<_>>()),
+                            &safe_serial(&r.device).encode_utf16().collect::<Vec<_>>(),
+                        );
                         mkdir(&dir)?;
                         Ok(dir)
                     })
@@ -324,7 +328,7 @@ impl HtmlSummaryReporter {
                     {
                         url(&shot, &root)
                     } else {
-                        JavaString::default()
+                        String::default()
                     };
                     let videos = if r1.device.device_features.contains(&DeviceFeature::Video) {
                         r1.attachments
@@ -349,7 +353,7 @@ impl HtmlSummaryReporter {
                         let log = if exists(&log) {
                             url(&log, &root)
                         } else {
-                            JavaString::default()
+                            String::default()
                         };
                         let data = full_test(&r, &p, screenshot, videos, log.clone());
                         Ok((r, dir, data, log))
@@ -362,7 +366,7 @@ impl HtmlSummaryReporter {
                 blocking(self.io.as_ref(), move || {
                     let filename = filename(&r);
                     page(
-                        &child_file(&dir, &filename.0),
+                        &child_file(&dir, &filename.encode_utf16().collect::<Vec<_>>()),
                         &h,
                         assignment("window.test", &data)?,
                         logcat_html(&r.stacktrace.clone().unwrap_or_default()),
@@ -370,8 +374,8 @@ impl HtmlSummaryReporter {
                     )?;
                     let logs = child(&dir, "logs");
                     mkdir(&logs)?;
-                    let mut path = JavaString::from("../");
-                    path.append(log);
+                    let mut path = String::from("../");
+                    path.push_str(&log);
                     let data = object([
                         ("pool_id", string(&p.name)),
                         ("test_id", string(&id(&r))),
@@ -380,10 +384,10 @@ impl HtmlSummaryReporter {
                         ("log_path", string(&path)),
                     ]);
                     page(
-                        &child_file(&logs, &filename.0),
+                        &child_file(&logs, &filename.encode_utf16().collect::<Vec<_>>()),
                         &h,
                         assignment("window.logs", &data)?,
-                        JavaString::default(),
+                        String::default(),
                         &d,
                     )
                 })

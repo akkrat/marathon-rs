@@ -31,7 +31,7 @@ use crate::{
 /// deliverable 2): FQCN class, verbatim message, no wrapper, empty
 /// path/span (P4: post-binding errors have no node context).
 pub fn validation_error_to_configuration_error(error: ValidationError, stage: ValidationStage) -> ConfigurationError {
-    let message: jcompat::writers::JavaString = error.message.clone().into();
+    let message: String = error.message.clone();
     ConfigurationError {
         stage,
         class: error.fqcn().into(),
@@ -45,7 +45,7 @@ pub fn validation_error_to_configuration_error(error: ValidationError, stage: Va
 
 /// A plain stage error with no node context (P4).
 fn stage_error(stage: ValidationStage, class: &str, message: Option<String>) -> Box<ConfigurationError> {
-    let message = message.map(jcompat::writers::JavaString::from);
+    let message = message;
     Box::new(ConfigurationError {
         stage,
         class: class.into(),

@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/execution/ArgumentsFactory.kt
 use crate::{device::AndroidDevice, support::trim};
-use jcompat::{jnum, jstring, logging::Level, writers::JavaString};
+use jcompat::{jnum, jstring, logging::Level};
 use marathon_adb::{instrument_request::*, testrunner::MetricMap};
 use marathon_config::vendor::TestAccessConfiguration;
 
@@ -8,12 +8,7 @@ pub struct ArgumentsFactory<'a> {
     pub device: &'a AndroidDevice,
 }
 impl ArgumentsFactory<'_> {
-    pub fn generate(
-        &self,
-        coverage: bool,
-        args: &[(String, JavaString)],
-        access: &TestAccessConfiguration,
-    ) -> MetricMap {
+    pub fn generate(&self, coverage: bool, args: &[(String, String)], access: &TestAccessConfiguration) -> MetricMap {
         generate(
             self.device.adb_serial(),
             self.device.client().port(),
@@ -21,10 +16,7 @@ impl ArgumentsFactory<'_> {
             coverage,
             args,
             access,
-            |level, text| {
-                self.device
-                    .log_named("ArgumentsFactory", level, &text.to_string_lossy(), None)
-            },
+            |level, text| self.device.log_named("ArgumentsFactory", level, &text.to_owned(), None),
         )
     }
 }
@@ -34,9 +26,9 @@ pub fn generate(
     client_port: u16,
     reverse_port: Option<i32>,
     coverage: bool,
-    args: &[(String, JavaString)],
+    args: &[(String, String)],
     access: &TestAccessConfiguration,
-    mut log: impl FnMut(Level, JavaString),
+    mut log: impl FnMut(Level, String),
 ) -> MetricMap {
     let mut result: MetricMap = args.iter().map(|(k, v)| (k.as_str().into(), v.clone())).collect();
     let local = serial.starts_with("emulator-");
@@ -47,7 +39,7 @@ pub fn generate(
             reverse_port
         }
     {
-        result.insert(ADB_PORT.into(), port.to_string().as_str().into());
+        result.insert(ADB_PORT.into(), port.to_string().as_str().to_owned());
         result.insert(ADB_HOST.into(), if local { "10.0.2.2" } else { "localhost" }.into());
         result.insert(ADB_SERIAL.into(), serial.into());
     }
@@ -80,12 +72,18 @@ pub fn generate(
                         .as_str()
                         .into(),
                 );
-                result.insert(GRPC_PORT.into(), grpc_port.to_string().as_str().into());
+                result.insert(GRPC_PORT.into(), grpc_port.to_string().as_str().to_owned());
                 result.insert(GRPC_HOST.into(), "10.0.2.2".into());
             } else {
-                result.insert(CONSOLE_PORT.into(), port.to_string().as_str().into());
+                result.insert(CONSOLE_PORT.into(), port.to_string().as_str().to_owned());
                 result.insert(CONSOLE_HOST.into(), "10.0.2.2".into());
-                if !access.console_token.0.iter().all(|&u| jstring::is_whitespace(u)) {
+                if !access
+                    .console_token
+                    .encode_utf16()
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .all(|&u| jstring::is_whitespace(u))
+                {
                     result.insert(AUTH_TOKEN.into(), access.console_token.clone());
                 }
             }

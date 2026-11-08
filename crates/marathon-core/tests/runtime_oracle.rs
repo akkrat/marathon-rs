@@ -445,7 +445,7 @@ fn structured_coroutines_corpus_matches_runtime() {
             let start = core.clock().now_millis();
             replay(driver.advance_to(start + 1).await);
             let message = match completed(&owner) {
-                Completion::Failed(f) => f.message.unwrap().as_utf8().unwrap(),
+                Completion::Failed(f) => f.message.unwrap(),
                 _ => "none".into(),
             };
             rows.insert("job:first-failure".into(), message);
@@ -458,9 +458,7 @@ fn structured_coroutines_corpus_matches_runtime() {
                 )
                 .await;
             let message = match zero {
-                Err(OperationError::Cancelled(Cancellation::Timeout { detail, .. })) => {
-                    detail.message.unwrap().as_utf8().unwrap()
-                }
+                Err(OperationError::Cancelled(Cancellation::Timeout { detail, .. })) => detail.message.unwrap(),
                 _ => "none".into(),
             };
             rows.insert("timeout:zero-message".into(), message);

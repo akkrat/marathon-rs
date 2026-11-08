@@ -17,7 +17,6 @@ use crate::device::{
 use jcompat::{
     file_manager::FileManager,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use marathon_apple::{
     apple_device::{AppleDevice, apple_worker_id, storage_path_for},
@@ -98,8 +97,8 @@ impl SimulatorConstructor for AppleSimulatorConstructor {
 pub type Admission = Arc<dyn Fn() -> VendorResult<Option<String>> + Send + Sync>;
 struct State {
     info: DeviceInfo,
-    abi: JavaString,
-    env: Option<Vec<(JavaString, JavaString)>>,
+    abi: String,
+    env: Option<Vec<(String, String)>>,
     home: Option<String>,
     root_path: String,
     log_file: String,
@@ -329,10 +328,10 @@ impl Device for AppleSimulatorDevice {
     fn info(&self) -> DeviceInfo {
         self.state().info.clone()
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         self.state().abi.clone()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         apple_worker_id(&self.transport)
     }
     fn logger(&self) -> &Logger {

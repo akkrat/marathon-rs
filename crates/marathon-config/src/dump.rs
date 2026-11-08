@@ -18,7 +18,6 @@ use jcompat::{
     file_manager::{JavaPath, absolute_file_path_utf16},
     jnum::double_to_string,
     jtime::{Duration, Instant},
-    writers::JavaString,
 };
 
 /// A JSON value as the oracle's `Json` writer sees it.
@@ -29,10 +28,10 @@ pub enum DumpValue {
     Int(i64),
     /// A number literal written verbatim (a `Double.toString` spelling).
     Number(String),
-    Str(JavaString),
+    Str(String),
     Array(Vec<DumpValue>),
     /// Entries in iteration order; see [`DumpValue::sorted`].
-    Object(Vec<(JavaString, DumpValue)>),
+    Object(Vec<(String, DumpValue)>),
 }
 
 impl DumpValue {
@@ -46,8 +45,12 @@ impl DumpValue {
     }
 
     /// An object with its keys sorted as Java's `String.compareTo` sorts them: by UTF-16 code units.
-    pub fn sorted(mut entries: Vec<(JavaString, DumpValue)>) -> Self {
-        entries.sort_by(|a, b| a.0.0.cmp(&b.0.0));
+    pub fn sorted(mut entries: Vec<(String, DumpValue)>) -> Self {
+        entries.sort_by(|a, b| {
+            a.0.encode_utf16()
+                .collect::<Vec<_>>()
+                .cmp(&b.0.encode_utf16().collect::<Vec<_>>())
+        });
         Self::Object(entries)
     }
 
@@ -66,10 +69,10 @@ impl DumpValue {
             Self::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
             Self::Int(n) => out.push_str(&n.to_string()),
             Self::Number(text) => out.push_str(text),
-            Self::Str(s) => write_string(out, &s.0),
+            Self::Str(s) => write_string(out, &s.encode_utf16().collect::<Vec<_>>()),
             Self::Array(items) => container(out, '[', ']', items, depth, |out, item, depth| item.write(out, depth)),
             Self::Object(entries) => container(out, '{', '}', entries, depth, |out, (key, value), depth| {
-                write_string(out, &key.0);
+                write_string(out, &key.encode_utf16().collect::<Vec<_>>());
                 out.push_str(": ");
                 value.write(out, depth);
             }),
@@ -129,18 +132,14 @@ pub fn canonical_configuration(configuration: &Configuration, process_dir: &Java
 }
 
 /// `class: message` of a throwable's causes as the oracle's `errorJson` writes them (a null message reads `null`).
-pub fn error_json(
-    class: &JavaString,
-    message: Option<&JavaString>,
-    causes: &[(JavaString, Option<JavaString>)],
-) -> DumpValue {
+pub fn error_json(class: &String, message: Option<&String>, causes: &[(String, Option<String>)]) -> DumpValue {
     let causes = causes
         .iter()
         .map(|(class, message)| {
             let mut line = class.clone();
             line.push_str(": ");
             match message {
-                Some(m) => line.append(m.clone()),
+                Some(m) => line.push_str(&m.clone()),
                 None => line.push_str("null"),
             }
             DumpValue::Str(line)
@@ -170,7 +169,7 @@ fn typed(name: &str, mut fields: Fields) -> DumpValue {
     fields.push(("type", DumpValue::str(name)));
     obj(fields)
 }
-fn text(s: &JavaString) -> DumpValue {
+fn text(s: &String) -> DumpValue {
     DumpValue::Str(s.clone())
 }
 fn int(n: impl Into<i64>) -> DumpValue {
@@ -205,14 +204,14 @@ fn opt<T>(v: Option<&T>, f: impl FnOnce(&T) -> DumpValue) -> DumpValue {
 fn list<T>(v: &[T], f: impl FnMut(&T) -> DumpValue) -> DumpValue {
     DumpValue::Array(v.iter().map(f).collect())
 }
-fn string_map(v: &[(String, JavaString)]) -> DumpValue {
+fn string_map(v: &[(String, String)]) -> DumpValue {
     DumpValue::sorted(v.iter().map(|(k, v)| (k.as_str().into(), text(v))).collect())
 }
 
 impl Canonical<'_> {
     /// `File.absolutePath`: absolute, not normalised.
     fn file(&self, p: &JavaPath) -> DumpValue {
-        DumpValue::Str(JavaString(absolute_file_path_utf16(&p.0, &self.cwd.0).0))
+        DumpValue::Str(String::from_utf16_lossy(&absolute_file_path_utf16(&p.0, &self.cwd.0).0))
     }
     fn files(&self, v: Option<&Vec<JavaPath>>) -> DumpValue {
         opt(v, |v| list(v, |p| self.file(p)))

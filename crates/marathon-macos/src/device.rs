@@ -5,7 +5,6 @@ use jcompat::{
     file_manager::{FileManager, JavaPath},
     jtime::Duration,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use marathon_apple::{
     apple_application_installer::AppleApplicationInstaller,
@@ -69,7 +68,7 @@ pub struct MacosDeviceOptions {
 }
 struct Facts {
     info: DeviceInfo,
-    abi: JavaString,
+    abi: String,
     env: HashMap<String, String>,
     xcode: Option<XcodeVersion>,
     bundle: Option<Arc<AppleTestBundle>>,
@@ -94,7 +93,7 @@ impl BatchJob {
 pub struct MacosDevice {
     identity: Weak<Self>,
     udid: String,
-    serial: JavaString,
+    serial: String,
     transport: Transport,
     storage: String,
     binary: AppleBinaryEnvironment,
@@ -117,7 +116,7 @@ impl MacosDevice {
         bridge: Bridge,
         options: MacosDeviceOptions,
     ) -> Arc<Self> {
-        let serial: JavaString = format!("{udid}@{}", binary.command_executor.host().id).into();
+        let serial: String = format!("{udid}@{}", binary.command_executor.host().id);
         let storage = storage_path_for(&udid);
         let logger = options.logging.logger("com.malinskiy.marathon.apple.macos.MacosDevice");
         let commands = Arc::new(ExecutorWorkerCommands {
@@ -296,7 +295,7 @@ impl MacosDevice {
             timer: deps.timer.clone(),
             wall: deps.wall.clone(),
             logs: deps.logs.clone(),
-            remote_xcresult: self.remote.remote_xcresult_file(&batch).to_string_lossy(),
+            remote_xcresult: self.remote.remote_xcresult_file(&batch).to_owned(),
             xcresulttool: Arc::new(marathon_apple::bin::xcrun::xcresulttool::Xcresulttool::new(
                 marathon_apple::bin::Tools {
                     executor: self.executor(),
@@ -368,7 +367,7 @@ impl MacosDevice {
                 Level::Warn,
                 format!(
                     "Cancelled batch on {} has not finished within {}, not waiting for it any longer",
-                    self.serial.to_string_lossy(),
+                    self.serial.to_owned(),
                     self.options.cancelled_batch_timeout
                 ),
                 None,
@@ -435,11 +434,7 @@ impl MacosDevice {
                 facts.env.get("USER").cloned().unwrap_or_else(|| "null".into()),
             )
         };
-        let major = version
-            .to_string_lossy()
-            .split('.')
-            .next()
-            .and_then(jcompat::jnum::parse_int);
+        let major = version.to_owned().split('.').next().and_then(jcompat::jnum::parse_int);
         if !major.is_some_and(|n| n > 10) {
             return Err(VendorError::IncompatibleDevice(failure(
                 "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
@@ -503,35 +498,32 @@ impl MacosDevice {
             serial: self.serial.clone(),
             log: Arc::new(move |logger, level, message, cause| {
                 if logging.enabled(logger, level) {
-                    (logging.sink)(logger, level, message.to_string_lossy(), cause.cloned());
+                    (logging.sink)(logger, level, message.to_owned(), cause.cloned());
                 }
             }),
         }
     }
 }
 fn lost(cause: Failure) -> VendorError {
-    let rendered = if cause.class == marathon_apple::cmd::remote::ssh::sshj::error::OPEN_FAIL_EXCEPTION.into() {
+    let rendered = if cause.class == marathon_apple::cmd::remote::ssh::sshj::error::OPEN_FAIL_EXCEPTION {
         marathon_apple::cmd::remote::ssh::sshj::SshFailure::new(
             marathon_apple::cmd::remote::ssh::sshj::error::OPEN_FAIL_EXCEPTION,
-            cause
-                .message
-                .as_ref()
-                .map_or_else(|| "null".into(), JavaString::to_string_lossy),
+            cause.message.as_ref().map_or_else(|| "null".into(), String::clone),
         )
         .java_to_string()
-    } else if cause.class == "kotlinx.coroutines.JobCancellationException".into()
+    } else if cause.class == "kotlinx.coroutines.JobCancellationException"
         && cause.message == Some("LazyDeferredCoroutine was cancelled".into())
     {
         let object = jcompat::writers::KotlinValue::object("kotlinx.coroutines.LazyDeferredCoroutine")
             .render()
-            .to_string_lossy();
+            .to_owned();
         let identity = object.rsplit_once('@').map_or("", |(_, hash)| hash);
         format!(
             "{}; job=LazyDeferredCoroutine{{Cancelled}}@{identity}",
-            cause.to_java_string().to_string_lossy()
+            cause.to_java_string().to_owned()
         )
     } else {
-        cause.to_java_string().to_string_lossy()
+        cause.to_java_string().to_owned()
     };
     let mut detail = failure("com.malinskiy.marathon.exceptions.DeviceLostException", rendered);
     detail.cause = Some(Box::new(cause));
@@ -539,7 +531,7 @@ fn lost(cause: Failure) -> VendorError {
 }
 fn classify_setup(error: VendorError) -> VendorError {
     match error {
-        VendorError::Other(f) if f.class == "com.malinskiy.marathon.exceptions.DeviceSetupException".into() => {
+        VendorError::Other(f) if f.class == "com.malinskiy.marathon.exceptions.DeviceSetupException" => {
             VendorError::DeviceSetup(f)
         }
         other => other,
@@ -552,7 +544,7 @@ fn classify_run(run: RunError) -> VendorError {
         Some(DeviceFailureReason::IncompatibleDevice) => {
             let mut f = failure(
                 "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
-                error.failure().to_java_string().to_string_lossy(),
+                &error.failure().to_java_string(),
             );
             f.cause = Some(Box::new(error.failure().clone()));
             VendorError::IncompatibleDevice(f)
@@ -568,7 +560,7 @@ fn classify_execute(error: VendorError) -> VendorError {
     use marathon_apple::cmd::remote::ssh::sshj::error::{
         CONNECTION_EXCEPTION, OPEN_FAIL_EXCEPTION, TRANSPORT_EXCEPTION, is_instance,
     };
-    let class = error.failure().class.to_string_lossy();
+    let class = error.failure().class.to_owned();
     if class == "java.lang.IllegalStateException"
         || [CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, OPEN_FAIL_EXCEPTION]
             .iter()
@@ -589,10 +581,10 @@ impl Device for MacosDevice {
     fn info(&self) -> DeviceInfo {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.clone()
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         self.facts.lock().unwrap_or_else(|e| e.into_inner()).abi.clone()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         Some(self.transport.id())
     }
     fn logger(&self) -> &Logger {
@@ -641,7 +633,7 @@ impl Device for MacosDevice {
                 if execution.disposal.is_some() {
                     return Err(lost(failure(
                         "java.lang.IllegalStateException",
-                        format!("Device {} has been disposed", self.serial.to_string_lossy()),
+                        format!("Device {} has been disposed", self.serial.to_owned()),
                     )));
                 }
                 execution.running = Some(job.clone());
@@ -681,12 +673,12 @@ impl Device for MacosDevice {
     fn dispose(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             if let Err(error) = self.dispose_inner().await {
-                if jcompat::throwable::is_error_class(&error.failure().class.to_string_lossy()) {
+                if jcompat::throwable::is_error_class(&error.failure().class.to_owned()) {
                     return Err(error);
                 }
                 self.log(
                     Level::Debug,
-                    format!("Error disposing {}", self.serial.to_string_lossy()),
+                    format!("Error disposing {}", self.serial.to_owned()),
                     Some(error.failure().clone()),
                 );
             }
@@ -759,21 +751,21 @@ impl AppleDevice for MacosDevice {
                 )));
             }
             let model = self.binary.ioreg.get_model(context).await.map_err(classify_setup)?;
-            self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.model = model.into();
+            self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.model = model;
             let manufacturer = self
                 .binary
                 .ioreg
                 .get_manufacturer(context)
                 .await
                 .map_err(classify_setup)?;
-            self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.manufacturer = manufacturer.into();
+            self.facts.lock().unwrap_or_else(|e| e.into_inner()).info.manufacturer = manufacturer;
             let version = self.binary.swvers.get_version(context).await.map_err(classify_setup)?;
             self.facts
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .info
                 .operating_system
-                .version = version.into();
+                .version = version;
             let abi = self
                 .execute_worker_command(vec!["uname".into(), "-m".into()], context)
                 .await?
@@ -788,7 +780,7 @@ impl AppleDevice for MacosDevice {
                     "Not connected",
                 )));
             }
-            self.facts.lock().unwrap_or_else(|e| e.into_inner()).abi = abi.into();
+            self.facts.lock().unwrap_or_else(|e| e.into_inner()).abi = abi;
             Ok(())
         })
     }
@@ -802,7 +794,7 @@ impl AppleDevice for MacosDevice {
             {
                 let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(previous) = sessions.last() {
-                    previous.check_closed(&self.serial.to_string_lossy())?;
+                    previous.check_closed(&self.serial.to_owned())?;
                 }
                 sessions.retain(|s| !s.closed());
                 sessions.push(session.clone());
@@ -819,7 +811,7 @@ impl AppleDevice for MacosDevice {
                         .vendor
                         .xcodebuild_test_args
                         .iter()
-                        .map(|(k, v)| (k.clone(), v.to_string_lossy()))
+                        .map(|(k, v)| (k.clone(), v.to_owned()))
                         .collect(),
                     timer: self.options.dependencies.timer.clone(),
                     listeners: self.listeners.clone(),
@@ -880,7 +872,7 @@ impl AppleDevice for MacosDevice {
             self.options
                 .shared_transfers
                 .send(
-                    &self.transport.id().to_string_lossy(),
+                    &self.transport.id().to_owned(),
                     src,
                     dst,
                     self.send_stop(context),
@@ -967,7 +959,7 @@ mod tests {
             let mut chain = vec![];
             let mut current = Some(error.failure());
             while let Some(f) = current {
-                chain.push(json!({"class":f.class.to_string_lossy(),"message":f.message.as_ref().map(JavaString::to_string_lossy)}));
+                chain.push(json!({"class":f.class.to_owned(),"message":f.message.as_ref().map(String::clone)}));
                 current = f.cause.as_deref();
             }
             assert_eq!(json!(chain), row["error"], "{case}");

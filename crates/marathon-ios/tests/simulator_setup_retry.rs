@@ -521,7 +521,7 @@ async fn borrow_gets_the_simulator_once_its_retry_has_set_it_up() -> TestResult 
         .map_err(test_error)?;
     assert_eq!(
         p.connected(1).await[0].serial(),
-        borrowed.0.info().serial_number.to_string_lossy()
+        borrowed.0.info().serial_number.to_owned()
     );
     p.balanced().await
 }

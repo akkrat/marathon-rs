@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/WorkerProvisioningContext.kt
 
 use super::error::{ProvisioningResult, clock_error};
-use jcompat::writers::JavaString;
+
 use marathon_apple::{
     bin::{
         AppleBinaryEnvironment,
@@ -24,9 +24,9 @@ pub const MAX_INVENTORY_AGE_NANOS: i64 = 10_000_000_000;
 pub const NANO_TIME: &str = "ios.WorkerProvisioningContext.nanoTime";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WorkerFacts {
-    pub env: Vec<(JavaString, JavaString)>,
+    pub env: Vec<(String, String)>,
     pub xcode_version: XcodeVersion,
-    pub arch: JavaString,
+    pub arch: String,
     pub features: Vec<DeviceFeature>,
     pub supports_transcoding: bool,
     pub shareable: bool,
@@ -185,7 +185,7 @@ impl WorkerProvisioningContext {
         };
         let invalid =
             |message| DeviceFailureException::new(DeviceFailureReason::InvalidSimulatorIdentifier, Some(message), None);
-        let id = self.transport.id().to_string_lossy();
+        let id = self.transport.id().to_owned();
         let simulator = inventory
             .devices
             .devices

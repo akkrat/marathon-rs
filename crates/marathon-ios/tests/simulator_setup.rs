@@ -28,8 +28,8 @@ async fn setup_probe_order_fallbacks_and_fresh_info_are_preserved() -> TestResul
     let d = h.device().await?;
     assert_eq!(d.root_path(), "/Users/worker/Library/Developer/CoreSimulator/Devices/a");
     assert_eq!(d.arch(), Arch::arm64);
-    assert_eq!(d.info().operating_system.version.to_string_lossy(), "Unknown");
-    assert_eq!(d.info().model.to_string_lossy(), "model-a");
+    assert_eq!(d.info().operating_system.version.to_owned(), "Unknown");
+    assert_eq!(d.info().model.to_owned(), "model-a");
     assert_eq!(
         d.info().device_features,
         [DeviceFeature::Video, DeviceFeature::Screenshot]
@@ -151,11 +151,11 @@ async fn construction_does_no_io_and_partial_setup_disposal_keeps_lateinit_failu
     assert!(h.worker.commands.lock().unwrap().is_empty());
     let error = d.simulator_state(&h.services.context).await.unwrap_err();
     assert_eq!(
-        error.failure().class.to_string_lossy(),
+        error.failure().class.to_owned(),
         "kotlin.UninitializedPropertyAccessException"
     );
     assert_eq!(
-        error.failure().message.as_ref().unwrap().to_string_lossy(),
+        error.failure().message.as_ref().unwrap().to_owned(),
         "lateinit property devicePlistPath has not been initialized"
     );
     let error = d
@@ -163,7 +163,7 @@ async fn construction_does_no_io_and_partial_setup_disposal_keeps_lateinit_failu
         .await
         .unwrap_err();
     assert_eq!(
-        error.failure().message.as_ref().unwrap().to_string_lossy(),
+        error.failure().message.as_ref().unwrap().to_owned(),
         "lateinit property env has not been initialized"
     );
     d.dispose().await.unwrap();
@@ -209,8 +209,8 @@ async fn setup_on_a_lost_connection_fails_instead_of_describing_the_simulator_wi
     let error = d.setup(&h.services.context).await.unwrap_err();
     assert_eq!(
         (
-            error.failure().class.to_string_lossy(),
-            error.failure().message.as_ref().unwrap().to_string_lossy()
+            error.failure().class.to_owned(),
+            error.failure().message.as_ref().unwrap().to_owned()
         ),
         (CONNECTION_EXCEPTION.to_owned(), "Not connected".to_owned())
     );

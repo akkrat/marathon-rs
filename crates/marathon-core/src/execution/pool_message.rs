@@ -3,7 +3,6 @@ use crate::{
     model::{BatchRef, DeviceInfo, TestBatchResults},
     vendor::DeviceRef,
 };
-use jcompat::writers::JavaString;
 
 /// Data-class equality: devices by identity, batches and results structurally.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,7 +23,7 @@ pub enum FromScheduler {
 pub enum FromDevice {
     IsReady(DeviceRef),
     CompletedTestBatch(DeviceRef, TestBatchResults),
-    ReturnTestBatch(DeviceRef, BatchRef, JavaString),
+    ReturnTestBatch(DeviceRef, BatchRef, String),
     Terminated(DeviceRef),
 }
 impl FromDevice {
@@ -42,7 +41,7 @@ pub enum FromQueue {
     /// Workers of the attempts that queued the retries waiting in the queue, in
     /// the queue's LinkedHashSet order without duplicates.
     Notify {
-        retry_workers: Vec<JavaString>,
+        retry_workers: Vec<String>,
     },
     NoBatch(DeviceInfo),
     Terminated,

@@ -127,7 +127,7 @@ impl Run {
             Some((at, Ok(v))) => (json!(at), json!(v)),
             Some((at, Err(e))) => (
                 json!(at),
-                json!({"exception":e.failure().class.to_string_lossy(),"message":e.failure().message.as_ref().map(|m|m.to_string_lossy())}),
+                json!({"exception":e.failure().class.to_owned(),"message":e.failure().message.as_ref().map(|m|m.to_owned())}),
             ),
             None => (Value::Null, Value::Null),
         };
@@ -135,11 +135,11 @@ impl Run {
             self.scheduler
                 .pools()
                 .iter()
-                .map(|(id, _)| id.name.to_string_lossy())
+                .map(|(id, _)| id.name.to_owned())
                 .collect(),
         );
         let logs = h.logs().into_iter().filter(|l| l.logger == "Scheduler").map(|l|
-            json!({"t": l.at_millis, "logger": l.logger, "level": level_name(l.level), "message": l.message.to_string_lossy()})
+            json!({"t": l.at_millis, "logger": l.logger, "level": level_name(l.level), "message": l.message.to_owned()})
         ).collect::<Vec<_>>();
         json!({"schedulerLogs":logs,"result":value,"ended":ended,"subscriptionAlive":self.parent.children_snapshot().iter().any(|j| matches!(j.state(),JobState::Active)),"pools":names,"connected":lock(&h.tracker.connected).iter().map(|(p,d)|format!("{p}:{d}")).collect::<Vec<_>>(),"disconnected":lock(&h.tracker.disconnected).iter().map(|(p,d)|format!("{p}:{d}")).collect::<Vec<_>>()})
     }
@@ -280,7 +280,7 @@ fn disconnect_is_broadcast_and_never_tracked() {
             let logs = h.logs();
             for pool in ["A", "B"] {
                 assert!(logs.iter().any(|l| l.logger == format!("DevicePoolActor[{pool}]")
-                    && l.message.to_string_lossy() == "remove device serial-A"));
+                    && l.message == "remove device serial-A"));
             }
             run.finish(&h).await;
         })
@@ -310,7 +310,7 @@ fn aggregation_short_circuits_after_the_first_failing_pool() {
             let errors = h
                 .logs()
                 .iter()
-                .filter(|l| l.message.to_string_lossy().starts_with("Expected to run"))
+                .filter(|l| l.message.to_owned().starts_with("Expected to run"))
                 .count();
             assert_eq!(errors, 1);
             run.finish(&h).await;
@@ -410,7 +410,7 @@ impl marathon_core::wiring::Tracker for CancelTracker {
     }
     fn device_provider_init<'a>(
         &'a self,
-        s: &'a jcompat::writers::JavaString,
+        s: &'a String,
         a: jcompat::jtime::Instant,
         b: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {
@@ -418,7 +418,7 @@ impl marathon_core::wiring::Tracker for CancelTracker {
     }
     fn device_preparing<'a>(
         &'a self,
-        s: &'a jcompat::writers::JavaString,
+        s: &'a String,
         a: jcompat::jtime::Instant,
         b: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {
@@ -442,7 +442,7 @@ fn buffered_disconnect_is_processed_after_cancellation() {
             let processed = h
                 .logs()
                 .iter()
-                .any(|l| l.message.to_string_lossy() == "device buffered disconnected");
+                .any(|l| l.message == "device buffered disconnected");
             assert!(processed);
             assert_eq!(lock(&h.tracker.connected).len(), 1);
             run.provider.channel.cancel(job_was_cancelled());
@@ -456,13 +456,13 @@ struct InvalidSerial(Arc<TestDevice>);
 impl Device for InvalidSerial {
     fn info(&self) -> DeviceInfo {
         let mut i = self.0.info();
-        i.serial_number = jcompat::writers::JavaString(vec![0xd800]);
+        i.serial_number = String::from_utf16_lossy(&[0xd800]);
         i
     }
-    fn abi(&self) -> jcompat::writers::JavaString {
+    fn abi(&self) -> String {
         self.0.abi()
     }
-    fn worker_id(&self) -> Option<jcompat::writers::JavaString> {
+    fn worker_id(&self) -> Option<String> {
         self.0.worker_id()
     }
     fn logger(&self) -> &jcompat::logging::Logger {
@@ -535,10 +535,7 @@ fn waiting_with_models() -> Configuration {
     c
 }
 fn logged(h: &Harness, text: &str) -> usize {
-    h.logs()
-        .iter()
-        .filter(|l| l.message.to_string_lossy().contains(text))
-        .count()
+    h.logs().iter().filter(|l| l.message.to_owned().contains(text)).count()
 }
 /// Runs a test for a long time, so that a device can be taken away in the middle of it.
 fn slow(serial: &str, millis: i64) -> Arc<TestDevice> {

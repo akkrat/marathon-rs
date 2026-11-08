@@ -78,7 +78,7 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
         }
         Ok::<_, OperationError>(())
     });
-    let mut http = Http::new(&url.into(), Some("Token dummy-token".into()), context(), false)?;
+    let mut http = Http::new(&url, Some("Token dummy-token".into()), context(), false)?;
     http.set_idle_timeouts(Duration::from_millis(100));
     let result = if backend == "v1" {
         influx::request(&http, "GET", "query?db=db&q=SELECT+x+FROM+tests", None, String::new()).await
@@ -101,9 +101,9 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
     let Err(OperationError::Failed(error)) = result else {
         panic!("{scenario}: fault accepted")
     };
-    assert_eq!(error.class.to_string_lossy(), expected["class"], "{scenario}");
+    assert_eq!(error.class.to_owned(), expected["class"], "{scenario}");
     assert_eq!(
-        error.cause.as_ref().map(|c| c.class.to_string_lossy()),
+        error.cause.as_ref().map(|c| c.class.to_owned()),
         expected["cause"].as_str().map(str::to_owned),
         "{scenario}"
     );
@@ -164,9 +164,9 @@ async fn refused_v2_query_wraps_connect_exception() {
     else {
         panic!("refused query accepted")
     };
-    assert_eq!(error.class.to_string_lossy(), expected["class"]);
+    assert_eq!(error.class.to_owned(), expected["class"]);
     assert_eq!(
-        error.cause.as_ref().map(|c| c.class.to_string_lossy()),
+        error.cause.as_ref().map(|c| c.class.to_owned()),
         expected["cause"].as_str().map(str::to_owned)
     );
 }

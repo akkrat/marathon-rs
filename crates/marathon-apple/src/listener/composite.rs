@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/CompositeTestRunListener.kt
 use super::AppleTestRunListener;
 use crate::logparser::parser::DeviceFailureReason;
-use jcompat::writers::JavaString;
+
 use marathon_core::{model::Test, runtime::VendorFuture};
 use std::sync::Arc;
 pub struct CompositeTestRunListener {
@@ -42,7 +42,7 @@ impl AppleTestRunListener for CompositeTestRunListener {
         test: &'a Test,
         start_time: i64,
         end_time: i64,
-        trace: Option<&'a JavaString>,
+        trace: Option<&'a String>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             for listener in &self.listeners {
@@ -75,11 +75,7 @@ impl AppleTestRunListener for CompositeTestRunListener {
             Ok(())
         })
     }
-    fn test_run_failed<'a>(
-        &'a self,
-        error_message: &'a JavaString,
-        reason: DeviceFailureReason,
-    ) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, error_message: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             for listener in &self.listeners {
                 listener.test_run_failed(error_message, reason).await?;

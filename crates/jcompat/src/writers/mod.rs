@@ -12,49 +12,6 @@ pub use gson::{GsonError, GsonWriter};
 pub use kotlin::KotlinValue;
 pub use yaml::JacksonYamlWriter;
 
-/// Java strings retain lone surrogates until the final encoding boundary.
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct JavaString(pub Vec<u16>);
-impl JavaString {
-    pub fn to_string_lossy(&self) -> String {
-        String::from_utf16_lossy(&self.0)
-    }
-    pub fn push_code_point(&mut self, c: u32) {
-        if c <= 0xffff {
-            self.0.push(c as u16);
-        } else {
-            self.0.push((0xd800 + ((c - 0x10000) >> 10)) as u16);
-            self.0.push((0xdc00 + ((c - 0x10000) & 1023)) as u16);
-        }
-    }
-    pub fn append(&mut self, other: Self) {
-        self.0.extend(other.0);
-    }
-    pub fn as_utf8(&self) -> Result<String, std::string::FromUtf16Error> {
-        String::from_utf16(&self.0)
-    }
-    pub fn push_str(&mut self, text: &str) {
-        self.0.extend(text.encode_utf16());
-    }
-    /// Kotlin File.writeText uses the JVM UTF-8 encoder's '?' replacement.
-    pub fn to_utf8_bytes(&self) -> Vec<u8> {
-        char::decode_utf16(self.0.iter().copied())
-            .map(|c| c.unwrap_or('?'))
-            .collect::<String>()
-            .into_bytes()
-    }
-}
-impl From<&str> for JavaString {
-    fn from(value: &str) -> Self {
-        Self(value.encode_utf16().collect())
-    }
-}
-impl From<String> for JavaString {
-    fn from(value: String) -> Self {
-        Self::from(value.as_str())
-    }
-}
-
 /// A Java Number.toString spelling, including non-finite Float/Double values.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JavaNumber(String);
@@ -96,11 +53,11 @@ pub enum WriterValue {
     Null,
     Bool(bool),
     Number(JavaNumber),
-    String(JavaString),
+    String(String),
     Array(Vec<WriterValue>),
     /// Jackson ByteArraySerializer uses a tagged YAML binary scalar.
     Binary(Vec<u8>),
-    Object(Vec<(JavaString, WriterValue)>),
+    Object(Vec<(String, WriterValue)>),
 }
 impl From<&str> for WriterValue {
     fn from(value: &str) -> Self {

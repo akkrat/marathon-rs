@@ -4,7 +4,6 @@ use jcompat::{
     jnum, jtime,
     logging::{Level, Logger},
     regex_patterns::*,
-    writers::JavaString,
 };
 use marathon_core::{
     model::Test,
@@ -28,7 +27,7 @@ impl ParseError {
                     format!("For input string: \"{input}\"")
                 },
             ),
-            Self::Clock(error) => ("ReplayError", error.message.to_string_lossy()),
+            Self::Clock(error) => ("ReplayError", error.message.to_owned()),
         };
         crate::cmd::failure(class, message)
     }
@@ -43,7 +42,7 @@ impl std::error::Error for ParseError {}
 pub struct TestRunProgressParser {
     timer: Arc<dyn Timer>,
     target_name: String,
-    failing_trace: Option<JavaString>,
+    failing_trace: Option<String>,
     logging: SshLogging,
     logger: Logger,
 }
@@ -171,7 +170,7 @@ impl TestRunProgressParser {
             if FAILING_TEST.matches(line)
                 && let Some(c) = FAILING_TEST.find(line)
             {
-                self.failing_trace = Some(format!("{}:{}", kt::trim(&c[1]), kt::trim(&c[4])).into());
+                self.failing_trace = Some(format!("{}:{}", kt::trim(&c[1]), kt::trim(&c[4])));
             }
             return Ok(None);
         };
@@ -246,8 +245,8 @@ fn spoken_millis(text: &str) -> Option<i64> {
 fn log_name(test: &Test) -> String {
     format!(
         "{}.{}.{}",
-        test.pkg.to_string_lossy(),
-        test.clazz.to_string_lossy(),
-        test.method.to_string_lossy()
+        test.pkg.to_owned(),
+        test.clazz.to_owned(),
+        test.method.to_owned()
     )
 }

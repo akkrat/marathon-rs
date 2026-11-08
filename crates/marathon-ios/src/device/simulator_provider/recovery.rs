@@ -18,8 +18,8 @@ mod setup_retry;
 struct PolicyState {
     provider: Weak<AppleSimulatorProvider>,
     pending: IndexMap<Transport, Arc<PendingWorker<Entry>>>,
-    losses: IndexMap<JavaString, i32>,
-    awaiting_admission: IndexSet<JavaString>,
+    losses: IndexMap<String, i32>,
+    awaiting_admission: IndexSet<String>,
     closed: Option<String>,
     setup: setup_retry::SetupRetries,
 }
@@ -136,7 +136,7 @@ impl SimulatorRecovery {
     /// D44: the simulators of this worker that have been in the run and are waiting to return, with when they started
     /// to wait. They aren't late, so the late-join cut-off is not theirs: a lost worker mustn't lose its simulators for
     /// good because the run had got far enough. One still waiting for its admission hasn't joined yet.
-    fn returning(&self, provider: &AppleSimulatorProvider, transport: &Transport) -> IndexMap<JavaString, ParkedOn> {
+    fn returning(&self, provider: &AppleSimulatorProvider, transport: &Transport) -> IndexMap<String, ParkedOn> {
         let mut returning = provider.parked_on(transport);
         let state = self.state();
         returning.retain(|id, _| !state.awaiting_admission.contains(id));
@@ -150,7 +150,7 @@ impl SimulatorRecovery {
         late: usize,
         others_left: bool,
     ) {
-        let worker = transport.id().to_string_lossy();
+        let worker = transport.id().to_owned();
         if others_left {
             if late > 0 {
                 provider.log(
@@ -216,7 +216,7 @@ impl SimulatorRecovery {
             }
         });
         for id in &expired {
-            if let Some((udid, _)) = id.to_string_lossy().rsplit_once('@') {
+            if let Some((udid, _)) = id.to_owned().rsplit_once('@') {
                 provider.give_up_parked(transport, &[udid], ParkedFor::GivenUp);
             }
             provider.log(
@@ -224,7 +224,7 @@ impl SimulatorRecovery {
                 || {
                     format!(
                         "Simulator {} has no connection {} s after it lost its worker, it stays out of the run",
-                        id.to_string_lossy(),
+                        id.to_owned(),
                         cutoff.seconds()
                     )
                 },
@@ -355,9 +355,9 @@ impl SimulatorRecovery {
         claims: &mut Claims,
     ) -> VendorResult<()> {
         let config = &provider.services.vendor.worker_connection;
-        let worker = transport.id().to_string_lossy();
+        let worker = transport.id().to_owned();
         let mut attempt = 1i32;
-        let keys = |pending: &PendingWorker<Entry>| -> Vec<JavaString> {
+        let keys = |pending: &PendingWorker<Entry>| -> Vec<String> {
             pending
                 .peek()
                 .iter()
@@ -747,7 +747,7 @@ impl SimulatorRecovery {
                     || {
                         format!(
                             "Simulator {udid} on worker {}: its connection was refused, it stays out of the run",
-                            transport.id().to_string_lossy()
+                            transport.id().to_owned()
                         )
                     },
                     None,
@@ -765,7 +765,7 @@ impl SimulatorRecovery {
         self.schedule_setup_retry(provider, transport, failed_targets, started)
     }
 }
-fn not_current(state: &State, id: &JavaString, device: &Simulator) -> bool {
+fn not_current(state: &State, id: &String, device: &Simulator) -> bool {
     state
         .devices
         .get(id)
@@ -813,7 +813,7 @@ impl ProviderRecovery for SimulatorRecovery {
                 || {
                     format!(
                         "Worker {} is not connected yet, its {} new devices will be set up once it connects",
-                        transport.id().to_string_lossy(),
+                        transport.id().to_owned(),
                         targets.len()
                     )
                 },
@@ -839,7 +839,7 @@ impl ProviderRecovery for SimulatorRecovery {
                     || {
                         format!(
                             "Failed to initialize connection to worker {}",
-                            transport.id().to_string_lossy()
+                            transport.id().to_owned()
                         )
                     },
                     Some(error.output_failure()),
@@ -852,7 +852,7 @@ impl ProviderRecovery for SimulatorRecovery {
                 || {
                     format!(
                         "Failed to connect to worker {} ({}), retrying",
-                        transport.id().to_string_lossy(),
+                        transport.id().to_owned(),
                         describe_failure(&error.failure())
                     )
                 },
@@ -876,7 +876,7 @@ impl ProviderRecovery for SimulatorRecovery {
                 || {
                     format!(
                         "Worker {}: {} devices could not connect, {}",
-                        transport.id().to_string_lossy(),
+                        transport.id().to_owned(),
                         targets.len(),
                         if retry { "retrying" } else { "they stay out of the run" }
                     )
@@ -898,10 +898,10 @@ impl ProviderRecovery for SimulatorRecovery {
             self.schedule_setup_retry(&provider, &transport, targets, started)
         })
     }
-    fn forget_setup(&self, id: &JavaString) {
+    fn forget_setup(&self, id: &String) {
         self.state().setup.forget(id);
     }
-    fn admit(&self, id: &JavaString, device: &Simulator) -> ProvisioningResult<()> {
+    fn admit(&self, id: &String, device: &Simulator) -> ProvisioningResult<()> {
         let provider = self.provider()?;
         // D33: a retried simulator joins as late as one of a late worker, under the same cut-off.
         let joining = self.state().pending.contains_key(device.transport()) || setup_retry::in_retried_setup();
@@ -915,8 +915,7 @@ impl ProviderRecovery for SimulatorRecovery {
                     format!(
                         "Simulator {} doesn't join the run late, since {reason}",
                         device.serial()
-                    )
-                    .into(),
+                    ),
                 )
                 .into());
             }

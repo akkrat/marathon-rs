@@ -144,7 +144,7 @@ mod file_sync_test_run_listener_test {
                         folder = folder.join("pool");
                     }
                     if matches!(mode, AggregationMode::Device | AggregationMode::DeviceAndPool) {
-                        folder = folder.join(jcompat::file_manager::escape(&device.serial_number().to_string_lossy()));
+                        folder = folder.join(jcompat::file_manager::escape(&device.serial_number().to_owned()));
                     }
                     assert!(folder.join("screenshots").is_dir());
                     finish(server, device).await;
@@ -359,7 +359,7 @@ mod file_sync_test_run_listener_test {
                     let path = _temp
                         .path()
                         .join("device-files/pool")
-                        .join(jcompat::file_manager::escape(&device.serial_number().to_string_lossy()))
+                        .join(jcompat::file_manager::escape(&device.serial_number().to_owned()))
                         .join("fixture/empty_file");
                     assert_eq!(checked(tokio::fs::read(path).await), b"");
                     assert!(server.transcript().iter().any(|r| r["type"] == "sync"));
@@ -675,7 +675,7 @@ fn adam_extensions_and_missing_file_still_attach() {
             }
             let values = attachments.get(&test()).unwrap();
             assert_eq!(
-                values.iter().map(|a| a.kind).collect::<Vec<_>>(),
+                values.iter().map(|a| a.kind.clone()).collect::<Vec<_>>(),
                 [
                     AttachmentType::ScreenshotJpeg,
                     AttachmentType::ScreenshotJpeg,
@@ -717,7 +717,7 @@ fn adam_capture_with_relative_output_directory() {
                 jcompat::file_manager::FileManager::new(
                     4096,
                     255,
-                    &jcompat::writers::JavaString(output.0.clone()).to_string_lossy(),
+                    &String::from_utf16_lossy(&output.0.clone()).to_owned(),
                     &cwd.to_string_lossy(),
                 ),
                 output,
@@ -880,7 +880,7 @@ fn scenario(mode: &'static str) {
                 let expected = observed[0]["value"].as_array().unwrap();
                 assert_eq!(values.len(), expected.len());
                 for (a, e) in values.iter().zip(expected) {
-                    assert_eq!(a.name.as_ref().unwrap().to_string_lossy(), e[0].as_str().unwrap());
+                    assert_eq!(a.name.as_ref().unwrap().to_owned(), e[0].as_str().unwrap());
                     let p = checked(a.file.to_file_path_buf());
                     assert_eq!(p.file_name().unwrap().to_string_lossy(), e[2].as_str().unwrap());
                     if mode.starts_with("video") {
@@ -953,7 +953,7 @@ fn profiling_setup_errors_are_batch_failures() {
                     .message
                     .as_ref()
                     .unwrap()
-                    .to_string_lossy()
+                    .to_owned()
                     .contains("can't locate test bundle")
             );
             let mut a = artifacts(&device);
@@ -1542,7 +1542,7 @@ fn a_folder_push_fails_when_its_leftover_cannot_be_removed_d27() {
                 .err()
                 .unwrap_or_else(|| panic!("setup succeeded: root_data={root_data:?}, fresh_nested={nested}"));
             assert_eq!(
-                error.failure().message.as_ref().map(|m| m.to_string_lossy()).as_deref(),
+                error.failure().message.as_ref().map(|m| m.to_owned()).as_deref(),
                 Some(
                     "Could not delete remote file(s): /sdcard/payload: exit code 1: \
                      rm: /sdcard/payload/data.txt: Permission denied"

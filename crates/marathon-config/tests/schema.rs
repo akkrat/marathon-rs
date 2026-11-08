@@ -127,9 +127,9 @@ fn schema_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
                         panic!("{id}: approved simplification must reject at bind");
                     };
                     assert_eq!(e.stage, ValidationStage::Parse, "{id}");
-                    assert_eq!(e.class.to_string_lossy(), *class, "{id}");
+                    assert_eq!(e.class.to_owned(), *class, "{id}");
                     assert_eq!(
-                        e.message.as_ref().map(|m| m.to_string_lossy()).as_deref(),
+                        e.message.as_ref().map(|m| m.to_owned()).as_deref(),
                         Some(*message),
                         "{id}"
                     );
@@ -230,7 +230,7 @@ fn configuration_builder_defaults_and_vendor_seam() {
     .unwrap()
     .flatten()
     .unwrap();
-    assert_eq!(got.name.to_string_lossy(), "analytics");
+    assert_eq!(got.name.to_owned(), "analytics");
     assert!(got.debug);
     assert_eq!(got.test_batch_timeout_millis, 1_800_000);
     assert_eq!(got.vendor_configuration, marathon_config::VendorConfiguration::Empty);
@@ -260,7 +260,7 @@ fn whole_marathonfile_binds_ios_and_android_vendor_sections() {
     .unwrap()
     .flatten()
     .unwrap();
-    assert_eq!(android.name.to_string_lossy(), "android-app");
+    assert_eq!(android.name.to_owned(), "android-app");
     let marathon_config::VendorConfiguration::Android(android_vendor) = &android.vendor_configuration else {
         panic!("expected Android vendor, got {:?}", android.vendor_configuration)
     };
@@ -278,7 +278,7 @@ fn whole_marathonfile_binds_ios_and_android_vendor_sections() {
     .unwrap()
     .flatten()
     .unwrap();
-    assert_eq!(ios.name.to_string_lossy(), "ios-app");
+    assert_eq!(ios.name.to_owned(), "ios-app");
     let marathon_config::VendorConfiguration::Ios(ios_vendor) = &ios.vendor_configuration else {
         panic!("expected iOS vendor, got {:?}", ios.vendor_configuration)
     };
@@ -430,17 +430,13 @@ fn s4_narrowed_values_drop_nulls_allowlist_still_rejects() {
         panic!("method")
     };
     assert_eq!(
-        f.values
-            .unwrap()
-            .iter()
-            .map(|v| v.to_string_lossy())
-            .collect::<Vec<_>>(),
+        f.values.unwrap().iter().map(|v| v.to_owned()).collect::<Vec<_>>(),
         ["a"]
     );
     let e = bind("allowlist: [~]", bind_filtering_configuration).unwrap_err();
-    assert_eq!(e.class.to_string_lossy(), binder::MISMATCHED);
+    assert_eq!(e.class.to_owned(), binder::MISMATCHED);
     assert_eq!(
-        e.message.as_ref().map(|m| m.to_string_lossy()).as_deref(),
+        e.message.as_ref().map(|m| m.to_owned()).as_deref(),
         Some("D9: null element in collection")
     );
 }
@@ -452,13 +448,13 @@ fn container_time_limit_is_mismatched_not_invalid_format() {
         bind_sorting_strategy,
     )
     .unwrap_err();
-    assert_eq!(e.class.to_string_lossy(), binder::MISMATCHED);
+    assert_eq!(e.class.to_owned(), binder::MISMATCHED);
     let e = bind(
         "{type: probability, minSuccessRate: 0.5, maxCount: 1, timeLimit: {a: 1}}",
         bind_flakiness_strategy,
     )
     .unwrap_err();
-    assert_eq!(e.class.to_string_lossy(), binder::MISMATCHED);
+    assert_eq!(e.class.to_owned(), binder::MISMATCHED);
 }
 
 #[test]
@@ -509,10 +505,7 @@ fn copied_fixtures_bind_at_section_level() {
     let AnalyticsConfiguration::InfluxDb(c) = analytics else {
         panic!("influx")
     };
-    assert_eq!(
-        c.retention_policy_configuration.name.to_string_lossy(),
-        "rpMarathonTest"
-    );
+    assert_eq!(c.retention_policy_configuration.name.to_owned(), "rpMarathonTest");
     assert_eq!(c.retention_policy_configuration.replication_factor, 5);
     assert!(!c.read_only);
 }

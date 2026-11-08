@@ -17,10 +17,7 @@ use super::{
 use crate::apple_simulator_device::AppleSimulatorDevice;
 use futures_util::future::join_all;
 use indexmap::{IndexMap, IndexSet};
-use jcompat::{
-    logging::{Level, Logger},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger};
 use marathon_apple::{
     apple_device::AppleDevice,
     apple_device_registry::AppleDeviceRegistry,
@@ -60,7 +57,7 @@ pub trait ProviderRecovery: Send + Sync {
         marathon_apple::device::connection_factory::Executor,
     >;
     fn reconnect(&self, provider: Arc<AppleSimulatorProvider>, caller: VendorContext) -> VendorFuture<'_, ()>;
-    fn admit(&self, id: &JavaString, device: &Simulator) -> ProvisioningResult<()>;
+    fn admit(&self, id: &String, device: &Simulator) -> ProvisioningResult<()>;
     fn offer(&self, transport: &Transport, targets: &[AppleTarget]) -> bool;
     fn missing(
         &self,
@@ -80,7 +77,7 @@ pub trait ProviderRecovery: Send + Sync {
     /// D33: targets whose setup failed while their worker stayed reachable.
     fn setup_failed(&self, transport: Transport, targets: Vec<AppleTarget>, started: i64) -> VendorFuture<'_, ()>;
     /// D33: a snapshot removed this simulator, so a retry waiting for it is void.
-    fn forget_setup(&self, id: &JavaString);
+    fn forget_setup(&self, id: &String);
     fn terminate(&self) -> VendorFuture<'_, ()>;
 }
 /// Which of the provider's setup cycles is running, for its timing line.
@@ -170,19 +167,19 @@ struct ParkedOn {
 #[derive(Default)]
 struct State {
     connecting: Vec<PendingConnect>,
-    devices: IndexMap<JavaString, ConstructedSimulator<Simulator>>,
-    removed: IndexSet<JavaString>,
-    skipped_removed: IndexSet<JavaString>,
+    devices: IndexMap<String, ConstructedSimulator<Simulator>>,
+    removed: IndexSet<String>,
+    skipped_removed: IndexSet<String>,
     recovering: Vec<Simulator>,
     parked: Vec<Parked>,
     /// D44: bumped when the devices file removes a simulator and when it adds it back, so that work which started
     /// before can't decide for it after (`settle`).
-    generations: IndexMap<JavaString, u64>,
+    generations: IndexMap<String, u64>,
     /// D33: failed setups by target, for the run, which a removal clears. A failure of a retry and one of a late
     /// worker's setup count alike, so a hand-over between the two can't refill the budget. All instances of a profile
     /// share one key: instances that fail in the same cycle count once, and are retried together.
-    setup_failures: IndexMap<JavaString, i32>,
-    exhausted: IndexSet<JavaString>,
+    setup_failures: IndexMap<String, i32>,
+    exhausted: IndexSet<String>,
     replaced: Vec<Simulator>,
     initialized: bool,
     identities: Vec<(Weak<AppleSimulatorDevice>, marathon_core::time::ObjectIdentity)>,
@@ -192,7 +189,7 @@ struct State {
 /// D44: the generations of the simulators an asynchronous operation acts for, taken when it starts: a recovery, the
 /// worker retry's attempt, a D33 retry, a devices update's setup, and a plan. Keyed like D33's budget.
 #[derive(Clone, Default, Debug)]
-pub(crate) struct Claims(IndexMap<JavaString, u64>);
+pub(crate) struct Claims(IndexMap<String, u64>);
 tokio::task_local! {
     static CLAIMS: Claims;
 }
@@ -205,14 +202,14 @@ pub(crate) fn with_claims_sync<R>(claims: Claims, work: impl FnOnce() -> R) -> R
     CLAIMS.sync_scope(claims, work)
 }
 /// The key of a target's generation and budget.
-fn target_key(target: &AppleTarget, transport: &Transport) -> JavaString {
+fn target_key(target: &AppleTarget, transport: &Transport) -> String {
     apple_id(&target_id(target), transport)
 }
 pub struct AppleSimulatorProvider {
     me: Weak<Self>,
     services: ProviderServices,
     logger: Logger,
-    local_identity: JavaString,
+    local_identity: String,
     state: Mutex<State>,
     tracker: Mutex<Option<DeviceTracker>>,
     updates: tokio::sync::Mutex<()>,
@@ -322,7 +319,7 @@ impl AppleSimulatorProvider {
             state.recovering.push(device);
         }
     }
-    pub fn set_exhausted(&self, id: JavaString, exhausted: bool) {
+    pub fn set_exhausted(&self, id: String, exhausted: bool) {
         let mut state = self.state();
         if exhausted {
             state.exhausted.insert(id);
@@ -330,7 +327,7 @@ impl AppleSimulatorProvider {
             state.exhausted.shift_remove(&id);
         }
     }
-    pub fn skipped_removed(&self, id: &JavaString) -> bool {
+    pub fn skipped_removed(&self, id: &String) -> bool {
         self.state().skipped_removed.contains(id)
     }
     fn notify(&self, event: DeviceEvent) {
@@ -375,7 +372,7 @@ impl AppleSimulatorProvider {
             Err(VendorError::Other(detail))
         });
     }
-    pub async fn register(&self, id: JavaString, device: ConstructedSimulator<Simulator>) -> ProvisioningResult<()> {
+    pub async fn register(&self, id: String, device: ConstructedSimulator<Simulator>) -> ProvisioningResult<()> {
         self.services.recovery.admit(&id, &device.handle)?;
         let serial = device.handle.serial().to_owned();
         let previous = {
@@ -501,9 +498,9 @@ impl AppleSimulatorProvider {
             .hooks
             .identity_suffix("ios.AppleSimulatorProvider.identities", token)
             .map_err(clock_error)?;
-        let mut text: JavaString = "com.malinskiy.marathon.apple.ios.AppleSimulatorDevice@".into();
-        text.append(suffix);
-        Ok(text.to_string_lossy())
+        let mut text: String = "com.malinskiy.marathon.apple.ios.AppleSimulatorDevice@".into();
+        text.push_str(&suffix);
+        Ok(text.to_owned())
     }
     async fn process(&self, snapshot: MarathonDevices, caller: VendorContext) -> ProvisioningResult<()> {
         let _serial = tokio::select! { biased;
@@ -528,7 +525,7 @@ impl AppleSimulatorProvider {
                 || {
                     let lines = updates
                         .iter()
-                        .map(|u| formatting::update_text(u).to_string_lossy())
+                        .map(|u| formatting::update_text(u).to_owned())
                         .collect::<Vec<_>>()
                         .join("\n");
                     format!(
@@ -811,7 +808,7 @@ impl AppleSimulatorProvider {
                     || {
                         format!(
                             "Lost the connection to worker {} while planning its simulators ({})",
-                            transport.id().to_string_lossy(),
+                            transport.id().to_owned(),
                             describe_failure(&e.failure())
                         )
                     },
@@ -833,8 +830,8 @@ impl AppleSimulatorProvider {
             .provision(plan.clone(), transport.clone(), bin, cycle, caller)
             .await?;
         match kind {
-            SetupCycle::Late { attempt, connected: connected_late } => self.services.timing.info(|| Ok(format!("Worker {}: connected late on attempt {attempt} in {} ms, planned {} simulators in {} ms, provisioned them in {} ms", transport.id().to_string_lossy(), connected_late.wrapping_sub(started), plan.existing_simulators.len() + plan.needs_provisioning.len(), planned.wrapping_sub(connected_late), self.services.timing.elapsed()?.wrapping_sub(planned))))?,
-            SetupCycle::Retried => self.services.timing.info(|| Ok(format!("Worker {}: set up again after a failed setup, planned {} simulators in {} ms, provisioned them in {} ms", transport.id().to_string_lossy(), plan.existing_simulators.len() + plan.needs_provisioning.len(), planned.wrapping_sub(connected), self.services.timing.elapsed()?.wrapping_sub(planned))))?,
+            SetupCycle::Late { attempt, connected: connected_late } => self.services.timing.info(|| Ok(format!("Worker {}: connected late on attempt {attempt} in {} ms, planned {} simulators in {} ms, provisioned them in {} ms", transport.id().to_owned(), connected_late.wrapping_sub(started), plan.existing_simulators.len() + plan.needs_provisioning.len(), planned.wrapping_sub(connected_late), self.services.timing.elapsed()?.wrapping_sub(planned))))?,
+            SetupCycle::Retried => self.services.timing.info(|| Ok(format!("Worker {}: set up again after a failed setup, planned {} simulators in {} ms, provisioned them in {} ms", transport.id().to_owned(), plan.existing_simulators.len() + plan.needs_provisioning.len(), planned.wrapping_sub(connected), self.services.timing.elapsed()?.wrapping_sub(planned))))?,
             SetupCycle::First => self.services.timing.cycle(
                 transport,
                 connected.wrapping_sub(started),
@@ -872,7 +869,7 @@ impl AppleSimulatorProvider {
                 } => (
                     targets
                         .iter()
-                        .find(|t| matches!(t, AppleTarget::Simulator { udid: id } if id.to_string_lossy() == udid))
+                        .find(|t| matches!(t, AppleTarget::Simulator { udid: id } if *id == udid))
                         .cloned()
                         .or_else(|| {
                             plan.reused_profiles
@@ -925,7 +922,7 @@ impl AppleSimulatorProvider {
             .map(|p| p.for_)
     }
     /// D44: the devices file changed, and that is bounded by its owner, so a simulator added back starts over.
-    fn restart_parked(&self, id: &JavaString) -> ProvisioningResult<()> {
+    fn restart_parked(&self, id: &String) -> ProvisioningResult<()> {
         if !self.state().parked.iter().any(|p| parked_id(p) == *id) {
             return Ok(());
         }
@@ -937,20 +934,20 @@ impl AppleSimulatorProvider {
         Ok(())
     }
     /// D44: whether this simulator's old handle is parked for a retry to own.
-    fn parked_for_retry(&self, key: &JavaString) -> bool {
+    fn parked_for_retry(&self, key: &String) -> bool {
         self.state()
             .parked
             .iter()
             .any(|p| parked_id(p) == *key && p.for_ == ParkedFor::Retry)
     }
-    fn is_parked(&self, id: &JavaString) -> bool {
+    fn is_parked(&self, id: &String) -> bool {
         self.state().parked.iter().any(|p| parked_id(p) == *id)
     }
-    fn generation(&self, key: &JavaString) -> u64 {
+    fn generation(&self, key: &String) -> u64 {
         self.state().generations.get(key).copied().unwrap_or(0)
     }
     /// D44: claims on these keys at their generations now, keeping any the running operation already holds.
-    pub(crate) fn claim(&self, keys: impl IntoIterator<Item = JavaString>) -> Claims {
+    pub(crate) fn claim(&self, keys: impl IntoIterator<Item = String>) -> Claims {
         let mut claims = CLAIMS.try_with(Clone::clone).unwrap_or_default();
         let state = self.state();
         for key in keys {
@@ -960,7 +957,7 @@ impl AppleSimulatorProvider {
         claims
     }
     /// D44: claims on these keys at their generations now, for an operation that starts afresh.
-    pub(crate) fn claim_now(&self, keys: impl IntoIterator<Item = JavaString>) -> Claims {
+    pub(crate) fn claim_now(&self, keys: impl IntoIterator<Item = String>) -> Claims {
         let state = self.state();
         Claims(
             keys.into_iter()
@@ -972,7 +969,7 @@ impl AppleSimulatorProvider {
         )
     }
     /// D44: whether the running operation holds a claim on this key that is still current.
-    fn claimed(&self, key: &JavaString) -> bool {
+    fn claimed(&self, key: &String) -> bool {
         CLAIMS
             .try_with(|claims| claims.0.get(key).copied())
             .ok()
@@ -980,7 +977,7 @@ impl AppleSimulatorProvider {
             .is_some_and(|claimed| claimed == self.generation(key))
     }
     /// D44: whether the running operation's claim on this key is out of date. One it holds no claim on isn't.
-    fn stale(&self, key: &JavaString) -> bool {
+    fn stale(&self, key: &String) -> bool {
         CLAIMS
             .try_with(|claims| claims.0.get(key).copied())
             .ok()
@@ -991,7 +988,7 @@ impl AppleSimulatorProvider {
     /// giving up, D33's count and a hand-over to a retry. Under the state lock, `write` gets the keys among `keys` on
     /// which the running operation holds a claim that is still current, and may write only for those. Work that
     /// started before the devices file removed or added back a simulator, or that holds no claim, writes nothing for it.
-    fn settle<R>(&self, keys: &[JavaString], write: impl FnOnce(&mut State, &IndexSet<JavaString>) -> R) -> R {
+    fn settle<R>(&self, keys: &[String], write: impl FnOnce(&mut State, &IndexSet<String>) -> R) -> R {
         let claims = CLAIMS.try_with(Clone::clone).unwrap_or_default();
         let mut state = self.state();
         let current: IndexSet<_> = keys
@@ -1039,7 +1036,7 @@ impl AppleSimulatorProvider {
         let udids: Vec<String> = targets
             .iter()
             .filter_map(|target| match target {
-                AppleTarget::Simulator { udid } => Some(udid.to_string_lossy()),
+                AppleTarget::Simulator { udid } => Some(udid.to_owned()),
                 _ => None,
             })
             .collect();
@@ -1049,7 +1046,7 @@ impl AppleSimulatorProvider {
     }
     /// D44 (A80): the map keeps a simulator that left or was lost, and a parse on one fails an attempt of the three that
     /// a run has. As Android's D24: only what can take work now, and a healthy run's keys are all of them, in map order.
-    fn borrowable(&self) -> IndexMap<JavaString, ConstructedSimulator<Simulator>> {
+    fn borrowable(&self) -> IndexMap<String, ConstructedSimulator<Simulator>> {
         let mut devices = self.state().devices.clone();
         // Outside the lock: an executor's connected check can suspend its caller in the source.
         devices.retain(|_, d| d.handle.connected() && !d.handle.retired() && !d.handle.leaving());
@@ -1062,7 +1059,7 @@ impl AppleSimulatorProvider {
         });
         devices
     }
-    fn parked_on(&self, transport: &Transport) -> IndexMap<JavaString, ParkedOn> {
+    fn parked_on(&self, transport: &Transport) -> IndexMap<String, ParkedOn> {
         let state = self.state();
         state
             .parked
@@ -1185,7 +1182,7 @@ impl AppleSimulatorProvider {
                 || {
                     format!(
                         "Using dynamic device provider at Dynamic(host={}, port={port})",
-                        host.to_string_lossy()
+                        host.to_owned()
                     )
                 },
                 None,
@@ -1272,11 +1269,7 @@ impl DeviceProvider for AppleSimulatorProvider {
     fn borrow(&self, caller: VendorContext) -> VendorFuture<'_, DeviceRef> {
         Box::pin(async move { Ok(self.borrow_untried(Vec::new(), caller).await?.0) })
     }
-    fn borrow_untried(
-        &self,
-        tried: Vec<JavaString>,
-        caller: VendorContext,
-    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
+    fn borrow_untried(&self, tried: Vec<String>, caller: VendorContext) -> VendorFuture<'_, (DeviceRef, String)> {
         Box::pin(async move {
             let this = self.this()?;
             self.dispatch(async move {
@@ -1331,17 +1324,17 @@ impl DeviceProvider for AppleSimulatorProvider {
         })
     }
 }
-fn bump(state: &mut State, id: &JavaString) {
+fn bump(state: &mut State, id: &String) {
     let generation = state.generations.entry(id.clone()).or_default();
     *generation = generation.wrapping_add(1);
 }
-fn parked_id(parked: &Parked) -> JavaString {
+fn parked_id(parked: &Parked) -> String {
     apple_id(&parked.handle.udid().into(), parked.handle.transport())
 }
-pub fn apple_id(udid: &JavaString, transport: &Transport) -> JavaString {
+pub fn apple_id(udid: &String, transport: &Transport) -> String {
     let mut id = udid.clone();
-    id.push_str("@");
-    id.append(transport.id());
+    id.push('@');
+    id.push_str(&transport.id());
     id
 }
 fn other(class: &str, message: impl AsRef<str>) -> VendorError {
@@ -1369,14 +1362,8 @@ pub fn describe_failure(error: &marathon_core::error::Failure) -> String {
     std::iter::successors(Some(error), |e| e.cause.as_deref())
         .take(4)
         .map(|e| {
-            e.message.as_ref().map(JavaString::to_string_lossy).unwrap_or_else(|| {
-                e.class
-                    .to_string_lossy()
-                    .rsplit(['.', '$'])
-                    .next()
-                    .unwrap_or("")
-                    .to_owned()
-            })
+            e.message.clone()
+                .unwrap_or_else(|| e.class.to_owned().rsplit(['.', '$']).next().unwrap_or("").to_owned())
         })
         .collect::<Vec<_>>()
         .join(": ")

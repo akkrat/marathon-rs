@@ -8,7 +8,7 @@
 //! removal, because Kotlin removes the listener object by identity.
 
 use crate::logcat::{LogCatMessage, LogLevel};
-use jcompat::writers::JavaString;
+
 use std::sync::{Arc, Mutex};
 
 pub trait LogcatListener: Send + Sync {
@@ -26,14 +26,14 @@ pub trait LogcatProducer: Send + Sync {
 /// literal (known Kotlin bug N7, kept under D5).
 pub struct LogcatAccumulatingListener {
     producer: Arc<dyn LogcatProducer>,
-    buffer: Mutex<JavaString>,
+    buffer: Mutex<String>,
 }
 
 impl LogcatAccumulatingListener {
     pub fn new(producer: Arc<dyn LogcatProducer>) -> Arc<Self> {
         Arc::new(Self {
             producer,
-            buffer: Mutex::new(JavaString::default()),
+            buffer: Mutex::new(String::default()),
         })
     }
 
@@ -48,27 +48,27 @@ impl LogcatAccumulatingListener {
     }
 
     pub fn start(&self) {
-        self.buffer.lock().unwrap_or_else(|e| e.into_inner()).0.clear();
+        self.buffer.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     /// Returns the accumulated log and clears it; safe to call twice (WP 6.6a
     /// calls it in a `finally` after `finish`).
-    pub fn stop(&self) -> JavaString {
+    pub fn stop(&self) -> String {
         std::mem::take(&mut *self.buffer.lock().unwrap_or_else(|e| e.into_inner()))
     }
 }
 
 impl LogcatListener for LogcatAccumulatingListener {
     fn on_message(&self, message: &LogCatMessage) {
-        if message.tag().0 == "AndroidRuntime".encode_utf16().collect::<Vec<u16>>() {
+        if message.tag().encode_utf16().collect::<Vec<_>>() == "AndroidRuntime".encode_utf16().collect::<Vec<u16>>() {
             match message.log_level() {
                 LogLevel::Error | LogLevel::Warn => {
                     let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
-                    buffer.0.push(message.log_level().priority_letter());
-                    buffer.push_str("/");
-                    buffer.0.extend_from_slice(&message.tag().0);
+                    buffer.push(char::from_u32(u32::from(message.log_level().priority_letter())).unwrap());
+                    buffer.push('/');
+                    buffer.push_str(message.tag());
                     buffer.push_str(": ");
-                    buffer.0.extend_from_slice(&message.message.0);
+                    buffer.push_str(&message.message);
                     buffer.push_str("\"\n");
                 }
                 _ => {}
@@ -146,7 +146,7 @@ mod tests {
         producer.dispatch(&message("TestRunner", LogLevel::Error, "ignored tag"));
         // N7: each accumulated line ends in a stray '"' (known Kotlin bug, kept).
         assert_eq!(
-            listener.stop().as_utf8().expect("log"),
+            listener.stop(),
             "E/AndroidRuntime: FATAL EXCEPTION: main\"\nW/AndroidRuntime: slow\"\n"
         );
     }
@@ -158,10 +158,10 @@ mod tests {
         listener.setup();
         producer.dispatch(&message("AndroidRuntime", LogLevel::Error, "boom"));
         listener.start();
-        assert_eq!(listener.stop(), JavaString::default());
+        assert_eq!(listener.stop(), String::default());
         producer.dispatch(&message("AndroidRuntime", LogLevel::Error, "boom"));
-        assert!(!listener.stop().0.is_empty());
+        assert!(!listener.stop().is_empty());
         // 6.6a calls stop() in a finally after finish(): a second stop is "".
-        assert_eq!(listener.stop(), JavaString::default());
+        assert_eq!(listener.stop(), String::default());
     }
 }

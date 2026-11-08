@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 #[path = "../strategy_support/mod.rs"]
 mod strategy_support;
-use jcompat::{JavaRegex, file_manager::JavaPath, logging::Level, writers::JavaString};
+use jcompat::{JavaRegex, file_manager::JavaPath, logging::Level};
 use marathon_config::schema::{RegexValuesFileFilter, TestFilterConfiguration as C};
 use marathon_core::{
     error::{Failure, OperationResult},
@@ -42,7 +42,7 @@ pub fn regex(s: &str) -> JavaRegex {
 pub fn config(r: Option<&str>, values: Option<&[&str]>, enabled: bool) -> RegexValuesFileFilter {
     RegexValuesFileFilter {
         regex: r.map(regex),
-        values: values.map(|v| v.iter().map(|s| JavaString::from(*s)).collect()),
+        values: values.map(|v| v.iter().map(|s| String::from(*s)).collect()),
         file: None,
         enabled,
     }
@@ -68,13 +68,13 @@ pub fn array(values: Vec<MetaValue>) -> MetaValue {
 pub struct Record {
     pub level: Level,
     pub logger: String,
-    pub message: JavaString,
+    pub message: String,
     pub cause: Option<Failure>,
 }
 #[derive(Default)]
 pub struct Logs(pub Mutex<Vec<Record>>);
 impl FilterLogger for Logs {
-    fn log(&self, level: Level, logger: &str, message: JavaString, cause: Option<Failure>) {
+    fn log(&self, level: Level, logger: &str, message: String, cause: Option<Failure>) {
         self.0.lock().expect("test log lock").push(Record {
             level,
             logger: logger.into(),
@@ -157,7 +157,7 @@ pub fn file_config(path: JavaPath) -> C {
         ..config(None, None, true)
     })
 }
-pub fn read(path: &JavaPath) -> OperationResult<Vec<JavaString>> {
+pub fn read(path: &JavaPath) -> OperationResult<Vec<String>> {
     use marathon_core::filter::values::FilterValuesReader;
     FileValuesReader {
         logger: Arc::new(Logs::default()),

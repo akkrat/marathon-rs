@@ -3,7 +3,7 @@
 pub mod parser;
 pub mod reader;
 pub mod scanner;
-use crate::java_string::JavaString;
+
 use crate::node::{Mark, Span, Style};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -66,7 +66,7 @@ pub enum Id {
 pub enum Data {
     None,
     Text(String),
-    Scalar(JavaString, Style),
+    Scalar(String, Style),
     Tag(Option<String>, String),
     Directive(String, Vec<String>),
 }
@@ -97,7 +97,7 @@ pub enum EventKind {
     StreamEnd,
     DocumentStart(bool),
     DocumentEnd,
-    Scalar(JavaString, Style),
+    Scalar(String, Style),
     Alias(String),
     SequenceStart,
     MappingStart,

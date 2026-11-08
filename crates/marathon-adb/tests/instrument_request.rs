@@ -1,6 +1,6 @@
 //! Port of adam 0.5.8 adam/src/test/kotlin/com/malinskiy/adam/request/testrunner/InstrumentOptionsTest.kt
 //! and TestRunnerRequestTest.kt. Copyright (C) 2020 Anton Malinskiy; Apache-2.0.
-use jcompat::writers::JavaString;
+
 use marathon_adb::{
     client::{
         AndroidDebugBridgeClient, Feature, SocketFactory,
@@ -18,8 +18,8 @@ fn checked<T, E: std::fmt::Debug>(r: Result<T, E>) -> T {
         Err(e) => panic!("fixture: {e:?}"),
     }
 }
-fn text(s: JavaString) -> String {
-    s.to_string_lossy()
+fn text(s: String) -> String {
+    s.to_owned()
 }
 fn oracle(name: &str) -> Value {
     include_str!("../../../fixtures/oracle/android-runner-probes.jsonl")
@@ -60,8 +60,8 @@ mod instrument_options_test {
     #[test]
     fn test_all_with_properties() {
         let o = all();
-        assert_eq!(o.pkg, vec![JavaString::from("com.example")]);
-        assert_eq!(o.clazz, vec![JavaString::from("com.example.TestClass")]);
+        assert_eq!(o.pkg, vec![String::from("com.example")]);
+        assert_eq!(o.clazz, vec![String::from("com.example.TestClass")]);
         assert_eq!(o.overrides.entries(), &[("test".into(), "test".into())]);
         assert_eq!(o.coverage_file, Some("/sdcard/codecov".into()));
         assert_eq!(o.filter_size, Some(InstrumentationSizeOption::Medium));

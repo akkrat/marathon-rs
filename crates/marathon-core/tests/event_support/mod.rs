@@ -1,6 +1,6 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/report/ExecutionReportTest.kt
 #![allow(dead_code)]
-use jcompat::{jtime::instant_of, writers::JavaString};
+use jcompat::jtime::instant_of;
 use marathon_core::{model::*, report::*};
 use std::sync::Arc;
 pub fn device() -> DeviceInfo {
@@ -59,8 +59,8 @@ pub fn report(events: Vec<TestEvent>) -> ExecutionReport {
         events,
     )
 }
-pub fn names(names: &[JavaString]) -> Vec<String> {
-    names.iter().map(|n| n.as_utf8().unwrap()).collect()
+pub fn names(names: &[String]) -> Vec<String> {
+    names.iter().map(|n| n.clone()).collect()
 }
 
 /// Fail a fixture setup explicitly; production services return their errors.

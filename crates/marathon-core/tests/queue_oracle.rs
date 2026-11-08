@@ -42,23 +42,22 @@ fn normalized(events: &Value) -> Vec<Value> {
 
 fn reply(message: &FromQueue, last: &mut HashMap<String, BatchRef>) -> Value {
     match message {
-        FromQueue::Notify { retry_workers } => json!([
-            "Notify",
-            retry_workers.iter().map(|w| w.to_string_lossy()).collect::<Vec<_>>()
-        ]),
-        FromQueue::NoBatch(device) => json!(["NoBatch", device.serial_number.to_string_lossy()]),
+        FromQueue::Notify { retry_workers } => {
+            json!(["Notify", retry_workers.iter().map(|w| w.to_owned()).collect::<Vec<_>>()])
+        }
+        FromQueue::NoBatch(device) => json!(["NoBatch", device.serial_number.to_owned()]),
         FromQueue::Terminated => json!(["Terminated"]),
         FromQueue::ExecuteBatch(device, batch) => {
-            let serial = device.serial_number.to_string_lossy();
+            let serial = device.serial_number.to_owned();
             last.insert(serial.clone(), batch.clone());
             json!([
                 "ExecuteBatch",
                 serial,
-                batch.id.to_string_lossy(),
+                batch.id.to_owned(),
                 batch.tests.iter().map(t).collect::<Vec<_>>()
             ])
         }
-        FromQueue::OutcomeProcessed(device) => json!(["OutcomeProcessed", device.serial_number.to_string_lossy()]),
+        FromQueue::OutcomeProcessed(device) => json!(["OutcomeProcessed", device.serial_number.to_owned()]),
     }
 }
 
@@ -249,9 +248,9 @@ fn mismatches_of(rows: Vec<Value>) -> Vec<String> {
                     let state = json!({
                         "queue": snapshot.queue.iter().map(t).collect::<Vec<_>>(),
                         "retryWorkers": snapshot.retry_workers.iter().map(|(test, workers)| json!([
-                            t(test), workers.iter().map(|w| w.to_string_lossy()).collect::<Vec<_>>()
+                            t(test), workers.iter().map(|w| w.to_owned()).collect::<Vec<_>>()
                         ])).collect::<Vec<_>>(),
-                        "activeBatches": snapshot.active_batches.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>(),
+                        "activeBatches": snapshot.active_batches.iter().map(|s| s.to_owned()).collect::<Vec<_>>(),
                         "closed": marathon_core::runtime::Actor::is_closed_for_send(queue.handle.actor().as_ref()),
                     });
                     let actual = json!({

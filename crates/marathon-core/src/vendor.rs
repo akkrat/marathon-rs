@@ -7,10 +7,7 @@ use crate::{
     runtime::{CancellationSignal, Deferred, EventChannel, VendorClock, VendorFuture},
     time::ReplayHooks,
 };
-use jcompat::{
-    logging::{Logger, MarathonLogging},
-    writers::JavaString,
-};
+use jcompat::logging::{Logger, MarathonLogging};
 use marathon_config::Configuration;
 use std::sync::{Arc, Mutex};
 
@@ -44,8 +41,8 @@ pub trait Device: Send + Sync {
     /// Fresh snapshot, including health/features that may change after setup.
     /// Must not perform I/O while called on core.
     fn info(&self) -> DeviceInfo;
-    fn abi(&self) -> JavaString;
-    fn worker_id(&self) -> Option<JavaString>;
+    fn abi(&self) -> String;
+    fn worker_id(&self) -> Option<String>;
     /// Handle from the per-run jcompat MarathonLogging registry.
     fn logger(&self) -> &Logger;
     fn prepare<'a>(&'a self, configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()>;
@@ -84,11 +81,7 @@ pub trait DeviceProvider: Send + Sync {
     /// every one has been tried; it never waits for an untried device. Returns the device with its key: the one the
     /// provider borrows by, so that a device that comes back as a new object keeps it. With `tried` empty this is
     /// `borrow`. The default ignores `tried` and names a device by its serial number.
-    fn borrow_untried(
-        &self,
-        tried: Vec<JavaString>,
-        context: VendorContext,
-    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
+    fn borrow_untried(&self, tried: Vec<String>, context: VendorContext) -> VendorFuture<'_, (DeviceRef, String)> {
         let _ = tried;
         Box::pin(async move {
             let device = self.borrow(context).await?;
@@ -115,7 +108,7 @@ pub enum TestParser {
 /// AppleTestBundle, AndroidTestBundle and StubTestBundle are ordinary Kotlin
 /// classes: equality is reference identity, even when their id strings match.
 pub trait TestBundle: Send + Sync {
-    fn id(&self) -> &JavaString;
+    fn id(&self) -> &String;
 }
 #[derive(Clone)]
 pub struct BundleRef(pub Arc<dyn TestBundle>);

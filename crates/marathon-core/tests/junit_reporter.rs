@@ -113,7 +113,7 @@ fn junit_create_new_file_and_stream_open_keep_distinct_java_errors() {
             failure
                 .message
                 .unwrap()
-                .to_string_lossy()
+                .to_owned()
                 .replace(temp.0.to_str().unwrap(), "<out>"),
             expected["error"]["message"].as_str().unwrap()
         );

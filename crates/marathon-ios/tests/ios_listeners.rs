@@ -755,7 +755,7 @@ async fn non_transfer_failure_aborts_composite_before_next_listener() -> TestRes
             _: &'a marathon_core::model::Test,
             _: i64,
             _: i64,
-            _: Option<&'a jcompat::writers::JavaString>,
+            _: Option<&'a String>,
         ) -> marathon_core::runtime::VendorFuture<'a, ()> {
             Box::pin(async move {
                 self.0.fetch_add(1, Ordering::SeqCst);

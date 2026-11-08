@@ -362,7 +362,7 @@ fn validation_errors_convert_with_their_class_at_both_stages() {
     for stage in [ValidationStage::Parse, ValidationStage::Logical] {
         let converted = validation_error_to_configuration_error(error.clone(), stage);
         assert_eq!(converted.stage, stage);
-        assert_eq!(converted.class.to_string_lossy(), "java.io.FileNotFoundException");
+        assert_eq!(converted.class.to_owned(), "java.io.FileNotFoundException");
         assert_eq!(load::message(&converted), "Private key not found at /k");
         assert!(converted.causes.is_empty() && converted.path.is_empty() && converted.span.is_none());
     }
@@ -373,9 +373,9 @@ fn validation_errors_convert_with_their_class_at_both_stages() {
 fn load_errors_map_to_their_kotlin_classes_at_parse() {
     let worker = load_error_to_configuration_error(LoadError::Worker(std::io::Error::other("no threads")));
     assert_eq!(worker.stage, ValidationStage::Parse);
-    assert_eq!(worker.class.to_string_lossy(), "java.lang.IllegalStateException");
+    assert_eq!(worker.class.to_owned(), "java.lang.IllegalStateException");
     let null = load_error_to_configuration_error(LoadError::NullDocument);
-    assert_eq!(null.class.to_string_lossy(), "java.lang.NullPointerException");
+    assert_eq!(null.class.to_owned(), "java.lang.NullPointerException");
     assert!(
         null.causes.is_empty(),
         "the NPE escapes the ConfigurationException wrapper"
@@ -577,8 +577,8 @@ fn yaml_syntax_errors_keep_the_wrapper_and_original_parser_cause() -> Result<(),
             .err()
             .ok_or("the malformed input must fail at parse")?;
         assert_eq!(error.stage, ValidationStage::Parse);
-        assert_eq!(error.class.to_string_lossy(), CONFIGURATION_EXCEPTION);
-        let causes: Vec<_> = error.causes.iter().map(|c| c.class.to_string_lossy()).collect();
+        assert_eq!(error.class.to_owned(), CONFIGURATION_EXCEPTION);
+        let causes: Vec<_> = error.causes.iter().map(|c| c.class.to_owned()).collect();
         assert_eq!(causes, [wrapper, original]);
     }
     Ok(())
@@ -611,12 +611,7 @@ fn regex_scalar_kinds_use_json_node_type_names() -> Result<(), Box<dyn std::erro
         let causes: Vec<_> = error
             .causes
             .iter()
-            .map(|c| {
-                (
-                    c.class.to_string_lossy(),
-                    c.message.as_ref().map(|m| m.to_string_lossy()),
-                )
-            })
+            .map(|c| (c.class.to_owned(), c.message.as_ref().map(|m| m.to_owned())))
             .collect();
         assert_eq!(
             causes,
@@ -667,7 +662,7 @@ fn unknown_properties_wait_for_the_creator() -> Result<(), Box<dyn std::error::E
             .parse_sync(input.as_bytes(), &context)
             .err()
             .ok_or("the input must fail at parse")?;
-        let causes: Vec<_> = error.causes.iter().map(|c| c.class.to_string_lossy()).collect();
+        let causes: Vec<_> = error.causes.iter().map(|c| c.class.to_owned()).collect();
         assert_eq!(causes, [class], "{input}");
     }
     Ok(())
@@ -684,10 +679,10 @@ fn wrapper_array_without_a_body_keeps_the_missing_parameter_error() -> Result<()
         .err()
         .ok_or("the absent vendor must fail at parse")?;
     assert_eq!(error.stage, ValidationStage::Parse);
-    assert_eq!(error.class.to_string_lossy(), CONFIGURATION_EXCEPTION);
+    assert_eq!(error.class.to_owned(), CONFIGURATION_EXCEPTION);
     assert_eq!(error.causes.len(), 1);
     assert_eq!(
-        error.causes[0].class.to_string_lossy(),
+        error.causes[0].class.to_owned(),
         "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"
     );
     Ok(())

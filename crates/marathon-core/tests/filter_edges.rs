@@ -2,7 +2,7 @@
 //! (JVM differential probes and lifecycle regressions beyond the Kotlin tests).
 mod filter_support;
 use filter_support::*;
-use jcompat::{file_manager::JavaPath, logging::Level, writers::JavaString};
+use jcompat::{file_manager::JavaPath, logging::Level};
 use marathon_config::schema::{CompositionOperation as Op, TestFilterConfiguration as C, TestPackageFilter};
 use marathon_core::{
     error::{Cancellation, OperationError, OperationResult},
@@ -47,11 +47,7 @@ fn names(tests: &[Test]) -> J {
     json!(
         tests
             .iter()
-            .map(|t| [
-                t.pkg.to_string_lossy(),
-                t.clazz.to_string_lossy(),
-                t.method.to_string_lossy()
-            ])
+            .map(|t| [t.pkg.to_owned(), t.clazz.to_owned(), t.method.to_owned()])
             .collect::<Vec<_>>()
     )
 }
@@ -59,11 +55,7 @@ fn annotations(tests: &[Test]) -> J {
     json!(
         tests
             .iter()
-            .map(|t| t
-                .meta_properties
-                .iter()
-                .map(|p| p.name.to_string_lossy())
-                .collect::<Vec<_>>())
+            .map(|t| t.meta_properties.iter().map(|p| p.name.to_owned()).collect::<Vec<_>>())
             .collect::<Vec<_>>()
     )
 }
@@ -133,9 +125,9 @@ fn every_leaf_and_fragment_replay_the_jvm() -> OperationResult<()> {
                 let Err(OperationError::Failed(e)) = result else {
                     panic!("expected failure")
                 };
-                assert_eq!(e.class.to_string_lossy(), row[key]["error"]["class"]);
+                assert_eq!(e.class.to_owned(), row[key]["error"]["class"]);
                 assert_eq!(
-                    e.message.map(|s| s.to_string_lossy()),
+                    e.message.map(|s| s.to_owned()),
                     row[key]["error"]["message"].as_str().map(String::from)
                 );
             } else {
@@ -249,18 +241,18 @@ fn c28_wrapper_and_scalar_rendering_replays_the_jvm() -> OperationResult<()> {
             _ => wrapper(kind),
         };
         let rendered = render.render(&value)?;
-        assert_eq!(rendered.to_string_lossy(), row["rendered"]);
+        assert_eq!(rendered.to_owned(), row["rendered"]);
         let extracted = if row.get("extracted").is_some() {
             array_element_value(&rendered)
         } else {
             rendered
         };
         if row.get("extracted").is_some() {
-            assert_eq!(extracted.to_string_lossy(), row["extracted"]);
+            assert_eq!(extracted.to_owned(), row["extracted"]);
         }
         // Exact literals here contain metacharacters; use a full-match supported
         // pattern synthesized by escaping every punctuation byte.
-        let pattern = escape(&extracted.as_utf8().expect("oracle UTF-16"));
+        let pattern = escape(&extracted);
         let c = C::AnnotationData {
             name_regex: regex("A"),
             value_regex: regex(&pattern),
@@ -283,7 +275,7 @@ fn c28_wrapper_and_scalar_rendering_replays_the_jvm() -> OperationResult<()> {
     render
         .hooks
         .verify_consumed()
-        .map_err(|e| fail(&e.message.to_string_lossy()))?;
+        .map_err(|e| fail(&e.message.to_owned()))?;
     Ok(())
 }
 fn escape(s: &str) -> String {
@@ -302,12 +294,7 @@ fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResu
         if let Some(bytes) = row["bytes"].as_array() {
             let bytes: Vec<u8> = bytes.iter().map(|n| n.as_u64().expect("byte") as u8).collect();
             assert_eq!(
-                json!(
-                    parse_values(&bytes)
-                        .iter()
-                        .map(JavaString::to_string_lossy)
-                        .collect::<Vec<_>>()
-                ),
+                json!(parse_values(&bytes).iter().map(String::clone).collect::<Vec<_>>()),
                 row["values"]
             );
         }
@@ -321,13 +308,7 @@ fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResu
     let reader = marathon_core::filter::values::FileValuesReader { logger: logs.clone() };
     let path = tmp.path(row["invalidPath"].as_str().expect("path"));
     assert_eq!(
-        json!(
-            reader
-                .read_values(&path)?
-                .iter()
-                .map(JavaString::to_string_lossy)
-                .collect::<Vec<_>>()
-        ),
+        json!(reader.read_values(&path)?.iter().map(String::clone).collect::<Vec<_>>()),
         row["values"]
     );
     let records = logs.0.lock().expect("logs");
@@ -335,17 +316,17 @@ fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResu
     assert_eq!(
         records[0]
             .message
-            .to_string_lossy()
+            .to_owned()
             .replace(tmp.0.to_str().expect("temp UTF-8"), "<tmp>"),
         row["logs"][0]["message"]
     );
     Ok(())
 }
 
-type ReadValues = dyn Fn(&JavaPath) -> OperationResult<Vec<JavaString>> + Send + Sync;
+type ReadValues = dyn Fn(&JavaPath) -> OperationResult<Vec<String>> + Send + Sync;
 struct Reader(Arc<ReadValues>);
 impl FilterValuesReader for Reader {
-    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<JavaString>> {
+    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<String>> {
         (self.0)(path)
     }
 }
@@ -374,7 +355,7 @@ fn missing_values_are_logged_once_and_cached_across_operations() -> OperationRes
     assert_eq!(records[0].level, Level::Error);
     assert_eq!(records[0].logger, "FilterValuesFileReader");
     assert_eq!(
-        records[0].message.to_string_lossy(),
+        records[0].message.to_owned(),
         format!(
             "Filtering configuration file {} does not exist. Applying empty list.",
             path.to_path_buf().map_err(|e| fail(&e.to_string()))?.display()
@@ -395,7 +376,7 @@ fn lazy_files_do_not_read_on_disabled_empty_or_explicit_values_and_retry_errors(
     let Err(OperationError::Failed(error)) = error else {
         panic!("expected read failure")
     };
-    assert_eq!(error.class, JavaString::from("java.io.FileNotFoundException"));
+    assert_eq!(error.class, String::from("java.io.FileNotFoundException"));
     remove_dir(tmp.0.join("values"))?;
     tmp.write("values", "pkg.clazz")?;
     assert_eq!(apply(f.clone(), t.clone(), false)?, t);
@@ -437,7 +418,7 @@ fn composition_laziness_child_order_and_non_short_circuit_are_observable() -> Op
         observed
             .lock()
             .expect("trace")
-            .push(JavaString(p.0.clone()).to_string_lossy());
+            .push(String::from_utf16_lossy(&p.0.clone()).to_owned());
         Ok(vec![])
     })));
     let child = |name: &str| {
@@ -631,9 +612,9 @@ fn allure_retries_thrown_supply_but_caches_absence_and_unknown() -> OperationRes
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     Ok(())
 }
-struct Env(HashMap<String, JavaString>);
+struct Env(HashMap<String, String>);
 impl PlanEnvironment for Env {
-    fn get(&self, key: &str) -> Option<JavaString> {
+    fn get(&self, key: &str) -> Option<String> {
         self.0.get(key).cloned()
     }
 }
@@ -697,7 +678,7 @@ fn allure_file_supplier_precedence_json_dispatch_and_p2_replay_the_jvm() -> Oper
             assert_eq!(record.level, Level::Warn);
             assert_eq!(record.logger, "io.qameta.allure.testfilter.FileTestPlanSupplier");
             assert_eq!(
-                record.message.to_string_lossy(),
+                record.message.to_owned(),
                 format!("could not read test plan file {}", tmp.0.join("plan.json").display())
             );
             assert!(record.cause.is_some());
@@ -714,7 +695,7 @@ fn allure_file_supplier_precedence_json_dispatch_and_p2_replay_the_jvm() -> Oper
     let records = logs.0.lock().expect("logs");
     assert_eq!(
         records[0].message,
-        JavaString::from("could not read test plan file bad\0path: invalid path")
+        String::from("could not read test plan file bad\0path: invalid path")
     );
     assert_eq!(records[0].cause, None);
     Ok(())
@@ -789,7 +770,7 @@ fn array_identity_registry_scales_and_survives_address_reuse() -> OperationResul
 #[test]
 fn malformed_utf16_has_context_and_literal_equality_stays_lossless() -> OperationResult<()> {
     let mut t = test("pkg", "Class", "method");
-    t.clazz = JavaString(vec![0xd800]);
+    t.clazz = String::from_utf16_lossy(&vec![0xd800]);
     let c = C::SimpleClassname(config(Some(".*"), None, true));
     let Err(OperationError::Failed(error)) = apply(filter(&c), vec![t.clone()], false) else {
         panic!("expected checked conversion")
@@ -798,7 +779,7 @@ fn malformed_utf16_has_context_and_literal_equality_stays_lossless() -> Operatio
         error
             .message
             .expect("message")
-            .to_string_lossy()
+            .to_owned()
             .contains("test filter name for regex .*")
     );
     let mut c = config(None, None, true);
@@ -835,7 +816,7 @@ fn d6_lookaround_is_rejected_at_binding_with_field_and_pattern() {
     let binder = Binder::new(&context, &stream);
     let result = binder.first(&stream, bind_test_filter_configuration);
     let error = result.expect_err("D6 rejects lookaround at bind");
-    let message = error.message.expect("message").to_string_lossy();
+    let message = error.message.expect("message").to_owned();
     assert!(message.contains(pattern));
     assert!(message.contains("regex"));
 }
@@ -988,6 +969,6 @@ fn annotation_arrays_render_every_element_before_any_match() -> OperationResult<
     rendering
         .hooks
         .verify_consumed()
-        .map_err(|e| fail(&e.message.to_string_lossy()))?;
+        .map_err(|e| fail(&e.message.to_owned()))?;
     Ok(())
 }

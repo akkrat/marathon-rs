@@ -15,6 +15,6 @@ fn io_error(error: std::io::Error) -> marathon_core::error::VendorError {
 fn clock_error(error: marathon_core::time::ReplayError) -> marathon_core::error::VendorError {
     marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
         "marathon.ReplayError",
-        error.message.to_string_lossy(),
+        &error.message,
     ))
 }

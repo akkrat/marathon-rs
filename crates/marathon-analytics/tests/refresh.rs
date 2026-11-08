@@ -162,7 +162,7 @@ async fn recovers(env: Env, backend: &'static str, outage: Outage) -> OperationR
     let mut context = env.context.clone();
     context.clock = clock.clone();
     let clients =
-        AnalyticsClients::new(context.clone(), env.io.clone()).with_graphite_endpoint(peer.url.clone().into());
+        AnalyticsClients::new(context.clone(), env.io.clone()).with_graphite_endpoint(peer.url.clone());
     let config = match backend {
         "v1" => AnalyticsConfiguration::InfluxDb(v1(&peer.url)),
         "v2" => AnalyticsConfiguration::InfluxDb2(v2(&peer.url)),
@@ -203,7 +203,7 @@ async fn recovers(env: Env, backend: &'static str, outage: Outage) -> OperationR
 }
 fn lines(logs: &[LogRecord], level: Level, text: &str) -> usize {
     logs.iter()
-        .filter(|r| r.level == level && r.message.to_string_lossy().contains(text))
+        .filter(|r| r.level == level && r.message.to_owned().contains(text))
         .count()
 }
 fn recovery_case(backend: &'static str, outage: Outage) {
@@ -363,7 +363,7 @@ fn close_gets_past_a_blocked_vendor_worker_on_the_real_runtime_and_clock() {
         })
     });
     // The first query's three lines and close's warning: nothing from the query that ended later.
-    let messages: Vec<_> = logs.iter().map(|r| r.message.to_string_lossy()).collect();
+    let messages: Vec<_> = logs.iter().map(|r| r.message.to_owned()).collect();
     assert_eq!(messages.len(), 4, "{messages:?}");
     assert_eq!(lines(&logs, Level::Debug, "No execution time found"), 1);
     assert_eq!(lines(&logs, Level::Warn, "Cannot fetch execution time"), 1);

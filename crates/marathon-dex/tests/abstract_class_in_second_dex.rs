@@ -16,7 +16,7 @@ fn count(test_name: &str) -> usize {
     marathon_dex::find_test_methods(&apk_path(), &["".into()])
         .unwrap()
         .iter()
-        .filter(|m| m.test_name.to_string_lossy() == test_name)
+        .filter(|m| m.test_name == test_name)
         .count()
 }
 

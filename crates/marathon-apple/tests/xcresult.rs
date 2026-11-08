@@ -1,6 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/xcresulttool/XcresulttoolTest.kt
 
-use jcompat::writers::JavaString;
 use marathon_apple::xcresult::*;
 
 const SAMPLE1: &str = include_str!("../../../fixtures/vendor-apple-base/fixtures/xctesttool/sample_1.json");
@@ -30,16 +29,16 @@ fn real_tool_fixture_enrichment_path_and_dates() {
         for action in record.actions.iter().flatten() {
             assert!(action.started_time.0 > 0);
             assert!(action.ended_time.0 >= action.started_time.0);
-            assert!(!action.run_destination.target_device_record.name.0.is_empty());
+            assert!(!action.run_destination.target_device_record.name.is_empty());
             if let Some(reference) = &action.action_result.tests_ref {
-                assert!(!reference.id.0.is_empty());
+                assert!(!reference.id.is_empty());
             }
         }
         for failure in record.issues.test_failure_summaries.iter().flatten() {
-            assert!(!failure.test_case_name.0.is_empty());
-            assert!(!failure.message.0.is_empty());
+            assert!(!failure.test_case_name.is_empty());
+            assert!(!failure.message.is_empty());
             if let Some(location) = &failure.document_location_in_creating_workspace {
-                assert!(location.url.as_utf8().unwrap().starts_with("file://"));
+                assert!(location.url.starts_with("file://"));
             }
         }
     }
@@ -58,7 +57,7 @@ fn real_tool_fixture_enrichment_path_and_dates() {
         assert!(
             targets
                 .iter()
-                .all(|target| target.target_name.as_ref().is_some_and(|name| !name.0.is_empty()))
+                .all(|target| target.target_name.as_ref().is_some_and(|name| !name.is_empty()))
         );
     }
 }
@@ -69,8 +68,8 @@ fn flattened_inheritance_does_not_dispatch_on_type_metadata() {
     let value = decode_legacy::<ActionTestSummaryIdentifiableObject>(input)
         .unwrap()
         .unwrap();
-    assert_eq!(value.name, Some(JavaString::from("test")));
-    assert_eq!(value.identifier, Some(JavaString::from("C/test")));
+    assert_eq!(value.name, Some(String::from("test")));
+    assert_eq!(value.identifier, Some(String::from("C/test")));
     assert!(value.identifier_url.is_none());
     assert_eq!(OBJECT_TYPE_COUNT, 57);
 }

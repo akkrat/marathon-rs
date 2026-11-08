@@ -53,7 +53,7 @@ fn argument_corpus() {
             let pairs: Vec<_> = map
                 .entries()
                 .iter()
-                .map(|(k, v)| vec![k.to_string_lossy(), v.to_string_lossy()])
+                .map(|(k, v)| vec![k.to_owned(), v.to_owned()])
                 .collect();
             assert_eq!(json!(pairs), oracle(&format!("args:{serial}:{mask}")));
         }
@@ -69,7 +69,7 @@ fn argument_corpus() {
         json!(
             map.entries()
                 .iter()
-                .map(|(k, v)| vec![k.to_string_lossy(), v.to_string_lossy()])
+                .map(|(k, v)| vec![k.to_owned(), v.to_owned()])
                 .collect::<Vec<_>>()
         ),
         oracle("args:reverse")
@@ -98,7 +98,7 @@ impl AndroidTestRunListener for Events {
         Box::pin(async move {
             self.values.lock().unwrap().push(format!(
                 "before:{}",
-                info.map(|i| i.instrumentation_package.to_string_lossy())
+                info.map(|i| i.instrumentation_package.to_owned())
                     .unwrap_or_else(|| "null".into())
             ));
             Ok(())
@@ -113,13 +113,13 @@ impl AndroidTestRunListener for Events {
             self.values
                 .lock()
                 .unwrap()
-                .push(format!("next:{}", info.instrumentation_package.to_string_lossy()));
+                .push(format!("next:{}", info.instrumentation_package.to_owned()));
             Ok(())
         })
     }
     fn on_instrumentation_tests_in<'a>(&'a self, tests: &'a [Test], _: VendorContext) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            let methods = tests.iter().map(|t| t.method.to_string_lossy()).collect();
+            let methods = tests.iter().map(|t| t.method.to_owned()).collect();
             self.instrumentation_tests.lock().unwrap().push(methods);
             Ok(())
         })
@@ -128,10 +128,10 @@ impl AndroidTestRunListener for Events {
         Box::pin(async move {
             let value = match event {
                 E::TestRunStartedEvent { test_count } => format!("run:AdamTestRun:{test_count}"),
-                E::TestStarted { id } => format!("start:{}", id.test_name.to_string_lossy()),
-                E::TestIgnored { id } => format!("ignored:{}", id.test_name.to_string_lossy()),
-                E::TestEnded { id, .. } => format!("end:{}", id.test_name.to_string_lossy()),
-                E::TestRunFailed { error } => format!("failed:{}", error.to_string_lossy()),
+                E::TestStarted { id } => format!("start:{}", id.test_name.to_owned()),
+                E::TestIgnored { id } => format!("ignored:{}", id.test_name.to_owned()),
+                E::TestEnded { id, .. } => format!("end:{}", id.test_name.to_owned()),
+                E::TestRunFailed { error } => format!("failed:{}", error.to_owned()),
                 E::TestRunEnded {
                     elapsed_time_millis, ..
                 } => format!("ended:{elapsed_time_millis}"),
@@ -259,7 +259,7 @@ fn request_escapes_only_ascii_spaces_and_keeps_null() {
                     id: "batch".into(),
                 },
             )?;
-            let text = request.command().to_string_lossy();
+            let text = request.command().to_owned();
             assert!(text.contains("-e class pkg.Clazz,pkg.Clazz#space\\ name"));
             assert!(text.contains("/coverage/coverage-batch.ec"));
             assert_eq!(request.socket_idle_timeout, Some(i64::MAX));
@@ -598,7 +598,7 @@ fn producer_failure_leaves_the_tests_uncompleted_with_the_cause_d25() {
             let results = deferred.completed().unwrap().unwrap();
             assert_eq!(results.uncompleted.len(), 1);
             assert_eq!(
-                results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy(),
+                results.uncompleted[0].stacktrace.as_ref().unwrap().to_owned(),
                 "Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\""
             );
             d.dispose().await?;
@@ -686,10 +686,10 @@ fn a_stream_cut_off_explains_the_unfinished_tests_and_keeps_the_finished_d25() {
             assert_eq!(names(&results.uncompleted), ["second", "third"]);
             for result in &results.uncompleted {
                 assert_eq!(
-                    result.stacktrace.as_ref().map(|s| s.to_string_lossy()).as_deref(),
+                    result.stacktrace.as_ref().map(|s| s.to_owned()).as_deref(),
                     Some(STREAM_ENDED),
                     "{}",
-                    result.test.method.to_string_lossy()
+                    result.test.method.to_owned()
                 );
             }
             d.dispose().await?;
@@ -774,9 +774,9 @@ fn ordinary_ends_are_not_called_a_stream_cut_off_d25() {
                     results
                         .uncompleted
                         .iter()
-                        .find(|r| r.test.method.to_string_lossy() == method)
+                        .find(|r| r.test.method.to_owned() == method)
                         .and_then(|r| r.stacktrace.as_ref())
-                        .map(|s| s.to_string_lossy())
+                        .map(|s| s.to_owned())
                 };
                 assert_eq!(text("method").as_deref(), first, "{output}");
                 assert_eq!(text("other").as_deref(), Some(second), "{output}");
@@ -826,7 +826,7 @@ fn a_stream_cut_off_leaves_the_other_instrumentations_results_right_d25_d28() {
                     results.uncompleted[0]
                         .stacktrace
                         .as_ref()
-                        .map(|s| s.to_string_lossy())
+                        .map(|s| s.to_owned())
                         .as_deref(),
                     Some(STREAM_ENDED)
                 );
@@ -866,11 +866,11 @@ fn a_stream_cut_off_does_not_explain_an_earlier_runs_crash_d25_d28() {
                 results
                     .uncompleted
                     .iter()
-                    .find(|r| r.test.method.to_string_lossy() == method)
+                    .find(|r| r.test.method.to_owned() == method)
                     .unwrap()
                     .stacktrace
                     .as_ref()
-                    .map(|s| s.to_string_lossy())
+                    .map(|s| s.to_owned())
             };
             assert_eq!(text("one"), None);
             assert_eq!(text("two").as_deref(), Some(STREAM_ENDED));
@@ -979,7 +979,7 @@ fn completes(class: &str, method: &str) -> String {
     )
 }
 fn names(results: &[TestResult]) -> Vec<String> {
-    results.iter().map(|r| r.test.method.to_string_lossy()).collect()
+    results.iter().map(|r| r.test.method.to_owned()).collect()
 }
 /// D28 (N35): the JVM rows `runner:multiple-services` and `runner:multiple-events` witness the old behaviour.
 #[test]
@@ -1112,7 +1112,7 @@ fn a_failed_instrumentation_does_not_stop_the_other_d28() {
                 assert_eq!(names(&results.finished), [good]);
                 assert_eq!(names(&results.uncompleted), [bad]);
                 assert_eq!(
-                    results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy(),
+                    results.uncompleted[0].stacktrace.as_ref().unwrap().to_owned(),
                     "Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\""
                 );
                 d.dispose().await?;
@@ -1153,7 +1153,7 @@ fn a_stuck_instrumentation_does_not_stop_the_other_d28() {
             assert_eq!(names(&results.finished), ["two"]);
             assert_eq!(names(&results.uncompleted), ["one"]);
             assert_eq!(
-                results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy(),
+                results.uncompleted[0].stacktrace.as_ref().unwrap().to_owned(),
                 ERROR_STUCK
             );
             d.dispose().await?;
@@ -1247,7 +1247,7 @@ fn a_lost_device_ends_the_batch_with_one_result_d28() {
             let results = deferred.completed().unwrap().unwrap();
             assert_eq!(names(&results.uncompleted), ["one", "two"]);
             // U151: the one that never ran has the failure that ended the batch, which is the only reason there is.
-            let text = results.uncompleted[0].stacktrace.as_ref().unwrap().to_string_lossy();
+            let text = results.uncompleted[0].stacktrace.as_ref().unwrap().to_owned();
             assert!(text.starts_with("Instrumentation failed: "), "{text}");
             assert_eq!(results.uncompleted[1].stacktrace, results.uncompleted[0].stacktrace);
             d.dispose().await?;
@@ -1320,9 +1320,9 @@ fn text_of(results: &TestBatchResults, method: &str) -> String {
     results
         .uncompleted
         .iter()
-        .find(|r| r.test.method.to_string_lossy() == method)
+        .find(|r| r.test.method.to_owned() == method)
         .and_then(|r| r.stacktrace.as_ref())
-        .map(|s| s.to_string_lossy())
+        .map(|s| s.to_owned())
         .unwrap_or_else(|| panic!("no text for {method}"))
 }
 /// U151: each instrumentation's failure is the text of its own unreported tests, and no other instrumentation's. The
@@ -1685,10 +1685,7 @@ impl AndroidTestRunListener for SuspendingHook {
     fn on_event<'a>(&'a self, event: &'a E) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if let E::TestRunFailed { error } = event {
-                self.events
-                    .lock()
-                    .unwrap()
-                    .push(format!("failed:{}", error.to_string_lossy()));
+                self.events.lock().unwrap().push(format!("failed:{}", error.to_owned()));
             }
             Ok(())
         })

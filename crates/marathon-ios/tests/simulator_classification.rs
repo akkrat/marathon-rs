@@ -46,9 +46,9 @@ async fn transport_and_illegal_state_failures_lose_the_device_but_other_io_error
         assert!(results.is_none());
         if class != "java.io.IOException" {
             assert!(matches!(e, VendorError::DeviceLost(_)));
-            assert_eq!(e.failure().cause.as_ref().unwrap().class.to_string_lossy(), class);
+            assert_eq!(e.failure().cause.as_ref().unwrap().class.to_owned(), class);
         } else {
-            assert_eq!(e.failure().class.to_string_lossy(), class);
+            assert_eq!(e.failure().class.to_owned(), class);
         }
         h.finish(&[d]).await;
     }

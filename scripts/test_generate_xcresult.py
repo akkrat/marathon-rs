@@ -53,7 +53,7 @@ class Generator(unittest.TestCase):
         objects = g.resolve(schema)
         self.assertEqual([p['name'] for p in objects['Child']], ['self', 'base'])
         self.assertEqual(g.rust_type('Child', objects['Child'][0]), 'Option<Box<Child>>')
-        self.assertEqual(g.rust_type('Any', prop('list', 'Array', True, wrapped='String')), 'Option<Vec<Option<JavaString>>>')
+        self.assertEqual(g.rust_type('Any', prop('list', 'Array', True, wrapped='String')), 'Option<Vec<Option<String>>>')
 
     def test_unknown_kind_and_unresolved_dependencies_fail(self):
         with self.assertRaisesRegex(ValueError, 'Unknown xcresulttool type kind'):

@@ -1,7 +1,4 @@
-//! Kotlin string operations on UTF-16 unit slices, for ports whose inputs are
-//! `JavaString`s that may carry supplementary characters or lone surrogates.
-
-use crate::writers::JavaString;
+//! Port of core/src/main/kotlin/com/malinskiy/marathon/test/Test.kt (Kotlin string operations).
 
 /// Kotlin `Char.isWhitespace()`: `Character.isWhitespace` plus every Unicode
 /// space character (`isSpaceChar`), i.e. the Zs/Zl/Zp categories, the ASCII
@@ -49,27 +46,27 @@ pub fn trim_end(units: &[u16]) -> &[u16] {
 /// Kotlin `String.lines()`: splits around `\r\n`, `\n` and `\r`. The segment
 /// after the last separator is always present, so an empty string is one
 /// empty line and a trailing separator yields a trailing empty line.
-pub fn lines(text: &JavaString) -> Vec<JavaString> {
-    let units = &text.0;
+pub fn lines(text: &str) -> Vec<String> {
+    let units: Vec<u16> = text.encode_utf16().collect();
     let mut result = Vec::new();
     let mut start = 0;
     let mut i = 0;
     while i < units.len() {
         match units[i] {
             0x0D => {
-                result.push(JavaString(units[start..i].to_vec()));
+                result.push(String::from_utf16_lossy(&units[start..i]));
                 i += if units.get(i + 1) == Some(&0x0A) { 2 } else { 1 };
                 start = i;
             }
             0x0A => {
-                result.push(JavaString(units[start..i].to_vec()));
+                result.push(String::from_utf16_lossy(&units[start..i]));
                 i += 1;
                 start = i;
             }
             _ => i += 1,
         }
     }
-    result.push(JavaString(units[start..].to_vec()));
+    result.push(String::from_utf16_lossy(&units[start..]));
     result
 }
 
@@ -89,7 +86,7 @@ pub fn is_letter(unit: u16) -> bool {
 mod tests {
     use super::*;
 
-    fn js(s: &str) -> JavaString {
+    fn js(s: &str) -> String {
         s.into()
     }
 

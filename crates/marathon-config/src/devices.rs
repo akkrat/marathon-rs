@@ -8,7 +8,7 @@
 //! which imports these types from here.
 
 use crate::vendor::SshAuthentication;
-use jcompat::writers::JavaString;
+
 use std::hash::{Hash, Hasher};
 
 /// Port of `Marathondevices` (Marathondevices.kt:5-7).
@@ -31,7 +31,7 @@ pub struct Worker {
 pub enum Transport {
     Local,
     Ssh {
-        addr: JavaString,
+        addr: String,
         port: i32,
         authentication: Option<SshAuthentication>,
         check_reachability: bool,
@@ -40,7 +40,7 @@ pub enum Transport {
 
 impl Transport {
     /// `Transport.id()`: `"local"`, or `"addr:port"` for SSH.
-    pub fn id(&self) -> JavaString {
+    pub fn id(&self) -> String {
         match self {
             Self::Local => "local".into(),
             Self::Ssh { addr, port, .. } => {
@@ -90,8 +90,8 @@ fn hash_authentication<H: Hasher>(authentication: &Option<SshAuthentication>, st
 /// Port of `AppleTarget` (AppleTarget.kt).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum AppleTarget {
-    Simulator { udid: JavaString },
-    Physical { udid: JavaString },
+    Simulator { udid: String },
+    Physical { udid: String },
     SimulatorProfile(SimulatorProfile),
     Host,
 }
@@ -101,9 +101,9 @@ pub enum AppleTarget {
 /// computed on demand as Kotlin's lazy properties are.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SimulatorProfile {
-    pub device_type_id: JavaString,
-    pub runtime_id: Option<JavaString>,
-    pub new_name_prefix: JavaString,
+    pub device_type_id: String,
+    pub runtime_id: Option<String>,
+    pub new_name_prefix: String,
 }
 
 pub const FQCN_SIM_DEVICE_TYPE: &str = "com.apple.CoreSimulator.SimDeviceType";
@@ -111,12 +111,12 @@ pub const FQCN_SIM_RUNTIME: &str = "com.apple.CoreSimulator.SimRuntime";
 
 impl SimulatorProfile {
     /// `fullyQualifiedDeviceTypeId`.
-    pub fn fully_qualified_device_type_id(&self) -> JavaString {
+    pub fn fully_qualified_device_type_id(&self) -> String {
         expand_textual_id(&self.device_type_id, FQCN_SIM_DEVICE_TYPE)
     }
 
     /// `fullyQualifiedRuntimeId`.
-    pub fn fully_qualified_runtime_id(&self) -> Option<JavaString> {
+    pub fn fully_qualified_runtime_id(&self) -> Option<String> {
         self.runtime_id
             .as_ref()
             .map(|id| expand_textual_id(id, FQCN_SIM_RUNTIME))
@@ -127,18 +127,18 @@ impl SimulatorProfile {
 /// the FQCN (no dot-boundary check) passes verbatim; otherwise every
 /// space and dot becomes `-` and `"<FQCN>."` is prefixed. Operates on
 /// UTF-16 units, as Kotlin's `Char` loop does.
-fn expand_textual_id(id: &JavaString, expected_fqcn: &str) -> JavaString {
+fn expand_textual_id(id: &String, expected_fqcn: &str) -> String {
     let fqcn: Vec<u16> = expected_fqcn.encode_utf16().collect();
-    if id.0.starts_with(&fqcn) {
+    if id.encode_utf16().collect::<Vec<_>>().starts_with(&fqcn) {
         return id.clone();
     }
     let mut out: Vec<u16> = expected_fqcn.encode_utf16().collect();
     out.push(u16::from(b'.'));
-    for &unit in &id.0 {
+    for &unit in &id.encode_utf16().collect::<Vec<_>>() {
         out.push(match unit {
             0x20 | 0x2e => u16::from(b'-'),
             other => other,
         });
     }
-    JavaString(out)
+    String::from_utf16_lossy(&out)
 }

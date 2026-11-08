@@ -17,8 +17,8 @@ pub enum Tok {
     EndObject,
     StartArray,
     EndArray,
-    Field(crate::java_string::JavaString),
-    Str(crate::java_string::JavaString),
+    Field(String),
+    Str(String),
     Int {
         text: String,
         value: Result<JInt, NumberError>,
@@ -36,7 +36,7 @@ pub enum Tok {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Token {
     pub span: crate::node::Span,
-    pub java_text: Option<crate::java_string::JavaString>,
+    pub java_text: Option<String>,
     pub tok: Tok,
     pub anchor: Option<String>,
     /// `getTypeId()`: the tag with every leading `!` removed.
@@ -82,7 +82,7 @@ impl From<&YamlError> for TokenError {
 }
 
 /// The field name of a mapping key, or the error Jackson raises for anything but a scalar there.
-pub fn check_key(key: &Node) -> Result<&crate::java_string::JavaString, KeyProblem> {
+pub fn check_key(key: &Node) -> Result<&String, KeyProblem> {
     match &key.kind {
         NodeKind::Scalar { text, .. } => Ok(text),
         NodeKind::Cut => Err(KeyProblem::Cut),
@@ -189,14 +189,14 @@ fn walk<'a>(
                         break;
                     }
                     NodeKind::Alias { name } => push(
-                        Tok::Str(name.clone().into()),
+                        Tok::Str(name.clone()),
                         None,
                         None,
                         n.span,
                         Some(name.as_str().into()),
                     ),
                     NodeKind::Scalar { text, style } => {
-                        let projected = text.to_string_lossy();
+                        let projected = text.to_owned();
                         let tok = match decode_scalar(&projected, *style, n.tag.as_deref()) {
                             Decoded::Token(t) => scalar_tok(&projected, t),
                             Decoded::EndOfInput => {

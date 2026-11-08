@@ -12,7 +12,7 @@ use jcompat::{
     jtime::Duration,
     logging::{Level, Logger},
     throwable::is_error_class,
-    writers::{JavaString, KotlinValue},
+    writers::KotlinValue,
 };
 use marathon_config::Configuration;
 use marathon_core::{
@@ -68,25 +68,25 @@ fn flatten_suppressed(detail: &mut Failure, suppressed: &[Failure]) {
     if suppressed.is_empty() {
         return;
     }
-    let text = detail.stacktrace.get_or_insert_with(JavaString::default);
+    let text = detail.stacktrace.get_or_insert_with(String::default);
     for failure in suppressed {
         text.push_str("\tSuppressed: ");
         let trace = failure.stack_trace();
         // JVM frames are omitted by PLAN §3.10; retain nested causes with their indentation.
         let mut lines = trace
-            .to_string_lossy()
+            .to_owned()
             .lines()
             .map(str::to_owned)
             .collect::<Vec<_>>()
             .into_iter();
         if let Some(line) = lines.next() {
             text.push_str(&line);
-            text.push_str("\n");
+            text.push('\n');
         }
         for line in lines {
-            text.push_str("\t");
+            text.push('\t');
             text.push_str(&line);
-            text.push_str("\n");
+            text.push('\n');
         }
     }
 }
@@ -131,7 +131,7 @@ impl AppleDeviceTestRunner {
             .collect::<VendorResult<Vec<_>>>()?;
         self.log(
             Level::Debug,
-            format!("Tests = {}", KotlinValue::List(tests).render().to_string_lossy()),
+            format!("Tests = {}", KotlinValue::List(tests).render().to_owned()),
             None,
         );
         let mut request = TestRequest::new(
@@ -140,7 +140,7 @@ impl AppleDeviceTestRunner {
             configuration.is_code_coverage_enabled,
         );
         request.tests = Some(batch.tests.clone());
-        request.xcresult = Some(fm.remote_xcresult_file(batch).to_string_lossy());
+        request.xcresult = Some(fm.remote_xcresult_file(batch).to_owned());
         request.test_target_name = Some(bundle.test_bundle_id().into());
         self.execute_request(request, &batch.tests, listener, context).await
     }
@@ -181,15 +181,11 @@ impl AppleDeviceTestRunner {
                     .collect(),
             )
             .render();
-            let message = JavaString::from(format!(
+            let message = format!(
                 "Tests {} got stuck. You can increase the timeout in settings if it's too strict",
-                names.to_string_lossy()
-            ));
-            self.log(
-                Level::Error,
-                message.to_string_lossy(),
-                Some(error.error.failure().clone()),
+                names.to_owned()
             );
+            self.log(Level::Error, message.to_owned(), Some(error.error.failure().clone()));
             if let Err(error) = listener.test_run_failed(&message, DeviceFailureReason::Unknown).await {
                 result = Err(error.into());
                 run_failure = None;
@@ -197,7 +193,7 @@ impl AppleDeviceTestRunner {
         }
         // Explicit finally: cancellation never drops either artifact collection or stop.
         if let Err(after) = listener.after_test_run().await {
-            if is_error_class(&after.failure().class.to_string_lossy()) {
+            if is_error_class(&after.failure().class.to_owned()) {
                 // Kotlin catches Exception here; an Error replaces propagation without changing runFailure.
                 result = Err(after.into());
             } else if let Some(error) = &mut run_failure {
@@ -221,7 +217,7 @@ impl AppleDeviceTestRunner {
         }
         let started = context.hooks.nanos("apple.AppleDeviceTestRunner.closeSession");
         if let Some(close) = session.stop(self.session_close_timeout, context).await {
-            let serial = self.device.info().serial_number.to_string_lossy();
+            let serial = self.device.info().serial_number.to_owned();
             let mut detail = failure(
                 "java.lang.IllegalStateException",
                 format!("xcodebuild session on {serial} has not been closed"),
@@ -248,7 +244,7 @@ impl AppleDeviceTestRunner {
             }
         } else if self.logging.enabled(&self.logger, Level::Debug) {
             let clock_error = |e: marathon_core::time::ReplayError| {
-                RunError::from(VendorError::Other(failure("ReplayError", e.message.to_string_lossy())))
+                RunError::from(VendorError::Other(failure("ReplayError", &e.message)))
             };
             let elapsed = context
                 .hooks
@@ -260,7 +256,7 @@ impl AppleDeviceTestRunner {
                 Level::Debug,
                 format!(
                     "xcodebuild session on {} closed in {elapsed} ms",
-                    self.device.info().serial_number.to_string_lossy()
+                    self.device.info().serial_number.to_owned()
                 ),
                 None,
             );
@@ -294,7 +290,7 @@ pub async fn process_events(events: &[TestEvent], listener: &dyn AppleTestRunLis
                 listener.test_run_failed(message, *reason).await?;
                 return Err(RunError {
                     error: VendorError::Other(
-                        DeviceFailureException::new(*reason, Some(message.to_string_lossy()), None).to_failure(),
+                        DeviceFailureException::new(*reason, Some(message.to_owned()), None).to_failure(),
                     ),
                     reason: Some(*reason),
                     suppressed: Box::default(),

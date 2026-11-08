@@ -137,10 +137,10 @@ fn jvm_version_and_address_rows() {
                 version
                     .codename
                     .as_ref()
-                    .map(|s| s.to_string_lossy())
+                    .map(|s| s.to_owned())
                     .unwrap_or_else(|| "null".into()),
                 version.feature_level(),
-                version.api_string_without_extension().to_string_lossy()
+                version.api_string_without_extension().to_owned()
             );
             let text = if rest == "default" {
                 text
@@ -178,7 +178,7 @@ fn should_return_proper_list_of_test_methods() {
             );
             let identifier = services.bundle_identifier.unwrap();
             let bundle = identifier.identify(&tests[0])?.unwrap();
-            assert!(bundle.0.id().to_string_lossy().ends_with("android_test_1.apk"));
+            assert!(bundle.0.id().to_owned().ends_with("android_test_1.apk"));
             assert!(bundle == identifier.identify(&tests[0])?.unwrap());
             let error = identifier.identify(&test()).err().unwrap();
             assert_eq!(
@@ -197,7 +197,7 @@ fn should_return_proper_list_of_test_methods() {
 fn logcat_keeps_partial_lines_and_split_crlf() {
     let mut lines = LogcatLines::default();
     assert!(lines.push("hel").is_empty());
-    assert_eq!(lines.push("lo\r"), vec![]);
+    assert!(lines.push("lo\r").is_empty());
     assert_eq!(lines.push("\nnext\rlast"), vec![js("hello"), js("next")]);
     assert_eq!(lines.finish(), vec![js("last")]);
     assert!(include_str!("../../../fixtures/oracle/android-provider-probes.jsonl").contains("hel|lo|"));

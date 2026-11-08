@@ -10,7 +10,6 @@ use jcompat::{
     file_manager::JavaPath,
     jtime::Instant,
     logging::{Level, Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_config::{
     Configuration,
@@ -116,7 +115,7 @@ pub fn tests(count: usize, clazz: &str) -> Vec<Test> {
     (1..=count).map(|i| mtest(clazz, &format!("test{i}"))).collect()
 }
 pub fn methods(tests: &[Test]) -> Vec<String> {
-    tests.iter().map(|t| t.method.to_string_lossy()).collect()
+    tests.iter().map(|t| t.method.to_owned()).collect()
 }
 pub fn sorted(mut values: Vec<String>) -> Vec<String> {
     values.sort();
@@ -391,10 +390,10 @@ impl Device for TestDevice {
             healthy: true,
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         "test".into()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         self.worker_id.as_deref().map(Into::into)
     }
     fn logger(&self) -> &Logger {
@@ -458,17 +457,17 @@ pub fn status_name(status: TestStatus) -> &'static str {
 }
 impl Tracker for RecordingTracker {
     fn device_connected<'a>(&'a self, pool: &'a DevicePoolId, device: &'a DeviceInfo) -> VendorFuture<'a, ()> {
-        lock(&self.connected).push((pool.name.to_string_lossy(), device.serial_number.to_string_lossy()));
+        lock(&self.connected).push((pool.name.to_owned(), device.serial_number.to_owned()));
         Box::pin(async { Ok(()) })
     }
     fn device_disconnected<'a>(&'a self, pool: &'a DevicePoolId, device: &'a DeviceInfo) -> VendorFuture<'a, ()> {
-        lock(&self.disconnected).push((pool.name.to_string_lossy(), device.serial_number.to_string_lossy()));
+        lock(&self.disconnected).push((pool.name.to_owned(), device.serial_number.to_owned()));
         Box::pin(async { Ok(()) })
     }
-    fn device_provider_init<'a>(&'a self, _: &'a JavaString, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_preparing<'a>(&'a self, _: &'a JavaString, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
     fn test<'a>(
@@ -480,10 +479,10 @@ impl Tracker for RecordingTracker {
     ) -> VendorFuture<'a, ()> {
         lock(&self.events).push(format!(
             "{} {} {} on {}",
-            result.test.method.to_string_lossy(),
+            result.test.method.to_owned(),
             status_name(result.status),
             if final_result { "final" } else { "non-final" },
-            device.serial_number.to_string_lossy()
+            device.serial_number.to_owned()
         ));
         Box::pin(async { Ok(()) })
     }
@@ -583,13 +582,13 @@ impl ReplayHooks for VirtualWallHooks {
     fn draw_int(&self, label: &'static str) -> ClockResult<i32> {
         self.live.draw_int(label)
     }
-    fn choose_key(&self, label: &'static str, candidates: &[JavaString]) -> ClockResult<JavaString> {
+    fn choose_key(&self, label: &'static str, candidates: &[String]) -> ClockResult<String> {
         self.live.choose_key(label, candidates)
     }
-    fn allocate_id(&self, label: &'static str) -> ClockResult<JavaString> {
+    fn allocate_id(&self, label: &'static str) -> ClockResult<String> {
         self.live.allocate_id(label)
     }
-    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<JavaString> {
+    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<String> {
         self.live.identity_suffix(label, identity)
     }
     fn verify_consumed(&self) -> ClockResult<()> {

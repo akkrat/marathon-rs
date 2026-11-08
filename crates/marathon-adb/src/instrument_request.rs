@@ -11,7 +11,7 @@ use crate::{
     instrumentation::{InstrumentationError, InstrumentationResponseTransformer, InstrumentationWarning},
     testrunner::{MetricMap, TestEvent},
 };
-use jcompat::writers::JavaString;
+
 use std::collections::VecDeque;
 
 pub const GRPC_PORT: &str = "com.malinskiy.adam.android.GRPC_PORT";
@@ -40,8 +40,8 @@ impl InstrumentationSizeOption {
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct InstrumentOptions {
-    pub pkg: Vec<JavaString>,
-    pub clazz: Vec<JavaString>,
+    pub pkg: Vec<String>,
+    pub clazz: Vec<String>,
     pub functional: Option<bool>,
     pub unit: Option<bool>,
     pub filter_size: Option<InstrumentationSizeOption>,
@@ -49,26 +49,26 @@ pub struct InstrumentOptions {
     pub debug: Option<bool>,
     pub log: Option<bool>,
     pub emma: Option<bool>,
-    pub coverage_file: Option<JavaString>,
+    pub coverage_file: Option<String>,
     pub overrides: MetricMap,
 }
 impl InstrumentOptions {
-    pub fn to_java_string(&self) -> JavaString {
-        let mut result = JavaString::default();
-        fn add(out: &mut JavaString, key: &str, value: JavaString) {
+    pub fn to_java_string(&self) -> String {
+        let mut result = String::default();
+        fn add(out: &mut String, key: &str, value: String) {
             out.push_str(" -e ");
             out.push_str(key);
-            out.push_str(" ");
-            out.append(value);
+            out.push(' ');
+            out.push_str(&value);
         }
         for (key, list) in [("package", &self.pkg), ("class", &self.clazz)] {
             if !list.is_empty() {
-                let mut value = JavaString::default();
+                let mut value = String::default();
                 for (i, item) in list.iter().enumerate() {
                     if i > 0 {
-                        value.push_str(",");
+                        value.push(',');
                     }
-                    value.append(item.clone());
+                    value.push_str(&item.clone());
                 }
                 add(&mut result, key, value);
             }
@@ -96,37 +96,33 @@ impl InstrumentOptions {
         }
         for (key, value) in self.overrides.entries() {
             result.push_str(" -e ");
-            result.append(key.clone());
-            result.push_str(" ");
-            result.append(value.clone());
+            result.push_str(&key.clone());
+            result.push(' ');
+            result.push_str(&value.clone());
         }
         result
     }
 }
 #[derive(Clone, Debug)]
 pub struct TestRunnerRequest {
-    pub test_package: JavaString,
+    pub test_package: String,
     pub instrument_options: InstrumentOptions,
     pub supported_features: Vec<Feature>,
-    pub runner_class: JavaString,
+    pub runner_class: String,
     pub no_hidden_api_checks: bool,
     pub no_window_animations: bool,
     pub no_isolated_storage: bool,
     pub user_id: Option<i32>,
-    pub abi: Option<JavaString>,
-    pub profiling_output_path: Option<JavaString>,
-    pub output_log_path: Option<JavaString>,
+    pub abi: Option<String>,
+    pub profiling_output_path: Option<String>,
+    pub output_log_path: Option<String>,
     pub socket_idle_timeout: Option<i64>,
     transformer: InstrumentationResponseTransformer,
     exit_code: Option<i32>,
     ended_without_result: bool,
 }
 impl TestRunnerRequest {
-    pub fn new(
-        test_package: JavaString,
-        instrument_options: InstrumentOptions,
-        supported_features: Vec<Feature>,
-    ) -> Self {
+    pub fn new(test_package: String, instrument_options: InstrumentOptions, supported_features: Vec<Feature>) -> Self {
         Self {
             test_package,
             instrument_options,
@@ -145,8 +141,8 @@ impl TestRunnerRequest {
             ended_without_result: false,
         }
     }
-    pub fn command(&self) -> JavaString {
-        let mut s = JavaString::from("am instrument -w -r");
+    pub fn command(&self) -> String {
+        let mut s = String::from("am instrument -w -r");
         for (enabled, flag) in [
             (self.no_hidden_api_checks, " --no-hidden-api-checks"),
             (self.no_window_animations, " --no-window-animation"),
@@ -167,14 +163,14 @@ impl TestRunnerRequest {
         ] {
             if let Some(value) = value {
                 s.push_str(flag);
-                s.append(value.clone());
+                s.push_str(&value.clone());
             }
         }
-        s.append(self.instrument_options.to_java_string());
-        s.push_str(" ");
-        s.append(self.test_package.clone());
-        s.push_str("/");
-        s.append(self.runner_class.clone());
+        s.push_str(&self.instrument_options.to_java_string());
+        s.push(' ');
+        s.push_str(&self.test_package.clone());
+        s.push('/');
+        s.push_str(&self.runner_class.clone());
         s
     }
     pub fn take_warnings(&mut self) -> Vec<InstrumentationWarning> {
@@ -193,7 +189,7 @@ impl TestRunnerRequest {
 impl FallibleAsyncCompatShellCommandRequest for TestRunnerRequest {
     type Item = Vec<TestEvent>;
     fn cmd(&self) -> String {
-        String::from_utf8_lossy(&self.command().to_utf8_bytes()).into_owned()
+        String::from_utf8_lossy(self.command().as_bytes()).into_owned()
     }
     fn supported_features(&self) -> &[Feature] {
         &self.supported_features
@@ -209,11 +205,11 @@ impl FallibleAsyncCompatShellCommandRequest for TestRunnerRequest {
             .map(|bytes| {
                 self.transformer.process(&bytes).map_err(|error| match error {
                     InstrumentationError::InvalidNumTests(value) => {
-                        AdbError::NumberFormat(format!("For input string: \"{}\"", value.to_string_lossy()))
+                        AdbError::NumberFormat(format!("For input string: \"{}\"", value.to_owned()))
                     }
                     InstrumentationError::MalformedAtom(value) => AdbError::StringIndexOutOfBounds(format!(
                         "Range [0, -1) out of bounds for length {}",
-                        value.0.len()
+                        value.encode_utf16().count()
                     )),
                 })
             })

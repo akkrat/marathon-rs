@@ -5,10 +5,7 @@ use crate::cmd::{remote::ssh::sshj::config::SshLogging, retained_tasks::Retained
 pub use core::AdmissionStats;
 use core::{AdmissionCore, Effects, Item, Waiter};
 use indexmap::IndexMap;
-use jcompat::{
-    logging::{Level, Logger},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger};
 use marathon_config::vendor::XcresultQueueConfiguration;
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
@@ -22,13 +19,13 @@ use tokio::sync::Semaphore;
 
 pub const DRAIN_TIMEOUT_MILLIS: i64 = 300_000;
 pub const CANCEL_TIMEOUT_MILLIS: i64 = 60_000;
-pub type Undelivered = Arc<dyn Fn(&JavaString) -> Result<(), Failure> + Send + Sync>;
+pub type Undelivered = Arc<dyn Fn(&String) -> Result<(), Failure> + Send + Sync>;
 pub type ArtifactAction = Arc<dyn Fn(VendorContext) -> VendorFuture<'static, ()> + Send + Sync>;
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InvalidLimits(pub JavaString);
+pub struct InvalidLimits(pub String);
 #[derive(Clone)]
 struct Work {
-    batch: JavaString,
+    batch: String,
     action: ArtifactAction,
     undelivered: Undelivered,
     context: VendorContext,
@@ -47,8 +44,8 @@ struct State {
     queue: AdmissionCore<Work>,
     next_id: u64,
     running: IndexMap<u64, Item<Work>>,
-    sources: IndexMap<JavaString, IndexMap<JavaString, Source>>,
-    undelivered: Vec<JavaString>,
+    sources: IndexMap<String, IndexMap<String, Source>>,
+    undelivered: Vec<String>,
 }
 /// Explicitly owned by a run. Construct and call off core through the vendor bridge.
 /// Drop performs no cancellation or observable cleanup; providers call close_and_join.
@@ -113,18 +110,18 @@ impl ArtifactProcessor {
     fn now(&self, label: &'static str) -> VendorResult<i64> {
         self.monotonic
             .nanos(label)
-            .map_err(|e| VendorError::Other(failure("marathon.ReplayError", &e.message.to_string_lossy())))
+            .map_err(|e| VendorError::Other(failure("marathon.ReplayError", &e.message.to_owned())))
     }
-    fn log(&self, level: Level, message: JavaString, throwable: Option<&Failure>) {
+    fn log(&self, level: Level, message: String, throwable: Option<&Failure>) {
         if self.logging.enabled(&self.logger, level) {
-            (self.logging.sink)(&self.logger, level, message.to_string_lossy(), throwable.cloned());
+            (self.logging.sink)(&self.logger, level, message.to_owned(), throwable.cloned());
         }
     }
     pub async fn submit(
         self: &Arc<Self>,
-        owner: JavaString,
-        batch: JavaString,
-        worker: JavaString,
+        owner: String,
+        batch: String,
+        worker: String,
         on_undelivered: Option<Undelivered>,
         action: ArtifactAction,
         context: VendorContext,
@@ -138,19 +135,19 @@ impl ArtifactProcessor {
                         Level::Error,
                         text(&[
                             "Artifact for ",
-                            &owner.to_string_lossy(),
+                            &owner.to_owned(),
                             ", batch ",
-                            &batch.to_string_lossy(),
+                            &batch.to_owned(),
                             " was not processed: ",
-                            &reason.to_string_lossy(),
+                            &reason.to_owned(),
                         ]),
                         None,
                     );
                     let mut diagnostic = owner.clone();
                     diagnostic.push_str(", batch ");
-                    diagnostic.append(batch.clone());
+                    diagnostic.push_str(&batch.clone());
                     diagnostic.push_str(": ");
-                    diagnostic.append(reason.clone());
+                    diagnostic.push_str(&reason.clone());
                     this.report_undelivered(&owner, None, diagnostic);
                 }
                 Ok(())
@@ -219,18 +216,18 @@ impl ArtifactProcessor {
         let reason = match admission.blocked_by_run {
             None => String::new(),
             Some(true) => " waiting for run capacity".into(),
-            Some(false) => format!(" waiting for worker {}", worker.to_string_lossy()),
+            Some(false) => format!(" waiting for worker {}", worker.to_owned()),
         };
         self.log(
             Level::Debug,
             format!(
                 "Artifact admission for {}, batch {} took {} ms{}; outstanding={}, on worker {}={}",
-                owner.to_string_lossy(),
-                batch.to_string_lossy(),
+                owner.to_owned(),
+                batch.to_owned(),
                 admission.wait_millis,
                 reason,
                 admission.depth,
-                worker.to_string_lossy(),
+                worker.to_owned(),
                 admission.worker_depth
             )
             .as_str()
@@ -239,7 +236,7 @@ impl ArtifactProcessor {
         );
         Ok(true)
     }
-    fn start(self: &Arc<Self>, worker: JavaString) {
+    fn start(self: &Arc<Self>, worker: String) {
         let this = self.clone();
         self.retained.spawn_cancellable(
             self.runtime.as_ref(),
@@ -257,11 +254,7 @@ impl ArtifactProcessor {
             }),
         );
     }
-    async fn process_worker(
-        self: &Arc<Self>,
-        worker: JavaString,
-        signal: Arc<dyn CancellationSignal>,
-    ) -> VendorResult<()> {
+    async fn process_worker(self: &Arc<Self>, worker: String, signal: Arc<dyn CancellationSignal>) -> VendorResult<()> {
         loop {
             let work = {
                 let mut state = self.state();
@@ -290,7 +283,7 @@ impl ArtifactProcessor {
                     permit = self.transfers.acquire() => permit.map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", &e.to_string())))?,
                 };
                 let wait = self.now("apple.ArtifactProcessor.clock")?.wrapping_sub(work.enqueued_at) / 1_000_000;
-                self.log(Level::Debug, format!("Artifact queue wait for {}, batch {}: {wait} ms", work.owner.to_string_lossy(), work.payload.batch.to_string_lossy()).as_str().into(), None);
+                self.log(Level::Debug, format!("Artifact queue wait for {}, batch {}: {wait} ms", work.owner.to_owned(), work.payload.batch.to_owned()).as_str().into(), None);
                 let mut context = work.payload.context.clone();
                 context.cancellation = signal.clone();
                 let result = (work.payload.action)(context).await;
@@ -303,8 +296,8 @@ impl ArtifactProcessor {
                     Level::Warn,
                     format!(
                         "Artifact work for {}, batch {} returned after shutdown reported it as undelivered",
-                        work.owner.to_string_lossy(),
-                        work.payload.batch.to_string_lossy()
+                        work.owner.to_owned(),
+                        work.payload.batch.to_owned()
                     )
                     .as_str()
                     .into(),
@@ -317,15 +310,15 @@ impl ArtifactProcessor {
                     Level::Warn,
                     format!(
                         "Artifact processing failed for {}, batch {}",
-                        work.owner.to_string_lossy(),
-                        work.payload.batch.to_string_lossy()
+                        work.owner.to_owned(),
+                        work.payload.batch.to_owned()
                     )
                     .as_str()
                     .into(),
                     Some(error.failure()),
                 );
-                let mut reason = JavaString::from("processing did not complete: ");
-                reason.append(error.failure().to_java_string());
+                let mut reason = String::from("processing did not complete: ");
+                reason.push_str(&error.failure().to_java_string());
                 (work.payload.undelivered)(&reason).map_err(VendorError::Other)
             } else {
                 Ok(())
@@ -353,7 +346,7 @@ impl ArtifactProcessor {
             decided.complete(Ok(Some(info)));
         }
     }
-    pub async fn await_owner(&self, owner: &JavaString, context: &VendorContext) -> VendorResult<()> {
+    pub async fn await_owner(&self, owner: &String, context: &VendorContext) -> VendorResult<()> {
         let started = self.now("apple.ArtifactProcessor.await")?;
         let done = self.state().queue.owner_done(owner);
         if let Some(done) = done {
@@ -362,14 +355,14 @@ impl ArtifactProcessor {
         let elapsed = self.now("apple.ArtifactProcessor.await")?.wrapping_sub(started) / 1_000_000;
         self.log(
             Level::Debug,
-            format!("Artifact barrier for {} took {elapsed} ms", owner.to_string_lossy())
+            format!("Artifact barrier for {} took {elapsed} ms", owner.to_owned())
                 .as_str()
                 .into(),
             None,
         );
         Ok(())
     }
-    pub fn protect(&self, owner: JavaString, source: JavaString, callback: Undelivered) -> Result<(), Failure> {
+    pub fn protect(&self, owner: String, source: String, callback: Undelivered) -> Result<(), Failure> {
         let late = {
             let mut state = self.state();
             state
@@ -388,7 +381,7 @@ impl ArtifactProcessor {
         }
         Ok(())
     }
-    pub fn release(&self, owner: &JavaString, source: &JavaString) {
+    pub fn release(&self, owner: &String, source: &String) {
         let mut state = self.state();
         if let Some(owned) = state.sources.get_mut(owner)
             && owned.get(source).is_some_and(|s| s.state == SourceState::Registered)
@@ -396,7 +389,7 @@ impl ArtifactProcessor {
             owned.shift_remove(source);
         }
     }
-    pub fn report_undelivered(&self, owner: &JavaString, source: Option<&JavaString>, diagnostic: JavaString) -> bool {
+    pub fn report_undelivered(&self, owner: &String, source: Option<&String>, diagnostic: String) -> bool {
         let mut state = self.state();
         if let Some(source) = source {
             let entry = state
@@ -417,7 +410,7 @@ impl ArtifactProcessor {
         true
     }
     /// Insertion order becomes the wire-visible `find ... ! -name` argument order.
-    pub fn kept_sources(&self, owner: &JavaString) -> Vec<JavaString> {
+    pub fn kept_sources(&self, owner: &String) -> Vec<String> {
         self.state()
             .sources
             .get(owner)
@@ -428,11 +421,11 @@ impl ArtifactProcessor {
         let snapshot = self.state().queue.stats_snapshot();
         AdmissionCore::<Work>::summarize(snapshot)
     }
-    fn report_safely(&self, reason: &JavaString, callback: &Undelivered) {
+    fn report_safely(&self, reason: &String, callback: &Undelivered) {
         if let Err(error) = callback(reason) {
             self.log(
                 Level::Error,
-                text(&["Reporting an undelivered artifact failed: ", &reason.to_string_lossy()]),
+                text(&["Reporting an undelivered artifact failed: ", &reason.to_owned()]),
                 Some(&error),
             );
         }
@@ -442,7 +435,7 @@ impl ArtifactProcessor {
         timeout: i64,
         cancel_timeout: i64,
         context: &VendorContext,
-    ) -> VendorResult<Vec<JavaString>> {
+    ) -> VendorResult<Vec<String>> {
         let (finished, rejected) = {
             let mut state = self.state();
             (state.queue.done.clone(), state.queue.close())
@@ -464,7 +457,7 @@ impl ArtifactProcessor {
             let pending = self.state().queue.pending();
             let pending = pending
                 .iter()
-                .map(|(o, n)| format!("{}: {n} bundles", o.to_string_lossy()))
+                .map(|(o, n)| format!("{}: {n} bundles", o.to_owned()))
                 .collect::<Vec<_>>()
                 .join(", ");
             self.log(
@@ -500,13 +493,7 @@ impl ArtifactProcessor {
         if !stuck.is_empty() {
             let names = stuck
                 .iter()
-                .map(|w| {
-                    format!(
-                        "{}, batch {}",
-                        w.owner.to_string_lossy(),
-                        w.payload.batch.to_string_lossy()
-                    )
-                })
+                .map(|w| format!("{}, batch {}", w.owner.to_owned(), w.payload.batch.to_owned()))
                 .collect::<Vec<_>>()
                 .join(", ");
             self.log(Level::Warn, format!("Artifact work did not stop within {cancel_timeout} ms of cancellation; finalizing without it: [{names}]").as_str().into(), None);
@@ -571,12 +558,12 @@ impl ArtifactProcessor {
         }
         let retained = self.state().undelivered.clone();
         if !retained.is_empty() {
-            self.log(Level::Error, format!("{} artifact bundle(s) were not delivered; their remote sources are kept on the workers until a later run prepares the same device:\n{}", retained.len(), retained.iter().map(JavaString::to_string_lossy).collect::<Vec<_>>().join("\n")).as_str().into(), None);
+            self.log(Level::Error, format!("{} artifact bundle(s) were not delivered; their remote sources are kept on the workers until a later run prepares the same device:\n{}", retained.len(), retained.iter().map(String::clone).collect::<Vec<_>>().join("\n")).as_str().into(), None);
         }
         Ok(retained)
     }
 }
-fn text(parts: &[&str]) -> JavaString {
+fn text(parts: &[&str]) -> String {
     parts.concat().as_str().into()
 }
 struct WorkerSignal {

@@ -98,7 +98,7 @@ fn multi_server_disconnect_keeps_identity_and_borrow_skips_the_lost_device_d24()
             assert_ne!(a, b);
             // Connected comes before the device's logcat handshake; see logcat_streams.
             logcat_streams(&[(&first, 1), (&second, 1)]).await;
-            let first_ref = if a.0.info().serial_number.to_string_lossy().ends_with("emulator-5554") {
+            let first_ref = if a.0.info().serial_number.to_owned().ends_with("emulator-5554") {
                 a.clone()
             } else {
                 b.clone()
@@ -366,7 +366,7 @@ fn returned_server_reconciles_its_device_list_d22() {
             for _ in 0..2 {
                 match event(&provider).await {
                     DeviceEvent::Connected(d) => {
-                        assert!(d.0.info().serial_number.to_string_lossy().ends_with("emulator-5556"));
+                        assert!(d.0.info().serial_number.to_owned().ends_with("emulator-5556"));
                         connected += 1;
                     }
                     DeviceEvent::Disconnected(d) => {
@@ -406,7 +406,7 @@ fn a_server_that_never_returns_loses_only_its_own_devices_d22() {
             };
             logcat_streams(&[(&dying, 1), (&healthy, 1)]).await;
             let dying_prefix = format!("127.0.0.1:{}:", dying.port());
-            let (on_dying, on_healthy) = if a.0.info().serial_number.to_string_lossy().starts_with(&dying_prefix) {
+            let (on_dying, on_healthy) = if a.0.info().serial_number.to_owned().starts_with(&dying_prefix) {
                 (a, b)
             } else {
                 (b, a)
@@ -590,7 +590,7 @@ fn remote_parsing_waits_out_an_outage_and_it_uses_up_no_attempt_d22() {
             let tests = checked(checked(
                 tokio::time::timeout(std::time::Duration::from_secs(60), parse).await,
             ))?;
-            let names: Vec<_> = tests.iter().map(|t| t.method.to_string_lossy()).collect();
+            let names: Vec<_> = tests.iter().map(|t| t.method.to_owned()).collect();
             assert_eq!(names, ["one", "two"]);
             assert_eq!(
                 commands(&server)
@@ -659,7 +659,7 @@ fn a_kill_during_a_test_tells_the_listener_why_and_keeps_the_device_d25() {
         fn on_event<'a>(&'a self, event: &'a marathon_adb::testrunner::TestEvent) -> VendorFuture<'a, ()> {
             use marathon_adb::testrunner::TestEvent as E;
             match event {
-                E::TestRunFailed { error } => self.0.lock().unwrap().push(error.to_string_lossy()),
+                E::TestRunFailed { error } => self.0.lock().unwrap().push(error.to_owned()),
                 E::TestStarted { .. } => self.1.store(true, std::sync::atomic::Ordering::SeqCst),
                 _ => {}
             }
@@ -997,7 +997,7 @@ fn same_serial_on_two_servers_is_keyed_per_server_d18() {
             // necessarily finishes. Disconnecting (or terminating) then can reset that handshake and warn.
             logcat_streams(&[(&first, 1), (&second, 1)]).await;
             let first_prefix = format!("127.0.0.1:{}:", first.port());
-            let (on_first, on_second) = if a.0.info().serial_number.to_string_lossy().starts_with(&first_prefix) {
+            let (on_first, on_second) = if a.0.info().serial_number.to_owned().starts_with(&first_prefix) {
                 (a, b)
             } else {
                 (b, a)
@@ -1022,7 +1022,7 @@ fn same_serial_on_two_servers_is_keyed_per_server_d18() {
                     .0
                     .info()
                     .serial_number
-                    .to_string_lossy()
+                    .to_owned()
                     .starts_with(&format!("127.0.0.1:{}:", second.port()))
             );
             checked(first.disconnect_device("emulator-5554"));

@@ -15,7 +15,7 @@ fn strategy(cnf: Cnf) -> PoolingStrategy {
     PoolingStrategy::from_config(&cnf)
 }
 fn name(strategy: &PoolingStrategy, device: &DeviceStub) -> String {
-    strategy.associate(device).name.to_string_lossy()
+    strategy.associate(device).name.to_owned()
 }
 
 #[test]

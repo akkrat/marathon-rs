@@ -1,7 +1,7 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/execution/filter/*Test.kt
 mod filter_support;
 use filter_support::*;
-use jcompat::writers::JavaString;
+
 use marathon_config::schema::{CompositionOperation as Op, TestFilterConfiguration as C, TestPackageFilter};
 use marathon_core::{
     error::OperationResult,
@@ -590,7 +590,7 @@ mod filter_values_file_reader_test {
             "SimpleTestName",
             "SimpleTestName2",
         ]
-        .map(JavaString::from);
+        .map(String::from);
         assert_eq!(values, expected);
         Ok(())
     }

@@ -1,6 +1,6 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt
 //! Test-only consumers of the shared binder, backed by the review JVM corpus.
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 use marathon_config::{
     binder::{Binder, Field, MISSING_KOTLIN, Result, Value},
     binding::{BindingContext, Profile},
@@ -27,8 +27,8 @@ fn float(value: f64) -> Json {
         json!(jcompat::jnum::double_to_string(value))
     }
 }
-fn string(value: JavaString) -> Json {
-    json!(value.to_string_lossy())
+fn string(value: String) -> Json {
+    json!(value.to_owned())
 }
 
 fn bean(v: Value<'_>) -> Result<Option<Json>> {
@@ -189,7 +189,7 @@ fn schema(v: Value<'_>, target: &str) -> Result<Json> {
             let mut object = tree.value().object()?;
             let mut properties = Vec::new();
             while let Some((key, child)) = object.next_field()? {
-                properties.push(format!("{key}={}", child.as_text().to_string_lossy()));
+                properties.push(format!("{key}={}", child.as_text().to_owned()));
             }
             assert_eq!(
                 v.get("type")?.map(|v| v.as_text()),
@@ -255,7 +255,7 @@ fn review_round_one_matches_jvm() -> std::result::Result<(), Box<dyn std::error:
         let got = match got {
             Ok(value) => json!({"ok":value}),
             Err(error) => {
-                json!({"error": std::iter::once(&error.class).chain(error.causes.iter().map(|c|&c.class)).map(JavaString::to_string_lossy).collect::<Vec<_>>()})
+                json!({"error": std::iter::once(&error.class).chain(error.causes.iter().map(|c|&c.class)).map(String::clone).collect::<Vec<_>>()})
             }
         };
         assert_eq!(got, row["result"], "{row}");

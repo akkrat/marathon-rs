@@ -91,7 +91,7 @@ impl AndroidBatchExecutor for VirtualDuration {
             // The CLIs' fake sees the `am instrument` request when the batch starts and answers four seconds
             // later, so a batch cut short by a disconnect still counts and is placed by its start.
             let start = self.now.load(Ordering::SeqCst);
-            let serial = device.serial_number().to_string_lossy();
+            let serial = device.serial_number().to_owned();
             let port = serial
                 .split(':')
                 .nth(1)
@@ -160,7 +160,7 @@ fn load(name: &str) -> (Value, Vec<Event>, usize) {
             connect: e["connect"].is_string(),
             serial: e["connect"]
                 .as_str()
-                .or(e["disconnect"].as_str())
+                .or(e["disconnect"].as_str().to_owned())
                 .unwrap_or_default()
                 .to_owned(),
             kill: None,
@@ -273,7 +273,7 @@ impl EventChannel<DeviceEvent> for TappedChannel {
                     DeviceEvent::Connected(d) => (true, d.clone()),
                     DeviceEvent::Disconnected(d) => (false, d.clone()),
                 };
-                let serial = device.0.info().serial_number.to_string_lossy();
+                let serial = device.0.info().serial_number.to_owned();
                 let healthy = device.0.info().healthy;
                 let at = self.now.load(Ordering::SeqCst);
                 checked_lock(&self.tap).push((connected, serial, device, healthy, at));
@@ -477,10 +477,7 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                     }),
                 );
                 let step = |label: &'static str, e: marathon_core::time::ReplayError| {
-                    OperationError::Failed(marathon_core::executor::shared::failure(
-                        label,
-                        &e.message.to_string_lossy(),
-                    ))
+                    OperationError::Failed(marathon_core::executor::shared::failure(label, &e.message.to_owned()))
                 };
                 let healthy_started = || {
                     let batches = checked_lock(&gate_started);
@@ -649,8 +646,8 @@ pub fn ran_on(observed: &Observed) -> (usize, BTreeMap<String, (bool, bool)>) {
     let mut allowed = std::collections::BTreeSet::new();
     for (server, serial, start) in &observed.batches {
         let mine = observed.events.iter().filter(|e| e.server == *server);
-        let drop = mine.clone().find(|e| !e.connect).map(|e| e.at_ms);
-        let back = drop.and_then(|d| mine.clone().find(|e| e.connect && e.at_ms > d).map(|e| e.at_ms));
+        let drop = mine.clone().find(|e| !e.connect).map(|e| e.at_ms.clone());
+        let back = drop.and_then(|d| mine.clone().find(|e| e.connect && e.at_ms > d).map(|e| e.at_ms.clone()));
         // D27: the step that now holds the dropped device in prepare, `logcat -c`, only logs its failure, where the
         // JVM's `rm -r` fails prepare. So the drop that ends the hold can finish prepare first, and one batch can start
         // on a device whose Disconnected is on its way. It is returned at once and runs again elsewhere. Only one per
@@ -733,7 +730,7 @@ fn reconnected_device_gets_work_after_prepare_was_interrupted() {
         .filter(|r| r.1.ends_with(":emulator-5556"))
         .collect();
     assert_eq!(
-        of_5556.iter().map(|r| r.0).collect::<Vec<_>>(),
+        of_5556.iter().map(|r| r.0.clone()).collect::<Vec<_>>(),
         [true, false, true],
         "Connected, Disconnected, Connected"
     );
@@ -821,7 +818,7 @@ fn same_adb_serial_on_two_servers_keeps_the_healthy_device_working_d18() {
     assert_eq!(per_device.len(), 2, "{per_device:?}");
     let mut sequences: Vec<_> = per_device
         .values()
-        .map(|events| events.iter().map(|r| r.0).collect::<Vec<_>>())
+        .map(|events| events.iter().map(|r| r.0.clone()).collect::<Vec<_>>())
         .collect();
     sequences.sort();
     assert_eq!(sequences, [vec![true], vec![true, false, true]]);
@@ -1294,7 +1291,7 @@ fn a_run_ends_on_a_parse_that_keeps_failing_short_d42() {
     let Some(Err(error)) = &observed.result else {
         panic!("{:?}", observed.result.as_ref().map(|r| r.is_ok()));
     };
-    let text = error.failure().to_java_string().to_string_lossy();
+    let text = error.failure().to_java_string().to_owned();
     assert!(text.contains("TestParsingException"), "{text}");
     assert!(text.contains("Other, tests listed: 1 of 20"), "{text}");
     assert_eq!(parses(&observed), 9);

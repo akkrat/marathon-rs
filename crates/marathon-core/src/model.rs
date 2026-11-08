@@ -4,11 +4,7 @@
 //! including execution/queue/TestAction.kt.
 
 use crate::vendor::DeviceRef;
-use jcompat::{
-    file_manager::JavaPath,
-    jnum, jstring,
-    writers::{JavaString, KotlinValue},
-};
+use jcompat::{file_manager::JavaPath, jnum, jstring, writers::KotlinValue};
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,
@@ -17,9 +13,9 @@ use std::{
 /// Metadata is carried to serializers but deliberately excluded from Eq/Hash.
 #[derive(Clone, Debug)]
 pub struct Test {
-    pub pkg: JavaString,
-    pub clazz: JavaString,
-    pub method: JavaString,
+    pub pkg: String,
+    pub clazz: String,
+    pub method: String,
     pub meta_properties: Vec<MetaProperty>,
 }
 impl PartialEq for Test {
@@ -66,58 +62,64 @@ impl Test {
             ],
         })
     }
-    pub fn to_class_name(&self, separator: char) -> JavaString {
-        let mut name = JavaString::default();
-        if !self.pkg.0.iter().all(|&c| jstring::is_whitespace(c)) {
-            name.0.extend_from_slice(&self.pkg.0);
-            name.push_code_point(u32::from(separator));
+    pub fn to_class_name(&self, separator: char) -> String {
+        let mut name = String::default();
+        if !self
+            .pkg
+            .encode_utf16()
+            .collect::<Vec<_>>()
+            .iter()
+            .all(|&c| jstring::is_whitespace(c))
+        {
+            name.push_str(&self.pkg);
+            name.push(separator);
         }
-        name.0.extend_from_slice(&self.clazz.0);
+        name.push_str(&self.clazz);
         name
     }
-    pub fn to_test_name(&self, package_separator: char, method_separator: char) -> JavaString {
+    pub fn to_test_name(&self, package_separator: char, method_separator: char) -> String {
         let mut name = self.to_class_name(package_separator);
-        name.push_code_point(u32::from(method_separator));
-        name.0.extend_from_slice(&self.method.0);
+        name.push(method_separator);
+        name.push_str(&self.method);
         name
     }
     /// `toSafeTestName()`: `toTestName(methodSeparator = '.')`.
-    pub fn to_safe_test_name(&self) -> JavaString {
+    pub fn to_safe_test_name(&self) -> String {
         self.to_test_name('.', '.')
     }
-    pub fn to_simple_safe_test_name(&self, method_separator: char) -> JavaString {
+    pub fn to_simple_safe_test_name(&self, method_separator: char) -> String {
         let mut name = self.clazz.clone();
-        name.push_code_point(u32::from(method_separator));
-        name.0.extend_from_slice(&self.method.0);
+        name.push(method_separator);
+        name.push_str(&self.method);
         name
     }
 }
 /// Map iteration order is retained separately from Kotlin map equality.
 #[derive(Clone, Debug)]
 pub struct MetaProperty {
-    pub name: JavaString,
+    pub name: String,
     pub values: MetaMap,
 }
 /// Kotlin Map: last insertion replaces a value without moving the key.
 /// Private entries enforce unique keys for every constructible metadata map.
 #[derive(Clone, Debug, Default)]
 pub struct MetaMap {
-    entries: Vec<(JavaString, MetaValue)>,
+    entries: Vec<(String, MetaValue)>,
 }
 impl MetaMap {
-    pub fn insert(&mut self, key: JavaString, value: MetaValue) -> Option<MetaValue> {
+    pub fn insert(&mut self, key: String, value: MetaValue) -> Option<MetaValue> {
         if let Some((_, current)) = self.entries.iter_mut().find(|(existing, _)| *existing == key) {
             return Some(std::mem::replace(current, value));
         }
         self.entries.push((key, value));
         None
     }
-    pub fn entries(&self) -> &[(JavaString, MetaValue)] {
+    pub fn entries(&self) -> &[(String, MetaValue)] {
         &self.entries
     }
 }
-impl FromIterator<(JavaString, MetaValue)> for MetaMap {
-    fn from_iter<T: IntoIterator<Item = (JavaString, MetaValue)>>(iter: T) -> Self {
+impl FromIterator<(String, MetaValue)> for MetaMap {
+    fn from_iter<T: IntoIterator<Item = (String, MetaValue)>>(iter: T) -> Self {
         let mut map = Self::default();
         for (key, value) in iter {
             map.insert(key, value);
@@ -144,7 +146,7 @@ pub enum MetaValue {
     Char(u16),
     Float(f32),
     Double(f64),
-    String(JavaString),
+    String(String),
     List(Vec<MetaValue>),
     Map(MetaMap),
     Array(Arc<MetaArray>),
@@ -162,32 +164,32 @@ pub enum DecodedWrapper {
     DecodedDouble(f64),
     DecodedChar(u16),
     DecodedBoolean(bool),
-    DecodedString(JavaString),
-    DecodedType(JavaString),
-    DecodedEnum(JavaString),
+    DecodedString(String),
+    DecodedType(String),
+    DecodedEnum(String),
     DecodedNull,
     DecodedArrayValue(Arc<[DecodedWrapper]>),
 }
 impl DecodedWrapper {
     /// Project the pinned data-class toString, including Arrays.toString for
     /// nested arrays. Supply the singleton's replay identity suffix, not Debug.
-    pub fn kotlin_value(&self, null_identity_suffix: &JavaString) -> KotlinValue {
+    pub fn kotlin_value(&self, null_identity_suffix: &String) -> KotlinValue {
         use DecodedWrapper::*;
         let (name, value) = match self {
-            DecodedByte(v) => ("DecodedByte", v.to_string().into()),
-            DecodedShort(v) => ("DecodedShort", v.to_string().into()),
-            DecodedInt(v) => ("DecodedInt", v.to_string().into()),
-            DecodedLong(v) => ("DecodedLong", v.to_string().into()),
-            DecodedFloat(v) => ("DecodedFloat", jnum::float_to_string(*v).into()),
-            DecodedDouble(v) => ("DecodedDouble", jnum::double_to_string(*v).into()),
-            DecodedChar(v) => ("DecodedChar", JavaString(vec![*v])),
+            DecodedByte(v) => ("DecodedByte", v.to_string()),
+            DecodedShort(v) => ("DecodedShort", v.to_string()),
+            DecodedInt(v) => ("DecodedInt", v.to_string()),
+            DecodedLong(v) => ("DecodedLong", v.to_string()),
+            DecodedFloat(v) => ("DecodedFloat", jnum::float_to_string(*v)),
+            DecodedDouble(v) => ("DecodedDouble", jnum::double_to_string(*v)),
+            DecodedChar(v) => ("DecodedChar", String::from_utf16_lossy(&[*v])),
             DecodedBoolean(v) => ("DecodedBoolean", if *v { "true" } else { "false" }.into()),
             DecodedString(v) => ("DecodedString", v.clone()),
             DecodedType(v) => ("DecodedType", v.clone()),
             DecodedEnum(v) => ("DecodedEnum", v.clone()),
             DecodedNull => {
-                let mut text = JavaString::from("com.linkedin.dex.parser.DecodedValue$DecodedNull@");
-                text.0.extend_from_slice(&null_identity_suffix.0);
+                let mut text = String::from("com.linkedin.dex.parser.DecodedValue$DecodedNull@");
+                text.push_str(null_identity_suffix);
                 return KotlinValue::Text(text);
             }
             DecodedArrayValue(values) => {
@@ -230,7 +232,7 @@ impl PartialEq for DecodedWrapper {
 impl Eq for DecodedWrapper {}
 #[derive(Debug)]
 pub struct MetaArray {
-    pub jvm_class: JavaString,
+    pub jvm_class: String,
     /// DEX producers use MetaValue::Decoded for every element, without unboxing.
     pub elements: Vec<MetaValue>,
 }
@@ -244,7 +246,7 @@ pub enum TestAction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestBatch {
     pub tests: Vec<Test>,
-    pub id: JavaString,
+    pub id: String,
 }
 pub type BatchRef = Arc<TestBatch>;
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -254,16 +256,16 @@ pub struct TestShard {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DevicePoolId {
-    pub name: JavaString,
+    pub name: String,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct DevicePool {
-    pub name: JavaString,
+    pub name: String,
     pub devices: Vec<DeviceRef>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OperatingSystem {
-    pub version: JavaString,
+    pub version: String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NetworkState {
@@ -276,7 +278,7 @@ pub enum DeviceFeature {
     Screenshot,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InvalidDeviceFeature(pub JavaString);
+pub struct InvalidDeviceFeature(pub String);
 impl DeviceFeature {
     /// Kotlin nullable JsonCreator. English case conversion; valid names are ASCII.
     pub fn from_string(key: Option<&str>) -> Result<Option<Self>, InvalidDeviceFeature> {
@@ -293,9 +295,9 @@ impl DeviceFeature {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeviceInfo {
     pub operating_system: OperatingSystem,
-    pub serial_number: JavaString,
-    pub model: JavaString,
-    pub manufacturer: JavaString,
+    pub serial_number: String,
+    pub model: String,
+    pub manufacturer: String,
     pub network_state: NetworkState,
     pub device_features: Vec<DeviceFeature>,
     pub healthy: bool,
@@ -315,11 +317,11 @@ pub enum TestStatus {
 pub struct TestResult {
     pub test: Test,
     pub device: DeviceInfo,
-    pub test_batch_id: JavaString,
+    pub test_batch_id: String,
     pub status: TestStatus,
     pub start_time: i64,
     pub end_time: i64,
-    pub stacktrace: Option<JavaString>,
+    pub stacktrace: Option<String>,
     pub attachments: Vec<Attachment>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -333,7 +335,7 @@ pub struct TestBatchResults {
 pub struct Attachment {
     pub file: JavaPath,
     pub kind: AttachmentType,
-    pub name: Option<JavaString>,
+    pub name: Option<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AttachmentType {
@@ -348,7 +350,7 @@ pub enum AttachmentType {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExecutionCommand {
     Parse {
-        output_file_name: Option<JavaString>,
+        output_file_name: Option<String>,
         include_flaky_tests: bool,
     },
     Run,
@@ -379,7 +381,7 @@ impl PartialEq for MetaProperty {
     }
 }
 impl Eq for MetaProperty {}
-fn map_equals(left: &[(JavaString, MetaValue)], right: &[(JavaString, MetaValue)]) -> bool {
+fn map_equals(left: &[(String, MetaValue)], right: &[(String, MetaValue)]) -> bool {
     left.len() == right.len()
         && left.iter().all(|(key, value)| {
             right

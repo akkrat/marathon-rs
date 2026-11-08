@@ -4,7 +4,6 @@ use jcompat::{
     file_manager::FileManager,
     jtime::Duration,
     logging::{Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_apple::{
     apple_device::AppleDevice,
@@ -97,10 +96,10 @@ impl Device for Fake {
             healthy: true,
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         "arm64".into()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         Some(self.transport.id())
     }
     fn logger(&self) -> &Logger {
@@ -284,7 +283,7 @@ impl Harness {
             self.logging.clone(),
         )
     }
-    fn remote(&self, id: &str) -> JavaString {
+    fn remote(&self, id: &str) -> String {
         self.device.manager.remote_xcresult_for_id(&id.into())
     }
     fn local(&self, id: &str) -> PathBuf {
@@ -293,7 +292,7 @@ impl Harness {
             .join("output/device-files/pool/udid-worker/xcresult")
             .join(format!("{id}.xcresult"))
     }
-    async fn close(&self) -> VendorResult<Vec<JavaString>> {
+    async fn close(&self) -> VendorResult<Vec<String>> {
         self.p.close_and_join(300_000, 60_000, &self.context).await
     }
 }
@@ -359,7 +358,7 @@ async fn failed_pulls_keep_remote_bundles_and_are_reported_at_finalization_witho
         h.listener("next").after_test_run().await?;
         let retained = h.close().await?;
         assert_eq!(retained.len(), 1);
-        let d = retained[0].to_string_lossy();
+        let d = retained[0].to_owned();
         for detail in ["failed", "worker local", "udid@worker", "local copy:"] {
             assert!(d.contains(detail));
         }
@@ -368,7 +367,7 @@ async fn failed_pulls_keep_remote_bundles_and_are_reported_at_finalization_witho
         assert!(h.local("next").exists());
         assert_eq!(
             h.calls.lock().unwrap().as_slice(),
-            &[vec!["rm".to_owned(), "-rf".into(), h.remote("next").to_string_lossy()]]
+            &[vec!["rm".to_owned(), "-rf".into(), h.remote("next").to_owned()]]
         );
     }
     Ok(())
@@ -398,7 +397,7 @@ async fn failed_local_finalization_keeps_the_remote_bundle_and_never_replaces_an
         h.listener("batch").after_test_run().await?;
         let retained = h.close().await?;
         assert_eq!(retained.len(), 1);
-        let diagnostic = retained[0].to_string_lossy();
+        let diagnostic = retained[0].to_owned();
         assert!(diagnostic.contains(if case == "missing pulled bundle" {
             "NoSuchFileException"
         } else {
@@ -461,17 +460,17 @@ async fn cancelled_unstarted_and_rejected_bundles_are_reported_once_with_recover
     waiting.await?;
     assert_eq!(retained.len(), 3);
     for diagnostic in &retained {
-        assert!(diagnostic.to_string_lossy().contains("worker local (udid@worker)"));
+        assert!(diagnostic.to_owned().contains("worker local (udid@worker)"));
     }
-    assert!(retained[0].to_string_lossy().contains("processing did not complete"));
-    assert!(retained[1].to_string_lossy().contains("local copy: none"));
-    assert!(retained[2].to_string_lossy().contains("artifact queue is closed"));
+    assert!(retained[0].to_owned().contains("processing did not complete"));
+    assert!(retained[1].to_owned().contains("local copy: none"));
+    assert!(retained[2].to_owned().contains("artifact queue is closed"));
     assert_eq!(h.p.kept_sources(&"udid@worker".into()).len(), 3);
     assert!(h.calls.lock().unwrap().is_empty());
     let idle = Harness::new(2, 4, 1, successful(), false)?;
     idle.listener("unstarted").after_test_run().await?;
     let d = idle.p.close_and_join(0, 500, &idle.context).await?;
-    assert!(d[0].to_string_lossy().contains("not started before shutdown"));
+    assert!(d[0].to_owned().contains("not started before shutdown"));
     Ok(())
 }
 #[tokio::test(start_paused = true)]
@@ -497,7 +496,7 @@ async fn pull_that_ignores_cancellation_is_reported_and_kept_at_the_shutdown_dea
     assert_eq!(retained.len(), 1);
     assert!(
         retained[0]
-            .to_string_lossy()
+            .to_owned()
             .contains("still running 500 ms after shutdown cancelled it")
     );
     assert_eq!(h.p.kept_sources(&"udid@worker".into()), vec![h.remote("batch")]);
@@ -519,7 +518,7 @@ async fn pull_that_ignores_cancellation_is_reported_and_kept_at_the_shutdown_dea
 #[tokio::test]
 async fn same_run_device_cleanup_keeps_an_undelivered_bundle_until_a_later_run() -> VendorResult<()> {
     let h = Harness::new(2, 4, 1, Arc::new(|_, _, _| Box::pin(async { Ok(false) })), true)?;
-    let remote = h.remote("failed").to_string_lossy();
+    let remote = h.remote("failed").to_owned();
     std::fs::create_dir_all(&remote).map_err(io)?;
     std::fs::write(Path::new(&remote).join("Info.plist"), "only copy").map_err(io)?;
     let stale = Path::new(h.device.storage_path()).join("stale");
@@ -529,7 +528,7 @@ async fn same_run_device_cleanup_keeps_an_undelivered_bundle_until_a_later_run()
     let keep =
         h.p.kept_sources(&"udid@worker".into())
             .iter()
-            .map(JavaString::to_string_lossy)
+            .map(String::clone)
             .collect::<Vec<_>>();
     h.device.manager.remove_remote_directory(&keep, &h.context).await?;
     assert_eq!(
@@ -572,7 +571,7 @@ async fn cancelled_admission_to_a_full_queue_keeps_and_reports_the_bundle() -> V
     assert_eq!(h.p.kept_sources(&"udid@worker".into()), vec![h.remote("blocked")]);
     h.device
         .manager
-        .remove_remote_directory(&[h.remote("blocked").to_string_lossy()], &h.context)
+        .remove_remote_directory(&[h.remote("blocked").to_owned()], &h.context)
         .await?;
     assert_eq!(
         h.calls.lock().unwrap()[0],
@@ -596,7 +595,7 @@ async fn cancelled_admission_to_a_full_queue_keeps_and_reports_the_bundle() -> V
     gate.complete(Ok(()));
     let retained = h.close().await?;
     assert_eq!(retained.len(), 1);
-    assert!(retained[0].to_string_lossy().contains("admission was cancelled"));
+    assert!(retained[0].to_owned().contains("admission was cancelled"));
     assert_eq!(h.device.pulls.lock().unwrap().len(), 1);
     Ok(())
 }

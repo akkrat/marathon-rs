@@ -189,7 +189,7 @@ async fn coverage_case(count: usize, min: Option<i32>, level: Level, text: &str)
     let events = h.logs.take();
     let event = events.last().unwrap();
     assert_eq!(event.level, level);
-    assert!(event.message.to_string_lossy().contains(text));
+    assert!(event.message.to_owned().contains(text));
 }
 #[test]
 fn coverage_is_a_warning_if_most_tests_have_no_history() {
@@ -227,7 +227,7 @@ fn analytics_queries_log_their_duration_and_outcome() {
         assert_eq!(timings.len(), 2);
         for e in timings {
             assert_eq!(e.level, Level::Info);
-            assert!(e.message.to_string_lossy().ends_with("failed in 100 ms"));
+            assert!(e.message.to_owned().ends_with("failed in 100 ms"));
         }
         p.prefetch(&[key(80.0)]).await.unwrap();
         assert!(h.logs.take().is_empty());

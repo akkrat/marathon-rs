@@ -16,7 +16,7 @@ pub(super) fn in_retried_setup() -> bool {
 #[derive(Clone)]
 struct Waiting {
     target: AppleTarget,
-    key: JavaString,
+    key: String,
     generation: u64,
 }
 /// The count of failed rounds is the provider's `setup_failures`, next to the generations that guard it (D44).
@@ -37,7 +37,7 @@ impl SetupRetries {
     }
     /// A removed simulator starts over if it is added back: the devices file changed, and that is bounded by its owner.
     /// The removal also cleared its count and moved its generation on.
-    pub(super) fn forget(&mut self, id: &JavaString) {
+    pub(super) fn forget(&mut self, id: &String) {
         for due in self.due.values_mut() {
             due.retain(|waiting| waiting.key != *id);
         }
@@ -52,7 +52,7 @@ fn current_generation(provider: &AppleSimulatorProvider, due: Vec<Waiting>) -> V
 fn label(target: &AppleTarget) -> String {
     match target {
         AppleTarget::SimulatorProfile(profile) => profile_text(profile),
-        target => target_id(target).to_string_lossy(),
+        target => target_id(target).to_owned(),
     }
 }
 /// Whether this target still needs setting up. A registered simulator belongs to its recovery unless it is free to be
@@ -70,7 +70,7 @@ fn wanted(
             AppleTarget::Simulator { udid } => {
                 !state.removed.contains(&waiting.key)
                     && (!state.devices.contains_key(&waiting.key)
-                        || current.eligible_disposed.contains(&udid.to_string_lossy()))
+                        || current.eligible_disposed.contains(&udid.to_owned()))
             }
             AppleTarget::SimulatorProfile(_) => true,
             AppleTarget::Physical { .. } | AppleTarget::Host => false,
@@ -117,7 +117,7 @@ impl SimulatorRecovery {
         let mut exhausted = Vec::new();
         let keys: Vec<_> = waiting.iter().map(|waiting| waiting.key.clone()).collect();
         provider.settle(&keys, |state, current| {
-            let mut counted = IndexMap::<JavaString, i32>::new();
+            let mut counted = IndexMap::<String, i32>::new();
             for waiting in waiting.into_iter().filter(|waiting| current.contains(&waiting.key)) {
                 let round = match counted.get(&waiting.key) {
                     Some(round) => *round,
@@ -136,7 +136,7 @@ impl SimulatorRecovery {
                 }
             }
         });
-        let worker = transport.id().to_string_lossy();
+        let worker = transport.id().to_owned();
         let spent: Vec<_> = exhausted.iter().map(|(target, _)| target.clone()).collect();
         provider.give_up_targets(transport, &spent, ParkedFor::GivenUp);
         for (target, failures) in exhausted {
@@ -229,7 +229,7 @@ impl SimulatorRecovery {
             }
             provider.log(
                 Level::Error,
-                || format!("Failed to retry setups on worker {}", transport.id().to_string_lossy()),
+                || format!("Failed to retry setups on worker {}", transport.id().to_owned()),
                 Some(error.failure().clone()),
             );
         }
@@ -304,7 +304,7 @@ impl SimulatorRecovery {
         started: i64,
         caller: &VendorContext,
     ) -> VendorResult<()> {
-        let worker = transport.id().to_string_lossy();
+        let worker = transport.id().to_owned();
         let acquired = async {
             let _permit = tokio::select! { biased;
                 reason = caller.cancellation.cancelled() => return Err(VendorError::Cancelled(reason).into()),

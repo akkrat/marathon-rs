@@ -2,10 +2,7 @@
 
 use super::error::ProvisioningResult;
 use indexmap::IndexMap;
-use jcompat::{
-    logging::{Level, Logger},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger};
 use marathon_apple::cmd::{failure, remote::ssh::sshj::config::SshLogging};
 use marathon_config::devices::{AppleTarget, MarathonDevices, Transport};
 use marathon_core::error::VendorError;
@@ -30,18 +27,18 @@ impl DeviceState {
 #[derive(Clone)]
 pub struct WorkerTracker {
     pub transport: Transport,
-    devices: IndexMap<JavaString, DeviceState>,
+    devices: IndexMap<String, DeviceState>,
     logging: SshLogging,
     logger: Logger,
 }
-pub fn target_id(target: &AppleTarget) -> JavaString {
+pub fn target_id(target: &AppleTarget) -> String {
     match target {
         AppleTarget::Host => "host".into(),
         AppleTarget::Physical { udid } | AppleTarget::Simulator { udid } => udid.clone(),
         AppleTarget::SimulatorProfile(profile) => {
             let mut id = profile.fully_qualified_device_type_id();
-            id.push_str("-");
-            id.append(profile.fully_qualified_runtime_id().unwrap_or_default());
+            id.push('-');
+            id.push_str(&profile.fully_qualified_runtime_id().unwrap_or_default());
             id
         }
     }
@@ -69,7 +66,7 @@ impl WorkerTracker {
     }
     pub fn update(&mut self, updated: &[AppleTarget]) -> ProvisioningResult<Vec<(AppleTarget, TrackingUpdate)>> {
         // S3: validate before mutating, including aliases against retained high-water entries.
-        let mut keys: IndexMap<JavaString, &AppleTarget> = IndexMap::new();
+        let mut keys: IndexMap<String, &AppleTarget> = IndexMap::new();
         for target in updated {
             let id = target_id(target);
             let previous = keys
@@ -79,7 +76,7 @@ impl WorkerTracker {
             if previous.is_some_and(|previous| !same_kind(previous, target)) {
                 return Err(VendorError::Other(failure(
                     "java.lang.IllegalArgumentException",
-                    format!("Conflicting target kinds for tracking key {}", id.to_string_lossy()),
+                    format!("Conflicting target kinds for tracking key {}", id.to_owned()),
                 ))
                 .into());
             }
@@ -101,7 +98,7 @@ impl WorkerTracker {
                 DeviceState::Provisioned(_, count) => self.warn(*count, 0),
             }
         }
-        let mut profiles: IndexMap<JavaString, (&AppleTarget, usize)> = IndexMap::new();
+        let mut profiles: IndexMap<String, (&AppleTarget, usize)> = IndexMap::new();
         for target in updated {
             let id = target_id(target);
             if matches!(target, AppleTarget::SimulatorProfile(_)) {
@@ -130,7 +127,7 @@ impl WorkerTracker {
     }
 }
 pub struct DeviceTracker {
-    workers: IndexMap<JavaString, WorkerTracker>,
+    workers: IndexMap<String, WorkerTracker>,
     logging: SshLogging,
 }
 impl DeviceTracker {

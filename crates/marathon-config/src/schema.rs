@@ -25,7 +25,6 @@ use jcompat::{
     JavaRegex,
     file_manager::JavaPath,
     jtime::{Duration, Instant},
-    writers::JavaString,
 };
 use std::fmt;
 
@@ -69,7 +68,7 @@ pub use analytics::Defaults;
 /// Constructor fields follow Configuration.kt:19-54.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Configuration {
-    pub name: JavaString,
+    pub name: String,
     pub output_dir: JavaPath,
     pub output_configuration: OutputConfiguration,
     pub analytics_configuration: AnalyticsConfiguration,
@@ -139,19 +138,19 @@ pub enum AnalyticsConfiguration {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct InfluxDbConfiguration {
-    pub url: JavaString,
-    pub user: JavaString,
-    pub password: JavaString,
-    pub db_name: JavaString,
+    pub url: String,
+    pub user: String,
+    pub password: String,
+    pub db_name: String,
     pub retention_policy_configuration: RetentionPolicyConfiguration,
     pub defaults: Defaults,
     pub read_only: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RetentionPolicyConfiguration {
-    pub name: JavaString,
-    pub duration: JavaString,
-    pub shard_duration: JavaString,
+    pub name: String,
+    pub duration: String,
+    pub shard_duration: String,
     pub replication_factor: i32,
     pub is_default: bool,
 }
@@ -169,10 +168,10 @@ impl RetentionPolicyConfiguration {
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct InfluxDb2Configuration {
-    pub url: JavaString,
-    pub token: JavaString,
-    pub organization: JavaString,
-    pub bucket: JavaString,
+    pub url: String,
+    pub token: String,
+    pub organization: String,
+    pub bucket: String,
     pub retention_policy_configuration: InfluxDb2RetentionPolicyConfiguration,
     pub defaults: Defaults,
     pub read_only: bool,
@@ -193,9 +192,9 @@ impl InfluxDb2RetentionPolicyConfiguration {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GraphiteConfiguration {
-    pub host: JavaString,
+    pub host: String,
     pub port: Option<i32>,
-    pub prefix: Option<JavaString>,
+    pub prefix: Option<String>,
     pub defaults: Defaults,
     pub read_only: bool,
 }
@@ -218,7 +217,7 @@ impl fmt::Debug for InfluxDbConfiguration {
         write!(
             f,
             "InfluxDbConfiguration(url='*****', user='*****', password='*****', dbName='{}', retentionPolicyConfiguration={:?})",
-            self.db_name.to_string_lossy(),
+            self.db_name.to_owned(),
             self.retention_policy_configuration
         )
     }
@@ -228,8 +227,8 @@ impl fmt::Debug for InfluxDb2Configuration {
         write!(
             f,
             "InfluxDb2Configuration(url='*****', token='*****', organization='{}', bucket='{}', retentionPolicyConfiguration={:?})",
-            self.organization.to_string_lossy(),
-            self.bucket.to_string_lossy(),
+            self.organization.to_owned(),
+            self.bucket.to_owned(),
             self.retention_policy_configuration
         )
     }
@@ -395,14 +394,14 @@ impl FilteringConfiguration {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RegexValuesFileFilter {
     pub regex: Option<JavaRegex>,
-    pub values: Option<Vec<JavaString>>,
+    pub values: Option<Vec<String>>,
     pub file: Option<JavaPath>,
     pub enabled: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestPackageFilter {
     pub regex: Option<JavaRegex>,
-    pub values: Option<Vec<JavaString>>,
+    pub values: Option<Vec<String>>,
     pub file: Option<JavaPath>,
     pub subpackages: bool,
     pub enabled: bool,

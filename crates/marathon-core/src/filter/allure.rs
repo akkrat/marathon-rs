@@ -9,7 +9,7 @@ use crate::{
     error::OperationResult,
     model::{MetaValue, Test},
 };
-use jcompat::{file_manager::JavaPath, logging::Level, writers::JavaString};
+use jcompat::{file_manager::JavaPath, logging::Level};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -19,11 +19,11 @@ pub enum TestPlan {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanTest {
-    pub id: Option<JavaString>,
-    pub selector: Option<JavaString>,
+    pub id: Option<String>,
+    pub selector: Option<String>,
 }
 impl TestPlan {
-    pub fn is_selected(&self, id: Option<&JavaString>, name: &JavaString) -> bool {
+    pub fn is_selected(&self, id: Option<&String>, name: &String) -> bool {
         match self {
             Self::V1_0(tests) => tests
                 .iter()
@@ -37,12 +37,12 @@ pub trait AllurePlanSupplier: Send + Sync {
     fn supply(&self) -> OperationResult<Option<TestPlan>>;
 }
 pub trait PlanEnvironment: Send + Sync {
-    fn get(&self, key: &str) -> Option<JavaString>;
+    fn get(&self, key: &str) -> Option<String>;
 }
 pub struct ProcessEnvironment;
 impl PlanEnvironment for ProcessEnvironment {
-    fn get(&self, key: &str) -> Option<JavaString> {
-        std::env::var_os(key).map(|value| jcompat::utf8::decode_utf8(value.as_encoded_bytes()).into())
+    fn get(&self, key: &str) -> Option<String> {
+        std::env::var_os(key).map(|value| jcompat::utf8::decode_utf8(value.as_encoded_bytes()))
     }
 }
 pub struct FileTestPlanSupplier {
@@ -55,15 +55,15 @@ impl AllurePlanSupplier for FileTestPlanSupplier {
         let Some(path) = ["ALLURE_TESTPLAN_PATH", "AS_TESTPLAN_PATH"]
             .into_iter()
             .filter_map(|key| self.environment.get(key))
-            .find(|value| !value.0.is_empty())
+            .find(|value| !value.is_empty())
         else {
             return Ok(None);
         };
-        let native = match JavaPath(path.0.clone()).to_path_buf() {
+        let native = match JavaPath(path.encode_utf16().collect::<Vec<_>>().clone()).to_path_buf() {
             Ok(native) => native,
             Err(_) => {
-                let mut message = JavaString::from("could not read test plan file ");
-                message.append(path);
+                let mut message = String::from("could not read test plan file ");
+                message.push_str(&path);
                 message.push_str(": invalid path");
                 self.logger.log(Level::Warn, LOGGER, message, None);
                 return Ok(None);
@@ -80,8 +80,8 @@ impl AllurePlanSupplier for FileTestPlanSupplier {
         match result {
             Ok(plan) => Ok(Some(plan)),
             Err(error) => {
-                let mut message = JavaString::from("could not read test plan file ");
-                message.0.extend(display.0);
+                let mut message = String::from("could not read test plan file ");
+                message.push_str(&String::from_utf16_lossy(&display.0));
                 self.logger.log(Level::Warn, LOGGER, message, Some(error));
                 Ok(None)
             }
@@ -109,7 +109,7 @@ pub fn decode_plan(bytes: &[u8]) -> Result<TestPlan, crate::error::Failure> {
         return Ok(TestPlan::Unknown);
     }
     let tests = object.get("tests").and_then(|v| v.as_array()).ok_or_else(invalid)?;
-    let string = |v: Option<&serde_json::Value>| -> Result<Option<JavaString>, crate::error::Failure> {
+    let string = |v: Option<&serde_json::Value>| -> Result<Option<String>, crate::error::Failure> {
         match v {
             None | Some(serde_json::Value::Null) => Ok(None),
             Some(serde_json::Value::String(s)) => Ok(Some(s.as_str().into())),
@@ -208,11 +208,11 @@ impl AllureFilter {
         };
         select(tests, negate, |test| {
             let first = test.meta_properties.iter().find(|p| {
-                p.name == JavaString::from("io.qameta.allure.AllureId")
-                    || p.name == JavaString::from("io.qameta.allure.kotlin.AllureId")
+                p.name == "io.qameta.allure.AllureId"
+                    || p.name == "io.qameta.allure.kotlin.AllureId"
             });
             let id = first
-                .and_then(|p| p.values.entries().iter().find(|(k, _)| *k == JavaString::from("value")))
+                .and_then(|p| p.values.entries().iter().find(|(k, _)| *k == String::from("value")))
                 .and_then(|(_, v)| if let MetaValue::String(s) = v { Some(s) } else { None });
             Ok(plan.is_selected(id, &test.to_test_name('.', '.')))
         })

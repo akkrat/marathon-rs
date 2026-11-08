@@ -46,7 +46,7 @@ pub fn transcode_command(config: &IosVideoConfiguration, src: &str, temp: &str) 
         "-c".into(),
         format!(
             "{} -i {temp} -vf \"scale={size}:{size}:force_original_aspect_ratio=decrease:force_divisible_by=2\" -preset ultrafast {optional} {src}",
-            config.transcoding.binary.to_string_lossy()
+            config.transcoding.binary.to_owned()
         ),
     ]
 }
@@ -195,7 +195,7 @@ impl ScreenRecordingListener {
         self.catch_transfer(
             async {
                 let remote = self.c.device.remote_file_manager();
-                let src = remote.remote_video_for_test(test, &self.c.batch.id).to_string_lossy();
+                let src = remote.remote_video_for_test(test, &self.c.batch.id).to_owned();
                 if !remote.test(&src, &self.c.context).await? {
                     return Ok(());
                 }
@@ -203,9 +203,7 @@ impl ScreenRecordingListener {
                     if self.transcoding() {
                         self.transcode(
                             &src,
-                            &remote
-                                .remote_temp_video_for_test(test, &self.c.batch.id)
-                                .to_string_lossy(),
+                            &remote.remote_temp_video_for_test(test, &self.c.batch.id).to_owned(),
                         )
                         .await?;
                     }
@@ -277,7 +275,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
                 .device
                 .remote_file_manager()
                 .remote_video_for_test(test, &self.c.batch.id)
-                .to_string_lossy();
+                .to_owned();
             *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(src.clone());
             let c = self.c.clone();
             let logger = self.logger.clone();
@@ -334,7 +332,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
             Ok(())
         })
     }
-    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a JavaString>) -> VendorFuture<'a, ()> {
+    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a String>) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, true))
     }
     fn test_passed<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
@@ -343,7 +341,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
     fn test_ignored<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, false))
     }
-    fn test_run_failed<'a>(&'a self, _: &'a JavaString, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a String, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.catch_transfer(
                 async {

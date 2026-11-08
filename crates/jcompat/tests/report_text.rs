@@ -3,7 +3,7 @@ use jcompat::{
     file_manager::{JavaPath, child_file, relative_file},
     jnum::kotlin_round_to_long,
     report_text::*,
-    writers::{JavaString, WriterValue},
+    writers::WriterValue,
 };
 #[test]
 fn jvm_paths_hash_xml_and_rounding() {
@@ -14,7 +14,10 @@ fn jvm_paths_hash_xml_and_rounding() {
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
     let html = child_file(&root, &"/html".encode_utf16().collect::<Vec<_>>());
-    assert_eq!(JavaString(html.0.clone()).to_string_lossy(), oracle("path")["html"]);
+    assert_eq!(
+        String::from_utf16_lossy(&html.0.clone()).to_owned(),
+        oracle("path")["html"]
+    );
     assert_eq!(
         relative_file(
             &html,
@@ -24,19 +27,16 @@ fn jvm_paths_hash_xml_and_rounding() {
             ),
             &root
         )
-        .to_string_lossy(),
+        .to_owned(),
         "../../../.."
     );
-    assert_eq!(
-        allure_history_id(&"Clazz".into(), &"test1".into()),
-        oracle("history")["hash"]
-    );
+    assert_eq!(allure_history_id("Clazz", "test1"), oracle("history")["hash"]);
     for (i, v) in [-1.5, -0.5, 0.5, 4503599627370497.0].into_iter().enumerate() {
         assert_eq!(kotlin_round_to_long(v), oracle("rounding")["outputs"][i].as_i64())
     }
     assert_eq!(kotlin_round_to_long(f64::NAN), None);
     assert_eq!(kotlin_round_to_long(f64::INFINITY), Some(i64::MAX));
-    assert_eq!(form_encode(&"/a #😀".into()).to_string_lossy(), "%2Fa+%23%F0%9F%98%80");
+    assert_eq!(form_encode("/a #😀").to_owned(), "%2Fa+%23%F0%9F%98%80");
 }
 #[test]
 fn jackson_keeps_nulls_arrays_and_utf16_escapes() {
@@ -45,11 +45,11 @@ fn jackson_keeps_nulls_arrays_and_utf16_escapes() {
         ("empty".into(), WriterValue::Array(vec![])),
         (
             "utf16".into(),
-            WriterValue::String(JavaString(vec![0xd800, 0xd83d, 0xde00])),
+            WriterValue::String(String::from_utf16_lossy(&[0xd800, 0xd83d, 0xde00])),
         ),
     ]));
     assert_eq!(
-        actual.to_utf8_bytes(),
+        actual.as_bytes().to_vec(),
         br#"{"x":null,"empty":[],"utf16":"\uD800\uD83D\uDE00"}"#
     );
     // Jackson's byte[] default: padded standard base64 without line feeds.
@@ -58,10 +58,7 @@ fn jackson_keeps_nulls_arrays_and_utf16_escapes() {
         (b"\xff", "\"/w==\""),
         (b"\x01\x02\x03\x04", "\"AQIDBA==\""),
     ] {
-        assert_eq!(
-            jackson_json(&WriterValue::Binary(bytes.to_vec())).to_string_lossy(),
-            encoded
-        );
+        assert_eq!(jackson_json(&WriterValue::Binary(bytes.to_vec())).to_owned(), encoded);
     }
 }
 #[test]

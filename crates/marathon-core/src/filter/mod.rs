@@ -159,7 +159,9 @@ impl TestFilter {
                     return Ok(tests.to_vec());
                 }
                 select(tests, negate, |test| {
-                    let hash = fragment_hash::signed_md5_utf16(&test.to_test_name('.', '#').0);
+                    let hash = fragment_hash::signed_md5_utf16(
+                        &test.to_test_name('.', '#').encode_utf16().collect::<Vec<_>>(),
+                    );
                     let actual = fragment_hash::fragment_index_for_hash(hash, *count)
                         .ok_or_else(|| failure("java.lang.ArithmeticException", "BigInteger divide by zero"))?;
                     Ok(actual == i64::from(*index))

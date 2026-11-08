@@ -3,40 +3,45 @@
 //! `.../testrunner/model/TokenType.kt`.
 //! adam portions: Copyright (C) 2019-2021 Anton Malinskiy; Apache-2.0.
 
-use jcompat::writers::JavaString;
-
 /// Kotlin `linkedMapOf<String, String>()`: insertion order is kept and
 /// re-inserting a key replaces its value without moving it. Equality is
 /// Kotlin map equality (same pairs, any order).
 #[derive(Clone, Debug, Default)]
 pub struct MetricMap {
-    entries: Vec<(JavaString, JavaString)>,
+    entries: Vec<(String, String)>,
 }
 impl MetricMap {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn insert(&mut self, key: JavaString, value: JavaString) -> Option<JavaString> {
+    pub fn insert(&mut self, key: String, value: String) -> Option<String> {
         if let Some((_, current)) = self.entries.iter_mut().find(|(existing, _)| *existing == key) {
             return Some(std::mem::replace(current, value));
         }
         self.entries.push((key, value));
         None
     }
-    pub fn get(&self, key: &JavaString) -> Option<&JavaString> {
+    pub fn get(&self, key: &String) -> Option<&String> {
         self.entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
     }
-    /// Lookup by an ASCII key without allocating a `JavaString`.
-    pub fn get_str(&self, key: &str) -> Option<&JavaString> {
+    /// Lookup by an ASCII key without allocating a `String`.
+    pub fn get_str(&self, key: &str) -> Option<&String> {
         self.entries
             .iter()
-            .find(|(k, _)| k.0.len() == key.len() && k.0.iter().zip(key.bytes()).all(|(&u, b)| u == u16::from(b)))
+            .find(|(k, _)| {
+                k.encode_utf16().count() == key.len()
+                    && k.encode_utf16()
+                        .collect::<Vec<_>>()
+                        .iter()
+                        .zip(key.bytes())
+                        .all(|(&u, b)| u == u16::from(b))
+            })
             .map(|(_, v)| v)
     }
     pub fn contains_key_str(&self, key: &str) -> bool {
         self.get_str(key).is_some()
     }
-    pub fn entries(&self) -> &[(JavaString, JavaString)] {
+    pub fn entries(&self) -> &[(String, String)] {
         &self.entries
     }
     pub fn is_empty(&self) -> bool {
@@ -49,8 +54,8 @@ impl PartialEq for MetricMap {
     }
 }
 impl Eq for MetricMap {}
-impl FromIterator<(JavaString, JavaString)> for MetricMap {
-    fn from_iter<T: IntoIterator<Item = (JavaString, JavaString)>>(iter: T) -> Self {
+impl FromIterator<(String, String)> for MetricMap {
+    fn from_iter<T: IntoIterator<Item = (String, String)>>(iter: T) -> Self {
         let mut map = Self::new();
         for (key, value) in iter {
             map.insert(key, value);
@@ -61,8 +66,8 @@ impl FromIterator<(JavaString, JavaString)> for MetricMap {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestIdentifier {
-    pub class_name: JavaString,
-    pub test_name: JavaString,
+    pub class_name: String,
+    pub test_name: String,
 }
 
 /// The sealed `TestEvent` hierarchy, variants in the Kotlin declaration order.
@@ -76,11 +81,11 @@ pub enum TestEvent {
     },
     TestFailed {
         id: TestIdentifier,
-        stack_trace: JavaString,
+        stack_trace: String,
     },
     TestAssumptionFailed {
         id: TestIdentifier,
-        stack_trace: JavaString,
+        stack_trace: String,
     },
     TestIgnored {
         id: TestIdentifier,
@@ -90,11 +95,11 @@ pub enum TestEvent {
         metrics: MetricMap,
     },
     TestRunFailed {
-        error: JavaString,
+        error: String,
     },
     TestRunFailing {
-        error: JavaString,
-        stack_trace: JavaString,
+        error: String,
+        stack_trace: String,
     },
     TestRunStopped {
         elapsed_time_millis: i64,
@@ -109,7 +114,7 @@ pub enum TestEvent {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestLogcat {
     pub id: TestIdentifier,
-    pub log: JavaString,
+    pub log: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

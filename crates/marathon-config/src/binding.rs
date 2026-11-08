@@ -4,7 +4,7 @@
 //! Source locations and nodes are shared with the production YAML parser.
 
 use crate::{Configuration, MarathonDevices, VendorConfiguration};
-use jcompat::{file_manager::JavaPath, jtime::Instant, writers::JavaString};
+use jcompat::{file_manager::JavaPath, jtime::Instant};
 use std::{future::Future, pin::Pin};
 
 pub type BindingFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ConfigurationError>> + Send + 'a>>;
@@ -23,29 +23,29 @@ pub enum ValidationStage {
 pub use snakeyaml::node::{Mark as SourceMark, Mark, Node, NodeKind, Span as SourceSpan, Span};
 #[derive(Clone, Debug)]
 pub struct TokenError {
-    pub stage: JavaString,
-    pub class: JavaString,
-    pub message: JavaString,
+    pub stage: String,
+    pub class: String,
+    pub message: String,
     pub context_mark: Option<SourceMark>,
     pub problem_mark: Option<SourceMark>,
     pub jackson_location: Option<SourceMark>,
 }
 #[derive(Clone, Debug)]
 pub enum PathPart {
-    Key(JavaString),
+    Key(String),
     Index(usize),
 }
 #[derive(Clone, Debug)]
 pub enum BindingCause {
     Stream(TokenError),
-    Coercion(JavaString),
-    Custom(JavaString),
+    Coercion(String),
+    Custom(String),
 }
 #[derive(Clone, Debug)]
 pub struct ConfigurationError {
     pub stage: ValidationStage,
-    pub class: JavaString,
-    pub message: Option<JavaString>,
+    pub class: String,
+    pub message: Option<String>,
     /// Nested exception classes/messages in outermost-first order (config-dump).
     pub causes: Vec<ConfigurationCause>,
     pub path: Vec<PathPart>,
@@ -54,8 +54,8 @@ pub struct ConfigurationError {
 }
 #[derive(Clone, Debug)]
 pub struct ConfigurationCause {
-    pub class: JavaString,
-    pub message: Option<JavaString>,
+    pub class: String,
+    pub message: Option<String>,
 }
 /// P1 resolves File against marathonfile_dir; P2 uses process_dir for auth keys.
 /// Environment order/spelling and injectable now are inputs, not global lookups.
@@ -66,7 +66,7 @@ pub struct BindingContext {
     pub bugsnag_reporting: bool,
     pub marathonfile_dir: JavaPath,
     pub process_dir: JavaPath,
-    pub environment: Vec<(JavaString, JavaString)>,
+    pub environment: Vec<(String, String)>,
     pub now: Instant,
 }
 pub trait ConfigurationLoader: Send + Sync {

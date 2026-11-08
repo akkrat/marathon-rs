@@ -5,10 +5,7 @@
 //! level; any other name is created at its first rendered record, with the registry's debug
 //! state at that moment (C18).
 use crate::lock;
-use jcompat::{
-    logging::{Level, Logger, MarathonLogging},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger, MarathonLogging};
 use marathon_core::{error::Failure, logging::OutputRecord, output::ConsoleSink, runtime::VendorFuture};
 use std::{
     collections::HashMap,
@@ -76,7 +73,7 @@ impl ConsoleSink for RecordingConsole {
         lock(&self.batches).push(records.len());
         for record in records {
             match record {
-                OutputRecord::Raw(text) => lock(&self.lines).push(Line::Raw(text.to_string_lossy())),
+                OutputRecord::Raw(text) => lock(&self.lines).push(Line::Raw(text.to_owned())),
                 OutputRecord::Log(record) => {
                     let enabled = {
                         let mut registry = lock(&self.registry);
@@ -94,7 +91,7 @@ impl ConsoleSink for RecordingConsole {
                         lock(&self.lines).push(Line::Log {
                             logger: record.logger,
                             level: record.level,
-                            message: record.message.to_string_lossy(),
+                            message: record.message.to_owned(),
                             cause: record.cause,
                         });
                     }
@@ -105,7 +102,7 @@ impl ConsoleSink for RecordingConsole {
     }
 }
 
-/// Text of a JavaString for assertions.
-pub fn text(value: &JavaString) -> String {
-    value.to_string_lossy()
+/// Text of a String for assertions.
+pub fn text(value: &String) -> String {
+    value.to_owned()
 }

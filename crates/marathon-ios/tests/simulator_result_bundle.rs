@@ -135,7 +135,7 @@ async fn fixed(
             timer: h.services.timer.clone(),
             wall: h.services.result_wall.clone(),
             logs: h.services.logs.clone(),
-            remote_xcresult: d.remote_file_manager().remote_xcresult_file(&batch).to_string_lossy(),
+            remote_xcresult: d.remote_file_manager().remote_xcresult_file(&batch).to_owned(),
             xcresulttool: Arc::new(d.binary_environment().xcrun.xcresulttool.clone()),
             xcode_version: d.xcode_version(),
             context: h.services.context.clone(),
@@ -234,7 +234,7 @@ async fn policies_results_traces_and_attachments_match_synchronous_baseline_for_
                                 .stacktrace
                                 .as_ref()
                                 .unwrap()
-                                .to_string_lossy()
+                                .to_owned()
                                 .contains("assertion failed")
                         );
                     }
@@ -258,7 +258,7 @@ async fn policies_results_traces_and_attachments_match_synchronous_baseline_for_
                                 h.dir.path().join("test.log").to_str().unwrap()
                             )));
                         for a in result.attachments.iter().filter(|a| a.name.is_some()) {
-                            assert_eq!(a.name.as_ref().unwrap().to_string_lossy(), "xcodebuild-log");
+                            assert_eq!(a.name.as_ref().unwrap().to_owned(), "xcodebuild-log");
                         }
                     }
                     h.finish(&[d]).await;
@@ -328,7 +328,7 @@ async fn bundle_skipped_by_a_failing_earlier_finalizer_stays_protected_and_is_re
         assert_eq!(kept.len(), 1);
         d.remote_file_manager()
             .remove_remote_directory(
-                &kept.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>(),
+                &kept.iter().map(|s| s.to_owned()).collect::<Vec<_>>(),
                 &h.services.context,
             )
             .await
@@ -340,7 +340,7 @@ async fn bundle_skipped_by_a_failing_earlier_finalizer_stays_protected_and_is_re
             .await
             .unwrap();
         assert_eq!(diagnostics.len(), 1);
-        let text = diagnostics[0].to_string_lossy();
+        let text = diagnostics[0].to_owned();
         for detail in [
             "never handed to the artifact queue",
             "worker local",
@@ -407,7 +407,7 @@ async fn bundles_registered_around_queue_shutdown_are_kept_and_reported_once() -
         .await
         .unwrap();
     assert_eq!(reports.len(), 2);
-    assert!(reports[1].to_string_lossy().contains("artifact queue is closed"));
+    assert!(reports[1].to_owned().contains("artifact queue is closed"));
     assert_eq!(bridge.pulls.load(Ordering::SeqCst), 0);
     drop(old);
     h.finish(&[d, late]).await;

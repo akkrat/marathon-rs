@@ -20,7 +20,7 @@ use crate::{
 use jcompat::{
     jtime::Duration,
     logging::{Level, Logger},
-    writers::{JavaString, KotlinValue},
+    writers::KotlinValue,
 };
 use marathon_config::{
     devices::Transport,
@@ -272,10 +272,7 @@ impl ConnectionFactory {
                     (self.logging.sink)(
                         &self.logger,
                         Level::Error,
-                        format!(
-                            "Failed to initialize connection to {}",
-                            transport.id().to_string_lossy()
-                        ),
+                        format!("Failed to initialize connection to {}", transport.id().to_owned()),
                         Some(error.to_failure()),
                     );
                 }
@@ -576,17 +573,17 @@ impl Connector for ProductionConnector {
             };
             let auth = authentication
                 .or_else(|| self.ssh.authentication.clone())
-                .ok_or_else(|| configuration(format!("no ssh auth provided for {}:{port}", addr.to_string_lossy())))?;
+                .ok_or_else(|| configuration(format!("no ssh auth provided for {}:{port}", addr.to_owned())))?;
             let auth = match auth {
                 SshAuthentication::Password { username, password } => {
                     crate::cmd::remote::ssh::sshj::SshAuthentication::Password {
-                        username: username.to_string_lossy(),
-                        password: password.to_string_lossy(),
+                        username: username.to_owned(),
+                        password: password.to_owned(),
                     }
                 }
                 SshAuthentication::PublicKey { username, key } => {
                     crate::cmd::remote::ssh::sshj::SshAuthentication::PublicKey {
-                        username: username.to_string_lossy(),
+                        username: username.to_owned(),
                         key: key.to_file_path_buf().map_err(crate::cmd::io_error)?,
                     }
                 }
@@ -616,7 +613,7 @@ impl Connector for ProductionConnector {
             Ok(Box::new(move || {
                 Box::pin(async move {
                     factory
-                        .connect(&addr.to_string_lossy(), port, auth, verifier, debug)
+                        .connect(&addr.to_owned(), port, auth, verifier, debug)
                         .await
                         .map(|e| Arc::new(e) as Executor)
                         .map_err(Into::into)
@@ -652,9 +649,9 @@ fn data(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
 }
 /// Kotlin's generated data-class string, with the existing explicit authentication masking.
 /// The singleton Local identity string uses the run's replay identity allocation at its caller.
-pub fn transport_text(transport: &Transport, local_identity: &JavaString) -> String {
+pub fn transport_text(transport: &Transport, local_identity: &String) -> String {
     let value = match transport {
-        Transport::Local => return local_identity.to_string_lossy(),
+        Transport::Local => return local_identity.to_owned(),
         Transport::Ssh {
             addr,
             port,
@@ -663,14 +660,14 @@ pub fn transport_text(transport: &Transport, local_identity: &JavaString) -> Str
         } => {
             let auth = match authentication {
                 None => KotlinValue::Null,
-                Some(SshAuthentication::Password { username, .. }) => KotlinValue::Text(
-                    format!("PasswordAuthentication(username='{}')", username.to_string_lossy()).into(),
-                ),
+                Some(SshAuthentication::Password { username, .. }) => {
+                    KotlinValue::Text(format!("PasswordAuthentication(username='{}')", username.to_owned()))
+                }
                 Some(SshAuthentication::PublicKey { username, key }) => data(
                     "PublicKeyAuthentication",
                     vec![
                         ("username", KotlinValue::Text(username.clone())),
-                        ("key", KotlinValue::Text(JavaString(key.0.clone()))),
+                        ("key", KotlinValue::Text(String::from_utf16_lossy(&key.0.clone()))),
                     ],
                 ),
             };
@@ -678,17 +675,17 @@ pub fn transport_text(transport: &Transport, local_identity: &JavaString) -> Str
                 "Ssh",
                 vec![
                     ("addr", KotlinValue::Text(addr.clone())),
-                    ("port", KotlinValue::Text(port.to_string().into())),
+                    ("port", KotlinValue::Text(port.to_string())),
                     ("authentication", auth),
                     (
                         "checkReachability",
-                        KotlinValue::Text(check_reachability.to_string().into()),
+                        KotlinValue::Text(check_reachability.to_string()),
                     ),
                 ],
             )
         }
     };
-    value.render().to_string_lossy()
+    value.render().to_owned()
 }
 
 fn check_address(transport: Transport, timeout: Duration) -> ConnectionResult<()> {
@@ -700,7 +697,7 @@ fn check_address(transport: Transport, timeout: Duration) -> ConnectionResult<()
     else {
         return Ok(());
     };
-    let host = addr.to_string_lossy();
+    let host = addr.to_owned();
     let host = if host.is_empty() { "127.0.0.1" } else { &host };
     let host = host
         .strip_prefix('[')
@@ -728,9 +725,9 @@ fn check_address(transport: Transport, timeout: Duration) -> ConnectionResult<()
                     let gai = error
                         .strip_prefix("failed to lookup address information: ")
                         .unwrap_or(&error);
-                    format!("{}: {gai}", addr.to_string_lossy())
+                    format!("{}: {gai}", addr.to_owned())
                 }
-                Ok(_) => addr.to_string_lossy(),
+                Ok(_) => addr.to_owned(),
             };
             unreachable(
                 Some(format!(

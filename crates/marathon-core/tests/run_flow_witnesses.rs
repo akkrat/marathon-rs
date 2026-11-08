@@ -108,7 +108,7 @@ struct FailsOn {
 }
 impl marathon_core::vendor::RemoteTestParser for FailsOn {
     fn extract(&self, device: marathon_core::vendor::DeviceRef, _: VendorContext) -> VendorFuture<'_, Vec<Test>> {
-        let serial = device.0.info().serial_number.to_string_lossy();
+        let serial = device.0.info().serial_number.to_owned();
         self.extracted.lock().unwrap().push(serial.clone());
         let fails = self.failing.contains(&serial.as_str());
         Box::pin(async move {
@@ -395,7 +395,7 @@ fn rust_events(lines: &[Line], logger: &str) -> Vec<(String, String, Option<Stri
                 Some((
                     level_name(*level),
                     normalize(message),
-                    cause.as_ref().map(|c| c.class.to_string_lossy()),
+                    cause.as_ref().map(|c| c.class.to_owned()),
                 ))
             }
             _ => None,
@@ -532,13 +532,9 @@ fn check(case: &str, r: &Result) {
     match (&r.outcome.value, row.get("value")) {
         (Some(Ok(value)), Some(expected)) => assert_eq!(Value::Bool(*value), *expected, "{case}: value"),
         (Some(Err(e)), None) => {
+            assert_eq!(e.failure().class.to_owned(), row["exception"], "{case}: exception");
             assert_eq!(
-                e.failure().class.to_string_lossy(),
-                row["exception"],
-                "{case}: exception"
-            );
-            assert_eq!(
-                e.failure().message.as_ref().map(|m| m.to_string_lossy()),
+                e.failure().message.as_ref().map(|m| m.to_owned()),
                 row["message"].as_str().map(str::to_owned),
                 "{case}: message"
             );
@@ -547,7 +543,7 @@ fn check(case: &str, r: &Result) {
             "{case}: {:?} vs {row}",
             actual
                 .as_ref()
-                .map(|v| v.as_ref().map_err(|e| e.failure().to_java_string().to_string_lossy()))
+                .map(|v| v.as_ref().map_err(|e| e.failure().to_java_string().to_owned()))
         ),
     }
     let expected_trace: Vec<String> = row["trace"]
@@ -776,8 +772,8 @@ fn remote_parsing_retries_borrow_three_times() {
     let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
     let row = row("remote-retry");
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
-    assert_eq!(e.failure().class.to_string_lossy(), row["exception"]);
-    assert_eq!(e.failure().message.as_ref().unwrap().to_string_lossy(), row["message"]);
+    assert_eq!(e.failure().class.to_owned(), row["exception"]);
+    assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), row["message"]);
     let borrows = |t: &[String]| t.iter().filter(|c| *c == "borrow").count();
     assert_eq!(r.outcome.provider_calls.iter().filter(|c| **c == "borrow").count(), 3);
     let jvm: Vec<String> = serde_json::from_value(row["trace"].clone()).unwrap();
@@ -819,10 +815,7 @@ fn a_parse_on_one_device_tries_it_three_times_as_before_d53() {
     let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
     assert_eq!(r.extracted, ["a", "a", "a"]);
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
-    assert_eq!(
-        e.failure().message.as_ref().unwrap().to_string_lossy(),
-        "parse failed on a"
-    );
+    assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), "parse failed on a");
 }
 
 /// D53: once every device has been tried, an attempt takes any of them, without waiting.
@@ -835,10 +828,7 @@ fn a_parse_that_has_tried_every_device_takes_any_again_d53() {
     let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
     assert_eq!(r.extracted, ["a", "b", "a"]);
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
-    assert_eq!(
-        e.failure().message.as_ref().unwrap().to_string_lossy(),
-        "parse failed on a"
-    );
+    assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), "parse failed on a");
 }
 
 /// Only the enclosing timeout becomes NoDevices with its own message.
@@ -854,8 +844,8 @@ fn remote_parsing_timeout_is_no_devices() {
     let row = row("remote-timeout");
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
     assert!(matches!(e, VendorError::NoDevices(_)));
-    assert_eq!(e.failure().class.to_string_lossy(), row["exception"]);
-    assert_eq!(e.failure().message.as_ref().unwrap().to_string_lossy(), row["message"]);
+    assert_eq!(e.failure().class.to_owned(), row["exception"]);
+    assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), row["message"]);
     assert_eq!(r.outcome.completed_at, Some(50));
 }
 
@@ -870,7 +860,9 @@ fn missing_vendor_services_fail_construction_as_koin_does() {
     ] {
         let failure = marathon_core::construction::missing_definition(class);
         let chain: Vec<Value> = std::iter::successors(Some(&failure), |f| f.cause.as_deref())
-            .map(|f| serde_json::json!({"class": f.class.to_string_lossy(), "message": f.message.as_ref().unwrap().to_string_lossy()}))
+            .map(
+                |f| serde_json::json!({"class": f.class.to_owned(), "message": f.message.as_ref().unwrap().to_owned()}),
+            )
             .collect();
         assert_eq!(Value::Array(chain), row(case)["chain"], "{case}");
     }

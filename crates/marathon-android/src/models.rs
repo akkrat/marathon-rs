@@ -2,10 +2,7 @@
 //! model/TestIdentifier.kt, model/AndroidTestStatus.kt, AndroidTestBundleIdentifier.kt,
 //! extension/Test.kt and extension/ConfigurationExtensions.kt.
 use crate::{dex_test_parser::DexTestBundleFiles, support::*};
-use jcompat::{
-    file_manager::{JavaPath, absolute_file_path_utf16},
-    writers::JavaString,
-};
+use jcompat::file_manager::{JavaPath, absolute_file_path_utf16};
 use marathon_config::vendor::*;
 use marathon_core::{
     error::*,
@@ -20,12 +17,12 @@ use std::{
 
 pub struct AndroidTestBundle {
     pub files: DexTestBundleFiles,
-    id: JavaString,
+    id: String,
     info: Mutex<Option<InstrumentationInfo>>,
 }
 impl AndroidTestBundle {
     pub fn new(files: DexTestBundleFiles, cwd: &JavaPath) -> Self {
-        let id = JavaString(absolute_file_path_utf16(&files.test_application.0, &cwd.0).0);
+        let id = String::from_utf16_lossy(&absolute_file_path_utf16(&files.test_application.0, &cwd.0).0);
         Self {
             files,
             id,
@@ -47,7 +44,7 @@ impl AndroidTestBundle {
     }
 }
 impl TestBundle for AndroidTestBundle {
-    fn id(&self) -> &JavaString {
+    fn id(&self) -> &String {
         &self.id
     }
 }
@@ -61,8 +58,8 @@ impl AndroidTestBundleIdentifier {
     }
     pub fn android_bundle(&self, test: &Test) -> VendorResult<Arc<AndroidTestBundle>> {
         lock(&self.bundles).get(test).cloned().ok_or_else(|| {
-            let mut message = JavaString::from("Invalid test ");
-            message.append(test.to_test_name('.', '#'));
+            let mut message = String::from("Invalid test ");
+            message.push_str(&test.to_test_name('.', '#'));
             message.push_str(": can't locate test bundle");
             other(CONFIGURATION_EXCEPTION_CLASS, message)
         })
@@ -95,7 +92,7 @@ pub fn to_android_test_bundle(c: &AndroidTestBundleConfiguration) -> DexTestBund
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellCommandResult {
-    pub output: JavaString,
+    pub output: String,
     pub exit_code: i32,
 }
 impl From<marathon_adb::client::shell::v1::ShellCommandResult> for ShellCommandResult {
@@ -108,18 +105,23 @@ impl From<marathon_adb::client::shell::v1::ShellCommandResult> for ShellCommandR
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestIdentifier {
-    pub class_name: JavaString,
-    pub test_name: JavaString,
+    pub class_name: String,
+    pub test_name: String,
 }
 impl TestIdentifier {
     pub fn to_test(&self, meta_properties: Vec<MetaProperty>) -> Test {
-        let dot = self.class_name.0.iter().rposition(|u| *u == 46);
+        let dot = self
+            .class_name
+            .encode_utf16()
+            .collect::<Vec<_>>()
+            .iter()
+            .rposition(|u| *u == 46);
         let (pkg, clazz) = match dot {
             Some(i) => (
-                JavaString(self.class_name.0[..i].to_vec()),
-                JavaString(self.class_name.0[i + 1..].to_vec()),
+                String::from_utf16_lossy(&self.class_name.encode_utf16().collect::<Vec<_>>()[..i]),
+                String::from_utf16_lossy(&self.class_name.encode_utf16().collect::<Vec<_>>()[i + 1..]),
             ),
-            None => (JavaString::default(), self.class_name.clone()),
+            None => (String::default(), self.class_name.clone()),
         };
         Test {
             pkg,
@@ -156,7 +158,7 @@ pub fn is_ignored(test: &Test) -> bool {
             "android.test.suitebuilder.annotation.Suppress",
         ]
         .iter()
-        .any(|s| p.name == (*s).into())
+        .any(|s| p.name == (*s))
     })
 }
 pub fn effective_file_sync(c: &AndroidConfiguration, coverage: bool) -> FileSyncConfiguration {
@@ -203,8 +205,8 @@ pub fn select_recorder_type(features: &[DeviceFeature], c: &AndroidScreenRecordC
             .find(|f| features.contains(f) && enabled(*f))
     })
 }
-pub fn to_screen_recorder_command(c: &AndroidVideoConfiguration, path: &JavaString, infinite: bool) -> JavaString {
-    let mut result = JavaString::from("screenrecord ");
+pub fn to_screen_recorder_command(c: &AndroidVideoConfiguration, path: &String, infinite: bool) -> String {
+    let mut result = String::from("screenrecord ");
     if c.width > 0 && c.height > 0 {
         result.push_str(&format!("--size {}x{} ", c.width, c.height));
     }
@@ -229,6 +231,6 @@ pub fn to_screen_recorder_command(c: &AndroidVideoConfiguration, path: &JavaStri
             if infinite { seconds } else { seconds.min(180) }
         ));
     }
-    result.append(path.clone());
+    result.push_str(&path.clone());
     result
 }

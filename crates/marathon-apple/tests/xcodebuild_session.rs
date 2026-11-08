@@ -93,13 +93,13 @@ async fn receiver_cancellation_retains_the_first_terminal_result() -> Result<(),
         channel.cancel();
         let after = channel.receive(&context).await;
         if let Some(error) = session.stop(support::duration(1000), &context).await {
-            return Err(error.to_java_string().to_string_lossy());
+            return Err(error.to_java_string().to_owned());
         }
         session
             .join_producer()
             .await
-            .map_err(|e| e.failure().to_java_string().to_string_lossy())?;
-        results.push(serde_json::json!({"failed":failed,"before":before.as_ref().err().map(|e|e.failure().to_java_string().to_string_lossy()).unwrap_or_else(||"closed".into()),"after":after.as_ref().err().map(|e|e.failure().to_java_string().to_string_lossy()).unwrap_or_else(||"closed".into()),"closed":session.closed()}));
+            .map_err(|e| e.failure().to_java_string().to_owned())?;
+        results.push(serde_json::json!({"failed":failed,"before":before.as_ref().err().map(|e|e.failure().to_java_string().to_owned()).unwrap_or_else(||"closed".into()),"after":after.as_ref().err().map(|e|e.failure().to_java_string().to_owned()).unwrap_or_else(||"closed".into()),"closed":session.closed()}));
         if failed {
             assert_eq!(before, Err(expected.clone()));
             assert_eq!(after, Err(expected));

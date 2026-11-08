@@ -7,7 +7,7 @@
 //! runtime's blocking pool (lifecycle.md: no blocking work on the core
 //! executor).
 
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
     model::{DecodedWrapper, MetaArray, MetaMap, MetaProperty, MetaValue, Test},
@@ -82,7 +82,7 @@ fn extract_bundles<B>(
         let test_application = bundle
             .test_application
             .to_file_path_buf()
-            .map_err(|err| failure_from(DexError::io(err.to_string().as_str())))?;
+            .map_err(|err| failure_from(DexError::io(err.to_string().as_str().to_owned())))?;
         // bundle.testApplication.absolutePath: FileInputStream failures
         // propagate unwrapped (no try/catch in DexTestParser.kt).
         let methods = marathon_dex::find_test_methods(&test_application, &[]).map_err(failure_from)?;
@@ -143,7 +143,7 @@ fn failure_from(err: DexError) -> VendorError {
 /// parts), package before the LAST '.', "" when there is no dot.
 pub fn test_from_method(method: &TestMethod, converter: &mut MetaConverter) -> VendorResult<Test> {
     let test_name = &method.test_name;
-    let split: Vec<JavaString> = split_units(test_name, u16::from(b'#'));
+    let split: Vec<String> = split_units(test_name, u16::from(b'#'));
     if split.len() != 2 {
         return Err(failure_from(DexError::illegal_state(concat(
             "Can't parse test ",
@@ -151,12 +151,16 @@ pub fn test_from_method(method: &TestMethod, converter: &mut MetaConverter) -> V
         ))));
     }
     let package_and_class = &split[0];
-    let last_dot = package_and_class.0.iter().rposition(|&u| u == u16::from(b'.'));
+    let last_dot = package_and_class
+        .encode_utf16()
+        .collect::<Vec<_>>()
+        .iter()
+        .rposition(|&u| u == u16::from(b'.'));
     let (package, class) = match last_dot {
-        None => (JavaString::default(), package_and_class.clone()),
+        None => (String::default(), package_and_class.clone()),
         Some(index) => (
-            JavaString(package_and_class.0[..index].to_vec()),
-            JavaString(package_and_class.0[index + 1..].to_vec()),
+            String::from_utf16_lossy(&package_and_class.encode_utf16().collect::<Vec<_>>()[..index]),
+            String::from_utf16_lossy(&package_and_class.encode_utf16().collect::<Vec<_>>()[index + 1..]),
         ),
     };
     let annotations = method
@@ -172,24 +176,28 @@ pub fn test_from_method(method: &TestMethod, converter: &mut MetaConverter) -> V
     })
 }
 
-fn concat(prefix: &str, rest: &JavaString) -> JavaString {
+fn concat(prefix: &str, rest: &String) -> String {
     let mut out: Vec<u16> = prefix.encode_utf16().collect();
-    out.extend(rest.0.iter());
-    JavaString(out)
+    out.extend(rest.encode_utf16().collect::<Vec<_>>().iter());
+    String::from_utf16_lossy(&out)
 }
 
 /// Kotlin CharSequence.split on a single char: every occurrence splits,
 /// trailing empty parts are kept.
-fn split_units(text: &JavaString, delimiter: u16) -> Vec<JavaString> {
+fn split_units(text: &String, delimiter: u16) -> Vec<String> {
     let mut parts = Vec::new();
     let mut start = 0;
-    for (index, &unit) in text.0.iter().enumerate() {
+    for (index, &unit) in text.encode_utf16().collect::<Vec<_>>().iter().enumerate() {
         if unit == delimiter {
-            parts.push(JavaString(text.0[start..index].to_vec()));
+            parts.push(String::from_utf16_lossy(
+                &text.encode_utf16().collect::<Vec<_>>()[start..index],
+            ));
             start = index + 1;
         }
     }
-    parts.push(JavaString(text.0[start..].to_vec()));
+    parts.push(String::from_utf16_lossy(
+        &text.encode_utf16().collect::<Vec<_>>()[start..],
+    ));
     parts
 }
 

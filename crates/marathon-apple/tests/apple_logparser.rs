@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/logparser/parser/{DeviceFailureParserTest,TestRunProgressParserTest}.kt
 mod support;
-use jcompat::{logging::MarathonLogging, writers::JavaString};
+use jcompat::logging::MarathonLogging;
 use marathon_apple::{
     cmd::remote::ssh::sshj::config::SshLogging,
     logparser::{
@@ -135,7 +135,7 @@ fn test() -> Result<(), Box<dyn std::error::Error>> {
                     event
                         .to_kotlin_string(&*hooks)
                         .map_err(|e| format!("{e:?}"))?
-                        .to_string_lossy(),
+                        .to_owned(),
                 );
             }
         }
@@ -167,7 +167,7 @@ fn failures_preempt_progress_and_class_split_keeps_a5_a7() -> Result<(), ParseEr
             .process(&format!("Test Case '-[{class} m]' started."))?
             .unwrap_or_default();
         assert!(
-            matches!(&events[0],TestEvent::TestStarted{id} if id.pkg==JavaString::from(pkg) && id.clazz==JavaString::from(clazz))
+            matches!(&events[0],TestEvent::TestStarted{id} if id.pkg==String::from(pkg) && id.clazz==String::from(clazz))
         );
     }
     Ok(())
@@ -258,7 +258,7 @@ const D39_REAL_FORMS: &[(&str, &str)] = &[
 fn literal_of(line: &str) -> Option<String> {
     match DeviceFailureParser.process(line) {
         Ok(Some(events)) => match &events[0] {
-            TestEvent::TestRunFailed { message, .. } => Some(message.to_string_lossy()),
+            TestEvent::TestRunFailed { message, .. } => Some(message.to_owned()),
             other => panic!("{other:?}"),
         },
         _ => None,
@@ -334,7 +334,7 @@ fn a_test_name_an_assertion_or_an_app_log_line_is_not_a_failure_d39() -> Result<
     let events = p
         .process("Test Case '-[a.b.C Test runner exited]' started.")?
         .unwrap_or_default();
-    assert!(matches!(&events[0], TestEvent::TestStarted { id } if id.clazz == JavaString::from("b.C Test runner")));
+    assert!(matches!(&events[0], TestEvent::TestStarted { id } if id.clazz == String::from("b.C Test runner")));
     // An assertion's message reaches the failing test's trace.
     let mut p = XctestEventProducer::new(parser("target"));
     p.process("Test Case '-[p.C m]' started.")?;
@@ -346,7 +346,7 @@ fn a_test_name_an_assertion_or_an_app_log_line_is_not_a_failure_d39() -> Result<
         .process("Test Case '-[p.C m]' failed (1.000 seconds).")?
         .unwrap_or_default();
     assert!(matches!(&events[0], TestEvent::TestFailed { trace: Some(trace), .. }
-        if trace.to_string_lossy().ends_with("Test runner exited")));
+        if trace.to_owned().ends_with("Test runner exited")));
     Ok(())
 }
 /// The one line of the JVM recordings that D39 changes. The recording stays its witness.
@@ -535,7 +535,7 @@ fn a_hung_test_reports_its_line_unless_it_has_a_failing_line_already_d45() -> Re
         for line in lines {
             for event in p.process(line)?.into_iter().flatten() {
                 if let TestEvent::TestFailed { trace: t, .. } = event {
-                    trace = Some(t.map(|t| t.to_string_lossy()));
+                    trace = Some(t.map(|t| t.to_owned()));
                 }
             }
         }
@@ -578,17 +578,17 @@ fn a_real_stream_with_hung_tests_reports_every_test_and_no_batch_failure_d45() -
                     trace,
                 } => format!(
                     "failed {}.{}.{} {} {}",
-                    id.pkg.to_string_lossy(),
-                    id.clazz.to_string_lossy(),
-                    id.method.to_string_lossy(),
+                    id.pkg.to_owned(),
+                    id.clazz.to_owned(),
+                    id.method.to_owned(),
                     end_time - start_time,
-                    trace.is_some_and(|t| t.to_string_lossy() == line)
+                    trace.is_some_and(|t| t.to_owned() == line)
                 ),
                 TestEvent::TestPassed { id, .. } => format!(
                     "passed {}.{}.{}",
-                    id.pkg.to_string_lossy(),
-                    id.clazz.to_string_lossy(),
-                    id.method.to_string_lossy()
+                    id.pkg.to_owned(),
+                    id.clazz.to_owned(),
+                    id.method.to_owned()
                 ),
                 TestEvent::TestStarted { .. } => continue,
                 other => panic!("{line:?}: {other:?}"),
@@ -682,7 +682,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                     assert_eq!(entry["exception"].is_null(), !thrown, "{}: {text:?}", row["case"]);
                     let events = events.map(|v| {
                         v.iter()
-                            .map(|e| e.to_kotlin_string(&*hooks).unwrap().to_string_lossy())
+                            .map(|e| e.to_kotlin_string(&*hooks).unwrap().to_owned())
                             .collect::<Vec<_>>()
                     });
                     // D39: the JVM aborts on this name, recorded as TestRunFailed; here the test starts.
@@ -717,7 +717,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 Err(error) => {
                     let f = error.to_failure();
                     assert_eq!(
-                        serde_json::json!([f.class.to_string_lossy(), f.message.map(|s| s.to_string_lossy())]),
+                        serde_json::json!([f.class.to_owned(), f.message.map(|s| s.to_owned())]),
                         entry["exception"],
                         "{}: {text:?}",
                         row["case"]

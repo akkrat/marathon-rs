@@ -1,6 +1,6 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt
 //! Test-only schemas exercise the binding API without taking WP 2.2's schema ownership.
-use jcompat::{JavaRegex, file_manager::JavaPath, writers::JavaString};
+use jcompat::{JavaRegex, file_manager::JavaPath};
 use marathon_config::{
     binder::{self, Binder, Field, Result, Value},
     binding::{BindingCause, BindingContext, PathPart, Profile},
@@ -27,7 +27,7 @@ fn bind<T>(text: &str, schema: impl FnOnce(Value<'_>) -> Result<T>) -> Result<Op
     let binder = Binder::new(&context, &stream);
     binder.first(&stream, schema)
 }
-fn reference_schema(v: Value<'_>, ignore: bool) -> Result<JavaString> {
+fn reference_schema(v: Value<'_>, ignore: bool) -> Result<String> {
     let mut k = Field::reference(&v, Some("default".into()));
     let mut object = v.object()?;
     while let Some((name, value)) = object.next_field()? {
@@ -62,12 +62,10 @@ fn kotlin_creator_oracle_and_regex_exception_chain() -> std::result::Result<(), 
                 }
                 let item = match target {
                     "RequiredInt" => Some(json!(value.int()?)),
-                    "RequiredString" => value.string()?.map(|s| json!(s.as_utf8().unwrap())),
-                    "RequiredList" => value
-                        .list(|v| Ok(v.string()?.map(|s| s.as_utf8().unwrap())))?
-                        .map(|v| json!(v)),
+                    "RequiredString" => value.string()?.map(|s| json!(s)),
+                    "RequiredList" => value.list(|v| Ok(v.string()?))?.map(|v| json!(v)),
                     "RequiredMap" => value
-                        .map(|v| Ok(v.string()?.map(|s| s.as_utf8().unwrap())))?
+                        .map(|v| Ok(v.string()?))?
                         .map(|v| Json::Object(v.into_iter().map(|(k, v)| (k, json!(v))).collect())),
                     "Regex" => value.regex()?.map(|r| json!(r.pattern())),
                     _ => unreachable!(),
@@ -86,7 +84,7 @@ fn kotlin_creator_oracle_and_regex_exception_chain() -> std::result::Result<(), 
             Err(e) => {
                 let classes: Vec<_> = std::iter::once(&e.class)
                     .chain(e.causes.iter().map(|c| &c.class))
-                    .map(JavaString::to_string_lossy)
+                    .map(String::clone)
                     .collect();
                 assert_eq!(json!({"error":classes}), row["result"], "{row}");
             }
@@ -105,12 +103,12 @@ fn defaults_nullability_duplicates_and_unknown_keys() {
         Some("x".into())
     );
     let e = bind("k: x\nk: null", |v| reference_schema(v, false)).unwrap_err();
-    assert_eq!(e.class, binder::MISSING_KOTLIN.into());
-    assert!(matches!(&e.path[..], [PathPart::Key(k)] if k == &"k".into()));
+    assert_eq!(e.class, binder::MISSING_KOTLIN.to_owned());
+    assert!(matches!(&e.path[..], [PathPart::Key(k)] if k == &"k".to_owned()));
     assert_eq!(e.span.unwrap().start.line, 2);
     assert_eq!(
         bind("<<: *a", |v| reference_schema(v, false)).unwrap_err().class,
-        binder::UNKNOWN_PROPERTY.into()
+        binder::UNKNOWN_PROPERTY.to_owned()
     );
     assert!(bind("unknown: [", |v| reference_schema(v, true)).is_err());
     assert_eq!(
@@ -142,7 +140,7 @@ fn nested_paths_and_stream_causes_survive() {
     })
     .unwrap_err();
     assert!(
-        matches!(&e.path[..], [PathPart::Key(a), PathPart::Key(b), PathPart::Index(1)] if a == &"outer".into() && b == &"items".into())
+        matches!(&e.path[..], [PathPart::Key(a), PathPart::Key(b), PathPart::Index(1)] if a == &"outer".to_owned() && b == &"items".to_owned())
     );
     let e = bind("k: [1,\t2]", |v| {
         let mut o = v.object()?;
@@ -151,7 +149,7 @@ fn nested_paths_and_stream_causes_survive() {
     })
     .unwrap_err();
     assert!(matches!(e.cause, BindingCause::Stream(_)));
-    assert_eq!(e.class, binder::JSON_MAPPING.into());
+    assert_eq!(e.class, binder::JSON_MAPPING.to_owned());
     assert_eq!(e.causes.len(), 2);
     let e = bind("k: {a:\tb}", |v| {
         let mut object = v.object()?;
@@ -159,7 +157,7 @@ fn nested_paths_and_stream_causes_survive() {
         child.map(|v| v.string())
     })
     .unwrap_err();
-    assert_eq!(e.class, binder::JSON_MAPPING.into());
+    assert_eq!(e.class, binder::JSON_MAPPING.to_owned());
     assert_eq!(e.causes.len(), 2);
 }
 #[test]
@@ -167,7 +165,7 @@ fn first_document_and_substitution_failure_stages() {
     let mut ctx = context();
     ctx.environment = vec![("N".into(), "hello".into())];
     let got = bind_bytes(b"k: ${N}\n---\nbroken: [", &ctx, |v| reference_schema(v, false)).unwrap();
-    assert_eq!(got, "hello".into());
+    assert_eq!(got, "hello".to_owned());
     assert!(matches!(
         bind_bytes(b"---\n---\nk: x", &ctx, |v| reference_schema(v, false)),
         Err(LoadError::NullDocument)
@@ -178,9 +176,9 @@ fn first_document_and_substitution_failure_stages() {
         };
         assert_eq!(
             e.class,
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException".into()
+            "com.malinskiy.marathon.config.exceptions.ConfigurationException".to_owned()
         );
-        assert!(e.message.unwrap().to_string_lossy().contains("/config/Marathonfile"));
+        assert!(e.message.unwrap().to_owned().contains("/config/Marathonfile"));
         assert!(!e.causes.is_empty());
     }
     ctx.environment = vec![("A".into(), "${A}".into())];
@@ -195,7 +193,7 @@ fn duplicate_environment_names_substitute_the_first_occurrence() {
     let mut ctx = context();
     ctx.environment = vec![("N".into(), "first".into()), ("N".into(), "second".into())];
     let got = bind_bytes(b"k: ${N}", &ctx, |v| reference_schema(v, false)).unwrap();
-    assert_eq!(got, "first".into());
+    assert_eq!(got, "first".to_owned());
 }
 #[test]
 fn absolute_paths_preserve_dot_segments_relative_paths_resolve_symlink_prefixes()
@@ -244,7 +242,7 @@ fn lossless_strings_and_d9_utf8_keys() {
     let got = bind("k: \"\\uD800x\\uDC00\"", |v| reference_schema(v, false))
         .unwrap()
         .unwrap();
-    assert_eq!(got.0, vec![0xd800, 120, 0xdc00]);
+    assert_eq!(got.encode_utf16().collect::<Vec<_>>(), vec![0xd800, 120, 0xdc00]);
     assert!(bind("\"\\uD800\": x", |v| reference_schema(v, true)).is_err());
     assert!(bind("\"\\uD800\"", |v| v.regex()).is_err());
 }
@@ -333,9 +331,9 @@ fn filtering_section_late_type_and_singleton() {
     assert!(matches!(&got.allowlist[1], Some(Filter::Allure)));
     assert_eq!(
         bind("{type: mystery}", filter).unwrap_err().class,
-        binder::INVALID_TYPE.into()
+        binder::INVALID_TYPE.to_owned()
     );
-    assert_eq!(bind("{}", filter).unwrap_err().class, binder::INVALID_TYPE.into());
+    assert_eq!(bind("{}", filter).unwrap_err().class, binder::INVALID_TYPE.to_owned());
 }
 #[test]
 fn builder_and_enum_creator_use_shared_primitives() {
@@ -393,10 +391,10 @@ fn read_tree_materialization_matches_jvm() -> std::result::Result<(), Box<dyn st
                         continue;
                     }
                     k = match target {
-                        "TreeString" => value.string()?.map_or(Json::Null, |s| json!(s.as_utf8().unwrap())),
+                        "TreeString" => value.string()?.map_or(Json::Null, |s| json!(s)),
                         "TreeDouble" => json!(value.double()?),
                         "TreeMap" => value
-                            .map(|v| Ok(v.string()?.map(|s| s.as_utf8().unwrap())))?
+                            .map(|v| Ok(v.string()?))?
                             .map_or(Json::Null, |pairs| {
                                 Json::Object(pairs.into_iter().map(|(k, v)| (k, json!(v))).collect())
                             }),
@@ -409,7 +407,7 @@ fn read_tree_materialization_matches_jvm() -> std::result::Result<(), Box<dyn st
         match got {
             Ok(v) => assert_eq!(json!({"ok":v}), row["result"], "{row}"),
             Err(e) => assert_eq!(
-                e.class.to_string_lossy(),
+                e.class.to_owned(),
                 row["result"]["error"][0].as_str().ok_or("error")?,
                 "{row}"
             ),

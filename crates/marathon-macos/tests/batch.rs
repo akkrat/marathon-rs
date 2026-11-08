@@ -134,7 +134,7 @@ async fn a_device_that_is_being_disposed_of_takes_no_further_batch() -> R {
             .message
             .as_ref()
             .unwrap()
-            .to_string_lossy()
+            .to_owned()
             .ends_with("has been disposed")
     );
     still_waiting(&mut disposal).await;
@@ -161,7 +161,7 @@ async fn a_batch_level_failure_still_drops_the_device_once_its_session_has_close
         .ok_or("expected failure")?;
     assert!(matches!(error, VendorError::DeviceLost(_)));
     assert_eq!(
-        error.failure().cause.as_ref().unwrap().class.to_string_lossy(),
+        error.failure().cause.as_ref().unwrap().class.to_owned(),
         "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException"
     );
     assert_eq!(
@@ -227,13 +227,13 @@ async fn default_budgets_and_fresh_disposal_wait_use_virtual_time() -> R {
         .logs
         .records()
         .into_iter()
-        .filter(|r| r.message.to_string_lossy().contains("not waiting for it any longer"))
+        .filter(|r| r.message.to_owned().contains("not waiting for it any longer"))
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 2);
     assert!(
         warnings
             .iter()
-            .all(|r| r.level == jcompat::logging::Level::Warn && r.message.to_string_lossy().contains("PT1M10S"))
+            .all(|r| r.level == jcompat::logging::Level::Warn && r.message.to_owned().contains("PT1M10S"))
     );
     running.release.notify_one();
     v(d.join_pending().await)?;
@@ -264,14 +264,14 @@ async fn dropping_a_disposal_waiter_does_not_abandon_the_shared_completion() -> 
     let mut current = Some(error.failure());
     while let Some(f) = current {
         let message = f.message.as_ref().map(|s| {
-            let text = s.to_string_lossy();
+            let text = s.to_owned();
             if let Some((prefix, _)) = text.rsplit_once('@') {
                 format!("{prefix}@<identity>")
             } else {
                 text
             }
         });
-        chain.push(serde_json::json!({"class":f.class.to_string_lossy(),"message":message}));
+        chain.push(serde_json::json!({"class":f.class.to_owned(),"message":message}));
         current = f.cause.as_deref();
     }
     assert_eq!(serde_json::json!(chain), oracle["error"]);
@@ -438,13 +438,13 @@ async fn only_first_concurrent_disposer_logs_join_failure() -> R {
         .logs
         .records()
         .into_iter()
-        .filter(|record| record.message.to_string_lossy().starts_with("Error disposing"))
+        .filter(|record| record.message.to_owned().starts_with("Error disposing"))
         .collect::<Vec<_>>();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].level, jcompat::logging::Level::Debug);
     running.release.notify_one();
     let error = task.await?.err().ok_or("cancelled execution overflow")?;
-    assert_eq!(error.failure().class, "java.lang.ArithmeticException".into());
+    assert_eq!(error.failure().class, "java.lang.ArithmeticException".to_owned());
     v(d.join_pending().await)?;
     Ok(())
 }
@@ -502,13 +502,13 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
     let VendorError::Other(failure) = error else {
         panic!("{error:?}");
     };
-    assert_eq!(failure.class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(failure.class.to_owned(), CONNECTION_EXCEPTION);
     assert_eq!(
-        failure.message.map(|m| m.to_string_lossy()),
+        failure.message.map(|m| m.to_owned()),
         Some("Lost the connection to local during a transfer".into())
     );
     assert_eq!(
-        failure.cause.and_then(|c| c.message).map(|m| m.to_string_lossy()),
+        failure.cause.and_then(|c| c.message).map(|m| m.to_owned()),
         Some(keep_alive.into())
     );
     let back = h.root.path().join("back");

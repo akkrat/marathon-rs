@@ -10,7 +10,6 @@ use jcompat::{
     file_manager::{JavaPath, absolute_file_path_utf16},
     jtime::Instant,
     logging::{ConsoleOutput, JansiMode, Layout, Level, LogEvent, Logger, MarathonLogging, OutputTarget},
-    writers::JavaString,
 };
 use marathon_config::{
     Configuration, VendorConfiguration,
@@ -72,7 +71,7 @@ impl CliRunner for UnsupportedRunner {
 /// What `execute` reads from the process: `user.dir`, the environment and the clock (one reading per process, P6).
 pub struct Process {
     pub cwd: PathBuf,
-    pub environment: Vec<(JavaString, JavaString)>,
+    pub environment: Vec<(String, String)>,
     pub now: Instant,
 }
 
@@ -109,9 +108,9 @@ impl Console {
     }
 
     /// UTF-16 println text uses the JVM encoder's replacement at the sink.
-    pub fn write_java_text(&self, text: &JavaString) {
+    pub fn write_java_text(&self, text: &String) {
         let mut out = lock(&self.stdout);
-        let _ = out.write_all(&text.to_utf8_bytes());
+        let _ = out.write_all(text.as_bytes());
         let _ = out.flush();
     }
 
@@ -229,14 +228,14 @@ pub fn render_throwable(failure: &Failure) -> String {
         if !out.is_empty() {
             out.push_str("Caused by: ");
         }
-        out.push_str(&f.class.to_string_lossy());
+        out.push_str(&f.class.to_owned());
         if let Some(message) = &f.message {
             out.push_str(": ");
-            out.push_str(&message.to_string_lossy());
+            out.push_str(&message.to_owned());
         }
         out.push('\n');
         if let Some(trace) = &f.stacktrace {
-            let trace = trace.to_string_lossy();
+            let trace = trace.to_owned();
             out.push_str(&trace);
             if !trace.is_empty() && !trace.ends_with('\n') {
                 out.push('\n');
@@ -342,7 +341,7 @@ pub fn execute(configuration: CliConfiguration, process: &Process, runner: &dyn 
             analytics_tracking: false,
             bugsnag_reporting: false,
             command: ExecutionCommand::Parse {
-                output_file_name: output_file_name.map(|n| JavaString::from(n.as_str())),
+                output_file_name: output_file_name.map(|n| String::from(n.as_str())),
                 include_flaky_tests,
             },
         },

@@ -120,7 +120,7 @@ impl AppleSimulatorDevice {
             SimulatorState::Creating | SimulatorState::Booting => {}
             SimulatorState::Shutdown => {
                 if let Err(error) = self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], context).await {
-                    if error.failure().class != JavaString::from("com.malinskiy.marathon.apple.cmd.CommandException") {
+                    if error.failure().class != "com.malinskiy.marathon.apple.cmd.CommandException" {
                         return Err(error);
                     }
                     let now = self.simulator_state(context).await?;
@@ -131,7 +131,7 @@ impl AppleSimulatorDevice {
                                 .failure()
                                 .message
                                 .as_ref()
-                                .map(|s| s.to_string_lossy().lines().map(str::trim).collect::<Vec<_>>().join(" "))
+                                .map(|s| s.to_owned().lines().map(str::trim).collect::<Vec<_>>().join(" "))
                                 .unwrap_or_else(|| "null".into()),
                             now.name()
                         )));

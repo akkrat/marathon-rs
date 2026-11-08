@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/DistributedDerivedData.kt
 
 use crate::apple_device::AppleDevice;
-use jcompat::writers::JavaString;
+
 use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
@@ -14,7 +14,7 @@ pub async fn require_distributed(
     local: &Path,
     remote_bundle: &str,
     required: &str,
-    error: impl FnOnce(JavaString) -> VendorError,
+    error: impl FnOnce(String) -> VendorError,
     context: &VendorContext,
 ) -> VendorResult<()> {
     let problem = match device.remote_file_manager().exists(required, context).await? {
@@ -22,8 +22,8 @@ pub async fn require_distributed(
         Some(false) => format!("{required} is missing"),
         None => format!("unable to check {required}"),
     };
-    let mut message = JavaString::from(format!("skipCopyingDerivedData is enabled, but {problem} on ").as_str());
-    message.append(device.info().serial_number);
+    let mut message = String::from(format!("skipCopyingDerivedData is enabled, but {problem} on ").as_str());
+    message.push_str(&device.info().serial_number);
     message.push_str(&format!(
         ". Distribute {} to {remote_bundle} on every worker before marathon starts or disable skipCopyingDerivedData",
         local.display()
@@ -56,7 +56,7 @@ pub(crate) async fn remote_test_bundle(
     .await?;
     Ok(fm.join_path(
         &fm.remote_test_runner_application(),
-        &relative.to_string_lossy().split('/').collect::<Vec<_>>(),
+        &relative.to_owned().split('/').collect::<Vec<_>>(),
     ))
 }
 
@@ -64,7 +64,7 @@ pub async fn require_distributed_test_bundle(
     device: &dyn AppleDevice,
     bundle: &crate::model::AppleTestBundle,
     runtime: &dyn marathon_core::runtime::VendorRuntime,
-    error: impl Fn(JavaString) -> VendorError,
+    error: impl Fn(String) -> VendorError,
     context: &VendorContext,
 ) -> VendorResult<String> {
     let fm = device.remote_file_manager();

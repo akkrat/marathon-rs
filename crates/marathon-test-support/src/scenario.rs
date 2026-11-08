@@ -13,7 +13,7 @@ use crate::{
     lock,
     stub_device::{Recorder, StubDevice, StubDeviceOptions},
 };
-use jcompat::writers::JavaString;
+
 use marathon_config::schema::*;
 use marathon_core::{
     error::*,
@@ -277,7 +277,7 @@ pub fn drive(mut factory: MarathonFactory, script: Script, prepare: Option<Prepa
                 }),
             );
             let replay_error = |e: marathon_core::time::ReplayError| {
-                OperationError::Failed(failure("ReplayError", &e.message.to_string_lossy()))
+                OperationError::Failed(failure("ReplayError", &e.message.to_owned()))
             };
             for (at, event, serial, spec) in events {
                 let mut entry = serde_json::json!({"event": event});
@@ -372,7 +372,7 @@ pub fn load(name: &str) -> (MarathonFactory, Script) {
         .collect();
     let command = match spec["command"]["type"].as_str() {
         Some("parse") => ExecutionCommand::Parse {
-            output_file_name: spec["command"]["outputFileName"].as_str().map(JavaString::from),
+            output_file_name: spec["command"]["outputFileName"].as_str().map(String::from),
             include_flaky_tests: spec["command"]["includeFlakyTests"].as_bool().unwrap_or(false),
         },
         _ => ExecutionCommand::Run,

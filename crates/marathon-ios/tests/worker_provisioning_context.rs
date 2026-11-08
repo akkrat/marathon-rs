@@ -183,7 +183,7 @@ async fn disconnected_same_executor_reuses_but_replacements_reload_inventory_and
         c.worker_facts(executor, &h.context, || async { Ok(changed) })
             .await?
             .arch
-            .to_string_lossy(),
+            .to_owned(),
         "x86_64"
     );
     Ok(())
@@ -300,7 +300,7 @@ async fn unavailable_lookup_reports_the_transport_id() -> TestResult {
     let c = WorkerProvisioningContext::new(worker("worker-1"), h.clock.clone());
     let error = c.simulator("U", &h.bin, false, &h.context).await.unwrap_err();
     assert_eq!(
-        error.failure().message.unwrap().to_string_lossy(),
+        error.failure().message.unwrap().to_owned(),
         "udid U is not available at worker-1:22"
     );
     Ok(())

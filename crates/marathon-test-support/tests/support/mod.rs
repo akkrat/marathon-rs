@@ -1,9 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/FakeSimulatorWorker.kt
 #![allow(dead_code)]
-use jcompat::{
-    jtime::{Duration, Instant, duration_of, instant_of},
-    writers::JavaString,
-};
+use jcompat::jtime::{Duration, Instant, duration_of, instant_of};
 use marathon_apple::cmd::{BaseCommand, SessionScope, failure};
 use marathon_core::{
     error::{Cancellation, VendorError, VendorResult},
@@ -178,13 +175,13 @@ impl ReplayHooks for Clock {
     fn draw_int(&self, _: &'static str) -> ClockResult<i32> {
         unreachable!()
     }
-    fn choose_key(&self, _: &'static str, _: &[JavaString]) -> ClockResult<JavaString> {
+    fn choose_key(&self, _: &'static str, _: &[String]) -> ClockResult<String> {
         unreachable!()
     }
-    fn allocate_id(&self, _: &'static str) -> ClockResult<JavaString> {
+    fn allocate_id(&self, _: &'static str) -> ClockResult<String> {
         unreachable!()
     }
-    fn identity_suffix(&self, _: &'static str, _: ObjectIdentity) -> ClockResult<JavaString> {
+    fn identity_suffix(&self, _: &'static str, _: ObjectIdentity) -> ClockResult<String> {
         unreachable!()
     }
     fn verify_consumed(&self) -> ClockResult<()> {

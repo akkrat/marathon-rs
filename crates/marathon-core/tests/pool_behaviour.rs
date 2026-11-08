@@ -68,8 +68,7 @@ fn stale_disconnect_leaves_the_replacement_d40() {
                 let mismatch = |logs: Vec<LogRecord>| {
                     logs.iter()
                         .filter(|r| {
-                            r.message.to_string_lossy()
-                                == "device same: another instance is in this pool, nothing to remove"
+                            r.message.to_owned() == "device same: another instance is in this pool, nothing to remove"
                         })
                         .count()
                 };
@@ -272,7 +271,7 @@ fn closed_queue_drops_outcomes_and_rejects_without_stranding_termination() {
             let drops = logs
                 .iter()
                 .filter_map(|l| {
-                    let s = l.message.to_string_lossy();
+                    let s = l.message.to_owned();
                     s.contains("queue is closed").then_some(s)
                 })
                 .collect::<Vec<_>>();
@@ -357,7 +356,7 @@ fn all_devices_terminated_error_is_logged_even_after_the_last_result_passed() {
                 .logs()
                 .iter()
                 .filter(|l| l.logger == "DevicePoolActor[B4]" && l.level == jcompat::logging::Level::Error)
-                .map(|l| l.message.to_string_lossy())
+                .map(|l| l.message.to_owned())
                 .collect::<Vec<_>>();
             let expected: serde_json::Value = include_str!("../../../fixtures/oracle/pool/scheduler.jsonl")
                 .lines()
@@ -408,7 +407,7 @@ fn parked_devices_keep_insertion_order_with_null_workers_before_retry_workers() 
                 PoolOptions {
                     configure: Box::new(|c| c.retry_strategy = fixed_quota(4, 1)),
                     before_execute: Some(std::rc::Rc::new(move |info, _| {
-                        observed.borrow_mut().push(info.serial_number.to_string_lossy())
+                        observed.borrow_mut().push(info.serial_number.to_owned())
                     })),
                     ..Default::default()
                 },
@@ -461,7 +460,7 @@ fn duplicate_serial_add_keeps_the_original_device() {
             h.run_current().await;
             assert_eq!(pool.actors.borrow().len(), 1);
             assert!(h.logs().iter().any(|l| l.level == jcompat::logging::Level::Warn
-                && l.message.to_string_lossy() == "device same already present in pool scheduling"));
+                && l.message.to_owned() == "device same already present in pool scheduling"));
             prepared.open();
             h.await_pool_termination().await;
             assert_eq!(first.batches().len(), 1);
@@ -481,7 +480,7 @@ fn unknown_disconnect_still_terminates_an_empty_pool() {
             assert!(
                 h.logs()
                     .iter()
-                    .any(|l| l.message.to_string_lossy().ends_with(": noActiveDevices"))
+                    .any(|l| l.message.to_owned().ends_with(": noActiveDevices"))
             );
         })
     });

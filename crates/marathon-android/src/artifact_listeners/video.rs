@@ -29,7 +29,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
             let output = device
                 .safe_execute_shell_command(cmd, "", context.clone())
                 .await?
-                .map(|r| r.output.to_string_lossy())
+                .map(|r| r.output.to_owned())
                 .unwrap_or_default();
             let pid = grep_pid(&output);
             if !output.chars().all(jcompat::jstring::is_whitespace_char) {
@@ -52,7 +52,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
             device.log_named(
                 "ScreenRecorder",
                 Level::Trace,
-                &format!("Killing PID {pid} on {}", device.serial_number().to_string_lossy()),
+                &format!("Killing PID {pid} on {}", device.serial_number().to_owned()),
                 None,
             );
             device
@@ -85,7 +85,7 @@ struct Recording {
     failed: bool,
     cancelling: bool,
     chunks: std::collections::HashMap<Test, i64>,
-    last: Vec<JavaString>,
+    last: Vec<String>,
 }
 pub struct ScreenRecorderTestBatchListener {
     pub artifacts: ArtifactContext,
@@ -107,7 +107,7 @@ impl ScreenRecorderTestBatchListener {
             attachments: Attachments::default(),
         }
     }
-    fn remote(&self, test: &Test, chunk: i64) -> VendorResult<JavaString> {
+    fn remote(&self, test: &Test, chunk: i64) -> VendorResult<String> {
         self.artifacts.device.file_manager().remote_chunked_video_for_test(
             test,
             &self.artifacts.batch.id,
@@ -152,9 +152,9 @@ impl ScreenRecorderTestBatchListener {
     }
     async fn pull(
         &self,
-        remote: &JavaString,
+        remote: &String,
         test: Option<&Test>,
-        chunk: Option<JavaString>,
+        chunk: Option<String>,
         context: VendorContext,
     ) -> VendorResult<JavaPath> {
         let local = self.artifacts.file(FileType::Video, test, None, chunk).await?;
@@ -167,8 +167,8 @@ impl ScreenRecorderTestBatchListener {
         self.artifacts
             .device
             .safe_pull_file(
-                &remote.to_string_lossy(),
-                &JavaString(local.0.clone()).to_string_lossy(),
+                &remote.to_owned(),
+                &String::from_utf16_lossy(&local.0.clone()).to_owned(),
                 context,
             )
             .await?;
@@ -179,20 +179,20 @@ impl ScreenRecorderTestBatchListener {
             &format!(
                 "Pulling finished in {}ms {} ",
                 end.wrapping_sub(start),
-                remote.to_string_lossy()
+                remote.to_owned()
             ),
             None,
         );
         Ok(local)
     }
-    async fn remove(&self, remote: &JavaString, context: VendorContext) -> VendorResult<()> {
+    async fn remove(&self, remote: &String, context: VendorContext) -> VendorResult<()> {
         let start = self
             .artifacts
             .now("android.ScreenRecorderTestBatchListener.removeRemoteVideoFile")?;
         self.artifacts
             .device
             .file_manager()
-            .remove_remote_path(&remote.to_string_lossy(), false, context)
+            .remove_remote_path(&remote.to_owned(), false, context)
             .await?;
         let end = self
             .artifacts
@@ -200,11 +200,7 @@ impl ScreenRecorderTestBatchListener {
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
             Level::Trace,
-            &format!(
-                "Removed file in {}ms {}",
-                end.wrapping_sub(start),
-                remote.to_string_lossy()
-            ),
+            &format!("Removed file in {}ms {}", end.wrapping_sub(start), remote.to_owned()),
             None,
         );
         Ok(())
@@ -221,7 +217,7 @@ impl ScreenRecorderTestBatchListener {
                     .pull(
                         &self.remote(test, i)?,
                         Some(test),
-                        self.chunked.then(|| i.to_string().as_str().into()),
+                        self.chunked.then(|| i.to_string().as_str().to_owned()),
                         context.clone(),
                     )
                     .await?;
@@ -287,7 +283,7 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                                         artifacts
                                             .device
                                             .safe_start_screen_recorder(
-                                                &remote.to_string_lossy(),
+                                                &remote.to_owned(),
                                                 &artifacts
                                                     .device
                                                     .runtime()
@@ -304,7 +300,7 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                                             &format!(
                                                 "Recording finished in {}ms {}",
                                                 end.wrapping_sub(start),
-                                                remote.to_string_lossy()
+                                                remote.to_owned()
                                             ),
                                             None,
                                         );
@@ -378,12 +374,12 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                         })
                         .await?
                         .flatten()
-                        .is_some_and(|r| r.output.to_string_lossy().contains("quickhealthcheck"));
+                        .is_some_and(|r| r.output.to_owned().contains("quickhealthcheck"));
                         if healthy {
                             self.stop(context.clone()).await?;
                             let remotes = lock(&self.state).last.clone();
                             for (i, remote) in remotes.iter().enumerate() {
-                                self.pull(remote, None, Some(i.to_string().as_str().into()), context.clone())
+                                self.pull(remote, None, Some(i.to_string().as_str().to_owned()), context.clone())
                                     .await?;
                             }
                             for remote in remotes {

@@ -10,7 +10,6 @@
 #[path = "support/load.rs"]
 mod load;
 
-use jcompat::writers::JavaString;
 use marathon_config::{binding::ValidationStage, serialize};
 use serde_json::Value as Json;
 use std::{fs, path::Path};
@@ -78,8 +77,8 @@ impl Cleaner {
         }
         normalize_hashes(&s)
     }
-    fn java(&self, s: &JavaString) -> String {
-        self.clean(&s.to_string_lossy())
+    fn java(&self, s: &String) -> String {
+        self.clean(&s.to_owned())
     }
 }
 
@@ -158,7 +157,7 @@ fn validation_corpus_matches_jvm() {
                 .iter()
                 .map(|c| c.as_str().unwrap().split(':').next().unwrap().to_owned())
                 .collect();
-            let got_causes: Vec<String> = e.causes.iter().map(|c| c.class.to_string_lossy()).collect();
+            let got_causes: Vec<String> = e.causes.iter().map(|c| c.class.to_owned()).collect();
             if got_causes != want_causes {
                 failures.push(format!("{id}: causes {got_causes:?} vs {want_causes:?}"));
             }
@@ -167,7 +166,7 @@ fn validation_corpus_matches_jvm() {
         let got: Vec<(String, String)> = config
             .to_map(&context.process_dir)
             .iter()
-            .map(|(k, v)| (k.to_string_lossy(), cleaner.java(v)))
+            .map(|(k, v)| (k.to_owned(), cleaner.java(v)))
             .collect();
         let want: Vec<(String, String)> = row["toMap"]
             .as_array()

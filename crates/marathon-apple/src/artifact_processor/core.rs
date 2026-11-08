@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/ArtifactProcessor.kt
 
 use indexmap::IndexMap;
-use jcompat::writers::JavaString;
+
 use marathon_core::executor::shared::SharedDeferred;
 use std::{collections::VecDeque, sync::Arc};
 
@@ -24,8 +24,8 @@ pub struct Admission {
 }
 pub struct Item<T> {
     pub id: u64,
-    pub owner: JavaString,
-    pub worker: JavaString,
+    pub owner: String,
+    pub worker: String,
     pub payload: T,
     pub enqueued_at: i64,
 }
@@ -44,7 +44,7 @@ struct Worker<T> {
     queue: VecDeque<Item<T>>,
 }
 pub type Decision = Arc<SharedDeferred<Option<Admission>>>;
-pub type Admitted = (JavaString, Decision, Admission);
+pub type Admitted = (String, Decision, Admission);
 #[derive(Default)]
 pub struct Effects {
     pub admitted: Vec<Admitted>,
@@ -58,8 +58,8 @@ pub struct AdmissionCore<T> {
     pub closed: bool,
     pub outstanding: i32,
     pub done: Arc<SharedDeferred<()>>,
-    pending: IndexMap<JavaString, Pending>,
-    workers: IndexMap<JavaString, Worker<T>>,
+    pending: IndexMap<String, Pending>,
+    workers: IndexMap<String, Worker<T>>,
     pub(super) waiting: Vec<Waiter<T>>,
     stats: AdmissionStats,
     waits: Vec<i64>,
@@ -83,7 +83,7 @@ impl<T> AdmissionCore<T> {
             waits: vec![],
         }
     }
-    pub fn admissible(&self, worker: &JavaString) -> bool {
+    pub fn admissible(&self, worker: &String) -> bool {
         self.outstanding < self.capacity && self.workers.get(worker).map_or(0, |w| w.held) < self.worker_capacity
     }
     pub fn admit(&mut self, mut waiter: Waiter<T>, now: i64) -> Admitted {
@@ -137,7 +137,7 @@ impl<T> AdmissionCore<T> {
         let at = self.waiting.iter().position(|w| w.item.id == id)?;
         Some(self.waiting.remove(at).item)
     }
-    pub fn take(&mut self, worker: &JavaString) -> Option<Item<T>> {
+    pub fn take(&mut self, worker: &String) -> Option<Item<T>> {
         let entry = self.workers.get_mut(worker)?;
         if let Some(item) = entry.queue.pop_front() {
             return Some(item);
@@ -145,13 +145,13 @@ impl<T> AdmissionCore<T> {
         self.workers.shift_remove(worker);
         None
     }
-    pub fn complete(&mut self, owner: &JavaString, worker: &JavaString, now: i64) -> Effects {
+    pub fn complete(&mut self, owner: &String, worker: &String, now: i64) -> Effects {
         self.complete_with_times(owner, worker, || now)
     }
     pub fn complete_with_times(
         &mut self,
-        owner: &JavaString,
-        worker: &JavaString,
+        owner: &String,
+        worker: &String,
         mut timestamp: impl FnMut() -> i64,
     ) -> Effects {
         let mut effects = Effects::default();
@@ -182,7 +182,7 @@ impl<T> AdmissionCore<T> {
         }
         effects
     }
-    pub fn owner_done(&self, owner: &JavaString) -> Option<Arc<SharedDeferred<()>>> {
+    pub fn owner_done(&self, owner: &String) -> Option<Arc<SharedDeferred<()>>> {
         self.pending.get(owner).map(|p| p.done.clone())
     }
     pub fn close(&mut self) -> Vec<Waiter<T>> {
@@ -195,7 +195,7 @@ impl<T> AdmissionCore<T> {
             .flat_map(|w| w.queue)
             .collect()
     }
-    pub fn pending(&self) -> Vec<(JavaString, i32)> {
+    pub fn pending(&self) -> Vec<(String, i32)> {
         self.pending.iter().map(|(o, p)| (o.clone(), p.count)).collect()
     }
     pub fn stats_snapshot(&self) -> (AdmissionStats, Vec<i64>) {

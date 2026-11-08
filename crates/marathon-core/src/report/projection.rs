@@ -12,7 +12,7 @@ use WriterValue as V;
 use jcompat::{
     file_manager::{JavaPath, absolute_file_path_utf16},
     jnum,
-    writers::{JavaNumber, JavaString, KotlinValue, WriterValue},
+    writers::{JavaNumber, KotlinValue, WriterValue},
 };
 
 pub fn object(fields: impl IntoIterator<Item = (&'static str, V)>) -> V {
@@ -20,7 +20,7 @@ pub fn object(fields: impl IntoIterator<Item = (&'static str, V)>) -> V {
 }
 fn number(text: String) -> V {
     // Only Java numeric formatters reach this boundary.
-    JavaNumber::new(text.clone()).map_or_else(|_| V::String(text.into()), V::Number)
+    JavaNumber::new(text.clone()).map_or_else(|_| V::String(text), V::Number)
 }
 pub fn status(status: TestStatus) -> &'static str {
     match status {
@@ -115,14 +115,14 @@ fn meta_with(value: &MetaValue, jackson: bool) -> V {
         Short(v) => V::from(i64::from(*v)),
         Int(v) => V::from(i64::from(*v)),
         Long(v) => V::from(*v),
-        Char(v) => V::String(JavaString(vec![*v])),
+        Char(v) => V::String(std::string::String::from_utf16_lossy(&[*v])),
         Float(v) => number(jnum::float_to_string(*v)),
         Double(v) => number(jnum::double_to_string(*v)),
         String(v) => V::String(v.clone()),
         List(v) => V::Array(v.iter().map(|v| meta_with(v, jackson)).collect()),
         Map(v) => meta_map(v, jackson),
         Array(v) => {
-            if jackson && v.jvm_class == JavaString::from("[B") {
+            if jackson && v.jvm_class == "[B" {
                 let bytes: Option<Vec<_>> = v
                     .elements
                     .iter()
@@ -134,7 +134,7 @@ fn meta_with(value: &MetaValue, jackson: bool) -> V {
                 if let Some(bytes) = bytes {
                     return V::Binary(bytes);
                 }
-            } else if jackson && v.jvm_class == JavaString::from("[C") {
+            } else if jackson && v.jvm_class == "[C" {
                 let chars: Option<Vec<_>> = v
                     .elements
                     .iter()
@@ -144,7 +144,7 @@ fn meta_with(value: &MetaValue, jackson: bool) -> V {
                     })
                     .collect();
                 if let Some(chars) = chars {
-                    return V::String(JavaString(chars));
+                    return V::String(std::string::String::from_utf16_lossy(&chars));
                 }
             }
             V::Array(v.elements.iter().map(|v| meta_with(v, jackson)).collect())
@@ -161,7 +161,7 @@ fn decoded(value: &DecodedWrapper) -> V {
         DecodedLong(v) => V::from(*v),
         DecodedFloat(v) => number(jnum::float_to_string(*v)),
         DecodedDouble(v) => number(jnum::double_to_string(*v)),
-        DecodedChar(v) => V::String(JavaString(vec![*v])),
+        DecodedChar(v) => V::String(std::string::String::from_utf16_lossy(&[*v])),
         DecodedBoolean(v) => V::Bool(*v),
         DecodedString(v) | DecodedType(v) | DecodedEnum(v) => V::String(v.clone()),
         DecodedNull => return object([]),
@@ -173,7 +173,9 @@ pub fn attachment(attachment: &Attachment, cwd: &JavaPath) -> V {
     object([
         (
             "file",
-            V::String(JavaString(absolute_file_path_utf16(&attachment.file.0, &cwd.0).0)),
+            V::String(std::string::String::from_utf16_lossy(
+                &absolute_file_path_utf16(&attachment.file.0, &cwd.0).0,
+            )),
         ),
         (
             "type",
@@ -210,7 +212,7 @@ pub fn test_result(result: &TestResult, cwd: &JavaPath) -> V {
         ),
     ])
 }
-pub fn parse_results(tests: &[Test], flaky_tests: &[Test]) -> JavaString {
+pub fn parse_results(tests: &[Test], flaky_tests: &[Test]) -> String {
     let mut fields = vec![("tests", V::Array(tests.iter().map(|t| test_with(t, true)).collect()))];
     if !flaky_tests.is_empty() {
         fields.push((
@@ -240,8 +242,8 @@ pub fn kotlin_meta(value: &MetaValue, hooks: &dyn ReplayHooks) -> VendorResult<K
                 )
                 .map_err(clock_error)?;
             let mut text = v.jvm_class.clone();
-            text.push_str("@");
-            text.append(suffix);
+            text.push('@');
+            text.push_str(&suffix);
             KotlinValue::Text(text)
         }
         Decoded(v) => {
@@ -258,7 +260,7 @@ pub fn kotlin_meta(value: &MetaValue, hooks: &dyn ReplayHooks) -> VendorResult<K
                     .identity_suffix("core.RawJsonReporter.identities", ObjectIdentity(u64::MAX))
                     .map_err(clock_error)?
             } else {
-                JavaString::default()
+                std::string::String::default()
             };
             v.kotlin_value(&suffix)
         }

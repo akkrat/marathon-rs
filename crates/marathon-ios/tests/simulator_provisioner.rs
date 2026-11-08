@@ -29,11 +29,11 @@ async fn existing_simulators_overlap_and_register_exactly_once_after_setup() -> 
     );
     for (id, device, _) in registrations.iter() {
         assert_eq!(
-            id.to_string_lossy(),
+            id.to_owned(),
             format!(
                 "{}@{}",
-                device.0.info().serial_number.to_string_lossy(),
-                worker("worker-1").id().to_string_lossy()
+                device.0.info().serial_number.to_owned(),
+                worker("worker-1").id().to_owned()
             )
         );
         assert!(h.creating.devices.lock().unwrap().iter().any(|d| d.device() == *device));
@@ -155,7 +155,7 @@ async fn one_failed_setup_releases_only_its_reference_and_healthy_siblings_finis
             .lock()
             .unwrap()
             .iter()
-            .map(|(id, _, _)| id.to_string_lossy())
+            .map(|(id, _, _)| id.to_owned())
             .collect::<std::collections::HashSet<_>>(),
         ["healthy@worker-1:22".into(), "other@worker-1:22".into()]
             .into_iter()
@@ -578,7 +578,7 @@ async fn release_failure_replaces_disposal_and_registration_errors_in_the_finall
     );
     assert!(logs.lock().unwrap().iter().any(|(_, _, _, e)| {
         e.as_ref()
-            .is_some_and(|e| e.message.as_ref().is_some_and(|m| m.to_string_lossy() == "release"))
+            .is_some_and(|e| e.message.as_ref().is_some_and(|m| m.to_owned() == "release"))
     }));
     assert_eq!(h.creating.devices.lock().unwrap()[0].disposed.load(Ordering::SeqCst), 1);
     Ok(())

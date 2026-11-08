@@ -6,7 +6,6 @@
 //! everything read before the break and marks the break with [`NodeKind::Cut`], because Jackson binds lazily: an error
 //! further on is only seen if binding gets that far.
 
-use crate::java_string::JavaString;
 use crate::snakeyaml::parser::Parser;
 use crate::snakeyaml::{Event, EventKind};
 
@@ -55,7 +54,7 @@ pub struct Node {
 #[derive(Clone, Debug, PartialEq)]
 pub enum NodeKind {
     Scalar {
-        text: JavaString,
+        text: String,
         style: Style,
     },
     /// `complete` is false when the stream broke inside the sequence, after the last item.

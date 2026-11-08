@@ -9,7 +9,6 @@ use jcompat::{
     file_manager::{JavaPath, escape},
     jtime::Duration,
     logging::Level,
-    writers::JavaString,
 };
 use marathon_adb::client::sync::listing::{AndroidFileType, ListFilesRequest};
 use marathon_adb::client::{
@@ -53,7 +52,7 @@ impl AndroidDevice {
                         return Err(transfer(
                             format!(
                                 "Couldn't pull file {remote} from device {} because it doesn't exist",
-                                self.serial_number().to_string_lossy()
+                                self.serial_number().to_owned()
                             )
                             .as_str(),
                         ));
@@ -94,7 +93,7 @@ impl AndroidDevice {
                             return Err(transfer(
                                 format!(
                                     "Couldn't pull file {remote} from device {}",
-                                    self.serial_number().to_string_lossy()
+                                    self.serial_number().to_owned()
                                 )
                                 .as_str(),
                             ));
@@ -108,24 +107,26 @@ impl AndroidDevice {
             )
             .await;
         match result {
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PullFailedException".into() => {
+            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PullFailedException" => {
                 Err(with_cause(
                     transfer(
                         format!(
                             "Couldn't pull file {remote} from device {}",
-                            self.serial_number().to_string_lossy()
+                            self.serial_number().to_owned()
                         )
                         .as_str(),
                     ),
                     e,
                 ))
             }
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.UnsupportedSyncProtocolException".into() => {
+            Err(e)
+                if e.failure().class == "com.malinskiy.adam.exception.UnsupportedSyncProtocolException" =>
+            {
                 Err(with_cause(
                     transfer(
                         format!(
                             "Device {} does not support sync: file transfer",
-                            self.serial_number().to_string_lossy()
+                            self.serial_number().to_owned()
                         )
                         .as_str(),
                     ),
@@ -162,7 +163,7 @@ impl AndroidDevice {
                             return Err(transfer(
                                 format!(
                                     "Couldn't push file {local} to device {}:{remote}. Last progress: {}",
-                                    self.serial_number().to_string_lossy(),
+                                    self.serial_number().to_owned(),
                                     jcompat::jnum::double_to_string(progress)
                                 )
                                 .as_str(),
@@ -179,7 +180,7 @@ impl AndroidDevice {
             )
             .await;
         match result {
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PushFailedException".into() => {
+            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PushFailedException" => {
                 return Err(with_cause(transfer(e.failure().to_java_string()), e));
             }
             other => other?,
@@ -226,7 +227,7 @@ impl AndroidDevice {
                         .await?;
                     // The delay occurs even after the matching hash.
                     context.clock.delay(10, context.cancellation.clone()).await?;
-                    if response.is_some_and(|r| r.output.to_string_lossy().contains(md5)) {
+                    if response.is_some_and(|r| r.output.to_owned().contains(md5)) {
                         return Ok(());
                     }
                 }
@@ -237,7 +238,7 @@ impl AndroidDevice {
             return Err(transfer(
                 format!(
                     "Remote file {remote} on device {} did not reach md5 {md5} within {timeout} ms",
-                    self.serial_number().to_string_lossy()
+                    self.serial_number().to_owned()
                 )
                 .as_str(),
             ));
@@ -278,7 +279,9 @@ impl AndroidDevice {
     }
     pub async fn pull_folder(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
         if !tokio::fs::metadata(local).await.is_ok_and(|m| m.is_dir()) {
-            return Err(transfer(format!("Destination {local} is not a directory").as_str()));
+            return Err(transfer(
+                format!("Destination {local} is not a directory").as_str().to_owned(),
+            ));
         }
         let mut dirs = vec![remote.to_owned()];
         let mut files = Vec::new();
@@ -362,7 +365,9 @@ impl AndroidDevice {
     }
     pub async fn push_folder(&self, local: &str, remote: &str, context: VendorContext) -> VendorResult<()> {
         if !tokio::fs::metadata(local).await.is_ok_and(|m| m.is_dir()) {
-            return Err(transfer(format!("Source {local} is not a directory").as_str()));
+            return Err(transfer(
+                format!("Source {local} is not a directory").as_str().to_owned(),
+            ));
         }
         let result = timed(
             &context,
@@ -417,14 +422,19 @@ impl AndroidDevice {
         &self,
         path: &str,
         reinstall: bool,
-        params: &[JavaString],
+        params: &[String],
         context: VendorContext,
     ) -> VendorResult<ShellCommandResult> {
         let features = self.supported_features();
         let args: Vec<_> = params
             .iter()
-            .filter(|v| !v.0.iter().all(|u| jcompat::jstring::is_whitespace(*u)))
-            .map(JavaString::to_string_lossy)
+            .filter(|v| {
+                !v.encode_utf16()
+                    .collect::<Vec<_>>()
+                    .iter()
+                    .all(|u| jcompat::jstring::is_whitespace(*u))
+            })
+            .map(String::clone)
             .collect();
         if features.contains(&Feature::AbbExec) || features.contains(&Feature::Cmd) {
             return timed(
@@ -456,7 +466,7 @@ impl AndroidDevice {
                 },
             )
             .await?
-            .ok_or_else(|| install(format!("Timeout installing {path}").as_str()));
+            .ok_or_else(|| install(format!("Timeout installing {path}").as_str().to_owned()));
         }
         let remote = format!(
             "/data/local/tmp/{}",
@@ -485,7 +495,7 @@ impl AndroidDevice {
         .await;
         match result {
             Ok(Some(())) => {}
-            Ok(None) => return Err(install(format!("Timeout transferring {path}").as_str())),
+            Ok(None) => return Err(install(format!("Timeout transferring {path}").as_str().to_owned())),
             Err(e @ VendorError::Transfer(_)) => return Err(with_cause(install(e.failure().to_java_string()), e)),
             Err(e) => return Err(e),
         }
@@ -505,7 +515,7 @@ impl AndroidDevice {
             },
         )
         .await?
-        .ok_or_else(|| install(format!("Timeout transferring {path}").as_str()))?;
+        .ok_or_else(|| install(format!("Timeout transferring {path}").as_str().to_owned()))?;
         self.safe_execute_shell_command(&format!("rm {remote}"), "", context)
             .await?;
         Ok(ShellCommandResult {
@@ -517,9 +527,9 @@ impl AndroidDevice {
         &self,
         paths: &[String],
         reinstall: bool,
-        params: &[JavaString],
+        params: &[String],
         context: VendorContext,
-    ) -> VendorResult<JavaString> {
+    ) -> VendorResult<String> {
         timed(
             &context,
             millis(self.runtime().configuration.timeout_configuration.install)?,
@@ -529,7 +539,7 @@ impl AndroidDevice {
                         paths.iter().map(PathBuf::from).collect(),
                         vec![Feature::Cmd],
                         reinstall,
-                        params.iter().map(JavaString::to_string_lossy).collect(),
+                        params.iter().map(String::clone).collect(),
                     )
                     .await
                     .map_err(adb_error)?;
@@ -542,7 +552,7 @@ impl AndroidDevice {
                     })
                     .await;
                     completion.close().await.map_err(adb_error)?;
-                    Ok(result?.as_str().into())
+                    Ok(result?.as_str().to_owned())
                 })
             },
         )
@@ -564,12 +574,14 @@ impl AndroidDevice {
         })
         .await;
         match result {
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.UnsupportedImageProtocolException".into() => {
+            Err(e)
+                if e.failure().class == "com.malinskiy.adam.exception.UnsupportedImageProtocolException" =>
+            {
                 self.log(
                     Level::Warn,
                     &format!(
                         "Unable to retrieve screenshot from device {}",
-                        self.serial_number().to_string_lossy()
+                        self.serial_number().to_owned()
                     ),
                     Some(e.failure()),
                 );
@@ -584,7 +596,7 @@ impl AndroidDevice {
         options: &marathon_config::vendor::AndroidVideoConfiguration,
         context: VendorContext,
     ) -> VendorResult<()> {
-        let cmd = to_screen_recorder_command(options, &remote.into(), self.api_level() >= 34).to_string_lossy();
+        let cmd = to_screen_recorder_command(options, &remote.into(), self.api_level() >= 34).to_owned();
         let result = timed(
             &context,
             millis(self.runtime().configuration.timeout_configuration.screenrecorder)?,

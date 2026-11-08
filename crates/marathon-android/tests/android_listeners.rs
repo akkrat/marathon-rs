@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/executor/listeners/
 //! CompositeTestRunListenerTest.kt, LogListenerTest.kt and TestResultsListenerTest.kt.
 mod support;
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 use marathon_adb::testrunner::{MetricMap, TestEvent as E, TestIdentifier};
 use marathon_android::{device::AndroidDevice, listeners::*, services::AndroidRuntime};
 use marathon_core::{
@@ -99,7 +99,7 @@ fn run_results(
             let (listener, deferred) = results_listener(&runtime, &device, tests);
             checked(listener.before_test_run(None).await);
             for event in events {
-                if matches!(&event, E::TestFailed { id, .. } if id.test_name == "method2".into()) {
+                if matches!(&event, E::TestFailed { id, .. } if id.test_name == "method2".to_owned()) {
                     checked(listener.attachments.on_attachment(
                         &test("method2"),
                         Attachment {
@@ -123,8 +123,8 @@ fn assert_result(result: &TestResult, method: &str, status: TestStatus, trace: O
     assert_eq!(result.test, test(method));
     assert_eq!(result.status, status);
     assert_eq!((result.start_time, result.end_time), (0, 0));
-    assert_eq!(result.stacktrace, trace.map(JavaString::from));
-    assert_eq!(result.test_batch_id, JavaString::from("batch"));
+    assert_eq!(result.stacktrace, trace.map(String::from));
+    assert_eq!(result.test_batch_id, String::from("batch"));
 }
 mod test_results_listener_test {
     use super::*;
@@ -358,8 +358,8 @@ mod test_results_listener_test {
             vec![test("method[0]"), test("another")],
             vec![end("method[0]"), end("another[0]"), ended()],
             |r, _| {
-                assert_eq!(r.finished[1].test.method, JavaString::from("another[0]"));
-                assert_eq!(r.uncompleted[0].test.method, JavaString::from("another"));
+                assert_eq!(r.finished[1].test.method, String::from("another[0]"));
+                assert_eq!(r.uncompleted[0].test.method, String::from("another"));
             },
         );
     }
@@ -492,14 +492,14 @@ mod composite_test_run_listener_test {
 }
 #[derive(Default)]
 struct Writer {
-    saved: Mutex<Vec<(Option<Test>, Vec<JavaString>)>>,
+    saved: Mutex<Vec<(Option<Test>, Vec<String>)>>,
 }
 impl LogWriter for Writer {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [JavaString]) -> ServiceFuture<'a, JavaPath> {
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath> {
         Box::pin(async move {
             self.saved.lock().unwrap().push((target.test.clone(), logs.to_vec()));
             Ok(JavaPath::from_text(
-                if target.test.as_ref().is_some_and(|t| t.method == "method1".into()) {
+                if target.test.as_ref().is_some_and(|t| t.method == "method1".to_owned()) {
                     "/log1"
                 } else {
                     "/log0"
@@ -512,7 +512,7 @@ impl LogWriter for Writer {
         _: &'a DevicePoolId,
         _: &'a DeviceInfo,
         _: &'a Test,
-        _: &'a JavaString,
+        _: &'a String,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -578,9 +578,9 @@ mod log_listener_test {
                         );
                     }
                     let saved = writer.saved.lock().unwrap();
-                    assert_eq!(saved[0].1, vec![JavaString::from("1\n2\n")]);
+                    assert_eq!(saved[0].1, vec![String::from("1\n2\n")]);
                     if isolation {
-                        assert_eq!(saved[1].1, vec![JavaString::from("b\nc\n")]);
+                        assert_eq!(saved[1].1, vec![String::from("b\nc\n")]);
                     }
                 }
                 checked(server.shutdown().await);

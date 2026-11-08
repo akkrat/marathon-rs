@@ -13,7 +13,6 @@ use crate::{
 use jcompat::{
     logging::{Level, Logger},
     regex_patterns::BUNDLE_NAME,
-    writers::JavaString,
 };
 use marathon_config::CONFIGURATION_EXCEPTION_CLASS;
 use marathon_core::{
@@ -120,7 +119,7 @@ pub struct AppleTestBundle {
     pub test_application: Option<PathBuf>,
     pub xctest_bundle: PathBuf,
     pub sdk: Sdk,
-    id: JavaString,
+    id: String,
     application_bundle_info: Option<BundleInfo>,
     app_id: String,
     test_bundle_info: BundleInfo,
@@ -177,7 +176,7 @@ impl AppleTestBundle {
                 .replace(&bundle_name, "_")
                 .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", e.to_string())))?;
             Ok((
-                JavaString::from(id.as_str()),
+                String::from(id.as_str()),
                 application_bundle_info,
                 app_id,
                 test_bundle_info,
@@ -342,7 +341,7 @@ impl AppleTestBundle {
     }
 }
 impl TestBundle for AppleTestBundle {
-    fn id(&self) -> &JavaString {
+    fn id(&self) -> &String {
         &self.id
     }
 }
@@ -358,10 +357,7 @@ mod plist_boundary_test {
                 message: "read denied".into(),
             },
         );
-        assert_eq!(error.failure().class.to_string_lossy(), "java.io.IOException");
-        assert_eq!(
-            error.failure().message.as_ref().unwrap().to_string_lossy(),
-            "read denied"
-        );
+        assert_eq!(error.failure().class.to_owned(), "java.io.IOException");
+        assert_eq!(error.failure().message.as_ref().unwrap().to_owned(), "read denied");
     }
 }

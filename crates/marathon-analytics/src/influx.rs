@@ -2,10 +2,7 @@
 //! and external/influx/InfluxDbTracker.kt.
 use crate::{http::*, points};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use jcompat::{
-    net::{basic_credentials, form_encode, query_encode},
-    writers::JavaString,
-};
+use jcompat::net::{basic_credentials, form_encode, query_encode};
 use marathon_config::InfluxDbConfiguration;
 use marathon_core::{
     analytics::{MetricsContext, TrackerInternalAdapter, remote::influx::*},
@@ -72,7 +69,7 @@ impl InfluxClient {
             .first()
             .and_then(|s| s.series.first())
             .ok_or_else(|| failure("java.lang.NullPointerException", "Missing database series"))?;
-        let exists = rows.values.iter().any(|row| matches!(row.first(), Some(Value::Text(name)) if name.to_string_lossy().trim_matches(|c| c <= '\u{20}') == database));
+        let exists = rows.values.iter().any(|row| matches!(row.first(), Some(Value::Text(name)) if name.to_owned().trim_matches(|c| c <= '\u{20}') == database));
         if !exists {
             // influxdb-java Preconditions, in createDatabase/createRetentionPolicy order.
             let empty = |name: &str| {
@@ -203,8 +200,8 @@ pub(crate) async fn request(
         .await
         .map_err(|error| match error {
             OperationError::Failed(cause)
-                if cause.class.to_string_lossy().starts_with("java.io.")
-                    || cause.class.to_string_lossy().starts_with("java.net.") =>
+                if cause.class.to_owned().starts_with("java.io.")
+                    || cause.class.to_owned().starts_with("java.net.") =>
             {
                 OperationError::Failed(Failure {
                     class: "org.influxdb.InfluxDBIOException".into(),
@@ -229,7 +226,7 @@ async fn setup_query(http: &Http, command: &str) -> OperationResult<QueryResult>
     decode(&body)
 }
 impl InfluxQuery for InfluxClient {
-    fn query<'a>(&'a self, command: &'a JavaString, database: &'a JavaString) -> ServiceFuture<'a, QueryResult> {
+    fn query<'a>(&'a self, command: &'a String, database: &'a String) -> ServiceFuture<'a, QueryResult> {
         Box::pin(async move {
             let guard = self.closed.lock().await;
             if *guard {
@@ -249,7 +246,7 @@ impl InfluxQuery for InfluxClient {
 }
 pub fn decode(body: &str) -> OperationResult<QueryResult> {
     let value = json(body, "com.squareup.moshi.JsonEncodingException")?;
-    fn string(v: &serde_json::Value) -> Option<JavaString> {
+    fn string(v: &serde_json::Value) -> Option<String> {
         v.as_str().map(Into::into)
     }
     fn values(v: &serde_json::Value) -> &[serde_json::Value] {
@@ -314,11 +311,7 @@ impl BatchWriter {
         let OperationError::Failed(failure) = error else {
             return false;
         };
-        let message = failure
-            .message
-            .as_ref()
-            .map(JavaString::to_string_lossy)
-            .unwrap_or_default();
+        let message = failure.message.clone().unwrap_or_default();
         ![
             "database not found",
             "points beyond retention policy",

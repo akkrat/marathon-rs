@@ -5,7 +5,6 @@ use event_support::*;
 use jcompat::{
     file_manager::{FileManager, JavaPath},
     logging::{Level, Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_core::{
     artifacts::*,
@@ -100,7 +99,7 @@ impl LogProducer for Producer {
     }
 }
 impl Producer {
-    async fn line(&self, line: JavaString) {
+    async fn line(&self, line: String) {
         let list = self.listeners.lock().unwrap().clone();
         for listener in list {
             listener.on_line(&line).await.unwrap();
@@ -169,12 +168,12 @@ fn logs_keep_preamble_reset_tail_partition_blank_lines_and_arc_removal() {
     .unwrap();
 }
 struct RecordingWriter {
-    saved: Mutex<Vec<(bool, Vec<JavaString>)>>,
+    saved: Mutex<Vec<(bool, Vec<String>)>>,
     fail: bool,
     threads: Mutex<Vec<String>>,
 }
 impl LogWriter for RecordingWriter {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [JavaString]) -> ServiceFuture<'a, JavaPath> {
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath> {
         Box::pin(async move {
             assert_worker();
             self.threads
@@ -194,7 +193,7 @@ impl LogWriter for RecordingWriter {
         _: &'a DevicePoolId,
         _: &'a DeviceInfo,
         _: &'a Test,
-        _: &'a JavaString,
+        _: &'a String,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -262,7 +261,7 @@ fn log_tail_interleavings_are_scripted_and_close_does_not_flush() {
                 listener.after_test_run().await.unwrap();
                 let saved = writer.saved.lock().unwrap();
                 assert_eq!(saved.len(), 1);
-                assert_eq!(saved[0], (line_before_end, vec![JavaString::from("tail\n")]));
+                assert_eq!(saved[0], (line_before_end, vec![String::from("tail\n")]));
                 Ok(())
             })
         })
@@ -279,7 +278,7 @@ fn log_writer_encoding_append_and_output_paths_use_real_off_core_files() {
             let files = output(core.vendor(), temp.path("out"));
             let writer = FileLogWriter::new(core.vendor(), files.clone());
             let t = test("test");
-            let bad = JavaString(vec![97, 0xd800, 98]);
+            let bad = String::from_utf16_lossy(&vec![97, 0xd800, 98]);
             let target = LogTarget {
                 test: Some(t.clone()),
                 batch_id: "utf".into(),
@@ -459,7 +458,7 @@ struct Line {
     fail: bool,
 }
 impl LineListener for Line {
-    fn on_line<'a>(&'a self, _: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, _: &'a String) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             assert_worker();
             self.calls.lock().unwrap().push(self.name.into());
@@ -539,10 +538,10 @@ fn file_transfer_finally_and_folder_success_use_tapes_and_integer_kilobytes() {
                 clock: hooks.clone(),
                 logger: MarathonLogging::default().logger("Device", None),
                 serial: "serial".into(),
-                log: Arc::new(move |_: &Logger, level: Level, message: &JavaString, _| {
+                log: Arc::new(move |_: &Logger, level: Level, message: &String, _| {
                     assert_worker();
                     assert_eq!(level, Level::Debug);
-                    recorded.lock().unwrap().push(message.as_utf8().unwrap());
+                    recorded.lock().unwrap().push(message.clone());
                 }),
             };
             let value = String::from("borrowed transfer result");
@@ -715,8 +714,8 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
             assert_eq!(path.0.len(), out.0.len() + 3);
             let seen = seen.lock().unwrap().clone();
             assert_eq!(seen.len(), 2);
-            assert!(seen[0].0.as_utf8().unwrap().starts_with("File name length"));
-            assert!(seen[1].0.as_utf8().unwrap().starts_with("File path length"));
+            assert!(seen[0].0.starts_with("File name length"));
+            assert!(seen[1].0.starts_with("File path length"));
             assert!(seen.iter().all(|(_, created)| *created));
             let folder_root = temp.path("folder-out");
             let truncated = JavaPath(folder_root.0.clone());
@@ -824,9 +823,9 @@ fn output_adapter_reuses_existing_jvm_path_tables() {
                     },
                     test_batch_id: args[if index == 1 { "batch" } else { "testBatchId" }]
                         .as_str()
-                        .map(JavaString::from),
-                    id: args["id"].as_str().map(JavaString::from),
-                    chunk: args["chunk"].as_str().map(JavaString::from),
+                        .map(String::from),
+                    id: args["id"].as_str().map(String::from),
+                    chunk: args["chunk"].as_str().map(String::from),
                 };
                 let actual = files.create_file(&target).await?;
                 let expected = if index == 1 {
@@ -877,8 +876,8 @@ fn native_directory_failure_retains_jvm_class_and_message() {
                 panic!("ordinary I/O failure")
             };
             let expected = oracle("log-reset-failure");
-            assert_eq!(json!(error.class.as_utf8().unwrap()), expected["error"]);
-            let message = error.message.unwrap().as_utf8().unwrap();
+            assert_eq!(json!(error.class), expected["error"]);
+            let message = error.message.unwrap();
             assert_eq!(
                 json!(message.replace(retained.0.to_str().unwrap(), "<tmp>")),
                 expected["message"]

@@ -42,7 +42,7 @@ fn timings(h: &Harness) -> Vec<String> {
         .iter()
         .filter(|r| r.logger == "Timings")
         .map(|r| {
-            let message = r.message.to_string_lossy();
+            let message = r.message.to_owned();
             message[..message.rfind(" in ").unwrap()].to_owned()
         })
         .collect()
@@ -51,7 +51,7 @@ fn lines_with(h: &Harness, level: Level, text: &str) -> usize {
     h.logs
         .records()
         .iter()
-        .filter(|r| r.level == level && r.message.to_string_lossy().contains(text))
+        .filter(|r| r.level == level && r.message.to_owned().contains(text))
         .count()
 }
 async fn until(what: &str, condition: impl Fn() -> bool) {
@@ -844,7 +844,7 @@ async fn transcript(answers: Vec<Option<OperationError>>) -> Vec<String> {
         h.logs
             .take()
             .iter()
-            .map(|r| format!("{} {} {}", r.logger, r.level.as_str(), r.message.to_string_lossy())),
+            .map(|r| format!("{} {} {}", r.logger, r.level.as_str(), r.message.to_owned())),
     );
     out
 }

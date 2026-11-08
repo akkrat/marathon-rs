@@ -6,7 +6,6 @@
 //! APK (fixtures/oracle/dex/differential.jsonl). findTestNames calls map
 //! over testName (WP 6.4 P6).
 
-use jcompat::writers::JavaString;
 use marathon_dex::{DecodedValue as DV, TestAnnotation, TestMethod, parser::DecodedValue};
 use std::path::PathBuf;
 
@@ -14,11 +13,11 @@ fn apk_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/dex/test-app-debug-androidTest.apk")
 }
 
-fn js(text: &str) -> JavaString {
+fn js(text: &str) -> String {
     text.into()
 }
 
-fn custom() -> Vec<JavaString> {
+fn custom() -> Vec<String> {
     vec![js("")] // listOf("") in every upstream test
 }
 
@@ -27,13 +26,13 @@ fn find() -> Vec<TestMethod> {
 }
 
 fn name(method: &TestMethod) -> String {
-    method.test_name.to_string_lossy()
+    method.test_name.to_owned()
 }
 
 fn with_annotation<'a>(methods: &'a [TestMethod], needle: &str) -> Vec<&'a TestMethod> {
     methods
         .iter()
-        .filter(|m| m.annotations.iter().any(|a| a.name.to_string_lossy().contains(needle)))
+        .filter(|m| m.annotations.iter().any(|a| a.name.to_owned().contains(needle)))
         .collect()
 }
 
@@ -41,7 +40,7 @@ fn annotations_named<'a>(method: &'a TestMethod, needle: &str) -> Vec<&'a TestAn
     method
         .annotations
         .iter()
-        .filter(|a| a.name.to_string_lossy().contains(needle))
+        .filter(|a| a.name.to_owned().contains(needle))
         .collect()
 }
 
@@ -66,7 +65,7 @@ fn get_second_basic_junit4_test_method() -> TestMethod {
 
 fn assert_matches_string(value: Option<&DV>, expected: &str) {
     match value {
-        Some(DV::String(v) | DV::Enum(v) | DV::Type(v)) => assert_eq!(v.to_string_lossy(), expected),
+        Some(DV::String(v) | DV::Enum(v) | DV::Type(v)) => assert_eq!(v.to_owned(), expected),
         other => panic!("Value was not a string type: {other:?}"),
     }
 }
@@ -133,7 +132,7 @@ fn assert_matches_strings(value: Option<&DV>, expected: &[&str]) {
             let actual: Vec<Option<String>> = values
                 .iter()
                 .map(|v| match v {
-                    DV::Type(s) => Some(s.to_string_lossy()),
+                    DV::Type(s) => Some(s.to_owned()),
                     _ => None,
                 })
                 .collect();
@@ -211,7 +210,7 @@ fn pars_non_inherited_method_annotation() {
         !method
             .annotations
             .iter()
-            .any(|a| a.name.to_string_lossy().contains("NonInheritedAnnotation"))
+            .any(|a| a.name.to_owned().contains("NonInheritedAnnotation"))
     );
 }
 

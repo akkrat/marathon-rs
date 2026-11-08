@@ -3,7 +3,6 @@ mod support;
 use jcompat::{
     jtime::Duration,
     logging::{Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_apple::{
     apple_device::{AppleDevice, apple_worker_id, storage_path_for},
@@ -69,14 +68,14 @@ impl Device for Fake {
     fn info(&self) -> DeviceInfo {
         panic!("unused by identity lookup")
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         if self.arm.load(Ordering::Relaxed) {
             "arm64".into()
         } else {
             "x86_64".into()
         }
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         apple_worker_id(&self.transport)
     }
     fn logger(&self) -> &Logger {
@@ -200,7 +199,7 @@ fn registry_uses_object_identity_and_removes_disposed_devices() {
     let error = registry.lookup(&first_id).err().unwrap();
     assert_eq!(
         error.failure().class,
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException".into()
+        "com.malinskiy.marathon.config.exceptions.ConfigurationException".to_owned()
     );
     assert_eq!(
         error.failure().message,

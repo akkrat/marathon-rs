@@ -7,7 +7,6 @@ use crate::{artifact_io::*, error::*, listener::*, model::*, output::*, runtime:
 use jcompat::{
     file_manager::{FileManager, JavaPath, PathPlan},
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use std::{
     collections::HashMap,
@@ -42,7 +41,7 @@ impl FileManagerOutput {
     async fn materialize(&self, plan: PathPlan) -> OperationResult<JavaPath> {
         let (logger, log) = (self.logger.clone(), self.log.clone());
         blocking(self.io.as_ref(), move || {
-            plan.materialize(|text| log(&logger, Level::Error, &JavaString(text.to_vec()), None))
+            plan.materialize(|text| log(&logger, Level::Error, &String::from_utf16_lossy(text), None))
                 .map_err(|error| nio_error(error, &plan.directory))
         })
         .await
@@ -56,7 +55,7 @@ impl OutputFiles for FileManagerOutput {
     fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, JavaPath> {
         Box::pin(async move {
             let test = target.test.as_ref().map(|t| t.to_test_name('.', '#'));
-            self.materialize(self.manager.plan_file_utf16(target.request(test.as_ref())))
+            self.materialize(self.manager.plan_file(target.request(test.as_deref())))
                 .await
         })
     }
@@ -67,19 +66,16 @@ impl OutputFiles for FileManagerOutput {
         device: Option<&'a DeviceInfo>,
     ) -> ServiceFuture<'a, JavaPath> {
         Box::pin(async move {
-            self.materialize(self.manager.plan_folder_utf16(
+            self.materialize(self.manager.plan_folder(
                 kind,
-                pool.map(|p| p.name.0.as_slice()),
-                device.map(|d| d.serial_number.0.as_slice()),
+                pool.map(|p| p.name.as_str()),
+                device.map(|d| d.serial_number.as_str()),
             ))
             .await
         })
     }
-    fn create_test_result_file<'a>(&'a self, filename: &'a JavaString) -> ServiceFuture<'a, JavaPath> {
-        Box::pin(async move {
-            self.materialize(self.manager.plan_test_result_file_utf16(&filename.0))
-                .await
-        })
+    fn create_test_result_file<'a>(&'a self, filename: &'a String) -> ServiceFuture<'a, JavaPath> {
+        Box::pin(async move { self.materialize(self.manager.plan_test_result_file(filename)).await })
     }
 }
 #[derive(Clone)]
@@ -93,7 +89,7 @@ impl FileLogWriter {
     }
 }
 impl LogWriter for FileLogWriter {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [JavaString]) -> ServiceFuture<'a, JavaPath> {
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath> {
         let this = self.clone();
         let target = FileTarget {
             kind: FileType::Log,
@@ -110,18 +106,18 @@ impl LogWriter for FileLogWriter {
                 self.io.as_ref(),
                 Box::pin(async move {
                     let path = this.files.create_file(&target).await.map_err(vendor_error)?;
-                    let mut text = JavaString::default();
+                    let mut text = String::default();
                     for (i, log) in logs.into_iter().enumerate() {
                         if i != 0 {
-                            text.push_str("\n");
+                            text.push('\n');
                         }
-                        text.append(log);
+                        text.push_str(&log);
                     }
                     let output = path.clone();
                     blocking(this.io.as_ref(), move || {
                         let mut file = std::fs::File::create(output.to_file_path_buf().map_err(io_error)?)
                             .map_err(|error| file_open_error(error, &output))?;
-                        file.write_all(&text.to_utf8_bytes()).map_err(io_error)
+                        file.write_all(text.as_bytes()).map_err(io_error)
                     })
                     .await?;
                     Ok(path)
@@ -136,7 +132,7 @@ impl LogWriter for FileLogWriter {
         pool: &'a DevicePoolId,
         device: &'a DeviceInfo,
         test: &'a Test,
-        log: &'a JavaString,
+        log: &'a String,
     ) -> ServiceFuture<'a, ()> {
         let this = self.clone();
         let target = FileTarget {
@@ -149,7 +145,7 @@ impl LogWriter for FileLogWriter {
             chunk: None,
         };
         let mut text = log.clone();
-        text.push_str("\n");
+        text.push('\n');
         Box::pin(async move {
             on_io(
                 self.io.as_ref(),
@@ -161,7 +157,7 @@ impl LogWriter for FileLogWriter {
                             .append(true)
                             .open(path.to_file_path_buf().map_err(io_error)?)
                             .map_err(|error| file_open_error(error, &path))?;
-                        file.write_all(&text.to_utf8_bytes()).map_err(io_error)
+                        file.write_all(text.as_bytes()).map_err(io_error)
                     })
                     .await
                 }),
@@ -176,7 +172,7 @@ pub struct CompositeLineListener {
     pub listeners: Vec<Arc<dyn LineListener>>,
 }
 impl LineListener for CompositeLineListener {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         let (listeners, line) = (self.listeners.clone(), line.clone());
         Box::pin(async move {
             on_io(
@@ -283,8 +279,8 @@ pub struct LogListener {
     writer: Arc<dyn LogWriter>,
     target: LogTarget,
     attachments: AttachmentProviderDelegate,
-    name: JavaString,
-    buffer: Mutex<JavaString>,
+    name: String,
+    buffer: Mutex<String>,
     identity: Weak<Self>,
 }
 impl LogListener {
@@ -293,7 +289,7 @@ impl LogListener {
         producer: Arc<dyn LogProducer>,
         writer: Arc<dyn LogWriter>,
         target: LogTarget,
-        name: Option<JavaString>,
+        name: Option<String>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|identity| Self {
             io,
@@ -314,7 +310,7 @@ impl LogListener {
             ))
         })
     }
-    fn snapshot(&self, reset: bool) -> JavaString {
+    fn snapshot(&self, reset: bool) -> String {
         let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
         if reset {
             std::mem::take(&mut *buffer)
@@ -329,11 +325,11 @@ impl AttachmentProvider for LogListener {
     }
 }
 impl LineListener for LogListener {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
-            buffer.append(line.clone());
-            buffer.push_str("\n");
+            buffer.push_str(&line.clone());
+            buffer.push('\n');
             Ok(())
         })
     }
@@ -373,7 +369,7 @@ impl TestRunListener for LogListener {
                 self.io.as_ref(),
                 Box::pin(async move {
                     let log = this.snapshot(true);
-                    if !log.0.is_empty() {
+                    if !log.is_empty() {
                         let target = LogTarget {
                             pool: this.target.pool.clone(),
                             batch_id: this.target.batch_id.clone(),
@@ -405,7 +401,7 @@ impl TestRunListener for LogListener {
                     let listener: Arc<dyn LineListener> = this.clone();
                     this.producer.remove_line_listener(&listener)?;
                     let log = this.snapshot(false);
-                    if !log.0.is_empty() {
+                    if !log.is_empty() {
                         let target = LogTarget {
                             pool: this.target.pool.clone(),
                             batch_id: this.target.batch_id.clone(),

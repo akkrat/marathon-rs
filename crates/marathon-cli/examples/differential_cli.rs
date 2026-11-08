@@ -1,8 +1,5 @@
 //! Hermetic paired CLI probe; real parsing, construction, vendors and reports.
-use jcompat::{
-    logging::{MarathonLogging, OutputTarget},
-    writers::JavaString,
-};
+use jcompat::logging::{MarathonLogging, OutputTarget};
 use marathon_cli::{
     application::{CliOutput, CliRunner, Console, MarathonRun, Process},
     runner::{ProductionRunner, missing_vendors},
@@ -71,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("{e:?}"))?;
     let cwd: PathBuf = std::env::current_dir()?;
     let environment = std::env::vars()
-        .map(|(k, v)| (JavaString::from(k), JavaString::from(v)))
+        .map(|(k, v)| (String::from(k), String::from(v)))
         .collect();
     let process = Process {
         cwd: cwd.clone(),

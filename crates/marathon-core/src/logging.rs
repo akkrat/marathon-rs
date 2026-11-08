@@ -6,10 +6,7 @@
 
 use crate::error::Failure;
 use crossbeam_queue::SegQueue;
-use jcompat::{
-    logging::{JansiMode, Level, LogEvent, Logger, MarathonLogging, OutputTarget},
-    writers::JavaString,
-};
+use jcompat::logging::{JansiMode, Level, LogEvent, Logger, MarathonLogging, OutputTarget};
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 /// One `logger.<level>(cause) { message }` call. The message is already
@@ -23,7 +20,7 @@ pub struct LogRecord {
     /// is created; the rendered timestamp, however late the output task drains.
     pub wall_millis: i64,
     pub level: Level,
-    pub message: JavaString,
+    pub message: String,
     pub cause: Option<Failure>,
 }
 
@@ -62,7 +59,7 @@ pub fn host_millis() -> i64 {
     }
 }
 impl LogQueue {
-    pub fn log(&self, logger: &str, at_millis: i64, level: Level, message: JavaString, cause: Option<Failure>) {
+    pub fn log(&self, logger: &str, at_millis: i64, level: Level, message: String, cause: Option<Failure>) {
         let wall_millis = (self.wall.borrow())();
         self.incoming.push(OutputRecord::Log(LogRecord {
             logger: logger.to_owned(),
@@ -128,10 +125,10 @@ impl LogQueue {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OutputRecord {
     Log(LogRecord),
-    Raw(JavaString),
+    Raw(String),
 }
 impl LogQueue {
-    pub fn raw(&self, text: JavaString) {
+    pub fn raw(&self, text: String) {
         self.incoming.push(OutputRecord::Raw(text));
         self.wake.notify_one();
     }
@@ -203,14 +200,14 @@ impl LogRecord {
         output: (JansiMode, OutputTarget),
     ) -> Option<String> {
         registry.enabled(logger, self.level).then(|| {
-            let throwable = self.cause.as_ref().map(|c| c.stack_trace().to_string_lossy());
+            let throwable = self.cause.as_ref().map(|c| c.stack_trace().to_owned());
             registry.layout().format(
                 &LogEvent {
                     level: self.level,
                     logger: logger.name(),
                     thread,
                     local_time_millis: self.wall_millis.wrapping_add(zone_offset_millis),
-                    message: &self.message.to_string_lossy(),
+                    message: &self.message.to_owned(),
                     throwable: throwable.as_deref().unwrap_or(""),
                 },
                 output.0,

@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidAppInstaller.kt
 use crate::{device::AndroidDevice, models::AndroidTestBundle, services::AndroidRuntime, support::*};
-use jcompat::{file_manager::JavaPath, logging::Level, writers::JavaString};
+use jcompat::{file_manager::JavaPath, logging::Level};
 use marathon_core::{error::*, vendor::VendorContext};
 use std::sync::Arc;
 pub struct AndroidAppInstaller {
@@ -29,7 +29,7 @@ impl AndroidAppInstaller {
     ) -> VendorResult<()> {
         let b = bundle.clone();
         let info = blocking(self.runtime.dependencies.io.as_ref(), move || b.instrumentation_info()).await?;
-        let serial = device.serial_number().to_string_lossy();
+        let serial = device.serial_number().to_owned();
         self.log(
             Level::Debug,
             &format!("Installing application output to {serial}"),
@@ -82,7 +82,7 @@ impl AndroidAppInstaller {
         );
         Ok(())
     }
-    async fn appops(&self, device: &AndroidDevice, package: &JavaString, context: VendorContext) -> VendorResult<()> {
+    async fn appops(&self, device: &AndroidDevice, package: &String, context: VendorContext) -> VendorResult<()> {
         if !self.runtime.configuration.mock_location {
             return Ok(());
         }
@@ -91,13 +91,13 @@ impl AndroidAppInstaller {
                 Level::Warn,
                 &format!(
                     "Can't setup mock location: device {} doesn't support appops",
-                    device.serial_number().to_string_lossy()
+                    device.serial_number().to_owned()
                 ),
                 None,
             );
             return Ok(());
         }
-        let package = package.to_string_lossy();
+        let package = package.to_owned();
         let r = device
             .critical_execute_shell_command(
                 &format!("appops set {package} android:mock_location allow"),
@@ -109,14 +109,14 @@ impl AndroidAppInstaller {
             let r = device
                 .critical_execute_shell_command("appops query-op android:mock_location allow", "", context)
                 .await?;
-            self.log(Level::Error,&format!("Can't set android:mock_location on {package}. List of apps currently using android:mock_location:{}",r.output.to_string_lossy()),None)
+            self.log(Level::Error,&format!("Can't set android:mock_location on {package}. List of apps currently using android:mock_location:{}",r.output.to_owned()),None)
         }
         Ok(())
     }
     async fn reinstall(
         &self,
         device: &AndroidDevice,
-        package: &JavaString,
+        package: &String,
         app: &JavaPath,
         splits: &[JavaPath],
         context: VendorContext,
@@ -141,41 +141,35 @@ impl AndroidAppInstaller {
                     .safe_execute_shell_command("pm list packages", "", context.clone())
                     .await?
                     .ok_or_else(|| {
-                        setup(
-                            format!(
-                                "Unable to verify that package {} is installed",
-                                package.to_string_lossy()
-                            )
-                            .as_str(),
-                        )
+                        setup(format!("Unable to verify that package {} is installed", package.to_owned()).as_str())
                     })?;
                 if jcompat::jstring::lines(&response.output)
                     .iter()
-                    .any(|line| *line == format!("package:{}", package.to_string_lossy()).as_str().into())
+                    .any(|line| *line == format!("package:{}", package.to_owned()).as_str().to_owned())
                 {
                     self.log(
                         Level::Info,
                         &format!(
                             "Uninstalling {} from {}",
-                            package.to_string_lossy(),
-                            device.serial_number().to_string_lossy()
+                            package.to_owned(),
+                            device.serial_number().to_owned()
                         ),
                         None,
                     );
                     if let Some(r) = device
-                        .safe_uninstall_package(&package.to_string_lossy(), false, context.clone())
+                        .safe_uninstall_package(&package.to_owned(), false, context.clone())
                         .await?
                     {
-                        self.log(Level::Debug, &trim(&r.output.to_string_lossy()), None);
+                        self.log(Level::Debug, &trim(&r.output.to_owned()), None);
                     }
                 }
                 self.log(
                     Level::Info,
                     &format!(
                         "Installing {}, {} to {}",
-                        package.to_string_lossy(),
+                        package.to_owned(),
                         paths.join(", "),
-                        device.serial_number().to_string_lossy()
+                        device.serial_number().to_owned()
                     ),
                     None,
                 );
@@ -190,23 +184,23 @@ impl AndroidAppInstaller {
                         .install_split_packages(&paths, true, &params, context.clone())
                         .await?
                 };
-                let output = trim(&output.to_string_lossy());
+                let output = trim(&output.to_owned());
                 self.log(Level::Debug, &output, None);
                 if !output.contains("Success") {
-                    return Err(install(output.as_str()));
+                    return Err(install(output.as_str().to_owned()));
                 }
                 Ok(())
             }
             .await;
             let result = result.map_err(|e| {
-                if e.failure().class == "com.malinskiy.marathon.android.exception.InstallException".into() {
+                if e.failure().class == "com.malinskiy.marathon.android.exception.InstallException" {
                     self.log(
                         Level::Error,
                         &format!(
                             "Error while installing {}, {} on {}",
-                            package.to_string_lossy(),
+                            package.to_owned(),
                             paths.join(", "),
-                            device.serial_number().to_string_lossy()
+                            device.serial_number().to_owned()
                         ),
                         Some(e.failure()),
                     );
@@ -214,8 +208,8 @@ impl AndroidAppInstaller {
                         "com.malinskiy.marathon.exceptions.DeviceSetupException",
                         format!(
                             "Error while installing {} on {}",
-                            package.to_string_lossy(),
-                            device.serial_number().to_string_lossy()
+                            package.to_owned(),
+                            device.serial_number().to_owned()
                         )
                         .as_str(),
                     );
@@ -234,14 +228,20 @@ impl AndroidAppInstaller {
         }
         unreachable!("last attempt returns")
     }
-    pub fn optional_params(&self, api: i32) -> Vec<JavaString> {
+    pub fn optional_params(&self, api: i32) -> Vec<String> {
         let mut result = vec![];
         if api >= 23 && self.runtime.configuration.auto_grant_permission {
             result.push("-g".into())
         }
         let options = &self.runtime.configuration.install_options;
-        if !options.0.is_empty() {
-            result.extend(options.0.split(|u| *u == 32).map(|s| JavaString(s.to_vec())))
+        if !options.is_empty() {
+            result.extend(
+                options
+                    .encode_utf16()
+                    .collect::<Vec<_>>()
+                    .split(|u| *u == 32)
+                    .map(|s| String::from_utf16_lossy(s)),
+            )
         }
         result
     }

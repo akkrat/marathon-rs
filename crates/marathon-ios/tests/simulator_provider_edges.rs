@@ -213,7 +213,7 @@ async fn replacement_waits_for_predecessor_and_removal_rejects_an_in_flight_setu
             .failure()
             .message
             .unwrap()
-            .to_string_lossy()
+            .to_owned()
             .contains("has left the devices file")
     );
     assert_eq!(
@@ -423,13 +423,13 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
         let error = p.provider.initialize(p.h.services.context.clone()).await.unwrap_err();
         let actual = error.failure();
         let expected = fixture(&format!("load-{name}"));
-        assert_eq!(actual.class.to_string_lossy(), expected["class"].as_str().unwrap());
+        assert_eq!(actual.class.to_owned(), expected["class"].as_str().unwrap());
         assert_eq!(
             actual
                 .message
                 .as_ref()
                 .unwrap()
-                .to_string_lossy()
+                .to_owned()
                 .replace(p.h.dir.path().to_str().unwrap(), "<ROOT>"),
             expected["message"].as_str().unwrap()
         );
@@ -437,11 +437,11 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
         let mut expected = expected.get("cause");
         while let Some(next) = expected {
             let a = actual.unwrap();
-            assert_eq!(a.class.to_string_lossy(), next["class"].as_str().unwrap());
+            assert_eq!(a.class.to_owned(), next["class"].as_str().unwrap());
             // U83: preserve the merged binder's diagnostics; its exception classes/stages match.
             assert!(a.message.is_some());
             if name == "mapping" {
-                assert_eq!(a.message.as_ref().unwrap().to_string_lossy(), "expected an array");
+                assert_eq!(a.message.as_ref().unwrap().to_owned(), "expected an array");
             }
             actual = a.cause.as_deref();
             expected = next.get("cause");
@@ -471,7 +471,7 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
     })?;
     std::fs::create_dir(p.h.dir.path().join("Marathondevices"))?;
     let error = p.provider.initialize(p.h.services.context.clone()).await.unwrap_err();
-    assert_eq!(error.failure().class, "java.io.FileNotFoundException".into());
+    assert_eq!(error.failure().class, "java.io.FileNotFoundException".to_owned());
     p.finish().await
 }
 #[tokio::test]
@@ -765,7 +765,7 @@ async fn an_asynchronous_notification_racing_channel_close_fails_without_failing
         p.h.logs.lock().unwrap().iter().any(|(_, _, _, error)| {
             error
                 .as_ref()
-                .is_some_and(|e| e.class == "kotlinx.coroutines.channels.ClosedSendChannelException".into())
+                .is_some_and(|e| e.class == "kotlinx.coroutines.channels.ClosedSendChannelException".to_owned())
         })
     })
     .await;
@@ -897,12 +897,9 @@ async fn substitution_cycles_escape_the_static_mapping_wrapper() -> TestResult {
     std::fs::write(p.h.dir.path().join("Marathondevices"), b"workers: ${PROVIDER_CYCLE}\n")?;
     let error = provider.initialize(p.h.services.context.clone()).await.unwrap_err();
     let expected = fixture("load-cycle");
+    assert_eq!(error.failure().class.to_owned(), expected["class"].as_str().unwrap());
     assert_eq!(
-        error.failure().class.to_string_lossy(),
-        expected["class"].as_str().unwrap()
-    );
-    assert_eq!(
-        error.failure().message.as_ref().unwrap().to_string_lossy(),
+        error.failure().message.as_ref().unwrap().to_owned(),
         expected["message"].as_str().unwrap()
     );
     provider.terminate().await.map_err(test_error)?;

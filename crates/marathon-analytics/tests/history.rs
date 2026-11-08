@@ -92,7 +92,7 @@ async fn case(env: Env, name: &str) -> OperationResult<()> {
                 carbon.await.map_err(|e| failure("test.Carbon", &e.to_string()))??;
                 Arc::new(GraphiteDataSource {
                     client: Arc::new(QueryableGraphiteClient::with_endpoint(
-                        &peer.url.clone().into(),
+                        &peer.url.clone(),
                         env.context.clone(),
                     )),
                     prefix: Some("prefix".into()),

@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/RemoteFileManager.kt
 use crate::{device::AndroidDevice, support::*};
-use jcompat::{file_manager::escape_utf16, logging::Level, writers::JavaString};
+use jcompat::{file_manager::escape_utf16, logging::Level};
 use marathon_adb::client::sync::directory::bash_escape;
 use marathon_core::{error::VendorResult, model::Test, vendor::VendorContext};
 pub const MAX_FILENAME: usize = 255;
@@ -51,7 +51,7 @@ impl RemoteFileManager<'_> {
                 format!(
                     "{message}: exit code {}: {}",
                     result.exit_code,
-                    result.output.to_string_lossy().trim()
+                    result.output.to_owned().trim()
                 ),
             ));
         }
@@ -71,7 +71,7 @@ impl RemoteFileManager<'_> {
         Ok(())
     }
     pub async fn create_remote_directory(&self, path: Option<&str>, context: VendorContext) -> VendorResult<()> {
-        let output = self.device.external_storage_mount().to_string_lossy();
+        let output = self.device.external_storage_mount().to_owned();
         let path = path.unwrap_or(&output);
         self.device
             .critical_execute_shell_command(
@@ -83,7 +83,7 @@ impl RemoteFileManager<'_> {
         Ok(())
     }
     pub async fn remove_remote_directory(&self, context: VendorContext) -> VendorResult<()> {
-        let path = self.device.external_storage_mount().to_string_lossy();
+        let path = self.device.external_storage_mount().to_owned();
         self.device
             .critical_execute_shell_command(
                 &format!("rm -r {path}"),
@@ -93,58 +93,52 @@ impl RemoteFileManager<'_> {
             .await?;
         Ok(())
     }
-    pub fn remote_video_for_test(&self, test: &Test, batch: &JavaString) -> VendorResult<JavaString> {
+    pub fn remote_video_for_test(&self, test: &Test, batch: &String) -> VendorResult<String> {
         self.remote_chunked_video_for_test(test, batch, None)
     }
     pub fn remote_chunked_video_for_test(
         &self,
         test: &Test,
-        batch: &JavaString,
+        batch: &String,
         chunk: Option<i64>,
-    ) -> VendorResult<JavaString> {
+    ) -> VendorResult<String> {
         let mut path = self.device.external_storage_mount();
-        path.push_str("/");
-        path.append(self.filename(test, batch, "mp4", chunk)?);
+        path.push('/');
+        path.push_str(&self.filename(test, batch, "mp4", chunk)?);
         Ok(path)
     }
-    pub fn remote_profiling_for_test(&self, test: &Test, batch: &JavaString) -> VendorResult<JavaString> {
-        let mut path = JavaString::from(TRACE_ROOT);
-        path.push_str("/");
-        path.append(self.filename(test, batch, "perfetto-trace", None)?);
+    pub fn remote_profiling_for_test(&self, test: &Test, batch: &String) -> VendorResult<String> {
+        let mut path = String::from(TRACE_ROOT);
+        path.push('/');
+        path.push_str(&self.filename(test, batch, "perfetto-trace", None)?);
         Ok(path)
     }
-    fn filename(
-        &self,
-        test: &Test,
-        batch: &JavaString,
-        extension: &str,
-        chunk: Option<i64>,
-    ) -> VendorResult<JavaString> {
-        let mut suffix = JavaString::from("-");
-        suffix.append(batch.clone());
+    fn filename(&self, test: &Test, batch: &String, extension: &str, chunk: Option<i64>) -> VendorResult<String> {
+        let mut suffix = String::from("-");
+        suffix.push_str(&batch.clone());
         if let Some(chunk) = chunk {
             suffix.push_str(&format!("-{chunk}"));
         }
-        suffix.push_str(".");
+        suffix.push('.');
         suffix.push_str(extension);
-        let count = MAX_FILENAME.checked_sub(suffix.0.len()).ok_or_else(|| {
+        let count = MAX_FILENAME.checked_sub(suffix.encode_utf16().count()).ok_or_else(|| {
             other(
                 "java.lang.IllegalArgumentException",
                 format!(
                     "Requested character count {} is less than zero.",
-                    MAX_FILENAME as i64 - suffix.0.len() as i64
+                    MAX_FILENAME as i64 - suffix.encode_utf16().count() as i64
                 )
                 .as_str(),
             )
         })?;
         let mut raw = test.to_class_name('.');
-        raw.push_str("-");
-        raw.append(test.method.clone());
-        let raw = escape_utf16(&raw.0);
-        let mut result = JavaString(raw[..raw.len().min(count)].to_vec());
-        result.append(suffix);
+        raw.push('-');
+        raw.push_str(&test.method.clone());
+        let raw = escape_utf16(&raw.encode_utf16().collect::<Vec<_>>());
+        let mut result = String::from_utf16_lossy(&raw[..raw.len().min(count)]);
+        result.push_str(&suffix);
         if raw.len() > count {
-            self.device.log_named("com.malinskiy.marathon.android.RemoteFileManager",Level::Error,&format!("Remote filename length cannot exceed 255 characters and has been trimmed to {} and can create a conflict. This happened because the combination of test class name and test name is too long.",result.to_string_lossy()),None);
+            self.device.log_named("com.malinskiy.marathon.android.RemoteFileManager",Level::Error,&format!("Remote filename length cannot exceed 255 characters and has been trimmed to {} and can create a conflict. This happened because the combination of test class name and test name is too long.",result.to_owned()),None);
         }
         Ok(result)
     }

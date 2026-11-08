@@ -38,7 +38,7 @@ impl Reporter for JUnitReporter {
                     // Paths.get joins raw pool segments, unlike FileManager's escape.
                     let mut directory = output.0;
                     directory.extend("/tests/".encode_utf16());
-                    directory.extend(pool.0);
+                    directory.extend(pool.encode_utf16().collect::<Vec<_>>());
                     let directory = JavaPath(directory);
                     let _ = std::fs::create_dir_all(directory.to_path_buf().map_err(io_error)?);
                     let mut path = directory.0;
@@ -59,7 +59,7 @@ impl Reporter for JUnitReporter {
                         }
                     }
                     let mut file = std::fs::File::create(native).map_err(|e| file_open_error(e, &path))?;
-                    file.write_all(&text.to_utf8_bytes()).map_err(io_error)
+                    file.write_all(text.as_bytes()).map_err(io_error)
                 })
                 .await
                 .map_err(operation_error)?;
@@ -69,41 +69,33 @@ impl Reporter for JUnitReporter {
     }
 }
 const SCHEMA: &str = "https://raw.githubusercontent.com/jenkinsci/xunit-plugin/ae25da5089d4f94ac6c4669bf736e4d416cc4665/src/main/resources/org/jenkinsci/plugins/xunit/types/model/xsd/junit-10.xsd";
-fn attr(out: &mut JavaString, key: &str, value: &JavaString) {
-    out.push_str(" ");
+fn attr(out: &mut String, key: &str, value: &String) {
+    out.push(' ');
     out.push_str(key);
     out.push_str("=\"");
-    for &unit in &value.0 {
+    for ch in value.chars() {
+        let unit = ch as u32;
         match unit {
             34 => out.push_str("&quot;"),
             38 => out.push_str("&amp;"),
             60 => out.push_str("&lt;"),
             62 => out.push_str("&gt;"),
-            _ => out.0.push(unit),
+            _ => out.push(ch),
         }
     }
-    out.push_str("\"");
+    out.push('"');
 }
-fn cdata(out: &mut JavaString, text: &JavaString) {
+fn cdata(out: &mut String, text: &String) {
     out.push_str("<![CDATA[");
-    let mut i = 0;
-    while i < text.0.len() {
-        if text.0[i..].starts_with(&[93, 93, 62]) {
-            out.push_str("]]]]><![CDATA[>");
-            i += 3;
-        } else {
-            out.0.push(text.0[i]);
-            i += 1;
-        }
-    }
+    out.push_str(&text.replace("]]>", "]]]]><![CDATA[>"));
     out.push_str("]]>");
 }
-fn seconds(millis: i64) -> JavaString {
-    jnum::double_to_string(millis as f64 / 1000.0).into()
+fn seconds(millis: i64) -> String {
+    jnum::double_to_string(millis as f64 / 1000.0)
 }
 /// Exact StAX bytes for the only model JUnitReporter constructs (approved P2).
-pub fn junit_xml(pool: &PoolSummary) -> JavaString {
-    let mut out = JavaString::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?><testsuite");
+pub fn junit_xml(pool: &PoolSummary) -> String {
+    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?><testsuite");
     attr(&mut out, "xsi:noNamespaceSchemaLocation", &SCHEMA.into());
     attr(
         &mut out,
@@ -111,8 +103,8 @@ pub fn junit_xml(pool: &PoolSummary) -> JavaString {
         &"http://www.w3.org/2001/XMLSchema-instance".into(),
     );
     attr(&mut out, "name", &pool.pool_id.name);
-    attr(&mut out, "tests", &pool.tests.len().to_string().into());
-    attr(&mut out, "failures", &pool.failed.len().to_string().into());
+    attr(&mut out, "tests", &pool.tests.len().to_string());
+    attr(&mut out, "failures", &pool.failed.len().to_string());
     attr(&mut out, "errors", &"0".into());
     attr(
         &mut out,
@@ -123,29 +115,29 @@ pub fn junit_xml(pool: &PoolSummary) -> JavaString {
                 .fold(0i64, |sum, r| sum.wrapping_add(r.end_time.wrapping_sub(r.start_time))),
         ),
     );
-    attr(&mut out, "skipped", &pool.ignored.len().to_string().into());
+    attr(&mut out, "skipped", &pool.ignored.len().to_string());
     if let Some(end) = pool.tests.iter().map(|r| r.end_time).max() {
-        attr(&mut out, "timestamp", &format_date(end, DatePattern::Junit).into());
+        attr(&mut out, "timestamp", &format_date(end, DatePattern::Junit));
     }
-    out.push_str(">");
+    out.push('>');
     for r in &pool.tests {
         out.push_str("<testcase");
         attr(&mut out, "name", &r.test.method);
         attr(&mut out, "time", &seconds(r.end_time.wrapping_sub(r.start_time)));
         attr(&mut out, "classname", &r.test.to_class_name('.'));
-        out.push_str(">");
+        out.push('>');
         let failure = matches!(r.status, TestStatus::Failure | TestStatus::Incomplete);
         if r.is_ignored() || failure {
             let tag = if r.is_ignored() { "skipped" } else { "failure" };
-            out.push_str("<");
+            out.push('<');
             out.push_str(tag);
-            out.push_str(">");
-            if let Some(trace) = r.stacktrace.as_ref().filter(|t| !t.0.is_empty()) {
+            out.push('>');
+            if let Some(trace) = r.stacktrace.as_ref().filter(|t| !t.is_empty()) {
                 cdata(&mut out, trace);
             }
             out.push_str("</");
             out.push_str(tag);
-            out.push_str(">");
+            out.push('>');
         }
         if !r.is_ignored()
             && let Some((_, retries)) = pool.retries.iter().find(|(key, _)| key == r)
@@ -155,10 +147,10 @@ pub fn junit_xml(pool: &PoolSummary) -> JavaString {
                 .filter(|e| e.test_result.status != TestStatus::Incomplete && (!failure || !e.test_result.is_success()))
             {
                 let tag = if failure { "rerunFailure" } else { "flakyFailure" };
-                out.push_str("<");
+                out.push('<');
                 out.push_str(tag);
                 attr(&mut out, "type", &"rerun exception".into());
-                out.push_str(">");
+                out.push('>');
                 if let Some(trace) = &retry.test_result.stacktrace {
                     out.push_str("<stackTrace>");
                     cdata(&mut out, trace);
@@ -166,7 +158,7 @@ pub fn junit_xml(pool: &PoolSummary) -> JavaString {
                 }
                 out.push_str("</");
                 out.push_str(tag);
-                out.push_str(">");
+                out.push('>');
             }
         }
         out.push_str("</testcase>");

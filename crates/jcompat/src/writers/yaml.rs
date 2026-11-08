@@ -1,14 +1,14 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/command/parse/MarathonTestParseCommand.kt.
 //! Formatting follows Jackson 2.17.2 YAMLGenerator and SnakeYAML 2.2 Emitter.
 //! SnakeYAML portions: Copyright (c) 2008, SnakeYAML; Apache-2.0, see LICENSE-SNAKEYAML.
-use super::{JavaString, WriterValue};
+use super::WriterValue;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct JacksonYamlWriter;
 impl JacksonYamlWriter {
-    pub fn write(&self, value: &WriterValue) -> JavaString {
+    pub fn write(&self, value: &WriterValue) -> String {
         let mut out = Output {
-            text: JavaString::default(),
+            text: String::default(),
             column: 0,
         };
         out.push("---");
@@ -24,7 +24,7 @@ impl JacksonYamlWriter {
     }
 }
 struct Output {
-    text: JavaString,
+    text: String,
     column: usize,
 }
 impl Output {
@@ -35,10 +35,10 @@ impl Output {
         for &c in s {
             self.column = if c == 10 { 0 } else { self.column + 1 };
         }
-        self.text.0.extend_from_slice(s);
+        self.text.push_str(&String::from_utf16_lossy(s));
     }
 }
-fn entries(v: &[(JavaString, WriterValue)]) -> impl Iterator<Item = &(JavaString, WriterValue)> {
+fn entries(v: &[(String, WriterValue)]) -> impl Iterator<Item = &(String, WriterValue)> {
     v.iter().filter(|(_, v)| !matches!(v, WriterValue::Null))
 }
 fn collection(value: &WriterValue) -> bool {
@@ -57,9 +57,9 @@ fn block(value: &WriterValue, indent: usize, prefix: &str, out: &mut Output) {
                     out.push(&" ".repeat(indent));
                 }
                 // SnakeYAML excludes CR from the breaks that make a scalar multiline.
-                let explicit = key.0.is_empty()
-                    || key.0.len() >= 128
-                    || key.0.iter().any(|c| matches!(c, 10 | 0x85 | 0x2028 | 0x2029));
+                let explicit = key.is_empty()
+                    || key.encode_utf16().count() >= 128
+                    || key.encode_utf16().any(|c| matches!(c, 10 | 0x85 | 0x2028 | 0x2029));
                 if explicit {
                     out.push("? ");
                 }
@@ -125,9 +125,9 @@ fn scalar(value: &WriterValue, indent: usize, out: &mut Output) {
         WriterValue::Object(_) => out.push("{}"),
     }
 }
-fn key_scalar(key: &JavaString, indent: usize, split: bool, out: &mut Output) {
-    let text = key.as_utf8().ok();
-    let reserved = text.as_deref().is_some_and(|s| {
+fn key_scalar(key: &str, indent: usize, split: bool, out: &mut Output) {
+    let text = Some(key);
+    let reserved = text.is_some_and(|s| {
         matches!(
             s,
             "" | "false"
@@ -157,13 +157,17 @@ fn key_scalar(key: &JavaString, indent: usize, split: bool, out: &mut Output) {
                 | "YES"
         ) || s.starts_with('~')
     });
-    let forced =
-        reserved || key.0.first().is_some_and(|c| matches!(c, 43 | 45 | 46 | 48..=57)) || key.0.iter().any(|c| *c < 32);
+    let forced = reserved
+        || key
+            .encode_utf16()
+            .next()
+            .is_some_and(|c| matches!(c, 43 | 45 | 46 | 48..=57))
+        || key.encode_utf16().any(|c| c < 32);
     if forced || text.is_none() {
         quoted(key, indent, split, out);
         return;
     }
-    let s = text.as_deref().unwrap_or_default();
+    let s = text.unwrap_or_default();
     let whitespace = |c: char| matches!(c, '\0' | ' ' | '\t' | '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}');
     let chars: Vec<char> = s.chars().collect();
     let special = chars
@@ -207,18 +211,18 @@ fn key_scalar(key: &JavaString, indent: usize, split: bool, out: &mut Output) {
     }
 }
 
-/// SnakeYAML iterates UTF-16 chars here, including its unchecked high-surrogate
-/// combination with the next char. Keep that behaviour rather than normalizing.
-fn quoted(text: &JavaString, indent: usize, split: bool, out: &mut Output) {
+/// SnakeYAML measures wrap positions in UTF-16 units.
+fn quoted(text: &str, indent: usize, split: bool, out: &mut Output) {
+    let units: Vec<u16> = text.encode_utf16().collect();
     out.push("\"");
     let mut start = 0;
     let mut end = 0;
-    while end <= text.0.len() {
-        let ch = text.0.get(end).copied();
+    while end <= units.len() {
+        let ch = units.get(end).copied();
         if ch.is_none_or(|c| matches!(c, 0x22 | 0x5c | 0x85 | 0x2028 | 0x2029 | 0xfeff) || !(0x20..=0x7e).contains(&c))
         {
             if start < end {
-                out.units(&text.0[start..end]);
+                out.units(&units[start..end]);
                 start = end;
             }
             if let Some(c) = ch {
@@ -244,8 +248,8 @@ fn quoted(text: &JavaString, indent: usize, split: bool, out: &mut Output) {
                     out.push("\\");
                     out.push(e);
                 } else {
-                    let cp = if (0xd800..=0xdbff).contains(&c) && end + 1 < text.0.len() {
-                        (u32::from(c) - 0xd800) * 1024 + u32::from(text.0[end + 1]) + 0x2400
+                    let cp = if (0xd800..=0xdbff).contains(&c) && end + 1 < units.len() {
+                        (u32::from(c) - 0xd800) * 1024 + u32::from(units[end + 1]) + 0x2400
                     } else {
                         u32::from(c)
                     };
@@ -269,18 +273,18 @@ fn quoted(text: &JavaString, indent: usize, split: bool, out: &mut Output) {
             }
         }
         if end > 0
-            && end + 1 < text.0.len()
+            && end + 1 < units.len()
             && (ch == Some(32) || start >= end)
             && out.column as isize + end as isize - start as isize > 80
             && split
         {
             if start < end {
-                out.units(&text.0[start..end]);
+                out.units(&units[start..end]);
                 start = end;
             }
             out.push("\\\n");
             out.push(&" ".repeat(indent));
-            if text.0.get(start) == Some(&32) {
+            if units.get(start) == Some(&32) {
                 out.push("\\");
             }
         }
@@ -289,7 +293,8 @@ fn quoted(text: &JavaString, indent: usize, split: bool, out: &mut Output) {
     out.push("\"");
 }
 
-fn plain_or_single(text: &JavaString, indent: usize, split: bool, single: bool, out: &mut Output) {
+fn plain_or_single(text: &str, indent: usize, split: bool, single: bool, out: &mut Output) {
+    let units: Vec<u16> = text.encode_utf16().collect();
     if single {
         out.push("'");
     }
@@ -298,24 +303,24 @@ fn plain_or_single(text: &JavaString, indent: usize, split: bool, single: bool, 
     let mut start = 0;
     let mut end = 0;
     let linebreak = |c: u16| matches!(c, 10 | 13 | 0x85 | 0x2028 | 0x2029);
-    while end <= text.0.len() {
-        let ch = text.0.get(end).copied().unwrap_or(0);
+    while end <= units.len() {
+        let ch = units.get(end).copied().unwrap_or(0);
         if spaces {
             if ch != 32 {
-                if start + 1 == end && out.column > 80 && split && (!single || (start != 0 && end != text.0.len())) {
+                if start + 1 == end && out.column > 80 && split && (!single || (start != 0 && end != units.len())) {
                     out.push("\n");
                     out.push(&" ".repeat(indent));
                 } else {
-                    out.units(&text.0[start..end]);
+                    out.units(&units[start..end]);
                 }
                 start = end;
             }
         } else if breaks {
             if !linebreak(ch) {
-                if text.0[start] == 10 {
+                if units[start] == 10 {
                     out.push("\n");
                 }
-                for &c in &text.0[start..end] {
+                for &c in &units[start..end] {
                     out.units(&[c]);
                     out.column = 0;
                 }
@@ -323,7 +328,7 @@ fn plain_or_single(text: &JavaString, indent: usize, split: bool, single: bool, 
                 start = end;
             }
         } else if ch == 0 || ch == 32 || linebreak(ch) || (single && ch == 39) {
-            out.units(&text.0[start..end]);
+            out.units(&units[start..end]);
             start = end;
         }
         if single && ch == 39 {

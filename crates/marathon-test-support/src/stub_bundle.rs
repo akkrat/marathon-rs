@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubTestBundle.kt
 //! and vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubTestBundleIdentifier.kt.
 use crate::lock;
-use jcompat::writers::JavaString;
+
 use marathon_core::{
     error::*,
     executor::shared::failure,
@@ -15,7 +15,7 @@ use std::{
 
 /// An ordinary class: identity, not the id, is equality (stable `BundleRef`).
 pub struct StubTestBundle {
-    id: JavaString,
+    id: String,
 }
 impl StubTestBundle {
     pub fn bundle(id: &str) -> BundleRef {
@@ -23,7 +23,7 @@ impl StubTestBundle {
     }
 }
 impl TestBundle for StubTestBundle {
-    fn id(&self) -> &JavaString {
+    fn id(&self) -> &String {
         &self.id
     }
 }
@@ -42,8 +42,8 @@ impl TestBundleIdentifier for StubTestBundleIdentifier {
         match lock(&self.test_to_bundle).get(test) {
             Some(bundle) => Ok(Some(bundle.clone())),
             None => {
-                let mut message = JavaString::from("Invalid test ");
-                message.append(test.to_test_name('.', '#'));
+                let mut message = String::from("Invalid test ");
+                message.push_str(&test.to_test_name('.', '#'));
                 message.push_str(": can't locate test bundle");
                 Err(VendorError::Other(Failure {
                     message: Some(message),

@@ -13,7 +13,6 @@
 use jcompat::{
     file_manager::JavaPath,
     jtime::{Duration, instant_of},
-    writers::JavaString,
 };
 use marathon_config::{
     AndroidConfiguration, AppleTimeoutParameters, SshAuthentication, SshConfiguration, TestClassRegex,
@@ -28,7 +27,7 @@ use marathon_config::{
     vendor::{apply_xcresult_pull, fill_android_sdk, post_process_ios, read_environment},
 };
 
-fn context(dir: &str, environment: Vec<(JavaString, JavaString)>) -> BindingContext {
+fn context(dir: &str, environment: Vec<(String, String)>) -> BindingContext {
     BindingContext {
         profile: Profile::Marathonfile,
         marathonfile: JavaPath::from_text("/Marathonfile"),
@@ -60,7 +59,7 @@ fn secs(seconds: i64) -> Duration {
 
 // ---- SystemEnvironmentReaderTest -----------------------------------------------
 
-fn env(pairs: &[(&str, &str)]) -> Vec<(JavaString, JavaString)> {
+fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
     pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect()
 }
 
@@ -92,7 +91,7 @@ fn environment_configuration_should_prefer_android_home_over_android_sdk_root() 
 
 const ANDROID_DIR: &str = "/some/folder/with/marathonfile";
 
-fn android_from_fixture(name: &str, environment: Vec<(JavaString, JavaString)>) -> AndroidConfiguration {
+fn android_from_fixture(name: &str, environment: Vec<(String, String)>) -> AndroidConfiguration {
     let text = std::fs::read_to_string(format!(
         "{}/../../fixtures/configuration/fixture/config/android/{name}",
         env!("CARGO_MANIFEST_DIR")
@@ -136,11 +135,11 @@ fn if_android_sdk_is_null_should_throw_exception_if_env_android_sdk_also_is_null
     };
     let error = fill_android_sdk(&mut android, &ctx).unwrap_err();
     assert_eq!(
-        error.class.to_string_lossy(),
+        error.class.to_owned(),
         "com.malinskiy.marathon.config.exceptions.ConfigurationException"
     );
     assert_eq!(
-        error.message.as_ref().map(|m| m.to_string_lossy()),
+        error.message.as_ref().map(|m| m.to_owned()),
         Some("No android SDK path specified".to_owned())
     );
 }
@@ -210,13 +209,13 @@ fn if_android_sdk_is_not_null_adb_init_timeout_millis_should_be_equal() {
 #[test]
 fn if_android_sdk_is_not_null_install_options_should_be_empty_string_by_default() {
     let android = android_with_env("sample_1.yaml");
-    assert_eq!(android.install_options.to_string_lossy(), "");
+    assert_eq!(android.install_options.to_owned(), "");
 }
 
 #[test]
 fn if_android_sdk_is_not_null_install_options_should_be_equal_if_provided() {
     let android = android_with_env("sample_5.yaml");
-    assert_eq!(android.install_options.to_string_lossy(), "-d");
+    assert_eq!(android.install_options.to_owned(), "-d");
 }
 
 #[test]
@@ -297,10 +296,7 @@ fn test_default() {
         .unwrap()
         .flatten()
         .expect("allure binds");
-    assert_eq!(
-        allure.relative_results_directory.to_string_lossy(),
-        "/files/allure-results"
-    );
+    assert_eq!(allure.relative_results_directory.to_owned(), "/files/allure-results");
 }
 
 // ---- TimeoutConfigurationTest (apple, section level) --------------------------------
@@ -950,7 +946,7 @@ fn regex_object_form_is_rejected_with_a_named_field() {
         bind_vendor_configuration,
     )
     .unwrap_err();
-    let message = error.message.as_ref().map(|m| m.to_string_lossy()).unwrap_or_default();
+    let message = error.message.as_ref().map(|m| m.to_owned()).unwrap_or_default();
     assert!(
         message.contains("testClassRegexes"),
         "message names the field: {message}"

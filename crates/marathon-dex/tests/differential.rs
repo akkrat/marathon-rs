@@ -9,7 +9,7 @@
 //! JSONL). Strings compare exactly: DEX strings decode as the JVM's
 //! `String(bytes)` does (P1 withdrawn), so there is no rendering map.
 
-use jcompat::{jnum, writers::JavaString};
+use jcompat::jnum;
 use marathon_dex::{DecodedValue, DexError, TestMethod};
 use serde_json::Value;
 use std::{collections::HashMap, path::PathBuf};
@@ -52,9 +52,9 @@ fn render_value(value: &DecodedValue, ids: &mut ArrayIds) -> Value {
         DecodedValue::Long(v) => ("long", v.to_string().into()),
         DecodedValue::Float(v) => ("float", jnum::float_to_string(*v).into()),
         DecodedValue::Double(v) => ("double", jnum::double_to_string(*v).into()),
-        DecodedValue::String(v) => ("string", v.to_string_lossy().into()),
-        DecodedValue::Type(v) => ("type", v.to_string_lossy().into()),
-        DecodedValue::Enum(v) => ("enum", v.to_string_lossy().into()),
+        DecodedValue::String(v) => ("string", v.to_owned().into()),
+        DecodedValue::Type(v) => ("type", v.to_owned().into()),
+        DecodedValue::Enum(v) => ("enum", v.to_owned().into()),
         DecodedValue::Boolean(v) => ("boolean", v.to_string().into()),
         DecodedValue::Null => ("null", "null".into()),
         DecodedValue::Array(values) => {
@@ -75,12 +75,12 @@ fn render_method(method: &TestMethod, ids: &mut ArrayIds) -> Value {
             let values: Vec<Value> = a
                 .values
                 .iter()
-                .map(|(k, v)| Value::Array(vec![k.to_string_lossy().into(), render_value(v, ids)]))
+                .map(|(k, v)| Value::Array(vec![k.to_owned().into(), render_value(v, ids)]))
                 .collect();
-            serde_json::json!({"name": a.name.to_string_lossy(), "inherited": a.inherited, "values": values})
+            serde_json::json!({"name": a.name.to_owned(), "inherited": a.inherited, "values": values})
         })
         .collect();
-    serde_json::json!({"testName": method.test_name.to_string_lossy(), "annotations": annotations})
+    serde_json::json!({"testName": method.test_name.to_owned(), "annotations": annotations})
 }
 
 fn render_methods(methods: &[TestMethod]) -> Value {
@@ -89,9 +89,9 @@ fn render_methods(methods: &[TestMethod]) -> Value {
 }
 
 fn render_error(err: &DexError) -> Value {
-    let mut object = serde_json::json!({"class": err.jvm_class.to_string_lossy()});
+    let mut object = serde_json::json!({"class": err.jvm_class.to_owned()});
     if let Some(message) = &err.message {
-        object["message"] = message.to_string_lossy().into();
+        object["message"] = message.to_owned().into();
     }
     if let Some(cause) = &err.cause {
         object["cause"] = render_error(cause);
@@ -99,7 +99,7 @@ fn render_error(err: &DexError) -> Value {
     object
 }
 
-fn custom_of(row: &Value) -> Vec<JavaString> {
+fn custom_of(row: &Value) -> Vec<String> {
     row["customAnnotations"]
         .as_array()
         .unwrap()
@@ -149,9 +149,9 @@ fn check_row(row: &Value) {
         Ok(info) => {
             assert_eq!(
                 serde_json::json!({
-                    "applicationPackage": info.application_package.to_string_lossy(),
-                    "instrumentationPackage": info.instrumentation_package.to_string_lossy(),
-                    "testRunnerClass": info.test_runner_class.to_string_lossy(),
+                    "applicationPackage": info.application_package.to_owned(),
+                    "instrumentationPackage": info.instrumentation_package.to_owned(),
+                    "testRunnerClass": info.test_runner_class.to_owned(),
                 }),
                 row["instrumentationInfo"],
                 "instrumentationInfo for {apk}"
@@ -165,7 +165,7 @@ fn check_row(row: &Value) {
     }
     match marathon_dex::parse_app_package_name(&path) {
         Ok(name) => assert_eq!(
-            name.to_string_lossy(),
+            name.to_owned(),
             row["appPackageName"].as_str().unwrap(),
             "appPackageName for {apk}"
         ),
@@ -204,12 +204,12 @@ fn supplementary_string_reads_as_two_replacement_characters() {
     let negatives = methods[0]
         .annotations
         .iter()
-        .find(|a| a.name.to_string_lossy() == "probe.Negatives")
+        .find(|a| a.name == "probe.Negatives")
         .expect("probe.Negatives");
     let Some(DecodedValue::String(supplementary)) = negatives.value("supplementary") else {
         panic!("supplementary must be a string");
     };
-    assert_eq!(supplementary.0, [0xfffd, 0xfffd]);
+    assert_eq!(supplementary.encode_utf16().collect::<Vec<_>>(), [0xfffd, 0xfffd]);
 }
 
 /// Missing file: recorded by the oracle with a relative path; driven

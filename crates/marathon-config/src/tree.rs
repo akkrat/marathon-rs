@@ -4,7 +4,7 @@ use crate::{
     binder::{Binder, JSON_MAPPING, Result, Value},
     binding::PathPart,
 };
-use jcompat::writers::JavaString;
+
 use snakeyaml::{
     node::{Node, NodeKind, Style},
     tokens::{self, Tok},
@@ -50,12 +50,12 @@ impl<'a> Tree<'a> {
                             .ok_or_else(|| value.error(JSON_MAPPING, "missing tree token"))?;
                         let (text, style, tag) = match token.tok {
                             Tok::Str(s) => (s, Style::DoubleQuoted, None),
-                            Tok::Int { value: Ok(v), .. } => (v.to_decimal().into(), Style::Plain, None),
+                            Tok::Int { value: Ok(v), .. } => (v.to_decimal(), Style::Plain, None),
                             Tok::Float { cleaned, .. } => {
                                 let number = jcompat::jnum::parse_double(&cleaned)
                                     .ok_or_else(|| value.error(JSON_MAPPING, "invalid tree number"))?;
                                 (
-                                    jcompat::jnum::double_to_string(number).into(),
+                                    jcompat::jnum::double_to_string(number),
                                     Style::Plain,
                                     Some("tag:yaml.org,2002:float".into()),
                                 )
@@ -64,7 +64,7 @@ impl<'a> Tree<'a> {
                             Tok::False(_) => ("false".into(), Style::Plain, None),
                             Tok::Null(_) => ("null".into(), Style::Plain, None),
                             Tok::Embedded(b) => (
-                                snakeyaml::resolve::base64_encode(&b).into(),
+                                snakeyaml::resolve::base64_encode(&b),
                                 Style::Plain,
                                 Some("tag:yaml.org,2002:binary".into()),
                             ),
@@ -95,8 +95,6 @@ impl<'a> Tree<'a> {
                             for ((_, (key, _)), child) in visible.zip(children) {
                                 let text = tokens::check_key(key)
                                     .map_err(|_| value.error(JSON_MAPPING, "invalid tree key"))?;
-                                text.as_utf8()
-                                    .map_err(|_| value.error(JSON_MAPPING, "D9: tree keys must be UTF-8"))?;
                                 if let Some((_, old)) = result
                                     .iter_mut()
                                     .find(|(k, _)| matches!(&k.kind,NodeKind::Scalar {text:t,..} if t==text))
@@ -151,7 +149,7 @@ impl<'a> Tree<'a> {
         bind(self.value())
     }
 }
-fn scalar_key(text: &JavaString, source: &Node) -> Node {
+fn scalar_key(text: &String, source: &Node) -> Node {
     Node {
         kind: NodeKind::Scalar {
             text: text.clone(),
@@ -176,18 +174,18 @@ impl Value<'_> {
         }
     }
     /// JsonNode.asText: null is "null", containers are empty, binary is base64.
-    pub fn as_text(&self) -> JavaString {
+    pub fn as_text(&self) -> String {
         use snakeyaml::resolve::base64_encode;
         match self.tree_token() {
             Some(Tok::Str(s)) => s,
-            Some(Tok::Int { value: Ok(n), .. }) => n.to_decimal().into(),
+            Some(Tok::Int { value: Ok(n), .. }) => n.to_decimal(),
             Some(Tok::Float { cleaned, .. }) => {
-                jcompat::jnum::double_to_string(jcompat::jnum::parse_double(&cleaned).unwrap_or(0.0)).into()
+                jcompat::jnum::double_to_string(jcompat::jnum::parse_double(&cleaned).unwrap_or(0.0))
             }
             Some(Tok::True(_)) => "true".into(),
             Some(Tok::False(_)) => "false".into(),
             Some(Tok::Null(_)) => "null".into(),
-            Some(Tok::Embedded(bytes)) => base64_encode(&bytes).into(),
+            Some(Tok::Embedded(bytes)) => base64_encode(&bytes),
             _ => "".into(),
         }
     }
@@ -197,7 +195,7 @@ impl Value<'_> {
         match self.tree_token() {
             Some(Tok::Int { value: Ok(n), .. }) => jcompat::jnum::bigint_long_value(&n.to_decimal()) as i32,
             Some(Tok::Float { cleaned, .. }) => jcompat::jnum::parse_double(&cleaned).unwrap_or(0.0) as i32,
-            Some(Tok::Str(s)) => jcompat::jnum::jackson_parse_as_int(&s.to_string_lossy()),
+            Some(Tok::Str(s)) => jcompat::jnum::jackson_parse_as_int(&s.to_owned()),
             Some(Tok::True(_)) => 1,
             _ => 0,
         }
@@ -207,7 +205,7 @@ impl Value<'_> {
         match self.tree_token() {
             Some(Tok::Int { value: Ok(n), .. }) => jcompat::jnum::bigint_long_value(&n.to_decimal()),
             Some(Tok::Float { cleaned, .. }) => jcompat::jnum::parse_double(&cleaned).unwrap_or(0.0) as i64,
-            Some(Tok::Str(s)) => jcompat::jnum::jackson_parse_as_long(&s.to_string_lossy()),
+            Some(Tok::Str(s)) => jcompat::jnum::jackson_parse_as_long(&s.to_owned()),
             Some(Tok::True(_)) => 1,
             _ => 0,
         }
@@ -217,7 +215,7 @@ impl Value<'_> {
         match self.tree_token() {
             Some(Tok::Int { value: Ok(n), .. }) => jcompat::jnum::parse_double(&n.to_decimal()).unwrap_or(0.0),
             Some(Tok::Float { cleaned, .. }) => jcompat::jnum::parse_double(&cleaned).unwrap_or(0.0),
-            Some(Tok::Str(s)) => jcompat::jnum::parse_double(&s.to_string_lossy()).unwrap_or(0.0),
+            Some(Tok::Str(s)) => jcompat::jnum::parse_double(&s.to_owned()).unwrap_or(0.0),
             Some(Tok::True(_)) => 1.0,
             _ => 0.0,
         }
@@ -245,7 +243,7 @@ impl Value<'_> {
                         work.push(Work::Text("}"));
                         for (i, (key, child)) in entries.iter().enumerate().rev() {
                             work.push(Work::Node(child));
-                            let text = tokens::check_key(key).map(|s| s.to_string_lossy()).unwrap_or_default();
+                            let text = tokens::check_key(key).map(|s| s.to_owned()).unwrap_or_default();
                             work.push(Work::Key(text));
                             if i > 0 {
                                 work.push(Work::Text(","));
@@ -273,7 +271,7 @@ impl Value<'_> {
                             parent: None,
                         };
                         match value.tree_token() {
-                            Some(Tok::Str(s)) => escape_json_string(&s.to_string_lossy(), &mut out),
+                            Some(Tok::Str(s)) => escape_json_string(&s.to_owned(), &mut out),
                             Some(Tok::Int { value: Ok(n), .. }) => out.push_str(&n.to_decimal()),
                             Some(Tok::Float { cleaned, .. }) => out.push_str(&jcompat::jnum::double_to_string(
                                 jcompat::jnum::parse_double(&cleaned).unwrap_or(0.0),
@@ -297,7 +295,7 @@ impl Value<'_> {
         match self.tree_token() {
             Some(Tok::True(_)) => true,
             Some(Tok::Int { value: Ok(n), .. }) => !matches!(n.to_decimal().as_str(), "0" | "-0"),
-            Some(Tok::Str(s)) => snakeyaml::resolve::java_trim(&s.to_string_lossy()) == "true",
+            Some(Tok::Str(s)) => snakeyaml::resolve::java_trim(&s.to_owned()) == "true",
             _ => false,
         }
     }

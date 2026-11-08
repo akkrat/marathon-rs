@@ -3,10 +3,7 @@
 use super::clock::Timeline;
 use crate::time::*;
 use crossbeam_skiplist::SkipMap;
-use jcompat::{
-    jtime::{Instant, instant_of},
-    writers::JavaString,
-};
+use jcompat::jtime::{Instant, instant_of};
 use std::{
     collections::HashMap,
     sync::{
@@ -26,11 +23,11 @@ pub enum ClockMode {
 #[derive(Clone)]
 pub enum Draw {
     Int(i32),
-    Key(JavaString),
+    Key(String),
 }
 #[derive(Clone)]
 pub enum Ids {
-    Values(Vec<JavaString>),
+    Values(Vec<String>),
     Pattern {
         prefix: String,
         width: usize,
@@ -82,7 +79,7 @@ impl Failures {
 pub struct RuntimeHooks {
     tape: Option<Tape>,
     cursors: SkipMap<String, AtomicUsize>,
-    identities: SkipMap<u64, OnceLock<ClockResult<JavaString>>>,
+    identities: SkipMap<u64, OnceLock<ClockResult<String>>>,
     timeline: Option<Arc<Timeline>>,
     epoch: std::time::Instant,
     failures: Arc<Failures>,
@@ -201,7 +198,7 @@ impl ReplayHooks for RuntimeHooks {
             _ => self.failures.fail(label, "draw is not a signed i32"),
         }
     }
-    fn choose_key(&self, label: &'static str, candidates: &[JavaString]) -> ClockResult<JavaString> {
+    fn choose_key(&self, label: &'static str, candidates: &[String]) -> ClockResult<String> {
         if self.tape.is_none() {
             return candidates
                 .get(if candidates.is_empty() {
@@ -217,7 +214,7 @@ impl ReplayHooks for RuntimeHooks {
             _ => self.failures.fail(label, "draw does not name a candidate"),
         }
     }
-    fn allocate_id(&self, label: &'static str) -> ClockResult<JavaString> {
+    fn allocate_id(&self, label: &'static str) -> ClockResult<String> {
         if self.tape.is_none() {
             let id: u128 = rand::random();
             let id = (id & !(0xf000_u128 << 64) & !(0xc000_u128 << 48)) | (0x4000_u128 << 64) | (0x8000_u128 << 48);
@@ -229,8 +226,7 @@ impl ReplayHooks for RuntimeHooks {
                 &raw[12..16],
                 &raw[16..20],
                 &raw[20..]
-            )
-            .into());
+            ));
         }
         let index = self.count("id", label);
         match self.tape.as_ref().and_then(|t| t.ids.get(label)) {
@@ -250,19 +246,18 @@ impl ReplayHooks for RuntimeHooks {
                     format!("{prefix}{value:0width$x}{suffix}")
                 } else {
                     format!("{prefix}{value:0width$}{suffix}")
-                }
-                .into())
+                })
             }
             None => self.failures.fail(label, "ID tape missing"),
         }
     }
-    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<JavaString> {
+    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<String> {
         self.identities
             .get_or_insert(identity.0, OnceLock::new())
             .value()
             .get_or_init(|| {
                 if self.tape.is_none() {
-                    Ok(format!("{:x}", rand::random::<u32>()).into())
+                    Ok(format!("{:x}", rand::random::<u32>()))
                 } else {
                     self.allocate_id(label)
                 }
@@ -353,18 +348,12 @@ impl BarrierPermit for Permit {
     }
 }
 impl ReplayBarriers for Arc<Barriers> {
-    fn enter<'a>(&'a self, label: &'static str, key: &'a JavaString) -> BarrierFuture<'a> {
+    fn enter<'a>(&'a self, label: &'static str, key: &'a String) -> BarrierFuture<'a> {
         Box::pin(async move {
             if self.script.is_empty() {
                 return Ok(Box::new(NoopPermit) as Box<dyn BarrierPermit>);
             }
-            let token = format!(
-                "{label}:{}",
-                key.as_utf8().map_err(|_| ReplayError {
-                    label: label.into(),
-                    message: "invalid barrier key".into()
-                })?
-            );
+            let token = format!("{label}:{}", key.to_owned());
             let cursor = self.cursor.load(Ordering::SeqCst);
             let Some(index) = self
                 .script

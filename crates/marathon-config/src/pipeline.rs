@@ -47,8 +47,8 @@ fn bind_first<T: Send>(
         context
             .environment
             .iter()
-            .find(|(k, _)| k == &key.into())
-            .map(|(_, v)| v.to_string_lossy())
+            .find(|(k, _)| k == &key.to_owned())
+            .map(|(_, v)| v.to_owned())
     });
     let text = substitutor.replace(&decoded).map_err(LoadError::Substitution)?;
     let stream = snakeyaml::node::load(&text);
@@ -79,7 +79,7 @@ pub fn bind_bytes<T: Send>(
     bind_first(bytes, context, bind)
         .and_then(|bound| bound.ok_or(LoadError::NullDocument))
         .map_err(|error| match error {
-            LoadError::Configuration(mut e) if e.class.to_string_lossy().starts_with("com.fasterxml.jackson.") => {
+            LoadError::Configuration(mut e) if e.class.to_owned().starts_with("com.fasterxml.jackson.") => {
                 e.causes.insert(
                     0,
                     ConfigurationCause {
@@ -90,7 +90,7 @@ pub fn bind_bytes<T: Send>(
                 e.class = "com.malinskiy.marathon.config.exceptions.ConfigurationException".into();
                 let path =
                     jcompat::file_manager::absolute_file_path_utf16(&context.marathonfile.0, &context.process_dir.0);
-                e.message = Some(format!("Error parsing config file {}", String::from_utf16_lossy(&path.0)).into());
+                e.message = Some(format!("Error parsing config file {}", String::from_utf16_lossy(&path.0)));
                 LoadError::Configuration(e)
             }
             other => other,

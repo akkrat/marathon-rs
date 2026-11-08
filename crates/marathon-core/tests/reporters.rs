@@ -61,14 +61,14 @@ fn parse_results_match_actual_command_emission() {
         ),
     ] {
         assert_eq!(
-            parse_results(&tests, &flaky).to_utf8_bytes(),
+            parse_results(&tests, &flaky).as_bytes().to_vec(),
             bytes(&expected["files"][format!("{id}.yml")]),
             "{id}"
         );
     }
 }
 
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 use marathon_core::{
     analytics::{DelegatingTrackerInternal, ExecutionReportGenerator, TrackerInternal, TrackerInternalAdapter},
     error::*,
@@ -108,7 +108,7 @@ impl OutputFiles for FailFiles {
     ) -> ServiceFuture<'a, JavaPath> {
         self.inner.create_folder(kind, pool, device)
     }
-    fn create_test_result_file<'a>(&'a self, name: &'a JavaString) -> ServiceFuture<'a, JavaPath> {
+    fn create_test_result_file<'a>(&'a self, name: &'a String) -> ServiceFuture<'a, JavaPath> {
         self.inner.create_test_result_file(name)
     }
 }
@@ -266,7 +266,7 @@ fn stdout_awaits_async_sink_off_core_without_using_the_blocking_pool() {
             let Err(OperationError::Failed(error)) = reporter.generate(&report).await else {
                 panic!("sink failure was lost");
             };
-            assert_eq!(error.class, JavaString::from("SinkFailure"));
+            assert_eq!(error.class, String::from("SinkFailure"));
             assert_eq!(error.message, Some("after suspension".into()));
             assert_eq!(io.spawns.load(Ordering::SeqCst), 1);
             assert_eq!(io.blocking.load(Ordering::SeqCst), 0);

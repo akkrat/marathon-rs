@@ -8,10 +8,7 @@ use super::{
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use futures_util::future::join_all;
-use jcompat::{
-    logging::{Level, Logger},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger};
 use marathon_apple::{
     bin::AppleBinaryEnvironment,
     cmd::{failure, remote::ssh::sshj::config::SshLogging},
@@ -89,7 +86,7 @@ impl SimulatorCommands for SimctlCommands {
     }
 }
 pub type Registration<H> =
-    Arc<dyn Fn(JavaString, ConstructedSimulator<H>) -> ProvisioningFuture<'static, ()> + Send + Sync>;
+    Arc<dyn Fn(String, ConstructedSimulator<H>) -> ProvisioningFuture<'static, ()> + Send + Sync>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FailedSetup {
     Existing {
@@ -176,10 +173,10 @@ pub struct SimulatorProvisioner<H> {
     factory: Arc<dyn SimulatorCreating<Handle = H>>,
     register: Registration<H>,
     concurrency: usize,
-    permits: Mutex<HashMap<JavaString, Arc<Semaphore>>>,
+    permits: Mutex<HashMap<String, Arc<Semaphore>>>,
     logging: SshLogging,
     logger: Logger,
-    local_identity: JavaString,
+    local_identity: String,
 }
 impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
     pub fn new(
@@ -389,9 +386,9 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                 .await?;
             simulator = Some(created.clone());
             active(caller)?;
-            let mut id: JavaString = udid.into();
-            id.push_str("@");
-            id.append(transport.id());
+            let mut id: String = udid.into();
+            id.push('@');
+            id.push_str(&transport.id());
             (self.register)(id, created).await?;
             Ok(Outcome::SetUp)
         }
@@ -401,7 +398,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             Err(error) if matches!(error.original, SetupError::Dropped(_)) => {
                 self.log(
                     Level::Info,
-                    || error.failure().message.unwrap_or_default().to_string_lossy(),
+                    || error.failure().message.unwrap_or_default().to_owned(),
                     None,
                 );
                 Ok(Outcome::Dropped)
@@ -443,8 +440,8 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
         caller: &VendorContext,
     ) -> ProvisioningResult<Option<FailedSetup>> {
         let available = cycle.inventory(bin, caller).await?;
-        let kind = profile.fully_qualified_device_type_id().to_string_lossy();
-        let runtime = profile.fully_qualified_runtime_id().map(|s| s.to_string_lossy());
+        let kind = profile.fully_qualified_device_type_id().to_owned();
+        let runtime = profile.fully_qualified_runtime_id().map(|s| s.to_owned());
         if !available
             .devicetypes
             .iter()
@@ -470,7 +467,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             .hooks
             .allocate_id("ios.SimulatorProvisioner.create")
             .map_err(clock_error)?;
-        let name = format!("{}-{}", profile.new_name_prefix.to_string_lossy(), id.to_string_lossy());
+        let name = format!("{}-{}", profile.new_name_prefix.to_owned(), id.to_owned());
         let cleanup = protected(caller);
         let udid = self
             .commands

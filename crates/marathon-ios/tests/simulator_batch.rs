@@ -127,10 +127,7 @@ async fn batches_stopped_by_the_idle_timeout_before_any_test_finished_take_the_s
     };
     for _ in 0..2 {
         let e = run(&h, &d).await.0.unwrap_err();
-        assert_eq!(
-            e.failure().class.to_string_lossy(),
-            "java.util.concurrent.TimeoutException"
-        );
+        assert_eq!(e.failure().class.to_owned(), "java.util.concurrent.TimeoutException");
         assert!(!d.lost());
     }
     let e = run(&h, &d).await.0.unwrap_err();
@@ -138,7 +135,7 @@ async fn batches_stopped_by_the_idle_timeout_before_any_test_finished_take_the_s
     assert!(
         e.failure()
             .stack_trace()
-            .to_string_lossy()
+            .to_owned()
             .contains("Suppressed: java.util.concurrent.TimeoutException")
     );
     assert!(d.lost());
@@ -157,20 +154,12 @@ async fn silent_batches_take_the_simulator_out_with_the_default_settings_d39() -
     };
     for _ in 0..2 {
         let e = run(&h, &d).await.0.unwrap_err();
-        assert_eq!(
-            e.failure().class.to_string_lossy(),
-            "java.util.concurrent.TimeoutException"
-        );
+        assert_eq!(e.failure().class.to_owned(), "java.util.concurrent.TimeoutException");
         assert!(!d.lost());
     }
     let e = run(&h, &d).await.0.unwrap_err();
     assert!(matches!(e, VendorError::DeviceLost(_)));
-    assert!(
-        e.failure()
-            .stack_trace()
-            .to_string_lossy()
-            .contains("idle timeout reached")
-    );
+    assert!(e.failure().stack_trace().to_owned().contains("idle timeout reached"));
     assert!(d.lost());
     h.finish(&[d]).await;
     Ok(())
@@ -189,10 +178,7 @@ async fn silent_batches_with_progress_keep_the_simulator_d39() -> TestResult {
     };
     for _ in 0..10 {
         let e = run(&h, &d).await.0.unwrap_err();
-        assert_eq!(
-            e.failure().class.to_string_lossy(),
-            "java.util.concurrent.TimeoutException"
-        );
+        assert_eq!(e.failure().class.to_owned(), "java.util.concurrent.TimeoutException");
         assert!(!d.lost());
     }
     h.finish(&[d]).await;

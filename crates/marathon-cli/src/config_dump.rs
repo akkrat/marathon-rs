@@ -10,7 +10,6 @@ use crate::application::{
 use jcompat::{
     file_manager::{JavaPath, absolute_file_path_utf16, file_path},
     jtime::{Instant, InstantParseError, parse_instant_detailed},
-    writers::JavaString,
 };
 use marathon_config::{
     binding::{BindingContext, Profile},
@@ -101,17 +100,17 @@ fn parse_failure(error: &InstantParseError) -> Failure {
 }
 
 /// `readEnvFile`: `KEY=VALUE` lines; blank lines and `#` lines are skipped; the value follows the first `=`.
-fn read_env_file(path: &str) -> Result<Vec<(JavaString, JavaString)>, Failure> {
+fn read_env_file(path: &str) -> Result<Vec<(String, String)>, Failure> {
     let text = fs::read_to_string(path).map_err(|e| read_failure(&file_path(path), &e))?;
-    let mut env: Vec<(JavaString, JavaString)> = Vec::new();
+    let mut env: Vec<(String, String)> = Vec::new();
     for line in text.lines() {
         if line.trim().is_empty() || line.starts_with('#') {
             continue;
         }
         match line.find('=') {
             Some(eq) if eq > 0 => {
-                let key = JavaString::from(&line[..eq]);
-                let value = JavaString::from(&line[eq + 1..]);
+                let key = String::from(&line[..eq]);
+                let value = String::from(&line[eq + 1..]);
                 // `associate`: a later line replaces an earlier one in place.
                 match env.iter_mut().find(|(k, _)| *k == key) {
                     Some(entry) => entry.1 = value,
@@ -181,7 +180,7 @@ fn parse_and_validate(
     given: &JavaPath,
     absolute: &str,
     cwd: &JavaPath,
-    environment: Vec<(JavaString, JavaString)>,
+    environment: Vec<(String, String)>,
     now: Instant,
 ) -> (&'static str, Option<Failure>, Option<marathon_config::Configuration>) {
     let parsed = (|| {
@@ -289,7 +288,7 @@ fn fs_effects(before: &BTreeMap<Key, Entry>, after: &BTreeMap<Key, Entry>) -> Du
             };
             Some(DumpValue::object(vec![
                 ("op", DumpValue::str(op)),
-                ("path", DumpValue::Str(JavaString(path.clone()))),
+                ("path", DumpValue::Str(String::from_utf16_lossy(&path.clone()))),
                 ("kind", DumpValue::str(e.kind)),
                 ("size", e.size.map_or(DumpValue::Null, |s| DumpValue::Int(s as i64))),
                 ("sha256", e.sha256.as_deref().map_or(DumpValue::Null, DumpValue::str)),

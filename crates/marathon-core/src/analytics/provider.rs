@@ -37,13 +37,13 @@ const CLOSE_JOIN_BOUND_MILLIS: i64 = 3_000;
 
 #[derive(Clone, Default)]
 struct State {
-    measurements: Vec<(MetricsKey, Arc<BTreeMap<JavaString, f64>>)>,
+    measurements: Vec<(MetricsKey, Arc<BTreeMap<String, f64>>)>,
 }
 #[derive(Default)]
 struct Observations {
     // Kotlin LinkedHashMap: averaging preserves first-observation order.
     values: Vec<Arc<Mutex<Vec<i64>>>>,
-    index: HashMap<JavaString, usize>,
+    index: HashMap<String, usize>,
 }
 /// D34. Touched off core only, and never held across an await.
 #[derive(Default)]
@@ -67,8 +67,8 @@ struct Shared {
     // Publish before removing the old generation. Readers always see a complete
     // immutable snapshot; no blocking lock, no retention of past generations.
     state: SkipMap<u64, Arc<State>>,
-    warned_success: SkipMap<JavaString, AtomicBool>,
-    warned_time: SkipMap<JavaString, AtomicBool>,
+    warned_success: SkipMap<String, AtomicBool>,
+    warned_time: SkipMap<String, AtomicBool>,
     // Also serialises writers of `state`.
     refresh: Mutex<Refresh>,
 }
@@ -175,7 +175,7 @@ impl Shared {
     fn refresh(&self) -> MutexGuard<'_, Refresh> {
         self.refresh.lock().unwrap_or_else(|e| e.into_inner())
     }
-    fn publish_values(&self, _writer: &MutexGuard<'_, Refresh>, key: MetricsKey, rows: Vec<(JavaString, f64)>) {
+    fn publish_values(&self, _writer: &MutexGuard<'_, Refresh>, key: MetricsKey, rows: Vec<(String, f64)>) {
         let values = Arc::new(rows.into_iter().collect());
         let mut next = (*self.snapshot()).clone();
         match next.measurements.iter_mut().find(|(cached, _)| *cached == key) {
@@ -209,13 +209,13 @@ impl Shared {
         attempts: i32,
         retry_delay_millis: i64,
         cancellation: Arc<dyn CancellationSignal>,
-    ) -> OperationResult<Result<Vec<(JavaString, f64)>, Failure>> {
+    ) -> OperationResult<Result<Vec<(String, f64)>, Failure>> {
         let (label, description, warning) = Self::describe(key);
         let started = self
             .context
             .monotonic
             .nanos(label)
-            .map_err(|e| failure("marathon.ReplayError", &e.message.to_string_lossy()))?;
+            .map_err(|e| failure("marathon.ReplayError", &e.message.to_owned()))?;
         let fetched = with_retry_send(
             attempts,
             retry_delay_millis,
@@ -253,7 +253,7 @@ impl Shared {
             .context
             .monotonic
             .nanos(label)
-            .map_err(|e| failure("marathon.ReplayError", &e.message.to_string_lossy()))?
+            .map_err(|e| failure("marathon.ReplayError", &e.message.to_owned()))?
             .wrapping_sub(started)
             / 1_000_000;
         let outcome = fetched
@@ -262,7 +262,7 @@ impl Shared {
         self.context.log(
             "Timings",
             Level::Info,
-            format!("{description} {outcome} in {elapsed} ms").into(),
+            format!("{description} {outcome} in {elapsed} ms"),
             None,
         );
         if let (MetricsKey::ExecutionTime { .. }, Ok(rows)) = (key, &fetched) {
@@ -273,7 +273,7 @@ impl Shared {
                         name: "ExecutionTime".into(),
                         fields: vec![
                             ("testName".into(), KotlinValue::Text(name.clone())),
-                            ("percentile".into(), KotlinValue::Text(double_to_string(*value).into())),
+                            ("percentile".into(), KotlinValue::Text(double_to_string(*value))),
                         ],
                     })
                     .collect(),
@@ -332,7 +332,7 @@ impl Shared {
             }
         }
     }
-    fn refreshed(&self, key: MetricsKey, fetched: Result<Vec<(JavaString, f64)>, Failure>) {
+    fn refreshed(&self, key: MetricsKey, fetched: Result<Vec<(String, f64)>, Failure>) {
         let (_, description, _) = Self::describe(key);
         let mut refresh = self.refresh();
         let Some(index) = refresh.failed.iter().position(|(failed, _)| *failed == key) else {
@@ -353,7 +353,7 @@ impl Shared {
                 self.context.log(
                     "MetricsProviderImpl",
                     Level::Info,
-                    format!("{description} returned {count} tests after failing earlier. {effect}").into(),
+                    format!("{description} returned {count} tests after failing earlier. {effect}"),
                     None,
                 );
             }
@@ -370,8 +370,7 @@ impl Shared {
                     format!(
                         "{description} failed {} more times. Tests without history use the defaults for the rest of this run",
                         REFRESH_DELAYS_MILLIS.len()
-                    )
-                    .into(),
+                    ),
                     None,
                 );
             }
@@ -400,8 +399,7 @@ impl Shared {
                 Level::Warn,
                 format!(
                     "The history refresh did not stop within {CLOSE_JOIN_BOUND_MILLIS} ms of being cancelled. Closing the analytics backend with its query still running"
-                )
-                .into(),
+                ),
                 None,
             ),
             // A failed clock cannot bound anything, and only a replay has one that fails.
@@ -410,7 +408,7 @@ impl Shared {
             }
         }
     }
-    fn measurement<'a>(&self, state: &'a State, key: MetricsKey) -> Option<&'a BTreeMap<JavaString, f64>> {
+    fn measurement<'a>(&self, state: &'a State, key: MetricsKey) -> Option<&'a BTreeMap<String, f64>> {
         let found = state
             .measurements
             .iter()
@@ -419,7 +417,7 @@ impl Shared {
         debug_assert!(found.is_some(), "MetricsKey must be prefetched off core before lookup");
         found
     }
-    fn observed(&self, name: &JavaString, p: f64) -> Option<f64> {
+    fn observed(&self, name: &String, p: f64) -> Option<f64> {
         let min = self.defaults.observed_duration_min_tests?;
         let observed = self.observed.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(index) = observed.index.get(name) {
@@ -464,8 +462,8 @@ impl Shared {
             .value()
             .swap(true, Ordering::Relaxed)
         {
-            let mut message = JavaString::from("No execution time found for ");
-            message.append(name);
+            let mut message = String::from("No execution time found for ");
+            message.push_str(&name);
             message.push_str(&format!(". Using {} ms", double_to_string(expected)));
             self.context.log("MetricsProviderImpl", Level::Debug, message, None);
         }
@@ -485,8 +483,8 @@ impl Shared {
             .value()
             .swap(true, Ordering::Relaxed)
         {
-            let mut message = JavaString::from("No success rate found for ");
-            message.append(name);
+            let mut message = String::from("No success rate found for ");
+            message.push_str(&name);
             message.push_str(&format!(". Using {}", double_to_string(self.defaults.success_rate)));
             self.context.log("MetricsProviderImpl", Level::Warn, message, None);
         }
@@ -586,7 +584,7 @@ impl MetricsProvider for MetricsProviderImpl {
         tests: &'a [Test],
         percentile: f64,
         limit: Instant,
-        usage: &'a JavaString,
+        usage: &'a String,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
             let names: BTreeSet<_> = tests.iter().map(Test::to_safe_test_name).collect();
@@ -602,8 +600,8 @@ impl MetricsProvider for MetricsProviderImpl {
                 .filter(|name| measurements.is_some_and(|m| m.contains_key(*name)))
                 .count();
             let without = names.len() - with;
-            let mut message = JavaString::from("Execution time history for ");
-            message.append(usage.clone());
+            let mut message = String::from("Execution time history for ");
+            message.push_str(&usage.clone());
             message.push_str(&format!(
                 " (percentile {} since {limit}): {with} of {} tests have it",
                 double_to_string(percentile),

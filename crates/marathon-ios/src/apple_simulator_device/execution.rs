@@ -130,7 +130,7 @@ impl AppleSimulatorDevice {
                 format!(
                     "Device {} idle gap before batch {}: {} ms",
                     self.serial,
-                    batch.id.to_string_lossy(),
+                    batch.id.to_owned(),
                     now.wrapping_sub(previous) / 1_000_000
                 ),
                 None,
@@ -176,7 +176,7 @@ impl AppleSimulatorDevice {
         &self,
         outcome: Result<(), RunError>,
         job: &Arc<BatchJob>,
-        batch: &JavaString,
+        batch: &String,
         results: &Arc<dyn Deferred<TestBatchResults>>,
         context: &VendorContext,
     ) -> VendorResult<()> {
@@ -199,7 +199,7 @@ impl AppleSimulatorDevice {
             self.retire();
             return Err(error.into_vendor());
         }
-        if error.error.failure().class == JavaString::from("java.util.concurrent.TimeoutException") {
+        if error.error.failure().class == "java.util.concurrent.TimeoutException" {
             let error = error.into_vendor();
             let loss = self
                 .state()
@@ -218,7 +218,7 @@ impl AppleSimulatorDevice {
             }
             return Err(error.into_vendor());
         }
-        let class = error.error.failure().class.to_string_lossy();
+        let class = error.error.failure().class.to_owned();
         if [CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, ILLEGAL_STATE_EXCEPTION]
             .iter()
             .any(|base| is_instance(&class, base))
@@ -249,9 +249,7 @@ impl AppleSimulatorDevice {
                     error
                         .error
                         .failure()
-                        .message
-                        .as_ref()
-                        .map(JavaString::to_string_lossy)
+                        .message.clone()
                         .unwrap_or_else(|| reason.name().into()),
                 )));
             }
@@ -259,7 +257,7 @@ impl AppleSimulatorDevice {
                 Level::Warn,
                 format!(
                     "Test batch {} failed on {}, keeping the device",
-                    batch.to_string_lossy(),
+                    batch.to_owned(),
                     self.serial
                 ),
                 Some(error.into_vendor().failure().clone()),

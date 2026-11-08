@@ -92,7 +92,7 @@ async fn invalid_simulator_does_not_directly_close_the_shared_executor() -> Test
         .await
         .unwrap_err();
     assert_eq!(
-        failure.failure().message.unwrap().to_string_lossy(),
+        failure.failure().message.unwrap().to_owned(),
         "udid missing is missing at local"
     );
     assert_eq!(constructor.constructs.load(Ordering::SeqCst), 0);
@@ -116,7 +116,7 @@ async fn failed_setup_disposes_the_partially_initialized_device_without_closing_
         )
         .await
         .unwrap_err();
-    assert_eq!(failure.failure().message.unwrap().to_string_lossy(), "setup failed");
+    assert_eq!(failure.failure().message.unwrap().to_owned(), "setup failed");
     assert_eq!(c.device.disposed.load(Ordering::SeqCst), 1);
     assert!(h.worker.connected());
     Ok(())
@@ -161,24 +161,19 @@ async fn disposal_failure_is_suppressed_under_the_original_setup_failure() -> Te
         .await
         .unwrap_err();
     assert_eq!(
-        serde_json::json!({"original":failure.failure().message.as_ref().unwrap().to_string_lossy(), "suppressed":failure.suppressed.iter().map(|e| e.failure().message.as_ref().unwrap().to_string_lossy()).collect::<Vec<_>>()}),
+        serde_json::json!({"original":failure.failure().message.as_ref().unwrap().to_owned(), "suppressed":failure.suppressed.iter().map(|e| e.failure().message.as_ref().unwrap().to_owned()).collect::<Vec<_>>()}),
         witness("factory-suppressed")
     );
-    assert_eq!(failure.failure().message.unwrap().to_string_lossy(), "setup");
+    assert_eq!(failure.failure().message.unwrap().to_owned(), "setup");
     assert_eq!(
-        failure.suppressed[0]
-            .failure()
-            .message
-            .as_ref()
-            .unwrap()
-            .to_string_lossy(),
+        failure.suppressed[0].failure().message.as_ref().unwrap().to_owned(),
         "dispose"
     );
     assert!(
         failure
             .output_failure()
             .stack_trace()
-            .to_string_lossy()
+            .to_owned()
             .contains("\tSuppressed: java.lang.IllegalStateException: dispose")
     );
     Ok(())
@@ -285,7 +280,7 @@ async fn post_setup_timing_failure_still_disposes_the_device() -> TestResult {
         )
         .await
         .unwrap_err();
-    assert_eq!(failure.failure().message.unwrap().to_string_lossy(), "clock exhausted");
+    assert_eq!(failure.failure().message.unwrap().to_owned(), "clock exhausted");
     assert_eq!(device.disposed.load(Ordering::SeqCst), 1);
     Ok(())
 }
@@ -307,7 +302,7 @@ fn bridge_error_conversion_preserves_typed_cancellation_and_suppressed_disposal(
         converted
             .failure()
             .stack_trace()
-            .to_string_lossy()
+            .to_owned()
             .contains("Suppressed: java.lang.IllegalStateException: dispose")
     );
 }

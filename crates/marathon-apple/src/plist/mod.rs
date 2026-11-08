@@ -356,11 +356,8 @@ mod worker_boundary_test {
                 message: "read denied".into(),
             },
         );
-        assert_eq!(error.failure().class.to_string_lossy(), "java.io.IOException");
-        assert_eq!(
-            error.failure().message.as_ref().unwrap().to_string_lossy(),
-            "read denied"
-        );
+        assert_eq!(error.failure().class.to_owned(), "java.io.IOException");
+        assert_eq!(error.failure().message.as_ref().unwrap().to_owned(), "read denied");
         let bytes = b"<plist><dict><key>state</key><integer>1</integer></dict></plist>";
         assert_eq!(
             super::worker_descriptor(bytes).unwrap().get_cloned("state"),
@@ -371,7 +368,7 @@ mod worker_boundary_test {
                 .unwrap_err()
                 .failure()
                 .class
-                .to_string_lossy(),
+                .to_owned(),
             "java.lang.IllegalArgumentException"
         );
     }

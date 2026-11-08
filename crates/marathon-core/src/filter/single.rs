@@ -4,11 +4,11 @@
 
 use super::{failure, select, values::FilterValuesReader};
 use crate::{error::OperationResult, model::Test};
-use jcompat::{JavaRegex, writers::JavaString};
+use jcompat::JavaRegex;
 use marathon_config::schema::{RegexValuesFileFilter, TestPackageFilter};
 use std::sync::{Arc, Mutex};
 
-type Values = Option<Arc<[JavaString]>>;
+type Values = Option<Arc<[String]>>;
 /// Cache locks are taken only inside the joined blocking task, never on core.
 #[derive(Clone)]
 pub struct SingleValueFilter {
@@ -110,8 +110,10 @@ impl SingleValueFilter {
                     }
                     if self.subpackages && matches!(field, Field::Package) {
                         let mut prefix = value.clone();
-                        prefix.push_str(".");
-                        name.0.starts_with(&prefix.0)
+                        prefix.push('.');
+                        name.encode_utf16()
+                            .collect::<Vec<_>>()
+                            .starts_with(&prefix.encode_utf16().collect::<Vec<_>>())
                     } else {
                         false
                     }
@@ -121,12 +123,7 @@ impl SingleValueFilter {
     }
 }
 
-pub(super) fn matches_regex(regex: &JavaRegex, text: &JavaString, field: &str) -> OperationResult<bool> {
-    let text = text.as_utf8().map_err(|_| {
-        failure(
-            "java.lang.IllegalArgumentException",
-            &format!("invalid UTF-16 in {field} for regex {}", regex.pattern()),
-        )
-    })?;
+pub(super) fn matches_regex(regex: &JavaRegex, text: &String, _field: &str) -> OperationResult<bool> {
+    let text = text.to_owned();
     Ok(regex.matches(&text))
 }

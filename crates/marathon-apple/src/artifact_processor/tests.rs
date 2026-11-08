@@ -60,7 +60,7 @@ impl Harness {
             )
             .await
     }
-    async fn close(&self) -> Vec<JavaString> {
+    async fn close(&self) -> Vec<String> {
         self.p.close_and_join(300_000, 60_000, &self.context).await.unwrap()
     }
     async fn barrier(&self, owner: &str) {
@@ -97,8 +97,8 @@ async fn settle() {
         tokio::task::yield_now().await;
     }
 }
-fn strings(values: &[JavaString]) -> Vec<String> {
-    values.iter().map(JavaString::to_string_lossy).collect()
+fn strings(values: &[String]) -> Vec<String> {
+    values.iter().map(String::clone).collect()
 }
 
 struct Model {
@@ -390,7 +390,7 @@ async fn device_barrier_protects_all_its_bundles_until_cleanup_completes_and_fai
     prepare.await;
     let retained = reports.await;
     assert_eq!(retained.len(), 1);
-    assert!(retained[0].to_string_lossy().contains("transfer failed"));
+    assert!(retained[0].to_owned().contains("transfer failed"));
     h.barrier("device").await;
     h.barrier("unknown").await;
 }
@@ -438,7 +438,7 @@ async fn timed_out_drain_cancels_admitted_work_and_later_admission_does_not_thro
     assert_eq!(retained.len(), 1);
     assert!(
         retained[0]
-            .to_string_lossy()
+            .to_owned()
             .contains("kotlinx.coroutines.JobCancellationException: Job was cancelled")
     );
     assert_eq!(h.clock.now(), 10);
@@ -489,14 +489,14 @@ async fn every_undelivered_bundle_is_returned_and_logged_as_an_error_at_finaliza
     settle().await;
     let retained = h.p.close_and_join(10, 500, &h.context).await.unwrap();
     assert_eq!(retained.len(), 3);
-    assert_eq!(retained[0], JavaString::from("a@worker-1, batch reported: pull failed"));
+    assert_eq!(retained[0], String::from("a@worker-1, batch reported: pull failed"));
     let logs = h.logs.lock().unwrap();
     let summary = logs
         .iter()
         .find(|(l, m, _)| *l == Level::Error && m.starts_with("3 artifact bundle"))
         .unwrap();
     for d in retained {
-        assert!(summary.1.contains(&d.to_string_lossy()));
+        assert!(summary.1.contains(&d.to_owned()));
     }
 }
 #[tokio::test(start_paused = true)]
@@ -574,7 +574,7 @@ async fn failing_report_callbacks_do_not_stop_shutdown_and_waiting_submitters_ar
         "failing".into(),
         "mac".into(),
         Some(Arc::new(move |r| {
-            e.lock().unwrap().push(r.to_string_lossy());
+            e.lock().unwrap().push(r.to_owned());
             Err(failure("java.lang.IllegalStateException", "report failed"))
         })),
         empty(),
@@ -688,11 +688,11 @@ async fn shutdown_waits_a_bounded_time_for_work_that_ignores_cancellation_and_re
     assert_eq!(retained.len(), 3);
     assert_eq!(
         retained[1],
-        JavaString::from("stuck@mac, batch stuck: still running 500 ms after shutdown cancelled it")
+        String::from("stuck@mac, batch stuck: still running 500 ms after shutdown cancelled it")
     );
     assert_eq!(
         retained[2],
-        JavaString::from("queued@mac, batch queued: not started before shutdown")
+        String::from("queued@mac, batch queued: not started before shutdown")
     );
     for owner in ["stuck@mac", "queued@mac", "aware@mini", "failing@studio"] {
         h.barrier(owner).await;
@@ -716,16 +716,14 @@ async fn protected_sources_stay_kept_through_finalization_and_are_reported_once(
     let h = Harness::new(2, 4, 1);
     let callback = |source: &str| -> Undelivered {
         let p = Arc::downgrade(&h.p);
-        let source = JavaString::from(source);
+        let source = String::from(source);
         Arc::new(move |reason| {
             let p = p.upgrade().unwrap();
             p.release(&"device".into(), &source);
             p.report_undelivered(
                 &"device".into(),
                 Some(&source),
-                format!("{}: {}", source.to_string_lossy(), reason.to_string_lossy())
-                    .as_str()
-                    .into(),
+                format!("{}: {}", source.to_owned(), reason.to_owned()).as_str().into(),
             );
             Ok(())
         })
@@ -887,9 +885,7 @@ async fn work_its_worker_finishes_reporting_after_the_cancellation_deadline_is_s
         p.upgrade().unwrap().report_undelivered(
             &"device".into(),
             None,
-            format!("device, batch late: {}", reason.to_string_lossy())
-                .as_str()
-                .into(),
+            format!("device, batch late: {}", reason.to_owned()).as_str().into(),
         );
         Ok(())
     });
@@ -924,7 +920,7 @@ async fn work_its_worker_finishes_reporting_after_the_cancellation_deadline_is_s
     assert_eq!(retained.len(), 1);
     assert!(
         retained[0]
-            .to_string_lossy()
+            .to_owned()
             .contains("device, batch late: processing did not complete")
     );
     assert_eq!(h.close().await, retained);
@@ -937,8 +933,8 @@ struct SimWork {
 }
 enum Event {
     Submit(usize, usize),
-    Start(JavaString),
-    Finish(JavaString, Item<SimWork>),
+    Start(String),
+    Finish(String, Item<SimWork>),
 }
 struct Simulation {
     q: AdmissionCore<SimWork>,
@@ -946,7 +942,7 @@ struct Simulation {
     sequence: u64,
     now: i64,
     next_id: u64,
-    permits: std::collections::VecDeque<(JavaString, Item<SimWork>)>,
+    permits: std::collections::VecDeque<(String, Item<SimWork>)>,
     active: usize,
     peak_active: usize,
     peak_depth: i32,
@@ -968,7 +964,7 @@ impl Simulation {
         self.events.push((at, self.sequence, event));
         self.sequence += 1;
     }
-    fn admitted(&mut self, worker: JavaString, work: SimWork, info: Admission) {
+    fn admitted(&mut self, worker: String, work: SimWork, info: Admission) {
         self.waits.push(info.wait_millis);
         self.peak_depth = self.peak_depth.max(info.worker_depth);
         self.peak_outstanding = self.peak_outstanding.max(info.depth);
@@ -984,7 +980,7 @@ impl Simulation {
             self.event(self.now + self.batch_time, Event::Submit(work.device, work.batch + 1));
         }
     }
-    fn transfer(&mut self, worker: JavaString, item: Item<SimWork>) {
+    fn transfer(&mut self, worker: String, item: Item<SimWork>) {
         if self.active >= self.q.concurrency as usize {
             self.permits.push_back((worker, item));
             return;
@@ -1060,7 +1056,7 @@ impl Simulation {
             }
             match event {
                 Event::Submit(device, batch) => {
-                    let worker: JavaString = format!("worker-{}", device / 4).as_str().into();
+                    let worker: String = format!("worker-{}", device / 4).as_str().into();
                     let waiter = Waiter {
                         item: Item {
                             id: s.next_id,
@@ -1289,7 +1285,7 @@ fn frozen_jvm_transitions_match_the_admission_core_field_by_field() {
             header["concurrency"].as_i64().unwrap() as i32,
             header["share"].as_i64().unwrap() as i32,
         );
-        let mut work: std::collections::HashMap<u64, (JavaString, JavaString)> = Default::default();
+        let mut work: std::collections::HashMap<u64, (String, String)> = Default::default();
         let mut expected: std::collections::VecDeque<(u64, Admission, i64)> = Default::default();
         for (index, row) in rows.iter().enumerate().skip(1) {
             let kind = row["kind"].as_str().unwrap();
@@ -1305,14 +1301,14 @@ fn frozen_jvm_transitions_match_the_admission_core_field_by_field() {
                 let actual = q
                     .pending()
                     .iter()
-                    .map(|(o, n)| json!([o.to_string_lossy(), n]))
+                    .map(|(o, n)| json!([o.to_owned(), n]))
                     .collect::<Vec<_>>();
                 assert_eq!(json!(actual), *pending, "{scenario}, pending at {index}");
             }
             match kind {
                 "submit" => {
-                    let owner: JavaString = row["owner"].as_str().unwrap().into();
-                    let worker: JavaString = row["worker"].as_str().unwrap().into();
+                    let owner: String = row["owner"].as_str().unwrap().into();
+                    let worker: String = row["worker"].as_str().unwrap().into();
                     work.insert(id, (owner.clone(), worker.clone()));
                     let waiter = Waiter {
                         item: Item {
@@ -1434,7 +1430,7 @@ async fn closed_submit_callback_escapes_and_source_reinsertion_matches_jvm() {
         .find(|r| r["kind"] == "closedCallback")
         .unwrap();
     assert_eq!(
-        error.failure().to_java_string().to_string_lossy(),
+        error.failure().to_java_string().to_owned(),
         fixture["failure"].as_str().unwrap()
     );
 }

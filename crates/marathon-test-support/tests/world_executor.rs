@@ -221,8 +221,8 @@ async fn files_connections_faults_and_independent_worlds() -> Result<()> {
     assert!(matches!(
         e.safe_execute(CommandRequest::new(["env"], duration(1000)), context()).await,
         Err(marathon_core::error::VendorError::Other(f))
-            if f.class.to_string_lossy() == "java.lang.IllegalStateException"
-                && f.message.as_ref().map(|m| m.to_string_lossy()) == Some("Not connected".into())
+            if f.class.to_owned() == "java.lang.IllegalStateException"
+                && f.message.as_ref().map(|m| m.to_owned()) == Some("Not connected".into())
     ));
     assert!(second.connected());
     v(second.close().await)?;

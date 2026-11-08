@@ -4,7 +4,7 @@ use crate::{
     provider::AdamDeviceProvider, runner::InstrumentationChannel, services::AndroidRuntime, support::*,
     test_annotation_parser::TestAnnotationParser,
 };
-use jcompat::{logging::Level, writers::JavaString};
+use jcompat::logging::Level;
 use marathon_adb::{
     instrument_request::{InstrumentOptions, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent},
@@ -22,13 +22,13 @@ pub struct AmInstrumentTestParser {
 }
 struct AttemptError {
     error: VendorError,
-    logcat: JavaString,
+    logcat: String,
 }
 impl From<VendorError> for AttemptError {
     fn from(error: VendorError) -> Self {
         Self {
             error,
-            logcat: JavaString::default(),
+            logcat: String::default(),
         }
     }
 }
@@ -50,20 +50,15 @@ impl AmInstrumentTestParser {
         for bundle in &self.runtime.bundles {
             let b = bundle.clone();
             let info = blocking(self.runtime.dependencies.io.as_ref(), move || b.instrumentation_info()).await?;
-            message.push_str(&format!(
-                "\n- testPackage: {}",
-                info.instrumentation_package.to_string_lossy()
-            ));
+            message.push_str(&format!("\n- testPackage: {}", info.instrumentation_package.to_owned()));
             if !info
                 .application_package
-                .0
+                .encode_utf16()
+                .collect::<Vec<_>>()
                 .iter()
                 .all(|&u| jcompat::jstring::is_whitespace(u))
             {
-                message.push_str(&format!(
-                    "\n  targetPackage: {}",
-                    info.application_package.to_string_lossy()
-                ));
+                message.push_str(&format!("\n  targetPackage: {}", info.application_package.to_owned()));
             }
         }
         self.log(Level::Debug, &message, None);
@@ -96,14 +91,14 @@ impl AmInstrumentTestParser {
                     }) => return Err(e),
                     Err(AttemptError { error, logcat }) => {
                         if error.failure().class
-                            == "com.malinskiy.marathon.android.adam.TestAnnotationProducerNotFoundException".into()
+                            == "com.malinskiy.marathon.android.adam.TestAnnotationProducerNotFoundException"
                         {
                             fallback = true;
                             let b = bundle.clone();
                             let info =
                                 blocking(self.runtime.dependencies.io.as_ref(), move || b.instrumentation_info())
                                     .await?;
-                            self.log(Level::Warn, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_string_lossy(), JavaString(bundle.files.test_application.0.clone()).to_string_lossy(), logcat.to_string_lossy()), None);
+                            self.log(Level::Warn, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_owned(), String::from_utf16_lossy(&bundle.files.test_application.0.clone()).to_owned(), logcat.to_owned()), None);
                         } else {
                             self.log(Level::Debug, "Remote parsing failed. Retrying", Some(error.failure()));
                             // D22, D41: the retries have no delay, so an outage or a brief `offline` would use them all
@@ -154,7 +149,7 @@ impl AmInstrumentTestParser {
                 AndroidTestParserConfiguration::Remote { instrumentation_args } => instrumentation_args
                     .iter()
                     .filter(|(key, value)| {
-                        !(fallback && key == "listener" && *value == TEST_ANNOTATION_PRODUCER.into())
+                        !(fallback && key == "listener" && *value == TEST_ANNOTATION_PRODUCER.to_owned())
                     })
                     .map(|(key, value)| (key.as_str().into(), value.clone()))
                     .collect(),
@@ -193,7 +188,7 @@ impl AmInstrumentTestParser {
                     .ok_or_else(|| {
                         VendorError::TestParsing(failure(
                             "com.malinskiy.marathon.exceptions.TestParsingException",
-                            format!("Unable to parse test list using {}", device.serial_number().to_string_lossy()).as_str(),
+                            format!("Unable to parse test list using {}", device.serial_number().to_owned()).as_str(),
                         ))
                     })?;
                     let Some(events) = events else {
@@ -229,7 +224,7 @@ impl AmInstrumentTestParser {
                             TestEvent::TestRunFailing { ref error, .. }
                             | TestEvent::TestRunFailed { ref error } => {
                                 let logs = listener.stop();
-                                let text = error.to_string_lossy();
+                                let text = error.to_owned();
                                 if (matches!(event, TestEvent::TestRunFailing { .. })
                                     && text.contains(&format!("Could not find extra class {TEST_ANNOTATION_PRODUCER}")))
                                     || (matches!(event, TestEvent::TestRunFailed { .. }) && text.contains("Process crashed"))
@@ -259,7 +254,7 @@ impl AmInstrumentTestParser {
             if !observed {
                 self.log(
                     Level::Warn,
-                    &format!("Bundle {} did not report any test annotations. If you need test annotations retrieval, remote test parser requires additional setup see https://docs.marathonlabs.io/runner/android/configure#test-parser", bundle.id().to_string_lossy()),
+                    &format!("Bundle {} did not report any test annotations. If you need test annotations retrieval, remote test parser requires additional setup see https://docs.marathonlabs.io/runner/android/configure#test-parser", bundle.id().to_owned()),
                     None,
                 );
             }
@@ -284,10 +279,10 @@ struct SessionEnd {
     announced: Option<i32>,
     /// Tests reported as ended, counting one reported twice, as `numtests` does.
     listed: i32,
-    failing: Option<JavaString>,
-    failed: Option<JavaString>,
+    failing: Option<String>,
+    failed: Option<String>,
     /// The text of an `INSTRUMENTATION_CODE` other than -1, which is success.
-    code_failure: Option<JavaString>,
+    code_failure: Option<String>,
 }
 impl SessionEnd {
     /// Why the list is short, if it is. A session can end with a failing code on a whole list, which a retry would only
@@ -298,7 +293,7 @@ impl SessionEnd {
     /// no line break: the transformer can't read that code, whatever it says, and calls the run incomplete. `am` ends its
     /// lines, so a list this short counts as cut. With no count it is `am` refusing to start or output that never was the
     /// protocol, which stay as they are.
-    fn short_list(&self) -> Option<JavaString> {
+    fn short_list(&self) -> Option<String> {
         let failure = self
             .code_failure
             .as_ref()
@@ -309,7 +304,7 @@ impl SessionEnd {
         let mut reason = failure.clone();
         if let Some(failing) = &self.failing {
             reason.push_str(": ");
-            reason.append(failing.clone());
+            reason.push_str(&failing.clone());
         }
         reason.push_str(&format!(", tests listed: {}", self.listed));
         if let Some(count) = self.announced {
@@ -324,18 +319,18 @@ impl SessionEnd {
 fn server_is_not_in_question(error: &VendorError) -> bool {
     matches!(error, VendorError::TestParsing(failure) if failure.cause.is_none())
 }
-fn failure_of_session(device: &AndroidDevice, reason: &JavaString) -> Failure {
-    let mut message = JavaString::from("Unable to parse test list using ");
-    message.append(device.serial_number());
+fn failure_of_session(device: &AndroidDevice, reason: &String) -> Failure {
+    let mut message = String::from("Unable to parse test list using ");
+    message.push_str(&device.serial_number());
     message.push_str(": ");
-    message.append(reason.clone());
+    message.push_str(&reason.clone());
     self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
 }
 fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {
-    let mut message = JavaString::from("Unable to parse test list using ");
-    message.append(device.serial_number());
+    let mut message = String::from("Unable to parse test list using ");
+    message.push_str(&device.serial_number());
     message.push_str(": ");
-    message.append(failure.failure().to_java_string());
+    message.push_str(&failure.failure().to_java_string());
     self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
 }
 impl RemoteTestParser for AmInstrumentTestParser {

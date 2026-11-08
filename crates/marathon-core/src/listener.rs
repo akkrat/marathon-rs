@@ -6,7 +6,7 @@ use crate::{
     model::{Attachment, DeviceInfo, DevicePoolId, Test},
     runtime::{ServiceFuture, VendorFuture},
 };
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 use std::sync::Arc;
 
 /// Sequential awaited callbacks. testEnded may be absent on interruption.
@@ -22,7 +22,7 @@ pub trait TestRunListener: Send + Sync {
     }
 }
 pub trait LineListener: Send + Sync {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()>;
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()>;
     fn close(&self) -> VendorFuture<'_, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -35,20 +35,20 @@ pub trait LogProducer: Send + Sync {
 }
 pub struct LogTarget {
     pub pool: DevicePoolId,
-    pub batch_id: JavaString,
+    pub batch_id: String,
     pub device: DeviceInfo,
     /// None selects batch logs, retaining C1's batchId.batchId filename in 3.9a.
     pub test: Option<Test>,
 }
 /// Backend failures propagate as OperationError::Failed; cancellation stays typed.
 pub trait LogWriter: Send + Sync {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [JavaString]) -> ServiceFuture<'a, JavaPath>;
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath>;
     fn append_logs<'a>(
         &'a self,
         pool: &'a DevicePoolId,
         device: &'a DeviceInfo,
         test: &'a Test,
-        log: &'a JavaString,
+        log: &'a String,
     ) -> ServiceFuture<'a, ()>;
 }
 /// In-memory synchronous callback. Must not perform file I/O or block on core.

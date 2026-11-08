@@ -4,7 +4,7 @@
 //! TestMethod, TestAnnotation, FormatUtils, ParseUtils, DexFileUtils.
 //! The Clikt CLI (`main`, findTestNames) is not ported (WP 6.4 P6).
 //!
-//! Strings are jcompat `JavaString` (UTF-16) exactly once, at decode.
+//! Strings are jcompat `String` (UTF-16) exactly once, at decode.
 //! DEX string data is MUTF-8, but ParseUtils decodes it with
 //! `String(bytes)`, the default charset, which is UTF-8 on the reference
 //! JDK (JEP 400). That decode is reproduced (WP 6.4 P1 withdrawn): an
@@ -18,7 +18,7 @@ use crate::{
         ClassDefItem, Cursor, DexFile, EncodedValue, MethodIdItem, TypeIdItem,
     },
 };
-use jcompat::writers::JavaString;
+
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -27,7 +27,7 @@ use std::{
     sync::Arc,
 };
 
-pub fn java_string(text: &str) -> JavaString {
+pub fn java_string(text: &str) -> String {
     text.into()
 }
 
@@ -35,8 +35,8 @@ pub fn java_string(text: &str) -> JavaString {
 /// element names keep the first position with the last value (Kotlin Map).
 #[derive(Clone, Debug)]
 pub struct TestAnnotation {
-    pub name: JavaString,
-    pub values: Vec<(JavaString, DecodedValue)>,
+    pub name: String,
+    pub values: Vec<(String, DecodedValue)>,
     pub inherited: bool,
 }
 
@@ -68,7 +68,7 @@ impl Eq for TestAnnotation {}
 /// TestMethod (TestMethod.kt); ordering is testName only (Comparable).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestMethod {
-    pub test_name: JavaString,
+    pub test_name: String,
     pub annotations: Vec<TestAnnotation>,
 }
 
@@ -86,11 +86,11 @@ pub enum DecodedValue {
     Long(i64),
     Float(f32),
     Double(f64),
-    String(JavaString),
-    Type(JavaString),
+    String(String),
+    Type(String),
     Null,
     Boolean(bool),
-    Enum(JavaString),
+    Enum(String),
     Array(Arc<[DecodedValue]>),
 }
 
@@ -118,7 +118,7 @@ impl Eq for DecodedValue {}
 /// DexParser.findTestMethods (DexParser.kt:84-95): JUnit3 then JUnit4,
 /// each sorted by testName, concatenated and sorted again; duplicates of
 /// the same method from the two engines are both kept.
-pub fn find_test_methods(apk_path: &Path, custom_annotations: &[JavaString]) -> DexResult<Vec<TestMethod>> {
+pub fn find_test_methods(apk_path: &Path, custom_annotations: &[String]) -> DexResult<Vec<TestMethod>> {
     let dex_files = read_dex_files(apk_path)?;
     let mut junit3 = find_junit3_tests(&dex_files)?;
     junit3.sort_by(|a, b| a.test_name.cmp(&b.test_name));
@@ -248,7 +248,7 @@ fn check_local_header(file: &mut File, header_start: u64) -> DexResult<()> {
 
 /// ParseUtils.parseStringBytes + the size skip every caller does before
 /// it: bytes up to the terminating 0x00, then `String(bytes)`.
-pub fn parse_string_at(dex: &DexFile, offset: i32) -> DexResult<JavaString> {
+pub fn parse_string_at(dex: &DexFile, offset: i32) -> DexResult<String> {
     let mut c = Cursor::at(&dex.data, offset)?;
     c.get_uleb128()?; // utf16 size, parsed and unused upstream
     let mut bytes = Vec::new();
@@ -266,46 +266,46 @@ pub fn parse_string_at(dex: &DexFile, offset: i32) -> DexResult<JavaString> {
 /// decode, one U+FFFD per maximal invalid subpart, where `ED A0..BF`
 /// starts a (surrogate) sequence that becomes ONE U+FFFD. Checked against
 /// the JVM in fixtures/oracle/dex/string-bytes.txt.
-pub fn decode_string_bytes(bytes: &[u8]) -> JavaString {
+pub fn decode_string_bytes(bytes: &[u8]) -> String {
     jcompat::utf8::decode_utf8(bytes).as_str().into()
 }
 
 /// ParseUtils.parseDescriptor: the raw `L…;` string for a type id.
-pub fn parse_descriptor(dex: &DexFile, type_id: TypeIdItem) -> DexResult<JavaString> {
+pub fn parse_descriptor(dex: &DexFile, type_id: TypeIdItem) -> DexResult<String> {
     let string_id = dex.string_id(type_id.descriptor_idx)?;
     parse_string_at(dex, string_id.string_data_off)
 }
 
 /// ParseUtils.parseClassName.
-fn parse_class_name(dex: &DexFile, class_def: &ClassDefItem) -> DexResult<JavaString> {
+fn parse_class_name(dex: &DexFile, class_def: &ClassDefItem) -> DexResult<String> {
     parse_descriptor(dex, dex.type_id(class_def.class_idx)?)
 }
 
 /// ParseUtils.parseMethodName.
-fn parse_method_name(dex: &DexFile, method_id: &MethodIdItem) -> DexResult<JavaString> {
+fn parse_method_name(dex: &DexFile, method_id: &MethodIdItem) -> DexResult<String> {
     let string_id = dex.string_id(method_id.name_idx)?;
     parse_string_at(dex, string_id.string_data_off)
 }
 
 /// formatDescriptor (FormatUtils.kt): blindly drops the first and last
 /// UTF-16 unit and maps '/' to '.', whatever the descriptor was.
-pub fn format_descriptor(descriptor: &JavaString) -> DexResult<JavaString> {
-    if descriptor.0.is_empty() {
+pub fn format_descriptor(descriptor: &String) -> DexResult<String> {
+    if descriptor.is_empty() {
         // Kotlin: "".substring(1) throws StringIndexOutOfBoundsException.
         return Err(DexError::dex_exception("Empty type descriptor"));
     }
-    let mut units: Vec<u16> = descriptor.0[1..]
+    let mut units: Vec<u16> = descriptor.encode_utf16().collect::<Vec<_>>()[1..]
         .iter()
         .map(|&u| if u == u16::from(b'/') { u16::from(b'.') } else { u })
         .collect();
     units.pop();
-    Ok(JavaString(units))
+    Ok(String::from_utf16_lossy(&units))
 }
 
 /// DexFile.formatClassName: formatted class name plus '#'.
-fn format_class_name(dex: &DexFile, class_def: &ClassDefItem) -> DexResult<JavaString> {
+fn format_class_name(dex: &DexFile, class_def: &ClassDefItem) -> DexResult<String> {
     let mut name = format_descriptor(&parse_class_name(dex, class_def)?)?;
-    name.0.push(u16::from(b'#'));
+    name.push('#');
     Ok(name)
 }
 
@@ -357,7 +357,7 @@ fn annotations_directory(dex: &DexFile, class_def: &ClassDefItem) -> DexResult<O
 fn test_annotation(dex: &DexFile, item: &AnnotationItem) -> DexResult<TestAnnotation> {
     let encoded = &item.encoded_annotation;
     let name = format_descriptor(&parse_descriptor(dex, dex.type_id(encoded.type_idx)?)?)?;
-    let mut values: Vec<(JavaString, DecodedValue)> = Vec::new();
+    let mut values: Vec<(String, DecodedValue)> = Vec::new();
     for element in &encoded.elements {
         let value = decode_value(dex, &element.value)?;
         let value_name = parse_string_at(dex, dex.string_id(element.name_idx)?.string_data_off)?;
@@ -480,7 +480,7 @@ fn create_test_methods(
         let mut annotations = class_annotations.clone();
         annotations.extend(method_annotation_values(dex, method_id, directory.as_ref())?);
         let mut test_name = class_name.clone();
-        test_name.0.extend(parse_method_name(dex, method_id)?.0);
+        test_name.push_str(&parse_method_name(dex, method_id)?);
         out.push(TestMethod { test_name, annotations });
     }
     Ok(out)
@@ -492,15 +492,16 @@ fn push_unique(set: &mut Vec<TestMethod>, method: TestMethod) {
     }
 }
 
-fn test_name_without_class(test_name: &JavaString) -> JavaString {
+fn test_name_without_class(test_name: &String) -> String {
     // substring(indexOf('#') + 1); indexOf is -1 without a '#', giving the
     // whole string.
     let start = test_name
-        .0
+        .encode_utf16()
+        .collect::<Vec<_>>()
         .iter()
         .position(|&u| u == u16::from(b'#'))
         .map_or(0, |i| i + 1);
-    JavaString(test_name.0[start..].to_vec())
+    String::from_utf16_lossy(&test_name.encode_utf16().collect::<Vec<_>>()[start..])
 }
 
 // ---- JUnit4 (JUnit4Extensions.kt) -----------------------------------------
@@ -508,8 +509,8 @@ fn test_name_without_class(test_name: &JavaString) -> JavaString {
 struct ClassParsingResult {
     dex_index: usize,
     class_def: ClassDefItem,
-    class_name: JavaString,
-    super_class_name: JavaString,
+    class_name: String,
+    super_class_name: String,
     test_methods: Vec<TestMethod>, // Kotlin Set: insertion-ordered, unique
     is_concrete: bool,
 }
@@ -526,7 +527,7 @@ const JUNIT_TEST_ANNOTATION_NAME: &str = "org.junit.Test";
 
 /// containsTestAnnotation checks the MERGED annotation list, so a
 /// class-level @Test would promote every annotated method.
-fn contains_test_annotation(method: &TestMethod, custom_annotations: &[JavaString]) -> bool {
+fn contains_test_annotation(method: &TestMethod, custom_annotations: &[String]) -> bool {
     let junit = java_string(JUNIT_TEST_ANNOTATION_NAME);
     method
         .annotations
@@ -537,17 +538,17 @@ fn contains_test_annotation(method: &TestMethod, custom_annotations: &[JavaStrin
 /// getSuperclassName: typeIds[superclassIdx] with no NO_INDEX check — a
 /// -1 superclass is ArrayIndexOutOfBoundsException on the JVM (probed).
 /// It collapses to DexError here (P3), via DexFile::type_id.
-fn superclass_name(dex: &DexFile, class_def: &ClassDefItem) -> DexResult<JavaString> {
+fn superclass_name(dex: &DexFile, class_def: &ClassDefItem) -> DexResult<String> {
     parse_descriptor(dex, dex.type_id(class_def.superclass_idx)?)
 }
 
 /// findAllJUnit4Tests: abstract classes are mapped (inheritance source)
 /// but produce no tests of their own; interfaces are excluded entirely.
-fn find_all_junit4_tests(dex_files: &[DexFile], custom_annotations: &[JavaString]) -> DexResult<Vec<TestMethod>> {
+fn find_all_junit4_tests(dex_files: &[DexFile], custom_annotations: &[String]) -> DexResult<Vec<TestMethod>> {
     // parseClasses + associateBy(className): later duplicates replace the
     // value, the key keeps its first position (LinkedHashMap).
     let mut results: Vec<ClassParsingResult> = Vec::new();
-    let mut by_name: HashMap<JavaString, usize> = HashMap::new();
+    let mut by_name: HashMap<String, usize> = HashMap::new();
     let annotated_finder = |dex: &DexFile,
                             class_def: &ClassDefItem,
                             directory: Option<&AnnotationsDirectoryItem>|
@@ -619,7 +620,7 @@ fn create_all_test_methods(
     position: usize,
     dex_files: &[DexFile],
     results: &[ClassParsingResult],
-    by_name: &HashMap<JavaString, usize>,
+    by_name: &HashMap<String, usize>,
 ) -> DexResult<Vec<TestMethod>> {
     let mut chain = vec![position];
     let mut on_chain = HashSet::from([position]);
@@ -627,11 +628,7 @@ fn create_all_test_methods(
     while let Some(&super_position) = by_name.get(&results[current].super_class_name) {
         if !on_chain.insert(super_position) {
             return Err(DexError::dex_exception(
-                format!(
-                    "Superclass cycle at {}",
-                    results[super_position].class_name.to_string_lossy()
-                )
-                .as_str(),
+                format!("Superclass cycle at {}", results[super_position].class_name.to_owned()).as_str(),
             ));
         }
         chain.push(super_position);
@@ -655,13 +652,13 @@ fn combine_with_superclass(
     let class_name = format_class_name(dex, &result.class_def)?;
     let directory = annotations_directory(dex, &result.class_def)?;
     let child_annotations = class_annotation_values(dex, directory.as_ref())?;
-    let child_names: Vec<&JavaString> = child_annotations.iter().map(|a| &a.name).collect();
-    let own_method_names: Vec<JavaString> = result
+    let child_names: Vec<&String> = child_annotations.iter().map(|a| &a.name).collect();
+    let own_method_names: Vec<String> = result
         .test_methods
         .iter()
         .map(|m| test_name_without_class(&m.test_name))
         .collect();
-    let super_method_names: Vec<JavaString> = super_methods
+    let super_method_names: Vec<String> = super_methods
         .iter()
         .map(|m| test_name_without_class(&m.test_name))
         .collect();
@@ -682,7 +679,7 @@ fn combine_with_superclass(
             .collect();
         annotations.extend(child_annotations.iter().cloned());
         let mut test_name = class_name.clone();
-        test_name.0.extend(test_name_without_class(&method.test_name).0);
+        test_name.push_str(&test_name_without_class(&method.test_name));
         push_unique(&mut combined, TestMethod { test_name, annotations });
     }
     // Overridden methods: only @Inherited-marked superclass annotations
@@ -751,7 +748,7 @@ const DEFAULT_DESCRIPTORS: [&str; 15] = [
 /// duplicated tests in abstract-class-in-second-dex.apk). The recursion
 /// shape is therefore replicated exactly; see docs/wp/6.4-findings.md.
 fn find_junit3_tests(dex_files: &[DexFile]) -> DexResult<Vec<TestMethod>> {
-    let mut descriptors: Vec<JavaString> = DEFAULT_DESCRIPTORS.iter().map(|d| java_string(d)).collect();
+    let mut descriptors: Vec<String> = DEFAULT_DESCRIPTORS.iter().map(|d| java_string(d)).collect();
     let mut test_names: Vec<TestMethod> = Vec::new();
     for prefix in (1..=dex_files.len()).rev() {
         for dex in &dex_files[..prefix] {
@@ -763,7 +760,7 @@ fn find_junit3_tests(dex_files: &[DexFile]) -> DexResult<Vec<TestMethod>> {
     Ok(test_names)
 }
 
-fn find_junit3_tests_in_dex(dex: &DexFile, descriptors: &mut Vec<JavaString>) -> DexResult<Vec<TestMethod>> {
+fn find_junit3_tests_in_dex(dex: &DexFile, descriptors: &mut Vec<String>) -> DexResult<Vec<TestMethod>> {
     // findClassesWithSuperClass: direct-superclass match against the
     // growing set; matching classes add their own descriptor immediately
     // (later classes in the same dex can chain off it).
@@ -793,7 +790,13 @@ fn find_junit3_tests_in_dex(dex: &DexFile, descriptors: &mut Vec<JavaString>) ->
         // No visibility/arity/abstract checks: an abstract TestCase
         // subclass reports its own #test… methods (kept deliberately).
         for method in create_test_methods(dex, class_def, &all_finder)? {
-            if method.test_name.0.windows(needle.len()).any(|w| w == needle.as_slice()) {
+            if method
+                .test_name
+                .encode_utf16()
+                .collect::<Vec<_>>()
+                .windows(needle.len())
+                .any(|w| w == needle.as_slice())
+            {
                 out.push(method);
             }
         }
@@ -801,7 +804,7 @@ fn find_junit3_tests_in_dex(dex: &DexFile, descriptors: &mut Vec<JavaString>) ->
     Ok(out)
 }
 
-fn has_direct_super_class(dex: &DexFile, class_def: &ClassDefItem, descriptors: &[JavaString]) -> DexResult<bool> {
+fn has_direct_super_class(dex: &DexFile, class_def: &ClassDefItem, descriptors: &[String]) -> DexResult<bool> {
     if class_def.superclass_idx == DexFile::NO_INDEX {
         return Ok(false);
     }

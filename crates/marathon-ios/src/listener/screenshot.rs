@@ -33,7 +33,7 @@ impl ScreenCapturerTestRunListener {
                 files: s.output.clone(),
                 log: Arc::new(move |logger, level, message, cause| {
                     if logging.enabled(logger, level) {
-                        (logging.sink)(logger, level, message.to_string_lossy(), cause.cloned());
+                        (logging.sink)(logger, level, message.to_owned(), cause.cloned());
                     }
                 }),
             },
@@ -56,7 +56,7 @@ impl ScreenCapturerTestRunListener {
             Level::Debug,
             format!(
                 "Finished recording for {}",
-                test.to_simple_safe_test_name('.').to_string_lossy()
+                test.to_simple_safe_test_name('.').to_owned()
             ),
         );
         self.c.cancel(&self.job).await?;
@@ -92,7 +92,7 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
                 Level::Debug,
                 format!(
                     "Starting recording for {}",
-                    test.to_simple_safe_test_name('.').to_string_lossy()
+                    test.to_simple_safe_test_name('.').to_owned()
                 ),
             );
             let capturer = self.capturer.clone();
@@ -107,7 +107,7 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
             Ok(())
         })
     }
-    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a JavaString>) -> VendorFuture<'a, ()> {
+    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a String>) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, true))
     }
     fn test_passed<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
@@ -116,7 +116,7 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
     fn test_ignored<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, false))
     }
-    fn test_run_failed<'a>(&'a self, _: &'a JavaString, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a String, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.c.cancel(&self.job).await?;
             let test = self.last.lock().unwrap_or_else(|e| e.into_inner()).clone();

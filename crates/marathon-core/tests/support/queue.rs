@@ -6,7 +6,7 @@
 //! events of a message keep the order they happened in although logs and output reach the sink later.
 #![allow(dead_code)]
 use futures_util::future::{Either, select};
-use jcompat::{file_manager::JavaPath, jtime::Instant, logging::Level, writers::JavaString};
+use jcompat::{file_manager::JavaPath, jtime::Instant, logging::Level};
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},
@@ -141,10 +141,10 @@ impl marathon_core::vendor::Device for NoDevice {
     fn info(&self) -> DeviceInfo {
         device("device")
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         "".into()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         None
     }
     fn logger(&self) -> &jcompat::logging::Logger {
@@ -198,11 +198,7 @@ impl Trace {
     }
 }
 pub fn t(test: &Test) -> Value {
-    json!([
-        test.pkg.to_string_lossy(),
-        test.clazz.to_string_lossy(),
-        test.method.to_string_lossy()
-    ])
+    json!([test.pkg.to_owned(), test.clazz.to_owned(), test.method.to_owned()])
 }
 pub fn status_name(status: TestStatus) -> &'static str {
     match status {
@@ -239,14 +235,12 @@ impl Sink {
     fn record(&self, record: OutputRecord) {
         match record {
             OutputRecord::Raw(text) => {
-                let text = text.to_string_lossy();
+                let text = text.to_owned();
                 self.trace
                     .push(json!(["stdout", text.strip_suffix('\n').unwrap_or(&text)]));
             }
             // The actor's exception handler logs under the queue's logger too (Actor.kt:22–23).
-            OutputRecord::Log(record)
-                if record.logger == self.logger && record.message.to_string_lossy() == UNRECOVERABLE =>
-            {
+            OutputRecord::Log(record) if record.logger == self.logger && record.message.to_owned() == UNRECOVERABLE => {
                 self.trace.push_at(
                     record.wall_millis,
                     json!(["handler", level_name(record.level), record.logger, UNRECOVERABLE]),
@@ -254,7 +248,7 @@ impl Sink {
             }
             OutputRecord::Log(record) if record.logger == self.logger => self.trace.push_at(
                 record.wall_millis,
-                json!(["log", level_name(record.level), record.message.to_string_lossy(), null]),
+                json!(["log", level_name(record.level), record.message.to_owned(), null]),
             ),
             OutputRecord::Log(_) => {}
         }
@@ -277,10 +271,10 @@ impl Tracker for Sink {
     fn device_disconnected<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_provider_init<'a>(&'a self, _: &'a JavaString, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_preparing<'a>(&'a self, _: &'a JavaString, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
     fn test<'a>(
@@ -293,13 +287,13 @@ impl Tracker for Sink {
         Box::pin(async move {
             self.trace.push(json!([
                 "track",
-                pool.name.to_string_lossy(),
-                device.serial_number.to_string_lossy(),
+                pool.name.to_owned(),
+                device.serial_number.to_owned(),
                 t(&result.test),
                 status_name(result.status),
                 result.start_time,
                 result.end_time,
-                result.test_batch_id.to_string_lossy(),
+                result.test_batch_id.to_owned(),
                 final_result
             ]));
             if self.track_fails.load(Ordering::SeqCst) {
@@ -376,18 +370,18 @@ impl ReplayHooks for Hooks {
         self.trace.push(json!(["draw", value]));
         Ok(value)
     }
-    fn choose_key(&self, label: &'static str, _candidates: &[JavaString]) -> ClockResult<JavaString> {
+    fn choose_key(&self, label: &'static str, _candidates: &[String]) -> ClockResult<String> {
         Err(ReplayError {
             label: label.into(),
             message: "unused".into(),
         })
     }
-    fn allocate_id(&self, _label: &'static str) -> ClockResult<JavaString> {
+    fn allocate_id(&self, _label: &'static str) -> ClockResult<String> {
         let mut ids = lock(&self.ids);
         *ids += 1;
         Ok(format!("batch-{ids}").into())
     }
-    fn identity_suffix(&self, label: &'static str, _identity: ObjectIdentity) -> ClockResult<JavaString> {
+    fn identity_suffix(&self, label: &'static str, _identity: ObjectIdentity) -> ClockResult<String> {
         Err(ReplayError {
             label: label.into(),
             message: "unused".into(),
@@ -433,7 +427,7 @@ impl TestBundleIdentifier for FailingIdentifier {
     fn identify(&self, test: &Test) -> VendorResult<Option<BundleRef>> {
         self.trace.push(json!(["identify", t(test)]));
         if *test == self.failing {
-            let message = format!("no bundle for {}", test.method.to_string_lossy());
+            let message = format!("no bundle for {}", test.method.to_owned());
             return Err(VendorError::Other(failure("java.lang.IllegalStateException", &message)));
         }
         Ok(None)
@@ -658,7 +652,7 @@ impl Queue {
     pub async fn request(&self, device: &DeviceInfo, worker: Option<&str>) -> Vec<FromQueue> {
         self.send(QueueMessage::RequestBatch(RequestBatch {
             device: device.clone(),
-            worker_id: worker.map(JavaString::from),
+            worker_id: worker.map(String::from),
         }))
         .await;
         self.replies()
@@ -676,7 +670,7 @@ impl Queue {
             .filter_map(|test| {
                 progress
                     .state(test)
-                    .map(|state| (test.to_test_name('.', '#').to_string_lossy(), state))
+                    .map(|state| (test.to_test_name('.', '#').to_owned(), state))
             })
             .collect();
         states.sort_by(|a, b| a.0.cmp(&b.0));

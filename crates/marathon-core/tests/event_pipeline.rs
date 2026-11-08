@@ -2,7 +2,7 @@
 //! and ExecutionReportGenerator.kt, analytics/internal/pub/Track.kt, analytics/TrackerFactory.kt.
 mod event_support;
 use event_support::*;
-use jcompat::{jtime::instant_of, logging::MarathonLogging, writers::JavaString};
+use jcompat::{jtime::instant_of, logging::MarathonLogging};
 use marathon_core::{
     analytics::*,
     error::*,
@@ -83,13 +83,7 @@ fn summary_matches_jvm_and_keeps_all_finals_and_raw_attempts() {
     let summary = &report.summary().pools[0];
     let expected = oracle("summary");
     assert_eq!(
-        json!(
-            summary
-                .tests
-                .iter()
-                .map(|r| r.test.method.as_utf8().unwrap())
-                .collect::<Vec<_>>()
-        ),
+        json!(summary.tests.iter().map(|r| r.test.method.clone()).collect::<Vec<_>>()),
         expected["tests"]
     );
     assert_eq!(json!(names(&summary.passed)), expected["passed"]);
@@ -138,7 +132,7 @@ fn connections_keep_first_serial_snapshot_and_pool_order() {
                 .summary()
                 .pools
                 .iter()
-                .map(|p| p.pool_id.name.as_utf8().unwrap())
+                .map(|p| p.pool_id.name.clone())
                 .collect::<Vec<_>>()
         ),
         oracle("connections")["pools"]
@@ -150,7 +144,7 @@ fn connections_keep_first_serial_snapshot_and_pool_order() {
                 .pools
                 .iter()
                 .flat_map(|p| &p.devices)
-                .map(|d| d.model.as_utf8().unwrap())
+                .map(|d| d.model.clone())
                 .collect::<Vec<_>>()
         ),
         oracle("connections")["models"]
@@ -254,7 +248,7 @@ fn generator_sorts_stably_and_explicit_close_regenerates() {
                 .map(|r| {
                     r.test_events()
                         .iter()
-                        .map(|e| e.test_result.test.method.as_utf8().unwrap())
+                        .map(|e| e.test_result.test.method.clone())
                         .collect::<Vec<_>>()
                         .join(",")
                 })
@@ -337,10 +331,10 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                 let log = Arc::new(
                     move |_: &jcompat::logging::Logger,
                           _: jcompat::logging::Level,
-                          message: &JavaString,
+                          message: &String,
                           _: Option<&Failure>| {
                         assert_worker();
-                        log_calls.lock().unwrap().push(message.as_utf8().unwrap());
+                        log_calls.lock().unwrap().push(message.clone());
                     },
                 );
                 let reporter = |slot, name| ReporterRegistration {
@@ -531,7 +525,7 @@ impl Tracker for Fanout {
     }
     fn device_provider_init<'a>(
         &'a self,
-        _: &'a JavaString,
+        _: &'a String,
         _: jcompat::jtime::Instant,
         _: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {
@@ -539,7 +533,7 @@ impl Tracker for Fanout {
     }
     fn device_preparing<'a>(
         &'a self,
-        _: &'a JavaString,
+        _: &'a String,
         _: jcompat::jtime::Instant,
         _: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {
@@ -794,7 +788,7 @@ fn preparation_reads_the_updated_serial_after_the_borrowed_body() {
             let hooks = RuntimeHooks::live();
             let track = Track::new(core.vendor(), hooks.clone());
             track.add(Arc::new(MappingTracker::new(hooks, generator.clone())));
-            let serial = Mutex::new(JavaString::from("adbSerial"));
+            let serial = Mutex::new(String::from("adbSerial"));
             let value = String::from("borrowed result");
             for provider in [false, true] {
                 *serial.lock().unwrap() = "adbSerial".into();
@@ -814,11 +808,11 @@ fn preparation_reads_the_updated_serial_after_the_borrowed_body() {
             let report = reports.lock().unwrap()[0].clone();
             assert_eq!(
                 report.device_preparing_events()[0].serial_number,
-                "realSerialNumber".into()
+                "realSerialNumber".to_owned()
             );
             assert_eq!(
                 report.device_provider_preparing_events()[0].serial_number,
-                "realSerialNumber".into()
+                "realSerialNumber".to_owned()
             );
             Ok(())
         })
@@ -918,10 +912,7 @@ fn reporter_error_does_not_stop_later_reporters_and_is_not_a_once_guard() {
             let OperationError::Failed(error) = error else {
                 panic!("expected ordinary failure")
             };
-            assert_eq!(
-                json!(error.class.as_utf8().unwrap()),
-                oracle("reporter-failure")["error"]
-            );
+            assert_eq!(json!(error.class), oracle("reporter-failure")["error"]);
             assert_eq!(oracle("reporter-failure")["calls"], json!(["bad"]));
             assert_eq!(*calls.lock().unwrap(), ["bad", "never"]);
             assert!(close_generator(core.vendor().as_ref(), &generator).await.is_err());
@@ -941,7 +932,7 @@ fn a_later_failed_reporter_is_logged_and_the_first_failure_is_returned() {
             let log: marathon_core::ServiceLog = Arc::new(move |_, level, message, cause| {
                 captured.lock().unwrap().push((
                     level,
-                    message.to_string_lossy(),
+                    message.to_owned(),
                     cause.is_some_and(|c: &Failure| c.message == Some("second".into())),
                 ));
             });
@@ -1038,7 +1029,7 @@ fn guard(backend: Arc<Scripted>, limits: BackendLimits) -> (BackendGuard, Logged
     let captured = logged.clone();
     let guard = BackendGuard::new(
         backend,
-        Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_string_lossy()))),
+        Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_owned()))),
         MarathonLogging::default().logger("TrackerFactory", None),
         limits,
     );
@@ -1201,7 +1192,7 @@ fn a_close_that_never_finishes_gives_way_and_is_logged_once() {
             let captured = logged.clone();
             let guard = BackendGuard::new(
                 Arc::new(NeverCloses),
-                Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_string_lossy()))),
+                Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_owned()))),
                 MarathonLogging::default().logger("TrackerFactory", None),
                 BackendLimits {
                     send: std::time::Duration::from_millis(50),

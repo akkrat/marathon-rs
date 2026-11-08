@@ -257,7 +257,7 @@ struct OracleProgress {
 }
 impl RetryProgress for OracleProgress {
     fn retry_test(&mut self, test: &Test) -> Option<TestAction> {
-        let name = test.to_test_name('.', '#').to_string_lossy();
+        let name = test.to_test_name('.', '#').to_owned();
         let Some((state, total)) = self.states.get_mut(&name) else {
             self.trace.push(json!(["retryTest", name, "none"]));
             return None;
@@ -283,12 +283,12 @@ fn retry_oracle_table_replays() {
         let mut states = HashMap::new();
         for test in shard_tests.iter().chain(&flaky) {
             states
-                .entry(test.to_test_name('.', '#').to_string_lossy())
+                .entry(test.to_test_name('.', '#').to_owned())
                 .or_insert(("Added", 0))
                 .1 += 1;
         }
         for pre in row["pre"].as_array().into_iter().flatten() {
-            let name = test_of(&pre[0]).to_test_name('.', '#').to_string_lossy();
+            let name = test_of(&pre[0]).to_test_name('.', '#').to_owned();
             let terminal = if pre[1] == "PASSED" { "Passed" } else { "Failed" };
             if let Some(state) = states.get_mut(&name) {
                 state.0 = terminal;
@@ -318,7 +318,7 @@ fn retry_oracle_table_replays() {
             let returned: Vec<Test> = strategy
                 .process(&pool, &failed, &shard, &mut progress)
                 .into_iter()
-                .map(|r| r.test)
+                .map(|r| r.test.clone())
                 .collect();
             assert_eq!(tsj(&returned), round["returned"], "{at}");
             assert_eq!(Value::Array(trace.drain()), round["trace"], "{at}");

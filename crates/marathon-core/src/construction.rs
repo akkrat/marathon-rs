@@ -39,7 +39,6 @@ use crate::{
 use jcompat::{
     file_manager::{FileManager, JavaPath, child_file},
     logging::{Level, Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_config::{AnalyticsConfiguration, Configuration};
 use std::{
@@ -119,8 +118,8 @@ pub struct RunInputs {
     pub stderr: Arc<dyn Fn(&Failure) + Send + Sync>,
     /// `user.dir`.
     pub cwd: JavaPath,
-    pub environment: Vec<(JavaString, JavaString)>,
-    pub system_information: Vec<(JavaString, JavaString)>,
+    pub environment: Vec<(String, String)>,
+    pub system_information: Vec<(String, String)>,
     pub vendor: VendorFactoryFn,
     pub metrics: MetricsFactoryFn,
     pub analytics: Option<AnalyticsOverride>,
@@ -153,7 +152,7 @@ impl UsageLifecycle for NoUsage {
 /// Koin's resolution failure for a type the vendor module does not define, as the JVM
 /// reports it from `koin.get<Marathon>()` (oracle rows `koin-missing-*`).
 pub fn missing_definition(class: &str) -> Failure {
-    let mut message = JavaString::from("No definition found for type '");
+    let mut message = String::from("No definition found for type '");
     message.push_str(class);
     message.push_str("'. Check your Modules configuration and add missing type and/or qualifier!");
     Failure {
@@ -174,7 +173,7 @@ struct RecordLog {
     stamp: Arc<dyn Fn() -> (i64, i64) + Send + Sync>,
 }
 impl RecordLog {
-    fn push(&self, logger: &str, level: Level, message: JavaString, cause: Option<Failure>) {
+    fn push(&self, logger: &str, level: Level, message: String, cause: Option<Failure>) {
         let (at_millis, wall_millis) = (self.stamp)();
         self.logs.push(LogRecord {
             logger: logger.to_owned(),
@@ -187,7 +186,7 @@ impl RecordLog {
     }
 }
 impl FilterLogger for RecordLog {
-    fn log(&self, level: Level, logger: &str, message: JavaString, cause: Option<Failure>) {
+    fn log(&self, level: Level, logger: &str, message: String, cause: Option<Failure>) {
         self.push(logger, level, message, cause);
     }
 }
@@ -328,7 +327,7 @@ async fn build(
     let log: ServiceLog = {
         let record = record.clone();
         Arc::new(
-            move |logger: &Logger, level, message: &JavaString, cause: Option<&Failure>| {
+            move |logger: &Logger, level, message: &String, cause: Option<&Failure>| {
                 record.push(logger.name(), level, message.clone(), cause.cloned());
             },
         )

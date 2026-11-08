@@ -101,7 +101,7 @@ fn texts(outcome: &Outcome) -> Vec<String> {
     outcome
         .logs()
         .iter()
-        .map(|r| format!("{:?} {}", r.level, r.message.to_string_lossy()))
+        .map(|r| format!("{:?} {}", r.level, r.message.to_owned()))
         .collect()
 }
 fn awaiting_cancellation() -> ExecuteScript {
@@ -144,7 +144,7 @@ fn invalid_transitions_log_an_error_and_have_no_side_effect() {
             run.run_current().await;
         })
     });
-    let id = outcome.batch.id.to_string_lossy();
+    let id = outcome.batch.id.to_owned();
     let invalid: Vec<String> = texts(&outcome)
         .into_iter()
         .filter(|t| t.contains("Invalid transition"))
@@ -325,8 +325,8 @@ fn thirty_failing_preparations_retry_every_ten_seconds_and_log_each_attempt() {
     let retries: Vec<i64> = outcome
         .logs()
         .iter()
-        .filter(|r| r.message.to_string_lossy().ends_with("initialization failed. Retrying"))
-        .map(|r| r.at_millis)
+        .filter(|r| r.message.to_owned().ends_with("initialization failed. Retrying"))
+        .map(|r| r.at_millis.clone())
         .collect();
     // K2: the 30th failure is logged as "Retrying" too.
     assert_eq!(retries, (0..30).map(|i| i * 10_000).collect::<Vec<_>>());
@@ -539,7 +539,7 @@ fn a_closed_pool_drops_the_outcome_with_a_warning_and_terminated_silently() {
             run.run_current().await;
         })
     });
-    let id = outcome.batch.id.to_string_lossy();
+    let id = outcome.batch.id.to_owned();
     let warnings: Vec<String> = texts(&outcome).into_iter().filter(|t| t.starts_with("Warn")).collect();
     assert_eq!(
         warnings,
@@ -645,7 +645,7 @@ fn cancellation_before_barrier_admission_leaves_the_token_unconsumed() {
     assert_eq!(outcome.describe(), ["Terminated"]);
     let verified = verified.lock().unwrap().clone().unwrap();
     assert_eq!(
-        verified.map_err(|e| e.message.to_string_lossy()),
+        verified.map_err(|e| e.message.to_owned()),
         Err("unused barrier entries".to_owned())
     );
 }

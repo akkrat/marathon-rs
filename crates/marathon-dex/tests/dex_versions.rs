@@ -22,7 +22,7 @@ fn tests(path: &Path) -> Vec<String> {
     let mut rendered: Vec<String> = find_test_methods(path, &[])
         .unwrap()
         .iter()
-        .map(|method| format!("{} {:?}", method.test_name.to_string_lossy(), method.annotations))
+        .map(|method| format!("{} {:?}", method.test_name.to_owned(), method.annotations))
         .collect();
     rendered.sort();
     rendered
@@ -84,8 +84,8 @@ fn put_i32(bytes: &mut [u8], offset: usize, value: i32) {
 }
 fn invalid(bytes: Vec<u8>, message: &str) {
     let error = DexFile::parse_all(bytes).map(|_| ()).unwrap_err();
-    assert_eq!(error.jvm_class.to_string_lossy(), "com.linkedin.dex.spec.DexException");
-    let text = error.message.unwrap().to_string_lossy();
+    assert_eq!(error.jvm_class.to_owned(), "com.linkedin.dex.spec.DexException");
+    let text = error.message.unwrap().to_owned();
     assert!(text.contains(message), "{text}");
 }
 const FILE_SIZE: usize = 0x20;

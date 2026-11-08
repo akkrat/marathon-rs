@@ -1,6 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt.
 mod report_probe_support;
-use jcompat::writers::JavaString;
+
 use marathon_core::{
     executor::{
         CoreExecutor,
@@ -29,11 +29,8 @@ fn jvm_html_model_bytes_and_xml11_log() {
         json(&pool_summary(&r.summary().pools[0])),
         checked(std::fs::read(fixture("pool.json")))
     );
-    assert_eq!(
-        logcat_html(&trace()).as_utf8().unwrap(),
-        oracle("log")["html"].as_str().unwrap()
-    );
-    assert_eq!(logcat_html(&JavaString::default()), JavaString::default());
+    assert_eq!(logcat_html(&trace()), oracle("log")["html"].as_str().unwrap());
+    assert_eq!(logcat_html(&String::default()), String::default());
 }
 #[test]
 fn full_pages_match_and_missing_artifact_directories_are_created() {
@@ -117,7 +114,7 @@ fn empty_html_does_not_read_clock_or_touch_output() {
 #[test]
 fn filename_is_fixed_128_units_independent_of_file_manager_limit() {
     let r = result(&"<&>".repeat(150), marathon_core::model::TestStatus::Passed, 0, 7);
-    assert_eq!(filename(&r).0.len(), 133);
+    assert_eq!(filename(&r).encode_utf16().count(), 133);
     let value: serde_json::Value = checked(serde_json::from_slice(&json(&short_test(&r))));
     assert_eq!(value["duration_millis"], 7);
 }
@@ -252,7 +249,7 @@ fn connected_without_tests_and_empty_helper_arithmetic_match_jvm() {
     );
     let error = index(empty().summary(), &"title".into()).err().unwrap();
     assert_eq!(
-        error.failure().to_java_string().to_string_lossy(),
+        error.failure().to_java_string().to_owned(),
         oracle("empty-average")["error"]
     );
 }

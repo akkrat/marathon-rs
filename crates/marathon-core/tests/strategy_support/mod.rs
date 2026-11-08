@@ -7,7 +7,6 @@ use jcompat::{
     jnum,
     jtime::Instant,
     logging::{Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_config::Configuration;
 use marathon_core::{
@@ -158,7 +157,7 @@ pub fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 pub struct DeviceStub {
     pub info: DeviceInfo,
-    pub abi: JavaString,
+    pub abi: String,
     logger: Logger,
 }
 impl DeviceStub {
@@ -207,10 +206,10 @@ impl Device for DeviceStub {
     fn info(&self) -> DeviceInfo {
         self.info.clone()
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         self.abi.clone()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         None
     }
     fn logger(&self) -> &Logger {
@@ -236,9 +235,9 @@ impl Device for DeviceStub {
 
 // ---- bundles -------------------------------------------------------------------------------------------
 
-pub struct StubTestBundle(pub JavaString);
+pub struct StubTestBundle(pub String);
 impl TestBundle for StubTestBundle {
-    fn id(&self) -> &JavaString {
+    fn id(&self) -> &String {
         &self.0
     }
 }
@@ -333,21 +332,21 @@ impl ReplayHooks for ScriptedHooks {
             }
         }
     }
-    fn choose_key(&self, label: &'static str, _candidates: &[JavaString]) -> ClockResult<JavaString> {
+    fn choose_key(&self, label: &'static str, _candidates: &[String]) -> ClockResult<String> {
         Err(ReplayError {
             label: label.into(),
             message: "unused".into(),
         })
     }
-    fn allocate_id(&self, _label: &'static str) -> ClockResult<JavaString> {
+    fn allocate_id(&self, _label: &'static str) -> ClockResult<String> {
         let mut ids = lock(&self.ids);
         *ids += 1;
         if let Some(trace) = &self.trace {
             trace.push(json!(["allocateId"]));
         }
-        Ok(format!("batch-{ids}").into())
+        Ok(format!("batch-{ids}"))
     }
-    fn identity_suffix(&self, label: &'static str, _identity: ObjectIdentity) -> ClockResult<JavaString> {
+    fn identity_suffix(&self, label: &'static str, _identity: ObjectIdentity) -> ClockResult<String> {
         Err(ReplayError {
             label: label.into(),
             message: "unused".into(),
@@ -410,11 +409,7 @@ impl MetricsLookup for RecordingMetrics {
 }
 
 pub fn tj(test: &Test) -> Value {
-    json!([
-        test.pkg.to_string_lossy(),
-        test.clazz.to_string_lossy(),
-        test.method.to_string_lossy()
-    ])
+    json!([test.pkg.to_owned(), test.clazz.to_owned(), test.method.to_owned()])
 }
 pub fn tsj(tests: &[Test]) -> Value {
     Value::Array(tests.iter().map(tj).collect())

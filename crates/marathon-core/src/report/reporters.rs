@@ -28,11 +28,11 @@ pub struct ReporterFiles {
     pub cwd: JavaPath,
 }
 impl ReporterFiles {
-    pub(super) async fn write(&self, path: JavaPath, text: JavaString) -> OperationResult<()> {
+    pub(super) async fn write(&self, path: JavaPath, text: String) -> OperationResult<()> {
         blocking(self.io.as_ref(), move || {
             let mut file = std::fs::File::create(path.to_file_path_buf().map_err(io_error)?)
                 .map_err(|e| file_open_error(e, &path))?;
-            file.write_all(&text.to_utf8_bytes()).map_err(io_error)
+            file.write_all(text.as_bytes()).map_err(io_error)
         })
         .await
         .map_err(operation_error)
@@ -49,7 +49,7 @@ impl ReporterFiles {
         }
     }
 }
-fn json(value: WriterValue) -> OperationResult<JavaString> {
+fn json(value: WriterValue) -> OperationResult<String> {
     GsonWriter::default()
         .write(&value)
         .map_err(|e| crate::executor::shared::failure("java.lang.IllegalArgumentException", &e.0).into())
@@ -122,7 +122,7 @@ impl Reporter for RawJsonReporter {
                     let mut entries = Vec::new();
                     for (key, value) in prop.values.entries() {
                         let text = if matches!(value, MetaValue::Null) {
-                            JavaString::default()
+                            String::default()
                         } else {
                             p::kotlin_meta(value, self.hooks.as_ref())
                                 .map_err(operation_error)?
@@ -175,8 +175,8 @@ impl BillingReporter {
 impl Reporter for BillingReporter {
     fn generate<'a>(&'a self, report: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
-            let mut starts: Vec<(JavaString, Instant)> = Vec::new();
-            let mut ends: Vec<(JavaString, Instant)> = Vec::new();
+            let mut starts: Vec<(String, Instant)> = Vec::new();
+            let mut ends: Vec<(String, Instant)> = Vec::new();
             let key = |i: Instant| (i.seconds(), i.nanos());
             for e in report.device_preparing_events() {
                 if let Some((_, start)) = starts.iter_mut().find(|(s, _)| *s == e.serial_number) {
@@ -267,10 +267,10 @@ impl Reporter for StdoutReporter {
             if pools.is_empty() {
                 return Ok(());
             }
-            let mut text = JavaString::from("Marathon run finished:\n");
+            let mut text = String::from("Marathon run finished:\n");
             for p in pools {
                 text.push_str("Device pool ");
-                text.append(p.pool_id.name.clone());
+                text.push_str(&p.pool_id.name.clone());
                 text.push_str(":\n");
                 text.push_str(&format!(
                     "\t{} passed, {} failed, {} ignored tests\n",
@@ -285,8 +285,8 @@ impl Reporter for StdoutReporter {
                     names.dedup();
                     for name in names {
                         text.push_str("\t\t");
-                        text.append(name);
-                        text.push_str("\n");
+                        text.push_str(&name);
+                        text.push('\n');
                     }
                 }
                 text.push_str(&format!(
@@ -312,7 +312,7 @@ impl Reporter for StdoutReporter {
                         }
                         for (name, count) in counts {
                             text.push_str("\t\t");
-                            text.append(name.clone());
+                            text.push_str(&name.clone());
                             text.push_str(&format!(" {verb} {count} time(s)\n"));
                         }
                     }

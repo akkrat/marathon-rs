@@ -38,9 +38,7 @@ impl Seen {
         settle().await;
         while p.provider.subscribe().state().queued > 0 {
             match p.provider.subscribe().receive().await.unwrap() {
-                Some(DeviceEvent::Connected(device)) => {
-                    self.connected.push(device.0.info().serial_number.to_string_lossy())
-                }
+                Some(DeviceEvent::Connected(device)) => self.connected.push(device.0.info().serial_number.to_owned()),
                 Some(DeviceEvent::Disconnected(_)) => self.disconnected += 1,
                 None => break,
             }

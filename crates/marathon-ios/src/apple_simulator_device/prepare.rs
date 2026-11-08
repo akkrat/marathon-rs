@@ -31,7 +31,7 @@ impl AppleSimulatorDevice {
             .artifacts
             .kept_sources(&self.serial.as_str().into())
             .iter()
-            .map(JavaString::to_string_lossy)
+            .map(String::clone)
             .collect::<Vec<_>>();
         let device = self.this()?;
         let signal = Signal::new();
@@ -61,15 +61,8 @@ impl AppleSimulatorDevice {
                 )
                 .await
                 .map_err(|error| {
-                    if error.failure().class == JavaString::from("com.malinskiy.marathon.apple.ios.BootFailure") {
-                        PrepareError::Boot(
-                            error
-                                .failure()
-                                .message
-                                .as_ref()
-                                .map(JavaString::to_string_lossy)
-                                .unwrap_or_default(),
-                        )
+                    if error.failure().class == "com.malinskiy.marathon.apple.ios.BootFailure" {
+                        PrepareError::Boot(error.failure().message.clone().unwrap_or_default())
                     } else {
                         PrepareError::Vendor(error)
                     }

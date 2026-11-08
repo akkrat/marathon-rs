@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunnerTest.kt (recording device).
 #![allow(dead_code)]
 use crate::{support, test_root_device::Fake};
-use jcompat::{jtime::Duration, logging::Logger, writers::JavaString};
+use jcompat::{jtime::Duration, logging::Logger};
 use marathon_apple::{
     apple_device::AppleDevice,
     bin::AppleBinaryEnvironment,
@@ -70,10 +70,10 @@ impl Device for RunnerDevice {
     fn info(&self) -> DeviceInfo {
         self.inner.info()
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         self.inner.abi()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         self.inner.worker_id()
     }
     fn logger(&self) -> &Logger {
@@ -169,7 +169,7 @@ impl AppleDevice for RunnerDevice {
         Box::pin(async move {
             self.requests.lock().unwrap().push(request);
             if let Some(previous) = self.session.lock().unwrap().as_ref() {
-                previous.check_closed(&self.info().serial_number.to_string_lossy())?;
+                previous.check_closed(&self.info().serial_number.to_owned())?;
             }
             *self.session.lock().unwrap() = Some(session.clone());
             let plan = std::mem::take(&mut *self.plan.lock().unwrap());

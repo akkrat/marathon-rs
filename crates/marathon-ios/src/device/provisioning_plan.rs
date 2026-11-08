@@ -31,7 +31,7 @@ pub struct PlanCalculator {
     logging: SshLogging,
     logger: Logger,
     timing: ProvisioningTiming,
-    local_identity: jcompat::writers::JavaString,
+    local_identity: String,
 }
 impl PlanCalculator {
     pub fn new(
@@ -71,9 +71,9 @@ impl PlanCalculator {
         let mut plan = ProvisioningPlan::default();
         for target in targets {
             match target {
-                AppleTarget::Simulator { udid } => simulators.push(udid.to_string_lossy()),
+                AppleTarget::Simulator { udid } => simulators.push(udid.to_owned()),
                 AppleTarget::Physical { udid } => {
-                    plan.physical_devices.insert(udid.to_string_lossy());
+                    plan.physical_devices.insert(udid.to_owned());
                 }
                 AppleTarget::SimulatorProfile(profile) => profiles.push(profile),
                 AppleTarget::Host => self.logging.log(
@@ -106,8 +106,8 @@ impl PlanCalculator {
         }
         available.retain(|udid, _| !used.contains(udid));
         for profile in profiles {
-            let kind = profile.fully_qualified_device_type_id().to_string_lossy();
-            let runtime = profile.fully_qualified_runtime_id().map(|s| s.to_string_lossy());
+            let kind = profile.fully_qualified_device_type_id().to_owned();
+            let runtime = profile.fully_qualified_runtime_id().map(|s| s.to_owned());
             let reusable = available
                 .iter()
                 .find(|(_, d)| {
@@ -135,7 +135,7 @@ impl PlanCalculator {
                 self.timing.info(|| {
                     Ok(format!(
                         "Worker {}: shut down {} unused simulators in {} ms",
-                        transport.id().to_string_lossy(),
+                        transport.id().to_owned(),
                         booted.len(),
                         self.timing.elapsed()?.wrapping_sub(started)
                     ))

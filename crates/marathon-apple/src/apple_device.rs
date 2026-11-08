@@ -6,7 +6,7 @@ use crate::{
     model::{Arch, Sdk},
     remote_file_manager::RemoteFileManager,
 };
-use jcompat::{jtime::Duration, writers::JavaString};
+use jcompat::jtime::Duration;
 use marathon_config::devices::Transport;
 use marathon_core::{
     listener::LogProducer,
@@ -18,15 +18,15 @@ use std::path::Path;
 
 pub const SHARED_PATH: &str = "/tmp/marathon";
 
-pub fn apple_worker_id(transport: &Transport) -> Option<JavaString> {
+pub fn apple_worker_id(transport: &Transport) -> Option<String> {
     Some(transport.id())
 }
 
 /// Recompute after simulator setup: setup can change the ABI. Other SDKs retain
 /// Kotlin's UDID heuristic, including macOS and non-iOS simulators (A45).
-pub fn apple_arch(sdk: Sdk, abi: &JavaString, udid: &str) -> Arch {
+pub fn apple_arch(sdk: Sdk, abi: &String, udid: &str) -> Arch {
     if sdk == Sdk::IphoneSimulator {
-        if *abi == JavaString::from("x86_64") {
+        if *abi == String::from("x86_64") {
             Arch::x86_64
         } else {
             Arch::arm64

@@ -24,13 +24,13 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> R {
         .logs
         .records()
         .into_iter()
-        .filter(|r| r.message.to_string_lossy().starts_with("xcresulttool"))
+        .filter(|r| r.message.to_owned().starts_with("xcresulttool"))
         .collect::<Vec<_>>();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].logger, "AppleMacosProvider");
     assert_eq!(messages[0].level, jcompat::logging::Level::Info);
     assert_eq!(
-        messages[0].message.to_string_lossy(),
+        messages[0].message.to_owned(),
         "xcresulttool timeout is PT5M (timeoutConfiguration.xcresulttool; when not set, the larger of shell PT5M and PT2M)"
     );
     v(p.terminate().await)?;
@@ -65,7 +65,7 @@ async fn file_boundaries_and_equal_transport_overwrite() -> R {
         }
         let (p, _) = h.provider();
         let e = p.initialize(h.context.clone()).await.err().ok_or("expected error")?;
-        assert_eq!(e.failure().class.to_string_lossy(), class);
+        assert_eq!(e.failure().class.to_owned(), class);
         v(p.terminate().await)?;
     }
     let mut h = Harness::new("")?;
@@ -109,9 +109,9 @@ async fn static_host_lifecycle_identity_queue_and_retained_leases() -> R {
     assert_eq!(first, event);
     // D48: a Mac is connected once, so a pool that lost its Macs has nothing to wait for.
     assert_eq!(first.0.return_wait_used_millis(), i64::MAX);
-    assert_eq!(first.0.info().serial_number, "udid@local".into());
-    assert_eq!(first.0.info().operating_system.version, "15.0".into());
-    assert_eq!(first.0.abi(), "arm64".into());
+    assert_eq!(first.0.info().serial_number, "udid@local".to_owned());
+    assert_eq!(first.0.info().operating_system.version, "15.0".to_owned());
+    assert_eq!(first.0.abi(), "arm64".to_owned());
     v(p.initialize(h.context.clone()).await)?;
     v(p.join_pending().await)?;
     let second = v(p.borrow(h.context.clone()).await)?;
@@ -219,10 +219,10 @@ async fn xctest_construction_fails_without_its_library_and_nm_never_looks_for_it
             };
         let failure = error.failure();
         assert_eq!(
-            failure.class.to_string_lossy(),
+            failure.class.to_owned(),
             "com.malinskiy.marathon.config.exceptions.ConfigurationException"
         );
-        let message = failure.message.as_ref().unwrap().to_string_lossy();
+        let message = failure.message.as_ref().unwrap().to_owned();
         for part in [problem, "MARATHON_XCTEST_PARSER_DIR", "EULA", "nm test parser"] {
             assert!(message.contains(part), "{part} missing from {message}");
         }
@@ -255,7 +255,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         .await
         .err()
         .ok_or("substitution failure")?;
-    assert_eq!(error.failure().class, "java.lang.IllegalStateException".into());
+    assert_eq!(error.failure().class, "java.lang.IllegalStateException".to_owned());
     v(p.terminate().await)?;
     struct Failing {
         entered: tokio::sync::Notify,
@@ -301,7 +301,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         .await?
         .err()
         .ok_or("connect failure")?;
-    assert_eq!(error.failure().class, "java.io.IOException".into());
+    assert_eq!(error.failure().class, "java.io.IOException".to_owned());
     assert!(connections.cancelled.load(Ordering::SeqCst));
     v(p.terminate().await)?;
     Ok(())
@@ -333,8 +333,8 @@ async fn devices_read_error_chains_match_jvm_oracle() -> R {
         let mut current = Some(error.failure());
         while let Some(failure) = current {
             chain.push(serde_json::json!({
-                "class": failure.class.to_string_lossy(),
-                "message": failure.message.as_ref().map(|m| m.to_string_lossy().replace(
+                "class": failure.class.to_owned(),
+                "message": failure.message.as_ref().map(|m| m.to_owned().replace(
                     &h.root.path().to_string_lossy().to_string(), &format!("$ROOT/{mode}"))),
             }));
             current = failure.cause.as_deref();
@@ -378,8 +378,8 @@ async fn setup_on_a_connection_lost_before_the_last_probe_fails_instead_of_using
     let error = d.setup(&h.context).await.unwrap_err();
     assert_eq!(
         (
-            error.failure().class.to_string_lossy(),
-            error.failure().message.as_ref().unwrap().to_string_lossy()
+            error.failure().class.to_owned(),
+            error.failure().message.as_ref().unwrap().to_owned()
         ),
         (CONNECTION_EXCEPTION.to_owned(), "Not connected".to_owned())
     );
@@ -404,7 +404,7 @@ async fn a_failed_abi_probe_on_a_live_connection_still_gives_the_default_abi() -
         original(cmd)
     });
     v(d.setup(&h.context).await)?;
-    assert_eq!(d.abi().to_string_lossy(), "Unknown");
+    assert_eq!(d.abi().to_owned(), "Unknown");
     Ok(())
 }
 

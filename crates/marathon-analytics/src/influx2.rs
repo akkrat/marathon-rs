@@ -1,7 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx2/InfluxDb2Provider.kt
 //! and external/influx2/InfluxDb2Tracker.kt, external/influx2/Influxdb2Exception.kt.
 use crate::{http::*, points};
-use jcompat::{jnum, logging::Level, net::query_encode, writers::JavaString};
+use jcompat::{jnum, logging::Level, net::query_encode};
 use marathon_config::InfluxDb2Configuration;
 use marathon_core::{
     analytics::{
@@ -163,8 +163,7 @@ pub(crate) async fn api(
     match http.request(method, path, ct, accept, body).await {
         Ok(reply) => checked(reply, true),
         Err(OperationError::Failed(cause))
-            if cause.class.to_string_lossy().starts_with("java.io.")
-                || cause.class.to_string_lossy().starts_with("java.net.") =>
+            if cause.class.to_owned().starts_with("java.io.") || cause.class.to_owned().starts_with("java.net.") =>
         {
             Err(Failure {
                 class: "com.influxdb.exceptions.InfluxException".into(),
@@ -178,7 +177,7 @@ pub(crate) async fn api(
     }
 }
 impl FluxQuery for Influx2Client {
-    fn query<'a>(&'a self, flux: &'a JavaString) -> ServiceFuture<'a, Vec<Record>> {
+    fn query<'a>(&'a self, flux: &'a String) -> ServiceFuture<'a, Vec<Record>> {
         Box::pin(async move {
             let _operation = self.operations.lock().await;
             if self.closed.load(Ordering::Acquire) {

@@ -2,7 +2,7 @@
 //! and impl/pooling/parameterized/{Abi,Manufacturer,Model,OperatingSystemVersion,Combo}PoolingStrategy.kt.
 
 use crate::{model::DevicePoolId, vendor::Device};
-use jcompat::writers::JavaString;
+
 use marathon_config::schema::PoolingStrategyConfiguration;
 
 #[derive(Clone, Debug)]
@@ -37,12 +37,12 @@ impl PoolingStrategy {
             Self::Combo(list) => {
                 // The separator is appended only after a non-empty prefix, so
                 // leading empty names vanish while inner ones double the `_`.
-                let mut acc = JavaString::default();
+                let mut acc = String::default();
                 for strategy in list {
-                    if !acc.0.is_empty() {
-                        acc.0.push(u16::from(b'_'));
+                    if !acc.is_empty() {
+                        acc.push('_');
                     }
-                    acc.append(strategy.associate(device).name);
+                    acc.push_str(&strategy.associate(device).name);
                 }
                 acc
             }

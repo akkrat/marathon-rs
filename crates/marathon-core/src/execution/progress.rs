@@ -13,7 +13,7 @@ use crate::{
     time::SchedulerClock,
     wiring::Tracker,
 };
-use jcompat::{formatting::format_percent, logging::Level, writers::JavaString};
+use jcompat::{formatting::format_percent, logging::Level};
 use marathon_config::schema::{ExecutionMode, ExecutionStrategyConfiguration};
 use std::{collections::HashMap, rc::Rc, sync::Arc};
 
@@ -138,8 +138,8 @@ struct TestExecutionData {
 pub struct PoolProgressAccumulator {
     pool: DevicePoolId,
     // Insertion order (P3) plus a name index, so each lookup is O(1).
-    tests: Vec<(JavaString, TestExecutionData)>,
-    index: HashMap<JavaString, usize>,
+    tests: Vec<(String, TestExecutionData)>,
+    index: HashMap<String, usize>,
     strategy: ExecutionStrategyConfiguration,
     ci: Ci,
     tracker: Arc<dyn Tracker>,
@@ -172,8 +172,8 @@ impl PoolProgressAccumulator {
                 grouped.push((test.clone(), 1));
             }
         }
-        let mut tests: Vec<(JavaString, TestExecutionData)> = Vec::new();
-        let mut index: HashMap<JavaString, usize> = HashMap::new();
+        let mut tests: Vec<(String, TestExecutionData)> = Vec::new();
+        let mut index: HashMap<String, usize> = HashMap::new();
         for (original, count) in grouped {
             let name = original.to_test_name('.', '#');
             let data = TestExecutionData {
@@ -210,15 +210,15 @@ impl PoolProgressAccumulator {
     pub fn state(&self, test: &Test) -> Option<TestState> {
         self.data(&test.to_test_name('.', '#')).map(|data| *data.state.state())
     }
-    fn data(&self, name: &JavaString) -> Option<&TestExecutionData> {
+    fn data(&self, name: &String) -> Option<&TestExecutionData> {
         self.index.get(name).map(|&at| &self.tests[at].1)
     }
-    fn data_mut(&mut self, name: &JavaString) -> Option<&mut TestExecutionData> {
+    fn data_mut(&mut self, name: &String) -> Option<&mut TestExecutionData> {
         self.index.get(name).map(|&at| &mut self.tests[at].1)
     }
-    fn log(&self, level: Level, prefix: &str, test: &JavaString, suffix: &str) {
-        let mut message = JavaString::from(prefix);
-        message.append(test.clone());
+    fn log(&self, level: Level, prefix: &str, test: &String, suffix: &str) {
+        let mut message = String::from(prefix);
+        message.push_str(&test.clone());
         message.push_str(suffix);
         self.logs.log(
             "com.malinskiy.marathon.execution.progress.PoolProgressAccumulator",
@@ -281,20 +281,20 @@ impl PoolProgressAccumulator {
         }
         Ok(result)
     }
-    fn line(&self, device: &DeviceInfo, test: &Test, status: &str) -> VendorResult<JavaString> {
+    fn line(&self, device: &DeviceInfo, test: &Test, status: &str) -> VendorResult<String> {
         let percent = jcompat::jnum::kotlin_round_to_int(self.progress() * 100.0).ok_or_else(|| {
             VendorError::Other(failure("java.lang.IllegalArgumentException", "Cannot round NaN value."))
         })?;
-        let mut line = JavaString::from(format_percent(percent));
+        let mut line = format_percent(percent);
         line.push_str(" | [");
-        line.append(self.pool.name.clone());
+        line.push_str(&self.pool.name.clone());
         line.push_str("]-[");
-        line.append(device.serial_number.clone());
+        line.push_str(&device.serial_number.clone());
         line.push_str("] ");
-        line.append(test.to_test_name('.', '#'));
-        line.push_str(" ");
+        line.push_str(&test.to_test_name('.', '#'));
+        line.push(' ');
         line.push_str(status);
-        line.push_str("\n");
+        line.push('\n');
         Ok(line)
     }
     pub async fn test_started(

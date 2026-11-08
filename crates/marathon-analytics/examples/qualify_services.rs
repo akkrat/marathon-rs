@@ -153,7 +153,7 @@ async fn ingested(env: &Env, backend: &str, key: &str, anchor: i64) -> Operation
             );
             let result = client.query(&flux.as_str().into()).await;
             client.shutdown().await?;
-            number(result?.first().and_then(|r| r.get(&"_value".into())))
+            number(result?.first().and_then(|r| r.get("_value")))
         }
         _ => {
             let client =

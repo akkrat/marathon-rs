@@ -4,16 +4,16 @@ pub mod influx;
 pub mod influx2;
 
 use crate::runtime::ServiceFuture;
-use jcompat::{jtime::Instant, writers::JavaString};
+use jcompat::jtime::Instant;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionTime {
-    pub test_name: JavaString,
+    pub test_name: String,
     pub percentile: f64,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct SuccessRate {
-    pub test_name: JavaString,
+    pub test_name: String,
     pub mean: f64,
 }
 pub trait RemoteDataSource: Send + Sync {

@@ -2,7 +2,7 @@
 //! and NoOpMetricsProviderTest.kt, analytics/external/ExecutionTimeCoverageTest.kt.
 mod metrics_support;
 mod strategy_support;
-use jcompat::{jtime::Instant, logging::Level, writers::JavaString};
+use jcompat::{jtime::Instant, logging::Level};
 use marathon_config::*;
 use marathon_core::{
     analytics::{
@@ -88,7 +88,7 @@ fn should_return_noop_provider_when_configuration_is_invalid() {
         assert!(
             events[1]
                 .message
-                .to_string_lossy()
+                .to_owned()
                 .contains("the analytics backend could not be set up")
         );
     });
@@ -142,7 +142,7 @@ async fn noop_coverage(unavailable: bool) {
     let e = h.logs.take();
     assert_eq!(e.len(), 1);
     assert_eq!(e[0].level, if unavailable { Level::Warn } else { Level::Info });
-    assert!(e[0].message.to_string_lossy().contains(if unavailable {
+    assert!(e[0].message.to_owned().contains(if unavailable {
         "0 of 2 tests have it, the analytics backend could not be set up"
     } else {
         "0 of 2 tests have it, analytics is disabled"
@@ -157,7 +157,7 @@ fn should_warn_about_coverage_when_the_backend_could_not_be_set_up() {
     run(noop_coverage(true));
 }
 
-type CoverageReport = (Vec<Test>, f64, Instant, JavaString);
+type CoverageReport = (Vec<Test>, f64, Instant, String);
 #[derive(Default)]
 struct Recorder(Mutex<Vec<CoverageReport>>);
 impl MetricsProvider for Recorder {
@@ -172,7 +172,7 @@ impl MetricsProvider for Recorder {
         t: &'a [Test],
         p: f64,
         l: Instant,
-        u: &'a JavaString,
+        u: &'a String,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
             self.0.lock().unwrap().push((t.to_vec(), p, l, u.clone()));
@@ -345,7 +345,7 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
                 .take()
                 .iter()
                 .map(|e| {
-                    let mut m = e.message.to_string_lossy();
+                    let mut m = e.message.to_owned();
                     if e.logger == "Timings" {
                         m.truncate(m.rfind(" in ").unwrap());
                         m.push_str(" in <ms> ms");
@@ -365,12 +365,12 @@ fn lone_surrogate_graphite_text_fails_queries_instead_of_setup_under_p2() {
             let h = Harness::new();
             let config = AnalyticsConfiguration::Graphite(GraphiteConfiguration {
                 host: if host {
-                    JavaString(vec![0xd800])
+                    String::from_utf16_lossy(&vec![0xd800])
                 } else {
                     "not a host".into()
                 },
                 port: None,
-                prefix: (!host).then(|| JavaString(vec![0xd800])),
+                prefix: (!host).then(|| String::from_utf16_lossy(&vec![0xd800])),
                 defaults: defaults(300000, None),
                 read_only: false,
             });

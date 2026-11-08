@@ -35,7 +35,7 @@ impl MetricsProvider for NoOpMetricsProvider {
         tests: &'a [Test],
         _: f64,
         _: Instant,
-        usage: &'a JavaString,
+        usage: &'a String,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
             let count = tests.iter().map(Test::to_safe_test_name).collect::<BTreeSet<_>>().len();
@@ -47,8 +47,8 @@ impl MetricsProvider for NoOpMetricsProvider {
             } else {
                 (Level::Info, "analytics is disabled")
             };
-            let mut message = JavaString::from("Execution time history for ");
-            message.append(usage.clone());
+            let mut message = String::from("Execution time history for ");
+            message.push_str(&usage.clone());
             message.push_str(&format!(
                 ": 0 of {count} tests have it, {reason}, so every test is expected to take 0 ms"
             ));

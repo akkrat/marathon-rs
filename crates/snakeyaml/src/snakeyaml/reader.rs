@@ -1,7 +1,7 @@
 //! Port of SnakeYAML 2.2 org/yaml/snakeyaml/reader/StreamReader.java.
 // Copyright (c) 2008, SnakeYAML. Licensed under Apache-2.0; see LICENSE.
 use super::{Error, LINEBR, Result, has};
-use crate::java_string::JavaString;
+
 use crate::node::{Mark, YamlErrorKind, is_printable};
 
 pub struct StreamReader {
@@ -61,17 +61,17 @@ impl StreamReader {
             0
         })
     }
-    pub fn prefix(&mut self, length: usize) -> Result<JavaString> {
+    pub fn prefix(&mut self, length: usize) -> Result<String> {
         if length > 0 {
             self.ensure_enough_data(length)?;
         }
-        let mut out = JavaString::default();
+        let mut out = String::default();
         for &c in &self.window[self.pointer..(self.pointer + length).min(self.window.len())] {
-            out.push_code_point(c);
+            out.push(char::from_u32(c).unwrap_or('\u{fffd}'));
         }
         Ok(out)
     }
-    pub fn prefix_forward(&mut self, length: usize) -> Result<JavaString> {
+    pub fn prefix_forward(&mut self, length: usize) -> Result<String> {
         let prefix = self.prefix(length)?;
         self.pointer += length;
         self.index += length;

@@ -1,9 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/listener/{CompositeTestRunListenerTest,TestResultsListenerTest}.kt
 mod support;
-use jcompat::{
-    logging::{Logger, MarathonLogging},
-    writers::JavaString,
-};
+use jcompat::logging::{Logger, MarathonLogging};
 use marathon_apple::{
     bin::{Tools, xcrun::xcresulttool::Xcresulttool},
     cmd::{
@@ -65,10 +62,10 @@ impl Device for TestDevice {
             healthy: true,
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         "arm64".into()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         None
     }
     fn logger(&self) -> &Logger {
@@ -334,7 +331,7 @@ fn assert_enriched(h: &Harness, single_target: bool) {
     ];
     for (r, (class, line, msg)) in r.failed.iter().zip(names) {
         assert_eq!(
-            r.stacktrace.as_ref().unwrap().to_string_lossy(),
+            r.stacktrace.as_ref().unwrap().to_owned(),
             format!(
                 "{msg}\nfile:///Users/malinskiy/Development/marathon/sample/ios-app/sample-appUITests/{class}.swift#CharacterRangeLen=0&EndingLineNumber={line}&StartingLineNumber={line}"
             )
@@ -572,7 +569,7 @@ async fn clean_invocation_record_skips_target_summary_lookups() {
         h.assert_queries(&[], None);
         let r = h.result();
         assert_eq!(
-            r.finished.iter().map(|r| r.status).collect::<Vec<_>>(),
+            r.finished.iter().map(|r| r.status.clone()).collect::<Vec<_>>(),
             vec![TestStatus::Passed, TestStatus::Ignored]
         );
         assert_eq!(r.finished[0].attachments, vec![attachment()]);
@@ -622,7 +619,7 @@ async fn keeps_log_results_on_truncated_xcresult() {
 async fn forwards_the_failure_reason_to_every_listener() {
     struct Reasons(Mutex<Vec<DeviceFailureReason>>);
     impl AppleTestRunListener for Reasons {
-        fn test_run_failed<'a>(&'a self, _: &'a JavaString, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+        fn test_run_failed<'a>(&'a self, _: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
             Box::pin(async move {
                 self.0.lock().unwrap().push(reason);
                 Ok(())
@@ -650,7 +647,7 @@ fn oracle_rows() -> Vec<Value> {
 }
 fn projection(results: &[TestResult]) -> Value {
     let hooks = marathon_core::executor::hooks::RuntimeHooks::live();
-    json!(results.iter().map(|r|json!({"test":r.test.kotlin_value(&*hooks).unwrap().render().to_string_lossy(),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.as_ref().map(JavaString::to_string_lossy)})).collect::<Vec<_>>())
+    json!(results.iter().map(|r|json!({"test":r.test.kotlin_value(&*hooks).unwrap().render().to_owned(),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.as_ref().map(String::clone)})).collect::<Vec<_>>())
 }
 #[tokio::test]
 async fn jvm_listener_production_and_test_sequences_keep_a6_and_incomplete_zero_end() {
@@ -879,7 +876,7 @@ async fn accumulator_forwards_stamped_logs_even_when_callback_fails() {
         "com.malinskiy.marathon.execution.result.TestRunResultsAccumulator"
     );
     assert_eq!(
-        records[0].message.to_string_lossy(),
+        records[0].message.to_owned(),
         "received test event without test start for p.C.m"
     );
 }
@@ -940,7 +937,7 @@ async fn null_failure_entries_propagate_and_null_messages_follow_jvm_defaults() 
                     .as_ref()
                     .unwrap()
                     .message
-                    .to_string_lossy(),
+                    .to_owned(),
                 oracle["message"].as_str().unwrap()
             );
         }
@@ -967,7 +964,7 @@ async fn enrichment_appends_summary_messages_and_urls_in_source_order() {
         .push(summary);
     let h = harness(failing_tests(), ok(root.to_string()), vec![], None, None);
     run_failing(&h).await;
-    let trace = h.result().failed[0].stacktrace.as_ref().unwrap().to_string_lossy();
+    let trace = h.result().failed[0].stacktrace.as_ref().unwrap().to_owned();
     assert!(trace.ends_with("\nsecond"));
     assert_eq!(trace.matches("XCTAssertTrue failed").count(), 1);
     let messages = h.messages.lock().unwrap();

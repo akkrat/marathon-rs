@@ -25,7 +25,9 @@ fn error_chain(result: &VendorResult<()>) -> Value {
     let mut rows = vec![];
     let mut current = result.as_ref().err().map(|e| e.failure());
     while let Some(f) = current {
-        rows.push(json!({"class":f.class.to_string_lossy(),"message":f.message.as_ref().map(|s|normalize_epoch(&s.to_string_lossy()))}));
+        rows.push(
+            json!({"class":f.class.to_owned(),"message":f.message.as_ref().map(|s|normalize_epoch(&s.to_owned()))}),
+        );
         current = f.cause.as_deref();
     }
     json!(rows)
@@ -106,8 +108,8 @@ async fn permissions_match_jvm_command_bytes_order_and_failures() -> R {
         assert_eq!(error_chain(&outcome), row["error"], "{mode}");
         let requests=h.worker.requests.lock().unwrap().iter().map(|r| {assert!(r.workdir.is_none());json!({"argv":r.command.iter().map(|s|normalize_epoch(s)).collect::<Vec<_>>(),"timeout":r.timeout.to_string(),"idle":r.idle_timeout.to_string(),"env":r.env})}).collect::<Vec<_>>();
         assert_eq!(json!(requests), row["requests"], "{mode}");
-        assert_eq!(d.info().model.to_string_lossy(), row["facts"]["model"]);
-        assert_eq!(d.abi().to_string_lossy(), row["facts"]["abi"]);
+        assert_eq!(d.info().model.to_owned(), row["facts"]["model"]);
+        assert_eq!(d.abi().to_owned(), row["facts"]["abi"]);
         v(d.dispose().await)?;
         v(d.join_pending().await)?;
     }
@@ -134,7 +136,7 @@ async fn empty_grants_skip_sip_and_p4_rejects_malformed_clients() -> R {
             .await
             .err()
             .ok_or("P4 failure")?;
-        assert_eq!(e.failure().class, "java.lang.IllegalArgumentException".into());
+        assert_eq!(e.failure().class, "java.lang.IllegalArgumentException".to_owned());
     }
     assert!(
         !h.worker
@@ -154,7 +156,7 @@ async fn direct_unsupported_operations_fail_with_the_kotlin_error() -> R {
     let h = Harness::new("")?;
     let d = h.device();
     let expected = |f: &Failure| {
-        assert_eq!(f.class, "kotlin.NotImplementedError".into());
+        assert_eq!(f.class, "kotlin.NotImplementedError".to_owned());
         assert_eq!(
             f.message,
             Some("An operation is not implemented: Not yet implemented".into())

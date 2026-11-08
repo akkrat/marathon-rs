@@ -4,14 +4,14 @@ use super::{
     decoder::{Decode, Fields, JsonNode, Path},
     *,
 };
-use jcompat::{jackson::JavaDate, jnum, writers::JavaString};
+use jcompat::{jackson::JavaDate, jnum};
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
 pub(super) trait Project {
     fn project(&self) -> JsonNode;
 }
-impl Project for JavaString {
+impl Project for String {
     fn project(&self) -> JsonNode {
         JsonNode::String(self.clone())
     }
@@ -27,7 +27,7 @@ impl Project for f64 {
         if self.is_finite() {
             JsonNode::Number(text)
         } else {
-            JsonNode::String(JavaString::from(text))
+            JsonNode::String(String::from(text))
         }
     }
 }
@@ -59,7 +59,7 @@ impl<T: Project> Project for Box<T> {
 
 #[derive(Debug)]
 struct OracleNullableLists {
-    strings: Option<Vec<Option<JavaString>>>,
+    strings: Option<Vec<Option<String>>>,
     objects: Option<Vec<Option<Reference>>>,
 }
 impl Decode for OracleNullableLists {
@@ -128,14 +128,7 @@ fn measured_apple_mapper_corpus() {
             // Rust rejects while parsing, before binding, so there is no Jackson reference chain.
             let error = actual.expect_err(&id);
             assert_eq!(error.kind, DecodeErrorKind::JsonSyntax, "{id}");
-            assert!(
-                error
-                    .failure
-                    .class
-                    .as_utf8()
-                    .unwrap()
-                    .ends_with("StreamConstraintsException")
-            );
+            assert!(error.failure.class.clone().ends_with("StreamConstraintsException"));
         } else {
             let error = actual.expect_err(&id);
             let expected: Vec<String> = serde_json::from_str(row["path"].get()).unwrap();
@@ -155,12 +148,11 @@ fn measured_apple_mapper_corpus() {
 }
 
 #[test]
-fn unpaired_surrogates_remain_utf16() {
+fn unpaired_surrogates_decode_lossily() {
     let value = decode_legacy::<ObjectID>(r#"{"hash":{"_value":"\ud800x\udfff"}}"#)
         .unwrap()
         .unwrap();
-    assert_eq!(value.hash.0, [0xd800, u16::from(b'x'), 0xdfff]);
-    assert!(value.hash.as_utf8().is_err());
+    assert_eq!(value.hash, "\u{fffd}x\u{fffd}");
 }
 
 #[test]
@@ -185,7 +177,7 @@ fn decode_failures_are_structured_and_resource_free() {
         ]
     );
     let failure: marathon_core::error::Failure = error.into();
-    assert!(failure.class.as_utf8().unwrap().ends_with("InvalidFormatException"));
+    assert!(failure.class.ends_with("InvalidFormatException"));
 }
 
 #[test]
@@ -194,14 +186,7 @@ fn nesting_beyond_jacksons_limit_is_an_error_not_a_stack_overflow() {
     for input in [deep(1001), deep(5000), "{\"u\":".repeat(5000) + "1" + &"}".repeat(5000)] {
         let error = decode_legacy::<ResultMetrics>(&input).unwrap_err();
         assert_eq!(error.kind, DecodeErrorKind::JsonSyntax);
-        assert!(
-            error
-                .failure
-                .class
-                .as_utf8()
-                .unwrap()
-                .ends_with("StreamConstraintsException")
-        );
+        assert!(error.failure.class.clone().ends_with("StreamConstraintsException"));
     }
     assert!(decode_legacy::<ResultMetrics>(&format!("{{\"u\":{}}}", deep(999))).is_ok());
 }

@@ -71,7 +71,7 @@ fn document_reuses_the_production_canonical_configuration() -> Result<(), Box<dy
     assert_eq!(
         fields
             .iter()
-            .find(|(key, _)| key == &"config".into())
+            .find(|(key, _)| key == &"config".to_owned())
             .map(|(_, value)| value),
         Some(&canonical)
     );
@@ -79,7 +79,7 @@ fn document_reuses_the_production_canonical_configuration() -> Result<(), Box<dy
         config
             .to_map(&context.process_dir)
             .iter()
-            .any(|(key, _)| key == &"pooling".into())
+            .any(|(key, _)| key == &"pooling".to_owned())
     );
     Ok(())
 }

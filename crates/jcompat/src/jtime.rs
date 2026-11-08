@@ -2,8 +2,6 @@
 //! Promoted from WP 0.3b, `spikes/yaml-node/src/jtime.rs`; retains its checked arithmetic.
 //! `java.time.Instant` and `java.time.Duration`: the parsing and `toString` the Instant and Duration targets need.
 
-use crate::writers::JavaString;
-
 /// `Instant.MIN.getEpochSecond()`.
 pub const INSTANT_MIN_SECONDS: i64 = -31_557_014_167_219_200;
 /// `Instant.MAX.getEpochSecond()`.
@@ -144,7 +142,7 @@ pub fn parse_instant(s: &str) -> Option<Instant> {
 /// `Instant.parse` failure: the `DateTimeParseException` first, then its causes, each as (class, message).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstantParseError {
-    pub chain: Vec<(&'static str, JavaString)>,
+    pub chain: Vec<(&'static str, String)>,
 }
 
 const PARSE_EXCEPTION: &str = "java.time.format.DateTimeParseException";
@@ -172,7 +170,7 @@ pub fn parse_instant_detailed(s: &str) -> Result<Instant, InstantParseError> {
         let mut m: Vec<u16> = "Text '".encode_utf16().collect();
         m.extend_from_slice(&abbr);
         m.extend(tail.encode_utf16());
-        JavaString(m)
+        String::from_utf16_lossy(&m)
     };
     match parse_iso_instant(&t) {
         Err(Stop::At(index)) => Err(InstantParseError {
@@ -184,7 +182,7 @@ pub fn parse_instant_detailed(s: &str) -> Result<Instant, InstantParseError> {
         Err(Stop::Thrown(message)) => Err(InstantParseError {
             chain: vec![
                 (PARSE_EXCEPTION, text(&format!("' could not be parsed: {message}"))),
-                (DATE_TIME_EXCEPTION, JavaString::from(message)),
+                (DATE_TIME_EXCEPTION, String::from(message)),
             ],
         }),
         Ok((end, _)) if end < t.len() => Err(InstantParseError {
@@ -205,10 +203,10 @@ pub fn parse_instant_detailed(s: &str) -> Result<Instant, InstantParseError> {
             InstantParseError {
                 chain: vec![
                     (PARSE_EXCEPTION, text(&format!("' could not be parsed: {unable}"))),
-                    (DATE_TIME_EXCEPTION, JavaString::from(unable.as_str())),
+                    (DATE_TIME_EXCEPTION, String::from(unable.as_str())),
                     (
                         DATE_TIME_EXCEPTION,
-                        JavaString::from("Instant exceeds minimum or maximum instant"),
+                        String::from("Instant exceeds minimum or maximum instant"),
                     ),
                 ],
             }

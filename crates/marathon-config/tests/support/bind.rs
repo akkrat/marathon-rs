@@ -119,7 +119,7 @@ fn shorten_string(v: serde_json::Value) -> serde_json::Value {
                     .collect()
             });
             match units.filter(|_| map.len() == 1) {
-                Some(units) => super::text::short_json(&jcompat::writers::JavaString(units), 256),
+                Some(units) => super::text::short_json(&String::from_utf16_lossy(&units), 256),
                 None => v,
             }
         }
@@ -139,7 +139,7 @@ pub fn context() -> BindingContext {
         bugsnag_reporting: false,
     }
 }
-fn string(v: Option<jcompat::writers::JavaString>) -> Json {
+fn string(v: Option<String>) -> Json {
     v.map_or(Json::Null, |s| super::text::json(&s))
 }
 fn schema(v: Value<'_>, target: Target) -> Result<Json> {
@@ -200,7 +200,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
                 "error-class" => matches!(got, Outcome::Err(_)) && exp.get("error").is_some(),
                 "last-list" => matches!(got, Outcome::Ok(ref v) if v == &serde_json::json!(["x"])),
                 "last-null" => {
-                    matches!(got, Outcome::Err(ref e) if e.class == marathon_config::binder::MISSING_KOTLIN.into())
+                    matches!(got, Outcome::Err(ref e) if e.class == marathon_config::binder::MISSING_KOTLIN)
                 }
                 "last-string" => matches!(got, Outcome::Ok(ref v) if v == "x"),
                 "syntax-before-null" => {
@@ -212,7 +212,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
             match &got {
                 Outcome::Ok(v) => exp.get("ok") == Some(v),
                 Outcome::NullDocument => exp["nullDocument"] == true,
-                Outcome::Err(e) => exp["error"]["class"].as_str().is_some_and(|s| e.class == s.into()),
+                Outcome::Err(e) => exp["error"]["class"].as_str().is_some_and(|s| e.class == s),
             }
         };
         if !ok {
@@ -221,7 +221,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
                 format!(
                     "expected {exp} got {}",
                     match &got {
-                        Outcome::Err(e) => format!("error {} {:?}", e.class.to_string_lossy(), e.path),
+                        Outcome::Err(e) => format!("error {} {:?}", e.class.to_owned(), e.path),
                         _ => format!("{got:?}"),
                     }
                 ),

@@ -9,7 +9,7 @@
 //! There are no Kotlin tests for these files: the tests below are new and
 //! derived from the source (WP 6.3 findings).
 
-use jcompat::{jnum, regex_patterns::LOGCAT_HEADER, writers::JavaString};
+use jcompat::{jnum, regex_patterns::LOGCAT_HEADER};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LogLevel {
@@ -64,8 +64,12 @@ impl LogLevel {
         .find(|level| level.priority_letter() == letter)
     }
     /// Only the first character is used; empty input finds nothing.
-    pub fn get_by_letter_string(letter: &JavaString) -> Option<Self> {
-        letter.0.first().and_then(|&first| Self::get_by_letter(first))
+    pub fn get_by_letter_string(letter: &String) -> Option<Self> {
+        letter
+            .encode_utf16()
+            .collect::<Vec<_>>()
+            .first()
+            .and_then(|&first| Self::get_by_letter(first))
     }
 }
 
@@ -77,18 +81,18 @@ pub struct LogCatHeader {
     pub log_level: LogLevel,
     pub pid: i32,
     pub tid: i32,
-    pub app_name: JavaString,
-    pub tag: JavaString,
-    pub timestamp: JavaString,
+    pub app_name: String,
+    pub tag: String,
+    pub timestamp: String,
 }
 impl LogCatHeader {
     /// Kotlin `toString()`: `"<timestamp>: <letter>/<tag>(<pid>)"`.
-    pub fn to_kotlin_string(&self) -> JavaString {
+    pub fn to_kotlin_string(&self) -> String {
         let mut out = self.timestamp.clone();
         out.push_str(": ");
-        out.0.push(self.log_level.priority_letter());
-        out.push_str("/");
-        out.0.extend_from_slice(&self.tag.0);
+        out.push(char::from_u32(u32::from(self.log_level.priority_letter())).unwrap());
+        out.push('/');
+        out.push_str(&self.tag);
         out.push_str(&format!("({})", self.pid));
         out
     }
@@ -97,10 +101,10 @@ impl LogCatHeader {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogCatMessage {
     header: LogCatHeader,
-    pub message: JavaString,
+    pub message: String,
 }
 impl LogCatMessage {
-    pub fn new(header: LogCatHeader, message: JavaString) -> Self {
+    pub fn new(header: LogCatHeader, message: String) -> Self {
         Self { header, message }
     }
     pub fn header(&self) -> &LogCatHeader {
@@ -115,20 +119,20 @@ impl LogCatMessage {
     pub fn tid(&self) -> i32 {
         self.header.tid
     }
-    pub fn app_name(&self) -> &JavaString {
+    pub fn app_name(&self) -> &String {
         &self.header.app_name
     }
-    pub fn tag(&self) -> &JavaString {
+    pub fn tag(&self) -> &String {
         &self.header.tag
     }
-    pub fn timestamp(&self) -> &JavaString {
+    pub fn timestamp(&self) -> &String {
         &self.header.timestamp
     }
     /// Kotlin `toString()`: `"$header: $message"`.
-    pub fn to_kotlin_string(&self) -> JavaString {
+    pub fn to_kotlin_string(&self) -> String {
         let mut out = self.header.to_kotlin_string();
         out.push_str(": ");
-        out.0.extend_from_slice(&self.message.0);
+        out.push_str(&self.message);
         out
     }
 }
@@ -146,10 +150,10 @@ impl LogCatMessageParser {
 
     /// Parses one header line, or returns None when it does not match the
     /// whole-line header grammar (which has no year — see U26).
-    pub fn process_log_header(&mut self, line: &JavaString) -> Option<LogCatHeader> {
+    pub fn process_log_header(&mut self, line: &String) -> Option<LogCatHeader> {
         // The fixed pattern operates on &str; header lines are ASCII on the
         // wire, and anything else cannot match the grammar anyway.
-        let text: String = char::decode_utf16(line.0.iter().copied())
+        let text: String = char::decode_utf16(line.encode_utf16().collect::<Vec<_>>().iter().copied())
             .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
             .collect();
         let captures = LOGCAT_HEADER.find(&text)?;
@@ -164,8 +168,8 @@ impl LogCatMessageParser {
             pid: Self::parse_process_id(group(2).unwrap_or_default()),
             tid: Self::parse_thread_id(group(3).unwrap_or_default()),
             app_name: Self::get_package_name(),
-            tag: JavaString::from(group(5).unwrap_or_default()),
-            timestamp: JavaString::from(group(1).unwrap_or_default()),
+            tag: String::from(group(5).unwrap_or_default()),
+            timestamp: String::from(group(1).unwrap_or_default()),
         };
         self.previous_header = Some(header.clone());
         Some(header)
@@ -174,10 +178,10 @@ impl LogCatMessageParser {
     /// Empty lines are skipped, so a multi-line message becomes one
     /// `LogCatMessage` per line under the same header; a line before any
     /// header is dropped (the KDoc's exception claim is stale).
-    pub fn process_log_lines(&mut self, lines: &[JavaString]) -> Vec<LogCatMessage> {
+    pub fn process_log_lines(&mut self, lines: &[String]) -> Vec<LogCatMessage> {
         let mut messages = Vec::with_capacity(lines.len());
         for line in lines {
-            if line.0.is_empty() {
+            if line.is_empty() {
                 continue;
             }
             if self.process_log_header(line).is_none() {
@@ -199,7 +203,7 @@ impl LogCatMessageParser {
 
     /// Unknown letters fall back to WARN, except exactly `"F"`, which is ASSERT.
     pub fn parse_priority(string: &str) -> LogLevel {
-        if let Some(level) = LogLevel::get_by_letter_string(&JavaString::from(string)) {
+        if let Some(level) = LogLevel::get_by_letter_string(&String::from(string)) {
             return level;
         }
         if string != "F" {
@@ -211,7 +215,7 @@ impl LogCatMessageParser {
 
     /// Kotlin `getPackageName` is a stub: every header's app name is `"?"`,
     /// which is observable in the bridged device log lines (WP 6.5).
-    pub fn get_package_name() -> JavaString {
+    pub fn get_package_name() -> String {
         "?".into()
     }
 }
@@ -224,12 +228,12 @@ mod tests {
     // No Kotlin tests exist for the logcat parser; these are new tests
     // derived from the Kotlin source (WP 6.3 findings), not ports.
 
-    fn js(s: &str) -> JavaString {
+    fn js(s: &str) -> String {
         s.into()
     }
 
-    fn lines_of(text: &str) -> Vec<JavaString> {
-        jstring::lines(&text.into())
+    fn lines_of(text: &str) -> Vec<String> {
+        jstring::lines(text)
     }
 
     const HEADER: &str = "[ 08-18 16:39:11.760  2977: 2988 D/PhoneInterfaceManager ]";
@@ -274,13 +278,7 @@ mod tests {
         let messages = parser.process_log_lines(&lines_of(FIXTURE));
         let summary: Vec<(String, LogLevel, String)> = messages
             .iter()
-            .map(|m| {
-                (
-                    m.tag().as_utf8().expect("tag"),
-                    m.log_level(),
-                    m.message.as_utf8().expect("message"),
-                )
-            })
+            .map(|m| (m.tag().clone(), m.log_level(), m.message.clone()))
             .collect();
         assert_eq!(
             summary,

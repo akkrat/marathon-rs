@@ -6,7 +6,7 @@ pub mod screenshot;
 pub mod video;
 
 use crate::{device::AndroidDevice, support::*};
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 use marathon_core::{error::*, listener::*, model::*, output::*, vendor::Device};
 use std::sync::{Arc, Mutex};
 
@@ -21,8 +21,8 @@ impl ArtifactContext {
         &self,
         kind: FileType,
         test: Option<&Test>,
-        id: Option<JavaString>,
-        chunk: Option<JavaString>,
+        id: Option<String>,
+        chunk: Option<String>,
     ) -> VendorResult<JavaPath> {
         self.device
             .runtime()

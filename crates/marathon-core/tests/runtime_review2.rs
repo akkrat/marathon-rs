@@ -32,8 +32,8 @@ fn error_result(error: VendorError) -> String {
     };
     format!(
         "{}:{}",
-        failure.class.as_utf8().unwrap().rsplit('.').next().unwrap(),
-        failure.message.unwrap().as_utf8().unwrap()
+        failure.class.rsplit('.').next().unwrap(),
+        failure.message.unwrap()
     )
 }
 fn suspended_deferred(state: &'static str, cancel_first: bool) {

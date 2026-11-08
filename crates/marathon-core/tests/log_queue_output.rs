@@ -15,8 +15,8 @@ fn sent(message: &str) -> LogRecord {
 }
 fn text(record: &OutputRecord) -> String {
     match record {
-        OutputRecord::Log(log) => format!("log:{}", log.message.to_string_lossy()),
-        OutputRecord::Raw(raw) => format!("raw:{}", raw.to_string_lossy()),
+        OutputRecord::Log(log) => format!("log:{}", log.message.to_owned()),
+        OutputRecord::Raw(raw) => format!("raw:{}", raw.to_owned()),
     }
 }
 
@@ -46,7 +46,7 @@ fn take_drains_sent_logs_and_leaves_raw_for_the_output_driver() {
     q.raw("d".into());
     let logs = q.take();
     assert_eq!(
-        logs.iter().map(|l| l.message.to_string_lossy()).collect::<Vec<_>>(),
+        logs.iter().map(|l| l.message.to_owned()).collect::<Vec<_>>(),
         ["b", "c"]
     );
     q.sender().push(sent("e"));

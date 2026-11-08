@@ -4,7 +4,7 @@
 #[path = "../../marathon-core/tests/filter_support/mod.rs"]
 mod filter_support;
 use filter_support::*;
-use jcompat::writers::JavaString;
+
 use marathon_android::dex_test_parser::to_meta_property;
 use marathon_config::schema::TestFilterConfiguration as C;
 use marathon_core::{
@@ -77,9 +77,9 @@ fn c28_real_metadata_conversion_and_filtering_replay_the_jvm() -> OperationResul
         };
         let rendered = rendering.render(&array.elements[0])?;
         let extracted = marathon_core::filter::array_element_value(&rendered);
-        assert_eq!(extracted.to_string_lossy(), row["extracted"]);
+        assert_eq!(extracted.to_owned(), row["extracted"]);
         let mut pattern = String::new();
-        for c in extracted.as_utf8().expect("oracle UTF-16").chars() {
+        for c in extracted.chars() {
             if "\\.+*?()|[]{}^$".contains(c) {
                 pattern.push('\\');
             }
@@ -102,7 +102,7 @@ fn c28_real_metadata_conversion_and_filtering_replay_the_jvm() -> OperationResul
     rendering
         .hooks
         .verify_consumed()
-        .map_err(|e| fail(&e.message.to_string_lossy()))?;
+        .map_err(|e| fail(&e.message.to_owned()))?;
     // Top-level null is unboxed; the array element above retains DecodedNull.
     let meta = to_meta_property(&TestAnnotation {
         name: "A".into(),
@@ -110,6 +110,6 @@ fn c28_real_metadata_conversion_and_filtering_replay_the_jvm() -> OperationResul
         inherited: false,
     });
     assert_eq!(meta.values.entries()[0].1, MetaValue::Null);
-    assert_eq!(meta.name, JavaString::from("A"));
+    assert_eq!(meta.name, String::from("A"));
     Ok(())
 }

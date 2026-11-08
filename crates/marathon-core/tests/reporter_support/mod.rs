@@ -4,7 +4,6 @@ use jcompat::{
     file_manager::{FileManager, JavaPath},
     jtime::instant_of,
     logging::MarathonLogging,
-    writers::JavaString,
 };
 use marathon_core::{
     artifacts::FileManagerOutput,
@@ -52,7 +51,7 @@ pub fn bytes(v: &Value) -> Vec<u8> {
         .map(|n| n.as_u64().unwrap() as u8)
         .collect()
 }
-pub fn text(v: &Value) -> JavaString {
+pub fn text(v: &Value) -> String {
     v.as_str().unwrap().into()
 }
 pub fn device(v: &Value) -> DeviceInfo {
@@ -201,7 +200,7 @@ pub fn result(v: &Value) -> TestResult {
             .unwrap()
             .iter()
             .map(|v| Attachment {
-                file: JavaPath(text(&v["file"]).0),
+                file: JavaPath(text(&v["file"]).encode_utf16().collect::<Vec<_>>()),
                 kind: if v["type"] == "LOG" {
                     AttachmentType::Log
                 } else {
@@ -320,7 +319,7 @@ impl ConsoleSink for Sink {
                 let OutputRecord::Raw(t) = r else {
                     panic!("unexpected log")
                 };
-                self.0.lock().unwrap().extend(t.to_utf8_bytes());
+                self.0.lock().unwrap().extend(t.as_bytes().to_vec());
             }
             Ok(())
         })
@@ -341,10 +340,10 @@ pub fn files(io: Arc<dyn VendorRuntime>, path: JavaPath, max_filename: i32) -> R
             Arc::new(|_, _, _, _| assert_ne!(std::thread::current().name(), Some("marathon-core"))),
         )),
         io,
-        cwd: JavaPath(text(&context()["cwd"]).0),
+        cwd: JavaPath(text(&context()["cwd"]).encode_utf16().collect::<Vec<_>>()),
     }
 }
-pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<JavaString>) {
+pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
     let r = row(id);
     let report = report(&r["input"]);
     let temp = Temp::new();
@@ -392,10 +391,10 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<JavaString>) {
                 );
             }
             let hooks = RuntimeHooks::taped(tape, &core.clock());
-            let timer =
-                Arc::new(SystemTimer::new(hooks.clone()).map_err(|e| {
-                    marathon_core::executor::shared::failure("ReplayError", &e.message.to_string_lossy())
-                })?);
+            let timer = Arc::new(
+                SystemTimer::new(hooks.clone())
+                    .map_err(|e| marathon_core::executor::shared::failure("ReplayError", &e.message.to_owned()))?,
+            );
             let io = crate::event_support::CountingRuntime::new(core.vendor());
             let output = files(io.clone(), path.clone(), if id == "paths" { 120 } else { 0 });
             let bill = BillingReporter::new(
@@ -456,7 +455,7 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<JavaString>) {
             assert!(io.blocking.load(Ordering::SeqCst) > 0);
             hooks
                 .verify_consumed()
-                .map_err(|e| marathon_core::executor::shared::failure("ReplayError", &e.message.to_string_lossy()))?;
+                .map_err(|e| marathon_core::executor::shared::failure("ReplayError", &e.message.to_owned()))?;
             Ok(())
         })
     }));

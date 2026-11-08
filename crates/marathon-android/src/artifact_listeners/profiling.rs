@@ -79,10 +79,10 @@ impl AndroidTestRunListener for ProfilingRunListener {
                     use std::io::Read;
                     let open_error = |e: std::io::Error| {
                         let reason = e.to_string();
-                        let mut message = JavaString(p.0.clone());
+                        let mut message = String::from_utf16_lossy(&p.0.clone());
                         message.push_str(" (");
                         message.push_str(reason.split(" (os error ").next().unwrap_or(&reason));
-                        message.push_str(")");
+                        message.push(')');
                         other("java.io.FileNotFoundException", message)
                     };
                     let mut file = std::fs::File::open(p.to_file_path_buf().map_err(io)?).map_err(open_error)?;
@@ -129,13 +129,13 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         bundle.instrumentation_info()
                     })
                     .await?;
-                    let package = info.application_package.to_string_lossy();
+                    let package = info.application_package.to_owned();
                     let result = self
                         .artifacts
                         .device
                         .critical_execute_shell_command(&format!("pidof {package}"), "", context)
                         .await?;
-                    let pid = jcompat::jnum::parse_int(&trim(&result.output.to_string_lossy()));
+                    let pid = jcompat::jnum::parse_int(&trim(&result.output.to_owned()));
                     self.log(
                         Level::Debug,
                         &format!(
@@ -151,7 +151,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                             _ => None,
                         })
                         .replace(&config)
-                        .map_err(|e| other(e.java_class(), e.message.as_str()))?;
+                        .map_err(|e| other(e.java_class(), e.message.as_str().to_owned()))?;
                         self.log(Level::Debug, &format!("Rendered config:\n{rendered}"));
                         lock(&self.config).1 = Some(rendered);
                     }
@@ -169,10 +169,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                             Box::pin(async move {
                                 let result = device
                                     .execute_shell_command(
-                                        &format!(
-                                            "echo '{config}' | perfetto --txt -c - -o {}",
-                                            remote.to_string_lossy()
-                                        ),
+                                        &format!("echo '{config}' | perfetto --txt -c - -o {}", remote.to_owned()),
                                         "",
                                         VendorContext {
                                             cancellation: Arc::new(ChildSignal(signal, context.cancellation.clone())),
@@ -189,7 +186,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                                             r.as_ref()
                                                 .map(|r| format!(
                                                     "ShellCommandResult(output={}, exitCode={})",
-                                                    r.output.to_string_lossy(),
+                                                    r.output.to_owned(),
                                                     r.exit_code
                                                 ))
                                                 .unwrap_or_else(|| "null".into())
@@ -224,8 +221,8 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         self.artifacts
                             .device
                             .safe_pull_file(
-                                &remote.to_string_lossy(),
-                                &JavaString(file.0.clone()).to_string_lossy(),
+                                &remote.to_owned(),
+                                &String::from_utf16_lossy(&file.0.clone()).to_owned(),
                                 context.clone(),
                             )
                             .await?;
@@ -235,14 +232,14 @@ impl AndroidTestRunListener for ProfilingRunListener {
                             &format!(
                                 "Pulling finished in {}ms {} ",
                                 end.wrapping_sub(start),
-                                remote.to_string_lossy()
+                                remote.to_owned()
                             ),
                         );
                         self.attachments
                             .emit(&test, file, AttachmentType::Profiling, "profiling")?;
                         self.artifacts
                             .device
-                            .safe_execute_shell_command(&format!("rm -f {}", remote.to_string_lossy()), "", context)
+                            .safe_execute_shell_command(&format!("rm -f {}", remote.to_owned()), "", context)
                             .await?;
                         Ok(())
                     }

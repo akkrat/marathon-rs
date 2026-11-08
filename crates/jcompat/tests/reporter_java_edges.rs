@@ -25,13 +25,13 @@ fn jackson_binary_scalars_match_the_command_mapper() {
                 .collect::<Vec<_>>()
         };
         assert_eq!(
-            JacksonYamlWriter.write(&value).to_utf8_bytes(),
+            JacksonYamlWriter.write(&value).as_bytes().to_vec(),
             bytes("yaml"),
             "YAML size {size}, list {}",
             r["list"]
         );
         assert_eq!(
-            GsonWriter::default().write(&value).unwrap().to_utf8_bytes(),
+            GsonWriter::default().write(&value).unwrap().as_bytes().to_vec(),
             bytes("gson")
         );
     }

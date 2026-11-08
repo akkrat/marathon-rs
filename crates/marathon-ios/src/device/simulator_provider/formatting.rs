@@ -13,10 +13,10 @@ fn target(target: &AppleTarget) -> KotlinValue {
         AppleTarget::Host => KotlinValue::from("Host"),
         AppleTarget::Simulator { udid } => data("Simulator", "udid", KotlinValue::Text(udid.clone())),
         AppleTarget::Physical { udid } => data("Physical", "udid", KotlinValue::Text(udid.clone())),
-        AppleTarget::SimulatorProfile(profile) => KotlinValue::Text(super::super::timing::profile_text(profile).into()),
+        AppleTarget::SimulatorProfile(profile) => KotlinValue::Text(super::super::timing::profile_text(profile)),
     }
 }
-pub(super) fn update_text(update: &TrackingUpdate) -> JavaString {
+pub(super) fn update_text(update: &TrackingUpdate) -> String {
     match update {
         TrackingUpdate::Connected(t) => data("Connected", "target", target(t)),
         TrackingUpdate::Disconnected(t) => data("Disconnected", "target", target(t)),

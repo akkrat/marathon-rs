@@ -455,7 +455,7 @@ async fn process_failure_child() {
         };
         for result in [send, receive] {
             assert!(
-                matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.class.to_string_lossy()==class)
+                matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.class.to_owned()==class)
             );
         }
     }
@@ -1467,10 +1467,7 @@ async fn stalled_send_runs() {
                 ),
                 "{error:?}"
             );
-            assert_eq!(
-                error.failure().class,
-                jcompat::writers::JavaString::from(TRANSFER_STALLED)
-            );
+            assert_eq!(error.failure().class, String::from(TRANSFER_STALLED));
         }
         assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stalled\n");
         // A send that starts later waited behind nothing, so it tries: the worker may have come back.

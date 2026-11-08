@@ -102,13 +102,7 @@ impl AppleTestRunListener for Recorder {
     fn test_passed<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
         Box::pin(async move { self.attach(test) })
     }
-    fn test_failed<'a>(
-        &'a self,
-        test: &'a Test,
-        _: i64,
-        _: i64,
-        _: Option<&'a jcompat::writers::JavaString>,
-    ) -> VendorFuture<'a, ()> {
+    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a String>) -> VendorFuture<'a, ()> {
         Box::pin(async move { self.attach(test) })
     }
 }
@@ -183,7 +177,7 @@ pub async fn device(
         .await?;
     h.prepare(&d)
         .await
-        .map_err(|e| e.failure().to_java_string().to_string_lossy())?;
+        .map_err(|e| e.failure().to_java_string().to_owned())?;
     let s = Arc::new(BatchScript::default());
     s.attach(&h.worker);
     s.output(passed(1));

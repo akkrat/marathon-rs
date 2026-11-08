@@ -28,7 +28,7 @@ impl TestRequest {
         self.tests
             .iter()
             .flatten()
-            .map(|test| format!("'-only-testing:{}'", test.to_test_name('/', '/').to_string_lossy()))
+            .map(|test| format!("'-only-testing:{}'", test.to_test_name('/', '/').to_owned()))
             .collect()
     }
 }

@@ -17,7 +17,6 @@ use jcompat::{
     file_manager::JavaPath,
     jtime::Duration,
     regex_patterns::{DEFAULT_TEST_CLASS_PATTERN, default_test_class_matches},
-    writers::JavaString,
 };
 use std::{
     fmt,
@@ -139,7 +138,7 @@ fn file_is_regular(path: &JavaPath) -> bool {
 /// Port of config/vendor/android/AdbEndpoint.kt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdbEndpoint {
-    pub host: JavaString,
+    pub host: String,
     pub port: i32,
 }
 
@@ -163,7 +162,7 @@ pub enum AggregationMode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AllureConfiguration {
     pub enabled: bool,
-    pub relative_results_directory: JavaString,
+    pub relative_results_directory: String,
     pub path_root: PathRoot,
 }
 
@@ -185,13 +184,13 @@ pub struct FileSyncConfiguration {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileSyncEntry {
-    pub relative_path: JavaString,
+    pub relative_path: String,
     pub path_root: PathRoot,
     pub aggregation_mode: AggregationMode,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilePushEntry {
-    pub path: JavaString,
+    pub path: String,
     pub path_root: PathRoot,
 }
 
@@ -200,7 +199,7 @@ pub struct FilePushEntry {
 pub struct ProfilingConfiguration {
     pub enabled: bool,
     pub pbtxt: Option<JavaPath>,
-    pub url_template: JavaString,
+    pub url_template: String,
 }
 
 /// Port of config/vendor/android/ScreenRecordConfiguration.kt (`RecorderType`).
@@ -264,7 +263,7 @@ pub struct TestAccessConfiguration {
     pub adb: bool,
     pub grpc: bool,
     pub console: bool,
-    pub console_token: JavaString,
+    pub console_token: String,
 }
 impl fmt::Debug for TestAccessConfiguration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -282,7 +281,7 @@ impl fmt::Debug for TestAccessConfiguration {
 pub enum AndroidTestParserConfiguration {
     Local,
     Remote {
-        instrumentation_args: Vec<(String, JavaString)>,
+        instrumentation_args: Vec<(String, String)>,
     },
 }
 
@@ -373,13 +372,13 @@ pub fn android_timeout_configuration(p: AndroidTimeoutParameters) -> AndroidTime
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeviceProvider {
     Static { path: Option<JavaPath> },
-    Dynamic { host: JavaString, port: i32 },
+    Dynamic { host: String, port: i32 },
 }
 
 /// Port of config/vendor/apple/RsyncConfiguration.kt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RsyncConfiguration {
-    pub remote_path: JavaString,
+    pub remote_path: String,
 }
 
 /// Port of config/vendor/apple/SshConfiguration.kt (`SshAuthentication`).
@@ -387,8 +386,8 @@ pub struct RsyncConfiguration {
 /// username for password authentication (WP 2.4 renders that form).
 #[derive(Clone, PartialEq, Eq)]
 pub enum SshAuthentication {
-    Password { username: JavaString, password: JavaString },
-    PublicKey { username: JavaString, key: JavaPath },
+    Password { username: String, password: String },
+    PublicKey { username: String, key: JavaPath },
 }
 impl fmt::Debug for SshAuthentication {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -874,7 +873,7 @@ impl TranscodingSize {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TranscodingConfiguration {
     pub enabled: bool,
-    pub binary: JavaString,
+    pub binary: String,
     pub size: TranscodingSize,
 }
 /// Port of config/vendor/apple/ios/VideoConfiguration.kt.
@@ -898,7 +897,7 @@ pub struct IosScreenRecordConfiguration {
 /// `File`: no Marathonfile-relative resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SigningConfiguration {
-    pub test_runner_provisioning_profile: Option<JavaString>,
+    pub test_runner_provisioning_profile: Option<String>,
 }
 
 /// Port of config/vendor/apple/ios/WorkerConnectionConfiguration.kt.
@@ -1078,8 +1077,8 @@ pub struct XcresultConfiguration {
 /// Port of config/vendor/apple/ios/XctestrunEnvConfiguration.kt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct XctestrunEnvConfiguration {
-    pub app_envs: Vec<(String, JavaString)>,
-    pub test_envs: Vec<(String, JavaString)>,
+    pub app_envs: Vec<(String, String)>,
+    pub test_envs: Vec<(String, String)>,
 }
 
 // ---- macOS leaves (config/vendor/apple/macos/PermissionsConfiguration.kt) -----
@@ -1115,12 +1114,12 @@ pub struct AndroidConfiguration {
     pub extra_applications_output: Option<Vec<JavaPath>>,
     pub outputs: Option<Vec<AndroidTestBundleConfiguration>>,
     pub auto_grant_permission: bool,
-    pub instrumentation_args: Vec<(String, JavaString)>,
+    pub instrumentation_args: Vec<(String, String)>,
     pub application_pm_clear: bool,
     pub test_application_pm_clear: bool,
     /// F5: accepted but never used downstream.
     pub adb_init_timeout_millis: i32,
-    pub install_options: JavaString,
+    pub install_options: String,
     pub serial_strategy: SerialStrategy,
     pub screen_record_configuration: AndroidScreenRecordConfiguration,
     pub wait_for_devices_timeout_millis: i64,
@@ -1211,7 +1210,7 @@ pub struct IosConfiguration {
     pub hide_runner_output: bool,
     pub compact_output: bool,
     pub rsync: RsyncConfiguration,
-    pub xcodebuild_test_args: Vec<(String, JavaString)>,
+    pub xcodebuild_test_args: Vec<(String, String)>,
     pub data_container_clear: bool,
     pub test_parser_configuration: AppleTestParserConfiguration,
     pub device_log: bool,
@@ -1260,7 +1259,7 @@ pub struct MacosConfiguration {
     pub hide_runner_output: bool,
     pub compact_output: bool,
     pub rsync: RsyncConfiguration,
-    pub xcodebuild_test_args: Vec<(String, JavaString)>,
+    pub xcodebuild_test_args: Vec<(String, String)>,
     pub test_parser_configuration: AppleTestParserConfiguration,
     pub permissions: MacosPermissionsConfiguration,
 }
@@ -1295,18 +1294,18 @@ pub struct EnvironmentConfiguration {
 /// fall back to a later occurrence), where Kotlin accepts `File("")`.
 /// The found string becomes a path verbatim: no existence check, no
 /// canonicalisation, relative stays relative.
-pub fn read_environment(environment: &[(JavaString, JavaString)]) -> EnvironmentConfiguration {
-    fn lookup<'a>(environment: &'a [(JavaString, JavaString)], name: &str) -> Option<&'a JavaString> {
-        let name: JavaString = name.into();
+pub fn read_environment(environment: &[(String, String)]) -> EnvironmentConfiguration {
+    fn lookup<'a>(environment: &'a [(String, String)], name: &str) -> Option<&'a String> {
+        let name: String = name.into();
         environment
             .iter()
             .find(|(key, _)| key == &name)
             .map(|(_, value)| value)
-            .filter(|value| !value.0.is_empty())
+            .filter(|value| !value.is_empty())
     }
     let sdk = lookup(environment, "ANDROID_HOME").or_else(|| lookup(environment, "ANDROID_SDK_ROOT"));
     EnvironmentConfiguration {
-        android_sdk: sdk.map(|value| JavaPath(value.0.clone())),
+        android_sdk: sdk.map(|value| JavaPath(value.encode_utf16().collect::<Vec<_>>().clone())),
     }
 }
 
@@ -1316,7 +1315,7 @@ pub fn read_environment(environment: &[(JavaString, JavaString)]) -> Environment
 // `bundle.validate()`, WP 2.3b) first, then media files, devices, SSH and
 // xcresult, and only then copies everything into the configuration.
 
-fn parse_stage_error(class: &str, message: impl Into<JavaString>) -> Box<ConfigurationError> {
+fn parse_stage_error(class: &str, message: impl Into<String>) -> Box<ConfigurationError> {
     let message = message.into();
     Box::new(ConfigurationError {
         stage: ValidationStage::Parse,

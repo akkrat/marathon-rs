@@ -18,7 +18,7 @@ use crate::{
     binder::{Field, MISMATCHED, Result, Value},
     vendor::*,
 };
-use jcompat::{file_manager::JavaPath, jtime::Duration, writers::JavaString};
+use jcompat::{file_manager::JavaPath, jtime::Duration};
 
 fn file_list(value: &Value<'_>) -> Result<Option<Vec<JavaPath>>> {
     list_non_null(value, |v| v.file())
@@ -42,7 +42,7 @@ fn set_non_null<T: PartialEq>(
     }))
 }
 
-fn string_map(value: &Value<'_>) -> Result<Option<Vec<(String, JavaString)>>> {
+fn string_map(value: &Value<'_>) -> Result<Option<Vec<(String, String)>>> {
     value.map(|elem| {
         elem.string()?
             .ok_or_else(|| elem.error(MISMATCHED, "D9: null element in collection"))
@@ -236,7 +236,7 @@ fn default_nm() -> AppleTestParserConfiguration {
 
 pub fn bind_adb_endpoint(value: Value<'_>) -> Result<Option<AdbEndpoint>> {
     value.nullable(|v| {
-        let mut host = Field::reference(&v, Some(JavaString::from("127.0.0.1")));
+        let mut host = Field::reference(&v, Some(String::from("127.0.0.1")));
         let mut port = Field::primitive(&v, 5037);
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
@@ -290,7 +290,7 @@ const TIME_UNITS: [TimeUnit; 7] = [
 pub fn bind_allure_configuration(value: Value<'_>) -> Result<Option<AllureConfiguration>> {
     value.nullable(|v| {
         let mut enabled = Field::primitive(&v, false);
-        let mut relative = Field::reference(&v, Some(JavaString::from("/files/allure-results")));
+        let mut relative = Field::reference(&v, Some(String::from("/files/allure-results")));
         let mut path_root = Field::reference(&v, Some(PathRoot::AppData));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
@@ -357,7 +357,7 @@ pub fn bind_android_test_bundle_configuration(value: Value<'_>) -> Result<Option
 
 pub fn bind_file_sync_entry(value: Value<'_>) -> Result<Option<FileSyncEntry>> {
     value.nullable(|v| {
-        let mut relative_path = Field::reference(&v, None::<JavaString>);
+        let mut relative_path = Field::reference(&v, None::<String>);
         let mut path_root = Field::reference(&v, Some(PathRoot::ExternalStorage));
         let mut aggregation = Field::reference(&v, Some(AggregationMode::Device));
         let mut object = v.object()?;
@@ -388,7 +388,7 @@ pub fn bind_file_sync_entry(value: Value<'_>) -> Result<Option<FileSyncEntry>> {
 
 pub fn bind_file_push_entry(value: Value<'_>) -> Result<Option<FilePushEntry>> {
     value.nullable(|v| {
-        let mut path = Field::reference(&v, None::<JavaString>);
+        let mut path = Field::reference(&v, None::<String>);
         let mut path_root = Field::reference(&v, Some(PathRoot::LocalTmp));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
@@ -440,7 +440,7 @@ pub fn bind_profiling_configuration(value: Value<'_>) -> Result<Option<Profiling
     value.nullable(|v| {
         let mut enabled = Field::primitive(&v, false);
         let mut pbtxt = Field::nullable(&v, None::<JavaPath>);
-        let mut url_template = Field::reference(&v, Some(JavaString::from("https://cloud.marathonlabs.io/")));
+        let mut url_template = Field::reference(&v, Some(String::from("https://cloud.marathonlabs.io/")));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
             match name.as_str() {
@@ -612,7 +612,7 @@ pub fn bind_test_access_configuration(value: Value<'_>) -> Result<Option<TestAcc
         let mut adb = Field::primitive(&v, false);
         let mut grpc = Field::primitive(&v, false);
         let mut console = Field::primitive(&v, false);
-        let mut token = Field::reference(&v, Some(JavaString::from("")));
+        let mut token = Field::reference(&v, Some(String::from("")));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
             match name.as_str() {
@@ -778,7 +778,7 @@ pub fn bind_android_configuration(value: Value<'_>) -> Result<Option<AndroidConf
         let mut app_pm_clear = Field::primitive(&v, false);
         let mut test_pm_clear = Field::primitive(&v, false);
         let mut adb_init = Field::primitive(&v, 30_000);
-        let mut install_options = Field::reference(&v, Some(JavaString::from("")));
+        let mut install_options = Field::reference(&v, Some(String::from("")));
         let mut serial_strategy = Field::reference(&v, Some(SerialStrategy::Automatic));
         let mut screen_record = Field::reference(&v, Some(default_android_screen_record()));
         let mut wait_for_devices = Field::primitive(&v, 30_000_i64);
@@ -960,7 +960,7 @@ pub fn bind_device_provider(value: Value<'_>) -> Result<Option<DeviceProvider>> 
         ),
         "dynamic" => Some(
             bind_object(v.clone(), |v| {
-                let mut host = Field::reference(v, Some(JavaString::from("127.0.0.1")));
+                let mut host = Field::reference(v, Some(String::from("127.0.0.1")));
                 let mut port = Field::primitive(v, 5037);
                 let mut object = v.object()?;
                 while let Some((name, child)) = object.next_field()? {
@@ -994,7 +994,7 @@ fn bind_object<T>(value: Value<'_>, bind: impl FnOnce(&Value<'_>) -> Result<T>) 
 
 pub fn bind_rsync_configuration(value: Value<'_>) -> Result<Option<RsyncConfiguration>> {
     value.nullable(|v| {
-        let mut remote_path = Field::reference(&v, Some(JavaString::from("/usr/bin/rsync")));
+        let mut remote_path = Field::reference(&v, Some(String::from("/usr/bin/rsync")));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
             match name.as_str() {
@@ -1015,8 +1015,8 @@ pub fn bind_ssh_authentication(value: Value<'_>) -> Result<Option<SshAuthenticat
     value.polymorphic(|id, v| match id {
         "password" => Some(
             bind_object(v.clone(), |v| {
-                let mut username = Field::reference(v, None::<JavaString>);
-                let mut password = Field::reference(v, None::<JavaString>);
+                let mut username = Field::reference(v, None::<String>);
+                let mut password = Field::reference(v, None::<String>);
                 let mut object = v.object()?;
                 while let Some((name, child)) = object.next_field()? {
                     match name.as_str() {
@@ -1040,7 +1040,7 @@ pub fn bind_ssh_authentication(value: Value<'_>) -> Result<Option<SshAuthenticat
         ),
         "publicKey" => Some(
             bind_object(v.clone(), |v| {
-                let mut username = Field::reference(v, None::<JavaString>);
+                let mut username = Field::reference(v, None::<String>);
                 let mut key = Field::reference(v, None::<JavaPath>);
                 let mut object = v.object()?;
                 while let Some((name, child)) = object.next_field()? {
@@ -1464,7 +1464,7 @@ pub fn bind_ios_screenshot_configuration(value: Value<'_>) -> Result<Option<IosS
 pub fn bind_transcoding_configuration(value: Value<'_>) -> Result<Option<TranscodingConfiguration>> {
     value.nullable(|v| {
         let mut enabled = Field::primitive(&v, false);
-        let mut binary = Field::reference(&v, Some(JavaString::from("/opt/homebrew/bin/ffmpeg")));
+        let mut binary = Field::reference(&v, Some(String::from("/opt/homebrew/bin/ffmpeg")));
         let mut size = Field::reference(&v, Some(TranscodingSize::Hd720));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
@@ -1582,7 +1582,7 @@ pub fn bind_ios_screen_record_configuration(value: Value<'_>) -> Result<Option<I
 
 pub fn bind_signing_configuration(value: Value<'_>) -> Result<Option<SigningConfiguration>> {
     value.nullable(|v| {
-        let mut profile = Field::nullable(&v, None::<JavaString>);
+        let mut profile = Field::nullable(&v, None::<String>);
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
             match name.as_str() {

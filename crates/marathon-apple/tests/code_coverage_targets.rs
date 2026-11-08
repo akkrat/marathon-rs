@@ -88,7 +88,7 @@ fn replay(name: &str) -> TestResult {
             }
             Err(error) => {
                 let failure = error.failure();
-                json!({"error":{"class":failure.class.to_string_lossy(), "message":failure.message.as_ref().map(|m| m.to_string_lossy())}})
+                json!({"error":{"class":failure.class.to_owned(), "message":failure.message.as_ref().map(|m| m.to_owned())}})
             }
         };
         let observed: Value = serde_json::from_str(&serde_json::to_string(&observed)?.replace(root_text, "<root>"))?;

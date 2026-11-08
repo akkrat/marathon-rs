@@ -6,7 +6,7 @@ mod runner_device;
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
-use jcompat::{logging::MarathonLogging, writers::JavaString};
+use jcompat::logging::MarathonLogging;
 use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     cmd::{SessionScope, cancelled, failure},
@@ -63,7 +63,7 @@ impl AppleTestRunListener for Listener {
             Ok(())
         })
     }
-    fn test_run_failed<'a>(&'a self, _: &'a JavaString, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.calls
                 .lock()
@@ -144,7 +144,7 @@ async fn failure_after_the_test_run_keeps_the_run_failure_and_stops_reading_even
             .into_vendor()
             .failure()
             .stack_trace()
-            .to_string_lossy()
+            .to_owned()
             .contains("Suppressed: java.lang.IllegalStateException: no result bundle")
     );
     Ok(())
@@ -186,9 +186,9 @@ async fn closing_case(
         let flattened = result.into_vendor();
         let not_closed = flattened.failure().cause.as_ref().unwrap();
         let expected = close_error.unwrap_or("java.util.concurrent.TimeoutException");
-        assert_eq!(not_closed.cause.as_ref().unwrap().class, JavaString::from(expected));
+        assert_eq!(not_closed.cause.as_ref().unwrap().class, String::from(expected));
         if let Some(class) = output_error {
-            assert!(not_closed.stack_trace().to_string_lossy().contains(class));
+            assert!(not_closed.stack_trace().to_owned().contains(class));
         }
         assert_eq!(calls.last().unwrap(), "run ended");
         assert!(!calls.contains(&"closed".into()));
@@ -370,12 +370,12 @@ async fn after_run_error_replaces_failure_but_exception_named_error_is_suppresse
         let result = execute(&runner, &After(class)).await.unwrap_err();
         v(device.dispose().await)?;
         if is_error {
-            assert_eq!(result.error.failure().class, JavaString::from(class));
+            assert_eq!(result.error.failure().class, String::from(class));
             assert!(result.suppressed.is_empty());
         } else {
             assert_eq!(result.reason, Some(DeviceFailureReason::Unknown));
             assert_eq!(result.suppressed.len(), 1);
-            assert_eq!(result.suppressed[0].class, JavaString::from(class));
+            assert_eq!(result.suppressed[0].class, String::from(class));
         }
     }
     Ok(())

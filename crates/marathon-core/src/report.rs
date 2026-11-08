@@ -2,7 +2,7 @@
 //! and PoolSummary.kt, Summary.kt; report/Reporter.kt.
 
 use crate::{model::*, runtime::ServiceFuture};
-use jcompat::{jtime::Instant, writers::JavaString};
+use jcompat::jtime::Instant;
 use std::sync::{Arc, OnceLock};
 
 #[derive(Clone, Debug)]
@@ -21,13 +21,13 @@ pub struct DeviceDisconnectedEvent {
 pub struct DevicePreparingEvent {
     pub start: Instant,
     pub finish: Instant,
-    pub serial_number: JavaString,
+    pub serial_number: String,
 }
 #[derive(Clone, Debug)]
 pub struct DeviceProviderPreparingEvent {
     pub start: Instant,
     pub finish: Instant,
-    pub serial_number: JavaString,
+    pub serial_number: String,
 }
 #[derive(Clone, Debug)]
 pub struct TestEvent {
@@ -173,16 +173,16 @@ pub struct PoolSummary {
     /// Ordered structural keys; retry values use reference identity for exclusion.
     pub retries: Vec<(Arc<TestResult>, Vec<TestEvent>)>,
     /// Insertion-ordered sets, exposed as lists for reporter iteration.
-    pub passed: Vec<JavaString>,
-    pub ignored: Vec<JavaString>,
-    pub failed: Vec<JavaString>,
+    pub passed: Vec<String>,
+    pub ignored: Vec<String>,
+    pub failed: Vec<String>,
     pub flaky: i32,
     pub duration_millis: i64,
     pub devices: Vec<DeviceInfo>,
-    pub raw_passed: Vec<JavaString>,
-    pub raw_ignored: Vec<JavaString>,
-    pub raw_failed: Vec<JavaString>,
-    pub raw_incomplete: Vec<JavaString>,
+    pub raw_passed: Vec<String>,
+    pub raw_ignored: Vec<String>,
+    pub raw_failed: Vec<String>,
+    pub raw_incomplete: Vec<String>,
     pub raw_duration_millis: i64,
 }
 #[derive(Clone, Debug)]

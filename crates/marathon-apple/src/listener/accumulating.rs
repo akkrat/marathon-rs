@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/AccumulatingTestResultListener.kt
 use super::AppleTestRunListener;
 use crate::logparser::parser::DeviceFailureReason;
-use jcompat::writers::JavaString;
+
 use marathon_core::{
     error::{VendorError, VendorResult},
     execution::result::{Metrics, TestRunResultsAccumulator},
@@ -33,7 +33,7 @@ impl AccumulatingTestResultListener {
         for record in a.take_logs() {
             self.logs.push(record);
         }
-        result.map_err(|e| VendorError::Other(crate::cmd::failure("ReplayError", e.message.to_string_lossy())))
+        result.map_err(|e| VendorError::Other(crate::cmd::failure("ReplayError", &e.message)))
     }
 }
 impl AppleTestRunListener for AccumulatingTestResultListener {
@@ -53,13 +53,13 @@ impl AppleTestRunListener for AccumulatingTestResultListener {
         test: &'a Test,
         start_time: i64,
         end_time: i64,
-        trace: Option<&'a JavaString>,
+        trace: Option<&'a String>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.update(|a| {
                 a.test_failed(
                     test,
-                    trace.unwrap_or(&JavaString::default()),
+                    trace.unwrap_or(&String::default()),
                     Some(start_time),
                     Some(end_time),
                 )?;
@@ -81,11 +81,7 @@ impl AppleTestRunListener for AccumulatingTestResultListener {
     fn test_run_ended<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async move { self.update(|a| a.test_run_ended(0, Metrics::default())) })
     }
-    fn test_run_failed<'a>(
-        &'a self,
-        error_message: &'a JavaString,
-        _reason: DeviceFailureReason,
-    ) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, error_message: &'a String, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move { self.update(|a| a.test_run_failed(error_message.clone())) })
     }
 }

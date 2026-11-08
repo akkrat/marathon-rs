@@ -1,7 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx/InfluxDbProvider.kt
 //! and external/influx2/InfluxDb2Provider.kt (injected constructors for TrackerFactory.kt).
 use crate::{graphite::*, http::text, influx::*, influx2::*};
-use jcompat::writers::JavaString;
+
 use marathon_config::*;
 use marathon_core::{
     analytics::{
@@ -18,7 +18,7 @@ use std::sync::Arc;
 pub struct AnalyticsClients {
     pub context: MetricsContext,
     pub io: Arc<dyn VendorRuntime>,
-    graphite_endpoint: Option<JavaString>,
+    graphite_endpoint: Option<String>,
 }
 impl AnalyticsClients {
     pub fn new(context: MetricsContext, io: Arc<dyn VendorRuntime>) -> Self {
@@ -34,7 +34,7 @@ impl AnalyticsClients {
             None => QueryableGraphiteClient::new(host, self.context.clone()),
         }
     }
-    pub fn with_graphite_endpoint(mut self, endpoint: JavaString) -> Self {
+    pub fn with_graphite_endpoint(mut self, endpoint: String) -> Self {
         self.graphite_endpoint = Some(endpoint);
         self
     }

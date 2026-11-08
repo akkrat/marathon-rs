@@ -5,16 +5,16 @@ use crate::{
     model::{DeviceInfo, Test, TestBatch, TestResult, TestStatus},
     time::{ClockResult, Timer, WallClock},
 };
-use jcompat::{jstring, logging::Level, writers::JavaString};
+use jcompat::{jstring, logging::Level};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Default, Eq)]
-pub struct Metrics(Vec<(JavaString, JavaString)>);
+pub struct Metrics(Vec<(String, String)>);
 impl Metrics {
-    pub fn entries(&self) -> &[(JavaString, JavaString)] {
+    pub fn entries(&self) -> &[(String, String)] {
         &self.0
     }
-    pub fn insert(&mut self, key: JavaString, value: JavaString) {
+    pub fn insert(&mut self, key: String, value: String) {
         if let Some((_, old)) = self.0.iter_mut().find(|(k, _)| *k == key) {
             *old = value;
         } else {
@@ -31,8 +31,8 @@ impl PartialEq for Metrics {
                 .all(|(k, v)| other.0.iter().any(|(ok, ov)| k == ok && v == ov))
     }
 }
-impl FromIterator<(JavaString, JavaString)> for Metrics {
-    fn from_iter<T: IntoIterator<Item = (JavaString, JavaString)>>(iter: T) -> Self {
+impl FromIterator<(String, String)> for Metrics {
+    fn from_iter<T: IntoIterator<Item = (String, String)>>(iter: T) -> Self {
         let mut map = Self::default();
         for (key, value) in iter {
             map.insert(key, value);
@@ -40,8 +40,8 @@ impl FromIterator<(JavaString, JavaString)> for Metrics {
         map
     }
 }
-impl From<Vec<(JavaString, JavaString)>> for Metrics {
-    fn from(entries: Vec<(JavaString, JavaString)>) -> Self {
+impl From<Vec<(String, String)>> for Metrics {
+    fn from(entries: Vec<(String, String)>) -> Self {
         entries.into_iter().collect()
     }
 }
@@ -50,7 +50,7 @@ pub struct TemporalTestResult {
     pub status: TestStatus,
     pub start_time: i64,
     pub end_time: i64,
-    pub stack_trace: Option<JavaString>,
+    pub stack_trace: Option<String>,
     pub metrics: Option<Metrics>,
 }
 impl TemporalTestResult {
@@ -101,7 +101,7 @@ impl TemporalResults {
 /// D28: an instrumentation of a batch that is over, and why it failed, if it did.
 struct FinishedInstrumentation {
     tests: Vec<Test>,
-    failure: Option<JavaString>,
+    failure: Option<String>,
 }
 /// Serial vendor-side owner; callbacks are synchronous and never do I/O.
 /// Adapters deliver `take_logs()` with the shared ordered output after callbacks.
@@ -109,7 +109,7 @@ pub struct TestRunResultsAccumulator {
     timer: Arc<dyn Timer>,
     wall: WallSource,
     creation_time: i64,
-    name: JavaString,
+    name: String,
     pub temporal_test_results: TemporalResults,
     pub run_metrics: Metrics,
     pub is_run_complete: bool,
@@ -117,7 +117,7 @@ pub struct TestRunResultsAccumulator {
     status_counts: [i32; 5],
     expected_test_count: i32,
     elapsed_time: i64,
-    run_failure_message: Option<JavaString>,
+    run_failure_message: Option<String>,
     /// D28 (Android): the instrumentations of this batch that are over. Empty unless the batch has several.
     finished_instrumentations: Vec<FinishedInstrumentation>,
     /// D28 (Android): the tests of the instrumentation running now. Empty unless the batch has several.
@@ -150,13 +150,13 @@ impl TestRunResultsAccumulator {
             logs: Vec::new(),
         })
     }
-    pub fn name(&self) -> &JavaString {
+    pub fn name(&self) -> &String {
         &self.name
     }
     pub fn elapsed_time(&self) -> i64 {
         self.elapsed_time
     }
-    pub fn run_failure_message(&self) -> Option<&JavaString> {
+    pub fn run_failure_message(&self) -> Option<&String> {
         self.run_failure_message.as_ref()
     }
     pub fn is_run_failure(&self) -> bool {
@@ -207,7 +207,7 @@ impl TestRunResultsAccumulator {
     }
     /// A test of an instrumentation that is over has that one's failure. Any other has the current failure: its
     /// instrumentation is the current one, or never ran because the current one ended the batch.
-    fn failure_of(&self, test: &Test) -> Option<&JavaString> {
+    fn failure_of(&self, test: &Test) -> Option<&String> {
         match self.finished_instrumentations.iter().find(|i| i.tests.contains(test)) {
             Some(finished) => finished.failure.as_ref(),
             None => self.run_failure_message.as_ref(),
@@ -215,14 +215,14 @@ impl TestRunResultsAccumulator {
     }
     /// D25 (Android): this run's output broke off, and that is why a test in progress never finished. Other run
     /// failures leave such a test without a text, as in Kotlin.
-    pub fn explain_tests_in_progress(&mut self, reason: &JavaString) {
+    pub fn explain_tests_in_progress(&mut self, reason: &String) {
         for (_, result) in self.temporal_test_results.0.iter_mut().skip(self.tests_of_earlier_runs) {
             if result.status == TestStatus::Incomplete && result.stack_trace.is_none() {
                 result.stack_trace = Some(reason.clone());
             }
         }
     }
-    pub fn test_run_started(&mut self, name: JavaString, count: i32) {
+    pub fn test_run_started(&mut self, name: String, count: i32) {
         self.name = name;
         self.is_run_complete = false;
         self.run_failure_message = None;
@@ -245,15 +245,15 @@ impl TestRunResultsAccumulator {
         &mut self,
         test: &Test,
         status: TestStatus,
-        trace: Option<&JavaString>,
+        trace: Option<&String>,
         start_time: Option<i64>,
         end_time: Option<i64>,
     ) -> ClockResult<()> {
         let mut result = match self.temporal_test_results.get(test) {
             Some(result) => result.clone(),
             None => {
-                let mut message = JavaString::from("received test event without test start for ");
-                message.append(test.to_safe_test_name());
+                let mut message = String::from("received test event without test start for ");
+                message.push_str(&test.to_safe_test_name());
                 // Plain records keep this Send vendor-side owner free of core-local
                 // Rc state; adapters forward them without rendering.
                 self.logs.push(LogRecord {
@@ -268,7 +268,12 @@ impl TestRunResultsAccumulator {
             }
         };
         result.status = status;
-        if let Some(trace) = trace.filter(|s| !s.0.iter().all(|&c| jstring::is_whitespace(c))) {
+        if let Some(trace) = trace.filter(|s| {
+            !s.encode_utf16()
+                .collect::<Vec<_>>()
+                .iter()
+                .all(|&c| jstring::is_whitespace(c))
+        }) {
             result.stack_trace = Some(trace.clone());
         }
         if let Some(time) = start_time {
@@ -283,13 +288,13 @@ impl TestRunResultsAccumulator {
     pub fn test_failed(
         &mut self,
         test: &Test,
-        trace: &JavaString,
+        trace: &String,
         start_time: Option<i64>,
         end_time: Option<i64>,
     ) -> ClockResult<()> {
         self.update(test, TestStatus::Failure, Some(trace), start_time, end_time)
     }
-    pub fn test_assumption_failure(&mut self, test: &Test, trace: &JavaString) -> ClockResult<()> {
+    pub fn test_assumption_failure(&mut self, test: &Test, trace: &String) -> ClockResult<()> {
         self.update(test, TestStatus::AssumptionFailure, Some(trace), None, None)
     }
     pub fn test_ignored(&mut self, test: &Test) -> ClockResult<()> {
@@ -330,7 +335,7 @@ impl TestRunResultsAccumulator {
         }
         Ok(())
     }
-    pub fn test_run_failed(&mut self, message: JavaString) -> ClockResult<()> {
+    pub fn test_run_failed(&mut self, message: String) -> ClockResult<()> {
         self.run_failure_message = Some(message);
         self.fill_end_time()
     }

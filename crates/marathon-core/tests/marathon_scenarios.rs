@@ -22,7 +22,7 @@ fn raw_json_matches(input: &str, fixture_name: &str) {
         outcome
             .value
             .as_ref()
-            .map(|v| v.as_ref().map_err(|e| e.failure().to_java_string().to_string_lossy()))
+            .map(|v| v.as_ref().map_err(|e| e.failure().to_java_string().to_owned()))
     );
     should_be_equal_to_as_json(&outcome.read("test_result/raw.json"), &fixture(fixture_name));
 }
@@ -80,7 +80,7 @@ fn one_healthy_device_and_invalid_marathon_config_should_fail() {
     assert!(outcome.completed);
     match outcome.value {
         Some(Err(e)) => assert_eq!(
-            e.failure().class.to_string_lossy(),
+            e.failure().class.to_owned(),
             "com.malinskiy.marathon.config.exceptions.ConfigurationException"
         ),
         other => panic!("expected ConfigurationException, got {:?}", other.map(|v| v.is_ok())),

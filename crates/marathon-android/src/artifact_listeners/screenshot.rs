@@ -87,7 +87,7 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                         Level::Debug,
                         &format!(
                             "Starting recording for {}",
-                            test.to_simple_safe_test_name('.').to_string_lossy()
+                            test.to_simple_safe_test_name('.').to_owned()
                         ),
                         None,
                     );
@@ -110,7 +110,7 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                         Level::Debug,
                         &format!(
                             "Finished recording for {}",
-                            test.to_simple_safe_test_name('.').to_string_lossy()
+                            test.to_simple_safe_test_name('.').to_owned()
                         ),
                         None,
                     );

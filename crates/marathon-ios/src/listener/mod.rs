@@ -8,7 +8,6 @@ use crate::apple_simulator_device::{AppleSimulatorDevice, SimulatorListenerFacto
 use jcompat::{
     file_manager::JavaPath,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use marathon_apple::bin::kt::trim;
 use marathon_apple::{apple_device::AppleDevice, listener::AppleTestRunListener};
@@ -45,7 +44,7 @@ impl ListenerContext {
             .services()
             .wall
             .millis(label)
-            .map_err(|e| VendorError::Other(marathon_apple::cmd::failure("ReplayError", e.message.to_string_lossy())))
+            .map_err(|e| VendorError::Other(marathon_apple::cmd::failure("ReplayError", &e.message)))
     }
     async fn file(&self, kind: FileType, test: Option<&Test>) -> VendorResult<JavaPath> {
         self.device

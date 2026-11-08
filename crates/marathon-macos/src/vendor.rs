@@ -5,10 +5,7 @@ use crate::{
     installer::MacosApplicationInstaller,
     provider::AppleMacosProvider,
 };
-use jcompat::{
-    file_manager::{FileManager, JavaPath},
-    writers::JavaString,
-};
+use jcompat::file_manager::{FileManager, JavaPath};
 use marathon_apple::{
     apple_application_installer::AppleApplicationInstaller,
     apple_device_registry::AppleDeviceRegistry,
@@ -41,7 +38,7 @@ pub fn logging(dependencies: &VendorDependencies) -> SshLogging {
                 at_millis: 0,
                 wall_millis: wall(),
                 level,
-                message: message.into(),
+                message: message,
                 cause,
             });
         }),
@@ -112,8 +109,8 @@ pub async fn construct_with_parser_libraries(
         std::env::vars_os()
             .map(|(k, v)| {
                 (
-                    JavaString::from(k.to_string_lossy().as_ref()),
-                    JavaString::from(v.to_string_lossy().as_ref()),
+                    String::from(k.to_string_lossy().as_ref()),
+                    String::from(v.to_string_lossy().as_ref()),
                 )
             })
             .collect(),

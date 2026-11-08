@@ -26,8 +26,8 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
     fn on_event_in<'a>(&'a self, event: &'a TestEvent, context: VendorContext) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if let TestEvent::TestEnded { id, metrics } = event {
-                for (_, path) in metrics.entries().iter().filter(|(key, _)| *key == METRIC.into()) {
-                    let path = path.to_string_lossy();
+                for (_, path) in metrics.entries().iter().filter(|(key, _)| *key == METRIC.to_owned()) {
+                    let path = path.to_owned();
                     let pair = match path.rsplit('.').next().unwrap_or("") {
                         "jpeg" | "jpg" => Some((FileType::ScreenshotJpg, AttachmentType::ScreenshotJpeg)),
                         "png" => Some((FileType::ScreenshotPng, AttachmentType::ScreenshotPng)),
@@ -49,7 +49,7 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                             let cwd = std::env::current_dir().map_err(io)?;
                             let cwd = JavaPath::from_text(&cwd.to_string_lossy());
                             let absolute = jcompat::file_manager::absolute_file_path_utf16(&local.0, &cwd.0);
-                            Ok(JavaString(absolute.0).to_string_lossy())
+                            Ok(String::from_utf16_lossy(&absolute.0).to_owned())
                         })
                         .await?;
                         self.artifacts

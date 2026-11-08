@@ -1,7 +1,7 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/execution/result/TestRunResultsAccumulatorTest.kt
 #[path = "support/progress.rs"]
 mod support;
-use jcompat::writers::JavaString;
+
 use marathon_core::{execution::result::*, logging::host_millis, model::*, time::*};
 use std::sync::{Arc, Mutex};
 use support::{device, test};
@@ -48,7 +48,7 @@ fn temporal(status: TestStatus, trace: Option<&str>, m: Option<Metrics>) -> Temp
         status,
         start_time: 0,
         end_time: 0,
-        stack_trace: trace.map(JavaString::from),
+        stack_trace: trace.map(String::from),
         metrics: m,
     }
 }
@@ -189,7 +189,7 @@ fn repeated_runs_keep_records_metrics_and_elapsed_and_replacements_keep_first_ke
     assert_eq!(a.num_tests(), 1);
     a.test_started(&alias, Some(20)).unwrap();
     let (key, r) = &a.temporal_test_results.entries()[0];
-    assert_eq!(key.meta_properties[0].name, JavaString::from("original"));
+    assert_eq!(key.meta_properties[0].name, String::from("original"));
     assert_eq!(*r, TemporalTestResult::new(20));
     a.test_run_stopped(1).unwrap();
     assert_eq!(a.elapsed_time(), i64::MIN);
@@ -209,7 +209,7 @@ fn a_failure_stays_with_the_tests_of_its_instrumentation_u151() {
             .stacktrace
             .as_ref()
             .unwrap()
-            .to_string_lossy()
+            .to_owned()
     };
     const GENERIC: &str =
         "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed";
@@ -282,7 +282,8 @@ fn blank_trace_preserves_previous_and_assumptions_have_distinct_success_and_coun
     let mut a = zero();
     let t = test("a");
     a.test_failed(&t, &"trace".into(), None, None).unwrap();
-    a.test_failed(&t, &JavaString(vec![0x2003, 0x1c]), None, None).unwrap();
+    a.test_failed(&t, &String::from_utf16_lossy(&vec![0x2003, 0x1c]), None, None)
+        .unwrap();
     assert_eq!(
         a.temporal_test_results.get(&t).unwrap().stack_trace,
         Some("trace".into())
@@ -292,7 +293,7 @@ fn blank_trace_preserves_previous_and_assumptions_have_distinct_success_and_coun
     assert!(a.has_failed_tests());
     assert_eq!(
         a.take_logs()[0].message,
-        JavaString::from("received test event without test start for com.example.Class.a")
+        String::from("received test event without test start for com.example.Class.a")
     );
     a.temporal_test_results.get_mut(&t).unwrap().status = TestStatus::Passed;
     assert_eq!(a.num_all_failed_tests(), 0);
@@ -381,12 +382,7 @@ fn run_lifecycle_replays_the_jvm_snapshots() {
         values: MetaMap::default(),
     });
     fn m(map: &Metrics) -> Value {
-        Value::Object(
-            map.entries()
-                .iter()
-                .map(|(k, v)| (k.as_utf8().unwrap(), json!(v.as_utf8().unwrap())))
-                .collect(),
-        )
+        Value::Object(map.entries().iter().map(|(k, v)| (k.clone(), json!(v))).collect())
     }
     fn status(s: TestStatus) -> &'static str {
         match s {
@@ -435,13 +431,13 @@ fn run_lifecycle_replays_the_jvm_snapshots() {
                         &device("1"),
                     )
                     .unwrap();
-                let actual = json!({"op":op,"results":results.iter().map(|r|json!({"test":r.test.method.as_utf8().unwrap(),"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.as_ref().map(|s|s.as_utf8().unwrap()),"batch":r.test_batch_id.as_utf8().unwrap()})).collect::<Vec<_>>(),"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
+                let actual = json!({"op":op,"results":results.iter().map(|r|json!({"test":r.test.method,"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.as_ref().map(|s|s),"batch":r.test_batch_id})).collect::<Vec<_>>(),"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
                 assert_eq!(actual, row);
                 continue;
             }
             _ => panic!("unknown oracle operation"),
         }
-        let records=a.temporal_test_results.entries().iter().map(|(t,r)|json!({"test":t.method.as_utf8().unwrap(),"metadata":t.meta_properties.iter().map(|m|m.name.as_utf8().unwrap()).collect::<Vec<_>>(),"status":status(r.status),"start":r.start_time,"end":r.end_time,"trace":r.stack_trace.as_ref().map(|s|s.as_utf8().unwrap()),"metrics":r.metrics.as_ref().map(m),"successful":r.is_successful()})).collect::<Vec<_>>();
+        let records=a.temporal_test_results.entries().iter().map(|(t,r)|json!({"test":t.method,"metadata":t.meta_properties.iter().map(|m|m.name.clone()).collect::<Vec<_>>(),"status":status(r.status),"start":r.start_time,"end":r.end_time,"trace":r.stack_trace.as_ref().map(|s|s),"metrics":r.metrics.as_ref().map(m),"successful":r.is_successful()})).collect::<Vec<_>>();
         let counts = [
             TestStatus::Failure,
             TestStatus::Passed,
@@ -450,7 +446,7 @@ fn run_lifecycle_replays_the_jvm_snapshots() {
             TestStatus::AssumptionFailure,
         ]
         .map(|s| a.num_tests_in_state(s));
-        let actual = json!({"op":op,"records":records,"name":a.name().as_utf8().unwrap(),"complete":a.is_run_complete,"failure":a.run_failure_message().map(|s|s.as_utf8().unwrap()),"elapsed":a.elapsed_time(),"metrics":m(&a.run_metrics),"completed":a.completed_tests().iter().map(|t|t.method.as_utf8().unwrap()).collect::<Vec<_>>(),"failed":a.num_all_failed_tests(),"counts":counts,"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
+        let actual = json!({"op":op,"records":records,"name":a.name(),"complete":a.is_run_complete,"failure":a.run_failure_message().map(|s|s),"elapsed":a.elapsed_time(),"metrics":m(&a.run_metrics),"completed":a.completed_tests().iter().map(|t|t.method.clone()).collect::<Vec<_>>(),"failed":a.num_all_failed_tests(),"counts":counts,"reads":(100..100+*timer.reads.lock().unwrap() as i64).collect::<Vec<_>>()});
         assert_eq!(actual, row, "{op}");
     }
 }

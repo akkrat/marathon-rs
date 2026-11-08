@@ -4,7 +4,7 @@
 //! length stops extraction and returns what was collected (P4, approved
 //! deviation; Kotlin throws `StringIndexOutOfBoundsException` there).
 
-use jcompat::{jnum, jstring, regex_patterns::METRIC_ANNOTATION_V2, writers::JavaString};
+use jcompat::{jnum, jstring, regex_patterns::METRIC_ANNOTATION_V2};
 use marathon_adb::testrunner::MetricMap;
 use marathon_core::model::{MetaMap, MetaProperty, MetaValue};
 
@@ -37,21 +37,25 @@ impl TestAnnotationParser {
     }
 }
 
-fn extract_v4(value: &JavaString) -> Vec<MetaProperty> {
+fn extract_v4(value: &String) -> Vec<MetaProperty> {
     let mut result = Vec::new();
-    for annotation in length_framed_annotations(remove_surrounding(&value.0, b'[', b']')) {
+    for annotation in length_framed_annotations(remove_surrounding(
+        &value.encode_utf16().collect::<Vec<_>>(),
+        b'[',
+        b']',
+    )) {
         let Some(split) = annotation.iter().position(|&c| c == u16::from(b'(')) else {
             continue;
         };
         result.push(meta_property(
-            JavaString(annotation[..split].to_vec()),
+            String::from_utf16_lossy(&annotation[..split]),
             length_framed_parameters(&annotation[split + 1..]),
         ));
     }
     result
 }
 
-fn extract_v3(value: &JavaString) -> Vec<MetaProperty> {
+fn extract_v3(value: &String) -> Vec<MetaProperty> {
     serialized_annotations(value)
         .into_iter()
         .map(|annotation| {
@@ -61,14 +65,14 @@ fn extract_v3(value: &JavaString) -> Vec<MetaProperty> {
                 .unwrap_or(annotation.len());
             let parameters = remove_surrounding(&annotation[index..], b'(', b')');
             meta_property(
-                JavaString(annotation[..index].to_vec()),
+                String::from_utf16_lossy(&annotation[..index]),
                 length_framed_parameters(parameters),
             )
         })
         .collect()
 }
 
-fn extract_v2(value: &JavaString) -> Vec<MetaProperty> {
+fn extract_v2(value: &String) -> Vec<MetaProperty> {
     serialized_annotations(value)
         .into_iter()
         .map(|annotation| {
@@ -81,22 +85,28 @@ fn extract_v2(value: &JavaString) -> Vec<MetaProperty> {
                 .into_iter()
                 .filter_map(|parameter| {
                     let split = split_unit(parameter, u16::from(b'='));
-                    (split.len() == 2).then(|| (JavaString(split[0].to_vec()), JavaString(split[1].to_vec())))
+                    (split.len() == 2).then(|| {
+                        (
+                            String::from_utf16_lossy(split[0]),
+                            String::from_utf16_lossy(split[1]),
+                        )
+                    })
                 })
                 .collect();
-            meta_property(JavaString(annotation[..index].to_vec()), values)
+            meta_property(String::from_utf16_lossy(&annotation[..index]), values)
         })
         .collect()
 }
 
 /// v3/v2 annotation discovery: `removeSurrounding("[", "]")`, then the N6
 /// regex over the result, each match trimmed, empties dropped.
-fn serialized_annotations(value: &JavaString) -> Vec<Vec<u16>> {
-    let body = JavaString(remove_surrounding(&value.0, b'[', b']').to_vec());
+fn serialized_annotations(value: &String) -> Vec<Vec<u16>> {
+    let body =
+        String::from_utf16_lossy(remove_surrounding(&value.encode_utf16().collect::<Vec<_>>(), b'[', b']'));
     // The regex works on &str; metric values arrive from UTF-8 decoding in
     // the transformer, so lone surrogates (rendered as U+FFFD here) cannot
     // occur on the production path.
-    let text: String = char::decode_utf16(body.0.iter().copied())
+    let text: String = char::decode_utf16(body.encode_utf16().collect::<Vec<_>>().iter().copied())
         .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
         .collect();
     METRIC_ANNOTATION_V2
@@ -123,7 +133,7 @@ fn length_framed_annotations(mut body: &[u16]) -> Vec<Vec<u16>> {
 
 /// The v4/v3 parameter framing. A parameter survives only when it is longer
 /// than one unit and contains `=`; it is split at the first `=`.
-fn length_framed_parameters(mut rest: &[u16]) -> Vec<(JavaString, JavaString)> {
+fn length_framed_parameters(mut rest: &[u16]) -> Vec<(String, String)> {
     let mut values = Vec::new();
     while let Some((length, after)) = read_length_frame(rest) {
         let Some(parameter) = after.get(..length) else { break };
@@ -131,8 +141,8 @@ fn length_framed_parameters(mut rest: &[u16]) -> Vec<(JavaString, JavaString)> {
             && let Some(equal) = parameter.iter().position(|&c| c == u16::from(b'='))
         {
             values.push((
-                JavaString(parameter[..equal].to_vec()),
-                JavaString(parameter[equal + 1..].to_vec()),
+                String::from_utf16_lossy(&parameter[..equal]),
+                String::from_utf16_lossy(&parameter[equal + 1..]),
             ));
         }
         rest = &after[length..];
@@ -175,7 +185,7 @@ fn split_unit(units: &[u16], delimiter: u16) -> Vec<&[u16]> {
 }
 
 /// Kotlin `values.toMap()` into a `MetaProperty`: last value wins in place.
-fn meta_property(name: JavaString, values: Vec<(JavaString, JavaString)>) -> MetaProperty {
+fn meta_property(name: String, values: Vec<(String, String)>) -> MetaProperty {
     let mut map = MetaMap::default();
     for (key, value) in values {
         map.insert(key, MetaValue::String(value));

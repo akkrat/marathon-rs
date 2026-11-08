@@ -10,18 +10,17 @@
 //! (BufferUnderflowException, ArrayIndexOutOfBoundsException,
 //! StackOverflowError, …) collapses to DexException with our wording.
 
-use jcompat::writers::JavaString;
 use std::{fmt, io, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DexError {
-    pub jvm_class: JavaString,
-    pub message: Option<JavaString>,
+    pub jvm_class: String,
+    pub message: Option<String>,
     pub cause: Option<Box<DexError>>,
 }
 
 impl DexError {
-    pub fn dex_exception(message: impl Into<JavaString>) -> Self {
+    pub fn dex_exception(message: impl Into<String>) -> Self {
         Self {
             jvm_class: "com.linkedin.dex.spec.DexException".into(),
             message: Some(message.into()),
@@ -29,7 +28,7 @@ impl DexError {
         }
     }
 
-    pub fn illegal_state(message: impl Into<JavaString>) -> Self {
+    pub fn illegal_state(message: impl Into<String>) -> Self {
         Self {
             jvm_class: "java.lang.IllegalStateException".into(),
             message: Some(message.into()),
@@ -37,7 +36,7 @@ impl DexError {
         }
     }
 
-    pub fn null_pointer(message: impl Into<JavaString>) -> Self {
+    pub fn null_pointer(message: impl Into<String>) -> Self {
         Self {
             jvm_class: "java.lang.NullPointerException".into(),
             message: Some(message.into()),
@@ -45,7 +44,7 @@ impl DexError {
         }
     }
 
-    pub fn with_class(class: &str, message: Option<JavaString>) -> Self {
+    pub fn with_class(class: &str, message: Option<String>) -> Self {
         Self {
             jvm_class: class.into(),
             message,
@@ -68,7 +67,7 @@ impl DexError {
     }
 
     /// IOException-shaped failure (the only kind ApkParser catches/wraps).
-    pub fn io(message: impl Into<JavaString>) -> Self {
+    pub fn io(message: impl Into<String>) -> Self {
         Self {
             jvm_class: "java.io.IOException".into(),
             message: Some(message.into()),
@@ -77,11 +76,11 @@ impl DexError {
     }
 
     pub fn is_io(&self) -> bool {
-        let class: JavaString = "java.io.IOException".into();
-        let zip: JavaString = "java.util.zip.ZipException".into();
-        let eof: JavaString = "java.io.EOFException".into();
-        let fnf: JavaString = "java.io.FileNotFoundException".into();
-        let nsf: JavaString = "java.nio.file.NoSuchFileException".into();
+        let class: String = "java.io.IOException".into();
+        let zip: String = "java.util.zip.ZipException".into();
+        let eof: String = "java.io.EOFException".into();
+        let fnf: String = "java.io.FileNotFoundException".into();
+        let nsf: String = "java.nio.file.NoSuchFileException".into();
         self.jvm_class == class
             || self.jvm_class == zip
             || self.jvm_class == eof
@@ -108,7 +107,7 @@ impl DexError {
         Self::io(format!("{shown} ({err})").as_str())
     }
 
-    pub fn zip_exception(message: impl Into<JavaString>) -> Self {
+    pub fn zip_exception(message: impl Into<String>) -> Self {
         Self {
             jvm_class: "java.util.zip.ZipException".into(),
             message: Some(message.into()),
@@ -126,9 +125,9 @@ impl DexError {
 
 impl fmt::Display for DexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.jvm_class.to_string_lossy())?;
+        write!(f, "{}", self.jvm_class.to_owned())?;
         if let Some(message) = &self.message {
-            write!(f, ": {}", message.to_string_lossy())?;
+            write!(f, ": {}", message.to_owned())?;
         }
         if let Some(cause) = &self.cause {
             write!(f, " (cause: {cause})")?;

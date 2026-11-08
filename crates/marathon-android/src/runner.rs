@@ -7,10 +7,7 @@ use crate::{
     models::*,
     support::*,
 };
-use jcompat::{
-    logging::Level,
-    writers::{JavaString, KotlinValue},
-};
+use jcompat::{logging::Level, writers::KotlinValue};
 use marathon_adb::{
     instrument_request::{InstrumentOptions, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent, TestIdentifier},
@@ -121,21 +118,22 @@ impl AndroidDeviceTestRunner<'_> {
         batch: &TestBatch,
     ) -> VendorResult<TestRunnerRequest> {
         let c = android_configuration(configuration)?;
-        let tests: Vec<JavaString> = batch
+        let tests: Vec<String> = batch
             .tests
             .iter()
             .map(|t| {
                 let mut name = t.to_class_name('.');
-                if t.method != "null".into() {
-                    name.push_str("#");
-                    name.append(t.method.clone());
+                if t.method != "null" {
+                    name.push('#');
+                    name.push_str(&t.method.clone());
                 }
-                let mut escaped = JavaString::default();
-                for u in name.0 {
+                let mut escaped = String::default();
+                for c in name.chars() {
+                    let u = c as u32;
                     if u == 32 {
-                        escaped.0.push(92);
+                        escaped.push('\\');
                     }
-                    escaped.0.push(u);
+                    escaped.push(c);
                 }
                 escaped
             })
@@ -147,7 +145,7 @@ impl AndroidDeviceTestRunner<'_> {
                 "tests = {}",
                 KotlinValue::List(tests.iter().cloned().map(KotlinValue::Text).collect())
                     .render()
-                    .to_string_lossy()
+                    .to_owned()
             ),
             None,
         );
@@ -158,8 +156,8 @@ impl AndroidDeviceTestRunner<'_> {
                 coverage_file: configuration.is_code_coverage_enabled.then(|| {
                     format!(
                         "/data/data/{}/coverage/coverage-{}.ec",
-                        info.application_package.to_string_lossy(),
-                        batch.id.to_string_lossy()
+                        info.application_package.to_owned(),
+                        batch.id.to_owned()
                     )
                     .as_str()
                     .into()
@@ -218,17 +216,14 @@ impl AndroidDeviceTestRunner<'_> {
             (a.test_application_pm_clear, &info.instrumentation_package),
         ] {
             if clear {
-                let result = self
-                    .device
-                    .clear_package(&package.to_string_lossy(), context.clone())
-                    .await?;
+                let result = self.device.clear_package(&package.to_owned(), context.clone()).await?;
                 self.device.log_named(
                     "AndroidDeviceTestRunner",
                     Level::Debug,
                     &format!(
                         "Package {} cleared: {}",
-                        package.to_string_lossy(),
-                        trim(&result.output.to_string_lossy())
+                        package.to_owned(),
+                        trim(&result.output.to_owned())
                     ),
                     None,
                 );
@@ -255,7 +250,7 @@ impl AndroidDeviceTestRunner<'_> {
                     .critical_execute_shell_command(
                         &format!(
                             "appops set --uid {} {permission} allow",
-                            info.application_package.to_string_lossy()
+                            info.application_package.to_owned()
                         ),
                         "",
                         context.clone(),
@@ -266,15 +261,15 @@ impl AndroidDeviceTestRunner<'_> {
                     Level::Debug,
                     &format!(
                         "File pull requested. Granted {permission} to {}: {}",
-                        info.application_package.to_string_lossy(),
-                        trim(&result.output.to_string_lossy())
+                        info.application_package.to_owned(),
+                        trim(&result.output.to_owned())
                     ),
                     None,
                 );
             }
         }
         if c.is_code_coverage_enabled {
-            let package = info.application_package.to_string_lossy();
+            let package = info.application_package.to_owned();
             self.device
                 .safe_execute_shell_command(
                     &format!("run-as {package} mkdir /data/data/{package}/coverage"),
@@ -293,12 +288,12 @@ impl AndroidDeviceTestRunner<'_> {
         listener: &dyn AndroidTestRunListener,
         context: &VendorContext,
     ) -> VendorResult<()> {
-        let mut message = JavaString::from("Instrumentation failed: ");
-        message.append(failure.failure().to_java_string());
+        let mut message = String::from("Instrumentation failed: ");
+        message.push_str(&failure.failure().to_java_string());
         self.device.log_named(
             "AndroidDeviceTestRunner",
             Level::Error,
-            &message.to_string_lossy(),
+            &message.to_owned(),
             Some(failure.failure()),
         );
         // Before the event: a test in progress has no result of its own, so this text is the only reason it can give.
@@ -394,7 +389,7 @@ impl AndroidDeviceTestRunner<'_> {
                     self.device.log_named(
                         "AndroidDeviceTestRunner",
                         Level::Debug,
-                        &format!("Running {}", request.command().to_string_lossy()),
+                        &format!("Running {}", request.command().to_owned()),
                         None,
                     );
                     *channel = Some(InstrumentationChannel::start(self.device, request));
@@ -454,9 +449,9 @@ impl AndroidDeviceTestRunner<'_> {
                     None => Ok(()),
                 },
                 Err(error) if is_io_exception(&error) => {
-                    let mut message = JavaString::from("adb error while running tests ");
-                    message.append(
-                        KotlinValue::List(
+                    let mut message = String::from("adb error while running tests ");
+                    message.push_str(
+                        &KotlinValue::List(
                             batch
                                 .tests
                                 .iter()
@@ -468,7 +463,7 @@ impl AndroidDeviceTestRunner<'_> {
                     self.device.log_named(
                         "AndroidDeviceTestRunner",
                         Level::Error,
-                        &message.to_string_lossy(),
+                        &message.to_owned(),
                         Some(error.failure()),
                     );
                     listener
@@ -510,7 +505,7 @@ fn stream_ended_early(exit_code: Option<i32>) -> VendorError {
         Some(code) => format!("the instrumentation stream ended before a result, with exit code {code}"),
         None => "the instrumentation stream ended before a result".to_owned(),
     };
-    other("java.io.EOFException", message.as_str())
+    other("java.io.EOFException", message.as_str().to_owned())
 }
 fn clone_error(error: &VendorError) -> VendorError {
     VendorError::Other(error.failure().clone())
@@ -533,7 +528,7 @@ fn is_io_exception(error: &VendorError) -> bool {
         "io.netty.channel.StacklessClosedChannelException",
     ]
     .iter()
-    .any(|s| error.failure().class == (*s).into())
+    .any(|s| error.failure().class == (*s))
         && !matches!(error, VendorError::Cancelled(_))
 }
 #[derive(Default)]

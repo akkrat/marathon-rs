@@ -262,14 +262,14 @@ async fn replay(
         let remote = d
             .remote_file_manager()
             .remote_video_for_test(&test, &c.batch.id)
-            .to_string_lossy();
+            .to_owned();
         if batch_failure || should_attach {
             let temp = if batch_failure {
                 format!("{remote}.tmp")
             } else {
                 d.remote_file_manager()
                     .remote_temp_video_for_test(&test, &c.batch.id)
-                    .to_string_lossy()
+                    .to_owned()
             };
             assert!(
                 !fs.read(&temp).await.map_err(|e| e.to_string())?.is_empty(),

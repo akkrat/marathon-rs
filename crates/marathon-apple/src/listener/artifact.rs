@@ -6,7 +6,6 @@ use jcompat::{
     JavaRegex,
     logging::{Level, Logger},
     regex_patterns::{DIAGNOSTIC_LOGS_PATH, SESSION_RESULTS_PATH, find_artifact},
-    writers::JavaString,
 };
 use marathon_core::{listener::LineListener, runtime::VendorFuture};
 use std::sync::Mutex;
@@ -31,9 +30,9 @@ impl ArtifactFinderListener {
     }
 }
 impl LineListener for ArtifactFinderListener {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if let Some(path) = find_artifact(&self.pattern, &line.to_string_lossy()) {
+            if let Some(path) = find_artifact(&self.pattern, &line.to_owned()) {
                 let path = kt::trim(path).to_owned();
                 let mut matches = self.matches.lock().unwrap_or_else(|e| e.into_inner());
                 if !matches.contains(&path) {
@@ -71,7 +70,7 @@ impl DiagnosticLogsPathFinder {
     }
 }
 impl LineListener for DiagnosticLogsPathFinder {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         self.0.on_line(line)
     }
 }
@@ -91,7 +90,7 @@ impl SessionResultsPathFinder {
     }
 }
 impl LineListener for SessionResultsPathFinder {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         self.0.on_line(line)
     }
 }

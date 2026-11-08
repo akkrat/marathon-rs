@@ -6,7 +6,6 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use jcompat::{
     jtime::Duration,
     logging::{Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_apple::{
     apple_device::AppleDevice,
@@ -294,7 +293,7 @@ impl Device for Fake {
                 version: s(&self.input, "os", "15.0").into(),
             },
             serial_number: if b(&self.input, "installer") {
-                format!("{}@local", self.udid()).into()
+                format!("{}@local", self.udid())
             } else {
                 self.udid().into()
             },
@@ -305,10 +304,10 @@ impl Device for Fake {
             healthy: true,
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         "arm64".into()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         Some(self.transport.id())
     }
     fn logger(&self) -> &Logger {
@@ -626,7 +625,7 @@ pub(crate) fn env(c: &Value) -> XctestrunEnvConfiguration {
     let entries = |key: &str| {
         c[key].as_array().map_or_else(Vec::new, |a| {
             a.iter()
-                .map(|a| (a[0].as_str().unwrap().into(), JavaString::from(a[1].as_str().unwrap())))
+                .map(|a| (a[0].as_str().unwrap().into(), String::from(a[1].as_str().unwrap())))
                 .collect()
         })
     };

@@ -5,10 +5,7 @@
 //! a batch exception takes precedence over device loss, and only PASSED/FAILURE/INCOMPLETE
 //! results are reported (ignored and assumption statuses are dropped).
 use crate::lock;
-use jcompat::{
-    logging::{Logger, MarathonLogging},
-    writers::JavaString,
-};
+use jcompat::logging::{Logger, MarathonLogging};
 use marathon_config::Configuration;
 use marathon_core::{
     error::*,
@@ -27,13 +24,13 @@ use std::{
 pub struct StubDeviceOptions {
     pub prepare_time_millis: i64,
     pub test_time_millis: i64,
-    pub operating_system: JavaString,
-    pub model: JavaString,
-    pub manufacturer: JavaString,
+    pub operating_system: String,
+    pub model: String,
+    pub manufacturer: String,
     pub network_state: NetworkState,
     pub device_features: Vec<DeviceFeature>,
-    pub abi: JavaString,
-    pub serial_number: JavaString,
+    pub abi: String,
+    pub serial_number: String,
     pub healthy: bool,
     pub crash_with_test_batch_exception: bool,
     pub crash_with_device_lost_exception: bool,
@@ -128,7 +125,7 @@ impl StubDevice {
     }
     fn call(&self, name: &str, fields: serde_json::Value) {
         if let Some(recorder) = lock(&self.recorder).clone() {
-            let mut entry = serde_json::json!({"device": self.options.serial_number.to_string_lossy(), "call": name});
+            let mut entry = serde_json::json!({"device": self.options.serial_number.to_owned(), "call": name});
             if let (serde_json::Value::Object(entry), serde_json::Value::Object(fields)) = (&mut entry, fields) {
                 entry.extend(fields);
             }
@@ -206,10 +203,10 @@ impl Device for StubDevice {
             healthy: o.healthy,
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         self.options.abi.clone()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         None
     }
     fn logger(&self) -> &Logger {
@@ -244,15 +241,15 @@ impl Device for StubDevice {
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            let id = batch.id.to_string_lossy();
+            let id = batch.id.to_owned();
             let tests: Vec<String> = batch
                 .tests
                 .iter()
-                .map(|t| t.to_test_name('.', '#').to_string_lossy())
+                .map(|t| t.to_test_name('.', '#').to_owned())
                 .collect();
             self.call(
                 "execute",
-                serde_json::json!({"pool": pool.name.to_string_lossy(), "batch": id, "tests": &tests}),
+                serde_json::json!({"pool": pool.name.to_owned(), "batch": id, "tests": &tests}),
             );
             let result = if self.options.scripted {
                 self.execute_scripted(&batch, tests, result, context).await
@@ -264,7 +261,7 @@ impl Device for StubDevice {
                 Ok(()) => self.call("executed", serde_json::json!({"batch": id})),
                 Err(VendorError::Cancelled(_)) => self.call("execute-cancelled", serde_json::json!({"batch": id})),
                 Err(e) => {
-                    let class = e.failure().class.to_string_lossy();
+                    let class = e.failure().class.to_owned();
                     let simple = class.rsplit('.').next().unwrap_or_default().to_owned();
                     self.call("execute-threw", serde_json::json!({"batch": id, "exception": simple}));
                 }
@@ -281,7 +278,7 @@ impl StubDevice {
     /// Delivers a device event of the script; an error when the device is not in a state that takes it.
     pub fn deliver(&self, event: &serde_json::Value) -> Option<String> {
         let kind = event["event"].as_str().unwrap_or_default();
-        let serial = self.options.serial_number.to_string_lossy();
+        let serial = self.options.serial_number.to_owned();
         let pending = lock(&self.pending);
         match (kind, &*pending) {
             ("prepare-done" | "prepare-failed", Some(Step::Prepare(done))) => {

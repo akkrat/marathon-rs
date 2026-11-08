@@ -11,7 +11,6 @@ use jcompat::{
     JavaRegex,
     file_manager::JavaPath,
     jtime::{Duration, Instant},
-    writers::JavaString,
 };
 use snakeyaml::{
     node::{Node, NodeKind, Stream, YamlError},
@@ -123,7 +122,7 @@ fn token_error(
         .filter(|c| *c != e.class)
         .map(|_| ConfigurationCause {
             class: e.class.into(),
-            message: Some(e.message.clone().into()),
+            message: Some(e.message.clone()),
         })
         .into_iter()
         .collect();
@@ -141,20 +140,20 @@ fn token_error(
     if let Some(class) = original {
         causes.push(ConfigurationCause {
             class: class.into(),
-            message: Some(e.message.clone().into()),
+            message: Some(e.message.clone()),
         });
     }
     Box::new(ConfigurationError {
         stage: ValidationStage::Parse,
         class: wrap.unwrap_or(e.class).into(),
-        message: Some(e.message.clone().into()),
+        message: Some(e.message.clone()),
         causes,
         path,
         span,
         cause: BindingCause::Stream(TokenError {
             stage: e.stage.into(),
             class: e.class.into(),
-            message: e.message.into(),
+            message: e.message,
             context_mark: e.context,
             problem_mark: e.problem,
             jackson_location: e.location,
@@ -163,7 +162,7 @@ fn token_error(
 }
 
 fn wrap_stream(mut error: Box<ConfigurationError>) -> Box<ConfigurationError> {
-    if matches!(error.cause, BindingCause::Stream(_)) && error.class != JSON_MAPPING.into() {
+    if matches!(error.cause, BindingCause::Stream(_)) && error.class != JSON_MAPPING {
         error.causes.insert(
             0,
             ConfigurationCause {
@@ -190,7 +189,7 @@ impl<'a> Value<'a> {
     pub fn context(&self) -> &'a BindingContext {
         self.binder.context
     }
-    pub fn error(&self, class: &str, message: impl Into<JavaString>) -> Box<ConfigurationError> {
+    pub fn error(&self, class: &str, message: impl Into<String>) -> Box<ConfigurationError> {
         let message = message.into();
         Box::new(ConfigurationError {
             stage: ValidationStage::Parse,
@@ -260,7 +259,7 @@ impl<'a> Value<'a> {
                 }
                 let key = self.key(key)?;
                 if key == name {
-                    return Ok(Some(self.child(node, PathPart::Key(key.into()))));
+                    return Ok(Some(self.child(node, PathPart::Key(key))));
                 }
             }
         }
@@ -280,7 +279,7 @@ impl<'a> Value<'a> {
                         if value.hidden_type == Some(index) {
                             continue;
                         }
-                        pending.push(value.child(node, PathPart::Key(value.key(key)?.into())));
+                        pending.push(value.child(node, PathPart::Key(value.key(key)?)));
                     }
                 }
                 NodeKind::Seq { items, .. } => {
@@ -295,9 +294,7 @@ impl<'a> Value<'a> {
     }
     fn key(&self, key: &Node) -> Result<String> {
         match tokens::check_key(key) {
-            Ok(s) => s
-                .as_utf8()
-                .map_err(|_| self.error(JSON_MAPPING, "D9: object keys must be valid UTF-8")),
+            Ok(s) => Ok(s.clone()),
             Err(tokens::KeyProblem::NotScalar(e)) => Err(token_error(*e, self.path.clone(), Some(key.opening), None)),
             Err(tokens::KeyProblem::Cut) => Err(self.binder.stream_error(self.path.clone(), Some(key.opening), None)),
         }
@@ -376,7 +373,7 @@ impl<'a> Value<'a> {
         }
         Ok(match &self.token()?.tok {
             Tok::Str(s) => {
-                let text = s.to_string_lossy();
+                let text = s.to_owned();
                 let trimmed = java_trim(&text);
                 trimmed.is_empty() || trimmed == "null"
             }
@@ -411,14 +408,14 @@ impl<'a> Value<'a> {
             self.boolean().map(Some)
         }
     }
-    pub fn string(&self) -> Result<Option<JavaString>> {
+    pub fn string(&self) -> Result<Option<String>> {
         let token = self.token()?;
         let value = crate::scalar::string_value(&token).map_err(|class| self.error(class, "expected scalar string"))?;
         Ok(value.map(|s| {
             if matches!(token.tok, Tok::Embedded(_)) {
-                s.into()
+                s
             } else {
-                token.java_text.unwrap_or_else(|| s.into())
+                token.java_text.unwrap_or(s)
             }
         }))
     }
@@ -436,7 +433,7 @@ impl<'a> Value<'a> {
             } if i32::try_from(*i).is_ok() => Some(*i),
             Tok::Int { .. } => return Err(self.error(JSON_MAPPING, "enum ordinal outside integer range")),
             Tok::Str(s) => {
-                let text = s.to_string_lossy();
+                let text = s.to_owned();
                 let s = java_trim(&text);
                 if let Some(index) = names.iter().position(|name| *name == s) {
                     return Ok(Some(index));
@@ -469,9 +466,7 @@ impl<'a> Value<'a> {
     ) -> Result<Option<T>> {
         self.string()?
             .map(|s| {
-                let text = s
-                    .as_utf8()
-                    .map_err(|_| self.error(INVALID_FORMAT, "enum name must be UTF-8"))?;
+                let text = s.to_owned();
                 creator(&text).ok_or_else(|| {
                     let mut error = self.error(
                         "com.fasterxml.jackson.databind.exc.ValueInstantiationException",
@@ -482,7 +477,7 @@ impl<'a> Value<'a> {
                         message: if enum_class.is_empty() {
                             error.message.clone()
                         } else {
-                            Some(format!("No enum constant {enum_class}.{}", text.to_uppercase()).into())
+                            Some(format!("No enum constant {enum_class}.{}", text.to_uppercase()))
                         },
                     });
                     error
@@ -535,13 +530,13 @@ impl<'a> Value<'a> {
             .transpose()
     }
     fn time_error_cause(&self, mut error: Box<ConfigurationError>, instant: bool) -> Box<ConfigurationError> {
-        if error.class == INVALID_FORMAT.into()
+        if error.class == INVALID_FORMAT
             && let Ok(Token {
                 tok: Tok::Str(text), ..
             }) = self.token()
         {
             let causes = if instant {
-                let text = text.to_string_lossy();
+                let text = text.to_owned();
                 jcompat::jtime::parse_instant_detailed(snakeyaml::resolve::java_trim(&text))
                     .err()
                     .map(|e| e.chain)
@@ -549,7 +544,7 @@ impl<'a> Value<'a> {
             } else {
                 vec![(
                     "java.time.format.DateTimeParseException",
-                    JavaString::from("Text cannot be parsed to a Duration"),
+                    String::from("Text cannot be parsed to a Duration"),
                 )]
             };
             for (class, message) in causes {
@@ -573,7 +568,7 @@ impl<'a> Value<'a> {
             // FileDeserializer passes valueAsString to File(String), which
             // throws on a container's null text. Builder outputDir escapes
             // directly; Jackson wraps constructor properties at nested paths.
-            let top = matches!(self.path.as_slice(), [PathPart::Key(key)] if key == &"outputDir".into());
+            let top = matches!(self.path.as_slice(), [PathPart::Key(key)] if key == &"outputDir".to_owned());
             let mut error = self.error(
                 if top {
                     "java.lang.NullPointerException"
@@ -599,9 +594,7 @@ impl<'a> Value<'a> {
         } else {
             self.required(self.string()?)?
         };
-        let text = text
-            .as_utf8()
-            .map_err(|_| self.error(JSON_MAPPING, "path must be UTF-8"))?;
+        let text = text.to_owned();
         if self.context().profile != Profile::Marathonfile {
             let text = java_trim(&text);
             return Ok((!text.is_empty()).then(|| jcompat::file_manager::file_path(text)));
@@ -637,7 +630,7 @@ impl<'a> Value<'a> {
                 .path
                 .iter()
                 .map(|p| match p {
-                    PathPart::Key(k) => k.to_string_lossy(),
+                    PathPart::Key(k) => k.to_owned(),
                     PathPart::Index(i) => format!("[{i}]"),
                 })
                 .collect::<Vec<_>>()
@@ -680,14 +673,12 @@ impl<'a> Value<'a> {
             });
             return Err(error);
         };
-        let pattern = s
-            .as_utf8()
-            .map_err(|_| self.error(JSON_MAPPING, "regex must be UTF-8"))?;
+        let pattern = s.to_owned();
         let field = self
             .path
             .iter()
             .map(|p| match p {
-                PathPart::Key(k) => k.to_string_lossy(),
+                PathPart::Key(k) => k.to_owned(),
                 PathPart::Index(i) => format!("[{i}]"),
             })
             .collect::<Vec<_>>()
@@ -719,7 +710,7 @@ impl<'a> Value<'a> {
                 Ok(Some(values))
             }
             _ => Err(self.error(
-                if matches!(self.token()?.tok, Tok::Str(ref s) if java_trim(&s.to_string_lossy()).is_empty()) {
+                if matches!(self.token()?.tok, Tok::Str(ref s) if java_trim(&s.to_owned()).is_empty()) {
                     INVALID_FORMAT
                 } else {
                     MISMATCHED
@@ -735,7 +726,7 @@ impl<'a> Value<'a> {
         }
         if !matches!(self.node.kind, NodeKind::Map { .. }) {
             return Err(self.error(
-                if matches!(self.token()?.tok, Tok::Str(ref s) if java_trim(&s.to_string_lossy()).is_empty()) {
+                if matches!(self.token()?.tok, Tok::Str(ref s) if java_trim(&s.to_owned()).is_empty()) {
                     INVALID_FORMAT
                 } else {
                     MISMATCHED
@@ -772,9 +763,7 @@ impl<'a> Value<'a> {
         let id = id
             .string()?
             .ok_or_else(|| id.error(MISMATCHED, "expected a wrapper-array type id"))?;
-        let id = id
-            .as_utf8()
-            .map_err(|_| self.error(INVALID_TYPE, "type must be UTF-8"))?;
+        let id = id.to_owned();
         // Jackson resolves the id before advancing to the body. END_ARRAY is
         // a null subtype value; an unfinished stream fails on that advance.
         let mut body = self.child(items.get(1).unwrap_or(first), PathPart::Index(1));
@@ -821,10 +810,7 @@ impl<'a> Value<'a> {
             while let Some((name, child)) = object.next_field()? {
                 if name == "type" {
                     let id = match child.token()?.tok {
-                        Tok::Str(s) => Some(
-                            s.as_utf8()
-                                .map_err(|_| child.error(INVALID_TYPE, "type must be UTF-8"))?,
-                        ),
+                        Tok::Str(s) => Some(s.to_owned()),
                         Tok::Int { text, .. } | Tok::Float { text, .. } => Some(text),
                         Tok::True(_) => Some("true".into()),
                         Tok::False(_) => Some("false".into()),
@@ -857,7 +843,7 @@ impl<'a> Object<'a> {
         while let Some((key, node)) = self.entries.get(self.pos) {
             self.pos += 1;
             let name = self.value.key(key)?;
-            let value = self.value.child(node, PathPart::Key(name.clone().into()));
+            let value = self.value.child(node, PathPart::Key(name.clone()));
             if self.value.hidden_type == Some(self.pos - 1) {
                 value.validate_tree()?;
                 continue;

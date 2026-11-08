@@ -116,10 +116,7 @@ pub async fn construct_with_parser_libraries(
     dependencies: marathon_core::wiring::VendorDependencies,
     parser_libraries: impl FnOnce() -> ParserLibraries,
 ) -> marathon_core::error::VendorResult<VendorServices> {
-    use jcompat::{
-        file_manager::{FileManager, JavaPath},
-        writers::JavaString,
-    };
+    use jcompat::file_manager::{FileManager, JavaPath};
     use marathon_apple::{
         apple_test_bundle_identifier::AppleTestBundleIdentifier,
         artifact_processor::ArtifactProcessor,
@@ -156,7 +153,7 @@ pub async fn construct_with_parser_libraries(
                 at_millis: 0,
                 wall_millis: wall(),
                 level,
-                message: message.into(),
+                message: message,
                 cause,
             });
         }),
@@ -184,7 +181,7 @@ pub async fn construct_with_parser_libraries(
         dependencies.hooks.clone(),
         logging.clone(),
     )
-    .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", e.0.to_string_lossy())))?;
+    .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.0)))?;
     let track = Track::new(dependencies.io.clone(), dependencies.hooks.clone());
     track.add(dependencies.tracker.clone());
     let files = Arc::new(FileManager::new_utf16(
@@ -221,8 +218,8 @@ pub async fn construct_with_parser_libraries(
             environment: std::env::vars_os()
                 .map(|(k, v)| {
                     (
-                        JavaString::from(k.to_string_lossy().as_ref()),
-                        JavaString::from(v.to_string_lossy().as_ref()),
+                        String::from(k.to_string_lossy().as_ref()),
+                        String::from(v.to_string_lossy().as_ref()),
                     )
                 })
                 .collect(),

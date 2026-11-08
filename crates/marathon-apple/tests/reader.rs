@@ -223,7 +223,7 @@ async fn idle_timeout_discards_tail_and_await_retains_cancellation_control_flow(
             assert_eq!(detail.message, Some("Channel closed".into()));
             assert_eq!(
                 detail.cause.unwrap().class,
-                "java.util.concurrent.TimeoutException".into()
+                "java.util.concurrent.TimeoutException".to_owned()
             );
         }
         other => panic!("{other:?}"),

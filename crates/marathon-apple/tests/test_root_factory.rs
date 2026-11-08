@@ -2,7 +2,7 @@
 //! Factory-only oracle witnesses complement the four reduced preparation harnesses approved in 4.5b.
 mod support;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use jcompat::writers::JavaString;
+
 use marathon_apple::{
     cmd::cancelled,
     generated_file,
@@ -60,7 +60,7 @@ async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult 
                     _ => None,
                 };
                 let detail = error.failure();
-                match detail.class.to_string_lossy().as_str() {
+                match detail.class.to_owned().as_str() {
                     "com.malinskiy.marathon.exceptions.DeviceSetupException" => {
                         assert!(matches!(error, FactoryError::Vendor(VendorError::DeviceSetup(_))))
                     }
@@ -78,7 +78,7 @@ async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult 
                 }
 
                 // Only host bundle paths are typed-normalized, never emitted XML or worker argv.
-                json!({"class":detail.class.to_string_lossy(),"message":detail.message.as_ref().map(|s|s.to_string_lossy().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
+                json!({"class":detail.class.to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
             }
         };
         assert_eq!(error, row["error"], "{id}: error");
@@ -294,9 +294,10 @@ async fn lone_surrogate_environment_values_are_rejected_with_the_field_name() ->
         let bundle = bundle(&c, temp.path(), device.logging.clone()).await?;
         let mut env = env(&c);
         if field == "appEnvs" {
-            env.app_envs.push(("K".into(), JavaString(vec![0xd800])));
+            env.app_envs.push(("K".into(), String::from_utf16_lossy(&vec![0xd800])));
         } else {
-            env.test_envs.push(("K".into(), JavaString(vec![0xdfff])));
+            env.test_envs
+                .push(("K".into(), String::from_utf16_lossy(&vec![0xdfff])));
         }
         let xcresult = xcresult(&c);
         let error = TestRootFactory::new(&device, &env, &xcresult, false, Arc::new(support::Runtime))

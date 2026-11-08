@@ -32,12 +32,7 @@ async fn start(executor: &SshCommandExecutor, command: &[&str], timeout: i64) ->
 }
 fn class_chain(failure: &Failure) -> Vec<(String, Option<String>)> {
     std::iter::successors(Some(failure), |f| f.cause.as_deref())
-        .map(|f| {
-            (
-                f.class.to_string_lossy(),
-                f.message.as_ref().map(|m| m.to_string_lossy()),
-            )
-        })
+        .map(|f| (f.class.to_owned(), f.message.as_ref().map(|m| m.to_owned())))
         .collect()
 }
 fn other(error: VendorError) -> Failure {
@@ -150,7 +145,7 @@ async fn open_failure_is_a_connection_exception_and_safe_execute_returns_null() 
     let last = events.lock().unwrap().last().cloned().unwrap();
     let (_, _, message, throwable) = &last;
     assert_eq!(message, "Unable to start a remote shell session [echo, hello]");
-    assert_eq!(throwable.as_ref().unwrap().class, OPEN_FAIL_EXCEPTION.into());
+    assert_eq!(throwable.as_ref().unwrap().class, OPEN_FAIL_EXCEPTION.to_owned());
     held.terminate().unwrap();
     held.close().await.unwrap();
     assert_eq!(
@@ -1047,7 +1042,7 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
             .err()
             .unwrap(),
     );
-    assert_eq!(later.class, CONNECTION_EXCEPTION.into());
+    assert_eq!(later.class, CONNECTION_EXCEPTION.to_owned());
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(60), session.close()).await,
         Ok(Ok(()))
@@ -1064,7 +1059,7 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
         (*level, message.as_str()),
         (Level::Error, "Unable to start a remote shell session [held]")
     );
-    assert_eq!(throwable.as_ref().unwrap().class, CONNECTION_EXCEPTION.into());
+    assert_eq!(throwable.as_ref().unwrap().class, CONNECTION_EXCEPTION.to_owned());
     assert!(executor.connected());
     assert_eq!(
         ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
@@ -1476,7 +1471,7 @@ async fn a_stuck_consumer_at_the_cap_is_ended_by_the_idle_timeout_d37() {
         .unwrap()
         .unwrap_err();
     assert_eq!(
-        error.failure().class.to_string_lossy(),
+        error.failure().class.to_owned(),
         "java.util.concurrent.TimeoutException"
     );
     assert!(executor.connected());
@@ -1625,7 +1620,7 @@ async fn a_transport_that_dies_during_the_close_is_a_connection_failure_d36() {
             .err()
             .unwrap(),
     );
-    assert_eq!(error.class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(error.class.to_owned(), CONNECTION_EXCEPTION);
 }
 
 #[tokio::test(flavor = "multi_thread")]

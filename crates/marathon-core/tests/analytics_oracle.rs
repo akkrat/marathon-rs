@@ -94,7 +94,7 @@ fn provider_sequences_match_jvm_bits_calls_and_ordered_logs() {
                     .take()
                     .iter()
                     .map(|e| {
-                        let mut message = e.message.to_string_lossy();
+                        let mut message = e.message.to_owned();
                         if e.logger == "Timings" {
                             let start = message.rfind(" in ").unwrap();
                             message.truncate(start);

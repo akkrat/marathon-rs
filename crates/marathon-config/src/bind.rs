@@ -37,7 +37,6 @@ use jcompat::{
     JavaRegex,
     file_manager::JavaPath,
     jtime::{Duration, Instant, duration_of},
-    writers::JavaString,
 };
 
 pub const CONFIGURATION_EXCEPTION: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
@@ -100,7 +99,7 @@ pub(crate) fn list_drop_nulls<T>(
         .map(|opt| opt.map(|xs| xs.into_iter().flatten().collect()))
 }
 
-fn string_list(value: &Value<'_>) -> Result<Option<Vec<JavaString>>> {
+fn string_list(value: &Value<'_>) -> Result<Option<Vec<String>>> {
     // Filter `values` only (see list_drop_nulls).
     list_drop_nulls(value, |v| v.string())
 }
@@ -229,14 +228,14 @@ fn bind_defaults_lenient_child(value: Value<'_>) -> Result<Defaults> {
 fn instant_or_null(value: &Value<'_>) -> Result<Option<Instant>> {
     match value.instant() {
         Ok(v) => Ok(v),
-        Err(e) if e.class.as_utf8().is_ok_and(|c| c == INVALID_FORMAT) => Ok(None),
+        Err(e) if e.class == INVALID_FORMAT => Ok(None),
         Err(e) => Err(e),
     }
 }
 fn duration_or_null(value: &Value<'_>) -> Result<Option<Duration>> {
     match value.duration() {
         Ok(v) => Ok(v),
-        Err(e) if e.class.as_utf8().is_ok_and(|c| c == INVALID_FORMAT) => Ok(None),
+        Err(e) if e.class == INVALID_FORMAT => Ok(None),
         Err(e) => Err(e),
     }
 }
@@ -568,14 +567,14 @@ fn graphite(value: Value<'_>) -> Result<GraphiteConfiguration> {
     // S6 + Kotlin check order: host, then port, then prefix, then nested.
     let host =
         host.ok_or_else(|| config_error(&value, "GraphiteConfigurationDeserializer: host should be specified"))?;
-    let port = port_string.as_ref().map(|s| to_int_or_null_ascii(&s.to_string_lossy()));
+    let port = port_string.as_ref().map(|s| to_int_or_null_ascii(&s.to_owned()));
     if port_string.is_some() && port == Some(None) {
         return Err(config_error(
             &value,
             "GraphiteConfigurationDeserializer: port should be a number, e.g. 2003",
         ));
     }
-    if prefix.as_ref().is_some_and(|p| p.0.is_empty()) {
+    if prefix.as_ref().is_some_and(|p| p.is_empty()) {
         return Err(config_error(
             &value,
             "GraphiteConfigurationDeserializer: prefix cannot be empty",
@@ -595,10 +594,10 @@ fn graphite(value: Value<'_>) -> Result<GraphiteConfiguration> {
 }
 
 fn influx_db2(value: Value<'_>) -> Result<InfluxDb2Configuration> {
-    let mut url = Field::reference(&value, None::<JavaString>);
-    let mut token = Field::reference(&value, None::<JavaString>);
-    let mut organization = Field::reference(&value, None::<JavaString>);
-    let mut bucket = Field::reference(&value, None::<JavaString>);
+    let mut url = Field::reference(&value, None::<String>);
+    let mut token = Field::reference(&value, None::<String>);
+    let mut organization = Field::reference(&value, None::<String>);
+    let mut bucket = Field::reference(&value, None::<String>);
     let mut retention = Field::reference(&value, Some(InfluxDb2RetentionPolicyConfiguration::default_policy()));
     let mut defaults = Field::reference(&value, Some(defaults_default()));
     let mut read_only = Field::primitive(&value, false);
@@ -664,7 +663,7 @@ pub fn bind_analytics_configuration(value: Value<'_>) -> Result<Option<Analytics
 
 fn regex_values_file(value: Value<'_>) -> Result<RegexValuesFileFilter> {
     let mut regex = Field::nullable(&value, None::<JavaRegex>);
-    let mut values = Field::nullable(&value, None::<Vec<JavaString>>);
+    let mut values = Field::nullable(&value, None::<Vec<String>>);
     let mut file = Field::nullable(&value, None::<JavaPath>);
     let mut enabled = Field::primitive(&value, true);
     let mut object = value.object()?;
@@ -699,7 +698,7 @@ fn regex_values_file(value: Value<'_>) -> Result<RegexValuesFileFilter> {
 
 fn test_package(value: Value<'_>) -> Result<TestPackageFilter> {
     let mut regex = Field::nullable(&value, None::<JavaRegex>);
-    let mut values = Field::nullable(&value, None::<Vec<JavaString>>);
+    let mut values = Field::nullable(&value, None::<Vec<String>>);
     let mut file = Field::nullable(&value, None::<JavaPath>);
     let mut subpackages = Field::primitive(&value, false);
     let mut enabled = Field::primitive(&value, true);
@@ -896,7 +895,7 @@ pub fn bind_configuration(
     mut vendor: impl FnMut(Value<'_>) -> Result<Option<VendorConfiguration>>,
 ) -> Result<Option<Configuration>> {
     value.nullable(|v| {
-        let mut name = Field::reference(&v, None::<JavaString>);
+        let mut name = Field::reference(&v, None::<String>);
         let mut output_dir = Field::reference(&v, None::<JavaPath>);
         let mut analytics = Field::reference(&v, Some(AnalyticsConfiguration::Disabled));
         let mut pooling = Field::reference(&v, Some(PoolingStrategyConfiguration::Omni));

@@ -145,7 +145,7 @@ impl<H: Clone + Send + Sync> SimulatorCreating for SimulatorFactory<H> {
                 self.timing.info(|| {
                     Ok(format!(
                         "Simulator {} set up in {} ms",
-                        device.0.info().serial_number.to_string_lossy(),
+                        device.0.info().serial_number.to_owned(),
                         self.timing.elapsed()?.wrapping_sub(started)
                     ))
                 })?;

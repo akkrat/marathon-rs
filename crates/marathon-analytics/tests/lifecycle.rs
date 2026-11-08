@@ -143,7 +143,7 @@ fn separate_history_and_tracking_clients_run_setup_twice() {
             };
             let tracker = factory
                 .create(BackendRequest::Influx {
-                    url: peer.url.clone().into(),
+                    url: peer.url.clone(),
                 })
                 .await?
                 .map_err(OperationError::Failed)?

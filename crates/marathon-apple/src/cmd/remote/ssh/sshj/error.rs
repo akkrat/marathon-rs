@@ -281,7 +281,7 @@ impl SshFailure {
     /// The 4.1/0.6 boundary keeps class, `getMessage()` and the cause chain; logback prints a throwable the same way.
     pub fn to_failure(&self) -> Failure {
         let mut projected = Failure {
-            message: self.message().map(Into::into),
+            message: self.message(),
             ..failure(self.class, "")
         };
         projected.cause = self.cause.as_ref().map(|cause| Box::new(cause.to_failure()));

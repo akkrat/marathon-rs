@@ -125,7 +125,7 @@ fn gif_metadata_zero_frames_and_invalid_delays_match_jvm() {
             oracle(&format!("gif-{delay}"))["error"]
                 .as_str()
                 .unwrap()
-                .starts_with(&err.failure().class.to_string_lossy())
+                .starts_with(&err.failure().class.to_owned())
         );
     }
 }
@@ -365,7 +365,7 @@ fn overflowing_delay_fails_after_creating_the_file() {
             let mut cap = capturer(&core, root, vec![], duration_of(i64::MAX, 0).unwrap());
             let error = cap.start(&test("overflow"), Signal::new()).await.err().unwrap();
             assert_eq!(
-                error.failure().to_java_string().to_string_lossy(),
+                error.failure().to_java_string().to_owned(),
                 "java.lang.ArithmeticException: long overflow"
             );
             Ok(())

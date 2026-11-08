@@ -187,7 +187,7 @@ async fn a_lost_connection_invalidates_what_was_loaded_through_it_within_one_cyc
             .lock()
             .unwrap()
             .iter()
-            .map(|d| marathon_core::vendor::Device::abi(d.as_ref()).to_string_lossy())
+            .map(|d| marathon_core::vendor::Device::abi(d.as_ref()).to_owned())
             .collect::<Vec<_>>(),
         ["arm64", "x86_64", "x86_64"]
     );
@@ -374,7 +374,7 @@ async fn worker_facts_are_kept_only_after_they_were_loaded_completely() -> TestR
             .lock()
             .unwrap()
             .iter()
-            .map(|d| marathon_core::vendor::Device::abi(d.as_ref()).to_string_lossy())
+            .map(|d| marathon_core::vendor::Device::abi(d.as_ref()).to_owned())
             .collect::<Vec<_>>(),
         ["Unknown", "arm64"]
     );

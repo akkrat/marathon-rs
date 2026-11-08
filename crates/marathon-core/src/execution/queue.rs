@@ -28,7 +28,7 @@ use crate::{
     wiring::MetricsProvider,
 };
 use indexmap::IndexMap;
-use jcompat::{JavaPriorityQueue, logging::Level, writers::JavaString};
+use jcompat::{JavaPriorityQueue, logging::Level};
 use marathon_config::Configuration;
 use std::{
     collections::HashMap,
@@ -47,7 +47,7 @@ pub type SharedProgress = Rc<tokio::sync::Mutex<PoolProgressAccumulator>>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestBatch {
     pub device: DeviceInfo,
-    pub worker_id: Option<JavaString>,
+    pub worker_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -59,7 +59,7 @@ pub enum QueueMessage {
     /// the sender, so the receiver sees an error instead.
     IsEmpty(oneshot::Sender<bool>),
     Completed(DeviceInfo, TestBatchResults),
-    ReturnBatch(DeviceInfo, BatchRef, JavaString),
+    ReturnBatch(DeviceInfo, BatchRef, String),
     RejectBatch(DeviceInfo, BatchRef),
     /// Answered with `FromQueue::OutcomeProcessed` once the messages sent before it are processed.
     ConfirmOutcome(DeviceInfo),
@@ -93,8 +93,8 @@ impl QueueHandle {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueSnapshot {
     pub queue: Vec<Test>,
-    pub retry_workers: Vec<(Test, Vec<JavaString>)>,
-    pub active_batches: Vec<JavaString>,
+    pub retry_workers: Vec<(Test, Vec<String>)>,
+    pub active_batches: Vec<String>,
 }
 #[cfg(feature = "test-support")]
 pub type QueueObserver = Rc<dyn Fn(QueueSnapshot)>;
@@ -180,15 +180,15 @@ pub struct QueueActor {
 
     // LinkedHashMaps where Kotlin iterates them: the debug line joins
     // activeBatches' keys, and Notify flattens retryWorkers.
-    active_batches: IndexMap<JavaString, BatchRef>,
+    active_batches: IndexMap<String, BatchRef>,
     uncompleted_tests_retry_count: HashMap<Test, i32>,
     /// Workers of the devices that have asked for batches, by serial number, and for each queued test, the workers of the
     /// attempts that queued its copies as retries. A device gets a test all of whose queued copies are retries from its own
     /// worker only if nothing else is queued
-    workers: HashMap<JavaString, JavaString>,
-    retry_workers: IndexMap<Test, Vec<JavaString>>,
+    workers: HashMap<String, String>,
+    retry_workers: IndexMap<Test, Vec<String>>,
     /// Workers of the retries in the active batch of each device, by serial number, queued again if the batch is rejected
-    active_retries: HashMap<JavaString, Vec<(Test, JavaString)>>,
+    active_retries: HashMap<String, Vec<(Test, String)>>,
     terminated: bool,
     actor: Option<Weak<dyn Actor<QueueMessage>>>,
 
@@ -207,13 +207,13 @@ fn vendor_error(error: VendorError) -> OperationError {
 fn batching_error(error: BatchingError) -> OperationError {
     match error {
         BatchingError::Bundle(error) => vendor_error(error),
-        BatchingError::Replay(error) => failure("marathon.ReplayError", &error.message.to_string_lossy()).into(),
+        BatchingError::Replay(error) => failure("marathon.ReplayError", &error.message.to_owned()).into(),
         // QueueActor never batches an empty queue.
         BatchingError::EmptyQueue => failure("java.util.NoSuchElementException", "empty queue").into(),
     }
 }
-fn text(parts: &[&dyn Fn(&mut JavaString)]) -> JavaString {
-    let mut out = JavaString::default();
+fn text(parts: &[&dyn Fn(&mut String)]) -> String {
+    let mut out = String::default();
     for part in parts {
         part(&mut out);
     }
@@ -292,7 +292,7 @@ impl QueueActor {
         hooks: Arc<dyn ReplayHooks>,
     ) -> QueueHandle {
         // "QueueActor[$poolId]" with the data class toString.
-        let logger = format!("QueueActor[DevicePoolId(name={})]", pool_id.name.to_string_lossy());
+        let logger = format!("QueueActor[DevicePoolId(name={})]", pool_id.name.to_owned());
         #[allow(unused_mut)]
         let mut comparator = prepared.sorting.process(prepared.lookup.clone(), hooks.clone());
         #[cfg(feature = "test-support")]
@@ -336,14 +336,14 @@ impl QueueActor {
         QueueHandle { actor }
     }
 
-    fn log(&self, level: Level, message: JavaString) {
+    fn log(&self, level: Level, message: String) {
         self.log
             .log(&self.logger, self.clock.now_millis(), level, message, None);
     }
-    fn debug(&self, prefix: &str, serial: &JavaString) {
+    fn debug(&self, prefix: &str, serial: &String) {
         self.log(
             Level::Debug,
-            text(&[&|m| m.push_str(prefix), &|m| m.append(serial.clone())]),
+            text(&[&|m| m.push_str(prefix), &|m| m.push_str(&serial.clone())]),
         );
     }
 
@@ -432,7 +432,7 @@ impl QueueActor {
             self.log(
                 Level::Debug,
                 text(&[&|m| m.push_str("uncompletedTestRetryQuota exceeded for "), &|m| {
-                    m.append(test.test.to_test_name('.', '#'))
+                    m.push_str(&test.test.to_test_name('.', '#'))
                 }]),
             );
             let action = progress
@@ -458,16 +458,16 @@ impl QueueActor {
         &mut self,
         device: DeviceInfo,
         batch: BatchRef,
-        reason: JavaString,
+        reason: String,
         signal: Arc<dyn CancellationSignal>,
     ) -> OperationResult<()> {
         self.log(
             Level::Debug,
             text(&[
                 &|m| m.push_str("onReturnBatch "),
-                &|m| m.append(device.serial_number.clone()),
+                &|m| m.push_str(&device.serial_number.clone()),
                 &|m| m.push_str(". reason="),
-                &|m| m.append(reason.clone()),
+                &|m| m.push_str(&reason.clone()),
             ]),
         );
         let mut results = Vec::with_capacity(batch.tests.len());
@@ -476,7 +476,7 @@ impl QueueActor {
             let current_time_millis = self
                 .timer
                 .current_time_millis()
-                .map_err(|error| failure("marathon.ReplayError", &error.message.to_string_lossy()))?;
+                .map_err(|error| failure("marathon.ReplayError", &error.message.to_owned()))?;
             results.push(TestResult {
                 test: test.clone(),
                 device: device.clone(),
@@ -512,9 +512,9 @@ impl QueueActor {
                 Level::Warn,
                 text(&[
                     &|m| m.push_str("Batch "),
-                    &|m| m.append(batch.id.clone()),
+                    &|m| m.push_str(&batch.id.clone()),
                     &|m| m.push_str(" is not active on "),
-                    &|m| m.append(serial.clone()),
+                    &|m| m.push_str(&serial.clone()),
                     &|m| m.push_str(", not queueing it again"),
                 ]),
             );
@@ -536,7 +536,7 @@ impl QueueActor {
     async fn on_batch_released(&mut self) -> OperationResult<()> {
         if !self.queue.is_empty() {
             // values.flatten().toSet(): a LinkedHashSet, first occurrences in order.
-            let mut retry_workers: Vec<JavaString> = Vec::new();
+            let mut retry_workers: Vec<String> = Vec::new();
             for worker in self.retry_workers.values().flatten() {
                 if !retry_workers.contains(worker) {
                     retry_workers.push(worker.clone());
@@ -553,7 +553,7 @@ impl QueueActor {
     }
 
     /// Retries that last ran on `worker` are left for devices on other workers, unless nothing else is queued
-    fn next_batch(&mut self, device: &DeviceInfo, worker: Option<&JavaString>) -> OperationResult<BatchRef> {
+    fn next_batch(&mut self, device: &DeviceInfo, worker: Option<&String>) -> OperationResult<BatchRef> {
         let avoided = worker.map(|worker| self.own_retries(worker)).unwrap_or_default();
         let copies: Vec<Test> = if avoided.is_empty() {
             Vec::new()
@@ -589,7 +589,7 @@ impl QueueActor {
     }
 
     /// Queued tests all of whose copies are retries of attempts on `worker`, in retryWorkers order.
-    fn own_retries(&self, worker: &JavaString) -> Vec<Test> {
+    fn own_retries(&self, worker: &String) -> Vec<Test> {
         let mut copies: HashMap<&Test, i32> = HashMap::new();
         for test in self.queue.iter() {
             *copies.entry(test).or_insert(0) += 1;
@@ -608,7 +608,7 @@ impl QueueActor {
     /// one, otherwise a retry from another worker, otherwise one from `worker`
     ///
     /// Returns the worker of the retry taken, or None if the copy isn't a retry.
-    fn dispatched(&mut self, test: &Test, worker: Option<&JavaString>) -> Option<JavaString> {
+    fn dispatched(&mut self, test: &Test, worker: Option<&String>) -> Option<String> {
         // Counted after the batch has taken its copies, so two copies of one test in a
         // batch see the same count. ClassName takes every copy, so each still takes one
         // worker while any is left (WP 3.7 K3, refuted by the oracle).
@@ -654,7 +654,7 @@ impl QueueActor {
         Ok(())
     }
 
-    fn only_own_retries(&self, worker: Option<&JavaString>) -> bool {
+    fn only_own_retries(&self, worker: Option<&String>) -> bool {
         let Some(worker) = worker else { return false };
         if self.queue.is_empty() {
             return false;
@@ -729,7 +729,7 @@ impl QueueActor {
         Ok(())
     }
 
-    async fn on_request_batch(&mut self, device: DeviceInfo, worker_id: Option<JavaString>) -> OperationResult<()> {
+    async fn on_request_batch(&mut self, device: DeviceInfo, worker_id: Option<String>) -> OperationResult<()> {
         let serial = device.serial_number.clone();
         self.debug("request next batch for device ", &serial);
         if let Some(worker) = &worker_id {
@@ -754,12 +754,12 @@ impl QueueActor {
             Ok(())
         } else {
             if queue_is_empty {
-                let mut message = JavaString::from("queue is empty but there are active batches present for ");
+                let mut message = String::from("queue is empty but there are active batches present for ");
                 for (i, key) in self.active_batches.keys().enumerate() {
                     if i > 0 {
                         message.push_str(", ");
                     }
-                    message.append(key.clone());
+                    message.push_str(&key.clone());
                 }
                 self.log(Level::Debug, message);
             }

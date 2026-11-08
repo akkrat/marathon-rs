@@ -233,8 +233,8 @@ async fn four_unchanged_simulators_share_one_inventory_and_one_set_of_worker_fac
         );
         for d in devices {
             assert_eq!(home(&w, d.udid()), 1);
-            assert_eq!(d.abi(), "arm64".into());
-            assert_eq!(d.serial(), format!("{}@{}", d.udid(), transport.id().to_string_lossy()));
+            assert_eq!(d.abi(), "arm64".to_owned());
+            assert_eq!(d.serial(), format!("{}@{}", d.udid(), transport.id().to_owned()));
         }
         p.finish().await.map_err(test_error)?;
     }
@@ -336,7 +336,7 @@ async fn unavailable_simulators_are_neither_planned_nor_re_provisioned() -> Test
         .map_err(test_error)?;
     let devices = std::mem::take(&mut *registered.lock().unwrap());
     assert_eq!(devices.len(), 1);
-    assert_eq!(devices[0].0, "a@local".into());
+    assert_eq!(devices[0].0, "a@local".to_owned());
     for (_, d) in devices {
         d.device.0.dispose().await.map_err(test_error)?;
         marathon_ios::device::simulator_provisioner::ProvisioningConnections::release(

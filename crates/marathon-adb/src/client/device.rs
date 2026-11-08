@@ -5,7 +5,6 @@
 use std::collections::VecDeque;
 
 use jcompat::jstring;
-use jcompat::writers::JavaString;
 
 use super::error::AdbError;
 use super::feature::Feature;
@@ -59,11 +58,12 @@ impl DeviceState {
 /// A line without a tab fails like Kotlin's `split[1]` on the one-element list `split` returns (a
 /// `SingletonList`, hence its message), as a typed error instead of an exception (P6).
 pub fn parse_devices(text: &str) -> Result<Vec<Device>, AdbError> {
-    jstring::lines(&JavaString::from(text))
+    jstring::lines(&String::from(text))
         .iter()
-        .filter(|line| !line.0.is_empty())
+        .filter(|line| !line.is_empty())
         .map(|line| {
-            let line = JavaString(jstring::trim(&line.0).to_vec()).to_string_lossy();
+            let line =
+                String::from_utf16_lossy(jstring::trim(&line.encode_utf16().collect::<Vec<_>>())).to_owned();
             let mut split = line.split('\t');
             let serial = split.next().unwrap_or_default();
             let state = split

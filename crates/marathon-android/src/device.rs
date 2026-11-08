@@ -9,10 +9,7 @@ use crate::{
     tracker::{DeviceStateTracker, is_passing},
     version::AndroidVersion,
 };
-use jcompat::{
-    logging::{Level, Logger},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger};
 use marathon_adb::client::{
     AndroidDebugBridgeClient, AsyncChannelRequest, ChannelStream, ComplexRequest, Feature,
     device::{DeviceState, FetchDeviceFeaturesRequest, ListDevicesRequest},
@@ -115,16 +112,16 @@ struct Inner {
 }
 struct State {
     booted: bool,
-    serial: JavaString,
-    abi: JavaString,
+    serial: String,
+    abi: String,
     version: AndroidVersion,
-    external: JavaString,
-    model: JavaString,
-    manufacturer: JavaString,
+    external: String,
+    model: String,
+    manufacturer: String,
     rotation: Rotation,
     features: Vec<DeviceFeature>,
     adb_features: Vec<Feature>,
-    props: HashMap<String, JavaString>,
+    props: HashMap<String, String>,
     md5: String,
 }
 impl AndroidDevice {
@@ -234,7 +231,7 @@ impl AndroidDevice {
     pub fn version(&self) -> AndroidVersion {
         lock(&self.inner.state).version.clone()
     }
-    pub fn external_storage_mount(&self) -> JavaString {
+    pub fn external_storage_mount(&self) -> String {
         lock(&self.inner.state).external.clone()
     }
     pub fn supported_features(&self) -> Vec<Feature> {
@@ -249,7 +246,7 @@ impl AndroidDevice {
     pub fn is_local_emulator(&self) -> bool {
         self.adb_serial().starts_with("emulator-")
     }
-    pub fn serial_number(&self) -> JavaString {
+    pub fn serial_number(&self) -> String {
         let s = lock(&self.inner.state);
         if s.booted {
             s.serial.clone()
@@ -257,7 +254,7 @@ impl AndroidDevice {
             self.prefix(self.adb_serial())
         }
     }
-    fn prefix(&self, serial: &str) -> JavaString {
+    fn prefix(&self, serial: &str) -> String {
         format!(
             "{}:{}:{serial}",
             host_address(self.client().host()),
@@ -308,12 +305,7 @@ impl AndroidDevice {
         lock(&self.inner.state).props = props;
         Ok(())
     }
-    pub async fn get_property(
-        &self,
-        name: &str,
-        cached: bool,
-        context: VendorContext,
-    ) -> VendorResult<Option<JavaString>> {
+    pub async fn get_property(&self, name: &str, cached: bool, context: VendorContext) -> VendorResult<Option<String>> {
         if !cached {
             self.fetch_props(context.cancellation.clone()).await?;
         }
@@ -333,14 +325,14 @@ impl AndroidDevice {
                     }
                     self.log(
                         Level::Debug,
-                        &format!("Device {} is still booting...", self.serial_number().to_string_lossy()),
+                        &format!("Device {} is still booting...", self.serial_number().to_owned()),
                         None,
                     );
                     boot_clock.delay(1000, signal.clone()).await?;
                 }
                 self.log(
                     Level::Debug,
-                    &format!("Device {} booted!", self.serial_number().to_string_lossy()),
+                    &format!("Device {} booted!", self.serial_number().to_owned()),
                     None,
                 );
                 lock(&self.inner.state).booted = true;
@@ -352,7 +344,7 @@ impl AndroidDevice {
             return Err(setup(
                 format!(
                     "Unable to configure device {}: not booted",
-                    self.serial_number().to_string_lossy()
+                    self.serial_number().to_owned()
                 )
                 .as_str(),
             ));
@@ -369,14 +361,14 @@ impl AndroidDevice {
                 s.props.get("ro.build.version.codename"),
             ) {
                 (Some(sdk), Some(code)) => {
-                    let sdk = sdk.to_string_lossy();
+                    let sdk = sdk.to_owned();
                     let api = jcompat::jnum::parse_int(&sdk).ok_or_else(|| {
                         other(
                             "java.lang.NumberFormatException",
                             format!("For input string: \"{sdk}\"").as_str(),
                         )
                     })?;
-                    AndroidVersion::new(api, &code.to_string_lossy())
+                    AndroidVersion::new(api, &code.to_owned())
                 }
                 _ => AndroidVersion::default(),
             };
@@ -404,12 +396,12 @@ impl AndroidDevice {
                 setup(
                     format!(
                         "Unable to configure device {}: externalStorageMount",
-                        self.serial_number().to_string_lossy()
+                        self.serial_number().to_owned()
                     )
                     .as_str(),
                 )
             })?;
-        lock(&self.inner.state).external = external.output.to_string_lossy().trim_matches(['\r', '\n']).into();
+        lock(&self.inner.state).external = external.output.to_owned().trim_matches(['\r', '\n']).into();
         let mut features = Vec::new();
         if self.version().is_greater_or_equal_than(19)
             && self.has_binary("/system/bin/screenrecord", context.clone()).await?
@@ -518,7 +510,7 @@ impl AndroidDevice {
         message: &str,
     ) -> VendorResult<Option<ShellCommandResult>> {
         match result {
-            Err(e) if e.failure().class != "io.vertx.core.impl.NoStackTraceThrowable".into() => {
+            Err(e) if e.failure().class != "io.vertx.core.impl.NoStackTraceThrowable" => {
                 self.log(Level::Error, message, Some(e.failure()));
                 Ok(None)
             }
@@ -551,7 +543,7 @@ impl AndroidDevice {
             &format!("pm clear {package}"),
             &format!(
                 "Could not clear package {package} on device: {}",
-                self.serial_number().to_string_lossy()
+                self.serial_number().to_owned()
             ),
             context,
         )
@@ -613,22 +605,22 @@ impl AndroidDevice {
     pub async fn on_logcat(&self, message: &crate::logcat::LogCatMessage) -> VendorResult<()> {
         let line = format!(
             "{} {}-{}/{} {}/{}: {}",
-            message.timestamp().to_string_lossy(),
+            message.timestamp().to_owned(),
             message.pid(),
             message.tid(),
-            message.app_name().to_string_lossy(),
+            message.app_name().to_owned(),
             char::from_u32(message.log_level().priority_letter() as u32).unwrap_or('?'),
-            message.tag().to_string_lossy(),
-            message.message.to_string_lossy()
+            message.tag().to_owned(),
+            message.message.to_owned()
         );
-        self.on_line(&line.as_str().into()).await?;
+        self.on_line(&line.as_str().to_owned()).await?;
         let listeners = lock(&self.inner.logcat_listeners).clone();
         for listener in listeners {
             listener.on_message(message)
         }
         Ok(())
     }
-    pub async fn on_line(&self, line: &JavaString) -> VendorResult<()> {
+    pub async fn on_line(&self, line: &String) -> VendorResult<()> {
         let listeners = lock(&self.inner.line_listeners).clone();
         for listener in listeners {
             listener.on_line(line).await?;
@@ -847,10 +839,10 @@ impl Device for AndroidDevice {
             healthy: self.is_live() && !self.is_held(),
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         lock(&self.inner.state).abi.clone()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         None
     }
     fn logger(&self) -> &Logger {
@@ -887,7 +879,7 @@ impl Device for AndroidDevice {
                             "logcat -c",
                             &format!(
                                 "Could not clear logcat on device: {}",
-                                device.serial_number().to_string_lossy()
+                                device.serial_number().to_owned()
                             ),
                             context.clone(),
                         )
@@ -1030,10 +1022,10 @@ pub fn host_address(ip: std::net::IpAddr) -> String {
 pub fn detect_serial(
     strategy: marathon_config::vendor::SerialStrategy,
     adb: &str,
-    props: &HashMap<String, JavaString>,
+    props: &HashMap<String, String>,
 ) -> String {
     use marathon_config::vendor::SerialStrategy::*;
-    let prop = |name| props.get(name).map(JavaString::to_string_lossy).unwrap_or_default();
+    let prop = |name| props.get(name).cloned().unwrap_or_default();
     match strategy {
         Automatic => [
             prop("marathon.serialno"),
@@ -1050,8 +1042,8 @@ pub fn detect_serial(
         Ddms => adb.to_owned(),
     }
 }
-pub fn parse_rotation(output: &JavaString) -> Rotation {
-    let text = output.to_string_lossy();
+pub fn parse_rotation(output: &String) -> Rotation {
+    let text = output.to_owned();
     let parse = || {
         let start = text.find("SurfaceOrientation")?;
         let line = text[start..].split_once('\n')?.0;

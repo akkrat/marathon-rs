@@ -20,7 +20,7 @@ use crate::{
     vendor::{DeviceRef, TestParser, VendorContext},
     wiring::RunDependencies,
 };
-use jcompat::{logging::Level, writers::JavaString};
+use jcompat::logging::Level;
 use marathon_config::{TestFilterConfiguration, binding::ConfigurationError, loader::LogicalConfigurationValidator};
 use std::{
     cell::{Cell, RefCell},
@@ -47,9 +47,9 @@ pub const CANCEL_FLUSH_MILLIS: i64 = 1_000;
 pub const CANCEL_REPORTS_HEAD_START_MILLIS: i64 = 10_000;
 
 /// `TimingLog.info(timer) { message }`'s text: the message, then the time since start.
-pub fn timing_message(message: &str, timer: &dyn crate::time::Timer) -> crate::time::ClockResult<JavaString> {
+pub fn timing_message(message: &str, timer: &dyn crate::time::Timer) -> crate::time::ClockResult<String> {
     let elapsed = timer.elapsed_time_millis()?;
-    Ok(format!("{message} (+{elapsed} ms since start)").into())
+    Ok(format!("{message} (+{elapsed} ms since start)"))
 }
 
 /// What the frozen `RunDependencies` cannot carry: the concrete executor Scheduler needs
@@ -61,7 +61,7 @@ pub struct RunServices {
     pub ci: Ci,
     pub filters: FilterDependencies,
     /// P1: the fixed, ordered facts logged under `System Information:` (key, value).
-    pub system_information: Vec<(JavaString, JavaString)>,
+    pub system_information: Vec<(String, String)>,
     pub signals: Option<Rc<SignalRelay>>,
     /// Flush the log queue as records arrive (live runs only; see `start_output_pump`).
     pub live_output: bool,
@@ -303,8 +303,8 @@ pub fn configuration_failure(error: &ConfigurationError) -> Failure {
     }
 }
 
-fn text(parts: &[&str]) -> JavaString {
-    let mut out = JavaString::default();
+fn text(parts: &[&str]) -> String {
+    let mut out = String::default();
     for part in parts {
         out.push_str(part);
     }
@@ -337,7 +337,7 @@ impl Marathon {
         self.hook_installed.get()
     }
 
-    fn log(&self, logger: &str, level: Level, message: JavaString, cause: Option<Failure>) {
+    fn log(&self, logger: &str, level: Level, message: String, cause: Option<Failure>) {
         let core = &self.services.core;
         core.log_queue().log(
             logger,
@@ -428,7 +428,7 @@ impl Marathon {
         for (key, value) in &self.services.system_information {
             let mut line = key.clone();
             line.push_str(": ");
-            line.append(value.clone());
+            line.push_str(&value.clone());
             self.log(LOGGER, Level::Info, line, None);
         }
     }
@@ -509,7 +509,7 @@ impl Marathon {
         self.log(
             LOGGER,
             Level::Debug,
-            format!("Parsing took {} ms", parsing_finished.wrapping_sub(parsing_started)).into(),
+            format!("Parsing took {} ms", parsing_finished.wrapping_sub(parsing_started)),
             None,
         );
         self.flush(task.job.cancellation_signal()).await?;
@@ -563,12 +563,12 @@ impl Marathon {
             ))
         })?;
         // D1: TestsTotal/TestsRun usage events are gone.
-        let mut names = JavaString::default();
+        let mut names = String::default();
         for (index, test) in parsed_filtered_tests.iter().enumerate() {
             if index > 0 {
                 names.push_str(", ");
             }
-            names.append(test.to_test_name('.', '#'));
+            names.push_str(&test.to_test_name('.', '#'));
         }
         self.log(LOGGER, Level::Debug, names, None);
 
@@ -606,7 +606,7 @@ impl Marathon {
             self.log(
                 LOGGER,
                 Level::Error,
-                format!("No tests left to run after filtering: {}", filter_stages.join(", ")).into(),
+                format!("No tests left to run after filtering: {}", filter_stages.join(", ")),
                 None,
             );
             true
@@ -628,7 +628,7 @@ impl Marathon {
     ) -> VendorResult<Vec<Test>> {
         let tests: RefCell<Option<Vec<Test>>> = RefCell::new(None);
         let last: RefCell<Option<VendorError>> = RefCell::new(None);
-        let tried: RefCell<Vec<JavaString>> = RefCell::new(Vec::new());
+        let tried: RefCell<Vec<String>> = RefCell::new(Vec::new());
         let millis = self.deps.vendor.configuration.device_initialization_timeout_millis;
         let (tests_cell, last_cell, tried) = (&tests, &last, &tried);
         let outcome = self
@@ -680,14 +680,14 @@ impl Marathon {
     async fn borrow_and_extract(
         &self,
         parser: Arc<dyn crate::vendor::RemoteTestParser>,
-        tried: &RefCell<Vec<JavaString>>,
+        tried: &RefCell<Vec<String>>,
         scope: &TaskContext,
     ) -> VendorResult<Vec<Test>> {
         let wait_started = self.elapsed()?;
         let provider = self.deps.provider.clone();
         let context = self.context(scope.job.cancellation_signal());
         let avoid = tried.borrow().clone();
-        let (device, key): (DeviceRef, JavaString) = self
+        let (device, key): (DeviceRef, String) = self
             .vendor(scope, move |signal| {
                 Box::pin(async move {
                     provider
@@ -736,7 +736,7 @@ impl Marathon {
                 "Parsed {} tests in {} ms on {}, which took {} ms to become available",
                 tests.len(),
                 self.elapsed()?.wrapping_sub(started),
-                device.0.info().serial_number.to_string_lossy(),
+                device.0.info().serial_number.to_owned(),
                 started.wrapping_sub(wait_started)
             ))
         })?;
@@ -799,7 +799,7 @@ impl Marathon {
         .await?;
         if exists {
             let mut message = text(&["Output "]);
-            message.append(JavaString(output.0.clone()));
+            message.push_str(&String::from_utf16_lossy(&output.0.clone()));
             message.push_str(" already exists");
             self.log(LOGGER, Level::Info, message, None);
         }
@@ -826,7 +826,7 @@ impl Marathon {
                 self.log(
                     LOGGER,
                     Level::Error,
-                    format!("{step} failed during cleanup").into(),
+                    format!("{step} failed during cleanup"),
                     Some(error.failure().clone()),
                 );
                 first.get_or_insert(error);
@@ -953,8 +953,7 @@ impl Marathon {
             format!(
                 "Signal {number}: stopping the tests, writing the reports and cleaning up for up to {} s. A second signal exits at once",
                 (CANCEL_LIMIT_MILLIS + CANCEL_FLUSH_MILLIS) / 1000
-            )
-            .into(),
+            ),
             None,
         );
         self.cleaned_up.set(true);
@@ -1177,7 +1176,7 @@ impl Marathon {
                             marathon.log(
                                 LOGGER,
                                 Level::Error,
-                                format!("Cleanup did not finish in {CANCEL_LIMIT_MILLIS} ms; exiting anyway").into(),
+                                format!("Cleanup did not finish in {CANCEL_LIMIT_MILLIS} ms; exiting anyway"),
                                 None,
                             );
                         }

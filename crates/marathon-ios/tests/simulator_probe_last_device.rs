@@ -209,7 +209,7 @@ fn probe_never_succeeds_on_the_only_simulator(from: From) -> TestResult<Timeline
                     .log_queue()
                     .records()
                     .into_iter()
-                    .map(|r| r.message.to_string_lossy())
+                    .map(|r| r.message.to_owned())
                     .filter(|m| m.contains("pool "))
                     .collect();
             }

@@ -4,13 +4,13 @@
 //! Schema SHA-256: c79f8f634da9472a244ddbb9c5650641e3fb7087563205f86089a7d3c79716db.
 
 use super::decoder::{Decode, Fields, JsonNode, Path, XcresultDecodeError};
-use jcompat::{jackson::JavaDate, writers::JavaString};
+use jcompat::jackson::JavaDate;
 
 pub const OBJECT_TYPE_COUNT: usize = 57;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionAbstractTestSummary {
-    pub name: Option<JavaString>,
+    pub name: Option<String>,
 }
 
 impl Decode for ActionAbstractTestSummary {
@@ -34,8 +34,8 @@ impl super::tests::Project for ActionAbstractTestSummary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionPlatformRecord {
-    pub identifier: JavaString,
-    pub user_description: JavaString,
+    pub identifier: String,
+    pub user_description: String,
 }
 
 impl Decode for ActionPlatformRecord {
@@ -63,9 +63,9 @@ impl super::tests::Project for ActionPlatformRecord {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionSDKRecord {
-    pub name: JavaString,
-    pub identifier: JavaString,
-    pub operating_system_version: JavaString,
+    pub name: String,
+    pub identifier: String,
+    pub operating_system_version: String,
     pub is_internal: bool,
 }
 
@@ -98,8 +98,8 @@ impl super::tests::Project for ActionSDKRecord {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestNoticeSummary {
-    pub message: Option<JavaString>,
-    pub file_name: JavaString,
+    pub message: Option<String>,
+    pub file_name: String,
     pub line_number: i32,
     pub timestamp: Option<JavaDate>,
 }
@@ -133,17 +133,17 @@ impl super::tests::Project for ActionTestNoticeSummary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestPerformanceMetricSummary {
-    pub display_name: JavaString,
-    pub unit_of_measurement: JavaString,
+    pub display_name: String,
+    pub unit_of_measurement: String,
     pub measurements: Vec<Option<f64>>,
-    pub identifier: Option<JavaString>,
-    pub baseline_name: Option<JavaString>,
+    pub identifier: Option<String>,
+    pub baseline_name: Option<String>,
     pub baseline_average: Option<f64>,
     pub max_percent_regression: Option<f64>,
     pub max_percent_relative_standard_deviation: Option<f64>,
     pub max_regression: Option<f64>,
     pub max_standard_deviation: Option<f64>,
-    pub polarity: Option<JavaString>,
+    pub polarity: Option<String>,
 }
 
 impl Decode for ActionTestPerformanceMetricSummary {
@@ -194,7 +194,7 @@ impl super::tests::Project for ActionTestPerformanceMetricSummary {
 pub struct ActionTestRepetitionPolicySummary {
     pub iteration: Option<i32>,
     pub total_iterations: Option<i32>,
-    pub repetition_mode: Option<JavaString>,
+    pub repetition_mode: Option<String>,
 }
 
 impl Decode for ActionTestRepetitionPolicySummary {
@@ -248,7 +248,7 @@ impl super::tests::Project for ActivityLogAnalyzerStep {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ArchiveInfo {
-    pub path: Option<JavaString>,
+    pub path: Option<String>,
 }
 
 impl Decode for ArchiveInfo {
@@ -304,10 +304,10 @@ impl super::tests::Project for CodeCoverageInfo {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConsoleLogItem {
-    pub adaptor_type: Option<JavaString>,
-    pub kind: Option<JavaString>,
+    pub adaptor_type: Option<String>,
+    pub kind: Option<String>,
     pub timestamp: f64,
-    pub content: JavaString,
+    pub content: String,
 }
 
 impl Decode for ConsoleLogItem {
@@ -339,8 +339,8 @@ impl super::tests::Project for ConsoleLogItem {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocumentLocation {
-    pub url: JavaString,
-    pub concrete_type_name: JavaString,
+    pub url: String,
+    pub concrete_type_name: String,
 }
 
 impl Decode for DocumentLocation {
@@ -368,10 +368,10 @@ impl super::tests::Project for DocumentLocation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EntityIdentifier {
-    pub entity_name: JavaString,
-    pub container_name: JavaString,
-    pub entity_type: JavaString,
-    pub shared_state: JavaString,
+    pub entity_name: String,
+    pub container_name: String,
+    pub entity_type: String,
+    pub shared_state: String,
 }
 
 impl Decode for EntityIdentifier {
@@ -403,7 +403,7 @@ impl super::tests::Project for EntityIdentifier {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObjectID {
-    pub hash: JavaString,
+    pub hash: String,
 }
 
 impl Decode for ObjectID {
@@ -468,7 +468,7 @@ impl super::tests::Project for ResultMetrics {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SortedKeyValueArrayPair {
-    pub key: JavaString,
+    pub key: String,
 }
 
 impl Decode for SortedKeyValueArrayPair {
@@ -492,7 +492,7 @@ impl super::tests::Project for SortedKeyValueArrayPair {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SourceCodeLocation {
-    pub file_path: Option<JavaString>,
+    pub file_path: Option<String>,
     pub line_number: Option<i32>,
 }
 
@@ -521,7 +521,7 @@ impl super::tests::Project for SourceCodeLocation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TypeDefinition {
-    pub name: JavaString,
+    pub name: String,
     pub supertype: Option<Box<TypeDefinition>>,
 }
 
@@ -547,17 +547,17 @@ impl super::tests::Project for TypeDefinition {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionDeviceRecord {
-    pub name: JavaString,
+    pub name: String,
     pub is_concrete_device: bool,
-    pub operating_system_version: JavaString,
-    pub operating_system_version_with_build_number: JavaString,
-    pub native_architecture: JavaString,
-    pub model_name: JavaString,
-    pub model_code: JavaString,
-    pub model_uti: JavaString,
-    pub identifier: JavaString,
+    pub operating_system_version: String,
+    pub operating_system_version_with_build_number: String,
+    pub native_architecture: String,
+    pub model_name: String,
+    pub model_code: String,
+    pub model_uti: String,
+    pub identifier: String,
     pub is_wireless: bool,
-    pub cpu_kind: JavaString,
+    pub cpu_kind: String,
     pub cpu_count: Option<i32>,
     pub cpu_speed_in_m_hz: Option<i32>,
     pub bus_speed_in_m_hz: Option<i32>,
@@ -633,9 +633,9 @@ impl super::tests::Project for ActionDeviceRecord {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestSummaryIdentifiableObject {
-    pub identifier: Option<JavaString>,
-    pub identifier_url: Option<JavaString>,
-    pub name: Option<JavaString>,
+    pub identifier: Option<String>,
+    pub identifier_url: Option<String>,
+    pub name: Option<String>,
 }
 
 impl Decode for ActionTestSummaryIdentifiableObject {
@@ -665,8 +665,8 @@ impl super::tests::Project for ActionTestSummaryIdentifiableObject {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionsInvocationMetadata {
-    pub creating_workspace_file_path: JavaString,
-    pub unique_identifier: JavaString,
+    pub creating_workspace_file_path: String,
+    pub unique_identifier: String,
     pub scheme_identifier: Option<EntityIdentifier>,
 }
 
@@ -726,9 +726,9 @@ impl super::tests::Project for ActivityLogAnalyzerControlFlowStepEdge {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogAnalyzerEventStep {
-    pub title: JavaString,
+    pub title: String,
     pub location: Option<DocumentLocation>,
-    pub description: JavaString,
+    pub description: String,
     pub call_depth: i32,
     pub parent_index: i32,
 }
@@ -764,7 +764,7 @@ impl super::tests::Project for ActivityLogAnalyzerEventStep {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogMessageAnnotation {
-    pub title: JavaString,
+    pub title: String,
     pub location: Option<DocumentLocation>,
 }
 
@@ -790,7 +790,7 @@ impl super::tests::Project for ActivityLogMessageAnnotation {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConsoleLogSection {
-    pub title: JavaString,
+    pub title: String,
     pub items: Vec<Option<ConsoleLogItem>>,
 }
 
@@ -816,9 +816,9 @@ impl super::tests::Project for ConsoleLogSection {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct IssueSummary {
-    pub issue_type: JavaString,
-    pub message: JavaString,
-    pub producing_target: Option<JavaString>,
+    pub issue_type: String,
+    pub message: String,
+    pub producing_target: Option<String>,
     pub document_location_in_creating_workspace: Option<DocumentLocation>,
 }
 
@@ -854,7 +854,7 @@ impl super::tests::Project for IssueSummary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Reference {
-    pub id: JavaString,
+    pub id: String,
     pub target_type: Option<TypeDefinition>,
 }
 
@@ -904,8 +904,8 @@ impl super::tests::Project for SortedKeyValueArray {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SourceCodeSymbolInfo {
-    pub image_name: Option<JavaString>,
-    pub symbol_name: Option<JavaString>,
+    pub image_name: Option<String>,
+    pub symbol_name: Option<String>,
     pub location: Option<SourceCodeLocation>,
 }
 
@@ -936,8 +936,8 @@ impl super::tests::Project for SourceCodeSymbolInfo {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionRunDestinationRecord {
-    pub display_name: JavaString,
-    pub target_architecture: JavaString,
+    pub display_name: String,
+    pub target_architecture: String,
     pub target_device_record: ActionDeviceRecord,
     pub local_computer_record: ActionDeviceRecord,
     pub target_sdk_record: ActionSDKRecord,
@@ -974,14 +974,14 @@ impl super::tests::Project for ActionRunDestinationRecord {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestAttachment {
-    pub uniform_type_identifier: JavaString,
-    pub name: Option<JavaString>,
-    pub uuid: Option<JavaString>,
+    pub uniform_type_identifier: String,
+    pub name: Option<String>,
+    pub uuid: Option<String>,
     pub timestamp: Option<JavaDate>,
     pub user_info: Option<SortedKeyValueArray>,
-    pub lifetime: JavaString,
+    pub lifetime: String,
     pub in_activity_identifier: i32,
-    pub filename: Option<JavaString>,
+    pub filename: Option<String>,
     pub payload_ref: Option<Reference>,
     pub payload_size: i32,
 }
@@ -1051,15 +1051,15 @@ impl super::tests::Project for ActionTestConfiguration {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestMetadata {
-    pub test_status: JavaString,
+    pub test_status: String,
     pub duration: Option<f64>,
     pub summary_ref: Option<Reference>,
     pub performance_metrics_count: i32,
     pub failure_summaries_count: i32,
     pub activity_summaries_count: i32,
-    pub identifier: Option<JavaString>,
-    pub identifier_url: Option<JavaString>,
-    pub name: Option<JavaString>,
+    pub identifier: Option<String>,
+    pub identifier_url: Option<String>,
+    pub name: Option<String>,
 }
 
 impl Decode for ActionTestMetadata {
@@ -1103,9 +1103,9 @@ impl super::tests::Project for ActionTestMetadata {
 pub struct ActionTestSummaryGroup {
     pub duration: f64,
     pub subtests: Vec<Option<ActionTestSummaryIdentifiableObject>>,
-    pub identifier: Option<JavaString>,
-    pub identifier_url: Option<JavaString>,
-    pub name: Option<JavaString>,
+    pub identifier: Option<String>,
+    pub identifier_url: Option<String>,
+    pub name: Option<String>,
 }
 
 impl Decode for ActionTestSummaryGroup {
@@ -1139,7 +1139,7 @@ impl super::tests::Project for ActionTestSummaryGroup {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogAnalyzerControlFlowStep {
-    pub title: JavaString,
+    pub title: String,
     pub start_location: Option<DocumentLocation>,
     pub end_location: Option<DocumentLocation>,
     pub edges: Vec<Option<ActivityLogAnalyzerControlFlowStepEdge>>,
@@ -1177,10 +1177,10 @@ impl super::tests::Project for ActivityLogAnalyzerControlFlowStep {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogMessage {
-    pub r#type: JavaString,
-    pub title: JavaString,
-    pub short_title: Option<JavaString>,
-    pub category: Option<JavaString>,
+    pub r#type: String,
+    pub title: String,
+    pub short_title: Option<String>,
+    pub category: Option<String>,
     pub location: Option<DocumentLocation>,
     pub annotations: Vec<Option<ActivityLogMessageAnnotation>>,
 }
@@ -1218,7 +1218,7 @@ impl super::tests::Project for ActivityLogMessage {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SourceCodeFrame {
-    pub address_string: Option<JavaString>,
+    pub address_string: Option<String>,
     pub symbol_info: Option<SourceCodeSymbolInfo>,
 }
 
@@ -1247,7 +1247,7 @@ impl super::tests::Project for SourceCodeFrame {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TestAssociatedError {
-    pub domain: Option<JavaString>,
+    pub domain: Option<String>,
     pub code: Option<i32>,
     pub user_info: Option<SortedKeyValueArray>,
 }
@@ -1279,10 +1279,10 @@ impl super::tests::Project for TestAssociatedError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TestFailureIssueSummary {
-    pub test_case_name: JavaString,
-    pub issue_type: JavaString,
-    pub message: JavaString,
-    pub producing_target: Option<JavaString>,
+    pub test_case_name: String,
+    pub issue_type: String,
+    pub message: String,
+    pub producing_target: Option<String>,
     pub document_location_in_creating_workspace: Option<DocumentLocation>,
 }
 
@@ -1320,15 +1320,15 @@ impl super::tests::Project for TestFailureIssueSummary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestActivitySummary {
-    pub title: JavaString,
-    pub activity_type: JavaString,
-    pub uuid: JavaString,
+    pub title: String,
+    pub activity_type: String,
+    pub uuid: String,
     pub start: Option<JavaDate>,
     pub finish: Option<JavaDate>,
     pub attachments: Vec<Option<ActionTestAttachment>>,
     pub subactivities: Vec<Option<ActionTestActivitySummary>>,
-    pub failure_summary_i_ds: Vec<Option<JavaString>>,
-    pub expected_failure_i_ds: Vec<Option<JavaString>>,
+    pub failure_summary_i_ds: Vec<Option<String>>,
+    pub expected_failure_i_ds: Vec<Option<String>>,
 }
 
 impl Decode for ActionTestActivitySummary {
@@ -1371,12 +1371,12 @@ impl super::tests::Project for ActionTestActivitySummary {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogAnalyzerResultMessage {
     pub steps: Vec<Option<ActivityLogAnalyzerStep>>,
-    pub result_type: Option<JavaString>,
+    pub result_type: Option<String>,
     pub key_event_index: i32,
-    pub r#type: JavaString,
-    pub title: JavaString,
-    pub short_title: Option<JavaString>,
-    pub category: Option<JavaString>,
+    pub r#type: String,
+    pub title: String,
+    pub short_title: Option<String>,
+    pub category: Option<String>,
     pub location: Option<DocumentLocation>,
     pub annotations: Vec<Option<ActivityLogMessageAnnotation>>,
 }
@@ -1420,10 +1420,10 @@ impl super::tests::Project for ActivityLogAnalyzerResultMessage {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogAnalyzerWarningMessage {
-    pub r#type: JavaString,
-    pub title: JavaString,
-    pub short_title: Option<JavaString>,
-    pub category: Option<JavaString>,
+    pub r#type: String,
+    pub title: String,
+    pub short_title: Option<String>,
+    pub category: Option<String>,
     pub location: Option<DocumentLocation>,
     pub annotations: Vec<Option<ActivityLogMessageAnnotation>>,
 }
@@ -1461,11 +1461,11 @@ impl super::tests::Project for ActivityLogAnalyzerWarningMessage {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogSection {
-    pub domain_type: JavaString,
-    pub title: JavaString,
+    pub domain_type: String,
+    pub title: String,
     pub start_time: Option<JavaDate>,
     pub duration: f64,
-    pub result: Option<JavaString>,
+    pub result: Option<String>,
     pub location: Option<DocumentLocation>,
     pub subsections: Vec<Option<ActivityLogSection>>,
     pub messages: Vec<Option<ActivityLogMessage>>,
@@ -1572,8 +1572,8 @@ impl super::tests::Project for SourceCodeContext {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionResult {
-    pub result_name: JavaString,
-    pub status: JavaString,
+    pub result_name: String,
+    pub status: String,
     pub metrics: ResultMetrics,
     pub issues: ResultIssueSummaries,
     pub coverage: CodeCoverageInfo,
@@ -1625,13 +1625,13 @@ impl super::tests::Project for ActionResult {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestFailureSummary {
-    pub message: Option<JavaString>,
-    pub file_name: JavaString,
+    pub message: Option<String>,
+    pub file_name: String,
     pub line_number: i32,
     pub is_performance_failure: bool,
-    pub uuid: JavaString,
-    pub issue_type: Option<JavaString>,
-    pub detailed_description: Option<JavaString>,
+    pub uuid: String,
+    pub issue_type: Option<String>,
+    pub detailed_description: Option<String>,
     pub attachments: Vec<Option<ActionTestAttachment>>,
     pub associated_error: Option<TestAssociatedError>,
     pub source_code_context: Option<SourceCodeContext>,
@@ -1684,14 +1684,14 @@ impl super::tests::Project for ActionTestFailureSummary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogCommandInvocationSection {
-    pub command_details: JavaString,
-    pub emitted_output: JavaString,
+    pub command_details: String,
+    pub emitted_output: String,
     pub exit_code: Option<i32>,
-    pub domain_type: JavaString,
-    pub title: JavaString,
+    pub domain_type: String,
+    pub title: String,
     pub start_time: Option<JavaDate>,
     pub duration: f64,
-    pub result: Option<JavaString>,
+    pub result: Option<String>,
     pub location: Option<DocumentLocation>,
     pub subsections: Vec<Option<ActivityLogSection>>,
     pub messages: Vec<Option<ActivityLogMessage>>,
@@ -1740,12 +1740,12 @@ impl super::tests::Project for ActivityLogCommandInvocationSection {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogMajorSection {
-    pub subtitle: JavaString,
-    pub domain_type: JavaString,
-    pub title: JavaString,
+    pub subtitle: String,
+    pub domain_type: String,
+    pub title: String,
     pub start_time: Option<JavaDate>,
     pub duration: f64,
-    pub result: Option<JavaString>,
+    pub result: Option<String>,
     pub location: Option<DocumentLocation>,
     pub subsections: Vec<Option<ActivityLogSection>>,
     pub messages: Vec<Option<ActivityLogMessage>>,
@@ -1790,20 +1790,20 @@ impl super::tests::Project for ActivityLogMajorSection {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogUnitTestSection {
-    pub test_name: Option<JavaString>,
-    pub suite_name: Option<JavaString>,
-    pub summary: Option<JavaString>,
-    pub emitted_output: Option<JavaString>,
-    pub performance_test_output: Option<JavaString>,
-    pub tests_passed_string: Option<JavaString>,
+    pub test_name: Option<String>,
+    pub suite_name: Option<String>,
+    pub summary: Option<String>,
+    pub emitted_output: Option<String>,
+    pub performance_test_output: Option<String>,
+    pub tests_passed_string: Option<String>,
     pub was_skipped: bool,
-    pub runnable_path: Option<JavaString>,
-    pub runnable_uti: Option<JavaString>,
-    pub domain_type: JavaString,
-    pub title: JavaString,
+    pub runnable_path: Option<String>,
+    pub runnable_uti: Option<String>,
+    pub domain_type: String,
+    pub title: String,
     pub start_time: Option<JavaDate>,
     pub duration: f64,
-    pub result: Option<JavaString>,
+    pub result: Option<String>,
     pub location: Option<DocumentLocation>,
     pub subsections: Vec<Option<ActivityLogSection>>,
     pub messages: Vec<Option<ActivityLogMessage>>,
@@ -1864,15 +1864,15 @@ impl super::tests::Project for ActivityLogUnitTestSection {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionRecord {
-    pub scheme_command_name: JavaString,
-    pub scheme_task_name: JavaString,
-    pub title: Option<JavaString>,
+    pub scheme_command_name: String,
+    pub scheme_task_name: String,
+    pub title: Option<String>,
     pub started_time: JavaDate,
     pub ended_time: JavaDate,
     pub run_destination: ActionRunDestinationRecord,
     pub build_result: ActionResult,
     pub action_result: ActionResult,
-    pub test_plan_name: Option<JavaString>,
+    pub test_plan_name: Option<String>,
 }
 
 impl Decode for ActionRecord {
@@ -1914,8 +1914,8 @@ impl super::tests::Project for ActionRecord {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestExpectedFailure {
-    pub uuid: JavaString,
-    pub failure_reason: Option<JavaString>,
+    pub uuid: String,
+    pub failure_reason: Option<String>,
     pub failure_summary: Option<ActionTestFailureSummary>,
     pub is_top_level_failure: bool,
 }
@@ -1949,16 +1949,16 @@ impl super::tests::Project for ActionTestExpectedFailure {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestableSummary {
-    pub identifier_url: Option<JavaString>,
-    pub project_relative_path: Option<JavaString>,
-    pub target_name: Option<JavaString>,
-    pub test_kind: Option<JavaString>,
+    pub identifier_url: Option<String>,
+    pub project_relative_path: Option<String>,
+    pub target_name: Option<String>,
+    pub test_kind: Option<String>,
     pub tests: Vec<Option<ActionTestSummaryIdentifiableObject>>,
-    pub diagnostics_directory_name: Option<JavaString>,
+    pub diagnostics_directory_name: Option<String>,
     pub failure_summaries: Vec<Option<ActionTestFailureSummary>>,
-    pub test_language: Option<JavaString>,
-    pub test_region: Option<JavaString>,
-    pub name: Option<JavaString>,
+    pub test_language: Option<String>,
+    pub test_region: Option<String>,
+    pub name: Option<String>,
 }
 
 impl Decode for ActionTestableSummary {
@@ -2002,13 +2002,13 @@ impl super::tests::Project for ActionTestableSummary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActivityLogTargetBuildSection {
-    pub product_type: Option<JavaString>,
-    pub subtitle: JavaString,
-    pub domain_type: JavaString,
-    pub title: JavaString,
+    pub product_type: Option<String>,
+    pub subtitle: String,
+    pub domain_type: String,
+    pub title: String,
     pub start_time: Option<JavaDate>,
     pub duration: f64,
-    pub result: Option<JavaString>,
+    pub result: Option<String>,
     pub location: Option<DocumentLocation>,
     pub subsections: Vec<Option<ActivityLogSection>>,
     pub messages: Vec<Option<ActivityLogMessage>>,
@@ -2056,7 +2056,7 @@ impl super::tests::Project for ActivityLogTargetBuildSection {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestPlanRunSummary {
     pub testable_summaries: Vec<Option<ActionTestableSummary>>,
-    pub name: Option<JavaString>,
+    pub name: Option<String>,
 }
 
 impl Decode for ActionTestPlanRunSummary {
@@ -2084,7 +2084,7 @@ impl super::tests::Project for ActionTestPlanRunSummary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTestSummary {
-    pub test_status: JavaString,
+    pub test_status: String,
     pub duration: f64,
     pub performance_metrics: Vec<Option<ActionTestPerformanceMetricSummary>>,
     pub failure_summaries: Vec<Option<ActionTestFailureSummary>>,
@@ -2093,9 +2093,9 @@ pub struct ActionTestSummary {
     pub activity_summaries: Vec<Option<ActionTestActivitySummary>>,
     pub repetition_policy_summary: Option<ActionTestRepetitionPolicySummary>,
     pub configuration: Option<ActionTestConfiguration>,
-    pub identifier: Option<JavaString>,
-    pub identifier_url: Option<JavaString>,
-    pub name: Option<JavaString>,
+    pub identifier: Option<String>,
+    pub identifier_url: Option<String>,
+    pub name: Option<String>,
 }
 
 impl Decode for ActionTestSummary {

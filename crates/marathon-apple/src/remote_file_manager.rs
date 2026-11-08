@@ -4,7 +4,6 @@ use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging, worker_commands
 use jcompat::{
     file_manager::escape_utf16,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use marathon_config::vendor::ScreenshotType;
 use marathon_core::{
@@ -80,12 +79,12 @@ impl RemoteFileManager {
     pub fn remote_media_file(&self, file: &str) -> String {
         resolve(self.remote_shared_media_directory(), file)
     }
-    pub fn remote_xcresult_file(&self, batch: &TestBatch) -> JavaString {
+    pub fn remote_xcresult_file(&self, batch: &TestBatch) -> String {
         self.remote_xcresult_for_id(&batch.id)
     }
-    pub fn remote_xcresult_for_id(&self, batch_id: &JavaString) -> JavaString {
-        let mut result = JavaString::from(resolve(self.remote_directory(), &format!("{}.", self.udid)).as_str());
-        result.append(batch_id.clone());
+    pub fn remote_xcresult_for_id(&self, batch_id: &String) -> String {
+        let mut result = String::from(resolve(self.remote_directory(), &format!("{}.", self.udid)).as_str());
+        result.push_str(&batch_id.clone());
         result.push_str(".xcresult");
         result
     }
@@ -101,20 +100,22 @@ impl RemoteFileManager {
     pub fn remote_screenshot(&self, udid: &str, kind: ScreenshotType) -> String {
         self.remote_file_for_test(&format!("{udid}.{}", kind.value()))
     }
-    pub fn remote_video_for_test(&self, test: &Test, batch_id: &JavaString) -> JavaString {
+    pub fn remote_video_for_test(&self, test: &Test, batch_id: &String) -> String {
         self.video(test, batch_id, false)
     }
-    pub fn remote_temp_video_for_test(&self, test: &Test, batch_id: &JavaString) -> JavaString {
+    pub fn remote_temp_video_for_test(&self, test: &Test, batch_id: &String) -> String {
         self.video(test, batch_id, true)
     }
-    fn video(&self, test: &Test, batch_id: &JavaString, temporary: bool) -> JavaString {
+    fn video(&self, test: &Test, batch_id: &String, temporary: bool) -> String {
         let mut name = test.to_class_name('-');
-        name.push_str("-");
-        name.append(test.method.clone());
-        let mut result = JavaString::from(format!("{}/", self.storage_path).as_str());
-        result.append(JavaString(escape_utf16(&name.0)));
-        result.push_str("-");
-        result.append(batch_id.clone());
+        name.push('-');
+        name.push_str(&test.method.clone());
+        let mut result = String::from(format!("{}/", self.storage_path).as_str());
+        result.push_str(&String::from_utf16_lossy(&escape_utf16(
+            &name.encode_utf16().collect::<Vec<_>>(),
+        )));
+        result.push('-');
+        result.push_str(&batch_id.clone());
         result.push_str(if temporary { "-temp.mp4" } else { ".mp4" });
         result
     }

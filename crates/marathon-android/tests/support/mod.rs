@@ -1,10 +1,7 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/adam/TestDeviceFactory.kt
 //! and TestConfigurationFactory.kt, DeviceExpectationExtensions.kt.
 #![allow(dead_code)]
-use jcompat::{
-    file_manager::{FileManager, JavaPath},
-    writers::JavaString,
-};
+use jcompat::file_manager::{FileManager, JavaPath};
 use marathon_adb::{
     client::{
         AndroidDebugBridgeClient, SocketFactory,
@@ -232,7 +229,7 @@ pub fn test() -> marathon_core::model::Test {
         meta_properties: vec![],
     }
 }
-pub fn js(s: &str) -> JavaString {
+pub fn js(s: &str) -> String {
     s.into()
 }
 

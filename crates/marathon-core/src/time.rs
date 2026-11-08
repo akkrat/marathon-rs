@@ -2,13 +2,13 @@
 //! and time/SystemTimer.kt; labelled seams mirror WP 0.2b OracleHooks.
 
 use crate::runtime::{JobRef, LocalFuture, MailboxProbe};
-use jcompat::{jtime::Instant, writers::JavaString};
+use jcompat::jtime::Instant;
 use std::{rc::Rc, sync::Arc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplayError {
-    pub label: JavaString,
-    pub message: JavaString,
+    pub label: String,
+    pub message: String,
 }
 pub type ClockResult<T> = Result<T, ReplayError>;
 pub trait WallClock: Send + Sync {
@@ -24,9 +24,9 @@ pub trait MonotonicClock: Send + Sync {
 pub struct ObjectIdentity(pub u64);
 pub trait ReplayHooks: WallClock + MonotonicClock {
     fn draw_int(&self, label: &'static str) -> ClockResult<i32>;
-    fn choose_key(&self, label: &'static str, candidates: &[JavaString]) -> ClockResult<JavaString>;
-    fn allocate_id(&self, label: &'static str) -> ClockResult<JavaString>;
-    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<JavaString>;
+    fn choose_key(&self, label: &'static str, candidates: &[String]) -> ClockResult<String>;
+    fn allocate_id(&self, label: &'static str) -> ClockResult<String>;
+    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<String>;
     /// Records accumulated failures and unused explicit tape entries; failures
     /// remain observable even if a caller catches the original error.
     fn verify_consumed(&self) -> ClockResult<()>;
@@ -51,7 +51,7 @@ pub trait BarrierPermit: Send {
 pub type BarrierFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = ClockResult<Box<dyn BarrierPermit>>> + Send + 'a>>;
 pub trait ReplayBarriers: Send + Sync {
-    fn enter<'a>(&'a self, label: &'static str, key: &'a JavaString) -> BarrierFuture<'a>;
+    fn enter<'a>(&'a self, label: &'static str, key: &'a String) -> BarrierFuture<'a>;
 }
 pub trait Timer: Send + Sync {
     fn start_time_millis(&self) -> i64;

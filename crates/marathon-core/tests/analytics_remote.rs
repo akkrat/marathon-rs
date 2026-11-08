@@ -2,10 +2,7 @@
 //! and analytics/metrics/remote/influx/InfluxDBDataSourceTest.kt.
 mod metrics_support;
 mod strategy_support;
-use jcompat::{
-    jtime::{Instant, parse_instant},
-    writers::JavaString,
-};
+use jcompat::jtime::{Instant, parse_instant};
 use marathon_core::{
     analytics::remote::{graphite::*, influx::*, influx2::*, *},
     runtime::ServiceFuture,
@@ -30,10 +27,10 @@ impl GraphiteQuery for Graphite {
 }
 struct Influx {
     reply: QueryResult,
-    commands: Mutex<Vec<(JavaString, JavaString)>>,
+    commands: Mutex<Vec<(String, String)>>,
 }
 impl InfluxQuery for Influx {
-    fn query<'a>(&'a self, c: &'a JavaString, d: &'a JavaString) -> ServiceFuture<'a, QueryResult> {
+    fn query<'a>(&'a self, c: &'a String, d: &'a String) -> ServiceFuture<'a, QueryResult> {
         Box::pin(async move {
             self.commands.lock().unwrap().push((c.clone(), d.clone()));
             Ok(self.reply.clone())
@@ -45,7 +42,7 @@ impl InfluxQuery for Influx {
 }
 struct Flux;
 impl FluxQuery for Flux {
-    fn query<'a>(&'a self, _: &'a JavaString) -> ServiceFuture<'a, Vec<Record>> {
+    fn query<'a>(&'a self, _: &'a String) -> ServiceFuture<'a, Vec<Record>> {
         Box::pin(async { Ok(vec![]) })
     }
     fn close(&self) -> ServiceFuture<'_, ()> {
@@ -190,10 +187,10 @@ fn query_and_graphite_parser_jvm_rows() {
                 assert_eq!(
                     source
                         .command(p, parse_instant(row["limit"].as_str().unwrap()).unwrap())
-                        .to_string_lossy(),
+                        .to_owned(),
                     expected
                 );
-                assert_eq!(source.database.to_string_lossy(), row["database"].as_str().unwrap());
+                assert_eq!(source.database.to_owned(), row["database"].as_str().unwrap());
             }
             "flux" => {
                 let source = InfluxDB2DataSource {
@@ -207,7 +204,7 @@ fn query_and_graphite_parser_jvm_rows() {
                 assert_eq!(
                     source
                         .command(p, parse_instant(row["limit"].as_str().unwrap()).unwrap())
-                        .to_string_lossy(),
+                        .to_owned(),
                     expected
                 );
             }
@@ -227,7 +224,7 @@ fn query_and_graphite_parser_jvm_rows() {
                 match parse_line(line) {
                     Ok((name, value)) => {
                         let value = if time { value } else { value / 100.0 };
-                        assert_eq!(name.to_string_lossy(), row["name"].as_str().unwrap());
+                        assert_eq!(name.to_owned(), row["name"].as_str().unwrap());
                         let bits = if value.is_nan() {
                             f64::NAN.to_bits()
                         } else {
@@ -237,8 +234,8 @@ fn query_and_graphite_parser_jvm_rows() {
                         assert!(row["error"].is_null());
                     }
                     Err(marathon_core::error::OperationError::Failed(error)) => {
-                        assert_eq!(row["error"], error.class.to_string_lossy());
-                        assert_eq!(row["errorMessage"], error.message.unwrap().to_string_lossy());
+                        assert_eq!(row["error"], error.class.to_owned());
+                        assert_eq!(row["errorMessage"], error.message.unwrap().to_owned());
                     }
                     Err(error) => panic!("unexpected parser error: {error:?}"),
                 }
@@ -395,7 +392,7 @@ fn a_skipped_none_datapoint_logs_at_debug_only() {
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].level, jcompat::logging::Level::Debug);
         assert_eq!(
-            logs[0].message.to_string_lossy(),
+            logs[0].message.to_owned(),
             "Skipping a Graphite series with no datapoints: pkg0--clazz0--method0,1,2,3|None"
         );
     });
@@ -442,15 +439,20 @@ fn influx_server_errors_match_jvm_logged_causes_after_retries() {
                 row["calls"].as_u64().unwrap() as usize
             );
             let events = h.logs.take();
-            let causes: Vec<_> = events.iter().filter_map(|e| e.cause.as_ref().map(|cause|
-                serde_json::json!({"logger": e.logger, "level": e.level.as_str(),
-                    "class": cause.class.to_string_lossy(), "message": cause.message.as_ref().unwrap().to_string_lossy()})
-            )).collect();
+            let causes: Vec<_> = events
+                .iter()
+                .filter_map(|e| {
+                    e.cause.as_ref().map(|cause| {
+                        serde_json::json!({"logger": e.logger, "level": e.level.as_str(),
+                    "class": cause.class.to_owned(), "message": cause.message.as_ref().unwrap().to_owned()})
+                    })
+                })
+                .collect();
             assert_eq!(causes, *row["causes"].as_array().unwrap());
             let logs: Vec<_> = events
                 .iter()
                 .map(|e| {
-                    let mut message = e.message.to_string_lossy();
+                    let mut message = e.message.to_owned();
                     if e.logger == "Timings" {
                         message.truncate(message.rfind(" in ").unwrap());
                         message.push_str(" in <ms> ms");

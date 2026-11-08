@@ -6,7 +6,6 @@
 use jcompat::{
     file_manager::JavaPath,
     jtime::{Instant, instant_of},
-    writers::JavaString,
 };
 use marathon_config::{
     Configuration,
@@ -74,7 +73,7 @@ pub fn context(marathonfile: &Path, marathonfile_dir: &Path, sdk: Option<&str>) 
         marathonfile_dir: java_path(marathonfile_dir),
         process_dir: java_path(marathonfile_dir),
         environment: sdk
-            .map(|sdk| vec![(JavaString::from("ANDROID_HOME"), JavaString::from(sdk))])
+            .map(|sdk| vec![(String::from("ANDROID_HOME"), String::from(sdk))])
             .unwrap_or_default(),
         now: reference_now(),
     }
@@ -98,11 +97,11 @@ pub fn parse(file: &Path, context: &BindingContext) -> Result<Configuration, Box
         Box::new(ConfigurationError {
             stage: marathon_config::binding::ValidationStage::Parse,
             class: "java.io.IOException".into(),
-            message: Some(e.to_string().into()),
+            message: Some(e.to_string()),
             causes: Vec::new(),
             path: Vec::new(),
             span: None,
-            cause: marathon_config::binding::BindingCause::Custom(e.to_string().into()),
+            cause: marathon_config::binding::BindingCause::Custom(e.to_string()),
         })
     })?;
     ready(ConfigurationLoader::parse(
@@ -121,12 +120,8 @@ pub fn validate(configuration: &Configuration) -> Result<(), Box<ConfigurationEr
 }
 
 pub fn message(error: &ConfigurationError) -> String {
-    error
-        .message
-        .as_ref()
-        .map(JavaString::to_string_lossy)
-        .unwrap_or_default()
+    error.message.clone().unwrap_or_default()
 }
 pub fn class(error: &ConfigurationError) -> String {
-    error.class.to_string_lossy()
+    error.class.to_owned()
 }

@@ -54,10 +54,10 @@ impl RunConsoleSink {
                     };
                     if enabled {
                         // Encode malformed UTF-16 at the JVM byte boundary, never as U+FFFD.
-                        let message = String::from_utf8(record.message.to_utf8_bytes()).unwrap_or_default();
-                        let cause = record
-                            .cause
-                            .map(|cause| String::from_utf8(cause.stack_trace().to_utf8_bytes()).unwrap_or_default());
+                        let message = String::from_utf8(record.message.as_bytes().to_vec()).unwrap_or_default();
+                        let cause = record.cause.map(|cause| {
+                            String::from_utf8(cause.stack_trace().as_bytes().to_vec()).unwrap_or_default()
+                        });
                         self.console.write_event(
                             layout,
                             &LogEvent {

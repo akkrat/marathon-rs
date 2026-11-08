@@ -17,7 +17,7 @@ use crate::{
     vendor::{Device, DeviceRef, VendorContext},
 };
 use futures_util::future::Either;
-use jcompat::{logging::Level, writers::JavaString};
+use jcompat::logging::Level;
 use marathon_config::Configuration;
 use std::{
     cell::{Cell, RefCell},
@@ -68,7 +68,7 @@ struct Shared {
     pool: Weak<dyn Actor<DevicePoolMessage>>,
     configuration: Arc<Configuration>,
     device: DeviceRef,
-    serial: JavaString,
+    serial: String,
     logger: String,
     log: Rc<LogQueue>,
     core: Rc<CoreExecutor>,
@@ -106,8 +106,8 @@ impl DeviceActor {
         let serial = device.0.info().serial_number;
         let logger = format!(
             "DevicePool[{}]_DeviceActor[{}]",
-            pool_id.name.to_string_lossy(),
-            serial.to_string_lossy()
+            pool_id.name.to_owned(),
+            serial.to_owned()
         );
         let shared = Rc::new(Shared {
             pool_id,
@@ -226,29 +226,29 @@ fn running(state: &DeviceState) -> Option<Running> {
     }
 }
 
-fn text(parts: &[&dyn AsJava]) -> JavaString {
-    let mut text = JavaString::default();
+fn text(parts: &[&dyn AsJava]) -> String {
+    let mut text = String::default();
     for part in parts {
         part.append_to(&mut text);
     }
     text
 }
 trait AsJava {
-    fn append_to(&self, text: &mut JavaString);
+    fn append_to(&self, text: &mut String);
 }
 impl AsJava for &str {
-    fn append_to(&self, text: &mut JavaString) {
+    fn append_to(&self, text: &mut String) {
         text.push_str(self);
     }
 }
-impl AsJava for JavaString {
-    fn append_to(&self, text: &mut JavaString) {
-        text.append(self.clone());
+impl AsJava for String {
+    fn append_to(&self, text: &mut String) {
+        text.push_str(&self.clone());
     }
 }
 
 /// Kotlin's `CancellationException(message)`, which completes a result cell.
-fn cancellation(message: JavaString) -> Cancellation {
+fn cancellation(message: String) -> Cancellation {
     Cancellation::Requested(Failure {
         class: "java.util.concurrent.CancellationException".into(),
         message: Some(message),
@@ -266,7 +266,7 @@ fn async_job_cancelled() -> Cancellation {
 }
 
 impl Shared {
-    fn log(&self, level: Level, message: JavaString, cause: Option<Failure>) {
+    fn log(&self, level: Level, message: String, cause: Option<Failure>) {
         self.log
             .log(&self.logger, self.core.clock().now_millis(), level, message, cause);
     }
@@ -289,7 +289,7 @@ impl Shared {
             }) => self.side_effect(effect),
             Ok(Transition::Invalid { from_state, event }) => self.log(
                 Level::Error,
-                format!("Invalid transition from {from_state} event {event}").into(),
+                format!("Invalid transition from {from_state} event {event}"),
                 None,
             ),
             // Every state has a definition, so the machine never reports a missing one.
@@ -319,7 +319,7 @@ impl Shared {
     /// Exactly one transition leaves Running: seal the result, then send whichever
     /// completion won, synchronously, so neither Terminated nor a later IsReady
     /// can overtake it (`DeviceActor.kt:131–152`).
-    fn account_for(&self, execution: &Running, reason: JavaString) {
+    fn account_for(&self, execution: &Running, reason: String) {
         execution.result.cancel(cancellation(reason.clone()));
         let outcome = match execution.result.completed() {
             Some(Ok(results)) => FromDevice::CompletedTestBatch(self.device.clone(), TestBatchResults::clone(&results)),

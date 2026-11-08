@@ -121,7 +121,7 @@ fn lookup_never_waits_for_unrelated_fetch_or_registry_and_sees_observations() {
             h.logs
                 .take()
                 .iter()
-                .filter(|r| r.message.to_string_lossy().starts_with("No execution time"))
+                .filter(|r| r.message.to_owned().starts_with("No execution time"))
                 .count(),
             1
         );
@@ -215,10 +215,7 @@ fn shared_log_producer_preserves_core_and_vendor_call_order() {
     });
     q.log("core", 4, jcompat::logging::Level::Info, "after".into(), None);
     assert_eq!(
-        q.records()
-            .iter()
-            .map(|r| r.message.to_string_lossy())
-            .collect::<Vec<_>>(),
+        q.records().iter().map(|r| r.message.to_owned()).collect::<Vec<_>>(),
         vec!["before", "middle", "after"]
     );
     assert_eq!(q.take().len(), 3);

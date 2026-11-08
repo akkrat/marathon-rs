@@ -12,7 +12,7 @@ use crate::{
     xcresult::{ActionTestPlanRunSummaries, ActionsInvocationRecord},
 };
 use jcompat::logging::{Level, Logger};
-use jcompat::writers::JavaString;
+
 use marathon_core::{
     artifacts::AttachmentCollector,
     error::VendorResult,
@@ -50,7 +50,7 @@ pub struct TestResultsListener {
 impl TestResultsListener {
     pub fn new(config: TestResultsListenerConfig) -> VendorResult<Self> {
         let result = TestRunResultsAccumulator::new(config.timer.clone(), config.wall.clone()).map_err(|e| {
-            marathon_core::error::VendorError::Other(crate::cmd::failure("ReplayError", e.message.to_string_lossy()))
+            marathon_core::error::VendorError::Other(crate::cmd::failure("ReplayError", &e.message))
         })?;
         let accumulator =
             AccumulatingTestResultListener::new(config.batch.tests.len() as i32, result, config.logs.clone());
@@ -110,7 +110,7 @@ impl TestResultsListener {
         for action in record.actions {
             let action = nonnull(action)?;
             if let Some(reference) = action.action_result.tests_ref {
-                let id = reference.id.to_string_lossy();
+                let id = reference.id.to_owned();
                 if let Some(summaries) = c
                     .xcresulttool
                     .get::<ActionTestPlanRunSummaries>(
@@ -158,13 +158,11 @@ impl TestResultsListener {
                 continue;
             }
             let summary = nonnull(summary)?;
-            let name = summary.test_case_name.to_string_lossy();
+            let name = summary.test_case_name.to_owned();
             let name = name.strip_suffix("()").unwrap_or(&name);
             let matches: Vec<_> = completed
                 .iter()
-                .filter(|t| {
-                    pkg.is_none_or(|pkg| t.pkg == *pkg) && t.to_simple_safe_test_name('.').to_string_lossy() == name
-                })
+                .filter(|t| pkg.is_none_or(|pkg| t.pkg == *pkg) && t.to_simple_safe_test_name('.') == name)
                 .collect();
             match matches.as_slice() {
                 [test] => {
@@ -173,10 +171,10 @@ impl TestResultsListener {
                         traces.len() - 1
                     });
                     let trace = &mut traces[index].1;
-                    trace.push_str(&summary.message.to_string_lossy());
+                    trace.push_str(&summary.message.to_owned());
                     trace.push('\n');
                     if let Some(location) = summary.document_location_in_creating_workspace {
-                        let url = location.url.to_string_lossy();
+                        let url = location.url.to_owned();
                         if !kt::is_blank(&url) {
                             trace.push_str(&url);
                             trace.push('\n');
@@ -268,7 +266,7 @@ impl AppleTestRunListener for TestResultsListener {
         test: &'a Test,
         start_time: i64,
         end_time: i64,
-        trace: Option<&'a JavaString>,
+        trace: Option<&'a String>,
     ) -> VendorFuture<'a, ()> {
         self.accumulator.test_failed(test, start_time, end_time, trace)
     }
@@ -281,11 +279,7 @@ impl AppleTestRunListener for TestResultsListener {
     fn test_run_ended<'a>(&'a self) -> VendorFuture<'a, ()> {
         self.accumulator.test_run_ended()
     }
-    fn test_run_failed<'a>(
-        &'a self,
-        error_message: &'a JavaString,
-        reason: DeviceFailureReason,
-    ) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, error_message: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         self.accumulator.test_run_failed(error_message, reason)
     }
     fn after_test_run(&self) -> VendorFuture<'_, ()> {
@@ -295,8 +289,8 @@ impl AppleTestRunListener for TestResultsListener {
             for result in &results.uncompleted {
                 self.warn(&format!(
                     "uncompleted = {}, {}",
-                    result.test.to_test_name('.', '#').to_string_lossy(),
-                    self.config.device.0.info().serial_number.to_string_lossy()
+                    result.test.to_test_name('.', '#').to_owned(),
+                    self.config.device.0.info().serial_number.to_owned()
                 ));
             }
             self.config.deferred.complete(Ok(results));

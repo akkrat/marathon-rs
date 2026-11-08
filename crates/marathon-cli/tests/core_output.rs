@@ -1,9 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/progress/PoolProgressAccumulator.kt
 //! (shared console adapter regressions).
-use jcompat::{
-    logging::{JansiMode, Level, MarathonLogging, OutputTarget, Vendor},
-    writers::JavaString,
-};
+use jcompat::logging::{JansiMode, Level, MarathonLogging, OutputTarget, Vendor};
 use marathon_cli::{application::Console, core_output::RunConsoleSink};
 use marathon_core::{
     executor::{CoreExecutor, Signal},
@@ -38,7 +35,7 @@ fn raw_lines_and_logs_share_startup_console_and_jvm_utf8_encoding() {
     CoreExecutor::run(move |core| {
         Box::pin(async move {
             let q = core.log_queue();
-            q.raw(JavaString(vec![0xd800, 10]));
+            q.raw(String::from_utf16_lossy(&vec![0xd800, 10]));
             q.log("progress", 0, Level::Error, "diagnostic".into(), None);
             q.raw("finished\n".into());
             OutputDriver {

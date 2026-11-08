@@ -20,7 +20,6 @@ use crate::{
     binder::{Field, MISMATCHED, Result, Value},
     vendor::SshAuthentication,
 };
-use jcompat::writers::JavaString;
 
 /// A non-null composite behind `nullable`, failing as a creator parameter
 /// when the whole value is null, as in `bind_vendor`'s `bind_object` use.
@@ -82,7 +81,7 @@ pub fn bind_transport(value: Value<'_>) -> Result<Option<Transport>> {
 
 fn bind_ssh_transport(value: Value<'_>) -> Result<Option<Transport>> {
     value.nullable(|v| {
-        let mut addr = Field::reference(&v, None::<JavaString>);
+        let mut addr = Field::reference(&v, None::<String>);
         let mut port = Field::primitive(&v, 22);
         let mut authentication = Field::nullable(&v, None::<SshAuthentication>);
         let mut check_reachability = Field::primitive(&v, true);
@@ -133,10 +132,10 @@ pub fn bind_apple_target(value: Value<'_>) -> Result<Option<AppleTarget>> {
     })
 }
 
-fn bind_udid(value: Value<'_>, make: impl FnOnce(JavaString) -> AppleTarget) -> Result<Option<AppleTarget>> {
+fn bind_udid(value: Value<'_>, make: impl FnOnce(String) -> AppleTarget) -> Result<Option<AppleTarget>> {
     value
         .nullable(|v| {
-            let mut udid = Field::reference(&v, None::<JavaString>);
+            let mut udid = Field::reference(&v, None::<String>);
             let mut object = v.object()?;
             while let Some((name, child)) = object.next_field()? {
                 match name.as_str() {
@@ -154,9 +153,9 @@ fn bind_udid(value: Value<'_>, make: impl FnOnce(JavaString) -> AppleTarget) -> 
 
 fn bind_simulator_profile(value: Value<'_>) -> Result<Option<AppleTarget>> {
     value.nullable(|v| {
-        let mut device_type = Field::reference(&v, None::<JavaString>);
-        let mut runtime = Field::nullable(&v, None::<JavaString>);
-        let mut new_name_prefix = Field::reference(&v, Some(JavaString::from("marathon")));
+        let mut device_type = Field::reference(&v, None::<String>);
+        let mut runtime = Field::nullable(&v, None::<String>);
+        let mut new_name_prefix = Field::reference(&v, Some(String::from("marathon")));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
             match name.as_str() {

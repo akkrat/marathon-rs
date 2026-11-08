@@ -4,7 +4,7 @@
 use super::error::clock_error;
 use jcompat::{
     logging::{Level, Logger},
-    writers::{JavaString, KotlinValue},
+    writers::KotlinValue,
 };
 use marathon_apple::cmd::remote::ssh::sshj::config::SshLogging;
 use marathon_config::devices::{SimulatorProfile, Transport};
@@ -51,7 +51,7 @@ impl ProvisioningTiming {
         count: usize,
         started_provisioning: i64,
     ) -> VendorResult<()> {
-        self.info(|| Ok(format!("Worker {}: connected in {connected} ms, planned {count} simulators in {planned} ms, provisioned them in {} ms", worker.id().to_string_lossy(), self.elapsed()?.wrapping_sub(started_provisioning))))
+        self.info(|| Ok(format!("Worker {}: connected in {connected} ms, planned {count} simulators in {planned} ms, provisioned them in {} ms", worker.id().to_owned(), self.elapsed()?.wrapping_sub(started_provisioning))))
     }
 }
 fn data(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
@@ -73,20 +73,20 @@ pub fn profile_text(profile: &SimulatorProfile) -> String {
         ],
     )
     .render()
-    .to_string_lossy()
+    .to_owned()
 }
 pub use marathon_apple::device::connection_factory::transport_text;
 
 pub fn local_transport_identity(
     hooks: &dyn marathon_core::time::ReplayHooks,
-) -> super::error::ProvisioningResult<JavaString> {
+) -> super::error::ProvisioningResult<String> {
     let suffix = hooks
         .identity_suffix(
             "config.Configuration.identities",
             marathon_core::time::ObjectIdentity(u64::MAX - 1),
         )
         .map_err(clock_error)?;
-    let mut value: JavaString = "com.malinskiy.marathon.apple.configuration.Transport$Local@".into();
-    value.append(suffix);
+    let mut value: String = "com.malinskiy.marathon.apple.configuration.Transport$Local@".into();
+    value.push_str(&suffix);
     Ok(value)
 }

@@ -1,7 +1,7 @@
 //! Port of adam/src/main/kotlin/com/malinskiy/adam/request/prop/GetPropRequest.kt
 //! and request/logcat/ChanneledLogcatRequest.kt (adam 0.5.8).
 //! Copyright (C) 2021 Anton Malinskiy; Apache-2.0.
-use jcompat::{jstring, writers::JavaString};
+use jcompat::jstring;
 use marathon_adb::client::{
     AdbError, ComplexRequest, Request, Socket, Target,
     shell::v1::{ChanneledShellCommandRequest, ShellCommandRequest},
@@ -15,26 +15,28 @@ impl Request for GetPropRequest {
     }
 }
 impl ComplexRequest for GetPropRequest {
-    type Output = HashMap<String, JavaString>;
+    type Output = HashMap<String, String>;
     async fn read_element(&mut self, socket: &mut Socket) -> Result<Self::Output, AdbError> {
         let response = ShellCommandRequest::new("getprop").read_element(socket).await?;
-        parse_props(&response.output().as_str().into())
+        parse_props(&response.output().as_str().to_owned())
     }
 }
-pub fn parse_props(text: &JavaString) -> Result<HashMap<String, JavaString>, AdbError> {
+pub fn parse_props(text: &String) -> Result<HashMap<String, String>, AdbError> {
     let mut props = HashMap::new();
     for line in jstring::lines(text) {
-        if line.0.is_empty() || line.0[0] == 35 {
+        if line.is_empty() || line.encode_utf16().collect::<Vec<_>>()[0] == 35 {
             continue;
         }
         let opens: Vec<_> = line
-            .0
+            .encode_utf16()
+            .collect::<Vec<_>>()
             .iter()
             .enumerate()
             .filter_map(|(i, u)| (*u == 91).then_some(i))
             .collect();
         let closes: Vec<_> = line
-            .0
+            .encode_utf16()
+            .collect::<Vec<_>>()
             .iter()
             .enumerate()
             .filter_map(|(i, u)| (*u == 93).then_some(i))
@@ -43,19 +45,20 @@ pub fn parse_props(text: &JavaString) -> Result<HashMap<String, JavaString>, Adb
             continue;
         }
         let slice = |index: usize| {
-            line.0
+            line.encode_utf16()
+                .collect::<Vec<_>>()
                 .get(opens[index] + 1..closes[index])
-                .map(|s| JavaString(s.to_vec()))
+                .map(|s| String::from_utf16_lossy(s))
                 .ok_or_else(|| {
                     AdbError::StringIndexOutOfBounds(format!(
                         "Range [{}, {}) out of bounds for length {}",
                         opens[index] + 1,
                         closes[index],
-                        line.0.len()
+                        line.encode_utf16().count()
                     ))
                 })
         };
-        props.insert(slice(0)?.to_string_lossy(), slice(1)?);
+        props.insert(slice(0)?.to_owned(), slice(1)?);
     }
     Ok(props)
 }
@@ -76,7 +79,7 @@ pub struct LogcatLines {
     pending: String,
 }
 impl LogcatLines {
-    pub fn push(&mut self, chunk: &str) -> Vec<JavaString> {
+    pub fn push(&mut self, chunk: &str) -> Vec<String> {
         self.pending.push_str(chunk);
         let mut lines = Vec::new();
         while let Some(end) = self.pending.find(['\r', '\n']) {
@@ -94,12 +97,12 @@ impl LogcatLines {
         }
         lines
     }
-    pub fn finish(&mut self) -> Vec<JavaString> {
+    pub fn finish(&mut self) -> Vec<String> {
         let text = std::mem::take(&mut self.pending);
         if text.is_empty() {
             Vec::new()
         } else {
-            jstring::lines(&text.as_str().into())
+            jstring::lines(text.as_str())
         }
     }
 }

@@ -9,49 +9,49 @@ use std::{collections::BTreeMap, sync::Arc};
 pub enum Value {
     Null,
     Number(f64),
-    Text(JavaString),
+    Text(String),
 }
 #[derive(Clone, Debug, Default)]
 pub struct Series {
-    pub name: JavaString,
-    pub tags: BTreeMap<JavaString, JavaString>,
-    pub columns: Vec<JavaString>,
+    pub name: String,
+    pub tags: BTreeMap<String, String>,
+    pub columns: Vec<String>,
     pub values: Vec<Vec<Value>>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct QueryResult {
-    pub error: Option<JavaString>,
+    pub error: Option<String>,
     pub results: Vec<StatementResult>,
 }
 #[derive(Clone, Debug, Default)]
 pub struct StatementResult {
-    pub error: Option<JavaString>,
+    pub error: Option<String>,
     pub series: Vec<Series>,
 }
 pub trait InfluxQuery: Send + Sync {
-    fn query<'a>(&'a self, command: &'a JavaString, database: &'a JavaString) -> ServiceFuture<'a, QueryResult>;
+    fn query<'a>(&'a self, command: &'a String, database: &'a String) -> ServiceFuture<'a, QueryResult>;
     fn close(&self) -> ServiceFuture<'_, ()>;
 }
 pub struct InfluxDBDataSource {
     pub client: Arc<dyn InfluxQuery>,
-    pub database: JavaString,
-    pub retention_policy: JavaString,
+    pub database: String,
+    pub retention_policy: String,
 }
 impl InfluxDBDataSource {
-    pub fn command(&self, percentile: Option<f64>, limit: Instant) -> JavaString {
+    pub fn command(&self, percentile: Option<f64>, limit: Instant) -> String {
         let select = percentile.map_or_else(
             || "MEAN(\"success\")".to_owned(),
             |p| format!("PERCENTILE(\"duration\",{})", double_to_string(p)),
         );
-        let mut command: JavaString = format!("SELECT {select}\nFROM \"").into();
-        command.append(self.retention_policy.clone());
+        let mut command: String = format!("SELECT {select}\nFROM \"");
+        command.push_str(&self.retention_policy.clone());
         command.push_str(&format!("\".\"tests\"\nWHERE time >= '{limit}'\nGROUP BY \"testname\""));
         command
     }
 }
-fn mapper_error(prefix: &str, error: JavaString) -> crate::error::Failure {
-    let mut message = JavaString::from(prefix);
-    message.append(error);
+fn mapper_error(prefix: &str, error: String) -> crate::error::Failure {
+    let mut message = String::from(prefix);
+    message.push_str(&error);
     crate::error::Failure {
         class: "org.influxdb.InfluxDBMapperException".into(),
         message: Some(message),
@@ -59,7 +59,7 @@ fn mapper_error(prefix: &str, error: JavaString) -> crate::error::Failure {
         stacktrace: None,
     }
 }
-pub fn map_result(result: QueryResult, column: &str) -> OperationResult<Vec<(JavaString, f64)>> {
+pub fn map_result(result: QueryResult, column: &str) -> OperationResult<Vec<(String, f64)>> {
     let mut values = Vec::new();
     if let Some(error) = result.error {
         return Err(mapper_error("InfluxDB returned an error: ", error).into());
@@ -68,20 +68,14 @@ pub fn map_result(result: QueryResult, column: &str) -> OperationResult<Vec<(Jav
         if let Some(error) = statement.error {
             return Err(mapper_error("InfluxDB returned an error with Series: ", error).into());
         }
-        for series in statement
-            .series
-            .into_iter()
-            .filter(|s| s.name == JavaString::from("tests"))
-        {
-            let index = series.columns.iter().position(|c| c == &JavaString::from(column));
+        for series in statement.series.into_iter().filter(|s| s.name == "tests") {
+            let index = series.columns.iter().position(|c| c == &String::from(column));
             for row in series.values {
                 let value = index.and_then(|i| row.get(i));
                 if let Some(Value::Text(_)) = value {
                     return Err(failure("java.lang.ClassCastException", "Expected numeric measurement").into());
                 }
-                if let (Some(name), Some(Value::Number(value))) =
-                    (series.tags.get(&JavaString::from("testname")), value)
-                {
+                if let (Some(name), Some(Value::Number(value))) = (series.tags.get(&String::from("testname")), value) {
                     values.push((name.clone(), *value));
                 }
             }

@@ -1,7 +1,7 @@
 //! Corpus-only canonical projections of the production WP 2.2 binders.
 //! Every binding call goes through `marathon_config::bind`; this file only
 //! renders the bound values in the oracle's Canonical JSON shape.
-use jcompat::{file_manager::JavaPath, jtime::parse_instant, writers::JavaString};
+use jcompat::{file_manager::JavaPath, jtime::parse_instant};
 use marathon_config::{
     AnalyticsConfiguration, BatchingStrategyConfiguration, CiConfiguration, CompositionOperation, Configuration,
     Defaults, ExecutionMode, ExecutionStrategyConfiguration, FilteringConfiguration, FlakinessStrategyConfiguration,
@@ -41,10 +41,10 @@ pub enum Outcome {
     Err(Box<ConfigurationError>),
 }
 
-fn s(v: &JavaString) -> Json {
-    json!(v.to_string_lossy())
+fn s(v: &String) -> Json {
+    json!(v.to_owned())
 }
-fn os(v: &Option<JavaString>) -> Json {
+fn os(v: &Option<String>) -> Json {
     v.as_ref().map_or(Json::Null, s)
 }
 fn f(v: f64) -> Json {
@@ -280,11 +280,11 @@ pub fn outcome_matches(got: &Outcome, expected: &Json) -> Result<(), String> {
         (Outcome::NullDocument, _, _, Some(n)) if n == &Json::Bool(true) => Ok(()),
         (Outcome::Err(e), _, Some(error), _) => {
             let class = error["class"].as_str().unwrap_or("?");
-            if e.class.to_string_lossy() != class {
-                return Err(format!("error class {class} != {}", e.class.to_string_lossy()));
+            if e.class != class {
+                return Err(format!("error class {class} != {}", e.class.to_owned()));
             }
             if class == CONFIGURATION_EXCEPTION {
-                let message = e.message.as_ref().map(|m| m.to_string_lossy());
+                let message = e.message.as_ref().map(|m| m.to_owned());
                 if message.as_deref() != error["message"].as_str() {
                     return Err(format!("custom message {:?} != {:?}", error["message"], message));
                 }
@@ -294,10 +294,6 @@ pub fn outcome_matches(got: &Outcome, expected: &Json) -> Result<(), String> {
         (Outcome::Ok(v), Some(ok), _, _) => Err(format!("ok value differs: expected {ok} got {v}")),
         (Outcome::Ok(v), _, _, _) => Err(format!("expected error, got ok {v}")),
         (Outcome::NullDocument, _, _, _) => Err("expected a value, got a null document".into()),
-        (Outcome::Err(e), _, _, _) => Err(format!(
-            "expected ok, got error {} {:?}",
-            e.class.to_string_lossy(),
-            e.message
-        )),
+        (Outcome::Err(e), _, _, _) => Err(format!("expected ok, got error {} {:?}", e.class.to_owned(), e.message)),
     }
 }

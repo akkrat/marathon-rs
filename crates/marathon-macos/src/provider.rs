@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use jcompat::{
     file_manager::{JavaPath, absolute_file_path_utf16},
     logging::{Level, Logger},
-    writers::{JavaString, KotlinValue},
+    writers::KotlinValue,
 };
 use marathon_apple::{
     apple_device::AppleDevice,
@@ -48,7 +48,7 @@ pub struct AppleMacosProvider {
     pub options: MacosDeviceOptions,
     pub registry: Arc<AppleDeviceRegistry>,
     connections: Arc<dyn MacosConnections>,
-    devices: Mutex<IndexMap<JavaString, Arc<MacosDevice>>>,
+    devices: Mutex<IndexMap<String, Arc<MacosDevice>>>,
     // A89: failed setup/replaced allocations keep ownership, without adding factory release calls.
     retained: Mutex<Vec<Arc<MacosDevice>>>,
     leases: Mutex<Vec<Executor>>,
@@ -56,7 +56,7 @@ pub struct AppleMacosProvider {
     tasks: RetainedTasks,
     logger: Logger,
     process_dir: JavaPath,
-    environment: Vec<(JavaString, JavaString)>,
+    environment: Vec<(String, String)>,
 }
 impl AppleMacosProvider {
     pub fn new(
@@ -64,7 +64,7 @@ impl AppleMacosProvider {
         registry: Arc<AppleDeviceRegistry>,
         connections: Arc<dyn MacosConnections>,
         process_dir: JavaPath,
-        environment: Vec<(JavaString, JavaString)>,
+        environment: Vec<(String, String)>,
     ) -> Arc<Self> {
         let logger = options.logging.logger("AppleMacosProvider");
         Arc::new(Self {
@@ -133,8 +133,8 @@ impl AppleMacosProvider {
         let devices = MarathonConfigurationLoader
             .devices_sync_for(DevicesProvider::Macos, &bytes, &context)
             .map_err(|e| {
-                let mapping = e.class.to_string_lossy().starts_with("com.fasterxml.jackson.databind.")
-                    || e.class == "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException".into();
+                let mapping = e.class.to_owned().starts_with("com.fasterxml.jackson.databind.")
+                    || e.class == "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException";
                 let cause = configuration_failure(&e);
                 if mapping {
                     let mut f = failure(
@@ -207,7 +207,7 @@ impl AppleMacosProvider {
         if let Some(previous) = previous {
             let identity = KotlinValue::object("com.malinskiy.marathon.apple.macos.MacosDevice")
                 .render()
-                .to_string_lossy();
+                .to_owned();
             self.log(
                 Level::Error,
                 format!("replaced existing device {identity} with new {identity}."),
@@ -317,11 +317,7 @@ impl DeviceProvider for AppleMacosProvider {
     fn borrow(&self, context: VendorContext) -> VendorFuture<'_, DeviceRef> {
         Box::pin(async move { Ok(self.borrow_untried(Vec::new(), context).await?.0) })
     }
-    fn borrow_untried(
-        &self,
-        tried: Vec<JavaString>,
-        context: VendorContext,
-    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
+    fn borrow_untried(&self, tried: Vec<String>, context: VendorContext) -> VendorFuture<'_, (DeviceRef, String)> {
         Box::pin(async move {
             loop {
                 // D53 (U171): nothing removes a Mac whose connection is lost, and nothing reconnects it, so a parse on one
@@ -356,7 +352,7 @@ impl DeviceProvider for AppleMacosProvider {
                 }
                 .await;
                 if let Err(error) = outcome
-                    && jcompat::throwable::is_error_class(&error.failure().class.to_string_lossy())
+                    && jcompat::throwable::is_error_class(&error.failure().class.to_owned())
                 {
                     return Err(error);
                 }

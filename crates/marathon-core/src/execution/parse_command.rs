@@ -13,7 +13,6 @@ use crate::{
 use jcompat::{
     file_manager::{JavaPath, absolute_file_path_utf16},
     logging::Level,
-    writers::JavaString,
 };
 use std::{io::Write, sync::Arc};
 
@@ -40,7 +39,7 @@ impl MarathonTestParseCommand {
             stamp: context.stamp.clone(),
         }
     }
-    fn info(&self, message: JavaString) {
+    fn info(&self, message: String) {
         let (at_millis, wall_millis) = (self.stamp)();
         self.logs.push(LogRecord {
             logger: LOGGER.into(),
@@ -55,10 +54,10 @@ impl MarathonTestParseCommand {
 
 /// `File(parent, child)` on Unix: the normalized child appended with one separator,
 /// even when the child is absolute; an empty child is the parent itself.
-fn java_child(parent: &JavaPath, child: &JavaString) -> JavaPath {
+fn java_child(parent: &JavaPath, child: &String) -> JavaPath {
     let slash = u16::from(b'/');
-    let mut normalized: Vec<u16> = Vec::with_capacity(child.0.len());
-    for &unit in &child.0 {
+    let mut normalized: Vec<u16> = Vec::with_capacity(child.encode_utf16().count());
+    for &unit in &child.encode_utf16().collect::<Vec<_>>() {
         if unit == slash && normalized.last() == Some(&slash) {
             continue;
         }
@@ -87,7 +86,7 @@ impl ParseOutput for MarathonTestParseCommand {
         &'a self,
         tests: &'a [Test],
         flaky_tests: &'a [Test],
-        output_file_name: Option<&'a JavaString>,
+        output_file_name: Option<&'a String>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let result = parse_results(tests, flaky_tests);
@@ -104,7 +103,7 @@ impl ParseOutput for MarathonTestParseCommand {
                         let target = java_child(&directory, &file_name);
                         let path = target.to_file_path_buf().map_err(|e| file_open_error(e, &target))?;
                         let mut file = std::fs::File::create(path).map_err(|e| file_open_error(e, &target))?;
-                        file.write_all(&result.to_utf8_bytes())
+                        file.write_all(result.as_bytes())
                             .map_err(crate::artifact_io::io_error)
                     })
                     .await

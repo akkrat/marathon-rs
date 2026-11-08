@@ -5,17 +5,17 @@ use crate::{error::OperationResult, executor::shared::failure};
 use jcompat::jnum::double_to_string;
 use std::{collections::BTreeMap, sync::Arc};
 
-pub type Record = BTreeMap<JavaString, Value>;
+pub type Record = BTreeMap<String, Value>;
 pub trait FluxQuery: Send + Sync {
-    fn query<'a>(&'a self, flux: &'a JavaString) -> ServiceFuture<'a, Vec<Record>>;
+    fn query<'a>(&'a self, flux: &'a String) -> ServiceFuture<'a, Vec<Record>>;
     fn close(&self) -> ServiceFuture<'_, ()>;
 }
 pub struct InfluxDB2DataSource {
     pub client: Arc<dyn FluxQuery>,
-    pub bucket: JavaString,
+    pub bucket: String,
 }
 impl InfluxDB2DataSource {
-    pub fn command(&self, percentile: Option<f64>, limit: Instant) -> JavaString {
+    pub fn command(&self, percentile: Option<f64>, limit: Instant) -> String {
         let (indent, field, aggregate) = match percentile {
             Some(p) => (
                 "  ",
@@ -27,17 +27,17 @@ impl InfluxDB2DataSource {
             ),
             None => ("              ", "success", "mean()".to_owned()),
         };
-        let mut command: JavaString = "from(bucket: \"".into();
-        command.append(self.bucket.clone());
+        let mut command: String = "from(bucket: \"".into();
+        command.push_str(&self.bucket.clone());
         command.push_str(&format!("\")\n{indent}|> range(start: {})\n{indent}|> filter(fn: (r) => r[\"_measurement\"] == \"tests\" and r[\"_field\"] == \"{field}\")\n{indent}|> keep(columns: [\"testname\", \"_value\"])\n{indent}|> {aggregate}\n{indent}|> group(columns: [\"testname\"])", limit.seconds()));
         command
     }
 }
-pub fn map_records(records: Vec<Record>) -> OperationResult<Vec<(JavaString, f64)>> {
+pub fn map_records(records: Vec<Record>) -> OperationResult<Vec<(String, f64)>> {
     let mut values = Vec::new();
     for record in records {
-        let name = record.get(&JavaString::from("testname"));
-        let value = record.get(&JavaString::from("_value"));
+        let name = record.get(&String::from("testname"));
+        let value = record.get(&String::from("_value"));
         match (name, value) {
             (None | Some(Value::Null), _) | (_, None | Some(Value::Null)) => {}
             (Some(Value::Text(name)), Some(Value::Number(value))) => values.push((name.clone(), *value)),

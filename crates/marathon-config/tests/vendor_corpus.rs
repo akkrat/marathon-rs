@@ -10,7 +10,6 @@
 use jcompat::{
     file_manager::JavaPath,
     jtime::{Duration, instant_of},
-    writers::JavaString,
 };
 use marathon_config::{
     VendorConfiguration,
@@ -22,8 +21,8 @@ use marathon_config::{
 };
 use serde_json::{Value as Json, json};
 
-fn s(value: &JavaString) -> Json {
-    value.to_string_lossy().into()
+fn s(value: &String) -> Json {
+    value.to_owned().into()
 }
 fn p(value: &JavaPath) -> Json {
     String::from_utf16_lossy(&value.0).into()
@@ -31,7 +30,7 @@ fn p(value: &JavaPath) -> Json {
 fn opt_path(value: &Option<JavaPath>) -> Json {
     value.as_ref().map_or(Json::Null, p)
 }
-fn opt_str(value: &Option<JavaString>) -> Json {
+fn opt_str(value: &Option<String>) -> Json {
     value.as_ref().map_or(Json::Null, s)
 }
 fn dur(value: Duration) -> Json {
@@ -42,7 +41,7 @@ fn paths(value: &Option<Vec<JavaPath>>) -> Json {
         .as_ref()
         .map_or(Json::Null, |files| Json::Array(files.iter().map(p).collect()))
 }
-fn str_map(pairs: &[(String, JavaString)]) -> Json {
+fn str_map(pairs: &[(String, String)]) -> Json {
     Json::Object(pairs.iter().map(|(k, v)| (k.clone(), s(v))).collect())
 }
 
@@ -461,13 +460,13 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
         Ok(None) => VendorConfiguration::Empty,
         Err(LoadError::Configuration(e)) => {
             return Outcome::Err(Failure {
-                class: e.class.to_string_lossy(),
-                message: e.message.as_ref().map(|m| m.to_string_lossy()),
-                cause_classes: e.causes.iter().map(|c| c.class.to_string_lossy()).collect(),
+                class: e.class.to_owned(),
+                message: e.message.as_ref().map(|m| m.to_owned()),
+                cause_classes: e.causes.iter().map(|c| c.class.to_owned()).collect(),
                 cause_messages: e
                     .causes
                     .iter()
-                    .map(|c| c.message.as_ref().map_or(String::new(), |m| m.to_string_lossy()))
+                    .map(|c| c.message.as_ref().map_or(String::new(), |m| m.to_owned()))
                     .collect(),
             });
         }
@@ -495,13 +494,13 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
     match processed {
         Ok(vendor) => Outcome::Ok(substitute_dir(canonical(&vendor), dir)),
         Err(e) => Outcome::Err(Failure {
-            class: e.class.to_string_lossy(),
-            message: e.message.as_ref().map(|m| m.to_string_lossy()),
-            cause_classes: e.causes.iter().map(|c| c.class.to_string_lossy()).collect(),
+            class: e.class.to_owned(),
+            message: e.message.as_ref().map(|m| m.to_owned()),
+            cause_classes: e.causes.iter().map(|c| c.class.to_owned()).collect(),
             cause_messages: e
                 .causes
                 .iter()
-                .map(|c| c.message.as_ref().map_or(String::new(), |m| m.to_string_lossy()))
+                .map(|c| c.message.as_ref().map_or(String::new(), |m| m.to_owned()))
                 .collect(),
         }),
     }

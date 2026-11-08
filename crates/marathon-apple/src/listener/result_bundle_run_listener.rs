@@ -10,7 +10,6 @@ use crate::{
 use jcompat::{
     file_manager::{FileManager, FolderType},
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use marathon_config::vendor::{PullingPolicy, XcresultConfiguration};
 use marathon_core::{
@@ -46,7 +45,7 @@ struct Bundle {
     logger: Logger,
     failed: AtomicBool,
     local_copy: Mutex<Option<PathBuf>>,
-    remote_path: OnceLock<JavaString>,
+    remote_path: OnceLock<String>,
 }
 impl ResultBundleRunListener {
     #[allow(clippy::too_many_arguments)]
@@ -81,11 +80,11 @@ impl ResultBundleRunListener {
     }
 }
 impl Bundle {
-    fn remote(&self) -> &JavaString {
+    fn remote(&self) -> &String {
         self.remote_path
             .get_or_init(|| self.device.remote_file_manager().remote_xcresult_file(&self.batch))
     }
-    fn owner(&self) -> JavaString {
+    fn owner(&self) -> String {
         self.device.info().serial_number
     }
     fn processor(&self) -> Option<Arc<ArtifactProcessor>> {
@@ -98,16 +97,16 @@ impl Bundle {
             Ok(())
         })
     }
-    fn log(&self, level: Level, message: JavaString) {
+    fn log(&self, level: Level, message: String) {
         if self.logging.enabled(&self.logger, level) {
-            (self.logging.sink)(&self.logger, level, message.to_string_lossy(), None);
+            (self.logging.sink)(&self.logger, level, message.to_owned(), None);
         }
     }
     fn now(&self, label: &'static str) -> VendorResult<i64> {
         self.context
             .hooks
             .nanos(label)
-            .map_err(|e| VendorError::Other(failure("marathon.ReplayError", &e.message.to_string_lossy())))
+            .map_err(|e| VendorError::Other(failure("marathon.ReplayError", &e.message.to_owned())))
     }
     fn pull_needed(&self) -> bool {
         match self.configuration.pulling_policy {
@@ -129,7 +128,7 @@ impl Bundle {
             let start = self.now("apple.ResultBundleRunListener.processBundle")?;
             self.device
                 .remote_file_manager()
-                .remove_remote_path(&self.remote().to_string_lossy(), &context)
+                .remove_remote_path(&self.remote().to_owned(), &context)
                 .await?;
             let elapsed = self
                 .now("apple.ResultBundleRunListener.processBundle")?
@@ -139,7 +138,7 @@ impl Bundle {
                 Level::Debug,
                 format!(
                     "xcresult cleanup for batch {} took {elapsed} ms",
-                    self.batch.id.to_string_lossy()
+                    self.batch.id.to_owned()
                 )
                 .as_str()
                 .into(),
@@ -151,9 +150,11 @@ impl Bundle {
         let outcome = async {
             let start = self.now("apple.ResultBundleRunListener.deliver")?;
             let owner = self.owner();
-            let plan = self
-                .files
-                .plan_folder_utf16(FolderType::DeviceFiles, Some(&self.pool.name.0), Some(&owner.0));
+            let plan = self.files.plan_folder_utf16(
+                FolderType::DeviceFiles,
+                Some(&self.pool.name.encode_utf16().collect::<Vec<_>>()),
+                Some(&owner.encode_utf16().collect::<Vec<_>>()),
+            );
             let fm_logger = {
                 let mut registry = self.logging.registry.lock().unwrap_or_else(|e| e.into_inner());
                 let name = "com.malinskiy.marathon.io.FileManager";
@@ -169,7 +170,7 @@ impl Bundle {
                         (self.logging.sink)(
                             &fm_logger,
                             Level::Error,
-                            JavaString(message.to_vec()).to_string_lossy(),
+                            String::from_utf16_lossy(message).to_owned(),
                             None,
                         );
                     }
@@ -180,24 +181,21 @@ impl Bundle {
                 .join("xcresult");
             // File.mkdirs ignores its Boolean result; the pull/move supplies the failure.
             let _ = std::fs::create_dir_all(&local);
-            let remote = self.remote().to_string_lossy();
+            let remote = self.remote().to_owned();
             let copy = local.join(remote.rsplit('/').next().unwrap_or(&remote));
             *self.local_copy.lock().unwrap_or_else(|e| e.into_inner()) = Some(copy.clone());
             let pulled = self.device.pull_folder(&remote, &local, context).await?;
             let elapsed = self.now("apple.ResultBundleRunListener.deliver")?.wrapping_sub(start) / 1_000_000;
             self.log(
                 Level::Debug,
-                format!(
-                    "xcresult pull for batch {} took {elapsed} ms",
-                    self.batch.id.to_string_lossy()
-                )
-                .as_str()
-                .into(),
+                format!("xcresult pull for batch {} took {elapsed} ms", self.batch.id.to_owned())
+                    .as_str()
+                    .into(),
             );
             if !pulled {
-                return Ok(Some(JavaString::from("pull failed")));
+                return Ok(Some(String::from("pull failed")));
             }
-            let destination = local.join(format!("{}.xcresult", self.batch.id.to_string_lossy()));
+            let destination = local.join(format!("{}.xcresult", self.batch.id.to_owned()));
             move_without_replace(&copy, &destination).map_err(VendorError::Other)?;
             Ok(None)
         }
@@ -215,22 +213,22 @@ impl Bundle {
             }
         }
     }
-    fn undelivered(&self, reason: &JavaString) {
+    fn undelivered(&self, reason: &String) {
         let copy = self.local_copy.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let local = copy
             .filter(|p| p.exists())
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|| "none".into());
-        let mut diagnostic = JavaString::from("xcresult bundle of batch ");
-        diagnostic.append(self.batch.id.clone());
+        let mut diagnostic = String::from("xcresult bundle of batch ");
+        diagnostic.push_str(&self.batch.id.clone());
         diagnostic.push_str(" was not delivered (");
-        diagnostic.append(reason.clone());
+        diagnostic.push_str(&reason.clone());
         diagnostic.push_str("); remote bundle kept on worker ");
-        diagnostic.append(self.device.transport().id());
+        diagnostic.push_str(&self.device.transport().id());
         diagnostic.push_str(" (");
-        diagnostic.append(self.owner());
+        diagnostic.push_str(&self.owner());
         diagnostic.push_str(") at ");
-        diagnostic.append(self.remote().clone());
+        diagnostic.push_str(&self.remote().clone());
         diagnostic.push_str("; local copy: ");
         diagnostic.push_str(&local);
         if self
@@ -284,13 +282,13 @@ impl AppleTestRunListener for ResultBundleRunListener {
             Ok(())
         })
     }
-    fn test_failed<'a>(&'a self, _: &'a Test, _: i64, _: i64, _: Option<&'a JavaString>) -> VendorFuture<'a, ()> {
+    fn test_failed<'a>(&'a self, _: &'a Test, _: i64, _: i64, _: Option<&'a String>) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.inner.failed.store(true, Ordering::Release);
             Ok(())
         })
     }
-    fn test_run_failed<'a>(&'a self, _: &'a JavaString, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a String, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.inner.failed.store(true, Ordering::Release);
             Ok(())
@@ -310,7 +308,7 @@ impl AppleTestRunListener for ResultBundleRunListener {
                 let callback = if pull {
                     inner.callback()
                 } else {
-                    Arc::new(|_: &JavaString| Ok(()))
+                    Arc::new(|_: &String| Ok(()))
                 };
                 processor
                     .submit(

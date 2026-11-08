@@ -10,10 +10,7 @@ use crate::{
     model::{AppleOperatingSystemVersion, AppleTestBundle, Arch, Sdk},
     plist::{PlistError, PropertyList, bundle::BundleInfo, delegates::OrderedStringMap},
 };
-use jcompat::{
-    file_manager::{JavaPath, relative_file},
-    writers::JavaString,
-};
+use jcompat::file_manager::{JavaPath, relative_file};
 use marathon_config::{
     CONFIGURATION_EXCEPTION_CLASS,
     vendor::{TestType, XcresultConfiguration, XctestrunEnvConfiguration},
@@ -62,11 +59,11 @@ impl FactoryError {
 impl From<VendorError> for FactoryError {
     fn from(error: VendorError) -> Self {
         let error = match error {
-            VendorError::Other(detail) if detail.class == JavaString::from(SETUP) => VendorError::DeviceSetup(detail),
-            VendorError::Other(detail) if detail.class == JavaString::from(INCOMPATIBLE) => {
+            VendorError::Other(detail) if detail.class == SETUP => VendorError::DeviceSetup(detail),
+            VendorError::Other(detail) if detail.class == INCOMPATIBLE => {
                 VendorError::IncompatibleDevice(detail)
             }
-            VendorError::Other(detail) if detail.class == JavaString::from(TRANSFER) => VendorError::Transfer(detail),
+            VendorError::Other(detail) if detail.class == TRANSFER => VendorError::Transfer(detail),
             other => other,
         };
         Self::Vendor(error)
@@ -81,7 +78,7 @@ pub type FactoryResult<T> = Result<T, FactoryError>;
 fn configuration(message: &str) -> FactoryError {
     VendorError::Other(failure(CONFIGURATION_EXCEPTION_CLASS, message)).into()
 }
-fn setup(message: JavaString) -> VendorError {
+fn setup(message: String) -> VendorError {
     let mut detail = failure(SETUP, "");
     detail.message = Some(message);
     VendorError::DeviceSetup(detail)
@@ -89,8 +86,9 @@ fn setup(message: JavaString) -> VendorError {
 fn io_error(error: std::io::Error) -> VendorError {
     VendorError::Other(failure("java.io.IOException", error.to_string()))
 }
-fn checked(value: &JavaString, field: &str) -> FactoryResult<String> {
-    String::from_utf16(&value.0).map_err(|_| configuration(&format!("{field} contains an unpaired UTF-16 surrogate")))
+fn checked(value: &String, field: &str) -> FactoryResult<String> {
+    String::from_utf16(&value.encode_utf16().collect::<Vec<_>>())
+        .map_err(|_| configuration(&format!("{field} contains an unpaired UTF-16 surrogate")))
 }
 fn path_text(path: &Path) -> VendorResult<&str> {
     path.to_str()
@@ -167,8 +165,8 @@ impl<'a> TestRootFactory<'a> {
         let platforms = bundle.undocumented().bundle_supported_platforms()?;
         let info = self.device.info();
         if !platforms.iter().any(|p| p == self.device.sdk().platform_name()) {
-            let mut message = JavaString::from("Device ");
-            message.append(info.serial_number);
+            let mut message = String::from("Device ");
+            message.push_str(&info.serial_number);
             message.push_str(&format!(
                 " with platform {} is incompatible with bundle's supported platforms [{}]",
                 self.device.sdk().platform_name(),
@@ -187,10 +185,10 @@ impl<'a> TestRootFactory<'a> {
             let device_version = checked(&info.operating_system.version, "device operating system version")?;
             let bundle_version = AppleOperatingSystemVersion::new(&minimum)?;
             if AppleOperatingSystemVersion::new(&device_version)? < bundle_version {
-                let mut message = JavaString::from("Device ");
-                message.append(info.serial_number);
+                let mut message = String::from("Device ");
+                message.push_str(&info.serial_number);
                 message.push_str(" with os version ");
-                message.append(info.operating_system.version);
+                message.push_str(&info.operating_system.version);
                 message.push_str(&format!(
                     " is incompatible with bundle's minimum required version {minimum}"
                 ));
@@ -228,8 +226,8 @@ impl<'a> TestRootFactory<'a> {
                     )
                     .await?
                 {
-                    let mut message = JavaString::from("Unable to transfer generated xctestrun file to ");
-                    message.append(self.device.info().serial_number);
+                    let mut message = String::from("Unable to transfer generated xctestrun file to ");
+                    message.push_str(&self.device.info().serial_number);
                     let mut detail = failure(TRANSFER, "");
                     detail.message = Some(message);
                     return Err(VendorError::Transfer(detail));
@@ -451,8 +449,7 @@ impl<'a> TestRootFactory<'a> {
                         format!(
                             "failed to push static library {} for code coverage to remote device",
                             local.display()
-                        )
-                        .into(),
+                        ),
                     )
                     .into());
                 }
@@ -749,23 +746,17 @@ mod plist_boundary_test {
             is_not_found: false,
             message: "read denied".into(),
         });
-        assert_eq!(error.failure().class.to_string_lossy(), "java.io.IOException");
-        assert_eq!(
-            error.failure().message.as_ref().unwrap().to_string_lossy(),
-            "read denied"
-        );
+        assert_eq!(error.failure().class.to_owned(), "java.io.IOException");
+        assert_eq!(error.failure().message.as_ref().unwrap().to_owned(), "read denied");
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("missing.xctestrun");
         let missing = super::FactoryError::from_plist(
             &path,
             <super::Xctestrun as crate::plist::PropertyList>::from_path(&path).unwrap_err(),
         );
+        assert_eq!(missing.failure().class.to_owned(), "java.nio.file.NoSuchFileException");
         assert_eq!(
-            missing.failure().class.to_string_lossy(),
-            "java.nio.file.NoSuchFileException"
-        );
-        assert_eq!(
-            missing.failure().message.as_ref().unwrap().to_string_lossy(),
+            missing.failure().message.as_ref().unwrap().to_owned(),
             path.display().to_string()
         );
         Ok(())

@@ -51,10 +51,7 @@ fn config_failure(error: ConfigurationError) -> marathon_core::error::Failure {
     }
 }
 fn mapping(error: &ConfigurationError) -> bool {
-    error
-        .class
-        .to_string_lossy()
-        .starts_with("com.fasterxml.jackson.databind.")
+    error.class.to_owned().starts_with("com.fasterxml.jackson.databind.")
 }
 fn load_error(error: LoadError, wrapper: &str) -> VendorError {
     match error {
@@ -141,7 +138,7 @@ impl AppleSimulatorProvider {
                 "Missing dynamic provider configuration",
             ));
         };
-        let (host, port) = (host.to_string_lossy(), *port);
+        let (host, port) = (host.to_owned(), *port);
         let (tx, mut rx) = mpsc::channel::<Snapshot>(1);
         let this = self.clone();
         let producer_caller = caller.clone();
@@ -223,7 +220,7 @@ impl AppleSimulatorProvider {
                     detail
                         .message
                         .as_ref()
-                        .map(|s| s.to_string_lossy())
+                        .map(|s| s.to_owned())
                         .unwrap_or_else(|| "null".into())
                 )
             },
@@ -321,7 +318,7 @@ mod tests {
             (io::ErrorKind::PermissionDenied, "Permission denied"),
         ] {
             let error = file_read_error(Path::new("/Marathondevices"), &io::Error::from(kind));
-            assert_eq!(error.failure().class, "java.io.FileNotFoundException".into());
+            assert_eq!(error.failure().class, "java.io.FileNotFoundException".to_owned());
             assert_eq!(
                 error.failure().message,
                 Some(format!("/Marathondevices ({reason})").into())

@@ -95,7 +95,7 @@ async fn bounded_existing_and_profile_counts_match_jvm_tests() -> TestResult {
                     .lock()
                     .unwrap()
                     .iter()
-                    .map(|(id, _, _)| id.to_string_lossy())
+                    .map(|(id, _, _)| id.to_owned())
                     .collect::<Vec<_>>()
             ),
             expected["registered"]

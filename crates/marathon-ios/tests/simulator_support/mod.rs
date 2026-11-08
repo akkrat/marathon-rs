@@ -232,7 +232,7 @@ impl Harness {
                     let log = logging.clone();
                     Arc::new(move |logger, level, message, error| {
                         if log.enabled(logger, level) {
-                            (log.sink)(logger, level, message.to_string_lossy(), error.cloned());
+                            (log.sink)(logger, level, message.to_owned(), error.cloned());
                         }
                     })
                 },
@@ -315,7 +315,7 @@ impl Harness {
             .setup
             .setup(&record, cycle, self.services.context.clone())
             .await
-            .map_err(|e| e.failure().to_java_string().to_string_lossy())?;
+            .map_err(|e| e.failure().to_java_string().to_owned())?;
         Ok(built.handle)
     }
     pub fn factory(&self) -> Arc<SimulatorFactory<Arc<AppleSimulatorDevice>>> {
@@ -464,7 +464,7 @@ pub fn tests() -> Vec<marathon_core::model::Test> {
         .map(|n| marathon_core::model::Test {
             pkg: "Tests".into(),
             clazz: "Suite".into(),
-            method: format!("test{n}").into(),
+            method: format!("test{n}"),
             meta_properties: vec![],
         })
         .collect()
@@ -503,7 +503,7 @@ pub async fn run_with(
     let result = marathon_core::executor::shared::SharedDeferred::new();
     let batch = Arc::new(marathon_core::model::TestBatch {
         tests: tests(),
-        id: format!("batch-{}", BATCH_ID.fetch_add(1, Ordering::SeqCst)).into(),
+        id: format!("batch-{}", BATCH_ID.fetch_add(1, Ordering::SeqCst)),
     });
     let outcome = d
         .execute(
@@ -520,7 +520,7 @@ pub async fn prepared(h: &Harness) -> TestResult<(Arc<AppleSimulatorDevice>, Arc
     let d = h.device().await?;
     h.prepare(&d)
         .await
-        .map_err(|e| e.failure().to_java_string().to_string_lossy())?;
+        .map_err(|e| e.failure().to_java_string().to_owned())?;
     let script = Arc::new(BatchScript::default());
     script.attach(&h.worker);
     Ok((d, script))
@@ -540,7 +540,7 @@ pub fn spawn_batch(
         let result = marathon_core::executor::shared::SharedDeferred::new();
         let batch = Arc::new(marathon_core::model::TestBatch {
             tests: tests(),
-            id: format!("batch-{}", BATCH_ID.fetch_add(1, Ordering::SeqCst)).into(),
+            id: format!("batch-{}", BATCH_ID.fetch_add(1, Ordering::SeqCst)),
         });
         let outcome = d
             .execute(

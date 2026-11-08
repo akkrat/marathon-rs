@@ -24,7 +24,7 @@ use crate::{
 };
 use futures_util::future::Either;
 use indexmap::IndexMap;
-use jcompat::{logging::Level, writers::JavaString};
+use jcompat::logging::Level;
 use marathon_config::Configuration;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
@@ -166,8 +166,8 @@ fn job_was_cancelled() -> Cancellation {
     ))
 }
 
-fn text(parts: &[&dyn Fn(&mut JavaString)]) -> JavaString {
-    let mut out = JavaString::default();
+fn text(parts: &[&dyn Fn(&mut String)]) -> String {
+    let mut out = String::default();
     for part in parts {
         part(&mut out);
     }
@@ -175,7 +175,7 @@ fn text(parts: &[&dyn Fn(&mut JavaString)]) -> JavaString {
 }
 
 impl Inner {
-    fn debug(&self, message: JavaString) {
+    fn debug(&self, message: String) {
         let core = &self.parts.core;
         core.log_queue()
             .log(LOGGER, core.clock().now_millis(), Level::Debug, message, None);
@@ -210,14 +210,14 @@ impl Inner {
         if self.filtered_by_configuration(&serial)? {
             self.debug(text(&[
                 &|m| m.push_str("device "),
-                &|m| m.append(serial.clone()),
+                &|m| m.push_str(&serial.clone()),
                 &|m| m.push_str(" is filtered out by configuration. skipping disconnect"),
             ]));
             return Ok(());
         }
         self.debug(text(&[
             &|m| m.push_str("device "),
-            &|m| m.append(serial.clone()),
+            &|m| m.push_str(&serial.clone()),
             &|m| m.push_str(" disconnected"),
         ]));
         // Every pool, not only the device's own (B3); no deviceDisconnected is tracked (B2).
@@ -238,7 +238,7 @@ impl Inner {
         if self.filtered_by_configuration(&serial)? {
             self.debug(text(&[
                 &|m| m.push_str("device "),
-                &|m| m.append(serial.clone()),
+                &|m| m.push_str(&serial.clone()),
                 &|m| m.push_str(" is filtered out by configuration. skipping"),
             ]));
             return Ok(());
@@ -247,15 +247,15 @@ impl Inner {
         let pool_id = self.pooling.associate(device_view);
         self.debug(text(&[
             &|m| m.push_str("device "),
-            &|m| m.append(serial.clone()),
+            &|m| m.push_str(&serial.clone()),
             &|m| m.push_str(" associated with poolId "),
-            &|m| m.append(pool_id.name.clone()),
+            &|m| m.push_str(&pool_id.name.clone()),
         ]));
         let progress = self.accumulator(&pool_id);
         if !self.pools.borrow().contains_key(&pool_id) {
             self.debug(text(&[
                 &|m| m.push_str("pool actor "),
-                &|m| m.append(pool_id.name.clone()),
+                &|m| m.push_str(&pool_id.name.clone()),
                 &|m| m.push_str(" is being created"),
             ]));
             // D13: the history prefetch, awaited here so later device events keep their order (S4).
@@ -320,14 +320,9 @@ impl Inner {
         progress
     }
 
-    fn filtered_by_configuration(&self, serial: &JavaString) -> OperationResult<bool> {
+    fn filtered_by_configuration(&self, serial: &String) -> OperationResult<bool> {
         let configuration = &self.parts.configuration;
-        let serial = serial.as_utf8().map_err(|_| {
-            failure(
-                "java.lang.IllegalArgumentException",
-                "Scheduler serial filter: device serial contains unpaired UTF-16 surrogates",
-            )
-        })?;
+        let serial = serial.to_owned();
         let allow_list_accepted = configuration.include_serial_regexes.is_empty()
             || configuration
                 .include_serial_regexes

@@ -9,17 +9,17 @@
 //! malformed atoms); it never panics on input.
 
 use crate::testrunner::{MetricMap, Status, TestEvent, TestIdentifier, TokenType};
-use jcompat::{jnum, jstring, writers::JavaString};
+use jcompat::{jnum, jstring};
 
 /// Where Kotlin's `process` throws out of the transformer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstrumentationError {
     /// `parameters["numtests"]?.toInt()` — `NumberFormatException`, not `toIntOrNull`.
-    InvalidNumTests(JavaString),
+    InvalidNumTests(String),
     /// `StringIndexOutOfBoundsException`: a status/result code line with no
     /// value character at all, or a parameter piece with no `=` (adam's
     /// `toMap` indexes `substring(0, -1)` then; see WP 6.3 findings).
-    MalformedAtom(JavaString),
+    MalformedAtom(String),
 }
 impl std::fmt::Display for InstrumentationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -39,12 +39,12 @@ impl std::error::Error for InstrumentationError {}
 pub enum InstrumentationWarning {
     /// P2: an unknown `INSTRUMENTATION_STATUS_CODE` (raw, trimmed code text
     /// as it appeared, which need not be numeric); the atom was ignored.
-    UnknownStatusCode(JavaString),
+    UnknownStatusCode(String),
 }
 
 impl InstrumentationWarning {
     /// The raw status-code text of an unknown-status-code warning.
-    pub fn code(&self) -> &JavaString {
+    pub fn code(&self) -> &String {
         match self {
             Self::UnknownStatusCode(code) => code,
         }
@@ -65,8 +65,8 @@ impl std::fmt::Display for InstrumentationWarning {
     }
 }
 
-fn display(text: &JavaString) -> String {
-    String::from_utf8_lossy(&text.to_utf8_bytes()).into_owned()
+fn display(text: &String) -> String {
+    String::from_utf8_lossy(text.as_bytes()).into_owned()
 }
 
 const KNOWN_KEYS: [&str; 9] = [
@@ -77,7 +77,7 @@ const KNOWN_KEYS: [&str; 9] = [
 /// `process`, then call `transform` once when the stream ends.
 #[derive(Clone, Debug, Default)]
 pub struct InstrumentationResponseTransformer {
-    buffer: JavaString,
+    buffer: String,
     start_reported: bool,
     finish_reported: bool,
     tests_expected: i32,
@@ -97,7 +97,7 @@ impl InstrumentationResponseTransformer {
     }
 
     /// Kotlin `buffer` is public; nothing in marathon reads it.
-    pub fn buffer(&self) -> &JavaString {
+    pub fn buffer(&self) -> &String {
         &self.buffer
     }
 
@@ -118,7 +118,11 @@ impl InstrumentationResponseTransformer {
         // R1-sol-3); per-chunk lossy decoding stays.
         self.buffer.push_str(&String::from_utf8_lossy(bytes));
         // Before the atoms below take the text away. Over the buffer, as a chunk can end inside the word.
-        self.start_refused |= find_slice(&self.buffer.0, "INSTRUMENTATION_FAILED").is_some();
+        self.start_refused |= find_slice(
+            &self.buffer.encode_utf16().collect::<Vec<_>>(),
+            "INSTRUMENTATION_FAILED",
+        )
+        .is_some();
 
         let mut result: Option<Vec<TestEvent>> = None;
         while let Some(atom) = self.find_atom() {
@@ -129,8 +133,8 @@ impl InstrumentationResponseTransformer {
         Ok(result)
     }
 
-    fn find_atom(&mut self) -> Option<Vec<JavaString>> {
-        let units = &self.buffer.0;
+    fn find_atom(&mut self) -> Option<Vec<String>> {
+        let units = &self.buffer.encode_utf16().collect::<Vec<_>>();
         let token_position = [
             find_slice(units, TokenType::InstrumentationStatusCode.name()),
             find_slice(units, TokenType::InstrumentationCode.name()),
@@ -144,8 +148,8 @@ impl InstrumentationResponseTransformer {
             .position(|&c| c == 0x0A || c == 0x0D)
             .map(|offset| token_position + offset)?;
 
-        let atom = jstring::lines(&JavaString(units[..next_line_break].to_vec()));
-        self.buffer.0.drain(..next_line_break + 1);
+        let atom = jstring::lines(&String::from_utf16_lossy(&units[..next_line_break]));
+        self.buffer = String::from_utf16_lossy(&units[next_line_break + 1..]);
         Some(atom)
     }
 
@@ -159,16 +163,16 @@ impl InstrumentationResponseTransformer {
         self.finish_reported = true;
         if !self.start_reported {
             let mut units: Vec<u16> = "No test results\n".encode_utf16().collect();
-            units.extend_from_slice(&self.buffer.0);
+            units.extend_from_slice(&self.buffer.encode_utf16().collect::<Vec<_>>());
             Some(vec![TestEvent::TestRunFailed {
-                error: JavaString(jstring::trim(&units).to_vec()),
+                error: String::from_utf16_lossy(jstring::trim(&units)),
             }])
         } else if self.tests_expected > self.tests_executed {
             Some(vec![TestEvent::TestRunFailed {
-                error: JavaString::from(format!(
+                error: format!(
                     "Test run failed to complete. Expected {} tests, executed {}",
                     self.tests_expected, self.tests_executed
-                )),
+                ),
             }])
         } else {
             Some(vec![TestEvent::TestRunEnded {
@@ -193,7 +197,7 @@ impl InstrumentationResponseTransformer {
     /// only whole: `INSTRUMENTATION_CODE: <int>`. The word alone, or with no number yet, is a cut inside that line, and a
     /// runner that omits `numtests` would otherwise pass its partial list.
     pub fn ended_without_result(&self) -> bool {
-        let units = &self.buffer.0;
+        let units = &self.buffer.encode_utf16().collect::<Vec<_>>();
         // A code with its line break was an atom, so a code left here is on the last line, as `find_atom` splits it.
         let last_line = units
             .rsplit(|&unit| unit == 0x0a || unit == 0x0d)
@@ -213,11 +217,17 @@ impl InstrumentationResponseTransformer {
         self.start_reported || blank || first_word || find_slice(units, "INSTRUMENTATION_").is_some()
     }
 
-    fn parse(&mut self, atom: &[JavaString]) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
+    fn parse(&mut self, atom: &[String]) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
         let last = &atom[atom.len() - 1];
-        if starts_with(&last.0, TokenType::InstrumentationStatusCode.name()) {
+        if starts_with(
+            &last.encode_utf16().collect::<Vec<_>>(),
+            TokenType::InstrumentationStatusCode.name(),
+        ) {
             self.parse_status_code(last, &atom[..atom.len() - 1])
-        } else if starts_with(&last.0, TokenType::InstrumentationCode.name()) {
+        } else if starts_with(
+            &last.encode_utf16().collect::<Vec<_>>(),
+            TokenType::InstrumentationCode.name(),
+        ) {
             self.parse_instrumentation_code(last, atom)
         } else {
             // INSTRUMENTATION_FAILED and anything else: dropped, no events.
@@ -227,11 +237,11 @@ impl InstrumentationResponseTransformer {
 
     fn parse_status_code(
         &mut self,
-        last: &JavaString,
-        atom: &[JavaString],
+        last: &String,
+        atom: &[String],
     ) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
-        let value_units = last
-            .0
+        let last_units: Vec<u16> = last.encode_utf16().collect();
+        let value_units = last_units
             .get(TokenType::InstrumentationStatusCode.name().len() + 1..)
             .ok_or_else(|| InstrumentationError::MalformedAtom(last.clone()))?;
         let code = to_int_or_null(value_units);
@@ -242,8 +252,8 @@ impl InstrumentationResponseTransformer {
         let mut events: Vec<TestEvent> = Vec::new();
         if !self.start_reported {
             if let Some(numtests) = parameters.get_str("numtests") {
-                let tests =
-                    to_int_exact(&numtests.0).ok_or_else(|| InstrumentationError::InvalidNumTests(numtests.clone()))?;
+                let tests = to_int_exact(&numtests.encode_utf16().collect::<Vec<_>>())
+                    .ok_or_else(|| InstrumentationError::InvalidNumTests(numtests.clone()))?;
                 events.push(TestEvent::TestRunStartedEvent { test_count: tests });
                 self.tests_expected = tests;
             }
@@ -291,7 +301,7 @@ impl InstrumentationResponseTransformer {
                             error: parameters
                                 .get_str("stream")
                                 .cloned()
-                                .unwrap_or_else(|| JavaString::from("Unexpected failure during execution")),
+                                .unwrap_or_else(|| String::from("Unexpected failure during execution")),
                             stack_trace: stack,
                         }),
                     }
@@ -327,9 +337,10 @@ impl InstrumentationResponseTransformer {
                 // which kills the run. Ignore the atom instead, counting
                 // nothing, and queue a warning for the caller to log at WARN
                 // (6.6a owns logging; see take_warnings).
-                self.warnings.push(InstrumentationWarning::UnknownStatusCode(JavaString(
-                    jstring::trim(value_units).to_vec(),
-                )));
+                self.warnings
+                    .push(InstrumentationWarning::UnknownStatusCode(String::from_utf16_lossy(
+                        jstring::trim(value_units),
+                    )));
             }
         }
 
@@ -338,24 +349,24 @@ impl InstrumentationResponseTransformer {
 
     fn parse_instrumentation_code(
         &mut self,
-        last: &JavaString,
-        atom: &[JavaString],
+        last: &String,
+        atom: &[String],
     ) -> Result<Option<Vec<TestEvent>>, InstrumentationError> {
-        let value_units = last
-            .0
+        let last_units: Vec<u16> = last.encode_utf16().collect();
+        let value_units = last_units
             .get(TokenType::InstrumentationCode.name().len() + 1..)
             .ok_or_else(|| InstrumentationError::MalformedAtom(last.clone()))?;
         let code = to_int_or_null(value_units);
         self.session_ended = true;
         // Session result code -1 is Status.ERROR by value and means success.
         if Status::value_of(code) == Status::Error {
-            let lines: Vec<JavaString> = atom.iter().filter(|line| *line != last).cloned().collect();
+            let lines: Vec<String> = atom.iter().filter(|line| *line != last).cloned().collect();
             let parameters = to_map(&lines, "INSTRUMENTATION_RESULT:")?;
             let mut time = 0i64;
             if let Some(stream) = parameters.get_str("stream") {
                 for line in jstring::lines(stream) {
-                    if starts_with(&line.0, "Time: ") {
-                        time = parse_time(&line.0[6..]);
+                    if starts_with(&line.encode_utf16().collect::<Vec<_>>(), "Time: ") {
+                        time = parse_time(&line.encode_utf16().collect::<Vec<_>>()[6..]);
                     }
                 }
             }
@@ -372,22 +383,27 @@ impl InstrumentationResponseTransformer {
             }]))
         } else {
             self.finish_reported = true;
-            let mut short_message: Option<JavaString> = None;
+            let mut short_message: Option<String> = None;
             let mut time = 0i64;
             for line in atom {
-                if starts_with(&line.0, "INSTRUMENTATION_RESULT: shortMsg=") {
-                    short_message = Some(JavaString(line.0[33..].to_vec()));
-                } else if starts_with(&line.0, "Time: ") {
-                    time = parse_time(&line.0[6..]);
+                if starts_with(
+                    &line.encode_utf16().collect::<Vec<_>>(),
+                    "INSTRUMENTATION_RESULT: shortMsg=",
+                ) {
+                    short_message = Some(String::from_utf16_lossy(
+                        &line.encode_utf16().collect::<Vec<_>>()[33..],
+                    ));
+                } else if starts_with(&line.encode_utf16().collect::<Vec<_>>(), "Time: ") {
+                    time = parse_time(&line.encode_utf16().collect::<Vec<_>>()[6..]);
                 }
             }
             Ok(Some(vec![
                 TestEvent::TestRunFailed {
                     error: short_message.unwrap_or_else(|| {
-                        JavaString::from(format!(
+                        format!(
                             "Unexpected INSTRUMENTATION_CODE: {}",
                             code.map_or_else(|| "null".to_owned(), |c| c.to_string())
-                        ))
+                        )
                     }),
                 },
                 TestEvent::TestRunEnded {
@@ -406,10 +422,16 @@ fn test_id(parameters: &MetricMap) -> Option<TestIdentifier> {
     })
 }
 
-fn is_known_key(key: &JavaString) -> bool {
-    KNOWN_KEYS
-        .iter()
-        .any(|known| key.0.len() == known.len() && key.0.iter().zip(known.bytes()).all(|(&u, b)| u == u16::from(b)))
+fn is_known_key(key: &String) -> bool {
+    KNOWN_KEYS.iter().any(|known| {
+        key.encode_utf16().count() == known.len()
+            && key
+                .encode_utf16()
+                .collect::<Vec<_>>()
+                .iter()
+                .zip(known.bytes())
+                .all(|(&u, b)| u == u16::from(b))
+    })
 }
 
 /// Kotlin `substring(6).toDoubleOrNull()?.times(1000)?.toLong() ?: 0`. The
@@ -457,14 +479,14 @@ fn find_slice(units: &[u16], needle: &str) -> Option<usize> {
 /// delimiter, each piece split at its first `=`; pieces with nothing after
 /// the `=` are dropped. A piece with no `=` at all makes Kotlin compute
 /// `substring(0, -1)` and throw (empty pieces are dropped first).
-fn to_map(lines: &[JavaString], delimiter: &str) -> Result<MetricMap, InstrumentationError> {
+fn to_map(lines: &[String], delimiter: &str) -> Result<MetricMap, InstrumentationError> {
     let delim: Vec<u16> = delimiter.encode_utf16().collect();
     let mut joined: Vec<u16> = Vec::new();
-    for line in lines.iter().filter(|line| !line.0.is_empty()) {
+    for line in lines.iter().filter(|line| !line.is_empty()) {
         if !joined.is_empty() {
             joined.push(0x0A);
         }
-        joined.extend_from_slice(&line.0);
+        joined.extend_from_slice(&line.encode_utf16().collect::<Vec<_>>());
     }
     let mut map = MetricMap::new();
     for piece in split_units(&joined, &delim) {
@@ -473,14 +495,16 @@ fn to_map(lines: &[JavaString], delimiter: &str) -> Result<MetricMap, Instrument
             if trimmed.is_empty() {
                 continue;
             }
-            return Err(InstrumentationError::MalformedAtom(JavaString(trimmed.to_vec())));
+            return Err(InstrumentationError::MalformedAtom(String::from_utf16_lossy(
+                trimmed,
+            )));
         };
         if equal + 1 >= trimmed.len() {
             continue;
         }
         map.insert(
-            JavaString(trimmed[..equal].to_vec()),
-            JavaString(trimmed[equal + 1..].to_vec()),
+            String::from_utf16_lossy(&trimmed[..equal]),
+            String::from_utf16_lossy(&trimmed[equal + 1..]),
         );
     }
     Ok(map)
@@ -513,7 +537,7 @@ mod tests {
     // tests compare event data-class toString() lines against .expected
     // files, so events are rendered with jcompat's KotlinValue (PLAN §6.2).
 
-    fn text(value: &JavaString) -> KotlinValue {
+    fn text(value: &String) -> KotlinValue {
         KotlinValue::Text(value.clone())
     }
     fn number(value: &str) -> KotlinValue {
@@ -579,7 +603,7 @@ mod tests {
     fn rendered(events: &[TestEvent]) -> String {
         events
             .iter()
-            .map(|e| event_value(e).render().as_utf8().expect("rendered event"))
+            .map(|e| event_value(e).render())
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -849,7 +873,7 @@ mod tests {
             warnings,
             vec![InstrumentationWarning::UnknownStatusCode("bogus".into())]
         );
-        assert_eq!(warnings[0].code(), &JavaString::from("bogus"));
+        assert_eq!(warnings[0].code(), &String::from("bogus"));
         assert_eq!(
             warnings[0].to_string(),
             "unknown INSTRUMENTATION_STATUS_CODE: bogus, atom ignored"

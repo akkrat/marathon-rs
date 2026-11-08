@@ -69,7 +69,7 @@ impl AppleSimulatorDevice {
             serial: self.serial.as_str().into(),
             log: Arc::new(move |logger, level, message, cause| {
                 if logging.enabled(logger, level) {
-                    (logging.sink)(logger, level, message.to_string_lossy(), cause.cloned());
+                    (logging.sink)(logger, level, message.to_owned(), cause.cloned());
                 }
             }),
         }
@@ -161,7 +161,7 @@ impl AppleDevice for AppleSimulatorDevice {
                 .vendor
                 .xcodebuild_test_args
                 .iter()
-                .map(|(k, v)| (k.clone(), v.to_string_lossy()))
+                .map(|(k, v)| (k.clone(), v.to_owned()))
                 .collect::<Vec<_>>();
             Ok(marathon_apple::execute_test_request::execute_test_request(
                 self.this()?,
@@ -300,7 +300,7 @@ impl AppleDevice for AppleSimulatorDevice {
             let folder = blocking(self.services.runtime.as_ref(), move || Ok(path.is_dir())).await?;
             self.shared_transfers
                 .send(
-                    &self.transport.id().to_string_lossy(),
+                    &self.transport.id().to_owned(),
                     src,
                     dst,
                     self.send_stop(context),

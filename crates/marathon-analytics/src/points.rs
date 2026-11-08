@@ -5,7 +5,6 @@ use jcompat::{
     file_manager::escape_utf16,
     jnum::influx_duration,
     jtime::{influx_epoch_millis, instant_to_epoch_milli},
-    writers::JavaString,
 };
 use marathon_core::{error::OperationResult, executor::shared::failure, model::TestStatus, report::TestEvent};
 
@@ -32,7 +31,9 @@ fn escape(value: &str, v2: bool) -> String {
 pub(crate) fn line(event: &TestEvent, v2: bool) -> OperationResult<String> {
     let r = &event.test_result;
     let t = &r.test;
-    let serial = JavaString(escape_utf16(&event.device.serial_number.0));
+    let serial = String::from_utf16_lossy(&escape_utf16(
+        &event.device.serial_number.encode_utf16().collect::<Vec<_>>(),
+    ));
     let mut out = String::from("tests");
     // Both pinned Point classes store tags and fields in TreeMap order.
     for (key, value) in [

@@ -11,7 +11,6 @@ use crate::{
 use jcompat::{
     logging::{Level, Logger},
     throwable::is_error_class,
-    writers::JavaString,
 };
 use marathon_config::{VendorConfiguration, vendor::TestClassRegex};
 use marathon_core::{
@@ -113,12 +112,12 @@ impl NmTestParser {
             .filter(|test| {
                 self.test_class_regexes
                     .iter()
-                    .all(|regex| regex.matches(&test.clazz.to_string_lossy()))
+                    .all(|regex| regex.matches(&test.clazz.to_owned()))
             })
             .collect())
     }
     fn rescan(&self, error: &VendorError, binary: &str) -> VendorResult<()> {
-        if error.failure().class != JavaString::from("com.malinskiy.marathon.apple.cmd.CommandException") {
+        if error.failure().class != "com.malinskiy.marathon.apple.cmd.CommandException" {
             return Err(error.clone());
         }
         log(
@@ -148,7 +147,7 @@ impl RemoteTestParser for NmTestParser {
                     // U163: a stalled send is not worth two more on this device. Core's retry may borrow another.
                     Err(e @ (VendorError::Cancelled(_) | VendorError::LeavePool { .. })) => return Err(e),
                     Err(error) => {
-                        if !is_error_class(&error.failure().class.to_string_lossy()) {
+                        if !is_error_class(&error.failure().class.to_owned()) {
                             log(
                                 &self.logging,
                                 &self.logger,
@@ -194,7 +193,7 @@ fn test(pkg: &str, clazz: &str, method: &str) -> Test {
         meta_properties: vec![],
     }
 }
-pub(crate) fn parsing_error(message: JavaString) -> VendorError {
+pub(crate) fn parsing_error(message: String) -> VendorError {
     let mut detail = failure("com.malinskiy.marathon.exceptions.TestParsingException", "");
     detail.message = Some(message);
     VendorError::TestParsing(detail)

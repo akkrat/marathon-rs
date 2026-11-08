@@ -8,7 +8,7 @@
 //! parity row moves to 6.5. Test equality excludes meta-properties by
 //! design (frozen model contract), so they are asserted explicitly.
 
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 use marathon_android::dex_test_parser::{
     DexTestBundleFiles, DexTestParser, MetaConverter, test_from_method, to_meta_property,
 };
@@ -24,7 +24,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-fn js(text: &str) -> JavaString {
+fn js(text: &str) -> String {
     text.into()
 }
 
@@ -110,7 +110,7 @@ fn should_return_proper_list_of_test_methods() {
     // the merged order — class-level first, then the method's own — is
     // asserted explicitly, as the JVM dump records it.
     let properties = &extracted[0].meta_properties;
-    let names: Vec<String> = properties.iter().map(|p| p.name.to_string_lossy()).collect();
+    let names: Vec<String> = properties.iter().map(|p| p.name.to_owned()).collect();
     assert_eq!(names, ["kotlin.Metadata", "org.junit.runner.RunWith", "org.junit.Test"]);
 
     // org.junit.Test carries no values in this APK; RunWith's single
@@ -118,9 +118,9 @@ fn should_return_proper_list_of_test_methods() {
     assert!(properties[2].values.entries().is_empty());
     let run_with = &properties[1].values.entries();
     assert_eq!(run_with.len(), 1);
-    assert_eq!(run_with[0].0.to_string_lossy(), "value");
+    assert_eq!(run_with[0].0.to_owned(), "value");
     match &run_with[0].1 {
-        MetaValue::String(v) => assert_eq!(v.to_string_lossy(), "Landroid/support/test/runner/AndroidJUnit4;"),
+        MetaValue::String(v) => assert_eq!(v.to_owned(), "Landroid/support/test/runner/AndroidJUnit4;"),
         other => panic!("expected String, got {other:?}"),
     }
 
@@ -130,7 +130,7 @@ fn should_return_proper_list_of_test_methods() {
     let metadata = &properties[0];
     let has_wrapped_array = metadata.values.entries().iter().any(|(_, v)| match v {
         MetaValue::Array(array) => {
-            array.jvm_class.to_string_lossy() == "[Lcom.linkedin.dex.parser.DecodedValue;"
+            array.jvm_class.to_owned() == "[Lcom.linkedin.dex.parser.DecodedValue;"
                 && array.elements.iter().all(|e| matches!(e, MetaValue::Decoded(_)))
         }
         _ => false,
@@ -174,7 +174,7 @@ fn missing_test_application_fails_extract() {
     let Err(marathon_core::error::VendorError::TestParsing(failure)) = extracted else {
         panic!("expected TestParsing failure");
     };
-    assert_eq!(failure.class.to_string_lossy(), "java.io.FileNotFoundException");
+    assert_eq!(failure.class.to_owned(), "java.io.FileNotFoundException");
     assert!(registered.is_empty());
 }
 
@@ -255,10 +255,7 @@ fn to_meta_property_unboxes_only_the_top_level() {
     let MetaValue::Array(array) = &entries[5].1 else {
         panic!("expected array")
     };
-    assert_eq!(
-        array.jvm_class.to_string_lossy(),
-        "[Lcom.linkedin.dex.parser.DecodedValue;"
-    );
+    assert_eq!(array.jvm_class.to_owned(), "[Lcom.linkedin.dex.parser.DecodedValue;");
     assert_eq!(array.elements[0], MetaValue::Decoded(DecodedWrapper::DecodedInt(7)));
     assert_eq!(array.elements[1], MetaValue::Decoded(DecodedWrapper::DecodedNull));
     assert_eq!(
@@ -339,18 +336,14 @@ fn split(test_name: &str) -> marathon_core::error::VendorResult<Test> {
 fn name_split_uses_hash_then_last_dot() {
     let test = split("com.example.MainActivityTest#testText").unwrap();
     assert_eq!(
-        (
-            test.pkg.to_string_lossy(),
-            test.clazz.to_string_lossy(),
-            test.method.to_string_lossy()
-        ),
+        (test.pkg.to_owned(), test.clazz.to_owned(), test.method.to_owned()),
         ("com.example".into(), "MainActivityTest".into(), "testText".into())
     );
 
     // No dot: package is "", the whole left side is the class.
     let test = split("MainActivityTest#testText").unwrap();
     assert_eq!(
-        (test.pkg.to_string_lossy(), test.clazz.to_string_lossy()),
+        (test.pkg.to_owned(), test.clazz.to_owned()),
         ("".into(), "MainActivityTest".into())
     );
 
@@ -360,10 +353,7 @@ fn name_split_uses_hash_then_last_dot() {
         let marathon_core::error::VendorError::TestParsing(failure) = err else {
             panic!("expected TestParsing")
         };
-        assert_eq!(failure.class.to_string_lossy(), "java.lang.IllegalStateException");
-        assert_eq!(
-            failure.message.unwrap().to_string_lossy(),
-            format!("Can't parse test {bad}")
-        );
+        assert_eq!(failure.class.to_owned(), "java.lang.IllegalStateException");
+        assert_eq!(failure.message.unwrap().to_owned(), format!("Can't parse test {bad}"));
     }
 }

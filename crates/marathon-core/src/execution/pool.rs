@@ -24,7 +24,7 @@ use crate::{
 };
 use futures_util::future::Either;
 use indexmap::IndexMap;
-use jcompat::{logging::Level, writers::JavaString};
+use jcompat::logging::Level;
 use marathon_config::Configuration;
 use std::{
     cell::RefCell,
@@ -98,17 +98,17 @@ pub struct DevicePoolActor {
     myself: Option<Weak<dyn Actor<DevicePoolMessage>>>,
 
     // LinkedHashMap: onQueueTerminated terminates the devices in insertion order.
-    devices: IndexMap<JavaString, DeviceActorRef>,
+    devices: IndexMap<String, DeviceActorRef>,
     /// Removed devices whose Terminated has not been received yet. A device sends its batch outcome before Terminated,
     /// so the pool must not shut down while any of them is pending
     terminating_devices: Vec<DeviceRef>,
     /// Batch requests in flight by serial number, mapped to the device the reply is for, or to None if that device has
     /// left the pool
-    requests: HashMap<JavaString, Option<DeviceActorRef>>,
-    assignments: HashMap<JavaString, Assignment>,
+    requests: HashMap<String, Option<DeviceActorRef>>,
+    assignments: HashMap<String, Assignment>,
     /// A LinkedHashSet of actors: insertion order, actor identity.
     parked_devices: Vec<DeviceActorRef>,
-    failed_batches: HashMap<JavaString, FailedBatch>,
+    failed_batches: HashMap<String, FailedBatch>,
     /// D48: the number of the wait running while the pool has no device and tests to run. A timer of any other is ignored:
     /// one whose device returned first, in time or just too late to stop it.
     return_wait: Option<u64>,
@@ -161,7 +161,7 @@ enum Loss {
 fn same_actor(a: &DeviceActorRef, b: &DeviceActorRef) -> bool {
     Rc::ptr_eq(&a.actor, &b.actor)
 }
-fn serial(device: &DeviceRef) -> JavaString {
+fn serial(device: &DeviceRef) -> String {
     device.0.info().serial_number
 }
 
@@ -181,14 +181,14 @@ fn simple_name(message: &QueueMessage) -> &'static str {
 
 enum Part<'a> {
     S(&'a str),
-    J(&'a JavaString),
+    J(&'a String),
 }
-fn text(parts: &[Part<'_>]) -> JavaString {
-    let mut out = JavaString::default();
+fn text(parts: &[Part<'_>]) -> String {
+    let mut out = String::default();
     for part in parts {
         match part {
             Part::S(s) => out.push_str(s),
-            Part::J(j) => out.append((*j).clone()),
+            Part::J(j) => out.push_str(&(*j).clone()),
         }
     }
     out
@@ -216,7 +216,7 @@ impl DevicePoolActor {
         parts: PoolParts,
         #[cfg(any(test, feature = "test-support"))] observer: Option<DeviceObserver>,
     ) -> DevicePool {
-        let logger = format!("DevicePoolActor[{}]", parts.pool_id.name.to_string_lossy());
+        let logger = format!("DevicePoolActor[{}]", parts.pool_id.name.to_owned());
         let clock: Rc<dyn SchedulerClock> = parts.core.clock();
         let built = Rc::new(RefCell::new(None));
         let handler = DevicePoolActor {
@@ -268,14 +268,14 @@ impl DevicePoolActor {
         }
     }
 
-    fn log(&self, level: Level, message: JavaString) {
+    fn log(&self, level: Level, message: String) {
         self.log
             .log(&self.logger, self.clock.now_millis(), level, message, None);
     }
     fn debug(&self, parts: &[Part<'_>]) {
         self.log(Level::Debug, text(parts));
     }
-    fn pool(&self) -> JavaString {
+    fn pool(&self) -> String {
         // "$poolId" with the data class toString.
         text(&[S("DevicePoolId(name="), J(&self.pool_id.name), S(")")])
     }
@@ -324,7 +324,7 @@ impl DevicePoolActor {
         Ok(())
     }
 
-    fn device_returned_test_batch(&mut self, device: DeviceRef, batch: BatchRef, reason: JavaString) {
+    fn device_returned_test_batch(&mut self, device: DeviceRef, batch: BatchRef, reason: String) {
         let serial = serial(&device);
         self.debug(&[
             S("pool "),
@@ -649,7 +649,7 @@ impl DevicePoolActor {
     }
 
     /// Devices on `retry_workers`, which can be the cause of the failures the retries are for, ask after the others
-    fn request_parked_devices(&mut self, retry_workers: &[JavaString]) {
+    fn request_parked_devices(&mut self, retry_workers: &[String]) {
         let (later, first): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked_devices)
             .into_iter()
             .partition(|actor| actor.device.0.worker_id().is_some_and(|w| retry_workers.contains(&w)));

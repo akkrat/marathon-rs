@@ -62,14 +62,14 @@ pub fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
             // These are emitter checks over explicit bound-model projections;
             // ConfigurationFactory binding/defaults remain WP 2.1's contract.
             let actual = emit_case(id);
-            let ok = actual.as_utf8().ok().as_deref() == row["emit"]["ok"].as_str();
+            let ok = Some(actual.as_str()) == row["emit"]["ok"].as_str();
             let entry = stats.entry(family).or_insert((0, 0));
             entry.0 += 1;
             if ok {
                 entry.1 += 1;
             } else {
                 failures += 1;
-                eprintln!("FAIL {id} (emit): {:?}", actual.as_utf8());
+                eprintln!("FAIL {id} (emit): {:?}", actual);
             }
             continue;
         }
@@ -160,7 +160,7 @@ pub fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
 trait ShortJson {
     fn short_json(&self, limit: usize) -> serde_json::Value;
 }
-impl ShortJson for jcompat::writers::JavaString {
+impl ShortJson for String {
     fn short_json(&self, limit: usize) -> serde_json::Value {
         text::short_json(self, limit)
     }
@@ -380,15 +380,15 @@ fn error_positions(message: &str) -> Vec<(usize, usize)> {
     out
 }
 
-fn emit_case(id: &str) -> jcompat::writers::JavaString {
-    use jcompat::writers::{JavaNumber, JavaString, WriterValue};
-    fn units(v: &serde_json::Value) -> JavaString {
-        JavaString(
-            v.as_array()
+fn emit_case(id: &str) -> String {
+    use jcompat::writers::{JavaNumber, WriterValue};
+    fn units(v: &serde_json::Value) -> String {
+        String::from_utf16_lossy(
+            &v.as_array()
                 .unwrap()
                 .iter()
                 .map(|c| c.as_u64().unwrap() as u16)
-                .collect(),
+                .collect::<Vec<_>>(),
         )
     }
     fn input(v: &serde_json::Value) -> WriterValue {

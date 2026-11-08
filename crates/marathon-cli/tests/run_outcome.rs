@@ -5,7 +5,6 @@
 use jcompat::{
     jtime::instant_of,
     logging::{Level, LogEvent, MarathonLogging, OutputTarget, Vendor},
-    writers::JavaString,
 };
 use marathon_cli::{
     application::{
@@ -174,7 +173,7 @@ fn marathon(args: &[&str], content: &str, construct: Result<Outcome, Failure>) -
 fn invoke(args: &[&str], cwd: &Path, runner: &dyn CliRunner, stdout: &Buffer, stderr: &Buffer) -> i32 {
     let process = Process {
         cwd: cwd.to_path_buf(),
-        environment: vec![(JavaString::from("ANDROID_HOME"), JavaString::from("/android-sdk"))],
+        environment: vec![(String::from("ANDROID_HOME"), String::from("/android-sdk"))],
         now: instant_of(1_000_000, 0).unwrap(),
     };
     let output = CliOutput::new(

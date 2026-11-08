@@ -133,14 +133,7 @@ async fn a_boot_that_does_not_finish_within_boot_wait_is_retried_once_and_then_t
             ..
         }
     ));
-    assert!(
-        e.failure()
-            .message
-            .as_ref()
-            .unwrap()
-            .to_string_lossy()
-            .contains("PT0.5S")
-    );
+    assert!(e.failure().message.as_ref().unwrap().to_owned().contains("PT0.5S"));
     assert_eq!(h.boot.boots.load(Ordering::SeqCst), 2);
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 2);
     assert_eq!(h.boot.reads.load(Ordering::SeqCst), 57);
@@ -192,7 +185,7 @@ async fn a_simulator_whose_simctl_boot_fails_is_taken_out_of_its_pool_without_wa
             .message
             .as_ref()
             .unwrap()
-            .to_string_lossy()
+            .to_owned()
             .contains("simctl boot failed")
     );
     assert_eq!(h.boot.boots.load(Ordering::SeqCst), 2);
@@ -312,7 +305,7 @@ async fn parallel_preparation_failure_waits_for_its_cancelled_sibling_command() 
     release.complete(Ok(()));
     let error = preparation.await.unwrap_err();
     assert_eq!(
-        error.failure().message.as_ref().unwrap().to_string_lossy(),
+        error.failure().message.as_ref().unwrap().to_owned(),
         "No test bundle provided"
     );
     d.join_retained().await.unwrap();
@@ -363,7 +356,7 @@ async fn wrong_state_type_after_failed_boot_warns_without_sending_shutdown() -> 
         assert_eq!(warnings.len(), 2);
         for (_, level, _, error) in warnings {
             assert_eq!(level, jcompat::logging::Level::Warn);
-            assert_eq!(error.unwrap().class.to_string_lossy(), "java.lang.ClassCastException");
+            assert_eq!(error.unwrap().class.to_owned(), "java.lang.ClassCastException");
         }
         h.finish(&[d]).await;
     }
@@ -379,7 +372,7 @@ async fn a_connection_lost_during_prepare_is_not_a_failed_boot_d36() -> TestResu
     *h.worker.before.lock().unwrap() = Arc::new(|_| Box::pin(async { Ok(None) }));
     let e = h.prepare(&d).await.unwrap_err();
     assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
-    assert_eq!(e.failure().class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(e.failure().class.to_owned(), CONNECTION_EXCEPTION);
     assert_eq!(h.boot.boots.load(Ordering::SeqCst), 0);
     assert!(
         !h.logs
@@ -421,7 +414,7 @@ async fn a_null_readiness_probe_on_a_lost_connection_is_not_a_failed_boot_d36_d3
     });
     let e = h.prepare(&d).await.unwrap_err();
     assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
-    assert_eq!(e.failure().class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(e.failure().class.to_owned(), CONNECTION_EXCEPTION);
     assert!(
         !h.logs
             .lock()
@@ -604,13 +597,13 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
     let VendorError::Other(failure) = error else {
         panic!("{error:?}");
     };
-    assert_eq!(failure.class.to_string_lossy(), CONNECTION_EXCEPTION);
+    assert_eq!(failure.class.to_owned(), CONNECTION_EXCEPTION);
     assert_eq!(
-        failure.message.map(|m| m.to_string_lossy()),
+        failure.message.map(|m| m.to_owned()),
         Some("Lost the connection to local during a transfer".into())
     );
     assert_eq!(
-        failure.cause.and_then(|c| c.message).map(|m| m.to_string_lossy()),
+        failure.cause.and_then(|c| c.message).map(|m| m.to_owned()),
         Some(keep_alive.into())
     );
     // A receive on the lost connection is the `false` its listener deals with.

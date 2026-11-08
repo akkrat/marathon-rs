@@ -148,7 +148,7 @@ fn logging(logs: &Logs) -> SshLogging {
             move |logger: &Logger, level: Level, message: String, cause: Option<Failure>| {
                 logs.lock().unwrap().push(json!({
                 "level": level.as_str(), "logger": logger.name(), "message": message,
-                "throwable": cause.map(|f| format!("{}: {}", f.class.to_string_lossy(), f.message.map(|m| m.to_string_lossy()).unwrap_or_default())),
+                "throwable": cause.map(|f| format!("{}: {}", f.class.to_owned(), f.message.map(|m| m.to_owned()).unwrap_or_default())),
             }));
             },
         ),
@@ -176,8 +176,8 @@ fn timeouts() -> marathon_config::vendor::AppleTimeoutConfiguration {
 
 fn describe(failure: &Failure) -> Value {
     json!({
-        "class": failure.class.to_string_lossy(),
-        "message": failure.message.as_ref().map(|m| m.to_string_lossy()),
+        "class": failure.class.to_owned(),
+        "message": failure.message.as_ref().map(|m| m.to_owned()),
         "cause": failure.cause.as_deref().map(describe),
     })
 }

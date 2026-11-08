@@ -14,10 +14,10 @@ pub(super) fn setup_error(message: impl AsRef<str>) -> VendorError {
         message,
     ))
 }
-pub(super) fn env_value(env: &[(JavaString, JavaString)], key: &str) -> Option<String> {
+pub(super) fn env_value(env: &[(String, String)], key: &str) -> Option<String> {
     env.iter()
-        .find(|(k, _)| *k == JavaString::from(key))
-        .map(|(_, v)| v.to_string_lossy())
+        .find(|(k, _)| *k == String::from(key))
+        .map(|(_, v)| v.to_owned())
 }
 impl AppleSimulatorDevice {
     pub async fn setup_record(
@@ -120,7 +120,7 @@ impl AppleSimulatorDevice {
             .await?;
         {
             let mut state = self.state();
-            state.info.model = model.into();
+            state.info.model = model;
             state.info.manufacturer = "Apple".into();
         }
         let runtime_build = self
@@ -148,7 +148,7 @@ impl AppleSimulatorDevice {
                 self.udid
             ))
         })?;
-        let mut values: Vec<(JavaString, JavaString)> = vec![];
+        let mut values: Vec<(String, String)> = vec![];
         for line in env.stdout {
             let line = line.trim();
             if line.is_empty() {
@@ -156,7 +156,7 @@ impl AppleSimulatorDevice {
             }
             // Kotlin's substringAfter without a delimiter returns the original string.
             let (key, value) = line.split_once('=').unwrap_or((line, line));
-            let (key, value): (JavaString, JavaString) = (key.trim().into(), value.trim().into());
+            let (key, value): (String, String) = (key.trim().into(), value.trim().into());
             if let Some((_, old)) = values.iter_mut().find(|(k, _)| *k == key) {
                 *old = value;
             } else {
@@ -188,7 +188,7 @@ impl AppleSimulatorDevice {
             .video_configuration
             .transcoding;
         let transcoder = if transcoding.enabled {
-            self.execute_worker_command(vec![transcoding.binary.to_string_lossy(), "-version".into()], context)
+            self.execute_worker_command(vec![transcoding.binary.to_owned(), "-version".into()], context)
                 .await?
         } else {
             None
@@ -213,7 +213,7 @@ impl AppleSimulatorDevice {
             arch: arch
                 .as_ref()
                 .filter(|r| r.successful())
-                .map_or_else(|| JavaString::from("Unknown"), |r| r.combined_stdout().trim().into()),
+                .map_or_else(|| String::from("Unknown"), |r| r.combined_stdout().trim().into()),
             features,
             supports_transcoding: transcoding.enabled && transcoder.as_ref().is_some_and(|r| r.successful()),
             shareable: probes.iter().all(|p| p.is_some_and(|r| r.exit_code.is_some())),

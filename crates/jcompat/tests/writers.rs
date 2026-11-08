@@ -1,12 +1,12 @@
-use jcompat::writers::{GsonWriter, JacksonYamlWriter, JavaNumber, JavaString, KotlinValue, WriterValue};
+use jcompat::writers::{GsonWriter, JacksonYamlWriter, JavaNumber, KotlinValue, WriterValue};
 use serde_json::Value;
-fn units(v: &Value) -> JavaString {
-    JavaString(
-        v.as_array()
+fn units(v: &Value) -> String {
+    String::from_utf16_lossy(
+        &v.as_array()
             .unwrap()
             .iter()
             .map(|c| c.as_u64().unwrap() as u16)
-            .collect(),
+            .collect::<Vec<_>>(),
     )
 }
 fn input(v: &Value) -> WriterValue {
@@ -46,7 +46,7 @@ fn check_writer_rows(table: &str) -> Result<(), Box<dyn std::error::Error>> {
             let actual = GsonWriter { pretty }.write(&value);
             if expected.get("ok").is_some() {
                 let actual = actual?;
-                assert_eq!(actual.to_utf8_bytes(), bytes(&expected["bytes"]));
+                assert_eq!(actual.as_bytes().to_vec(), bytes(&expected["bytes"]));
                 assert_eq!(actual, units(&expected["ok"]), "{} pretty={pretty}", row["id"]);
             } else {
                 assert_eq!(
@@ -64,14 +64,14 @@ fn check_writer_rows(table: &str) -> Result<(), Box<dyn std::error::Error>> {
         );
         {
             let actual = JacksonYamlWriter.write(&value);
-            assert_eq!(actual.to_utf8_bytes(), bytes(&row["yaml"]["bytes"]));
+            assert_eq!(actual.as_bytes().to_vec(), bytes(&row["yaml"]["bytes"]));
             assert_eq!(
                 actual,
                 units(&row["yaml"]["ok"]),
                 "{}\nactual {:?}\nexpected {:?}",
                 row["id"],
-                actual.as_utf8(),
-                units(&row["yaml"]["ok"]).as_utf8()
+                actual,
+                units(&row["yaml"]["ok"])
             );
         }
     }
@@ -116,9 +116,7 @@ fn kotlin_events_oracle() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(trace) = trace {
             fields.push(("trace", trace.map_or(KotlinValue::Null, Into::into)));
         }
-        let actual = dc(if id == "TestFailed-null" { "TestFailed" } else { id }, fields)
-            .render()
-            .as_utf8()?;
+        let actual = dc(if id == "TestFailed-null" { "TestFailed" } else { id }, fields).render();
         assert_eq!(
             actual,
             rows.iter().find(|r| r["id"] == id).unwrap()["toString"]
@@ -143,13 +141,7 @@ fn existing_report_and_yaml_oracles() -> Result<(), Box<dyn std::error::Error>> 
         } else {
             Ok(JacksonYamlWriter.write(&value))
         };
-        let actual = actual.map(|s| {
-            if let Ok(text) = s.as_utf8() {
-                JavaString::from(text.replace("\\u003cCWD\\u003e", "<CWD>"))
-            } else {
-                s
-            }
-        });
+        let actual = actual.map(|s| s.replace("\\u003cCWD\\u003e", "<CWD>"));
         if row["expected"].get("ok").is_some() {
             assert_eq!(actual?, units(&row["expected"]["ok"]), "{}", row["id"]);
         } else {
@@ -208,7 +200,7 @@ fn all_kotlin_writer_models() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(inputs) = row["inputs"].as_object() {
             for (key, value) in inputs {
                 assert_eq!(
-                    kotlin_input(value).render().as_utf8()?,
+                    kotlin_input(value).render(),
                     expected[key].as_str().unwrap(),
                     "{} {key}",
                     row["id"]
@@ -216,7 +208,7 @@ fn all_kotlin_writer_models() -> Result<(), Box<dyn std::error::Error>> {
             }
         } else {
             assert_eq!(
-                kotlin_input(&row["input"]).render().as_utf8()?,
+                kotlin_input(&row["input"]).render(),
                 expected.as_str().unwrap(),
                 "{}",
                 row["id"]

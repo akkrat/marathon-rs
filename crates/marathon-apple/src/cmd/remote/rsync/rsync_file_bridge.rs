@@ -207,10 +207,10 @@ fn initialize_binaries() -> VendorResult<()> {
     }
     if !Path::new(&sshpass).exists() {
         use std::io::Write;
-        let text = jcompat::writers::JavaString::from(format!(
+        let text = format!(
             "WARNING: sshpass binary not installed? Was looking for '{sshpass}'. You can use environment variable RSYNC4J_SSHPASS to point to the binary.\n"
-        ));
-        let _ = std::io::stderr().write_all(&text.to_utf8_bytes());
+        );
+        let _ = std::io::stderr().write_all(text.as_bytes());
     }
     *paths = Some(BinaryPaths { rsync, sshpass });
     Ok(())
@@ -227,8 +227,8 @@ impl Inner {
         let mut args = Vec::new();
         if let SshAuthentication::Password { password, .. } = auth {
             args.push(sshpass_program());
-            if !password.to_string_lossy().is_empty() {
-                args.extend(["-p".into(), password.to_string_lossy()]);
+            if !password.to_owned().is_empty() {
+                args.extend(["-p".into(), password.to_owned()]);
             }
         }
         args.push(rsync_program());
@@ -264,12 +264,12 @@ impl Inner {
                 username
             }
         };
-        rsh.push_str(&format!("-l {} -p {} ", username.to_string_lossy(), self.target.port));
+        rsh.push_str(&format!("-l {} -p {} ", username.to_owned(), self.target.port));
         if self.debug && self.ssh.debug {
             rsh.push_str("-vvv");
         }
         args.extend(["--rsh".into(), rsh]);
-        let remote_path = self.config.remote_path.to_string_lossy();
+        let remote_path = self.config.remote_path.to_owned();
         if !remote_path.is_empty() {
             args.push(format!("--rsync-path={remote_path}"));
         }
@@ -513,7 +513,7 @@ impl Inner {
         })
         .await?;
         let arriving = receive.then(|| Arriving::new(&local, &remote));
-        let remote = format!("{}:{remote}", self.target.addr.to_string_lossy());
+        let remote = format!("{}:{remote}", self.target.addr.to_owned());
         if let Some(stopped) = stop.now() {
             return self.stopped(stopped, receive, &remote);
         }
@@ -966,7 +966,7 @@ impl FileBridge for RsyncFileBridge {
                     biased;
                     send = inner.send.lock() => send,
                     stopped = stop.stopped() => {
-                        let remote = format!("{}:{dst}", inner.target.addr.to_string_lossy());
+                        let remote = format!("{}:{dst}", inner.target.addr.to_owned());
                         return inner.stopped(stopped, false, &remote);
                     }
                 };

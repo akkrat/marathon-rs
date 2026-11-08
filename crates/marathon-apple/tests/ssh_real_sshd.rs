@@ -158,7 +158,9 @@ async fn t16_signals_other_than_term() {
         assert_eq!(result.exit_code, expected, "{signal}");
         tokio::time::sleep(Duration::from_millis(500)).await;
         // D7: no stale TERM after a non-TERM signal, so the shared connection always survives.
-        let survives = ssh::run(&executor, &["echo", "hello"], 10_000).await.map(|r| r.stdout);
+        let survives = ssh::run(&executor, &["echo", "hello"], 10_000)
+            .await
+            .map(|r| r.stdout.clone());
         assert_eq!(survives, Ok(vec!["hello".to_owned()]), "{signal}");
         println!("T16.{signal}: exit={:?} connection_survives=true", result.exit_code);
     }
@@ -217,12 +219,7 @@ async fn t14_tails_flood_close_and_idle_timeout() {
         panic!("{error:?}")
     };
     let chain: Vec<_> = std::iter::successors(Some(&cancel), |f| f.cause.as_deref())
-        .map(|f| {
-            (
-                f.class.to_string_lossy(),
-                f.message.as_ref().map(|m| m.to_string_lossy()),
-            )
-        })
+        .map(|f| (f.class.to_owned(), f.message.as_ref().map(|m| m.to_owned())))
         .collect();
     assert_eq!(
         chain,
@@ -638,7 +635,7 @@ async fn d37_at_the_cap_the_idle_timeout_ends_it_on_a_real_sshd() {
         .unwrap()
         .unwrap_err();
     assert_eq!(
-        error.failure().class.to_string_lossy(),
+        error.failure().class.to_owned(),
         "java.util.concurrent.TimeoutException"
     );
     session.close().await.unwrap();

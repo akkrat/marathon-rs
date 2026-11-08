@@ -14,7 +14,6 @@ use crate::{
 use jcompat::{
     jtime::Instant,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use std::{
     collections::HashSet,
@@ -202,7 +201,7 @@ impl Default for BackendLimits {
 const LOGGED_KINDS: usize = 8;
 #[derive(Default)]
 struct GuardState {
-    kinds: HashSet<(JavaString, Option<JavaString>)>,
+    kinds: HashSet<(String, Option<String>)>,
     skip_until: Option<tokio::time::Instant>,
     announced_skip: bool,
     failed: u64,
@@ -253,7 +252,7 @@ impl BackendGuard {
                 "The analytics backend failed slowly, so test metrics are skipped for {} s after each such failure",
                 self.limits.cool_off.as_secs()
             );
-            (self.log)(&self.logger, Level::Warn, &text.into(), None);
+            (self.log)(&self.logger, Level::Warn, &text, None);
         }
     }
 }
@@ -305,7 +304,7 @@ impl TrackerInternal for BackendGuard {
                 let text = format!(
                     "The analytics backend lost test metrics: {failed} results failed to send, and up to {skipped} were skipped"
                 );
-                (self.log)(&self.logger, Level::Warn, &text.into(), None);
+                (self.log)(&self.logger, Level::Warn, &text, None);
             }
             // A close's last flush is a send too, and a server that trickles its answer never trips
             // the clients' idle timeouts. Dropping the close is how it stops: InfluxDB's client then
@@ -317,7 +316,7 @@ impl TrackerInternal for BackendGuard {
                         "The analytics backend did not close in {} ms; test metrics it still held are lost",
                         self.limits.send.as_millis()
                     );
-                    (self.log)(&self.logger, Level::Warn, &text.into(), None);
+                    (self.log)(&self.logger, Level::Warn, &text, None);
                     Ok(())
                 }
             }
@@ -361,12 +360,7 @@ impl Tracker for MappingTracker {
             self.internal.track(&event).await
         })
     }
-    fn device_provider_init<'a>(
-        &'a self,
-        serial: &'a JavaString,
-        start: Instant,
-        finish: Instant,
-    ) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let event = Event::DeviceProviderPreparing(DeviceProviderPreparingEvent {
                 start,
@@ -376,7 +370,7 @@ impl Tracker for MappingTracker {
             self.internal.track(&event).await
         })
     }
-    fn device_preparing<'a>(&'a self, serial: &'a JavaString, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let event = Event::DevicePreparing(DevicePreparingEvent {
                 start,
@@ -425,21 +419,21 @@ impl Track {
     /// The body remains in the caller's vendor future so cancellation drops it.
     pub async fn track_device_preparing<'a, T: Send + 'a>(
         &self,
-        serial: impl FnOnce() -> JavaString + Send + 'a,
+        serial: impl FnOnce() -> String + Send + 'a,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
         self.prepare(serial, body, false).await
     }
     pub async fn track_provider_device_preparing<'a, T: Send + 'a>(
         &self,
-        serial: impl FnOnce() -> JavaString + Send + 'a,
+        serial: impl FnOnce() -> String + Send + 'a,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
         self.prepare(serial, body, true).await
     }
     async fn prepare<'a, T: Send + 'a>(
         &self,
-        serial: impl FnOnce() -> JavaString + Send + 'a,
+        serial: impl FnOnce() -> String + Send + 'a,
         body: VendorFuture<'a, T>,
         provider: bool,
     ) -> VendorResult<T> {
@@ -506,12 +500,7 @@ impl Tracker for Track {
             .await
         })
     }
-    fn device_provider_init<'a>(
-        &'a self,
-        serial: &'a JavaString,
-        start: Instant,
-        finish: Instant,
-    ) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         let this = self.clone();
         let serial = serial.clone();
         Box::pin(async move {
@@ -528,7 +517,7 @@ impl Tracker for Track {
             .await
         })
     }
-    fn device_preparing<'a>(&'a self, serial: &'a JavaString, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         let this = self.clone();
         let serial = serial.clone();
         Box::pin(async move {
@@ -615,7 +604,7 @@ pub struct ReporterRegistration {
 }
 #[derive(Clone)]
 pub enum BackendRequest {
-    Influx { url: JavaString },
+    Influx { url: String },
     Graphite { port: Option<i32> },
 }
 /// Inner Err represents precisely the source's caught Exception boundary.
@@ -665,8 +654,8 @@ impl TrackerFactory {
                         Ok(None) => {}
                         Err(failure) => match backend.request {
                             BackendRequest::Influx { url } => {
-                                let mut text = JavaString::from("Failed to reach InfluxDB at ");
-                                text.append(url);
+                                let mut text = String::from("Failed to reach InfluxDB at ");
+                                text.push_str(&url);
                                 let (log, logger) = (self.log.clone(), self.logger.clone());
                                 blocking(self.io.as_ref(), move || {
                                     log(&logger, Level::Warn, &text, Some(&failure));

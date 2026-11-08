@@ -1,43 +1,47 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/exceptions/DeviceLostException.kt
 //! and the other exceptions in that package; DeviceActor.kt supplies catch order.
 
-use jcompat::writers::JavaString;
 use marathon_config::binding::ConfigurationError;
 
 /// Preserve class, nullable message and causal chain for classification/output.
 /// Formatting stack traces is a later WP, not Rust Debug or Display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
-    pub class: JavaString,
-    pub message: Option<JavaString>,
+    pub class: String,
+    pub message: Option<String>,
     pub cause: Option<Box<Failure>>,
-    pub stacktrace: Option<JavaString>,
+    pub stacktrace: Option<String>,
 }
 impl Failure {
     /// `Throwable.toString()`: the class, then `: message` when there is one.
-    pub fn to_java_string(&self) -> JavaString {
+    pub fn to_java_string(&self) -> String {
         let mut text = self.class.clone();
         if let Some(message) = &self.message {
             text.push_str(": ");
-            text.append(message.clone());
+            text.push_str(&message.clone());
         }
         text
     }
     /// `Throwable.stackTraceToString()` over the causal chain. JVM frames are not
     /// recorded (PLAN §3.10); `stacktrace` holds frame lines kept from the source.
-    pub fn stack_trace(&self) -> JavaString {
-        let mut text = JavaString::default();
+    pub fn stack_trace(&self) -> String {
+        let mut text = String::default();
         let mut current = Some(self);
         while let Some(failure) = current {
             if !std::ptr::eq(failure, self) {
                 text.push_str("Caused by: ");
             }
-            text.append(failure.to_java_string());
-            text.push_str("\n");
+            text.push_str(&failure.to_java_string());
+            text.push('\n');
             if let Some(frames) = &failure.stacktrace {
-                text.append(frames.clone());
-                if frames.0.last().is_some_and(|unit| *unit != u16::from(b'\n')) {
-                    text.push_str("\n");
+                text.push_str(&frames.clone());
+                if frames
+                    .encode_utf16()
+                    .collect::<Vec<_>>()
+                    .last()
+                    .is_some_and(|unit| *unit != u16::from(b'\n'))
+                {
+                    text.push('\n');
                 }
             }
             current = failure.cause.as_deref();

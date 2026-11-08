@@ -3,7 +3,7 @@
 //! The command alone, not through Marathon's no-tests guard. Besides the source's
 //! `trimIndent()` comparison, each file is checked against the JVM's exact bytes
 //! (fixtures/oracle/run-flow/parse-command.jsonl).
-use jcompat::{file_manager::JavaPath, logging::MarathonLogging, writers::JavaString};
+use jcompat::{file_manager::JavaPath, logging::MarathonLogging};
 use marathon_core::{
     analytics::MetricsContext,
     execution::parse_command::{EXTENSION, MarathonTestParseCommand},
@@ -40,7 +40,7 @@ fn execute(tests: Vec<Test>, flaky_tests: Vec<Test>) -> String {
                 stamp: Arc::new(|| (0, 0)),
             };
             let command = MarathonTestParseCommand::new(core.vendor(), output, JavaPath::from_text("/"), &context);
-            let name = JavaString::from(RESULT_FILE_NAME);
+            let name = String::from(RESULT_FILE_NAME);
             let (tests, flaky_tests) = (tests, flaky_tests);
             let io = core.vendor();
             marathon_core::executor::bridge::call_vendor(io.as_ref(), Signal::new(), move |_| {

@@ -38,12 +38,12 @@ impl GraphiteDataSource {
         }
     }
 }
-pub fn parse_line(line: &str) -> OperationResult<(JavaString, f64)> {
+pub fn parse_line(line: &str) -> OperationResult<(String, f64)> {
     let name = line.split_once(',').map_or(line, |p| p.0).replace("--", ".");
     let value = line.split_once('|').map_or(line, |p| p.1);
     let value =
         parse_double_with_error(value).map_err(|message| failure("java.lang.NumberFormatException", &message))?;
-    Ok((name.into(), value))
+    Ok((name, value))
 }
 /// Whether a raw line is one series with no value at all: the query summarises over 10 years, and
 /// `format=raw` prints `None` for a series with no points in the window. Kotlin's `toDouble` throws
@@ -58,7 +58,7 @@ impl GraphiteDataSource {
             let skip = has_no_datapoint(line);
             if let (true, Some(context)) = (skip, &self.context) {
                 let text = format!("Skipping a Graphite series with no datapoints: {line}");
-                context.log("MetricsProviderImpl", Level::Debug, text.into(), None);
+                context.log("MetricsProviderImpl", Level::Debug, text, None);
             }
             !skip
         })

@@ -2,15 +2,12 @@
 //! and analytics/internal/sub/ExecutionReportGenerator.kt (off-core service calls).
 
 use crate::{error::*, runtime::*};
-use jcompat::{
-    logging::{Level, Logger},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger};
 use std::sync::Arc;
 
 /// The run's output task supplies the existing registry/console sink (3.10).
 /// Invoked on I/O workers, never while holding a listener collection lock.
-pub type ServiceLog = Arc<dyn Fn(&Logger, Level, &JavaString, Option<&Failure>) + Send + Sync>;
+pub type ServiceLog = Arc<dyn Fn(&Logger, Level, &String, Option<&Failure>) + Send + Sync>;
 
 pub(crate) fn operation_error(error: VendorError) -> OperationError {
     match error {
@@ -50,16 +47,16 @@ pub(crate) fn nio_error(error: std::io::Error, path: &jcompat::file_manager::Jav
         ErrorKind::AlreadyExists => "java.nio.file.FileAlreadyExistsException",
         _ => "java.nio.file.FileSystemException",
     };
-    let mut message = JavaString(path.0.clone());
+    let mut message = String::from_utf16_lossy(&path.0.clone());
     // UnixFileSystemProvider.createDirectories first tries the whole path,
     // then checks its parent. ENOTDIR escapes that parent access check.
     if error.kind() == ErrorKind::NotADirectory
         && let Ok(native) = path.to_path_buf()
         && let Some(parent) = native.parent()
         && parent.metadata().is_err_and(|e| e.kind() == ErrorKind::NotADirectory)
-        && let Some(index) = message.0.iter().rposition(|&u| u == 47)
+        && let Some(index) = message.rfind('/')
     {
-        message.0.truncate(index);
+        message.truncate(index);
     }
     if class == "java.nio.file.FileSystemException" {
         message.push_str(": ");
@@ -73,10 +70,10 @@ pub(crate) fn nio_error(error: std::io::Error, path: &jcompat::file_manager::Jav
     })
 }
 pub(crate) fn file_open_error(error: std::io::Error, path: &jcompat::file_manager::JavaPath) -> VendorError {
-    let mut message = JavaString(path.0.clone());
+    let mut message = String::from_utf16_lossy(&path.0.clone());
     message.push_str(" (");
     message.push_str(&native_reason(&error));
-    message.push_str(")");
+    message.push(')');
     VendorError::Other(Failure {
         class: "java.io.FileNotFoundException".into(),
         message: Some(message),
@@ -87,7 +84,7 @@ pub(crate) fn file_open_error(error: std::io::Error, path: &jcompat::file_manage
 pub(crate) fn clock_error(error: crate::time::ReplayError) -> VendorError {
     let mut message = error.label;
     message.push_str(": ");
-    message.append(error.message);
+    message.push_str(&error.message);
     VendorError::Other(Failure {
         class: "ReplayError".into(),
         message: Some(message),

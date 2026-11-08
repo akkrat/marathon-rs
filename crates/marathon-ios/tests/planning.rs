@@ -16,7 +16,7 @@ use support::*;
 async fn profiles_reuse_first_available_unused_records_once_and_preserve_input_order() -> TestResult {
     let h = Harness::new();
     let p = profile();
-    let kind = p.fully_qualified_device_type_id().to_string_lossy();
+    let kind = p.fully_qualified_device_type_id().to_owned();
     let data = format!(
         r#"{{"devicetypes":[],"runtimes":[],"devices":{{"r":[
         {{"udid":"explicit","name":"e","state":"Booted","isAvailable":true,"deviceTypeIdentifier":"{kind}"}},
@@ -154,7 +154,7 @@ fn timing_evaluates_the_message_before_its_separate_elapsed_read_with_debug_disa
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(clock.clone()).unwrap()), logging);
     timing
         .cycle(&Transport::Local, 2, 3, 4, 5)
-        .map_err(|e| e.failure().to_java_string().to_string_lossy())?;
+        .map_err(|e| e.failure().to_java_string().to_owned())?;
     assert_eq!(
         logs.lock().unwrap()[0].2,
         "Worker local: connected in 2 ms, planned 4 simulators in 3 ms, provisioned them in 5 ms (+25 ms since start)"

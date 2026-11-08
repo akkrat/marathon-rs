@@ -264,7 +264,7 @@ impl FrameTransform {
 pub struct CaptureSettings {
     pub device: DeviceInfo,
     pub pool: DevicePoolId,
-    pub batch_id: jcompat::writers::JavaString,
+    pub batch_id: String,
     pub delay: Duration,
     pub height: i32,
     pub width: i32,
@@ -379,12 +379,12 @@ impl ScreenCapturer {
                                 .map_err(clock_error)?;
                             let frame = match source.screenshot(settings.timeout, cancellation.clone()).await {
                                 Err(VendorError::Other(ref f))
-                                    if f.class == "java.util.concurrent.TimeoutException".into() =>
+                                    if f.class == "java.util.concurrent.TimeoutException" =>
                                 {
                                     (services.log)(&logger, Level::Error, &"Timeout. Exiting".into(), Some(f));
                                     None
                                 }
-                                Err(VendorError::Other(ref f)) if f.class == "java.io.IOException".into() => None,
+                                Err(VendorError::Other(ref f)) if f.class == "java.io.IOException" => None,
                                 other => other?,
                             };
                             if let Some(frame) = frame {

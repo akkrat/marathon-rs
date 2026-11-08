@@ -105,7 +105,10 @@ fn unparseable_lines_are_logged_like_sshj() {
         ]
     );
     let base64 = events[4].3.as_ref().unwrap();
-    assert_eq!(base64.class, "net.schmizz.sshj.common.Base64DecodingException".into());
+    assert_eq!(
+        base64.class,
+        "net.schmizz.sshj.common.Base64DecodingException".to_owned()
+    );
     assert_eq!(
         base64.message,
         Some("Failed to decode base64: Illegal base64 character 21".into())

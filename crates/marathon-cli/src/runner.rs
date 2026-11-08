@@ -8,7 +8,7 @@ use crate::{
     application::{CliRunner, Console, MarathonRun, VERSION, failure, render_throwable},
     core_output::RunConsoleSink,
 };
-use jcompat::{file_manager::JavaPath, logging::MarathonLogging, writers::JavaString};
+use jcompat::{file_manager::JavaPath, logging::MarathonLogging};
 use marathon_analytics::{AnalyticsClients, BackendClients};
 use marathon_config::{AnalyticsConfiguration, Configuration};
 use marathon_core::{
@@ -30,7 +30,7 @@ use std::{
 pub struct ProductionRunner {
     pub factories: Arc<VendorFactories>,
     pub cwd: PathBuf,
-    pub environment: Vec<(JavaString, JavaString)>,
+    pub environment: Vec<(String, String)>,
     /// Test seams for the signal relay; `main` leaves them empty.
     pub signal_hooks: marathon_core::marathon::SignalHooks,
 }
@@ -57,7 +57,7 @@ pub fn missing_vendors() -> VendorFactories {
 }
 
 /// P1 (D12 extension): the facts logged under `System Information:`, in this order.
-pub fn system_information(cwd: &std::path::Path) -> Vec<(JavaString, JavaString)> {
+pub fn system_information(cwd: &std::path::Path) -> Vec<(String, String)> {
     let os_version = std::process::Command::new("uname")
         .arg("-r")
         .output()
@@ -79,7 +79,7 @@ pub fn system_information(cwd: &std::path::Path) -> Vec<(JavaString, JavaString)
         ("user.home", home),
     ]
     .into_iter()
-    .map(|(k, v)| (JavaString::from(k), JavaString::from(v)))
+    .map(|(k, v)| (String::from(k), v))
     .collect()
 }
 

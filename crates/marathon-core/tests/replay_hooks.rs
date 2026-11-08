@@ -74,7 +74,7 @@ fn signed_draws_key_selection_and_identity_aliases_consume_exact_entries() {
             assert_eq!(replay(hooks.draw_int("core.RandomOrderSortingStrategy.key")), i32::MIN);
             assert_eq!(
                 replay(hooks.choose_key("android.AdamDeviceProvider.borrow", &["serial".into()])),
-                "serial".into()
+                "serial".to_owned()
             );
             let first = replay(hooks.identity_suffix("config.Configuration.identities", ObjectIdentity(1)));
             assert_eq!(
@@ -131,7 +131,7 @@ fn unused_explicit_entries_fail_and_patterns_have_no_unused_tail() {
             );
             assert_eq!(
                 replay(hooks.allocate_id("core.TestBatch.id")),
-                "00000000-0000-0000-0000-000000000001".into()
+                "00000000-0000-0000-0000-000000000001".to_owned()
             );
             replay(hooks.verify_consumed());
             for kind in 0..3 {
@@ -238,9 +238,9 @@ fn live_hooks_share_seams_without_tape_state() {
     let millis = replay(hooks.millis("core.di.Clock"));
     assert!(millis > 0);
     let key = replay(hooks.choose_key("android.AdamDeviceProvider.borrow", &["only".into()]));
-    assert_eq!(key, "only".into());
+    assert_eq!(key, "only".to_owned());
     let id = replay(hooks.allocate_id("core.TestBatch.id"));
-    assert_eq!(id.as_utf8().unwrap().len(), 36);
+    assert_eq!(id.len(), 36);
     let identity = ObjectIdentity(7);
     assert_eq!(
         replay(hooks.identity_suffix("config.Configuration.identities", identity)),
@@ -258,17 +258,17 @@ fn checked_in_scenario_tape_drives_clock_ids_and_aliases() {
             let hooks = RuntimeHooks::taped(tape::scenario_tape(), core.clock().as_ref());
             assert_eq!(
                 replay(hooks.allocate_id("test.ConfigurationFactory.outputDir")),
-                "scenario".into()
+                "scenario".to_owned()
             );
             replay(driver.advance_to(17).await);
             assert_eq!(replay(hooks.millis("core.di.Clock")), 1_577_836_800_017);
             assert_eq!(
                 replay(hooks.allocate_id("core.TestBatch.id")),
-                "00000000-0000-0000-0000-000000000001".into()
+                "00000000-0000-0000-0000-000000000001".to_owned()
             );
             assert_eq!(
                 replay(hooks.identity_suffix("core.RawJsonReporter.identities", ObjectIdentity(1))),
-                "00002000".into()
+                "00002000".to_owned()
             );
             driver.set_hooks(hooks);
             replay(driver.finish());

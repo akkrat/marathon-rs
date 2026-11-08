@@ -415,7 +415,7 @@ pub fn child_file(parent: &JavaPath, child: &[u16]) -> JavaPath {
 }
 
 /// Kotlin File.relativePathTo: absolute lexical paths, normalized dot segments.
-pub fn relative_file(path: &JavaPath, base: &JavaPath, cwd: &JavaPath) -> crate::writers::JavaString {
+pub fn relative_file(path: &JavaPath, base: &JavaPath, cwd: &JavaPath) -> String {
     fn segments(path: &JavaPath, cwd: &JavaPath) -> Vec<Vec<u16>> {
         let absolute = absolute_file_path_utf16(&path.0, &cwd.0);
         let mut parts = Vec::new();
@@ -434,5 +434,5 @@ pub fn relative_file(path: &JavaPath, base: &JavaPath, cwd: &JavaPath) -> crate:
     let base = segments(base, cwd);
     let common = target.iter().zip(&base).take_while(|(a, b)| a == b).count();
     let parts = std::iter::repeat_n(vec![46, 46], base.len() - common).chain(target.into_iter().skip(common));
-    crate::writers::JavaString(parts.collect::<Vec<_>>().join(&47))
+    String::from_utf16_lossy(&parts.collect::<Vec<_>>().join(&47))
 }

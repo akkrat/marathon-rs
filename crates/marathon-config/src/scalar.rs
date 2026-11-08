@@ -46,10 +46,10 @@ pub(super) fn int_value(t: &Token) -> Result<i32, &'static str> {
                 Ok(f as i32)
             }
         },
-        Tok::Str(s) if java_trim(&s.to_string_lossy()).is_empty() || java_trim(&s.to_string_lossy()) == "null" => Ok(0),
+        Tok::Str(s) if java_trim(&s.to_owned()).is_empty() || java_trim(&s.to_owned()) == "null" => Ok(0),
         Tok::Str(s) => {
-            check_number_length(java_trim(&s.to_string_lossy()))?;
-            ascii_long(java_trim(&s.to_string_lossy()))
+            check_number_length(java_trim(&s.to_owned()))?;
+            ascii_long(java_trim(&s.to_owned()))
                 .and_then(|v| i32::try_from(v).ok())
                 .ok_or(INVALID_FORMAT)
         }
@@ -83,10 +83,10 @@ pub(super) fn long_value(t: &Token) -> Result<i64, &'static str> {
                 Ok(f as i64)
             }
         },
-        Tok::Str(s) if java_trim(&s.to_string_lossy()).is_empty() || java_trim(&s.to_string_lossy()) == "null" => Ok(0),
+        Tok::Str(s) if java_trim(&s.to_owned()).is_empty() || java_trim(&s.to_owned()) == "null" => Ok(0),
         Tok::Str(s) => {
-            check_number_length(java_trim(&s.to_string_lossy()))?;
-            ascii_long(java_trim(&s.to_string_lossy())).ok_or(INVALID_FORMAT)
+            check_number_length(java_trim(&s.to_owned()))?;
+            ascii_long(java_trim(&s.to_owned())).ok_or(INVALID_FORMAT)
         }
         Tok::Null(_) => Ok(0),
         Tok::True(_) | Tok::False(_) => Err(MISMATCHED),
@@ -110,14 +110,12 @@ pub(super) fn double_value(t: &Token) -> Result<f64, &'static str> {
         } => s.parse::<f64>().map_err(|_| JSON_MAPPING),
         Tok::Int { value: Err(_), .. } => Err(JSON_MAPPING),
         Tok::Float { cleaned, .. } => parse_double(cleaned).ok_or(JSON_MAPPING),
-        Tok::Str(s) if java_trim(&s.to_string_lossy()).is_empty() || java_trim(&s.to_string_lossy()) == "null" => {
-            Ok(0.0)
-        }
+        Tok::Str(s) if java_trim(&s.to_owned()).is_empty() || java_trim(&s.to_owned()) == "null" => Ok(0.0),
         // No length gate here: a long non-numeric string fails parsing first
         // (C43), unlike the int/long path.
-        Tok::Str(s) => java_trim(&s.to_string_lossy())
+        Tok::Str(s) => java_trim(&s.to_owned())
             .is_ascii()
-            .then(|| parse_double(java_trim(&s.to_string_lossy())))
+            .then(|| parse_double(java_trim(&s.to_owned())))
             .flatten()
             .ok_or(INVALID_FORMAT),
         Tok::Null(_) => Ok(0.0),
@@ -130,10 +128,8 @@ pub(super) fn bool_value(t: &Token) -> Result<bool, &'static str> {
         Tok::True(_) => Ok(true),
         Tok::False(_) => Ok(false),
         Tok::Null(_) => Ok(false),
-        Tok::Str(s) if java_trim(&s.to_string_lossy()).is_empty() || java_trim(&s.to_string_lossy()) == "null" => {
-            Ok(false)
-        }
-        Tok::Str(s) => match java_trim(&s.to_string_lossy()) {
+        Tok::Str(s) if java_trim(&s.to_owned()).is_empty() || java_trim(&s.to_owned()) == "null" => Ok(false),
+        Tok::Str(s) => match java_trim(&s.to_owned()) {
             "true" | "True" | "TRUE" => Ok(true),
             "false" | "False" | "FALSE" => Ok(false),
             _ => Err(INVALID_FORMAT),
@@ -159,7 +155,7 @@ pub(super) fn bool_value(t: &Token) -> Result<bool, &'static str> {
 /// jsr310/file-adjacent targets); the caller maps it per nullability.
 pub(super) fn string_value(t: &Token) -> Result<Option<String>, &'static str> {
     match &t.tok {
-        Tok::Str(s) => Ok(Some(s.to_string_lossy())),
+        Tok::Str(s) => Ok(Some(s.to_owned())),
         Tok::Int {
             text: s, value: Ok(_), ..
         } => Ok(Some(s.clone())),
@@ -179,9 +175,9 @@ pub(super) fn string_value(t: &Token) -> Result<Option<String>, &'static str> {
 
 pub(super) fn instant_value(t: &Token) -> Result<Option<String>, &'static str> {
     match &t.tok {
-        Tok::Str(s) if java_trim(&s.to_string_lossy()).is_empty() => Ok(None),
+        Tok::Str(s) if java_trim(&s.to_owned()).is_empty() => Ok(None),
         Tok::Str(s) => {
-            let s = s.to_string_lossy();
+            let s = s.to_owned();
             if let Some(i) = parse_instant(&s) {
                 return Ok(Some(i.to_string()));
             }
@@ -225,8 +221,8 @@ pub(super) fn instant_value(t: &Token) -> Result<Option<String>, &'static str> {
 
 pub(super) fn duration_value(t: &Token) -> Result<Option<String>, &'static str> {
     match &t.tok {
-        Tok::Str(s) if java_trim(&s.to_string_lossy()).is_empty() => Ok(None),
-        Tok::Str(s) => parse_duration(java_trim(&s.to_string_lossy()))
+        Tok::Str(s) if java_trim(&s.to_owned()).is_empty() => Ok(None),
+        Tok::Str(s) => parse_duration(java_trim(&s.to_owned()))
             .map(|d| Some(d.to_string()))
             .ok_or(INVALID_FORMAT),
         Tok::Int {

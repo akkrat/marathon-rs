@@ -10,7 +10,6 @@ use crate::{
 use jcompat::{
     file_manager::JavaPath,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use marathon_config::{CONFIGURATION_EXCEPTION_CLASS, VendorConfiguration, vendor::TestType};
 use marathon_core::{
@@ -65,7 +64,7 @@ fn path(path: &JavaPath) -> Result<PathBuf, VendorError> {
     path.to_file_path_buf()
         .map_err(|e| VendorError::Other(failure("java.nio.file.InvalidPathException", e.to_string())))
 }
-fn setup(message: JavaString) -> VendorError {
+fn setup(message: String) -> VendorError {
     let mut detail = failure("com.malinskiy.marathon.exceptions.DeviceSetupException", "");
     detail.message = Some(message);
     VendorError::DeviceSetup(detail)
@@ -113,13 +112,12 @@ impl<'a> AppleApplicationInstaller<'a> {
         self.code_coverage = enabled;
         self
     }
-    fn log(&self, level: Level, message: JavaString) {
-        self.logging
-            .log(&self.logger, level, || message.to_string_lossy(), None);
+    fn log(&self, level: Level, message: String) {
+        self.logging.log(&self.logger, level, || message.to_owned(), None);
     }
     fn device_log(&self, prefix: &str, device: &dyn AppleDevice) {
-        let mut message = JavaString::from(prefix);
-        message.append(device.info().serial_number);
+        let mut message = String::from(prefix);
+        message.push_str(&device.info().serial_number);
         self.log(Level::Debug, message);
     }
     /// Run on the vendor runtime through the core bridge and await completion.
@@ -173,10 +171,10 @@ impl<'a> AppleApplicationInstaller<'a> {
                 fm.remote_xctest_file()
             };
             let src = bundle.test_application.as_ref().unwrap_or(&bundle.xctest_bundle);
-            let mut message = JavaString::from("Error transferring ");
-            message.append(JavaString(xctest.0.clone()));
+            let mut message = String::from("Error transferring ");
+            message.push_str(&String::from_utf16_lossy(&xctest.0.clone()));
             message.push_str(" to ");
-            message.append(device.info().serial_number);
+            message.push_str(&device.info().serial_number);
             // Keep the last vendor variant intact across the core retry helper's Failure seam.
             let last = std::sync::Mutex::new(None);
             let result = with_retry_send(3, 1000, &*context.clock, context.cancellation.clone(), || async {
@@ -255,23 +253,23 @@ impl<'a> AppleApplicationInstaller<'a> {
             .await?;
         for extra in config.extra_applications.iter().flatten() {
             let local = path(extra)?;
-            let shown = JavaString(extra.0.clone());
-            let name = shown.to_string_lossy();
+            let shown = String::from_utf16_lossy(&extra.0.clone());
+            let name = shown.to_owned();
             let name = name.rsplit('/').next().unwrap_or("");
             if tokio::fs::metadata(&local).await.is_ok_and(|m| m.is_dir())
                 && name.rsplit_once('.').is_some_and(|(_, ext)| ext == "app")
             {
-                let mut message = JavaString::from("Installing extra application ");
-                message.append(shown);
+                let mut message = String::from("Installing extra application ");
+                message.push_str(&shown);
                 message.push_str(" to ");
-                message.append(device.info().serial_number);
+                message.push_str(&device.info().serial_number);
                 self.log(Level::Debug, message);
                 let remote = fm.remote_extra_application(name);
                 device.push_shared(&local, &remote, context).await?;
                 device.install(&remote, context).await?;
             } else {
-                let mut message = JavaString::from("Extra application ");
-                message.append(shown);
+                let mut message = String::from("Extra application ");
+                message.push_str(&shown);
                 message.push_str(" should be a directory with extension app");
                 self.log(Level::Warn, message);
             }

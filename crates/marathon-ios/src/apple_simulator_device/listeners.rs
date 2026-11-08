@@ -53,7 +53,7 @@ impl SimulatorListenerFactory for MinimalSimulatorListenerFactory {
 }
 struct RetireOnFailure(Weak<AppleSimulatorDevice>);
 impl AppleTestRunListener for RetireOnFailure {
-    fn test_run_failed<'a>(&'a self, _: &'a JavaString, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if not_fixed_by_setup(reason)
                 && let Some(device) = self.0.upgrade()
@@ -115,7 +115,7 @@ impl AppleSimulatorDevice {
             timer: self.services.timer.clone(),
             wall: self.services.result_wall.clone(),
             logs: self.services.logs.clone(),
-            remote_xcresult: self.remote.remote_xcresult_file(&batch).to_string_lossy(),
+            remote_xcresult: self.remote.remote_xcresult_file(&batch).to_owned(),
             xcresulttool: Arc::new(self.bin.xcrun.xcresulttool.clone()),
             xcode_version: self.xcode_version(),
             context: context.clone(),

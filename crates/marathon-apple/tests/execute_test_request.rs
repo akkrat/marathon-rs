@@ -2,10 +2,7 @@
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
-use jcompat::{
-    logging::{Level, Logger, MarathonLogging},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger, MarathonLogging};
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::{
@@ -76,11 +73,11 @@ struct Lines {
     active: AtomicUsize,
 }
 impl LineListener for Lines {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             assert_eq!(self.active.fetch_add(1, Ordering::SeqCst), 0);
             tokio::task::yield_now().await;
-            self.seen.lock().unwrap().push(line.to_string_lossy());
+            self.seen.lock().unwrap().push(line.to_owned());
             self.active.fetch_sub(1, Ordering::SeqCst);
             Ok(())
         })
@@ -169,7 +166,7 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, TestEvent::TestStarted { id } if id.pkg == JavaString::from("RequestTarget")))
+            .any(|e| matches!(e, TestEvent::TestStarted { id } if id.pkg == String::from("RequestTarget")))
     );
     let seen = lines.seen.lock().unwrap();
     assert_eq!(seen.len(), 3);

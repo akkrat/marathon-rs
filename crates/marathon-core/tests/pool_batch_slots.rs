@@ -13,9 +13,9 @@ use marathon_core::{
 use std::{collections::HashMap, sync::Arc};
 use support::*;
 
-struct Apk(jcompat::writers::JavaString);
+struct Apk(String);
 impl TestBundle for Apk {
-    fn id(&self) -> &jcompat::writers::JavaString {
+    fn id(&self) -> &String {
         &self.0
     }
 }
@@ -23,7 +23,7 @@ impl TestBundle for Apk {
 struct ByClass(HashMap<String, BundleRef>);
 impl TestBundleIdentifier for ByClass {
     fn identify(&self, test: &Test) -> VendorResult<Option<BundleRef>> {
-        Ok(self.0.get(&test.clazz.to_string_lossy()).cloned())
+        Ok(self.0.get(&test.clazz.to_owned()).cloned())
     }
 }
 struct Durations(HashMap<Test, f64>);

@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/xcresulttool/AppleJsonTypeAdapterFactory.kt (Jackson library semantics).
 
-use crate::{jtime, writers::JavaString};
+use crate::jtime;
 
 /// `java.util.Date` stores epoch milliseconds, independently of `java.time.Instant`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,44 +55,44 @@ pub fn trim(text: &str) -> &str {
     text.trim_matches(|c| c <= '\u{20}')
 }
 
-/// Decode a JSON string token to UTF-16 without discarding unpaired surrogates.
+/// Decode a JSON string token with replacement for unpaired surrogates (D55).
 /// The caller validates JSON syntax first; this also checks escapes defensively.
-pub fn json_string(token: &str) -> Option<JavaString> {
+pub fn json_string(token: &str) -> Option<String> {
     let body = token.strip_prefix('"')?.strip_suffix('"')?;
     let mut chars = body.chars();
-    let mut result = JavaString::default();
+    let mut result = Vec::new();
     while let Some(character) = chars.next() {
         if character != '\\' {
-            result.push_code_point(character as u32);
+            result.extend(character.encode_utf16(&mut [0; 2]).iter().copied());
             continue;
         }
         match chars.next()? {
-            '"' => result.push_str("\""),
-            '\\' => result.push_str("\\"),
-            '/' => result.push_str("/"),
-            'b' => result.0.push(8),
-            'f' => result.0.push(12),
-            'n' => result.0.push(10),
-            'r' => result.0.push(13),
-            't' => result.0.push(9),
+            '"' => result.push(34),
+            '\\' => result.push(92),
+            '/' => result.push(47),
+            'b' => result.push(8),
+            'f' => result.push(12),
+            'n' => result.push(10),
+            'r' => result.push(13),
+            't' => result.push(9),
             'u' => {
                 let mut unit = 0;
                 for _ in 0..4 {
                     unit = unit * 16 + chars.next()?.to_digit(16)? as u16;
                 }
-                result.0.push(unit);
+                result.push(unit);
             }
             _ => return None,
         }
     }
-    Some(result)
+    Some(String::from_utf16_lossy(&result))
 }
 
 pub enum Scalar<'a> {
     Null,
     Bool(bool),
     Number(&'a str),
-    String(&'a JavaString),
+    String(&'a str),
     Other,
 }
 
@@ -102,10 +102,10 @@ pub enum ScalarError {
     Invalid,
 }
 
-pub fn string(value: Scalar<'_>) -> Result<JavaString, ScalarError> {
+pub fn string(value: Scalar<'_>) -> Result<String, ScalarError> {
     match value {
-        Scalar::String(text) => Ok(text.clone()),
-        Scalar::Bool(value) => Ok(JavaString::from(if value { "true" } else { "false" })),
+        Scalar::String(text) => Ok(text.to_owned()),
+        Scalar::Bool(value) => Ok(String::from(if value { "true" } else { "false" })),
         Scalar::Number(text) => {
             let text = if text.contains(['.', 'e', 'E']) {
                 crate::jnum::double_to_string(text.parse().map_err(|_| ScalarError::Invalid)?)
@@ -114,7 +114,7 @@ pub fn string(value: Scalar<'_>) -> Result<JavaString, ScalarError> {
             } else {
                 text.to_owned()
             };
-            Ok(JavaString::from(text))
+            Ok(text)
         }
         _ => Err(ScalarError::Shape),
     }
@@ -135,8 +135,7 @@ pub fn int(value: Scalar<'_>) -> Result<Option<i32>, ScalarError> {
             }
         }
         Scalar::String(text) => {
-            let text = text.as_utf8().map_err(|_| ScalarError::Invalid)?;
-            let text = trim(&text);
+            let text = trim(text);
             if text.is_empty() || text == "null" {
                 Ok(None)
             } else if text.is_ascii() {
@@ -154,8 +153,7 @@ pub fn double(value: Scalar<'_>) -> Result<Option<f64>, ScalarError> {
         Scalar::Null => Ok(None),
         Scalar::Number(text) => text.parse().map(Some).map_err(|_| ScalarError::Invalid),
         Scalar::String(text) => {
-            let text = text.as_utf8().map_err(|_| ScalarError::Invalid)?;
-            let text = trim(&text);
+            let text = trim(text);
             if text.is_empty() || text == "null" {
                 return Ok(None);
             }
@@ -175,15 +173,12 @@ pub fn boolean(value: Scalar<'_>) -> Result<Option<bool>, ScalarError> {
         Scalar::Number(text) if !text.contains(['.', 'e', 'E']) => {
             Ok(Some(text.bytes().any(|b| matches!(b, b'1'..=b'9'))))
         }
-        Scalar::String(text) => {
-            let text = text.as_utf8().map_err(|_| ScalarError::Invalid)?;
-            match trim(&text) {
-                "true" | "True" | "TRUE" => Ok(Some(true)),
-                "false" | "False" | "FALSE" => Ok(Some(false)),
-                "" | "null" => Ok(None),
-                _ => Err(ScalarError::Invalid),
-            }
-        }
+        Scalar::String(text) => match trim(text) {
+            "true" | "True" | "TRUE" => Ok(Some(true)),
+            "false" | "False" | "FALSE" => Ok(Some(false)),
+            "" | "null" => Ok(None),
+            _ => Err(ScalarError::Invalid),
+        },
         _ => Err(ScalarError::Shape),
     }
 }
@@ -196,8 +191,7 @@ pub fn date(value: Scalar<'_>) -> Result<Option<JavaDate>, ScalarError> {
             .map(|millis| Some(JavaDate(millis)))
             .map_err(|_| ScalarError::Invalid),
         Scalar::String(text) => {
-            let text = text.as_utf8().map_err(|_| ScalarError::Invalid)?;
-            let text = trim(&text);
+            let text = trim(text);
             if text.is_empty() || text == "null" {
                 return Ok(None);
             }

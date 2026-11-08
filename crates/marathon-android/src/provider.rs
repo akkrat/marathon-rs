@@ -9,7 +9,6 @@ use crate::{
 use jcompat::{
     file_manager::JavaPath,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use marathon_adb::client::{
     AdamLogging, AdbError, AndroidDebugBridgeClient, ChannelStream, SocketFactory,
@@ -93,7 +92,7 @@ impl AdamDeviceProvider {
         let runtime = &self.inner.runtime;
         let mut clients = Vec::new();
         for endpoint in &runtime.configuration.adb_servers {
-            let host = endpoint.host.to_string_lossy();
+            let host = endpoint.host.to_owned();
             let port = u16::try_from(endpoint.port).map_err(|_| {
                 other(
                     "java.lang.IllegalArgumentException",
@@ -109,7 +108,7 @@ impl AdamDeviceProvider {
                             .map_err(io)?
                             .next()
                             .map(|s| s.ip())
-                            .ok_or_else(|| other("java.net.UnknownHostException", host.as_str()))
+                            .ok_or_else(|| other("java.net.UnknownHostException", host.as_str().to_owned()))
                     })
                     .await?
                 }
@@ -290,7 +289,7 @@ impl AdamDeviceProvider {
                             let channel = self.inner.channel.clone();
                             let c = context.clone();
                             let barriers = self.inner.runtime.dependencies.barriers.clone();
-                            let key = serial.clone().into();
+                            let key = serial.clone();
                             let task = self
                                 .inner
                                 .runtime
@@ -791,11 +790,7 @@ impl DeviceProvider for AdamDeviceProvider {
     fn borrow(&self, context: VendorContext) -> VendorFuture<'_, DeviceRef> {
         Box::pin(async move { Ok(self.borrow_untried(Vec::new(), context).await?.0) })
     }
-    fn borrow_untried(
-        &self,
-        tried: Vec<JavaString>,
-        context: VendorContext,
-    ) -> VendorFuture<'_, (DeviceRef, JavaString)> {
+    fn borrow_untried(&self, tried: Vec<String>, context: VendorContext) -> VendorFuture<'_, (DeviceRef, String)> {
         Box::pin(async move {
             loop {
                 let available: Vec<_> = lock(&self.inner.devices)
@@ -816,7 +811,7 @@ impl DeviceProvider for AdamDeviceProvider {
                                 serial.clone()
                             };
                             // D53: a device is the same one for remote parsing while its server and serial are, as for D18.
-                            let identity: JavaString = format!("{serial}@{server}").as_str().into();
+                            let identity: String = format!("{serial}@{server}").as_str().into();
                             (key, identity, reference.clone())
                         })
                         .collect();
@@ -826,13 +821,17 @@ impl DeviceProvider for AdamDeviceProvider {
                         .cloned()
                         .collect();
                     let available = if untried.is_empty() { available } else { untried };
-                    let keys = available.iter().map(|(s, _, _)| s.as_str().into()).collect::<Vec<_>>();
+                    let keys = available
+                        .iter()
+                        .map(|(s, _, _)| s.as_str().to_owned())
+                        .collect::<Vec<_>>();
                     let selected = context
                         .hooks
                         .choose_key("android.AdamDeviceProvider.borrow", &keys)
                         .map_err(|e| other("ReplayError", e.message))?;
-                    if let Some((_, identity, device)) =
-                        available.into_iter().find(|(s, _, _)| selected == s.as_str().into())
+                    if let Some((_, identity, device)) = available
+                        .into_iter()
+                        .find(|(s, _, _)| selected == s.as_str())
                     {
                         return Ok((device, identity));
                     }
@@ -994,7 +993,7 @@ fn is_connect(e: &VendorError) -> bool {
         "java.net.ConnectException",
     ]
     .iter()
-    .any(|c| e.failure().class == (*c).into())
+    .any(|c| e.failure().class == (*c))
 }
 fn no_devices(message: &str) -> VendorError {
     VendorError::NoDevices(failure("com.malinskiy.marathon.exceptions.NoDevicesException", message))
@@ -1023,9 +1022,9 @@ pub async fn start_adb(sdk: Option<&JavaPath>, port: u16, context: VendorContext
             .await
             .map_err(io)?;
         PathBuf::from(
-            jcompat::jstring::lines(&jcompat::utf8::decode_utf8(&result.stdout).as_str().into())
+            jcompat::jstring::lines(jcompat::utf8::decode_utf8(&result.stdout).as_str())
                 .first()
-                .map(|s| s.to_string_lossy())
+                .map(|s| s.to_owned())
                 .unwrap_or_default(),
         )
     };

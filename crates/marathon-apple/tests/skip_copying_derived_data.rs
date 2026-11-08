@@ -218,13 +218,13 @@ async fn run(id: &str) -> TestResult<Value> {
                 _ => None,
             };
             let detail = error.failure();
-            if detail.class.to_string_lossy().ends_with("DeviceSetupException") {
+            if detail.class.to_owned().ends_with("DeviceSetupException") {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::DeviceSetup(_))));
             }
-            if detail.class.to_string_lossy().ends_with("CancellationException") {
+            if detail.class.to_owned().ends_with("CancellationException") {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::Cancelled(_))));
             }
-            json!({"class":detail.class.to_string_lossy(),"message":detail.message.as_ref().map(|s|s.to_string_lossy().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
+            json!({"class":detail.class.to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
         }
     };
     // Always join before comparing: even an assertion failure leaves no live fake worker.

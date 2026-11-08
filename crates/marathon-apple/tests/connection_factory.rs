@@ -91,7 +91,7 @@ impl Fake {
     fn new(t: &Transport, logging: &SshLogging) -> Arc<Self> {
         Arc::new(Self {
             host: CommandHost {
-                id: t.id().to_string_lossy(),
+                id: t.id().to_owned(),
                 charset: "UTF-8".into(),
             },
             logger: logging.logger("FakeExecutor"),
@@ -212,7 +212,7 @@ impl Connector for TestConnector {
                         .lock()
                         .unwrap()
                         .as_ref()
-                        .is_none_or(|id| *id == t.id().to_string_lossy());
+                        .is_none_or(|id| *id == t.id().to_owned());
                     if blocked {
                         wait(&c.release, 1).await;
                     }
@@ -423,7 +423,7 @@ async fn failed_shared(error: SshFailure, swallow: bool) {
         let f = f.clone();
         tasks.push(tokio::spawn(async move {
             if swallow {
-                f.create(worker("a"), support::context()).await.map(|p| p.0)
+                f.create(worker("a"), support::context()).await.map(|p| p.0.clone())
             } else {
                 f.connect_worker(worker("a"), support::context()).await.map(Some)
             }

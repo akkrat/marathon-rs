@@ -26,7 +26,7 @@ impl AppleTestBundleIdentifier {
                     "com.malinskiy.marathon.config.exceptions.ConfigurationException",
                     format!(
                         "Invalid test {}: can't locate test bundle",
-                        test.to_test_name('.', '#').to_string_lossy()
+                        test.to_test_name('.', '#').to_owned()
                     ),
                 ))
             })

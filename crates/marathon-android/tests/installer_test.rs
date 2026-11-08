@@ -330,7 +330,7 @@ fn md5_poll_is_bounded_by_the_push_timeout_d23() {
                 err.failure().message,
                 Some(js(&format!(
                     "Remote file /mismatch on device {} did not reach md5 expected within 200 ms",
-                    device.serial_number().to_string_lossy()
+                    device.serial_number().to_owned()
                 )))
             );
             // Not `finish`: the real timeout can cancel an md5 mid-exchange, which the server warns about.

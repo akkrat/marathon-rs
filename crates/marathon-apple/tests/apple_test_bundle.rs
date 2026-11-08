@@ -243,7 +243,7 @@ fn prepare(root: &Path, name: &str) -> Case {
 
 fn describe(failure: &Failure) -> Value {
     // Causes are not compared: Kotlin's carry JDK-internal NIO exceptions.
-    json!({"class": failure.class.to_string_lossy(), "message": failure.message.as_ref().map(|m| m.to_string_lossy())})
+    json!({"class": failure.class.to_owned(), "message": failure.message.as_ref().map(|m| m.to_owned())})
 }
 fn fail(error: VendorError) -> Value {
     match error {
@@ -305,7 +305,7 @@ async fn observe(case: &Case, logs: &Arc<Mutex<Vec<Value>>>) -> Value {
         Err(e) => json!({"error": fail(e)}),
     };
     let mut value = json!({
-        "id": rel(Path::new(&bundle.id().to_string_lossy())),
+        "id": rel(Path::new(&bundle.id().to_owned())),
         "appId": bundle.app_id(),
         "testBundleId": bundle.test_bundle_id(),
         "testBinary": get(bundle.test_binary().await.map(Some)),

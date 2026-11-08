@@ -37,7 +37,7 @@ async fn setup_command_order_and_metadata_match_the_actual_jvm_device() -> TestR
         .unwrap();
     assert_eq!(d.root_path(), setup["root"]);
     assert_eq!(d.info().healthy, setup["healthy"].as_bool().unwrap());
-    assert_eq!(d.info().operating_system.version.to_string_lossy(), setup["os"]);
+    assert_eq!(d.info().operating_system.version.to_owned(), setup["os"]);
     h.worker.connected.store(false, Ordering::SeqCst);
     let disconnected = oracle.iter().find(|r| r["kind"] == "disconnectedHealth").unwrap();
     assert_eq!(d.info().healthy, disconnected["healthy"].as_bool().unwrap());
@@ -99,7 +99,7 @@ async fn jvm_setup_fallback_env_and_display_witnesses_match_rust() -> TestResult
             facts
                 .env
                 .iter()
-                .map(|(k, v)| (k.to_string_lossy(), json!(v.to_string_lossy())))
+                .map(|(k, v)| (k.to_owned(), json!(v.to_owned())))
                 .collect(),
         );
         assert_eq!(env, expected["env"]);
@@ -169,7 +169,7 @@ async fn actual_jvm_wrong_state_types_fail_and_p2_accepts_integral_storage() -> 
             .find(|r| r["kind"] == "actualState" && r["xml"] == xml)
             .unwrap();
         if let Some(class) = expected["errorClass"].as_str() {
-            assert_eq!(result.unwrap_err().failure().class.to_string_lossy(), class);
+            assert_eq!(result.unwrap_err().failure().class.to_owned(), class);
         } else {
             assert_eq!(
                 result.unwrap(),

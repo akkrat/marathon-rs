@@ -4,7 +4,7 @@ use jcompat::{
     file_manager::{FileManager, JavaPath},
     jtime::instant_of,
     logging::MarathonLogging,
-    writers::{GsonWriter, JavaString, WriterValue},
+    writers::{GsonWriter, WriterValue},
 };
 use marathon_core::{artifacts::FileManagerOutput, model::*, report::*, runtime::VendorRuntime};
 use std::{
@@ -93,11 +93,11 @@ pub fn event(r: TestResult, final_result: bool, pool: &str) -> TestEvent {
         final_result,
     }
 }
-pub fn trace() -> JavaString {
-    let mut s = JavaString::from(
+pub fn trace() -> String {
+    let mut s = String::from(
         "06 V verbose\r\nD debug\nI info\nW warning\nE <&>\nA assert\nα default\n\0\u{1}\u{b}\u{c}\u{e}\u{7f}\u{85}\u{9f}\u{fffe}\u{ffff}",
     );
-    s.0.push(0xd800);
+    s.push('\u{fffd}');
     s.push_str("\n");
     s
 }
@@ -172,7 +172,7 @@ pub fn fixture(name: &str) -> PathBuf {
         .join(name)
 }
 pub fn json(v: &WriterValue) -> Vec<u8> {
-    checked(GsonWriter::default().write(v)).to_utf8_bytes()
+    checked(GsonWriter::default().write(v)).as_bytes().to_vec()
 }
 pub fn oracle(id: &str) -> serde_json::Value {
     let rows: Vec<serde_json::Value> = checked(serde_json::from_str(include_str!(
@@ -201,7 +201,7 @@ pub fn config(root: &JavaPath) -> marathon_config::Configuration {
 }
 /// Records raw console writes, as the CLI's stdout adapter would print them.
 #[derive(Default)]
-pub struct Console(pub std::sync::Mutex<Vec<JavaString>>);
+pub struct Console(pub std::sync::Mutex<Vec<String>>);
 impl marathon_core::output::ConsoleSink for Console {
     fn write(
         &self,

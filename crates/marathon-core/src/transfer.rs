@@ -5,7 +5,6 @@ use jcompat::{
     file_manager::JavaPath,
     formatting::format_fixed,
     logging::{Level, Logger},
-    writers::JavaString,
 };
 use std::{path::Path, sync::Arc};
 
@@ -14,7 +13,7 @@ pub struct TransferMeasurement {
     pub io: Arc<dyn VendorRuntime>,
     pub clock: Arc<dyn WallClock>,
     pub logger: Logger,
-    pub serial: JavaString,
+    pub serial: String,
     pub log: ServiceLog,
 }
 impl TransferMeasurement {
@@ -103,8 +102,8 @@ impl TransferMeasurement {
             name = &name[..name.len() - 1];
         }
         let base = name.iter().rposition(|&u| u == 47).map_or(name, |i| &name[i + 1..]);
-        let mut message = JavaString::from("Transferred ");
-        message.0.extend_from_slice(base);
+        let mut message = String::from("Transferred ");
+        message.push_str(&String::from_utf16_lossy(base));
         if folder {
             message.push_str(" with ");
             message.push_str(&dirs.to_string());
@@ -113,14 +112,14 @@ impl TransferMeasurement {
             message.push_str(" files");
         }
         message.push_str(" to/from ");
-        message.append(self.serial.clone());
+        message.push_str(&self.serial.clone());
         message.push_str(". ");
         message.push_str(&speed);
         message.push_str(" KB/s (");
         message.push_str(&bytes.to_string());
         message.push_str(" bytes in ");
         message.push_str(&seconds);
-        message.push_str(")");
+        message.push(')');
         (self.log)(&self.logger, Level::Debug, &message, None);
     }
 }

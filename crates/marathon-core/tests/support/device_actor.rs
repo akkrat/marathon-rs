@@ -8,7 +8,6 @@
 use jcompat::{
     file_manager::JavaPath,
     logging::{Level, Logger, MarathonLogging},
-    writers::JavaString,
 };
 use marathon_config::{
     Configuration,
@@ -313,10 +312,10 @@ impl Device for ScriptedDevice {
             healthy: true,
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         "test".into()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         None
     }
     fn logger(&self) -> &Logger {
@@ -674,7 +673,7 @@ pub fn describe(message: &FromDevice, batch: &BatchRef) -> String {
         FromDevice::ReturnTestBatch(_, returned, reason) => format!(
             "ReturnTestBatch(same batch={}, reason={})",
             Arc::ptr_eq(returned, batch),
-            reason.to_string_lossy()
+            reason.to_owned()
         ),
     }
 }
@@ -714,9 +713,9 @@ pub fn scenario_with(
 
 // ---- The probe's row ----------------------------------------------------------------------
 
-fn clean(text: &JavaString, batch: &BatchRef) -> String {
-    text.to_string_lossy()
-        .replace(&batch.id.to_string_lossy(), "<batch>")
+fn clean(text: &String, batch: &BatchRef) -> String {
+    text.to_owned()
+        .replace(&batch.id.to_owned(), "<batch>")
         .split('\n')
         .filter(|line| !line.starts_with("\tat ") && !line.starts_with("\t... "))
         .collect::<Vec<_>>()
@@ -735,9 +734,9 @@ fn test_text(result: &TestResult) -> String {
     let t = &result.test;
     format!(
         "Test(pkg={}, clazz={}, method={}, metaProperties=[])",
-        t.pkg.to_string_lossy(),
-        t.clazz.to_string_lossy(),
-        t.method.to_string_lossy()
+        t.pkg.to_owned(),
+        t.clazz.to_owned(),
+        t.method.to_owned()
     )
 }
 pub fn throwable(cause: Option<&Failure>, batch: &BatchRef) -> Value {
@@ -745,7 +744,7 @@ pub fn throwable(cause: Option<&Failure>, batch: &BatchRef) -> Value {
     let mut current = cause;
     while let Some(failure) = current {
         chain.push(json!({
-            "class": failure.class.to_string_lossy(),
+            "class": failure.class.to_owned(),
             "message": failure.message.as_ref().map(|m| clean(m, batch)),
         }));
         current = failure.cause.as_deref();

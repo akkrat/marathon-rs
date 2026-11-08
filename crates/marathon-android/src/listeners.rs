@@ -2,7 +2,7 @@
 //! AccumulatingResultTestRunListener.kt, CompositeTestRunListener.kt, DebugTestRunListener.kt,
 //! NoOpTestRunListener.kt, TestResultsListener.kt and TestRunListenerAdapter.kt.
 use crate::{models::TestIdentifier, support::*};
-use jcompat::{logging::Level, regex_patterns::PARAMETERIZED_METHOD, writers::JavaString};
+use jcompat::{logging::Level, regex_patterns::PARAMETERIZED_METHOD};
 use marathon_adb::testrunner::{TestEvent, TestIdentifier as AdamIdentifier};
 use marathon_core::{
     artifacts::AttachmentCollector,
@@ -54,7 +54,7 @@ pub trait AndroidTestRunListener: Send + Sync {
     /// D25: the instrumentation's stream failed, for this reason; a `TestRunFailed` with the same text follows.
     fn on_stream_failed_in<'a>(
         &'a self,
-        _reason: &'a JavaString,
+        _reason: &'a String,
         _context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
@@ -136,7 +136,7 @@ impl AndroidTestRunListener for CompositeTestRunListener {
     }
     fn on_stream_failed_in<'a>(
         &'a self,
-        reason: &'a JavaString,
+        reason: &'a String,
         context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
@@ -283,7 +283,7 @@ pub struct TestResultsListener {
     pub device: DeviceRef,
     pub deferred: Arc<dyn Deferred<TestBatchResults>>,
     pub attachments: Arc<AttachmentCollector>,
-    pub log: Arc<dyn Fn(Level, JavaString) + Send + Sync>,
+    pub log: Arc<dyn Fn(Level, String) + Send + Sync>,
 }
 impl TestResultsListener {
     pub fn collector(providers: &[Arc<dyn AttachmentProvider>]) -> VendorResult<Arc<AttachmentCollector>> {
@@ -291,18 +291,22 @@ impl TestResultsListener {
     }
     pub fn merge_parameterised_results(&self, results: &mut TemporalResults) -> TemporalResults {
         let mut merged = TemporalResults::default();
-        let explicit = self
-            .batch
-            .tests
-            .iter()
-            .any(|t| t.method.0.contains(&91) && t.method.0.contains(&93));
+        let explicit = self.batch.tests.iter().any(|t| {
+            t.method.encode_utf16().collect::<Vec<_>>().contains(&91)
+                && t.method.encode_utf16().collect::<Vec<_>>().contains(&93)
+        });
         let mut origins: Vec<(Test, Test)> = vec![];
         for (test, result) in results.entries().to_vec() {
             let mut key = test.clone();
-            if !explicit && PARAMETERIZED_METHOD.matches(&test.method.to_string_lossy()) {
-                key.method
-                    .0
-                    .truncate(key.method.0.iter().position(|&u| u == 91).unwrap_or(key.method.0.len()));
+            if !explicit && PARAMETERIZED_METHOD.matches(&test.method.to_owned()) {
+                key.method.encode_utf16().collect::<Vec<_>>().truncate(
+                    key.method
+                        .encode_utf16()
+                        .collect::<Vec<_>>()
+                        .iter()
+                        .position(|&u| u == 91)
+                        .unwrap_or(key.method.encode_utf16().count()),
+                );
                 key.meta_properties.clear();
                 if let Some(old) = merged.get_mut(&key) {
                     old.status = old.status + result.status;
@@ -341,7 +345,7 @@ impl AndroidTestRunListener for TestResultsListener {
     }
     fn on_stream_failed_in<'a>(
         &'a self,
-        reason: &'a JavaString,
+        reason: &'a String,
         _context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
@@ -379,7 +383,7 @@ impl AndroidTestRunListener for TestResultsListener {
                         stacktrace: value.stack_trace.clone(),
                         attachments: self.attachments.get(key).unwrap_or_default(),
                     };
-                    if key.method == "null".into() && !self.batch.tests.contains(key) {
+                    if key.method == "null" && !self.batch.tests.contains(key) {
                         continue;
                     }
                     if value.is_successful() {
@@ -401,10 +405,10 @@ impl AndroidTestRunListener for TestResultsListener {
                 Ok(())
             })?;
             for result in &uncompleted {
-                let mut text = JavaString::from("uncompleted = ");
-                text.append(result.test.to_test_name('.', '#'));
+                let mut text = String::from("uncompleted = ");
+                text.push_str(&result.test.to_test_name('.', '#'));
                 text.push_str(", ");
-                text.append(self.device.0.info().serial_number);
+                text.push_str(&self.device.0.info().serial_number);
                 (self.log)(Level::Warn, text);
             }
             self.deferred.complete(Ok(TestBatchResults {
@@ -427,47 +431,47 @@ impl AndroidTestRunListener for DebugTestRunListener {
             let identifier = |id: &AdamIdentifier| {
                 format!(
                     "TestIdentifier(className={}, testName={})",
-                    id.class_name.to_string_lossy(),
-                    id.test_name.to_string_lossy()
+                    id.class_name.to_owned(),
+                    id.test_name.to_owned()
                 )
             };
             let s = match event {
-                TestEvent::TestRunStartedEvent { .. } => format!("testRunStarted {}", serial.to_string_lossy()),
+                TestEvent::TestRunStartedEvent { .. } => format!("testRunStarted {}", serial.to_owned()),
                 TestEvent::TestStarted { id } => {
-                    format!("testStarted {} test = {}", serial.to_string_lossy(), identifier(id))
+                    format!("testStarted {} test = {}", serial.to_owned(), identifier(id))
                 }
                 TestEvent::TestFailed { id, stack_trace } => format!(
                     "testFailed {} test = {} trace = {}",
-                    serial.to_string_lossy(),
+                    serial.to_owned(),
                     identifier(id),
-                    stack_trace.to_string_lossy()
+                    stack_trace.to_owned()
                 ),
                 TestEvent::TestAssumptionFailed { id, stack_trace } => format!(
                     "testAssumptionFailure {} test = {} trace = {}",
-                    serial.to_string_lossy(),
+                    serial.to_owned(),
                     identifier(id),
-                    stack_trace.to_string_lossy()
+                    stack_trace.to_owned()
                 ),
                 TestEvent::TestIgnored { id } => {
-                    format!("testIgnored {} test = {}", serial.to_string_lossy(), identifier(id))
+                    format!("testIgnored {} test = {}", serial.to_owned(), identifier(id))
                 }
                 TestEvent::TestEnded { id, .. } => {
-                    format!("testEnded {} test = {}", serial.to_string_lossy(), identifier(id))
+                    format!("testEnded {} test = {}", serial.to_owned(), identifier(id))
                 }
                 TestEvent::TestRunFailed { error } => format!(
                     "testRunFailed {} errorMessage = {}",
-                    serial.to_string_lossy(),
-                    error.to_string_lossy()
+                    serial.to_owned(),
+                    error.to_owned()
                 ),
                 TestEvent::TestRunFailing { error, stack_trace } => format!(
                     "testRunFailing {} errorMessage = {} trace = {}",
-                    serial.to_string_lossy(),
-                    error.to_string_lossy(),
-                    stack_trace.to_string_lossy()
+                    serial.to_owned(),
+                    error.to_owned(),
+                    stack_trace.to_owned()
                 ),
                 TestEvent::TestRunStopped { elapsed_time_millis } => format!(
                     "testRunStopped {} elapsedTime = {elapsed_time_millis}",
-                    serial.to_string_lossy()
+                    serial.to_owned()
                 ),
                 TestEvent::TestRunEnded {
                     elapsed_time_millis, ..

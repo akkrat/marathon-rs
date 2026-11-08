@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/TestRunListenerAdapter.kt
 use super::AppleTestRunListener;
-use jcompat::writers::JavaString;
+
 use marathon_core::listener::TestRunListener;
 use marathon_core::{model::Test, runtime::VendorFuture};
 use std::sync::Arc;
@@ -19,7 +19,7 @@ impl AppleTestRunListener for TestRunListenerAdapter {
         test: &'a Test,
         _start_time: i64,
         _end_time: i64,
-        _trace: Option<&'a JavaString>,
+        _trace: Option<&'a String>,
     ) -> VendorFuture<'a, ()> {
         self.listener.test_ended(test)
     }

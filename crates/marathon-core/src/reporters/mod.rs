@@ -8,17 +8,17 @@ pub mod timeline;
 use crate::{artifact_io::*, error::*, executor::shared::failure};
 use jcompat::{
     file_manager::{JavaPath, child_file},
-    writers::{GsonWriter, JavaString, WriterValue},
+    writers::{GsonWriter, WriterValue},
 };
 use std::io::Write;
 
 fn object<const N: usize>(fields: [(&str, WriterValue); N]) -> WriterValue {
     WriterValue::Object(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
 }
-fn string(s: &JavaString) -> WriterValue {
+fn string(s: &String) -> WriterValue {
     WriterValue::String(s.clone())
 }
-fn gson(v: &WriterValue) -> VendorResult<JavaString> {
+fn gson(v: &WriterValue) -> VendorResult<String> {
     GsonWriter::default()
         .write(v)
         .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.0)))

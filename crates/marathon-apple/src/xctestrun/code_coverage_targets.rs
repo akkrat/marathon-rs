@@ -146,8 +146,8 @@ impl BundleIndex {
         }
         installed.sort_by(|a, b| {
             a.depth.cmp(&b.depth).then_with(|| {
-                let a = jcompat::writers::JavaString::from(a.bundle.to_string_lossy().as_ref());
-                let b = jcompat::writers::JavaString::from(b.bundle.to_string_lossy().as_ref());
+                let a = String::from(a.bundle.to_string_lossy().as_ref());
+                let b = String::from(b.bundle.to_string_lossy().as_ref());
                 a.cmp(&b)
             })
         });

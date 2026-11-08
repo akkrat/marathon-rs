@@ -77,7 +77,7 @@ async fn skip_case(reuse: bool, skip: bool, missing: Option<bool>) -> TestResult
     if let Some(unknown) = missing {
         let error = result.unwrap_err();
         assert!(matches!(error, VendorError::TestParsing(_)));
-        let msg = error.failure().message.as_ref().unwrap().to_string_lossy();
+        let msg = error.failure().message.as_ref().unwrap().to_owned();
         assert!(msg.contains(if unknown { "unable to check" } else { "is missing" }));
         assert!(msg.contains(remote));
         assert_eq!(checks, vec![remote; 3]);
@@ -85,7 +85,7 @@ async fn skip_case(reuse: bool, skip: bool, missing: Option<bool>) -> TestResult
     } else {
         let tests = v(result)?;
         assert_eq!(tests.len(), 1);
-        assert_eq!(tests[0].method, jcompat::writers::JavaString::from("testLogin"));
+        assert_eq!(tests[0].method, String::from("testLogin"));
         assert_eq!(scans.len(), 2);
         for scan in scans {
             assert!(scan[2].as_str().unwrap().contains(if skip {
@@ -202,7 +202,7 @@ async fn scan_case(mode: u8) -> TestResult {
             assert_eq!(started.load(Ordering::SeqCst), 6);
             assert_eq!(
                 result.unwrap_err().failure().class,
-                jcompat::writers::JavaString::from("java.lang.IllegalStateException")
+                String::from("java.lang.IllegalStateException")
             );
         }
         3 => {
@@ -214,7 +214,7 @@ async fn scan_case(mode: u8) -> TestResult {
                     .message
                     .as_ref()
                     .unwrap()
-                    .to_string_lossy()
+                    .to_owned()
                     .contains("the command did not finish")
             );
         }
@@ -258,18 +258,14 @@ fn symbol_edge_cases_keep_order_duplicates_and_empty_objc_package() {
         serde_json::json!(
             tests
                 .iter()
-                .map(|t| vec![
-                    t.pkg.to_string_lossy(),
-                    t.clazz.to_string_lossy(),
-                    t.method.to_string_lossy()
-                ])
+                .map(|t| vec![t.pkg.to_owned(), t.clazz.to_owned(), t.method.to_owned()])
                 .collect::<Vec<_>>()
         ),
         row["tests"]
     );
     assert_eq!(tests[0], tests[1]);
     assert_eq!(tests[2], tests[3]);
-    assert_eq!(tests[2].pkg, jcompat::writers::JavaString::default());
+    assert_eq!(tests[2].pkg, String::default());
 }
 
 #[tokio::test]
@@ -287,7 +283,7 @@ async fn wrong_device_is_retried_three_times_with_the_jvm_logs() -> TestResult {
     let logging = SshLogging::new(
         device.logging.registry.clone(),
         Arc::new(move |logger, level, message, cause| {
-            captured.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":message,"throwable":cause.map(|f|f.stack_trace().to_string_lossy())}));
+            captured.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":message,"throwable":cause.map(|f|f.stack_trace().to_owned())}));
         }),
     );
     let parser = NmTestParser::new(
@@ -309,7 +305,7 @@ async fn wrong_device_is_retried_three_times_with_the_jvm_logs() -> TestResult {
         .find(|r| r["case"] == "nm-wrong-device")
         .unwrap();
     assert_eq!(
-        error.failure().class.to_string_lossy(),
+        error.failure().class.to_owned(),
         row["error"]["class"].as_str().unwrap()
     );
     assert_eq!(serde_json::json!(*logs.lock().unwrap()), row["logs"]);

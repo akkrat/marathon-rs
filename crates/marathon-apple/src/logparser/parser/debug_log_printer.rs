@@ -1,9 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/DebugLogPrinter.kt
 use crate::cmd::remote::ssh::sshj::config::SshLogging;
-use jcompat::{
-    logging::{Level, Logger},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger};
 use marathon_core::{listener::LineListener, runtime::VendorFuture};
 use std::sync::OnceLock;
 
@@ -24,7 +21,7 @@ impl DebugLogPrinter {
     }
 }
 impl LineListener for DebugLogPrinter {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if !self.hide_runner_output {
                 let logger = self.logger.get_or_init(|| {
@@ -37,7 +34,7 @@ impl LineListener for DebugLogPrinter {
                     );
                     logger
                 });
-                self.logging.log(logger, Level::Debug, || line.to_string_lossy(), None);
+                self.logging.log(logger, Level::Debug, || line.to_owned(), None);
             }
             Ok(())
         })

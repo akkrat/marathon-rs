@@ -262,7 +262,7 @@ async fn production_vendor_services_keep_default_retry_and_run_a_healthy_peer_be
     else {
         panic!("healthy peer missing")
     };
-    assert!(healthy.0.info().serial_number.to_string_lossy().starts_with("b@"));
+    assert!(healthy.0.info().serial_number.to_owned().starts_with("b@"));
     healthy
         .0
         .prepare(p.h().services.configuration.clone(), p.h().services.context.clone())

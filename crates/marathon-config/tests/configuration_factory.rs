@@ -15,7 +15,6 @@ use jcompat::{
     JavaRegex,
     file_manager::JavaPath,
     jtime::{Duration, Instant, duration_of, parse_duration, parse_instant},
-    writers::JavaString,
 };
 use marathon_config::{
     AnalyticsConfiguration, BatchingStrategyConfiguration, Configuration, Defaults, FlakinessStrategyConfiguration,
@@ -37,7 +36,7 @@ fn iso(text: &str) -> Instant {
 fn re(pattern: &str) -> JavaRegex {
     JavaRegex::compile(pattern, "test").unwrap()
 }
-fn s(text: &str) -> JavaString {
+fn s(text: &str) -> String {
     text.into()
 }
 fn p(dir: &Path, rel: &str) -> JavaPath {
@@ -788,16 +787,6 @@ fn on_configuration_with_code_coverage_should_reject_a_missing_xctestrun() {
     let dir = root.join("ios");
     let file = dir.join("sample_9.yaml");
     let error = load::parse(&file, &load::context(&file, &dir, None)).unwrap_err();
-    assert_eq!(
-        error.class.to_string_lossy(),
-        marathon_config::CONFIGURATION_EXCEPTION_CLASS
-    );
-    assert!(
-        error
-            .message
-            .as_ref()
-            .unwrap()
-            .to_string_lossy()
-            .contains("is not a file")
-    );
+    assert_eq!(error.class.to_owned(), marathon_config::CONFIGURATION_EXCEPTION_CLASS);
+    assert!(error.message.as_ref().unwrap().to_owned().contains("is not a file"));
 }

@@ -1,6 +1,6 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/execution/progress/PoolProgressAccumulatorTest.kt
 #![allow(dead_code)]
-use jcompat::{jtime::Instant, writers::JavaString};
+use jcompat::jtime::Instant;
 use marathon_config::schema::{ExecutionMode, ExecutionStrategyConfiguration};
 use marathon_core::{
     ci::Ci,
@@ -83,10 +83,10 @@ impl Tracker for Capture {
     fn device_disconnected<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_provider_init<'a>(&'a self, _: &'a JavaString, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_preparing<'a>(&'a self, _: &'a JavaString, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
     fn test<'a>(
@@ -177,7 +177,7 @@ impl Harness {
     pub fn aggregate(&self) -> bool {
         self.reporter.aggregate_result().unwrap()
     }
-    pub fn raw(&self) -> Vec<JavaString> {
+    pub fn raw(&self) -> Vec<String> {
         self.capture
             .effects
             .lock()

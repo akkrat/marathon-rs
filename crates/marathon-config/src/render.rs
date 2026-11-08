@@ -25,7 +25,7 @@ use jcompat::{
     file_manager::{JavaPath, absolute_file_path_utf16},
     jnum::double_to_string,
     jtime::{Duration, Instant},
-    writers::{JacksonYamlWriter, JavaNumber, JavaString, KotlinValue, WriterValue},
+    writers::{JacksonYamlWriter, JavaNumber, KotlinValue, WriterValue},
 };
 
 // ---- Enum names ---------------------------------------------------------------
@@ -117,13 +117,13 @@ impl Configuration {
     /// `File.absolutePath`, resolved against `process_dir` (the JVM's
     /// `user.dir`) when it is relative; every other value is the field's
     /// Kotlin `toString()`.
-    pub fn to_map(&self, process_dir: &JavaPath) -> Vec<(JavaString, JavaString)> {
+    pub fn to_map(&self, process_dir: &JavaPath) -> Vec<(String, String)> {
         let entries = [
             ("name", text(&self.name)),
             (
                 "outputDir",
-                KotlinValue::Text(JavaString(
-                    absolute_file_path_utf16(&self.output_dir.0, &process_dir.0).0,
+                KotlinValue::Text(String::from_utf16_lossy(
+                    &absolute_file_path_utf16(&self.output_dir.0, &process_dir.0).0,
                 )),
             ),
             ("outputConfiguration", self.output_configuration.kotlin()),
@@ -177,19 +177,19 @@ fn object(class: &str) -> KotlinValue {
     let hash = class
         .encode_utf16()
         .fold(0_i32, |h, c| h.wrapping_mul(31).wrapping_add(i32::from(c)));
-    KotlinValue::Text(format!("{class}@{:x}", hash as u32).into())
+    KotlinValue::Text(format!("{class}@{:x}", hash as u32))
 }
-fn text(s: &JavaString) -> KotlinValue {
+fn text(s: &String) -> KotlinValue {
     KotlinValue::Text(s.clone())
 }
-fn quoted(s: &JavaString) -> KotlinValue {
-    let mut out = JavaString::from("'");
-    out.0.extend_from_slice(&s.0);
-    out.push_str("'");
+fn quoted(s: &String) -> KotlinValue {
+    let mut out = String::from("'");
+    out.push_str(s);
+    out.push('\'');
     KotlinValue::Text(out)
 }
 fn path(p: &JavaPath) -> KotlinValue {
-    KotlinValue::Text(JavaString(p.0.clone()))
+    KotlinValue::Text(String::from_utf16_lossy(&p.0.clone()))
 }
 fn regex(r: &JavaRegex) -> KotlinValue {
     r.pattern().into()
@@ -198,10 +198,10 @@ fn boolean(b: bool) -> KotlinValue {
     if b { "true" } else { "false" }.into()
 }
 fn number(n: impl ToString) -> KotlinValue {
-    KotlinValue::Text(n.to_string().into())
+    KotlinValue::Text(n.to_string())
 }
 fn double(d: f64) -> KotlinValue {
-    KotlinValue::Text(double_to_string(d).into())
+    KotlinValue::Text(double_to_string(d))
 }
 fn duration(d: &Duration) -> KotlinValue {
     number(d)
@@ -218,7 +218,7 @@ fn opt<T>(v: Option<&T>, f: impl FnOnce(&T) -> KotlinValue) -> KotlinValue {
 fn list<T>(v: &[T], f: impl FnMut(&T) -> KotlinValue) -> KotlinValue {
     KotlinValue::List(v.iter().map(f).collect())
 }
-fn string_map(v: &[(String, JavaString)]) -> KotlinValue {
+fn string_map(v: &[(String, String)]) -> KotlinValue {
     KotlinValue::Map(v.iter().map(|(k, v)| (k.as_str().into(), text(v))).collect())
 }
 
@@ -1104,7 +1104,7 @@ impl Kotlin for AppleTestParserConfiguration {
 /// `ConfigurationFactory.serialize` (ConfigurationFactory.kt:205-207): the
 /// configuration as Marathonfile YAML that the loader parses back to an
 /// equal configuration.
-pub fn serialize(configuration: &Configuration) -> JavaString {
+pub fn serialize(configuration: &Configuration) -> String {
     JacksonYamlWriter.write(&configuration.writer_value())
 }
 
@@ -1122,11 +1122,11 @@ fn typed(id: &str, mut entries: Vec<(&str, WriterValue)>) -> WriterValue {
     entries.insert(0, ("type", id.into()));
     obj(entries)
 }
-fn w_text(s: &JavaString) -> WriterValue {
+fn w_text(s: &String) -> WriterValue {
     WriterValue::String(s.clone())
 }
 fn w_path(p: &JavaPath) -> WriterValue {
-    WriterValue::String(JavaString(p.0.clone()))
+    WriterValue::String(String::from_utf16_lossy(&p.0.clone()))
 }
 /// `RegexSerializer`: the pattern string.
 fn w_regex(r: &JavaRegex) -> WriterValue {
@@ -1141,7 +1141,7 @@ fn w_double(d: f64) -> WriterValue {
         // Unreachable: `JavaNumber` accepts every `Double.toString` spelling,
         // NaN and ±Infinity included, so those are written as plain
         // scalars (`successRate: NaN`), as Jackson writes them.
-        Err(e) => WriterValue::String(e.0.into()),
+        Err(e) => WriterValue::String(e.0),
     }
 }
 /// `WRITE_DURATIONS_AS_TIMESTAMPS`/`WRITE_DATES_AS_TIMESTAMPS` off: ISO text.
@@ -1163,7 +1163,7 @@ fn w_list<T>(v: &[T], f: impl FnMut(&T) -> WriterValue) -> WriterValue {
 fn w_paths(v: Option<&Vec<JavaPath>>) -> WriterValue {
     w_opt(v, |v| w_list(v, w_path))
 }
-fn w_map(v: &[(String, JavaString)]) -> WriterValue {
+fn w_map(v: &[(String, String)]) -> WriterValue {
     WriterValue::Object(v.iter().map(|(k, v)| (k.as_str().into(), w_text(v))).collect())
 }
 

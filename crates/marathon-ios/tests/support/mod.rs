@@ -1,9 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/FakeSimulatorWorker.kt
 #![allow(dead_code)]
-use jcompat::{
-    jtime::{Duration, Instant, duration_of, instant_of},
-    writers::JavaString,
-};
+use jcompat::jtime::{Duration, Instant, duration_of, instant_of};
 use marathon_apple::cmd::{BaseCommand, SessionScope, failure};
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
@@ -178,15 +175,15 @@ impl ReplayHooks for Clock {
     fn draw_int(&self, _: &'static str) -> ClockResult<i32> {
         unreachable!()
     }
-    fn choose_key(&self, label: &'static str, keys: &[JavaString]) -> ClockResult<JavaString> {
+    fn choose_key(&self, label: &'static str, keys: &[String]) -> ClockResult<String> {
         assert_eq!(label, "ios.AppleSimulatorProvider.borrow");
         Ok(keys[0].clone())
     }
-    fn allocate_id(&self, label: &'static str) -> ClockResult<JavaString> {
+    fn allocate_id(&self, label: &'static str) -> ClockResult<String> {
         assert_eq!(label, "ios.SimulatorProvisioner.create");
-        Ok(format!("00000000-0000-0000-0000-{:012}", IDS.fetch_add(1, Ordering::SeqCst)).into())
+        Ok(format!("00000000-0000-0000-0000-{:012}", IDS.fetch_add(1, Ordering::SeqCst)))
     }
-    fn identity_suffix(&self, _: &'static str, _: ObjectIdentity) -> ClockResult<JavaString> {
+    fn identity_suffix(&self, _: &'static str, _: ObjectIdentity) -> ClockResult<String> {
         Ok("abc".into())
     }
     fn verify_consumed(&self) -> ClockResult<()> {
@@ -324,7 +321,7 @@ impl Device for TestDevice {
     fn info(&self) -> DeviceInfo {
         DeviceInfo {
             operating_system: OperatingSystem { version: "18.6".into() },
-            serial_number: self.serial.clone().into(),
+            serial_number: self.serial.clone(),
             model: "model".into(),
             manufacturer: "Apple".into(),
             network_state: NetworkState::Connected,
@@ -332,10 +329,10 @@ impl Device for TestDevice {
             healthy: true,
         }
     }
-    fn abi(&self) -> JavaString {
+    fn abi(&self) -> String {
         "arm64".into()
     }
-    fn worker_id(&self) -> Option<JavaString> {
+    fn worker_id(&self) -> Option<String> {
         None
     }
     fn logger(&self) -> &jcompat::logging::Logger {
@@ -477,7 +474,7 @@ pub struct Harness {
     pub bin: Arc<AppleBinaryEnvironment>,
     pub context: VendorContext,
     pub cycle: Arc<WorkerProvisioningContext>,
-    pub registrations: Arc<Mutex<Vec<(JavaString, DeviceRef, i64)>>>,
+    pub registrations: Arc<Mutex<Vec<(String, DeviceRef, i64)>>>,
     pub clock: Arc<Clock>,
     pub signal: Arc<Signal>,
     pub logs: Logs,
@@ -540,10 +537,7 @@ impl Harness {
                 creating.clone(),
                 Arc::new(move |id, device| {
                     assert_eq!(device.device, device.handle.device());
-                    events
-                        .lock()
-                        .unwrap()
-                        .push(format!("register:{}", id.to_string_lossy()));
+                    events.lock().unwrap().push(format!("register:{}", id.to_owned()));
                     registered.lock().unwrap().push((id, device.device, regclock.now()));
                     Box::pin(async { Ok(()) })
                 }),

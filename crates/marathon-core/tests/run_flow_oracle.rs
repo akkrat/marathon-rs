@@ -231,9 +231,9 @@ fn outcome(outcome: &scenario::Outcome) -> Value {
     match &outcome.value {
         Some(Ok(v)) => value["value"] = (*v).into(),
         Some(Err(e)) => {
-            let class = e.failure().class.to_string_lossy();
+            let class = e.failure().class.to_owned();
             value["exception"] = class.rsplit('.').next().unwrap().into();
-            value["message"] = e.failure().message.as_ref().map(|m| m.to_string_lossy()).into();
+            value["message"] = e.failure().message.as_ref().map(|m| m.to_owned()).into();
         }
         None => {}
     }

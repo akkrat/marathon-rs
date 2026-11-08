@@ -18,7 +18,6 @@ use jcompat::{
     jtime::Duration,
     logging::{Level, Logger},
     throwable::is_error_class,
-    writers::JavaString,
 };
 use marathon_config::VendorConfiguration;
 use marathon_core::{
@@ -129,13 +128,13 @@ fn supply_message(problem: &str) -> String {
     )
 }
 #[derive(Default)]
-struct Buffer(Mutex<JavaString>);
+struct Buffer(Mutex<String>);
 impl LineListener for Buffer {
-    fn on_line<'a>(&'a self, line: &'a JavaString) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let mut buffer = self.0.lock().unwrap_or_else(|e| e.into_inner());
-            buffer.append(line.clone());
-            buffer.push_str("\n");
+            buffer.push_str(&line.clone());
+            buffer.push('\n');
             Ok(())
         })
     }
@@ -188,11 +187,11 @@ impl<'a> XCTestParser<'a> {
             .map_err(|e| e.into_vendor())?;
         let sdk = device.sdk();
         let library = self.libraries.file(sdk).ok_or_else(|| {
-            parsing_error(format!("No libxctest-parser.dylib for platform {}", sdk.platform_name()).into())
+            parsing_error(format!("No libxctest-parser.dylib for platform {}", sdk.platform_name()))
         })?;
         let temp = blocking(&*self.runtime, move || {
             let mut source =
-                open_regular_file(&library).map_err(|problem| parsing_error(supply_message(&problem).into()))?;
+                open_regular_file(&library).map_err(|problem| parsing_error(supply_message(&problem)))?;
             let mut file = tempfile::NamedTempFile::new().map_err(io_error)?;
             std::io::copy(&mut source, &mut file).map_err(io_error)?;
             Ok(file)
@@ -232,7 +231,7 @@ impl<'a> XCTestParser<'a> {
         let request = TestRequest::new(fm.parent_of(&remote).to_owned(), remote, false);
         let session = XcodebuildSession::new(self.runtime.clone(), self.logging.clone());
         let listener: Arc<dyn LineListener> = self.buffer.clone();
-        *self.buffer.0.lock().unwrap_or_else(|e| e.into_inner()) = JavaString::default();
+        *self.buffer.0.lock().unwrap_or_else(|e| e.into_inner()) = String::default();
         let mut channel = None;
         let mut tests = Vec::new();
         let mut result = async {
@@ -280,7 +279,7 @@ impl<'a> XCTestParser<'a> {
                 Level::Warn,
                 format!(
                     "xcodebuild session of test parsing on {} has not been closed",
-                    device.info().serial_number.to_string_lossy()
+                    device.info().serial_number.to_owned()
                 ),
                 Some(&VendorError::Other(error)),
             );
@@ -294,11 +293,7 @@ impl<'a> XCTestParser<'a> {
                 Level::Warn,
                 format!(
                     "XCTestParser failed to parse tests. xcodebuild output:\n{}",
-                    self.buffer
-                        .0
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .to_string_lossy()
+                    self.buffer.0.lock().unwrap_or_else(|e| e.into_inner()).to_owned()
                 ),
                 None,
             );
@@ -324,7 +319,7 @@ impl RemoteTestParser for XCTestParser<'_> {
                 blocking(&*self.runtime, move || {
                     libraries
                         .check(&[sdk])
-                        .map_err(|problem| parsing_error(supply_message(&problem).into()))
+                        .map_err(|problem| parsing_error(supply_message(&problem)))
                 })
                 .await?;
             }
@@ -342,7 +337,7 @@ impl RemoteTestParser for XCTestParser<'_> {
                     // U163: a stalled send is not worth two more on this device. Core's retry may borrow another.
                     Err(e @ (VendorError::Cancelled(_) | VendorError::LeavePool { .. })) => return Err(e),
                     Err(error) => {
-                        if !is_error_class(&error.failure().class.to_string_lossy()) {
+                        if !is_error_class(&error.failure().class.to_owned()) {
                             log(
                                 &self.logging,
                                 &self.logger,

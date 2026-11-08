@@ -140,10 +140,7 @@ fn jvm_v2_setup_statuses_and_exact_custom_logs() {
                     let Err(OperationError::Failed(f)) = result else {
                         panic!("missing organization accepted")
                     };
-                    assert_eq!(
-                        f.message.unwrap().to_string_lossy(),
-                        "No organization with name = org found"
-                    );
+                    assert_eq!(f.message.unwrap().to_owned(), "No organization with name = org found");
                 } else {
                     let client = result?;
                     let tracker = Influx2Tracker::new(client.clone(), false)?;
@@ -163,15 +160,15 @@ fn jvm_v2_setup_statuses_and_exact_custom_logs() {
         })
     });
     assert!(
-        logs.iter().any(|r| r.message.to_string_lossy()
-            == "Multiple organizations with name = org found. Using first one, id = id1")
+        logs.iter()
+            .any(|r| r.message == "Multiple organizations with name = org found. Using first one, id = id1")
     );
     assert!(
         logs.iter()
             .filter(|r| r.logger.ends_with("InfluxDb2Provider"))
             .all(|r| r.logger == "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider")
     );
-    assert!(logs.iter().any(|r|r.message.to_string_lossy()=="Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)"));
+    assert!(logs.iter().any(|r|r.message=="Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: RetentionPolicyConfiguration(everySeconds=2592000, shardGroupDurationSeconds=0)"));
 }
 #[test]
 fn jvm_graphite_path_line_order_and_status_gates() {
@@ -201,7 +198,7 @@ fn graphite_http_keeps_error_body_empty_lines_and_cr() {
     run(|env| {
         Box::pin(async move {
             let (peer, seen) = replay("graphite-http").await?;
-            let client = QueryableGraphiteClient::with_endpoint(&peer.url.clone().into(), env.context);
+            let client = QueryableGraphiteClient::with_endpoint(&peer.url.clone(), env.context);
             assert_eq!(
                 client
                     .query("a b+*", jcompat::jtime::parse_instant("2026-01-01T00:00:00Z").unwrap())
@@ -257,11 +254,11 @@ fn annotated_csv_tables_quotes_defaults_and_nulls() {
     let rows=marathon_analytics::influx2::decode("#datatype,string,long,string,double\n#group,false,false,true,false\n#default,_result,,fallback,\n,result,table,testname,_value\n,,0,\"a,b\",2.5\n,,0,,\n\n#datatype,string,long,string,double\n#default,_result,,,\n,result,table,testname,_value\n,,1,\"a\"\"b\",+Inf\n").unwrap();
     use marathon_core::analytics::remote::influx::Value;
     assert_eq!(rows.len(), 3);
-    assert_eq!(rows[0][&"testname".into()], Value::Text("a,b".into()));
-    assert_eq!(rows[1][&"testname".into()], Value::Text("fallback".into()));
-    assert_eq!(rows[1][&"_value".into()], Value::Null);
-    assert_eq!(rows[2][&"testname".into()], Value::Text("a\"b".into()));
-    assert_eq!(rows[2][&"_value".into()], Value::Number(f64::INFINITY));
+    assert_eq!(rows[0][&"testname".to_owned()], Value::Text("a,b".into()));
+    assert_eq!(rows[1][&"testname".to_owned()], Value::Text("fallback".into()));
+    assert_eq!(rows[1][&"_value".to_owned()], Value::Null);
+    assert_eq!(rows[2][&"testname".to_owned()], Value::Text("a\"b".into()));
+    assert_eq!(rows[2][&"_value".to_owned()], Value::Number(f64::INFINITY));
     assert!(marathon_analytics::influx2::decode("invalid").is_err());
     assert!(marathon_analytics::influx2::decode(",error,reference\n,bad query,7\n").is_err());
 }
@@ -293,7 +290,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
             let client = Influx2Client::connect(&v2(&peer.url), false, context).await?;
             let tracker = Arc::new(Influx2Tracker::new(client.clone(), false)?);
             let class = |result: OperationResult<()>| match result {
-                Err(OperationError::Failed(f)) => f.class.to_string_lossy(),
+                Err(OperationError::Failed(f)) => f.class.to_owned(),
                 other => panic!("{other:?}"),
             };
             assert_eq!(
@@ -339,7 +336,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
     let errors = logs.iter().filter(|r| r.logger == "guard").collect::<Vec<_>>();
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(
-        errors[0].cause.as_ref().unwrap().class.to_string_lossy(),
+        errors[0].cause.as_ref().unwrap().class.to_owned(),
         "com.influxdb.exceptions.BadRequestException"
     );
 }
@@ -364,7 +361,7 @@ fn factory_falls_back_on_real_setup_failure() {
     });
     assert!(
         logs.iter()
-            .any(|r| r.message.to_string_lossy() == "Cannot read history from the analytics backend")
+            .any(|r| r.message == "Cannot read history from the analytics backend")
     );
 }
 #[test]
@@ -387,7 +384,7 @@ fn p4_rejects_exotic_inputs_before_network_setup() {
                 );
             }
             let mut config = v1("http://127.0.0.1:1");
-            config.url = jcompat::writers::JavaString(vec![0xd800]);
+            config.url = String::from_utf16_lossy(&[0xd800]);
             assert!(
                 InfluxClient::connect(&config, false, env.context, env.io)
                     .await
@@ -416,7 +413,7 @@ fn real_transport_query_failures_retry_three_times_and_remain_cached() {
                 else if backend=="v2" {Reply::ok("invalid CSV")}
                 else {Reply{status:500,body:"bad raw value".into(),headers:vec![]}}
             }).await?;
-                let clients = Arc::new(env.clients().with_graphite_endpoint(peer.url.clone().into()));
+                let clients = Arc::new(env.clients().with_graphite_endpoint(peer.url.clone()));
                 let config = match backend {
                     "v1" => AnalyticsConfiguration::InfluxDb(v1(&peer.url)),
                     "v2" => AnalyticsConfiguration::InfluxDb2(v2(&peer.url)),
@@ -616,7 +613,7 @@ fn http_error_and_malformed_response_classes_match_the_jvm() {
                 let Err(OperationError::Failed(error)) = client.query(&"bad".into()).await else {
                     panic!("invalid response accepted")
                 };
-                assert_eq!(error.class.to_string_lossy(), observed["class"]);
+                assert_eq!(error.class.to_owned(), observed["class"]);
                 client.shutdown().await?;
                 peer.shutdown().await?;
             }
@@ -625,7 +622,7 @@ fn http_error_and_malformed_response_classes_match_the_jvm() {
             else {
                 panic!("invalid setup accepted")
             };
-            assert_eq!(error.class.to_string_lossy(), "com.influxdb.exceptions.InfluxException");
+            assert_eq!(error.class.to_owned(), "com.influxdb.exceptions.InfluxException");
             peer.shutdown().await?;
             Ok(())
         })
@@ -666,7 +663,7 @@ fn carbon_reset_errors_propagate_and_typed_cancellation_interrupts_send() {
             peer.await
                 .map_err(|e| marathon_core::executor::shared::failure("test.Carbon", &e.to_string()))??;
             assert!(
-                matches!(result,Err(OperationError::Failed(f)) if f.class.to_string_lossy().ends_with("GraphiteException") && f.message.as_ref().is_some_and(|m|m.to_string_lossy().starts_with("Error while writing data to graphite: ")))
+                matches!(result,Err(OperationError::Failed(f)) if f.class.to_owned().ends_with("GraphiteException") && f.message.as_ref().is_some_and(|m|m.to_owned().starts_with("Error while writing data to graphite: ")))
             );
             signal.cancel(requested("stop"));
             assert!(matches!(
@@ -688,8 +685,8 @@ fn carbon_reset_errors_propagate_and_typed_cancellation_interrupts_send() {
 fn annotated_csv_resets_defaults_and_validates_integer_types() {
     use marathon_core::analytics::remote::influx::Value;
     let rows=marathon_analytics::influx2::decode("#datatype,string,long,string,double\n#default,_result,,old,\n,result,table,testname,_value\n,,0,,1.0\n#group,false,false,true,false\n#datatype,string,long,string,double\n,result,table,testname,_value\n,,1,,2.0\n").unwrap();
-    assert_eq!(rows[0][&"testname".into()], Value::Text("old".into()));
-    assert_eq!(rows[1][&"testname".into()], Value::Null);
+    assert_eq!(rows[0][&"testname".to_owned()], Value::Text("old".into()));
+    assert_eq!(rows[1][&"testname".to_owned()], Value::Null);
     assert!(
         marathon_analytics::influx2::decode(
             "#datatype,string,long,string,long\n,result,table,testname,_value\n,,0,test,1.5\n"
@@ -769,10 +766,10 @@ fn a_stalled_carbon_write_times_out() {
                 panic!("{result:?}")
             };
             assert_eq!(
-                failure.message.unwrap().to_string_lossy(),
+                failure.message.unwrap().to_owned(),
                 "Error while writing data to graphite: write timed out after 100 ms"
             );
-            assert!(failure.class.to_string_lossy().ends_with("GraphiteException"));
+            assert!(failure.class.to_owned().ends_with("GraphiteException"));
             Ok(())
         })
     });
@@ -829,7 +826,7 @@ fn a_carbon_that_never_accepts_times_out_on_connect() {
             let Err(OperationError::Failed(failure)) = result else {
                 panic!("{result:?}")
             };
-            let message = failure.message.unwrap().to_string_lossy();
+            let message = failure.message.unwrap().to_owned();
             // A host may refuse instead of dropping the SYN; both end the send at once.
             assert!(
                 message.starts_with("Error while writing data to graphite: "),
@@ -888,12 +885,7 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
     let lines = logs
         .iter()
         .filter(|r| r.logger == "guard")
-        .map(|r| {
-            (
-                r.message.to_string_lossy(),
-                r.cause.as_ref().map(|c| c.class.to_string_lossy()),
-            )
-        })
+        .map(|r| (r.message.to_owned(), r.cause.as_ref().map(|c| c.class.to_owned())))
         .collect::<Vec<_>>();
     assert_eq!(lines.len(), 2, "{lines:?}");
     assert_eq!(
@@ -938,7 +930,7 @@ fn invalid_carbon_port_fails_at_the_write_boundary() {
                     assert!(result.is_ok());
                 } else {
                     assert!(
-                        matches!(result,Err(marathon_core::error::VendorError::Other(f)) if f.class.to_string_lossy()=="java.lang.IllegalArgumentException")
+                        matches!(result,Err(marathon_core::error::VendorError::Other(f)) if f.class=="java.lang.IllegalArgumentException")
                     );
                 }
                 tracker.close().await?;
@@ -1039,9 +1031,9 @@ fn v1_query_errors_keep_influxdb_exception_subclasses() {
                     panic!("{scenario}: error accepted")
                 };
                 let expected = &observations(scenario)[0];
-                assert_eq!(error.class.to_string_lossy(), expected["class"], "{scenario}");
+                assert_eq!(error.class.to_owned(), expected["class"], "{scenario}");
                 assert_eq!(
-                    error.message.map(|m| m.to_string_lossy()).as_deref(),
+                    error.message.map(|m| m.to_owned()).as_deref(),
                     expected["message"].as_str()
                 );
                 assert!(error.cause.is_none());
@@ -1064,13 +1056,13 @@ fn v2_invalid_numeric_cells_raise_influx_exception_caused_by_number_format() {
                     panic!("{scenario}: invalid cell accepted")
                 };
                 let expected = &observations(scenario)[0];
-                assert_eq!(error.class.to_string_lossy(), expected["class"], "{scenario}");
+                assert_eq!(error.class.to_owned(), expected["class"], "{scenario}");
                 assert_eq!(
-                    error.message.map(|m| m.to_string_lossy()).as_deref(),
+                    error.message.map(|m| m.to_owned()).as_deref(),
                     expected["message"].as_str()
                 );
                 assert_eq!(
-                    error.cause.map(|c| c.class.to_string_lossy()).as_deref(),
+                    error.cause.map(|c| c.class.to_owned()).as_deref(),
                     expected["cause"].as_str()
                 );
                 client.shutdown().await?;
@@ -1126,8 +1118,8 @@ fn setup_validation_messages_and_order_match_the_jars() {
                 else {
                     panic!("{message}: invalid setup accepted")
                 };
-                assert_eq!(error.class.to_string_lossy(), "java.lang.IllegalArgumentException");
-                assert_eq!(error.message.map(|m| m.to_string_lossy()).as_deref(), Some(message));
+                assert_eq!(error.class.to_owned(), "java.lang.IllegalArgumentException");
+                assert_eq!(error.message.map(|m| m.to_owned()).as_deref(), Some(message));
             }
             let mut config = v2(&peer.url);
             config.bucket = "".into();
@@ -1136,7 +1128,7 @@ fn setup_validation_messages_and_order_match_the_jars() {
                 panic!("empty bucket accepted")
             };
             assert_eq!(
-                error.message.map(|m| m.to_string_lossy()).as_deref(),
+                error.message.map(|m| m.to_owned()).as_deref(),
                 Some("Expecting a non-empty string for Bucket Name")
             );
             peer.shutdown().await?;
@@ -1155,7 +1147,7 @@ fn invalid_graphite_hosts_fail_per_query_and_fall_back_to_defaults() {
                 let limit = jcompat::jtime::instant_of(0, 0).unwrap();
                 assert!(matches!(
                     client.query("target", limit).await,
-                    Err(OperationError::Failed(f)) if f.class.to_string_lossy() == "java.lang.IllegalArgumentException"
+                    Err(OperationError::Failed(f)) if f.class == "java.lang.IllegalArgumentException"
                 ));
                 let config = AnalyticsConfiguration::Graphite(marathon_config::GraphiteConfiguration {
                     host: host.into(),
@@ -1199,12 +1191,13 @@ fn refused_carbon_connection_raises_graphite_exception() {
             else {
                 panic!("refused carbon send accepted")
             };
-            assert_eq!(error.class.to_string_lossy(), expected["class"]);
+            assert_eq!(error.class.to_owned(), expected["class"]);
             // P2: the native socket wording follows the prefix.
-            assert!(error.message.is_some_and(|m| {
-                m.to_string_lossy()
-                    .starts_with("Error while writing data to graphite: ")
-            }));
+            assert!(
+                error
+                    .message
+                    .is_some_and(|m| { m.to_owned().starts_with("Error while writing data to graphite: ") })
+            );
             Ok(())
         })
     });
@@ -1326,7 +1319,7 @@ fn a_last_flush_to_a_trickling_server_gives_way_at_the_close_limit() {
     let lines = logs
         .iter()
         .filter(|r| r.logger == "guard")
-        .map(|r| r.message.to_string_lossy())
+        .map(|r| r.message.to_owned())
         .collect::<Vec<_>>();
     assert_eq!(
         lines,

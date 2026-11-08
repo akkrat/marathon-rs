@@ -33,9 +33,9 @@ fn dex_versions_newer_than_041_are_rejected_with_dex_magic_message_d26() {
         let mut bytes = probe_dex_bytes();
         bytes[4..7].copy_from_slice(version);
         let err = DexFile::parse(bytes.clone()).map(|_| ()).unwrap_err();
-        assert_eq!(err.jvm_class.to_string_lossy(), "com.linkedin.dex.spec.DexException");
+        assert_eq!(err.jvm_class.to_owned(), "com.linkedin.dex.spec.DexException");
         assert_eq!(
-            err.message.unwrap().to_string_lossy(),
+            err.message.unwrap().to_owned(),
             format!("Invalid dexMagic:\nDexMagic(dex=[100, 101, 120], newline=10, version=[{digits}], zero=0)\n")
         );
         assert!(DexFile::parse_all(bytes).is_err());
@@ -56,7 +56,7 @@ fn bad_endian_tag_is_rejected() {
     bytes[40..44].copy_from_slice(&0x7856_3412_i32.to_le_bytes());
     let err = DexFile::parse(bytes).map(|_| ()).unwrap_err();
     assert_eq!(
-        err.message.unwrap().to_string_lossy(),
+        err.message.unwrap().to_owned(),
         format!("Invalid endian tag:{}", 0x7856_3412_i32)
     );
 }
@@ -107,19 +107,19 @@ fn boolean_is_true_only_for_value_arg_one() {
 fn unknown_value_type_is_bad_value_type_error() {
     let mut cursor = Cursor::at(&[0x05], 0).unwrap();
     let err = EncodedValue::parse(&mut cursor, 0).unwrap_err();
-    assert_eq!(err.message.unwrap().to_string_lossy(), "Bad value type: 5");
+    assert_eq!(err.message.unwrap().to_owned(), "Bad value type: 5");
 }
 
 #[test]
 fn format_descriptor_blindly_drops_first_and_last_unit() {
     assert_eq!(
-        format_descriptor(&"Lorg/junit/Test;".into()).unwrap().to_string_lossy(),
+        format_descriptor(&"Lorg/junit/Test;".into()).unwrap().to_owned(),
         "org.junit.Test"
     );
     // Not an L…; descriptor: the first and last characters still go.
-    assert_eq!(format_descriptor(&"I".into()).unwrap().to_string_lossy(), "");
-    assert_eq!(format_descriptor(&"[I".into()).unwrap().to_string_lossy(), "");
-    assert_eq!(format_descriptor(&"XYZ".into()).unwrap().to_string_lossy(), "Y");
+    assert_eq!(format_descriptor(&"I".into()).unwrap().to_owned(), "");
+    assert_eq!(format_descriptor(&"[I".into()).unwrap().to_owned(), "");
+    assert_eq!(format_descriptor(&"XYZ".into()).unwrap().to_owned(), "Y");
     assert!(format_descriptor(&"".into()).is_err());
 }
 
@@ -252,7 +252,7 @@ fn superclass_cycle_is_an_error() {
     let dir = tempfile::tempdir().unwrap();
     let apk = write_apk(dir.path(), "cycle.apk", &chain_dex(2, |n| if n == 1 { 2 } else { 1 }));
     let err = marathon_dex::find_test_methods(&apk, &[]).unwrap_err();
-    assert_eq!(err.jvm_class.to_string_lossy(), "com.linkedin.dex.spec.DexException");
+    assert_eq!(err.jvm_class.to_owned(), "com.linkedin.dex.spec.DexException");
 }
 
 /// HeaderItem reads dataSize/dataOff too: a file that ends inside them
@@ -316,9 +316,9 @@ fn non_zip_apk_yields_no_tests_but_manifest_parse_fails_wrapped() {
     std::fs::write(&path, b"this is not a zip file at all").unwrap();
     assert_eq!(marathon_dex::find_test_methods(&path, &[]).unwrap().len(), 0);
     let err = marathon_dex::parse_app_package_name(&path).unwrap_err();
-    assert_eq!(err.jvm_class.to_string_lossy(), "java.lang.RuntimeException");
+    assert_eq!(err.jvm_class.to_owned(), "java.lang.RuntimeException");
     assert_eq!(
-        err.message.unwrap().to_string_lossy(),
+        err.message.unwrap().to_owned(),
         "Unable to parse test app AndroidManifest.xml."
     );
 }
@@ -340,7 +340,9 @@ fn dex_string_bytes_decode_as_jvm_string_constructor() {
             .collect();
         let expected: Vec<u16> = units.split(',').map(|u| u16::from_str_radix(u, 16).unwrap()).collect();
         assert_eq!(
-            marathon_dex::parser::decode_string_bytes(&bytes).0,
+            marathon_dex::parser::decode_string_bytes(&bytes)
+                .encode_utf16()
+                .collect::<Vec<_>>(),
             expected,
             "bytes {hex}"
         );
@@ -392,7 +394,7 @@ fn axml_header_followed_by_zeros_is_an_error() {
         bytes.extend_from_slice(&((8 + zeros) as i32).to_le_bytes());
         bytes.resize(8 + zeros, 0);
         let err = walk_axml(&bytes).unwrap_err();
-        assert_eq!(err.jvm_class.to_string_lossy(), "java.io.EOFException", "{zeros} zeros");
+        assert_eq!(err.jvm_class.to_owned(), "java.io.EOFException", "{zeros} zeros");
     }
 }
 
@@ -409,7 +411,7 @@ fn axml_utf16_length_overflow_is_an_error() {
     let at = 8 + strings_offset + manifest_offset;
     bytes[at..at + 4].copy_from_slice(&[0xff; 4]);
     let err = walk_axml(&bytes).unwrap_err();
-    assert_eq!(err.jvm_class.to_string_lossy(), "java.lang.IndexOutOfBoundsException");
+    assert_eq!(err.jvm_class.to_owned(), "java.lang.IndexOutOfBoundsException");
 }
 
 /// Every aligned int of a real manifest overwritten with extreme values

@@ -2,7 +2,7 @@
 //! leave out — the per-pool retry quota (C30), close, a failing handler and the D13 prepare step.
 #[path = "support/queue.rs"]
 mod support;
-use jcompat::writers::JavaString;
+
 use marathon_config::schema::RetryStrategyConfiguration;
 use marathon_core::{
     analytics::Analytics,
@@ -107,7 +107,7 @@ fn handler_failure_ends_the_queue() {
             assert_eq!(events.iter().filter(|e| e[0] == "track").count(), 1);
             assert!(events.iter().any(|e| e[0] == "handler"), "{events:?}");
             let state = queue.snapshot.borrow().clone().unwrap();
-            assert_eq!(state.active_batches, vec![JavaString::from("serial")]);
+            assert_eq!(state.active_batches, vec![String::from("serial")]);
             assert!(!queue.send(QueueMessage::Terminate).await);
             Ok(())
         })

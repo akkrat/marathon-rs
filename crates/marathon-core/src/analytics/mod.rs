@@ -25,7 +25,6 @@ use crate::{
 use jcompat::{
     jtime::Instant,
     logging::{Level, MarathonLogging},
-    writers::JavaString,
 };
 use std::sync::{Arc, Mutex};
 
@@ -58,7 +57,7 @@ impl MetricsContext {
             .timings();
         Ok(())
     }
-    fn log(&self, logger: &str, level: Level, message: JavaString, cause: Option<Failure>) {
+    fn log(&self, logger: &str, level: Level, message: String, cause: Option<Failure>) {
         let (at_millis, wall_millis) = (self.stamp)();
         self.logs.push(LogRecord {
             logger: logger.to_owned(),
@@ -145,7 +144,7 @@ impl MetricsProvider for Analytics {
         tests: &'a [Test],
         percentile: f64,
         limit: Instant,
-        usage: &'a JavaString,
+        usage: &'a String,
     ) -> ServiceFuture<'a, ()> {
         match &self.backend {
             Backend::Remote(provider) => provider.report_execution_time_coverage(tests, percentile, limit, usage),

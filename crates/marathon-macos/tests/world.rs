@@ -169,13 +169,13 @@ async fn provider_setup_prepare_batch_inline_results_and_terminate_in_apple_worl
             .root
             .path()
             .join("output/device-files/pool")
-            .join(device.info().serial_number.to_string_lossy())
+            .join(&device.info().serial_number)
             .join("xcresult/batch.xcresult");
         // FileManager escapes the serial for local path names; use the shared plan to locate it.
         let plan = h.options.files.plan_folder_utf16(
             jcompat::file_manager::FolderType::DeviceFiles,
             Some(&"pool".encode_utf16().collect::<Vec<_>>()),
-            Some(&device.info().serial_number.0),
+            Some(&device.info().serial_number.encode_utf16().collect::<Vec<_>>()),
         );
         let expected = plan.materialize(|_| {})?.to_path_buf()?.join("xcresult/batch.xcresult");
         assert!(

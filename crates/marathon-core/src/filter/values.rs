@@ -7,23 +7,22 @@ use jcompat::{
     jstring,
     logging::Level,
     utf8,
-    writers::JavaString,
 };
 use std::{io, sync::Arc};
 
 /// Called only on the vendor blocking pool. A run can forward these records to
 /// its output task; the sink must retain the supplied logger and cause.
 pub trait FilterLogger: Send + Sync {
-    fn log(&self, level: Level, logger: &str, message: JavaString, cause: Option<Failure>);
+    fn log(&self, level: Level, logger: &str, message: String, cause: Option<Failure>);
 }
 pub trait FilterValuesReader: Send + Sync {
-    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<JavaString>>;
+    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<String>>;
 }
 pub struct FileValuesReader {
     pub logger: Arc<dyn FilterLogger>,
 }
 impl FilterValuesReader for FileValuesReader {
-    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<JavaString>> {
+    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<String>> {
         let native = path.to_file_path_buf();
         // File.exists returns false for invalid legacy File paths (including
         // NUL); unlike NIO Paths.get, it does not throw during this check.
@@ -37,8 +36,8 @@ impl FilterValuesReader for FileValuesReader {
                 }
                 Err(_) => JavaPath(path.0.clone()),
             };
-            let mut message = JavaString::from("Filtering configuration file ");
-            message.0.extend(absolute.0);
+            let mut message = String::from("Filtering configuration file ");
+            message.push_str(&String::from_utf16_lossy(&absolute.0));
             message.push_str(" does not exist. Applying empty list.");
             self.logger.log(Level::Error, "FilterValuesFileReader", message, None);
             return Ok(Vec::new());
@@ -49,12 +48,13 @@ impl FilterValuesReader for FileValuesReader {
     }
 }
 
-pub fn parse_values(bytes: &[u8]) -> Vec<JavaString> {
+pub fn parse_values(bytes: &[u8]) -> Vec<String> {
     let text: Vec<u16> = utf8::decode_utf8(bytes).encode_utf16().collect();
-    jstring::lines(&JavaString(text))
+    jstring::lines(&String::from_utf16_lossy(&text))
         .into_iter()
         .filter_map(|line| {
-            let line = line.0.as_slice();
+            let units: Vec<u16> = line.encode_utf16().collect();
+            let line = units.as_slice();
             let trimmed = jstring::trim(line);
             if trimmed.is_empty() || trimmed.first() == Some(&u16::from(b'#')) {
                 return None;
@@ -80,7 +80,7 @@ pub fn parse_values(bytes: &[u8]) -> Vec<JavaString> {
                     break;
                 }
             }
-            Some(JavaString(jstring::trim(&result).to_vec()))
+            Some(String::from_utf16_lossy(jstring::trim(&result)))
         })
         .collect()
 }
@@ -103,10 +103,10 @@ pub(super) fn io_failure(path: &JavaPath, error: &io::Error) -> Failure {
         io::ErrorKind::IsADirectory => "Is a directory",
         _ => return failure(class, &error.to_string()),
     };
-    let mut message = JavaString(path.0.clone());
+    let mut message = String::from_utf16_lossy(&path.0.clone());
     message.push_str(" (");
     message.push_str(reason);
-    message.push_str(")");
+    message.push(')');
     Failure {
         class: class.into(),
         message: Some(message),

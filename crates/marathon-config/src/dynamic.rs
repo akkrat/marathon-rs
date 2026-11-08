@@ -70,7 +70,7 @@ pub enum FrameError {
 impl FrameError {
     /// The JVM exception class Kotlin surfaces, for log/report parity.
     /// `None` for binding failures, whose class is the carried
-    /// `ConfigurationError`'s own (a `JavaString`, not a `&'static str`).
+    /// `ConfigurationError`'s own (a `String`, not a `&'static str`).
     pub fn java_class(&self) -> Option<&'static str> {
         match self {
             Self::TooLong { .. } => Some("java.lang.RuntimeException"),
@@ -98,7 +98,7 @@ impl FrameError {
                 format!("Unexpected EOF: expected {} more bytes", expected - received)
             }
             Self::Substitution(error) => error.message.clone(),
-            Self::Binding(error) => error.message.as_ref().map_or_else(String::new, |m| m.to_string_lossy()),
+            Self::Binding(error) => error.message.as_ref().map_or_else(String::new, |m| m.to_owned()),
             Self::NullDocument => "device provider update is a null document".to_owned(),
             Self::Worker(error) => error.to_string(),
         }

@@ -12,7 +12,6 @@
 use jcompat::{
     file_manager::JavaPath,
     jtime::{Duration, instant_of},
-    writers::JavaString,
 };
 use marathon_config::{
     VendorConfiguration, WorkerConnectionConfiguration,
@@ -216,7 +215,7 @@ fn context(dir: &Path) -> BindingContext {
         marathonfile: jp(&dir.join("Marathonfile")),
         marathonfile_dir: jp(dir),
         process_dir: JavaPath::from_text("/"),
-        environment: Vec::<(JavaString, JavaString)>::new(),
+        environment: Vec::<(String, String)>::new(),
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,
         bugsnag_reporting: false,
@@ -264,7 +263,7 @@ fn when_xctest_is_not_specified_should_throw_an_exception_if_such_file_is_not_av
     let tmp = tempfile::tempdir().unwrap();
     let error = parse_ios(tmp.path(), "").unwrap_err();
     assert_eq!(
-        error.class.to_string_lossy(),
+        error.class.to_owned(),
         "com.malinskiy.marathon.config.exceptions.ConfigurationException"
     );
 }

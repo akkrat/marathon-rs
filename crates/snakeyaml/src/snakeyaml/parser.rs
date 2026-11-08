@@ -61,7 +61,7 @@ impl Parser {
     }
     fn empty(&self, m: Mark) -> Event {
         Event::new(
-            EventKind::Scalar(JavaString::default(), Style::Plain),
+            EventKind::Scalar(String::default(), Style::Plain),
             Span { start: m, end: m },
         )
     }
@@ -455,7 +455,7 @@ impl Parser {
             kind = EventKind::MappingStart;
             self.state = State::BlockMappingFirstKey;
         } else if anchor.is_some() || tag.is_some() {
-            kind = EventKind::Scalar(JavaString::default(), Style::Plain);
+            kind = EventKind::Scalar(String::default(), Style::Plain);
             self.pop();
         } else {
             return self.error(Some(start), "expected node content");

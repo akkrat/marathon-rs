@@ -85,7 +85,7 @@ fn instant_parse_chain(input: &str) -> Result<String, Chain> {
     parse_instant_detailed(input).map(|i| i.to_string()).map_err(|e| {
         e.chain
             .iter()
-            .map(|(class, message)| (class.to_string(), parsed_fields_unordered(&message.to_string_lossy())))
+            .map(|(class, message)| (class.to_string(), parsed_fields_unordered(&message.to_owned())))
             .collect()
     })
 }

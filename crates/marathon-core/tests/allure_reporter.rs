@@ -1,9 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/allure/AllureReporter.kt.
 mod report_probe_support;
-use jcompat::{
-    report_text::{allure_history_id, jackson_json},
-    writers::JavaString,
-};
+use jcompat::report_text::{allure_history_id, jackson_json};
 use marathon_core::{
     artifacts::LocalAttachmentFiles,
     executor::{
@@ -17,7 +14,7 @@ use marathon_core::{
 use report_probe_support::*;
 use std::sync::{Arc, Mutex};
 fn model_json(value: &jcompat::writers::WriterValue) -> serde_json::Value {
-    checked(serde_json::from_slice(&jackson_json(value).to_utf8_bytes()))
+    checked(serde_json::from_slice(&jackson_json(value).as_bytes().to_vec()))
 }
 #[test]
 fn all_statuses_attempts_defaults_and_package_collision_match_library() {
@@ -26,30 +23,29 @@ fn all_statuses_attempts_defaults_and_package_collision_match_library() {
     ));
     let cfg = config(&root);
     for (i, e) in mixed().test_events().iter().enumerate() {
-        let uuid: JavaString = format!("00000000-0000-0000-0000-{i:012}").into();
+        let uuid: String = format!("00000000-0000-0000-0000-{i:012}").into();
         if i == 0 {
             let expected = checked(std::fs::read(fixture(
                 "allure/00000000-0000-0000-0000-000000000000-result.json",
             )));
             assert_eq!(
-                jackson_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root)).to_utf8_bytes(),
+                jackson_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root))
+                    .as_bytes()
+                    .to_vec(),
                 expected
             );
             continue;
         }
         let expected: serde_json::Value = checked(serde_json::from_slice(&checked(std::fs::read(fixture(&format!(
             "allure/{}-result.json",
-            uuid.to_string_lossy()
+            uuid.to_owned()
         ))))));
         assert_eq!(
             model_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root)),
             expected
         );
     }
-    assert_eq!(
-        allure_history_id(&"Clazz".into(), &"test1".into()),
-        oracle("history")["hash"]
-    );
+    assert_eq!(allure_history_id("Clazz", "test1"), oracle("history")["hash"]);
 }
 fn annotations() -> Vec<MetaProperty> {
     [
@@ -130,7 +126,7 @@ fn environment_xml_preserves_entry_order_and_values() {
         ("second".into(), "two".into()),
     ]));
     assert_eq!(
-        text.to_utf8_bytes(),
+        text.as_bytes().to_vec(),
         checked(std::fs::read(fixture("environment/environment.xml")))
     );
 }
@@ -179,10 +175,10 @@ fn empty_run_writes_complete_environment_and_attempts_use_uuid_tape() {
         assert!(errors.lock().unwrap().is_empty());
         // The JVM's AllureReporter.generate(empty) prints environment-writer's line.
         assert_eq!(jvm_stdout_after("empty-allure"), ["Allure environment data saved."]);
-        assert_eq!(*stdout.0.lock().unwrap(), [JavaString::from(ENVIRONMENT_SAVED)]);
+        assert_eq!(*stdout.0.lock().unwrap(), [String::from(ENVIRONMENT_SAVED)]);
         assert_eq!(
             checked(std::fs::read(temp.0.join("environment.xml"))),
-            checked(environment_xml(&entries)).to_utf8_bytes()
+            checked(environment_xml(&entries)).as_bytes().to_vec()
         );
         assert_eq!(checked(std::fs::read_dir(&temp.0)).count(), count + 1);
     }
@@ -241,7 +237,7 @@ fn complete_environment_matches_jvm_keys_order_and_values() {
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
     let entries = config(&root).to_map(&root);
-    let actual = checked(environment_xml(&entries)).to_string_lossy();
+    let actual = checked(environment_xml(&entries)).to_owned();
     let expected = checked(std::fs::read_to_string(fixture(
         "manifest/allure-empty/environment.xml",
     )));
@@ -250,17 +246,17 @@ fn complete_environment_matches_jvm_keys_order_and_values() {
     assert_eq!(without_identities(&actual), without_identities(&expected));
 }
 /// The values written by the JVM `environment-case-*` rows.
-fn environment_cases() -> Vec<JavaString> {
+fn environment_cases() -> Vec<String> {
     vec![
         "a\u{1}b".into(),
-        JavaString(
-            "\u{7f}\u{85}\u{9f}\t😀\r\n\u{fffe}\u{ffff}<&>\"'"
+        String::from_utf16_lossy(
+            &"\u{7f}\u{85}\u{9f}\t😀\r\n\u{fffe}\u{ffff}<&>\"'"
                 .encode_utf16()
-                .collect(),
+                .collect::<Vec<_>>(),
         ),
-        JavaString("trailing".encode_utf16().chain([0xd800]).collect()),
-        JavaString([0x78, 0xd800, 0x79].into()),
-        JavaString(vec![0xdc00]),
+        String::from_utf16_lossy(&"trailing".encode_utf16().chain([0xd800]).collect::<Vec<_>>()),
+        String::from_utf16_lossy(&[0x78, 0xd800, 0x79]),
+        String::from_utf16_lossy(&vec![0xdc00]),
     ]
 }
 #[test]
@@ -307,7 +303,7 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
         let saved = jvm_stdout_after(&id) == ["Allure environment data saved."];
         if headers.is_empty() {
             assert!(saved, "{id}");
-            assert_eq!(checked(single).to_utf8_bytes(), expected, "{id}");
+            assert_eq!(checked(single).as_bytes().to_vec(), expected, "{id}");
             assert!(errors.lock().unwrap().is_empty());
             assert_eq!(stdout.0.lock().unwrap().len(), 1);
             assert!(!written.is_empty());
@@ -321,7 +317,7 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
             let mut failure = Some(&errors[0]);
             let mut depth = 0;
             while let Some(f) = failure {
-                let line = f.to_java_string().to_string_lossy();
+                let line = f.to_java_string().to_owned();
                 let line = if depth == 0 { line } else { format!("Caused by: {line}") };
                 assert!(headers.contains(&line), "{id}: {line} not in {headers:?}");
                 failure = f.cause.as_deref();
@@ -371,7 +367,8 @@ fn real_registration_failure_does_not_stop_later_html() {
                 TimelineReporter::new(core.vendor(), root, &mut MarathonLogging::default()).registration(),
             ];
             registrations.sort_by_key(|r| r.slot);
-            let generator = ExecutionReportGenerator::new(registrations.into_iter().map(|r| r.reporter).collect());
+            let generator =
+                ExecutionReportGenerator::new(registrations.into_iter().map(|r| r.reporter.clone()).collect());
             let io = core.vendor();
             let (tx, rx) = tokio::sync::oneshot::channel();
             let task = io.spawn(Box::pin(async move {
@@ -396,10 +393,9 @@ fn real_registration_failure_does_not_stop_later_html() {
             checked(task.join().await);
             let error = checked(rx.await).err().unwrap();
             match error {
-                marathon_core::error::OperationError::Failed(f) => assert_eq!(
-                    f.to_java_string().to_string_lossy(),
-                    oracle("allure-write-failure")["error"]
-                ),
+                marathon_core::error::OperationError::Failed(f) => {
+                    assert_eq!(f.to_java_string().to_owned(), oracle("allure-write-failure")["error"])
+                }
                 _ => panic!("wrong error"),
             };
             Ok(())

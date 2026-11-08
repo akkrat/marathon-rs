@@ -329,8 +329,8 @@ async fn disconnect_during_exec_fails_execute_with_the_wire_reason() {
         let simple: Vec<_> = std::iter::successors(Some(&error), |f| f.cause.as_deref())
             .map(|f| {
                 (
-                    f.class.to_string_lossy().rsplit('.').next().unwrap().to_owned(),
-                    f.message.as_ref().map(|m| m.to_string_lossy()),
+                    f.class.to_owned().rsplit('.').next().unwrap().to_owned(),
+                    f.message.as_ref().map(|m| m.to_owned()),
                 )
             })
             .collect();

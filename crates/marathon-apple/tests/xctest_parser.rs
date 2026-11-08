@@ -80,10 +80,7 @@ async fn parse(timeout: bool, cancel: bool) -> TestResult {
     v(device.dispose().await)?;
     assert_eq!(tests.len(), 1);
     assert_eq!(tests[0].method, test().method);
-    assert_eq!(
-        tests[0].pkg,
-        jcompat::writers::JavaString::from(bundle.test_bundle_id())
-    );
+    assert_eq!(tests[0].pkg, String::from(bundle.test_bundle_id()));
     assert!(identifier.identify(&tests[0]).is_ok());
     assert_eq!(was_closed, !timeout);
     assert_eq!(abandoned, timeout);
@@ -181,7 +178,7 @@ async fn full_extract_pushes_supplied_bytes_cleans_temp_files_and_keeps_the_push
                 .find(|r| r["case"] == "xctest-push-false")
                 .unwrap();
             assert_eq!(
-                error.failure().message.as_ref().unwrap().to_string_lossy(),
+                error.failure().message.as_ref().unwrap().to_owned(),
                 row["error"]["message"].as_str().unwrap()
             );
         }
@@ -267,11 +264,11 @@ async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_
     v(device.dispose().await)?;
     assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
     assert_eq!(
-        error.failure().class.to_string_lossy(),
+        error.failure().class.to_owned(),
         "com.malinskiy.marathon.exceptions.TestParsingException"
     );
     assert_eq!(
-        error.failure().message.as_ref().unwrap().to_string_lossy(),
+        error.failure().message.as_ref().unwrap().to_owned(),
         "No libxctest-parser.dylib for platform AppleTVOS"
     );
     let logs = logs.lock().unwrap();
@@ -320,7 +317,7 @@ async fn extract_failure(libraries: ParserLibraries, tmp: &std::path::Path) -> T
 }
 fn assert_explains_the_supply(error: &VendorError, names: &str) {
     assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
-    let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+    let message = error.failure().message.as_ref().unwrap().to_owned();
     for part in [
         names,
         PARSER_DIR_VARIABLE,

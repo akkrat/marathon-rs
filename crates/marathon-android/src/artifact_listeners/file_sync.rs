@@ -20,7 +20,7 @@ impl FileSyncTestRunListener {
     fn path(&self, root: PathRoot, relative: &str) -> String {
         join(
             if root == PathRoot::ExternalStorage {
-                self.artifacts.device.external_storage_mount().to_string_lossy()
+                self.artifacts.device.external_storage_mount().to_owned()
             } else {
                 TMP_PATH.into()
             }
@@ -44,11 +44,11 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let device = &self.artifacts.device;
-            let package = info.map(|i| i.application_package.to_string_lossy());
+            let package = info.map(|i| i.application_package.to_owned());
             *lock(&self.packages) = package.iter().cloned().collect();
             // The provider owns the effective user + Allure + coverage set (6.5 P3).
             for entry in &device.runtime().file_sync.pull {
-                let relative = entry.relative_path.to_string_lossy();
+                let relative = entry.relative_path.to_owned();
                 if entry.path_root == PathRoot::AppData && package.is_none() {
                     continue;
                 }
@@ -83,12 +83,12 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     );
                     continue;
                 }
-                let local = jcompat::file_manager::file_path(&entry.path.to_string_lossy());
+                let local = jcompat::file_manager::file_path(&entry.path.to_owned());
                 let name = basename(&entry.path);
-                let remote = self.path(entry.path_root, &name.to_string_lossy());
+                let remote = self.path(entry.path_root, &name.to_owned());
                 let path = local.to_file_path_buf().map_err(io)?;
                 let directory = blocking(device.runtime().dependencies.io.as_ref(), move || Ok(path.is_dir())).await?;
-                let local = JavaString(local.0.clone()).to_string_lossy();
+                let local = String::from_utf16_lossy(&local.0.clone()).to_owned();
                 device.log_named(
                     "FileSyncTestRunListener",
                     Level::Debug,
@@ -106,7 +106,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                         .remove_push_destination(&remote, context.clone())
                         .await?;
                     device
-                        .push_folder(&entry.path.to_string_lossy(), &remote, context.clone())
+                        .push_folder(&entry.path.to_owned(), &remote, context.clone())
                         .await?;
                 } else {
                     device.push_file(&local, &remote, true, context.clone()).await?;
@@ -124,7 +124,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let device = &self.artifacts.device;
-            let package = info.application_package.to_string_lossy();
+            let package = info.application_package.to_owned();
             {
                 let mut packages = lock(&self.packages);
                 if packages.contains(&package) {
@@ -134,7 +134,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
             }
             for entry in &device.runtime().file_sync.pull {
                 if entry.path_root == PathRoot::AppData {
-                    let from = join(&format!("/data/data/{package}"), &entry.relative_path.to_string_lossy());
+                    let from = join(&format!("/data/data/{package}"), &entry.relative_path.to_owned());
                     device
                         .safe_execute_shell_command(&format!("run-as {package} rm -R {from}"), "", context.clone())
                         .await?;
@@ -169,7 +169,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     .create_folder(FolderType::DeviceFiles, pool, serial)
                     .await
                     .map_err(operation_error)?;
-                let relative = entry.relative_path.to_string_lossy();
+                let relative = entry.relative_path.to_owned();
                 let base = relative
                     .strip_suffix('/')
                     .unwrap_or(&relative)
@@ -183,7 +183,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     let cwd = std::env::current_dir().map_err(io)?;
                     let cwd = JavaPath::from_text(&cwd.to_string_lossy());
                     let absolute = jcompat::file_manager::absolute_file_path_utf16(&local.0, &cwd.0);
-                    Ok(JavaString(absolute.0).to_string_lossy())
+                    Ok(String::from_utf16_lossy(&absolute.0).to_owned())
                 })
                 .await?;
                 device.log_named(
@@ -217,7 +217,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     let name = basename(&entry.path);
                     device
                         .file_manager()
-                        .remove_pushed_path(&self.path(entry.path_root, &name.to_string_lossy()), context.clone())
+                        .remove_pushed_path(&self.path(entry.path_root, &name.to_owned()), context.clone())
                         .await?;
                 }
             }
@@ -227,7 +227,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
     }
 }
 
-fn basename(path: &JavaString) -> JavaString {
-    let path = jcompat::file_manager::file_path(&path.to_string_lossy());
-    JavaString(path.0.rsplit(|u| *u == 47).next().unwrap_or(&[]).to_vec())
+fn basename(path: &String) -> String {
+    let path = jcompat::file_manager::file_path(&path.to_owned());
+    String::from_utf16_lossy(path.0.rsplit(|u| *u == 47).next().unwrap_or(&[]))
 }

@@ -320,7 +320,7 @@ impl Scanner {
     }
     fn check_document_indicator(&mut self, c: u32) -> Result<bool> {
         Ok(self.reader.column == 0
-            && self.reader.prefix(3)?.to_string_lossy() == if c == 45 { "---" } else { "..." }
+            && self.reader.prefix(3)? == if c == 45 { "---" } else { "..." }
             && has(NULL_BL_T_LINEBR, self.reader.peek(3)?))
     }
     fn check_plain(&mut self) -> Result<bool> {
@@ -425,7 +425,7 @@ impl Scanner {
         if length == 0 {
             return Err(self.err(Some(start), "expected alphabetic or numeric character"));
         }
-        let v = self.reader.prefix_forward(length)?.to_string_lossy();
+        let v = self.reader.prefix_forward(length)?.to_owned();
         if !has(NULL_BL_LINEBR, self.reader.peek(0)?) {
             return Err(self.err(Some(start), "expected alphabetic or numeric character"));
         }
@@ -439,7 +439,7 @@ impl Scanner {
         if length == 0 {
             return Err(self.err(Some(start), "expected a digit"));
         }
-        let v = self.reader.prefix_forward(length)?.to_string_lossy();
+        let v = self.reader.prefix_forward(length)?.to_owned();
         if length > 3 {
             return Err(self.err(Some(start), "invalid YAML version number"));
         }
@@ -474,7 +474,7 @@ impl Scanner {
         if length == 0 {
             return Err(self.err(Some(start), "unexpected anchor/alias character"));
         }
-        let v = self.reader.prefix_forward(length)?.to_string_lossy();
+        let v = self.reader.prefix_forward(length)?.to_owned();
         let c = self.reader.peek(0)?;
         if !has(NULL_BL_T_LINEBR, c) && !has("?:,]}%@`", c) {
             return Err(self.err(Some(start), "unexpected anchor/alias character"));
@@ -553,7 +553,7 @@ impl Scanner {
             }
             length += 1;
         }
-        Ok(self.reader.prefix_forward(length)?.to_string_lossy())
+        Ok(self.reader.prefix_forward(length)?.to_owned())
     }
     fn scan_tag_uri(&mut self, start: Mark) -> Result<String> {
         let mut chunks = String::new();
@@ -561,7 +561,7 @@ impl Scanner {
         let mut c = self.reader.peek(length)?;
         while has(URI_CHARS, c) {
             if c == 37 {
-                chunks.push_str(&self.reader.prefix_forward(length)?.to_string_lossy());
+                chunks.push_str(&self.reader.prefix_forward(length)?.to_owned());
                 length = 0;
                 chunks.push_str(&self.scan_uri_escapes(start)?);
             } else {
@@ -570,7 +570,7 @@ impl Scanner {
             c = self.reader.peek(length)?;
         }
         if length != 0 {
-            chunks.push_str(&self.reader.prefix_forward(length)?.to_string_lossy());
+            chunks.push_str(&self.reader.prefix_forward(length)?.to_owned());
         }
         if chunks.is_empty() {
             return Err(self.err(Some(start), "expected URI"));
@@ -586,7 +586,7 @@ impl Scanner {
         let mut bytes = Vec::with_capacity(length);
         while self.reader.peek(0)? == 37 {
             self.reader.forward(1)?;
-            let s = self.reader.prefix(2)?.to_string_lossy();
+            let s = self.reader.prefix(2)?.to_owned();
             let code = crate::jnum::parse_radix(&s, 16)
                 .and_then(|n| i32::try_from(n).ok())
                 .ok_or_else(|| self.err(Some(start), "expected URI escape of two hexadecimal digits"))?;
@@ -609,7 +609,7 @@ impl Scanner {
             let (b, max, e) = self.scan_block_scalar_indentation()?;
             (b, min_indent.max(max), e)
         };
-        let mut chunks = JavaString::default();
+        let mut chunks = String::default();
         let mut line_break = String::new();
         while self.reader.column == indent && self.reader.peek(0)? != 0 {
             chunks.push_str(&breaks);
@@ -618,13 +618,13 @@ impl Scanner {
             while !has(NULL_OR_LINEBR, self.reader.peek(length)?) {
                 length += 1;
             }
-            chunks.append(self.reader.prefix_forward(length)?);
+            chunks.push_str(&self.reader.prefix_forward(length)?);
             line_break = self.scan_line_break()?;
             (breaks, end) = self.scan_block_scalar_breaks(indent)?;
             if self.reader.column == indent && self.reader.peek(0)? != 0 {
                 if folded && line_break == "\n" && leading_non_space && !has(" \t", self.reader.peek(0)?) {
                     if breaks.is_empty() {
-                        chunks.push_str(" ");
+                        chunks.push(' ');
                     }
                 } else {
                     chunks.push_str(&line_break);
@@ -727,14 +727,14 @@ impl Scanner {
         self.reader.forward(1)?;
         let mut chunks = self.scan_flow_scalar_non_spaces(double, start)?;
         while self.reader.peek(0)? != quote {
-            chunks.append(self.scan_flow_scalar_spaces(start)?);
-            chunks.append(self.scan_flow_scalar_non_spaces(double, start)?);
+            chunks.extend(self.scan_flow_scalar_spaces(start)?.encode_utf16());
+            chunks.extend(self.scan_flow_scalar_non_spaces(double, start)?);
         }
         self.reader.forward(1)?;
         Ok(Token {
             id: Id::Scalar,
             data: Data::Scalar(
-                chunks,
+                String::from_utf16_lossy(&chunks),
                 if double {
                     Style::DoubleQuoted
                 } else {
@@ -747,8 +747,8 @@ impl Scanner {
             },
         })
     }
-    fn scan_flow_scalar_non_spaces(&mut self, double: bool, start: Mark) -> Result<JavaString> {
-        let mut chunks = JavaString::default();
+    fn scan_flow_scalar_non_spaces(&mut self, double: bool, start: Mark) -> Result<Vec<u16>> {
+        let mut chunks = Vec::new();
         loop {
             let mut length = 0;
             loop {
@@ -759,14 +759,14 @@ impl Scanner {
                 length += 1;
             }
             if length != 0 {
-                chunks.append(self.reader.prefix_forward(length)?);
+                chunks.extend(self.reader.prefix_forward(length)?.encode_utf16());
             }
             let c = self.reader.peek(0)?;
             if !double && c == 39 && self.reader.peek(1)? == 39 {
-                chunks.push_str("'");
+                chunks.push(39);
                 self.reader.forward(2)?;
             } else if (double && c == 39) || (!double && has("\"\\", c)) {
-                chunks.push_code_point(c);
+                chunks.push(c as u16);
                 self.reader.forward(1)?;
             } else if double && c == 92 {
                 self.reader.forward(1)?;
@@ -791,7 +791,7 @@ impl Scanner {
                     _ => None,
                 };
                 if let Some(v) = replacement {
-                    chunks.push_code_point(v);
+                    chunks.push(v as u16);
                     self.reader.forward(1)?;
                 } else if has("xuU", c) {
                     let length = if c == 120 {
@@ -802,7 +802,7 @@ impl Scanner {
                         8
                     };
                     self.reader.forward(1)?;
-                    let hex = self.reader.prefix(length)?.to_string_lossy();
+                    let hex = self.reader.prefix(length)?.to_owned();
                     if hex.chars().any(|c| !c.is_ascii_hexdigit()) {
                         return Err(self.err(Some(start), "expected hexadecimal escape digits"));
                     }
@@ -818,10 +818,21 @@ impl Scanner {
                     if decimal > 0x10ffff {
                         return Err(self.err(Some(start), "unknown escape character"));
                     }
-                    chunks.push_code_point(decimal);
+                    // Assemble escaped pairs before replacing lone surrogates at the scalar boundary (D55).
+                    if decimal <= 0xffff {
+                        chunks.push(decimal as u16);
+                    } else {
+                        chunks.extend(
+                            char::from_u32(decimal)
+                                .unwrap()
+                                .encode_utf16(&mut [0; 2])
+                                .iter()
+                                .copied(),
+                        );
+                    }
                     self.reader.forward(length)?;
                 } else if !self.scan_line_break()?.is_empty() {
-                    chunks.push_str(&self.scan_flow_scalar_breaks(start)?);
+                    chunks.extend(self.scan_flow_scalar_breaks(start)?.encode_utf16());
                 } else {
                     return Err(self.err(Some(start), "unknown escape character"));
                 }
@@ -830,7 +841,7 @@ impl Scanner {
             }
         }
     }
-    fn scan_flow_scalar_spaces(&mut self, start: Mark) -> Result<JavaString> {
+    fn scan_flow_scalar_spaces(&mut self, start: Mark) -> Result<String> {
         let mut length = 0;
         while has(" \t", self.reader.peek(length)?) {
             length += 1;
@@ -844,11 +855,11 @@ impl Scanner {
             return Ok(whitespaces);
         }
         let breaks = self.scan_flow_scalar_breaks(start)?;
-        let mut chunks = JavaString::default();
+        let mut chunks = String::default();
         if lb != "\n" {
             chunks.push_str(&lb);
         } else if breaks.is_empty() {
-            chunks.push_str(" ");
+            chunks.push(' ');
         }
         chunks.push_str(&breaks);
         Ok(chunks)
@@ -856,7 +867,7 @@ impl Scanner {
     fn scan_flow_scalar_breaks(&mut self, start: Mark) -> Result<String> {
         let mut chunks = String::new();
         loop {
-            let prefix = self.reader.prefix(3)?.to_string_lossy();
+            let prefix = self.reader.prefix(3)?.to_owned();
             if (prefix == "---" || prefix == "...") && has(NULL_BL_T_LINEBR, self.reader.peek(3)?) {
                 return Err(self.err(Some(start), "unexpected document separator in quoted scalar"));
             }
@@ -874,7 +885,7 @@ impl Scanner {
         let start = self.reader.mark();
         let mut end = start;
         let indent = self.indent + 1;
-        let mut chunks = JavaString::default();
+        let mut chunks = String::default();
         let mut spaces = String::new();
         loop {
             if self.reader.peek(0)? == 35 {
@@ -898,7 +909,7 @@ impl Scanner {
             }
             self.allow_simple_key = false;
             chunks.push_str(&spaces);
-            chunks.append(self.reader.prefix_forward(length)?);
+            chunks.push_str(&self.reader.prefix_forward(length)?);
             end = self.reader.mark();
             spaces = self.scan_plain_spaces()?;
             if spaces.is_empty()
@@ -919,13 +930,13 @@ impl Scanner {
         while has(" \t", self.reader.peek(length)?) {
             length += 1;
         }
-        let whitespaces = self.reader.prefix_forward(length)?.to_string_lossy();
+        let whitespaces = self.reader.prefix_forward(length)?.to_owned();
         let lb = self.scan_line_break()?;
         if lb.is_empty() {
             return Ok(whitespaces);
         }
         self.allow_simple_key = true;
-        let prefix = self.reader.prefix(3)?.to_string_lossy();
+        let prefix = self.reader.prefix(3)?.to_owned();
         if prefix == "---" || (prefix == "..." && has(NULL_BL_T_LINEBR, self.reader.peek(3)?)) {
             return Ok(String::new());
         }
@@ -939,7 +950,7 @@ impl Scanner {
                     break;
                 }
                 breaks.push_str(&b);
-                let prefix = self.reader.prefix(3)?.to_string_lossy();
+                let prefix = self.reader.prefix(3)?.to_owned();
                 if prefix == "---" || (prefix == "..." && has(NULL_BL_T_LINEBR, self.reader.peek(3)?)) {
                     return Ok(String::new());
                 }

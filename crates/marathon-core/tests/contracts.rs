@@ -1,7 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/Vendor.kt
 //! and its consuming APIs. These public functions are type-checked, never run.
 
-use jcompat::{JavaPriorityQueue, JavaRegex, writers::JavaString};
+use jcompat::{JavaPriorityQueue, JavaRegex};
 use marathon_config::{
     Configuration,
     binding::{BindingContext, ConfigurationLoader, ConfigurationValidator},
@@ -137,11 +137,11 @@ pub fn transport_contract(context: &VendorContext) -> ClockResult<(i64, i64)> {
 }
 // WP 4.4–4.6, 6.4: vendor bundle payloads remain vendor-owned, with explicit
 // reference identity instead of assuming equality by ID.
-pub fn bundle_contract(identifier: &dyn TestBundleIdentifier, test: &Test) -> VendorResult<Option<JavaString>> {
+pub fn bundle_contract(identifier: &dyn TestBundleIdentifier, test: &Test) -> VendorResult<Option<String>> {
     Ok(identifier.identify(test)?.map(|bundle| bundle.0.id().clone()))
 }
 // WP 7.1–7.2: quiescence includes timer callbacks before an external event.
-pub async fn replay_contract(driver: &dyn ReplayDriver, hooks: &dyn ReplayHooks, at: i64) -> ClockResult<JavaString> {
+pub async fn replay_contract(driver: &dyn ReplayDriver, hooks: &dyn ReplayHooks, at: i64) -> ClockResult<String> {
     driver.advance_to(at).await?;
     driver.drain_current().await?;
     driver.assert_quiescent()?;
@@ -164,7 +164,7 @@ pub fn dispatch_vendor(runtime: &dyn VendorRuntime, work: VendorFuture<'static, 
 // WP 2.1/1.4/3.3: D6 regex input is UTF-8. Lossless model storage uses an
 // explicit checked conversion; invalid UTF-16 is a binding/filter error.
 pub fn model_filter(regex: &JavaRegex, test: &Test) -> Result<bool, std::string::FromUtf16Error> {
-    Ok(regex.matches(&test.clazz.as_utf8()?))
+    Ok(regex.matches(&test.clazz))
 }
 // WP 1.7/3.9/5.3/6.6b: the same per-run file manager is passed to all consumers.
 pub async fn output_contract(
@@ -179,7 +179,7 @@ pub async fn output_contract(
 pub fn writer_contract(
     json: &jcompat::writers::WriterValue,
     raw: &jcompat::writers::KotlinValue,
-) -> Result<[JavaString; 3], jcompat::writers::GsonError> {
+) -> Result<[String; 3], jcompat::writers::GsonError> {
     Ok([
         jcompat::writers::GsonWriter::default().write(json)?,
         jcompat::writers::JacksonYamlWriter.write(json),
@@ -209,12 +209,12 @@ pub fn substitution_contract<F: Fn(&str) -> Option<String>>(
 pub fn file_plan_contract(
     files: &jcompat::file_manager::FileManager,
     target: &marathon_core::output::FileTarget,
-    test_name: Option<&JavaString>,
+    test_name: Option<&String>,
 ) -> (jcompat::file_manager::PathPlan, Option<i64>) {
     (
-        files.plan_file_utf16(target.request(test_name)),
+        files.plan_file(target.request(test_name.map(String::as_str))),
         jcompat::fragment_hash::fragment_index_for_hash(
-            jcompat::fragment_hash::signed_md5_utf16(&target.pool.name.0),
+            jcompat::fragment_hash::signed_md5_utf16(&target.pool.name.encode_utf16().collect::<Vec<_>>()),
             2,
         ),
     )

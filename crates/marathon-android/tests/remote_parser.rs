@@ -225,7 +225,7 @@ fn timeout_has_three_inner_attempts_and_unregisters_every_attempt() {
                 e.failure().message,
                 Some(js(&format!(
                     "Unable to parse test list using {}",
-                    d.serial_number().to_string_lossy()
+                    d.serial_number().to_owned()
                 )))
             );
             assert_eq!(
@@ -337,7 +337,7 @@ fn producer_failure_fails_the_parsing_attempt_d25() {
                 Some(
                     format!(
                         "Unable to parse test list using {}: java.lang.NumberFormatException: For input string: \"many\"",
-                        d.serial_number().to_string_lossy()
+                        d.serial_number().to_owned()
                     )
                     .as_str()
                     .into()
@@ -391,7 +391,7 @@ fn extracted(script: Value) -> (VendorResult<Vec<String>>, usize) {
             let tests = parser
                 .extract(reference, context)
                 .await
-                .map(|tests| tests.iter().map(|t| t.method.to_string_lossy()).collect());
+                .map(|tests| tests.iter().map(|t| t.method.to_owned()).collect());
             let attempts = commands(&server)
                 .iter()
                 .filter(|s| s.starts_with("am instrument"))
@@ -433,7 +433,7 @@ fn a_stream_cut_off_on_every_attempt_fails_and_gives_no_list_d25() {
     ]));
     let error = tests.unwrap_err();
     assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
-    let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+    let message = error.failure().message.as_ref().unwrap().to_owned();
     assert!(
         message.ends_with(": java.io.EOFException: the instrumentation stream ended before a result"),
         "{message}"
@@ -458,7 +458,7 @@ fn a_killed_am_fails_the_attempt_with_its_exit_code_d25() {
         json!({"prefix":"am instrument","stdout":listed(&["one"]),"exit_code":137}),
     ]));
     let error = tests.unwrap_err();
-    let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+    let message = error.failure().message.as_ref().unwrap().to_owned();
     assert!(message.ends_with("before a result, with exit code 137"), "{message}");
     assert_eq!(attempts, 3);
 }
@@ -566,10 +566,10 @@ fn a_session_that_keeps_failing_ends_in_a_parsing_error_with_its_reason_d42() {
     });
     let (message, serial, attempts, probes) = outcome.lock().unwrap().take().unwrap();
     assert_eq!(
-        message.unwrap().to_string_lossy(),
+        message.unwrap().to_owned(),
         format!(
             "Unable to parse test list using {}: Other, tests listed: 1 of 2",
-            serial.to_string_lossy()
+            serial.to_owned()
         )
     );
     assert_eq!(attempts, 3);
@@ -623,7 +623,7 @@ fn a_failing_code_with_no_count_fails_the_attempt_d42() {
     ] {
         let (tests, attempts) = extracted(script(vec![json!({"prefix":"am instrument","stdout":end})]));
         let error = tests.unwrap_err();
-        let message = error.failure().message.as_ref().unwrap().to_string_lossy();
+        let message = error.failure().message.as_ref().unwrap().to_owned();
         assert!(message.ends_with(&format!(": {reason}")), "{message}");
         assert_eq!(attempts, 3, "{reason}");
     }

@@ -2,10 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use jcompat::{
-    jackson::{self, JavaDate, Scalar, ScalarError},
-    writers::JavaString,
-};
+use jcompat::jackson::{self, JavaDate, Scalar, ScalarError};
 use marathon_core::error::Failure;
 use serde_json::value::RawValue;
 
@@ -33,7 +30,7 @@ pub struct XcresultDecodeError {
 
 impl std::fmt::Display for XcresultDecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.failure.to_java_string().to_string_lossy())
+        f.write_str(&self.failure.to_java_string().to_owned())
     }
 }
 impl std::error::Error for XcresultDecodeError {}
@@ -46,8 +43,8 @@ impl From<XcresultDecodeError> for Failure {
 
 fn failure(class: &str, message: &str) -> Failure {
     Failure {
-        class: JavaString::from(class),
-        message: Some(JavaString::from(message)),
+        class: String::from(class),
+        message: Some(String::from(message)),
         cause: None,
         stacktrace: None,
     }
@@ -127,7 +124,7 @@ pub(super) enum JsonNode {
     Null,
     Bool(bool),
     Number(String),
-    String(JavaString),
+    String(String),
     Array(Vec<JsonNode>),
     Object(BTreeMap<String, JsonNode>),
 }
@@ -323,7 +320,7 @@ fn wrapped<'a>(node: &'a JsonNode, path: &Path) -> Result<&'a JsonNode, Xcresult
     })
 }
 
-impl Decode for JavaString {
+impl Decode for String {
     const STRING_COLLECTION: bool = true;
     fn decode(node: &JsonNode, path: &Path) -> Result<Option<Self>, XcresultDecodeError> {
         if node.is_null() {

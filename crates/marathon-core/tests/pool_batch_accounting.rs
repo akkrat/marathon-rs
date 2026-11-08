@@ -54,7 +54,7 @@ fn mixed_batch_reported_before_device_loss_retries_only_eligible_tests_and_count
                             .map(|t| {
                                 (
                                     t.clone(),
-                                    match t.method.to_string_lossy().as_str() {
+                                    match t.method.to_owned().as_str() {
                                         "passed" => TestStatus::Passed,
                                         "failed" => TestStatus::Failure,
                                         _ => TestStatus::Incomplete,
@@ -80,7 +80,7 @@ fn mixed_batch_reported_before_device_loss_retries_only_eligible_tests_and_count
                         .map(|t| {
                             (
                                 t.clone(),
-                                if t.method == "failed".into() {
+                                if t.method == "failed".to_owned() {
                                     TestStatus::Failure
                                 } else {
                                     TestStatus::Incomplete

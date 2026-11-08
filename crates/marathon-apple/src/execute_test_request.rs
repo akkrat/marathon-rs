@@ -8,7 +8,7 @@ use crate::{
     test::TestRequest,
     xcodebuild_session::{EventReceiver, XcodebuildSession},
 };
-use jcompat::{logging::Level, writers::JavaString};
+use jcompat::logging::Level;
 use marathon_core::{
     error::{VendorError, VendorResult},
     listener::LineListener,
@@ -33,7 +33,7 @@ impl LineListeners {
             entries.remove(index);
         }
     }
-    pub async fn on_line(&self, line: &JavaString) -> VendorResult<()> {
+    pub async fn on_line(&self, line: &String) -> VendorResult<()> {
         let _gate = self.gate.lock().await;
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for entry in entries {
@@ -93,7 +93,7 @@ pub fn execute_test_request(
                         if let Some(events) = events {
                             sender.send(events).await?;
                         }
-                        listeners.on_line(&JavaString::from(line)).await
+                        listeners.on_line(&line).await
                     }
                 },
                 |line| {
@@ -112,7 +112,7 @@ pub fn execute_test_request(
                         if let Some(message) = message {
                             (logging.sink)(&logger, Level::Warn, message, None);
                         }
-                        listeners.on_line(&JavaString::from(line)).await
+                        listeners.on_line(&line).await
                     }
                 },
             )

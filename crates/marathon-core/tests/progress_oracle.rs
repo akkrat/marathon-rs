@@ -2,7 +2,7 @@
 //! and integrations/ci/CIIntegrationFactory.kt (JVM differential corpus).
 #[path = "support/progress.rs"]
 mod support;
-use jcompat::writers::JavaString;
+
 use marathon_config::schema::{CiConfiguration, ExecutionMode};
 use marathon_core::{ci::Ci, execution::progress::TestState, logging::OutputRecord, model::*};
 use serde_json::{Value, json};
@@ -98,7 +98,7 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                 assert_eq!(snapshot(h.reporter.state(&original).unwrap()), row["after"], "{line}");
                 assert_eq!(json!(action.map(|_| "Complete")), row["action"], "{line}");
                 assert_eq!(json!(error.is_none()), row["returned"], "{line}");
-                let error = error.map(|e| e.failure().to_java_string().as_utf8().unwrap());
+                let error = error.map(|e| e.failure().to_java_string());
                 assert_eq!(json!(error), row["error"], "{line}");
                 assert_eq!(
                     json!(h.reporter.progress().to_bits() as i32),
@@ -106,7 +106,7 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                     "{line}"
                 );
                 assert_eq!(json!(aggregate), row["aggregate"], "{line}");
-                let stdout = h.raw().iter().map(|s| s.as_utf8().unwrap()).collect::<String>();
+                let stdout = h.raw().iter().map(|s| s.clone()).collect::<String>();
                 assert_eq!(json!(stdout), row["stdout"], "{line}");
                 let effects = h.capture.effects.lock().unwrap().clone();
                 let mut logs = Vec::new();
@@ -115,12 +115,12 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                 for e in effects {
                     match e {
                         Effect::Output(OutputRecord::Log(log)) => {
-                            let log = json!({"logger":log.logger,"level":match log.level {jcompat::logging::Level::Warn=>"WARN",jcompat::logging::Level::Debug=>"DEBUG",_=>"ERROR"},"message":log.message.as_utf8().unwrap()});
+                            let log = json!({"logger":log.logger,"level":match log.level {jcompat::logging::Level::Warn=>"WARN",jcompat::logging::Level::Debug=>"DEBUG",_=>"ERROR"},"message":log.message});
                             order.push(json!({"log":log}));
                             logs.push(log);
                         }
                         Effect::Track(pool, d, r, final_result) => {
-                            let track = json!({"pool":pool.name.as_utf8().unwrap(),"device":d.serial_number.as_utf8().unwrap(),"resultDevice":r.device.serial_number.as_utf8().unwrap(),"test":r.test.method.as_utf8().unwrap(),"metadata":r.test.meta_properties.iter().map(|m|m.name.as_utf8().unwrap()).collect::<Vec<_>>(),"status":match r.status {TestStatus::Failure=>"FAILURE",TestStatus::Passed=>"PASSED",TestStatus::Ignored=>"IGNORED",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE",TestStatus::Incomplete=>"INCOMPLETE"},"batch":r.test_batch_id.as_utf8().unwrap(),"start":r.start_time,"end":r.end_time,"final":final_result});
+                            let track = json!({"pool":pool.name,"device":d.serial_number,"resultDevice":r.device.serial_number,"test":r.test.method,"metadata":r.test.meta_properties.iter().map(|m|m.name.clone()).collect::<Vec<_>>(),"status":match r.status {TestStatus::Failure=>"FAILURE",TestStatus::Passed=>"PASSED",TestStatus::Ignored=>"IGNORED",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE",TestStatus::Incomplete=>"INCOMPLETE"},"batch":r.test_batch_id,"start":r.start_time,"end":r.end_time,"final":final_result});
                             order.push(json!({"track":track}));
                             tracks.push(track);
                         }
@@ -128,7 +128,7 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                     }
                 }
                 for log in core.log_queue().take() {
-                    let log = json!({"logger":log.logger,"level":if log.level==jcompat::logging::Level::Warn {"WARN"}else{"ERROR"},"message":log.message.as_utf8().unwrap()});
+                    let log = json!({"logger":log.logger,"level":if log.level==jcompat::logging::Level::Warn {"WARN"}else{"ERROR"},"message":log.message});
                     order.push(json!({"log":log}));
                     logs.push(log);
                 }
@@ -144,7 +144,7 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
 fn auto_ci_checks_values_and_teamcity_bytes_are_literal() {
     for line in include_str!("../../../fixtures/oracle/progress/ci.jsonl").lines() {
         let row: Value = serde_json::from_str(line).unwrap();
-        let env: Vec<(JavaString, JavaString)> = row["environment"]
+        let env: Vec<(String, String)> = row["environment"]
             .as_array()
             .unwrap()
             .iter()
@@ -152,7 +152,7 @@ fn auto_ci_checks_values_and_teamcity_bytes_are_literal() {
             .collect();
         let ci = Ci::from_config(CiConfiguration::Auto, &env);
         assert_eq!(
-            ci.build_progress(-1).map(|s| s.as_utf8().unwrap()).unwrap_or_default(),
+            ci.build_progress(-1).map(|s| s.clone()).unwrap_or_default(),
             row["stdout"].as_str().unwrap()
         );
         assert_eq!(
@@ -189,8 +189,7 @@ fn empty_reduce_nan_and_rounding_match_the_jvm() {
                     .unwrap_err()
                     .failure()
                     .to_java_string()
-                    .as_utf8()
-                    .unwrap(),
+                    .clone(),
                 row["emptyAggregate"].as_str().unwrap()
             );
             Ok(())
@@ -216,7 +215,7 @@ fn ended_only_and_terminal_retry_keep_the_source_bookkeeping() {
             assert_eq!(h.reporter.state(&t).unwrap().counters(), (1, 1, -1));
             assert_eq!(
                 h.raw(),
-                vec![JavaString::from("00% | [test]-[1] com.example.Class#method passed\n")]
+                vec![String::from("00% | [test]-[1] com.example.Class#method passed\n")]
             );
             h.end(result(&t, &d, "2", TestStatus::Failure, 1, 2), false).await;
             assert!(h.aggregate());
@@ -277,9 +276,9 @@ fn started_ci_passes_fraction_and_prints_after_ci() {
             assert_eq!(
                 h.raw(),
                 vec![
-                    JavaString::from("00% | [test]-[1] com.example.Class#method passed\n"),
-                    JavaString::from("##teamcity[buildStatus text='Marathon run: 0 %']\n"),
-                    JavaString::from("50% | [test]-[1] com.example.Class#method started\n")
+                    String::from("00% | [test]-[1] com.example.Class#method passed\n"),
+                    String::from("##teamcity[buildStatus text='Marathon run: 0 %']\n"),
+                    String::from("50% | [test]-[1] com.example.Class#method started\n")
                 ]
             );
             Ok(())
@@ -342,7 +341,7 @@ fn grouping_retains_first_metadata_and_name_collisions_overwrite() {
                     _ => None,
                 })
                 .unwrap();
-            assert_eq!(r.test.meta_properties[0].name, JavaString::from("first"));
+            assert_eq!(r.test.meta_properties[0].name, String::from("first"));
             drop(effects);
             let mut collision = first.clone();
             collision.pkg = "com".into();

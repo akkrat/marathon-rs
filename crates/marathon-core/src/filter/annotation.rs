@@ -6,10 +6,7 @@ use crate::{
     model::{MetaArray, MetaValue, Test},
     time::{ObjectIdentity, ReplayHooks},
 };
-use jcompat::{
-    JavaRegex, jnum,
-    writers::{JavaString, KotlinValue},
-};
+use jcompat::{JavaRegex, jnum, writers::KotlinValue};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, Weak},
@@ -62,14 +59,14 @@ impl AnnotationRenderer {
             allocate_identity,
         }
     }
-    pub fn render(&self, value: &MetaValue) -> OperationResult<JavaString> {
+    pub fn render(&self, value: &MetaValue) -> OperationResult<String> {
         Ok(self.value(value)?.render())
     }
-    fn suffix(&self, label: &'static str, identity: ObjectIdentity) -> OperationResult<JavaString> {
+    fn suffix(&self, label: &'static str, identity: ObjectIdentity) -> OperationResult<String> {
         self.hooks.identity_suffix(label, identity).map_err(|e| {
             failure(
                 "java.lang.IllegalStateException",
-                &format!("{}: {}", e.label.to_string_lossy(), e.message.to_string_lossy()),
+                &format!("{}: {}", e.label.to_owned(), e.message.to_owned()),
             )
             .into()
         })
@@ -79,13 +76,13 @@ impl AnnotationRenderer {
         let text = match value {
             Null => return Ok(KotlinValue::Null),
             Boolean(v) => if *v { "true" } else { "false" }.into(),
-            Byte(v) => v.to_string().into(),
-            Short(v) => v.to_string().into(),
-            Int(v) => v.to_string().into(),
-            Long(v) => v.to_string().into(),
-            Char(v) => JavaString(vec![*v]),
-            Float(v) => jnum::float_to_string(*v).into(),
-            Double(v) => jnum::double_to_string(*v).into(),
+            Byte(v) => v.to_string(),
+            Short(v) => v.to_string(),
+            Int(v) => v.to_string(),
+            Long(v) => v.to_string(),
+            Char(v) => std::string::String::from_utf16_lossy(&[*v]),
+            Float(v) => jnum::float_to_string(*v),
+            Double(v) => jnum::double_to_string(*v),
             String(v) => v.clone(),
             List(values) => {
                 return Ok(KotlinValue::List(
@@ -113,7 +110,7 @@ impl AnnotationRenderer {
                 let suffix = if needs_null(wrapper) {
                     self.suffix("metadata.decoded_null.identity", self.decoded_null_identity)?
                 } else {
-                    JavaString::default()
+                    std::string::String::default()
                 };
                 return Ok(wrapper.kotlin_value(&suffix));
             }
@@ -124,8 +121,8 @@ impl AnnotationRenderer {
                     .map_err(|_| failure("java.lang.IllegalStateException", "metadata identity registry poisoned"))?
                     .identity(array, &*self.allocate_identity);
                 let mut text = array.jvm_class.clone();
-                text.push_str("@");
-                text.append(self.suffix("metadata.array.identity", identity)?);
+                text.push('@');
+                text.push_str(&self.suffix("metadata.array.identity", identity)?);
                 text
             }
         };
@@ -147,7 +144,7 @@ pub(super) fn matches(
             .values
             .entries()
             .iter()
-            .find(|(k, _)| *k == JavaString::from("value"))
+            .find(|(k, _)| *k == std::string::String::from("value"))
         else {
             continue;
         };
@@ -182,14 +179,15 @@ pub(super) fn matches(
     Ok(false)
 }
 
-pub fn array_element_value(text: &JavaString) -> JavaString {
+pub fn array_element_value(text: &String) -> String {
     let delimiter: Vec<u16> = "(value=".encode_utf16().collect();
     let start = text
-        .0
+        .encode_utf16()
+        .collect::<Vec<_>>()
         .windows(delimiter.len())
         .position(|w| w == delimiter)
         .map_or(0, |i| i + delimiter.len());
-    let tail = &text.0[start..];
+    let tail = &text.encode_utf16().collect::<Vec<_>>()[start..];
     let end = tail.iter().position(|u| *u == u16::from(b')')).unwrap_or(tail.len());
-    JavaString(tail[..end].to_vec())
+    std::string::String::from_utf16_lossy(&tail[..end])
 }

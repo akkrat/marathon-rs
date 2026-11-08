@@ -6,7 +6,7 @@
 //! the close behaviour over a real ktor socket in
 //! `fixtures/oracle/frame-eof-probe.jsonl`.
 
-use jcompat::{file_manager::JavaPath, jtime::instant_of, writers::JavaString};
+use jcompat::{file_manager::JavaPath, jtime::instant_of};
 use marathon_config::{
     MarathonDevices,
     binding::{BindingContext, Profile},
@@ -19,7 +19,7 @@ fn context() -> BindingContext {
         marathonfile: JavaPath::from_text("/Marathonfile"),
         marathonfile_dir: JavaPath::from_text("/"),
         process_dir: JavaPath::from_text("/"),
-        environment: vec![(JavaString::from("ADDR"), JavaString::from("node-7"))],
+        environment: vec![(String::from("ADDR"), String::from("node-7"))],
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,
         bugsnag_reporting: false,
@@ -72,7 +72,7 @@ fn split_at_every_byte_boundary_of_a_two_frame_stream() {
     let whole = snapshots(FrameDecoder::new().feed(&stream, &ctx));
     assert_eq!(whole.len(), 2);
     // The substitution inside the second payload ran.
-    assert_eq!(whole[1].workers[0].transport.id().to_string_lossy(), "node-7:22");
+    assert_eq!(whole[1].workers[0].transport.id().to_owned(), "node-7:22");
     for split in 0..=stream.len() {
         let mut decoder = FrameDecoder::new();
         let mut got = decoder.feed(&stream[..split], &ctx);
@@ -237,7 +237,7 @@ fn binding_and_substitution_failures_keep_their_kinds() {
     assert!(matches!(out[0], Err(FrameError::Binding(_))), "{:?}", out[0]);
     // A substitution cycle escapes as its own kind (unwrapped in Kotlin).
     let mut cyclic = context();
-    cyclic.environment = vec![(JavaString::from("ADDR"), JavaString::from("${ADDR}"))];
+    cyclic.environment = vec![(String::from("ADDR"), String::from("${ADDR}"))];
     let out = FrameDecoder::new().feed(&frame(TWO), &cyclic);
     assert!(matches!(out[0], Err(FrameError::Substitution(_))), "{:?}", out[0]);
 }

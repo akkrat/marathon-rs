@@ -129,8 +129,8 @@ impl ConsoleSink for Batches {
         let batch = records
             .into_iter()
             .map(|record| match record {
-                OutputRecord::Log(log) => log.message.to_string_lossy(),
-                OutputRecord::Raw(text) => text.to_string_lossy(),
+                OutputRecord::Log(log) => log.message.to_owned(),
+                OutputRecord::Raw(text) => text.to_owned(),
             })
             .collect();
         self.0.lock().unwrap().push(batch);
@@ -209,7 +209,7 @@ impl ConsoleSink for FailsOnce {
             if self.failed.swap(true, Ordering::SeqCst) {
                 for record in records {
                     if let OutputRecord::Log(LogRecord { cause: Some(cause), .. }) = record {
-                        let message = cause.message.map(|m| m.to_string_lossy()).unwrap_or_default();
+                        let message = cause.message.map(|m| m.to_owned()).unwrap_or_default();
                         self.reported.lock().unwrap().push(message);
                     }
                 }

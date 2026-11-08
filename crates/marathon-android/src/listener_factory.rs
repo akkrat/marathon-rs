@@ -206,7 +206,7 @@ pub fn create(
                 device.log_named(
                     "com.malinskiy.marathon.android.executor.listeners.TestResultsListener",
                     level,
-                    &text.to_string_lossy(),
+                    &text.to_owned(),
                     None,
                 )
             })

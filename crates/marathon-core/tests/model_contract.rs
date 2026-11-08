@@ -1,7 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/test/Test.kt
 //! Contract regressions supplement, but do not replace, the parity matrix.
 
-use jcompat::writers::JavaString;
 use marathon_core::model::{DecodedWrapper, MetaArray, MetaMap, MetaProperty, MetaValue, Test, TestBatch};
 use std::{collections::HashSet, sync::Arc};
 
@@ -69,8 +68,8 @@ fn java_boxed_values_and_utf16_are_not_rust_numeric_or_unicode_equality() {
         MetaValue::Double(f64::NAN),
         MetaValue::Double(f64::from_bits(0x7ff8_0000_0000_0001))
     );
-    assert!(JavaString::from("😀") < JavaString::from("ｚ"));
-    assert!(JavaString(vec![0xd800]).as_utf8().is_err());
+    assert!(String::from("😀") < String::from("ｚ"));
+    assert_eq!(String::from_utf16_lossy(&[0xd800]), "\u{fffd}");
 }
 
 #[test]
@@ -146,7 +145,7 @@ fn decoded_array_elements_keep_pinned_wrapper_rendering() {
     ];
     for (wrapper, expected, filter_value) in cases {
         let rendered = wrapper.kotlin_value(&"abc".into()).render();
-        assert_eq!(rendered, JavaString::from(expected));
+        assert_eq!(rendered, String::from(expected));
         // Witness the filter's first-delimiter extraction; WP 3.3 owns it.
         let after = expected.split_once("(value=").map_or(expected, |(_, after)| after);
         assert_eq!(after.split_once(')').map_or(after, |(before, _)| before), filter_value);
@@ -154,8 +153,8 @@ fn decoded_array_elements_keep_pinned_wrapper_rendering() {
         assert_eq!(element, element.clone());
     }
     assert_eq!(DecodedChar(0xd800).kotlin_value(&"abc".into()).render(), {
-        let mut text = JavaString::from("DecodedChar(value=");
-        text.0.push(0xd800);
+        let mut text = String::from("DecodedChar(value=");
+        text.push('\u{fffd}');
         text.push_str(")");
         text
     });

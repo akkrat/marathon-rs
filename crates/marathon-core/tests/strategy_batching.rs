@@ -137,7 +137,7 @@ fn fixed_size_counts_only_accepted_tests_against_the_size_and_re_adds_the_rest()
     let hooks = ScriptedHooks::with_draws([], None);
     let batch = fixed(3)
         .process(&mut queue, &MetricsProviderStub::default(), None, hooks.as_ref())
-        .map(|b| b.tests);
+        .map(|b| b.tests.clone());
     assert_eq!(batch, Ok(vec![t[0].clone(), t[1].clone(), t[2].clone()]));
     assert_eq!(queue.len(), 2);
     assert_eq!(queue.iter().filter(|q| **q == t[0]).count(), 1);
@@ -163,13 +163,13 @@ fn fixed_size_adds_only_accepted_durations_and_breaks_at_the_limit() {
     let hooks = ScriptedHooks::with_draws([], None);
     let batch = duration_limited(5, 6000).process(&mut queue, &metrics, None, hooks.as_ref());
     assert_eq!(
-        batch.map(|b| b.tests),
+        batch.map(|b| b.tests.clone()),
         Ok(vec![t[0].clone(), t[1].clone(), t[2].clone()])
     );
     // At least one test is taken even when it alone exceeds the limit.
     let mut queue = by_name(vec![t[0].clone(), t[1].clone()]);
     let batch = duration_limited(5, 1).process(&mut queue, &metrics, None, hooks.as_ref());
-    assert_eq!(batch.map(|b| b.tests), Ok(vec![t[0].clone()]));
+    assert_eq!(batch.map(|b| b.tests.clone()), Ok(vec![t[0].clone()]));
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn fixed_size_asks_no_duration_for_a_rejected_test() {
     let mut queue = by_name(vec![t[0].clone(), t[0].clone(), t[1].clone()]);
     let hooks = ScriptedHooks::with_draws([], None);
     let batch = duration_limited(5, 1_000_000).process(&mut queue, &metrics, None, hooks.as_ref());
-    assert_eq!(batch.map(|b| b.tests), Ok(vec![t[0].clone(), t[1].clone()]));
+    assert_eq!(batch.map(|b| b.tests.clone()), Ok(vec![t[0].clone(), t[1].clone()]));
     assert_eq!(
         trace.drain(),
         vec![json!(["executionTime", tj(&t[0])]), json!(["executionTime", tj(&t[1])])]
@@ -215,7 +215,7 @@ fn fixed_size_stops_after_two_rejected_polls_per_slot() {
         Some(&identifier),
         hooks.as_ref(),
     );
-    assert_eq!(batch.map(|b| b.tests), Ok(vec![t[0].clone()]));
+    assert_eq!(batch.map(|b| b.tests.clone()), Ok(vec![t[0].clone()]));
     assert_eq!(queue.len(), 99);
     // The accepted test and 3 x 2 rejected ones, out of 99 that could be rejected.
     assert_eq!(trace.drain().len(), 7);
@@ -232,7 +232,7 @@ fn fixed_size_of_integer_max_value_does_not_overflow_the_rejected_limit() {
         Some(&identifier),
         hooks.as_ref(),
     );
-    assert_eq!(batch.map(|b| b.tests), Ok(vec![t[0].clone()]));
+    assert_eq!(batch.map(|b| b.tests.clone()), Ok(vec![t[0].clone()]));
     assert_eq!(queue.len(), 4);
 }
 
@@ -262,7 +262,7 @@ fn rejected_tests_keep_every_tests_place_under_a_strict_order() {
             Some(&identifier),
             hooks.as_ref(),
         );
-        let tests = batch.map(|b| b.tests).unwrap_or_default();
+        let tests = batch.map(|b| b.tests.clone()).unwrap_or_default();
         sizes.push(tests.len());
         for test in tests {
             let rank = t.iter().position(|it| *it == test).unwrap_or_default();
@@ -324,7 +324,7 @@ fn fixed_size_a_null_bundle_does_not_lock_the_batch() {
         hooks.as_ref(),
     );
     // t0 (null) leaves it open, t1 locks "a", t2 ("b") and t3 (null after the lock) are refused.
-    assert_eq!(batch.map(|b| b.tests), Ok(vec![t[0].clone(), t[1].clone()]));
+    assert_eq!(batch.map(|b| b.tests.clone()), Ok(vec![t[0].clone(), t[1].clone()]));
     assert_eq!(queue.len(), 2);
 }
 
@@ -374,7 +374,7 @@ fn batch_id_is_allocated_after_the_last_queue_operation() {
     queue.add_all(vec![t[0].clone(), t[0].clone(), t[1].clone()]);
     trace.drain();
     let batch = fixed(3).process(&mut queue, &MetricsProviderStub::default(), None, hooks.as_ref());
-    assert_eq!(batch.map(|b| b.id.to_string_lossy()), Ok("batch-1".to_owned()));
+    assert_eq!(batch.map(|b| b.id.to_owned()), Ok("batch-1".to_owned()));
     let events = trace.drain();
     // The re-add of the unbatchable copy compares, then the id is drawn.
     assert_eq!(events.last(), Some(&json!(["allocateId"])));
@@ -721,7 +721,7 @@ fn batches_with_nothing_rejected_match_kotlins_rule_operation_by_operation() {
             assert_eq!(rejected, 0);
             let hooks = ScriptedHooks::with_draws([], None);
             let batch = fixed(size as i32).process(&mut rust, &metrics, None, hooks.as_ref());
-            assert_eq!(batch.map(|b| b.tests), Ok(expected));
+            assert_eq!(batch.map(|b| b.tests.clone()), Ok(expected));
             assert_eq!(rust.iter().collect::<Vec<_>>(), kotlin.iter().collect::<Vec<_>>());
             assert_eq!(rust_trace.drain(), kotlin_trace.drain());
         }

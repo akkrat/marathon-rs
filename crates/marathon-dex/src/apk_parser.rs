@@ -5,7 +5,7 @@ use crate::{
     axml::{AxmlParser, END_DOCUMENT, START_TAG},
     error::{DexError, DexResult},
 };
-use jcompat::writers::JavaString;
+
 use std::{fs::File, io::Read, path::Path};
 
 /// InstrumentationInfo.kt: (applicationPackage, instrumentationPackage,
@@ -13,12 +13,12 @@ use std::{fs::File, io::Read, path::Path};
 /// targetPackage, instrumentationPackage the manifest's own package.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstrumentationInfo {
-    pub application_package: JavaString,
-    pub instrumentation_package: JavaString,
-    pub test_runner_class: JavaString,
+    pub application_package: String,
+    pub instrumentation_package: String,
+    pub test_runner_class: String,
 }
 
-fn java_string(text: &str) -> JavaString {
+fn java_string(text: &str) -> String {
     text.into()
 }
 
@@ -83,9 +83,9 @@ fn parse_instrumentation_info_inner(apk: &Path) -> DexResult<InstrumentationInfo
     // Kotlin's locals are swapped relative to their names (testPackage
     // holds the manifest package, appPackage the targetPackage) and the
     // constructor call un-swaps them; the RESULT is what's ported here.
-    let mut app_package: Option<JavaString> = None;
-    let mut test_package: Option<JavaString> = None;
-    let mut test_runner_class: Option<JavaString> = None;
+    let mut app_package: Option<String> = None;
+    let mut test_package: Option<String> = None;
+    let mut test_runner_class: Option<String> = None;
     while event_type != END_DOCUMENT {
         if event_type == START_TAG {
             let parser_name = parser.name()?;
@@ -118,14 +118,14 @@ fn parse_instrumentation_info_inner(apk: &Path) -> DexResult<InstrumentationInfo
     };
 
     // Support relative declaration of instrumentation test runner.
-    if runner.0.first() == Some(&u16::from(b'.')) {
+    if runner.encode_utf16().collect::<Vec<_>>().first() == Some(&u16::from(b'.')) {
         let mut combined = test_package.clone();
-        combined.0.extend(runner.0.iter());
+        combined.push_str(&runner);
         runner = combined;
-    } else if !runner.0.contains(&u16::from(b'.')) {
+    } else if !runner.encode_utf16().collect::<Vec<_>>().contains(&u16::from(b'.')) {
         let mut combined = test_package.clone();
-        combined.0.push(u16::from(b'.'));
-        combined.0.extend(runner.0.iter());
+        combined.push('.');
+        combined.push_str(&runner);
         runner = combined;
     }
 
@@ -136,16 +136,16 @@ fn parse_instrumentation_info_inner(apk: &Path) -> DexResult<InstrumentationInfo
     })
 }
 
-pub fn parse_app_package_name(apk: &Path) -> DexResult<JavaString> {
+pub fn parse_app_package_name(apk: &Path) -> DexResult<String> {
     wrap_io(parse_app_package_name_inner(apk))
 }
 
-fn parse_app_package_name_inner(apk: &Path) -> DexResult<JavaString> {
+fn parse_app_package_name_inner(apk: &Path) -> DexResult<String> {
     let manifest = read_manifest(apk)?;
     let mut parser = AxmlParser::new(&manifest)?;
     let mut event_type = parser.event_type();
 
-    let mut app_package: Option<JavaString> = None;
+    let mut app_package: Option<String> = None;
     while event_type != END_DOCUMENT {
         if event_type == START_TAG {
             let parser_name = parser.name()?;

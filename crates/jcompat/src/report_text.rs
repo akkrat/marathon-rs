@@ -1,12 +1,12 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt
 //! and report/allure/AllureReporter.kt (Commons Text and Jackson string boundaries).
 
-use crate::writers::{JavaString, WriterValue};
+use crate::writers::WriterValue;
 
 /// Commons Text 1.12 escapeXml11, including removal of invalid XML code points.
-pub fn escape_xml11(text: &JavaString) -> JavaString {
-    let mut out = JavaString::default();
-    for ch in char::decode_utf16(text.0.iter().copied()).flatten() {
+pub fn escape_xml11(text: &str) -> String {
+    let mut out = String::default();
+    for ch in text.chars() {
         match ch {
             '\0' | '\u{fffe}' | '\u{ffff}' => {}
             '&' => out.push_str("&amp;"),
@@ -17,56 +17,44 @@ pub fn escape_xml11(text: &JavaString) -> JavaString {
             '\u{1}'..='\u{8}' | '\u{b}'..='\u{c}' | '\u{e}'..='\u{1f}' | '\u{7f}'..='\u{84}' | '\u{86}'..='\u{9f}' => {
                 out.push_str("&#");
                 out.push_str(&(ch as u32).to_string());
-                out.push_str(";");
+                out.push(';');
             }
-            _ => out.push_code_point(ch as u32),
+            _ => out.push(ch),
         }
     }
     out
 }
 
 /// Java URLEncoder with UTF-8; spaces become plus, not percent-20.
-pub fn form_encode(text: &JavaString) -> JavaString {
+pub fn form_encode(text: &str) -> String {
     const HEX: &[u8] = b"0123456789ABCDEF";
-    let mut out = JavaString::default();
-    for byte in text.to_utf8_bytes() {
+    let mut out = String::default();
+    for byte in text.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'*' | b'_' => out.0.push(byte as u16),
-            b' ' => out.0.push(b'+' as u16),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'*' | b'_' => out.push(byte as char),
+            b' ' => out.push('+'),
             _ => {
-                out.0.extend([
-                    b'%' as u16,
-                    HEX[(byte >> 4) as usize] as u16,
-                    HEX[(byte & 15) as usize] as u16,
+                out.extend([
+                    '%',
+                    HEX[(byte >> 4) as usize] as char,
+                    HEX[(byte & 15) as usize] as char,
                 ]);
             }
         }
     }
     out
 }
-pub fn replace(text: &JavaString, pattern: &str, replacement: &JavaString) -> JavaString {
-    let pattern: Vec<_> = pattern.encode_utf16().collect();
-    let mut out = JavaString::default();
-    let mut i = 0;
-    while i < text.0.len() {
-        if text.0[i..].starts_with(&pattern) {
-            out.0.extend(&replacement.0);
-            i += pattern.len();
-        } else {
-            out.0.push(text.0[i]);
-            i += 1;
-        }
-    }
-    out
+pub fn replace(text: &str, pattern: &str, replacement: &str) -> String {
+    text.replace(pattern, replacement)
 }
 
 /// Restricted Allure/Jackson model writer (P2). Callers decide NON_NULL/NON_EMPTY
 /// inclusion; objects such as an empty profiling Link must remain present.
-pub fn jackson_json(value: &WriterValue) -> JavaString {
-    fn string(s: &JavaString, out: &mut JavaString) {
+pub fn jackson_json(value: &WriterValue) -> String {
+    fn string(s: &str, out: &mut String) {
         const HEX: &[u8] = b"0123456789ABCDEF";
-        out.push_str("\"");
-        for &u in &s.0 {
+        out.push('"');
+        for u in s.encode_utf16() {
             match u {
                 34 => out.push_str("\\\""),
                 92 => out.push_str("\\\\"),
@@ -77,19 +65,19 @@ pub fn jackson_json(value: &WriterValue) -> JavaString {
                 13 => out.push_str("\\r"),
                 0..=31 | 0xd800..=0xdfff => {
                     out.push_str("\\u");
-                    out.0.extend([
-                        HEX[(u >> 12) as usize] as u16,
-                        HEX[((u >> 8) & 15) as usize] as u16,
-                        HEX[((u >> 4) & 15) as usize] as u16,
-                        HEX[(u & 15) as usize] as u16,
+                    out.extend([
+                        HEX[(u >> 12) as usize] as char,
+                        HEX[((u >> 8) & 15) as usize] as char,
+                        HEX[((u >> 4) & 15) as usize] as char,
+                        HEX[(u & 15) as usize] as char,
                     ]);
                 }
-                _ => out.0.push(u),
+                _ => out.push(char::from_u32(u32::from(u)).unwrap()),
             }
         }
-        out.push_str("\"");
+        out.push('"');
     }
-    fn write(v: &WriterValue, out: &mut JavaString) {
+    fn write(v: &WriterValue, out: &mut String) {
         match v {
             WriterValue::Null => out.push_str("null"),
             WriterValue::Bool(v) => out.push_str(if *v { "true" } else { "false" }),
@@ -98,56 +86,56 @@ pub fn jackson_json(value: &WriterValue) -> JavaString {
             // Jackson's default variant, MIME_NO_LINEFEEDS; Allure models carry no byte arrays.
             WriterValue::Binary(v) => {
                 const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-                out.push_str("\"");
+                out.push('"');
                 for chunk in v.chunks(3) {
                     let n = chunk
                         .iter()
                         .enumerate()
                         .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
                     for i in 0..4 {
-                        out.0.push(if i <= chunk.len() {
-                            u16::from(ALPHABET[(n >> (18 - 6 * i) & 63) as usize])
+                        out.push(if i <= chunk.len() {
+                            char::from(ALPHABET[(n >> (18 - 6 * i) & 63) as usize])
                         } else {
-                            u16::from(b'=')
+                            '='
                         });
                     }
                 }
-                out.push_str("\"");
+                out.push('"');
             }
             WriterValue::Array(v) => {
-                out.push_str("[");
+                out.push('[');
                 for (i, v) in v.iter().enumerate() {
                     if i > 0 {
-                        out.push_str(",")
+                        out.push(',')
                     }
                     write(v, out)
                 }
-                out.push_str("]");
+                out.push(']');
             }
             WriterValue::Object(v) => {
-                out.push_str("{");
+                out.push('{');
                 for (i, (k, v)) in v.iter().enumerate() {
                     if i > 0 {
-                        out.push_str(",")
+                        out.push(',')
                     }
                     string(k, out);
-                    out.push_str(":");
+                    out.push(':');
                     write(v, out)
                 }
-                out.push_str("}");
+                out.push('}');
             }
         }
     }
-    let mut out = JavaString::default();
+    let mut out = String::default();
     write(value, &mut out);
     out
 }
 
 /// ResultsUtils.generateMethodSignatureHash updates MD5 with class bytes then method bytes (no separators).
-pub fn allure_history_id(class: &JavaString, method: &JavaString) -> String {
-    let mut signature = class.clone();
-    signature.append(method.clone());
-    format!("{:x}", md5::compute(signature.to_utf8_bytes()))
+pub fn allure_history_id(class: &str, method: &str) -> String {
+    let mut signature = class.to_owned();
+    signature.push_str(method);
+    format!("{:x}", md5::compute(signature.as_bytes()))
 }
 
 /// Why the JDK's Xalan serializer rejects a text node (environment-writer catches it).
@@ -178,34 +166,19 @@ impl XmlTextError {
     }
 }
 
-/// DOM text-node serialization used by environment-writer's identity transform
-/// (JBR 21 Xalan ToStream, XML 1.0, UTF-8), mapped over every BMP unit on the JVM.
-/// A high surrogate ending the node is dropped without error.
-pub fn xml_text(text: &JavaString) -> Result<JavaString, XmlTextError> {
-    let mut out = JavaString::default();
-    let mut i = 0;
-    while i < text.0.len() {
-        let u = text.0[i];
-        match u {
-            0xd800..=0xdbff => match text.0.get(i + 1) {
-                Some(&low @ 0xdc00..=0xdfff) => {
-                    let code = 0x10000 + ((u32::from(u) - 0xd800) << 10) + (u32::from(low) - 0xdc00);
-                    out.push_str(&format!("&#{code};"));
-                    i += 1;
-                }
-                Some(&next) => return Err(XmlTextError::InvalidSurrogate(u, next)),
-                None => {}
-            },
-            0xdc00..=0xdfff => return Err(XmlTextError::InvalidCharacter(u)),
-            38 => out.push_str("&amp;"),
-            60 => out.push_str("&lt;"),
-            62 => out.push_str("&gt;"),
-            9 | 10 => out.0.push(u),
-            13 | 0x7f..=0x9f => out.push_str(&format!("&#{u};")),
-            0..=0x1f => return Err(XmlTextError::InvalidCharacter(u)),
-            _ => out.0.push(u),
+/// DOM text-node serialization used by environment-writer's identity transform.
+pub fn xml_text(text: &str) -> Result<String, XmlTextError> {
+    let mut out = String::new();
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '\t' | '\n' => out.push(c),
+            '\r' | '\u{7f}'..='\u{9f}' | '\u{10000}'..='\u{10ffff}' => out.push_str(&format!("&#{};", c as u32)),
+            '\0'..='\u{1f}' => return Err(XmlTextError::InvalidCharacter(c as u16)),
+            _ => out.push(c),
         }
-        i += 1;
     }
     Ok(out)
 }

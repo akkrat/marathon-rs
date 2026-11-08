@@ -5,7 +5,7 @@ use crate::{
     model::{DeviceInfo, DevicePoolId, Test},
     runtime::ServiceFuture,
 };
-use jcompat::{file_manager::JavaPath, writers::JavaString};
+use jcompat::file_manager::JavaPath;
 
 pub use jcompat::file_manager::{FileType, FolderType};
 
@@ -14,22 +14,22 @@ pub struct FileTarget {
     pub pool: DevicePoolId,
     pub device: DeviceInfo,
     pub test: Option<Test>,
-    pub test_batch_id: Option<JavaString>,
-    pub id: Option<JavaString>,
-    pub chunk: Option<JavaString>,
+    pub test_batch_id: Option<String>,
+    pub id: Option<String>,
+    pub chunk: Option<String>,
 }
 impl FileTarget {
     /// Test.toTestName is supplied by the model formatter; path escaping and
     /// truncation remain the merged file manager's responsibility.
-    pub fn request<'a>(&'a self, test_name: Option<&'a JavaString>) -> jcompat::file_manager::Utf16FileRequest<'a> {
-        jcompat::file_manager::Utf16FileRequest {
+    pub fn request<'a>(&'a self, test_name: Option<&'a str>) -> jcompat::file_manager::FileRequest<'a> {
+        jcompat::file_manager::FileRequest {
             file_type: self.kind,
-            pool: &self.pool.name.0,
-            serial: &self.device.serial_number.0,
-            test_name: test_name.map(|name| name.0.as_slice()),
-            batch_id: self.test_batch_id.as_ref().map(|id| id.0.as_slice()),
-            id: self.id.as_ref().map(|id| id.0.as_slice()),
-            chunk: self.chunk.as_ref().map(|chunk| chunk.0.as_slice()),
+            pool: &self.pool.name,
+            serial: &self.device.serial_number,
+            test_name,
+            batch_id: self.test_batch_id.as_deref(),
+            id: self.id.as_deref(),
+            chunk: self.chunk.as_deref(),
         }
     }
 }
@@ -46,7 +46,7 @@ pub trait OutputFiles: Send + Sync {
         pool: Option<&'a DevicePoolId>,
         device: Option<&'a DeviceInfo>,
     ) -> ServiceFuture<'a, JavaPath>;
-    fn create_test_result_file<'a>(&'a self, filename: &'a JavaString) -> ServiceFuture<'a, JavaPath>;
+    fn create_test_result_file<'a>(&'a self, filename: &'a String) -> ServiceFuture<'a, JavaPath>;
 }
 
 /// Called off core. Render Log through the shared console's write_event/Jansi

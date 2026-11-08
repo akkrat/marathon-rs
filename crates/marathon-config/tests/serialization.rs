@@ -32,7 +32,7 @@ fn test_simple(path: &str) {
     let serialized = serialize(&parsed);
     let (_temp, temp_dir) = load::temp().unwrap();
     let temp_file = temp_dir.join("temp");
-    fs::write(&temp_file, serialized.to_utf8_bytes()).unwrap();
+    fs::write(&temp_file, serialized.as_bytes()).unwrap();
 
     let mut recreated_context = load::context(&temp_file, file.parent().unwrap(), Some("/android-sdk"));
     recreated_context.now = context.now;
@@ -124,7 +124,7 @@ fn timeout_round_trip(vendor_type: &str, timeout: &str) {
             .as_bytes(),
     );
     let serialized = serialize(&parsed);
-    assert_eq!(parse(&serialized.to_utf8_bytes()), parsed);
+    assert_eq!(parse(serialized.as_bytes()), parsed);
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn overrides_survive_a_serialization_round_trip_without_derived_values() {
             worker_capacity: Some(8),
         },
     };
-    let yaml = JacksonYamlWriter.write(&xcresult.writer_value()).to_string_lossy();
+    let yaml = JacksonYamlWriter.write(&xcresult.writer_value()).to_owned();
     assert!(yaml.contains("workerCapacity: 8"), "{yaml}");
     assert!(!yaml.contains("effectiveWorkerCapacity"), "{yaml}");
     let (_temp, dir) = load::temp().unwrap();
@@ -195,9 +195,9 @@ fn a_nan_success_rate_survives_a_serialization_round_trip() {
     assert!(graphite.defaults.success_rate.is_nan());
     let serialized = serialize(&parsed);
     // Jackson's text (same probe): a plain scalar, not a quoted string.
-    assert!(serialized.to_string_lossy().contains("\n    successRate: NaN\n"));
+    assert!(serialized.to_owned().contains("\n    successRate: NaN\n"));
     let again = dir.join("again");
-    fs::write(&again, serialized.to_utf8_bytes()).unwrap();
+    fs::write(&again, serialized.as_bytes()).unwrap();
     let mut again_context = load::context(&again, &dir, None);
     again_context.now = context.now;
     assert_eq!(parsed, load::parse(&again, &again_context).unwrap());

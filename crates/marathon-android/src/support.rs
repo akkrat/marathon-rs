@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/exception/CommandRejectedException.kt
 //! and adam/AdamAndroidDevice.kt (timeout and exception boundaries).
 
-use jcompat::{jtime::Duration, writers::JavaString};
+use jcompat::jtime::Duration;
 use marathon_adb::client::{AdbError, JavaThrowable};
 use marathon_core::{error::*, runtime::*, vendor::VendorContext};
 use std::{
@@ -12,7 +12,7 @@ use std::{
 pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
-pub(crate) fn failure(class: &str, message: impl Into<JavaString>) -> Failure {
+pub(crate) fn failure(class: &str, message: impl Into<String>) -> Failure {
     Failure {
         class: class.into(),
         message: Some(message.into()),
@@ -20,28 +20,28 @@ pub(crate) fn failure(class: &str, message: impl Into<JavaString>) -> Failure {
         stacktrace: None,
     }
 }
-pub(crate) fn other(class: &str, message: impl Into<JavaString>) -> VendorError {
+pub(crate) fn other(class: &str, message: impl Into<String>) -> VendorError {
     VendorError::Other(failure(class, message))
 }
-pub(crate) fn setup(message: impl Into<JavaString>) -> VendorError {
+pub(crate) fn setup(message: impl Into<String>) -> VendorError {
     VendorError::DeviceSetup(failure(
         "com.malinskiy.marathon.exceptions.DeviceSetupException",
         message,
     ))
 }
-pub(crate) fn transfer(message: impl Into<JavaString>) -> VendorError {
+pub(crate) fn transfer(message: impl Into<String>) -> VendorError {
     VendorError::Transfer(failure("com.malinskiy.marathon.exceptions.TransferException", message))
 }
-pub(crate) fn install(message: impl Into<JavaString>) -> VendorError {
+pub(crate) fn install(message: impl Into<String>) -> VendorError {
     other("com.malinskiy.marathon.android.exception.InstallException", message)
 }
 pub(crate) fn io(e: std::io::Error) -> VendorError {
-    other("java.io.IOException", e.to_string().as_str())
+    other("java.io.IOException", e.to_string().as_str().to_owned())
 }
 pub(crate) fn throwable(t: JavaThrowable) -> Failure {
     Failure {
         class: t.class.into(),
-        message: t.message.map(|s| s.as_str().into()),
+        message: t.message.map(|s| s.as_str().to_owned()),
         cause: t.cause.map(|c| Box::new(throwable(*c))),
         stacktrace: None,
     }
@@ -52,8 +52,8 @@ pub fn adb_error(e: AdbError) -> VendorError {
 /// What `execution_error` turns into a lost device: the adb server refused the device or the connection went.
 pub(crate) fn means_device_loss(e: &VendorError) -> bool {
     let class = &e.failure().class;
-    *class == "com.malinskiy.adam.exception.RequestRejectedException".into()
-        || *class == "com.malinskiy.marathon.android.exception.CommandRejectedException".into()
+    *class == "com.malinskiy.adam.exception.RequestRejectedException".to_owned()
+        || *class == "com.malinskiy.marathon.android.exception.CommandRejectedException".to_owned()
 }
 pub fn execution_error(e: VendorError) -> VendorError {
     if means_device_loss(&e) {

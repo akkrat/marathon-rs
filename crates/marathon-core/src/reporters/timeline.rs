@@ -40,7 +40,7 @@ impl MetricType {
 }
 #[derive(Clone, Debug)]
 pub struct Data {
-    pub test_name: JavaString,
+    pub test_name: String,
     pub metric_type: MetricType,
     pub start_date: i64,
     pub end_date: i64,
@@ -76,7 +76,7 @@ impl ExecutionStats {
 }
 #[derive(Clone, Debug)]
 pub struct Measure {
-    pub measure: JavaString,
+    pub measure: String,
     pub stats: ExecutionStats,
     pub data: Vec<Data>,
 }
@@ -172,8 +172,8 @@ impl TimelineSummaryProvider {
                     .map(|e| {
                         let r = &e.test_result;
                         let mut name = r.test.clazz.clone();
-                        name.push_str(".");
-                        name.append(r.test.method.clone());
+                        name.push('.');
+                        name.push_str(&r.test.method.clone());
                         let metric_type = match r.status {
                             TestStatus::Failure => MetricType::Failure,
                             TestStatus::Passed => MetricType::Passed,
@@ -310,11 +310,11 @@ impl Reporter for TimelineReporter {
                 }
                 let json = gson(&TimelineSummaryProvider::generate(&report)?.json())?;
                 let text = jcompat::report_text::replace(
-                    &JavaString::from(include_str!("../../../../fixtures/reporters/timeline/index.html")),
+                    &String::from(include_str!("../../../../fixtures/reporters/timeline/index.html")),
                     "${dataset}",
                     &json,
                 );
-                write(&child(&dir, "index.html"), &text.to_utf8_bytes())
+                write(&child(&dir, "index.html"), text.as_bytes())
             })
             .await
             .map_err(operation_error)

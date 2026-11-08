@@ -1,10 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/RemoteFileManager.kt
 //! Supplemental rule tests: this source has no Kotlin test rows.
 mod support;
-use jcompat::{
-    logging::{Level, Logger, MarathonLogging},
-    writers::JavaString,
-};
+use jcompat::logging::{Level, Logger, MarathonLogging};
 use marathon_apple::{
     apple_device::apple_arch,
     cmd::{CommandResult, cancelled, failure, remote::ssh::sshj::config::SshLogging},
@@ -70,7 +67,7 @@ fn setup(storage: &str, mode: &str) -> (RemoteFileManager, Arc<Scripted>, Logs) 
     let logging = SshLogging::new(
         Arc::new(Mutex::new(MarathonLogging::default())),
         Arc::new(move |logger: &Logger, level, message, cause| {
-            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.class.to_string_lossy())}));
+            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.class.to_owned())}));
         }),
     );
     (
@@ -87,14 +84,14 @@ fn rows() -> impl Iterator<Item = Value> {
 fn string(value: &Value) -> &str {
     value.as_str().unwrap()
 }
-fn units(value: &Value) -> JavaString {
-    JavaString(
-        value
+fn units(value: &Value) -> String {
+    String::from_utf16_lossy(
+        &value
             .as_array()
             .unwrap()
             .iter()
             .map(|n| n.as_u64().unwrap() as u16)
-            .collect(),
+            .collect::<Vec<_>>(),
     )
 }
 
@@ -117,7 +114,7 @@ fn paths_and_utf16_video_names_match_jvm() {
                         "app" => fm.remote_application(),
                         "log" => fm.remote_log(),
                         "pid" => fm.remote_video_pidfile(),
-                        "xcresult" => fm.remote_xcresult_for_id(&"b/id/".into()).to_string_lossy(),
+                        "xcresult" => fm.remote_xcresult_for_id(&"b/id/".into()).to_owned(),
                         "xctestrunName" => fm.xctestrun_file_name().into(),
                         "appName" => fm.app_under_test_file_name().into(),
                         "runnerName" => fm.test_runner_file_name().into(),
@@ -201,7 +198,7 @@ async fn every_command_result_and_log_matches_jvm_including_swallowed_cancellati
         let result = invoke(&fm, string(&row["operation"]), &support::context()).await;
         let (result, thrown) = match result {
             Ok(value) => (value, Value::Null),
-            Err(error) => (Value::Null, json!(error.failure().class.to_string_lossy())),
+            Err(error) => (Value::Null, json!(error.failure().class.to_owned())),
         };
         assert_eq!(result, row["result"], "{row}");
         assert_eq!(thrown, row["thrown"], "{row}");

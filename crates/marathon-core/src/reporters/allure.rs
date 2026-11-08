@@ -92,8 +92,11 @@ impl AllureReporter {
                     .map_err(|e| allure_error("Could not create Allure results directory", nio_error(e, &output)))?;
                 let mut name = uuid;
                 name.push_str("-result.json");
-                write(&child_file(&output, &name.0), &jackson_json(&model).to_utf8_bytes())
-                    .map_err(|e| allure_error("Could not write Allure test result", e))
+                write(
+                    &child_file(&output, &name.encode_utf16().collect::<Vec<_>>()),
+                    jackson_json(&model).as_bytes(),
+                )
+                .map_err(|e| allure_error("Could not write Allure test result", e))
             })
             .await?;
         }
@@ -103,14 +106,14 @@ impl AllureReporter {
             mkdir(&this.output)?;
             // Xalan fails mid-transform after StreamResult opened the file, leaving it empty.
             let (bytes, invalid) = match environment_xml(&params) {
-                Ok(text) => (text.to_utf8_bytes(), None),
+                Ok(text) => (text.as_bytes().to_vec(), None),
                 Err(e) => (Vec::new(), Some(xml_failure(e))),
             };
             let error = match write(&child(&this.output, "environment.xml"), &bytes) {
                 Err(error) => {
                     let mut failure = failure(
                         "javax.xml.transform.TransformerException",
-                        &error.failure().to_java_string().to_string_lossy(),
+                        &error.failure().to_java_string().to_owned(),
                     );
                     failure.cause = Some(Box::new(error.failure().clone()));
                     Some(failure)
@@ -166,23 +169,23 @@ fn allure_error(message: &str, error: VendorError) -> VendorError {
     f.cause = Some(Box::new(error.failure().clone()));
     VendorError::Other(f)
 }
-fn value<'a>(test: &'a Test, name: &str) -> Option<&'a JavaString> {
-    let property = test.meta_properties.iter().find(|p| p.name == JavaString::from(name))?;
+fn value<'a>(test: &'a Test, name: &str) -> Option<&'a String> {
+    let property = test.meta_properties.iter().find(|p| p.name == name)?;
     match property
         .values
         .entries()
         .iter()
-        .find(|(k, _)| k == &JavaString::from("value"))?
+        .find(|(k, _)| k == &String::from("value"))?
         .1
     {
         MetaValue::String(ref value) => Some(value),
         _ => None,
     }
 }
-fn label(name: &str, value: &JavaString) -> WriterValue {
+fn label(name: &str, value: &String) -> WriterValue {
     object([("name", name.into()), ("value", string(value))])
 }
-fn issue(value: &JavaString) -> WriterValue {
+fn issue(value: &String) -> WriterValue {
     object([("name", "Issue".into()), ("url", string(value))])
 }
 fn attachment_type(kind: AttachmentType) -> (&'static str, &'static str) {
@@ -198,7 +201,7 @@ fn attachment_type(kind: AttachmentType) -> (&'static str, &'static str) {
 }
 /// `retained` is already filtered through the shared attachment emptiness service.
 pub fn result_model(
-    uuid: &JavaString,
+    uuid: &String,
     device: &DeviceInfo,
     r: &TestResult,
     retained: &[Attachment],
@@ -213,8 +216,8 @@ pub fn result_model(
         .map(|a| {
             if a.kind == AttachmentType::Profiling {
                 let link = if let VendorConfiguration::Android(c) = &configuration.vendor_configuration {
-                    let mut path = JavaString::from("/");
-                    path.append(relative_file(&a.file, &configuration.output_dir, process_dir));
+                    let mut path = String::from("/");
+                    path.push_str(&relative_file(&a.file, &configuration.output_dir, process_dir));
                     object([
                         ("name", "Tracing".into()),
                         (
@@ -236,7 +239,9 @@ pub fn result_model(
                 ("name", a.name.as_ref().map_or_else(|| default.into(), string)),
                 (
                     "source",
-                    WriterValue::String(JavaString(absolute_file_path_utf16(&a.file.0, &process_dir.0).0)),
+                    WriterValue::String(String::from_utf16_lossy(
+                        &absolute_file_path_utf16(&a.file.0, &process_dir.0).0,
+                    )),
                 ),
                 ("type", mime.into()),
             ])
@@ -315,13 +320,13 @@ pub fn result_model(
     WriterValue::Object(fields)
 }
 /// Keys and values are text nodes; the first one Xalan rejects aborts the document.
-pub fn environment_xml(params: &[(JavaString, JavaString)]) -> Result<JavaString, XmlTextError> {
-    let mut out = JavaString::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><environment>");
+pub fn environment_xml(params: &[(String, String)]) -> Result<String, XmlTextError> {
+    let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><environment>");
     for (k, v) in params {
         out.push_str("<parameter><key>");
-        out.append(xml_text(k)?);
+        out.push_str(&xml_text(k)?);
         out.push_str("</key><value>");
-        out.append(xml_text(v)?);
+        out.push_str(&xml_text(v)?);
         out.push_str("</value></parameter>");
     }
     out.push_str("</environment>");

@@ -1,6 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/di/Modules.kt
 //! (Gson 2.11 JsonWriter and default type-adapter output).
-use super::{JavaString, WriterValue};
+use super::WriterValue;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct GsonWriter {
@@ -16,18 +16,18 @@ impl std::fmt::Display for GsonError {
 }
 impl std::error::Error for GsonError {}
 impl GsonWriter {
-    pub fn write(&self, value: &WriterValue) -> Result<JavaString, GsonError> {
-        let mut out = JavaString::default();
+    pub fn write(&self, value: &WriterValue) -> Result<String, GsonError> {
+        let mut out = String::default();
         self.value(value, &mut out, 0)?;
         Ok(out)
     }
-    fn newline(&self, out: &mut JavaString, depth: usize) {
+    fn newline(&self, out: &mut String, depth: usize) {
         if self.pretty {
-            out.push_str("\n");
+            out.push('\n');
             out.push_str(&"  ".repeat(depth));
         }
     }
-    fn value(&self, value: &WriterValue, out: &mut JavaString, depth: usize) -> Result<(), GsonError> {
+    fn value(&self, value: &WriterValue, out: &mut String, depth: usize) -> Result<(), GsonError> {
         match value {
             WriterValue::Null => out.push_str("null"),
             WriterValue::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -47,10 +47,10 @@ impl GsonWriter {
                 depth,
             )?,
             WriterValue::Array(values) => {
-                out.push_str("[");
+                out.push('[');
                 for (i, v) in values.iter().enumerate() {
                     if i > 0 {
-                        out.push_str(",");
+                        out.push(',');
                     }
                     self.newline(out, depth + 1);
                     self.value(v, out, depth + 1)?;
@@ -58,14 +58,14 @@ impl GsonWriter {
                 if !values.is_empty() {
                     self.newline(out, depth);
                 }
-                out.push_str("]");
+                out.push(']');
             }
             WriterValue::Object(entries) => {
-                out.push_str("{");
+                out.push('{');
                 let mut first = true;
                 for (key, value) in entries.iter().filter(|(_, v)| !matches!(v, WriterValue::Null)) {
                     if !first {
-                        out.push_str(",");
+                        out.push(',');
                     }
                     first = false;
                     self.newline(out, depth + 1);
@@ -76,15 +76,16 @@ impl GsonWriter {
                 if !first {
                     self.newline(out, depth);
                 }
-                out.push_str("}");
+                out.push('}');
             }
         }
         Ok(())
     }
 }
-fn string(text: &JavaString, out: &mut JavaString) {
-    out.push_str("\"");
-    for &c in &text.0 {
+fn string(text: &str, out: &mut String) {
+    out.push('"');
+    for ch in text.chars() {
+        let c = ch as u32;
         match c {
             0x22 => out.push_str("\\\""),
             0x5c => out.push_str("\\\\"),
@@ -94,8 +95,8 @@ fn string(text: &JavaString, out: &mut JavaString) {
             12 => out.push_str("\\f"),
             13 => out.push_str("\\r"),
             0..=31 | 0x3c | 0x3e | 0x26 | 0x3d | 0x27 | 0x2028 | 0x2029 => out.push_str(&format!("\\u{c:04x}")),
-            _ => out.0.push(c),
+            _ => out.push(ch),
         }
     }
-    out.push_str("\"");
+    out.push('"');
 }
