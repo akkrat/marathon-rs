@@ -19,7 +19,7 @@ impl AppleTestRunListener for TestRunListenerAdapter {
         test: &'a Test,
         _start_time: i64,
         _end_time: i64,
-        _trace: Option<&'a String>,
+        _trace: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         self.listener.test_ended(test)
     }

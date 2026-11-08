@@ -43,7 +43,7 @@ fn timings(lines: &[Line]) -> Vec<String> {
                 logger, level, message, ..
             } if logger == TIMINGS => {
                 assert_eq!(*level, Level::Info);
-                Some(message.clone())
+                Some(message.to_owned())
             }
             _ => None,
         })

@@ -149,10 +149,10 @@ impl<'a> Tree<'a> {
         bind(self.value())
     }
 }
-fn scalar_key(text: &String, source: &Node) -> Node {
+fn scalar_key(text: &str, source: &Node) -> Node {
     Node {
         kind: NodeKind::Scalar {
-            text: text.clone(),
+            text: text.to_string(),
             style: Style::DoubleQuoted,
         },
         anchor: None,

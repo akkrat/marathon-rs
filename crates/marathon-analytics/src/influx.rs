@@ -226,7 +226,7 @@ async fn setup_query(http: &Http, command: &str) -> OperationResult<QueryResult>
     decode(&body)
 }
 impl InfluxQuery for InfluxClient {
-    fn query<'a>(&'a self, command: &'a String, database: &'a String) -> ServiceFuture<'a, QueryResult> {
+    fn query<'a>(&'a self, command: &'a str, database: &'a str) -> ServiceFuture<'a, QueryResult> {
         Box::pin(async move {
             let guard = self.closed.lock().await;
             if *guard {
@@ -311,7 +311,7 @@ impl BatchWriter {
         let OperationError::Failed(failure) = error else {
             return false;
         };
-        let message = failure.message.clone().unwrap_or_default();
+        let message = failure.message.to_owned().unwrap_or_default();
         ![
             "database not found",
             "points beyond retention policy",

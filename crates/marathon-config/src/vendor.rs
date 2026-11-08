@@ -1295,13 +1295,14 @@ pub struct EnvironmentConfiguration {
 /// The found string becomes a path verbatim: no existence check, no
 /// canonicalisation, relative stays relative.
 pub fn read_environment(environment: &[(String, String)]) -> EnvironmentConfiguration {
-    fn lookup<'a>(environment: &'a [(String, String)], name: &str) -> Option<&'a String> {
+    fn lookup<'a>(environment: &'a [(String, String)], name: &str) -> Option<&'a str> {
         let name: String = name.into();
         environment
             .iter()
             .find(|(key, _)| key == &name)
             .map(|(_, value)| value)
             .filter(|value| !value.is_empty())
+            .map(|x| x.as_str())
     }
     let sdk = lookup(environment, "ANDROID_HOME").or_else(|| lookup(environment, "ANDROID_SDK_ROOT"));
     EnvironmentConfiguration {
@@ -1320,7 +1321,7 @@ fn parse_stage_error(class: &str, message: impl Into<String>) -> Box<Configurati
     Box::new(ConfigurationError {
         stage: ValidationStage::Parse,
         class: class.into(),
-        message: Some(message.clone()),
+        message: Some(message.to_owned()),
         causes: Vec::new(),
         path: Vec::new(),
         span: None,

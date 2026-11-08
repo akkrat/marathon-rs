@@ -2,7 +2,7 @@
 
 use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging, worker_commands::WorkerCommands};
 use jcompat::{
-    file_manager::escape_utf16,
+    file_manager::escape,
     logging::{Level, Logger},
 };
 use marathon_config::vendor::ScreenshotType;
@@ -82,9 +82,9 @@ impl RemoteFileManager {
     pub fn remote_xcresult_file(&self, batch: &TestBatch) -> String {
         self.remote_xcresult_for_id(&batch.id)
     }
-    pub fn remote_xcresult_for_id(&self, batch_id: &String) -> String {
+    pub fn remote_xcresult_for_id(&self, batch_id: &str) -> String {
         let mut result = String::from(resolve(self.remote_directory(), &format!("{}.", self.udid)).as_str());
-        result.push_str(&batch_id.clone());
+        result.push_str(&batch_id.to_owned());
         result.push_str(".xcresult");
         result
     }
@@ -100,22 +100,20 @@ impl RemoteFileManager {
     pub fn remote_screenshot(&self, udid: &str, kind: ScreenshotType) -> String {
         self.remote_file_for_test(&format!("{udid}.{}", kind.value()))
     }
-    pub fn remote_video_for_test(&self, test: &Test, batch_id: &String) -> String {
+    pub fn remote_video_for_test(&self, test: &Test, batch_id: &str) -> String {
         self.video(test, batch_id, false)
     }
-    pub fn remote_temp_video_for_test(&self, test: &Test, batch_id: &String) -> String {
+    pub fn remote_temp_video_for_test(&self, test: &Test, batch_id: &str) -> String {
         self.video(test, batch_id, true)
     }
-    fn video(&self, test: &Test, batch_id: &String, temporary: bool) -> String {
+    fn video(&self, test: &Test, batch_id: &str, temporary: bool) -> String {
         let mut name = test.to_class_name('-');
         name.push('-');
         name.push_str(&test.method.clone());
         let mut result = String::from(format!("{}/", self.storage_path).as_str());
-        result.push_str(&String::from_utf16_lossy(&escape_utf16(
-            &name.encode_utf16().collect::<Vec<_>>(),
-        )));
+        result.push_str(&escape(&name));
         result.push('-');
-        result.push_str(&batch_id.clone());
+        result.push_str(&batch_id.to_owned());
         result.push_str(if temporary { "-temp.mp4" } else { ".mp4" });
         result
     }

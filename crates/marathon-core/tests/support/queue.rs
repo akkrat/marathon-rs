@@ -271,10 +271,10 @@ impl Tracker for Sink {
     fn device_disconnected<'a>(&'a self, _: &'a DevicePoolId, _: &'a DeviceInfo) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_provider_init<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, _: &'a str, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_preparing<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, _: &'a str, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
     fn test<'a>(

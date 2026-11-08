@@ -21,7 +21,7 @@ impl DebugLogPrinter {
     }
 }
 impl LineListener for DebugLogPrinter {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if !self.hide_runner_output {
                 let logger = self.logger.get_or_init(|| {

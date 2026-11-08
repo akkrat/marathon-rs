@@ -247,7 +247,7 @@ fn disconnect_before_setup_has_no_connected_event() {
             let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
             provider.initialize(context).await?;
             for _ in 0..100 {
-                if commands(&server).contains(&"getprop".into()) {
+                if commands(&server).contains(&"getprop".to_owned()) {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(5)).await;

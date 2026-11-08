@@ -161,8 +161,7 @@ async fn recovers(env: Env, backend: &'static str, outage: Outage) -> OperationR
     let clock = Clock::new();
     let mut context = env.context.clone();
     context.clock = clock.clone();
-    let clients =
-        AnalyticsClients::new(context.clone(), env.io.clone()).with_graphite_endpoint(peer.url.clone());
+    let clients = AnalyticsClients::new(context.clone(), env.io.clone()).with_graphite_endpoint(peer.url.clone());
     let config = match backend {
         "v1" => AnalyticsConfiguration::InfluxDb(v1(&peer.url)),
         "v2" => AnalyticsConfiguration::InfluxDb2(v2(&peer.url)),

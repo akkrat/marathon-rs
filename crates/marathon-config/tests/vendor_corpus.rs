@@ -21,7 +21,7 @@ use marathon_config::{
 };
 use serde_json::{Value as Json, json};
 
-fn s(value: &String) -> Json {
+fn s(value: &str) -> Json {
     value.to_owned().into()
 }
 fn p(value: &JavaPath) -> Json {
@@ -31,7 +31,7 @@ fn opt_path(value: &Option<JavaPath>) -> Json {
     value.as_ref().map_or(Json::Null, p)
 }
 fn opt_str(value: &Option<String>) -> Json {
-    value.as_ref().map_or(Json::Null, s)
+    value.as_ref().map_or(Json::Null, |text| s(text))
 }
 fn dur(value: Duration) -> Json {
     value.to_string().into()

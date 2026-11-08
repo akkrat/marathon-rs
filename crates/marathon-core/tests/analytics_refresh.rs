@@ -187,7 +187,7 @@ fn lookups_and_prefetches_of_a_failed_key_never_query_the_backend() {
                 p.success_rate(test, limit()).await.unwrap();
             }
         }
-        p.report_execution_time_coverage(&tests, 80.0, limit(), &"sorting".into())
+        p.report_execution_time_coverage(&tests, 80.0, limit(), "sorting")
             .await
             .unwrap();
         tokio::task::yield_now().await;

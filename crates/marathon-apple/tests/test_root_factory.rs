@@ -285,7 +285,7 @@ async fn cancellation_waits_for_send_then_cleans_the_staged_file() -> TestResult
     Ok(())
 }
 #[tokio::test]
-async fn lone_surrogate_environment_values_are_rejected_with_the_field_name() -> TestResult {
+async fn lone_surrogate_environment_values_stage_as_replacement_characters() -> TestResult {
     for field in ["appEnvs", "testEnvs"] {
         let c = input();
         let temp = tempfile::tempdir()?;
@@ -300,20 +300,16 @@ async fn lone_surrogate_environment_values_are_rejected_with_the_field_name() ->
                 .push(("K".into(), String::from_utf16_lossy(&vec![0xdfff])));
         }
         let xcresult = xcresult(&c);
-        let error = TestRootFactory::new(&device, &env, &xcresult, false, Arc::new(support::Runtime))
-            .generate(TestType::Xcuitest, &bundle, false, &support::context())
-            .await
-            .err()
-            .unwrap();
-        assert_eq!(
-            error.failure().message,
-            Some(
-                format!("xctestrunEnv.{field}.K contains an unpaired UTF-16 surrogate")
-                    .as_str()
-                    .into()
-            )
-        );
-        assert!(device.staged.lock().unwrap().is_empty());
+        v(
+            TestRootFactory::new(&device, &env, &xcresult, false, Arc::new(support::Runtime))
+                .generate(TestType::Xcuitest, &bundle, false, &support::context())
+                .await,
+        )?;
+        let encoded = device.xml.lock().unwrap().clone().ok_or("missing staged plist")?;
+        let bytes = STANDARD.decode(encoded)?;
+        let xml = std::str::from_utf8(&bytes)?;
+        assert!(xml.contains("<key>K</key>"));
+        assert!(xml.contains("<string>�</string>"));
         v(device.dispose().await)?;
     }
     Ok(())

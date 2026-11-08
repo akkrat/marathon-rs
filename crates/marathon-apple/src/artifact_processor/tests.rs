@@ -64,7 +64,7 @@ impl Harness {
         self.p.close_and_join(300_000, 60_000, &self.context).await.unwrap()
     }
     async fn barrier(&self, owner: &str) {
-        self.p.await_owner(&owner.into(), &self.context).await.unwrap();
+        self.p.await_owner(&owner, &self.context).await.unwrap();
     }
     fn messages(&self) -> Vec<String> {
         self.logs.lock().unwrap().iter().map(|(_, m, _)| m.clone()).collect()
@@ -141,7 +141,7 @@ impl Model {
     }
     fn complete(&mut self, owner: &str, worker: &str) -> Vec<Admission> {
         self.q
-            .complete(&owner.into(), &worker.into(), self.now)
+            .complete(&owner, &worker, self.now)
             .admitted
             .into_iter()
             .map(|(_, d, a)| {
@@ -151,7 +151,7 @@ impl Model {
             .collect()
     }
     fn take(&mut self, worker: &str) -> usize {
-        self.q.take(&worker.into()).unwrap().payload
+        self.q.take(&worker).unwrap().payload
     }
 }
 #[test]
@@ -230,13 +230,13 @@ fn simulators_of_one_worker_share_its_capacity_in_arrival_order_and_keep_their_o
     for i in 0..4 {
         m.submit(&format!("sim-{i}"), "mac");
     }
-    let barrier = m.q.owner_done(&"sim-1".into()).unwrap();
+    let barrier = m.q.owner_done("sim-1").unwrap();
     assert!(barrier.completed().is_none());
     assert_eq!(m.take("mac"), 0);
     m.complete("sim-0", "mac");
     assert_eq!(m.q.waiting.len(), 1);
     assert_eq!(m.take("mac"), 1);
-    let effects = m.q.complete(&"sim-1".into(), &"mac".into(), 0);
+    let effects = m.q.complete("sim-1", "mac", 0);
     for done in effects.barriers {
         done.complete(Ok(()));
     }
@@ -457,8 +457,8 @@ async fn every_undelivered_bundle_is_returned_and_logged_as_an_error_at_finaliza
             let p = p.clone();
             Box::pin(async move {
                 p.report_undelivered(
-                    &"a@worker-1".into(),
-                    Some(&"/remote/a.xcresult".into()),
+                    "a@worker-1",
+                    Some("/remote/a.xcresult"),
                     "a@worker-1, batch reported: pull failed".into(),
                 );
                 Ok(())
@@ -623,8 +623,8 @@ async fn an_inline_dispatcher_processes_admitted_work_and_admits_waiting_submitt
             let p = p.clone();
             let c = c.clone();
             Box::pin(async move {
-                p.report_undelivered(&"inner".into(), None, "reentrant".into());
-                p.await_owner(&"unknown".into(), &c).await?;
+                p.report_undelivered("inner", None, "reentrant".into());
+                p.await_owner("unknown", &c).await?;
                 p.submit("inner".into(), "inner".into(), "other".into(), None, empty(), c)
                     .await?;
                 Ok(())
@@ -719,9 +719,9 @@ async fn protected_sources_stay_kept_through_finalization_and_are_reported_once(
         let source = String::from(source);
         Arc::new(move |reason| {
             let p = p.upgrade().unwrap();
-            p.release(&"device".into(), &source);
+            p.release("device", &source);
             p.report_undelivered(
-                &"device".into(),
+                "device",
                 Some(&source),
                 format!("{}: {}", source.to_owned(), reason.to_owned()).as_str().into(),
             );
@@ -734,19 +734,19 @@ async fn protected_sources_stay_kept_through_finalization_and_are_reported_once(
         callback("/remote/delivered"),
     )
     .unwrap();
-    h.p.release(&"device".into(), &"/remote/delivered".into());
+    h.p.release("device", "/remote/delivered");
     h.p.protect("device".into(), "/remote/skipped".into(), callback("/remote/skipped"))
         .unwrap();
     assert_eq!(
         strings(&h.close().await),
         vec!["/remote/skipped: never handed to the artifact queue"]
     );
-    assert!(!h.p.report_undelivered(&"device".into(), Some(&"/remote/skipped".into()), "duplicate".into()));
-    h.p.release(&"device".into(), &"/remote/skipped".into());
+    assert!(!h.p.report_undelivered("device", Some("/remote/skipped"), "duplicate".into()));
+    h.p.release("device", "/remote/skipped");
     h.p.protect("device".into(), "/remote/late".into(), callback("/remote/late"))
         .unwrap();
     assert_eq!(
-        strings(&h.p.kept_sources(&"device".into())),
+        strings(&h.p.kept_sources("device")),
         vec!["/remote/skipped", "/remote/late"]
     );
     assert_eq!(h.close().await.len(), 2);
@@ -883,7 +883,7 @@ async fn work_its_worker_finishes_reporting_after_the_cancellation_deadline_is_s
             .unwrap();
         assert!(!timeout.timed_out());
         p.upgrade().unwrap().report_undelivered(
-            &"device".into(),
+            "device",
             None,
             format!("device, batch late: {}", reason.to_owned()).as_str().into(),
         );
@@ -1347,7 +1347,7 @@ fn frozen_jvm_transitions_match_the_admission_core_field_by_field() {
                     assert_eq!(item.id, id, "{scenario}: worker queue order");
                 }
                 "idle" => {
-                    assert!(q.take(&row["worker"].as_str().unwrap().into()).is_none());
+                    assert!(q.take(&row["worker"].as_str().unwrap()).is_none());
                 }
                 "cancel" => {
                     assert!(q.cancel_waiter(id).is_some());
@@ -1399,7 +1399,7 @@ async fn closed_submit_callback_escapes_and_source_reinsertion_matches_jvm() {
     for source in ["first", "second"] {
         h.p.protect("owner".into(), source.into(), noop.clone()).unwrap();
     }
-    h.p.release(&"owner".into(), &"first".into());
+    h.p.release("owner", "first");
     h.p.protect("owner".into(), "first".into(), noop).unwrap();
     let fixture = include_str!("../../../../fixtures/oracle/artifact-queue/events.jsonl")
         .lines()
@@ -1407,7 +1407,7 @@ async fn closed_submit_callback_escapes_and_source_reinsertion_matches_jvm() {
         .find(|r| r["kind"] == "kept")
         .unwrap();
     assert_eq!(
-        serde_json::json!(strings(&h.p.kept_sources(&"owner".into()))),
+        serde_json::json!(strings(&h.p.kept_sources("owner"))),
         fixture["sources"]
     );
     h.close().await;

@@ -31,11 +31,11 @@ use crate::{
 /// deliverable 2): FQCN class, verbatim message, no wrapper, empty
 /// path/span (P4: post-binding errors have no node context).
 pub fn validation_error_to_configuration_error(error: ValidationError, stage: ValidationStage) -> ConfigurationError {
-    let message: String = error.message.clone();
+    let message: String = error.message.to_owned();
     ConfigurationError {
         stage,
         class: error.fqcn().into(),
-        message: Some(message.clone()),
+        message: Some(message.to_owned()),
         causes: Vec::new(),
         path: Vec::new(),
         span: None,
@@ -49,7 +49,7 @@ fn stage_error(stage: ValidationStage, class: &str, message: Option<String>) -> 
     Box::new(ConfigurationError {
         stage,
         class: class.into(),
-        message: message.clone(),
+        message: message.to_owned(),
         causes: Vec::new(),
         path: Vec::new(),
         span: None,
@@ -78,7 +78,7 @@ pub fn load_error_to_configuration_error(error: LoadError) -> Box<ConfigurationE
     match error {
         LoadError::Configuration(error) => error,
         LoadError::Substitution(error) => {
-            stage_error(ValidationStage::Parse, error.java_class(), Some(error.message.clone()))
+            stage_error(ValidationStage::Parse, error.java_class(), Some(error.message.to_owned()))
         }
         // Kotlin dereferences the null configuration outside the
         // `JsonProcessingException` catch (`ConfigurationFactory.kt:58`), so

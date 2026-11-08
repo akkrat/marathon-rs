@@ -49,9 +49,8 @@ pub struct TestResultsListener {
 }
 impl TestResultsListener {
     pub fn new(config: TestResultsListenerConfig) -> VendorResult<Self> {
-        let result = TestRunResultsAccumulator::new(config.timer.clone(), config.wall.clone()).map_err(|e| {
-            marathon_core::error::VendorError::Other(crate::cmd::failure("ReplayError", &e.message))
-        })?;
+        let result = TestRunResultsAccumulator::new(config.timer.clone(), config.wall.clone())
+            .map_err(|e| marathon_core::error::VendorError::Other(crate::cmd::failure("ReplayError", &e.message)))?;
         let accumulator =
             AccumulatingTestResultListener::new(config.batch.tests.len() as i32, result, config.logs.clone());
         let attachments = AttachmentCollector::new(&config.attachment_providers)?;
@@ -192,7 +191,7 @@ impl TestResultsListener {
         }
         for (test, trace) in traces {
             self.accumulator
-                .update(|a| a.test_failed(&test, &kt::trim(&trace).into(), None, None))?;
+                .update(|a| a.test_failed(&test, &kt::trim(&trace), None, None))?;
         }
         Ok(())
     }
@@ -266,7 +265,7 @@ impl AppleTestRunListener for TestResultsListener {
         test: &'a Test,
         start_time: i64,
         end_time: i64,
-        trace: Option<&'a String>,
+        trace: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         self.accumulator.test_failed(test, start_time, end_time, trace)
     }
@@ -279,7 +278,7 @@ impl AppleTestRunListener for TestResultsListener {
     fn test_run_ended<'a>(&'a self) -> VendorFuture<'a, ()> {
         self.accumulator.test_run_ended()
     }
-    fn test_run_failed<'a>(&'a self, error_message: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, error_message: &'a str, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         self.accumulator.test_run_failed(error_message, reason)
     }
     fn after_test_run(&self) -> VendorFuture<'_, ()> {

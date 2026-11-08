@@ -44,7 +44,7 @@ impl ProvisioningError {
             SetupError::Connection(error) => error.as_ref().clone().into_vendor().failure().clone(),
             SetupError::Dropped(SetupDropped(message)) => Failure {
                 class: "com.malinskiy.marathon.apple.ios.device.SetupDropped".into(),
-                message: Some(message.clone()),
+                message: Some(message.to_owned()),
                 cause: None,
                 stacktrace: None,
             },

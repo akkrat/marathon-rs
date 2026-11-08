@@ -649,7 +649,7 @@ fn data(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
 }
 /// Kotlin's generated data-class string, with the existing explicit authentication masking.
 /// The singleton Local identity string uses the run's replay identity allocation at its caller.
-pub fn transport_text(transport: &Transport, local_identity: &String) -> String {
+pub fn transport_text(transport: &Transport, local_identity: &str) -> String {
     let value = match transport {
         Transport::Local => return local_identity.to_owned(),
         Transport::Ssh {
@@ -677,10 +677,7 @@ pub fn transport_text(transport: &Transport, local_identity: &String) -> String 
                     ("addr", KotlinValue::Text(addr.clone())),
                     ("port", KotlinValue::Text(port.to_string())),
                     ("authentication", auth),
-                    (
-                        "checkReachability",
-                        KotlinValue::Text(check_reachability.to_string()),
-                    ),
+                    ("checkReachability", KotlinValue::Text(check_reachability.to_string())),
                 ],
             )
         }
@@ -730,10 +727,7 @@ fn check_address(transport: Transport, timeout: Duration) -> ConnectionResult<()
                 Ok(_) => addr.to_owned(),
             };
             unreachable(
-                Some(format!(
-                    "Error resolving host {}",
-                    transport_text(&transport, &"Local".into())
-                )),
+                Some(format!("Error resolving host {}", transport_text(&transport, "Local"))),
                 Some(SshFailure::new(UNKNOWN_HOST_EXCEPTION, message)),
             )
         })?;
@@ -749,14 +743,14 @@ fn check_address(transport: Transport, timeout: Duration) -> ConnectionResult<()
         Ok(false) => Err(unreachable(
             Some(format!(
                 "{} is not reachable within {timeout} ms",
-                transport_text(&transport, &"Local".into())
+                transport_text(&transport, "Local")
             )),
             None,
         )),
         Err(exception) => Err(unreachable(
             Some(format!(
                 "Error checking reachability of {}: {exception}",
-                transport_text(&transport, &"Local".into())
+                transport_text(&transport, "Local")
             )),
             None,
         )),

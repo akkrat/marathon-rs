@@ -143,7 +143,7 @@ fn failure_from(err: DexError) -> VendorError {
 /// parts), package before the LAST '.', "" when there is no dot.
 pub fn test_from_method(method: &TestMethod, converter: &mut MetaConverter) -> VendorResult<Test> {
     let test_name = &method.test_name;
-    let split: Vec<String> = split_units(test_name, u16::from(b'#'));
+    let split: Vec<String> = test_name.split('#').map(str::to_owned).collect();
     if split.len() != 2 {
         return Err(failure_from(DexError::illegal_state(concat(
             "Can't parse test ",
@@ -151,18 +151,11 @@ pub fn test_from_method(method: &TestMethod, converter: &mut MetaConverter) -> V
         ))));
     }
     let package_and_class = &split[0];
-    let last_dot = package_and_class
-        .encode_utf16()
-        .collect::<Vec<_>>()
-        .iter()
-        .rposition(|&u| u == u16::from(b'.'));
-    let (package, class) = match last_dot {
-        None => (String::default(), package_and_class.clone()),
-        Some(index) => (
-            String::from_utf16_lossy(&package_and_class.encode_utf16().collect::<Vec<_>>()[..index]),
-            String::from_utf16_lossy(&package_and_class.encode_utf16().collect::<Vec<_>>()[index + 1..]),
-        ),
-    };
+    let (package, class) = package_and_class
+        .rsplit_once('.')
+        .map_or((String::new(), package_and_class.clone()), |(package, class)| {
+            (package.to_owned(), class.to_owned())
+        });
     let annotations = method
         .annotations
         .iter()
@@ -176,29 +169,8 @@ pub fn test_from_method(method: &TestMethod, converter: &mut MetaConverter) -> V
     })
 }
 
-fn concat(prefix: &str, rest: &String) -> String {
-    let mut out: Vec<u16> = prefix.encode_utf16().collect();
-    out.extend(rest.encode_utf16().collect::<Vec<_>>().iter());
-    String::from_utf16_lossy(&out)
-}
-
-/// Kotlin CharSequence.split on a single char: every occurrence splits,
-/// trailing empty parts are kept.
-fn split_units(text: &String, delimiter: u16) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    for (index, &unit) in text.encode_utf16().collect::<Vec<_>>().iter().enumerate() {
-        if unit == delimiter {
-            parts.push(String::from_utf16_lossy(
-                &text.encode_utf16().collect::<Vec<_>>()[start..index],
-            ));
-            start = index + 1;
-        }
-    }
-    parts.push(String::from_utf16_lossy(
-        &text.encode_utf16().collect::<Vec<_>>()[start..],
-    ));
-    parts
+fn concat(prefix: &str, rest: &str) -> String {
+    format!("{prefix}{rest}")
 }
 
 /// TestAnnotation.toMetaProperty (DexTestParser.kt:47-67) plus the frozen

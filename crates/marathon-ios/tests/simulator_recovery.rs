@@ -57,7 +57,7 @@ async fn a_simulator_that_keeps_getting_lost_is_set_up_again_a_limited_number_of
         !p.provider
             .current(&Transport::Local)?
             .eligible_disposed
-            .contains(&"a".into())
+            .contains(&"a".to_owned())
     );
     p.balanced().await
 }
@@ -295,7 +295,7 @@ async fn blocked_replacement(readd: bool) -> TestResult {
         p.h().boot.state.store(3, Ordering::SeqCst);
     }
     gate.complete(Ok(()));
-    eventually(|| p.provider.skipped_removed(&"a@local".into())).await;
+    eventually(|| p.provider.skipped_removed("a@local")).await;
     if readd {
         support::watchdog(dropping.wait()).await.map_err(test_error)?;
         p.update(&["a", "b", "c"]).await?;

@@ -332,7 +332,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
             Ok(())
         })
     }
-    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a String>) -> VendorFuture<'a, ()> {
+    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a str>) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, true))
     }
     fn test_passed<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
@@ -341,7 +341,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
     fn test_ignored<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, false))
     }
-    fn test_run_failed<'a>(&'a self, _: &'a String, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.catch_transfer(
                 async {

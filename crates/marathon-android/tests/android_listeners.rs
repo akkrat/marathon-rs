@@ -512,7 +512,7 @@ impl LogWriter for Writer {
         _: &'a DevicePoolId,
         _: &'a DeviceInfo,
         _: &'a Test,
-        _: &'a String,
+        _: &'a str,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -544,19 +544,19 @@ mod log_listener_test {
                 let adapter = TestRunListenerAdapter { listener: log.clone() };
                 if crash {
                     checked(adapter.before_test_run(None).await);
-                    checked(device.on_line(&"Important crash-related information".into()).await);
+                    checked(device.on_line("Important crash-related information").await);
                     checked(adapter.after_test_run().await);
                     assert_eq!(
                         *writer.saved.lock().unwrap(),
                         vec![(None, vec!["Important crash-related information\n".into()])]
                     );
                 } else {
-                    checked(log.on_line(&"0".into()).await);
+                    checked(log.on_line("0").await);
                     checked(adapter.on_event(&start("method0")).await);
-                    checked(log.on_line(&"1".into()).await);
-                    checked(log.on_line(&"2".into()).await);
+                    checked(log.on_line("1").await);
+                    checked(log.on_line("2").await);
                     checked(adapter.on_event(&end("method0")).await);
-                    checked(log.on_line(&"3".into()).await);
+                    checked(log.on_line("3").await);
                     assert_eq!(
                         collector.get(&test("method0")),
                         Some(vec![Attachment {
@@ -566,12 +566,12 @@ mod log_listener_test {
                         }])
                     );
                     if isolation {
-                        checked(log.on_line(&"a".into()).await);
+                        checked(log.on_line("a").await);
                         checked(adapter.on_event(&start("method1")).await);
-                        checked(log.on_line(&"b".into()).await);
-                        checked(log.on_line(&"c".into()).await);
+                        checked(log.on_line("b").await);
+                        checked(log.on_line("c").await);
                         checked(adapter.on_event(&end("method1")).await);
-                        checked(log.on_line(&"d".into()).await);
+                        checked(log.on_line("d").await);
                         assert_eq!(
                             collector.get(&test("method1")).unwrap()[0].file,
                             JavaPath::from_text("/log1")

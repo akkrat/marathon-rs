@@ -631,7 +631,7 @@ pub fn state_changes(lines: &[Line]) -> Vec<String> {
             Line::Log { logger, message, .. }
                 if logger == "AdamDeviceProvider" && message.contains("changed state to") =>
             {
-                Some(message.clone())
+                Some(message.to_owned())
             }
             _ => None,
         })

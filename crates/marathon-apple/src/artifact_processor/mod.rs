@@ -19,7 +19,7 @@ use tokio::sync::Semaphore;
 
 pub const DRAIN_TIMEOUT_MILLIS: i64 = 300_000;
 pub const CANCEL_TIMEOUT_MILLIS: i64 = 60_000;
-pub type Undelivered = Arc<dyn Fn(&String) -> Result<(), Failure> + Send + Sync>;
+pub type Undelivered = Arc<dyn Fn(&str) -> Result<(), Failure> + Send + Sync>;
 pub type ArtifactAction = Arc<dyn Fn(VendorContext) -> VendorFuture<'static, ()> + Send + Sync>;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InvalidLimits(pub String);
@@ -147,7 +147,7 @@ impl ArtifactProcessor {
                     diagnostic.push_str(", batch ");
                     diagnostic.push_str(&batch.clone());
                     diagnostic.push_str(": ");
-                    diagnostic.push_str(&reason.clone());
+                    diagnostic.push_str(&reason.to_owned());
                     this.report_undelivered(&owner, None, diagnostic);
                 }
                 Ok(())
@@ -190,7 +190,7 @@ impl ArtifactProcessor {
         };
         let admission = match immediate {
             Some(None) => {
-                callback(&"artifact queue is closed".into()).map_err(VendorError::Other)?;
+                callback("artifact queue is closed").map_err(VendorError::Other)?;
                 return Ok(false);
             }
             Some(Some(admission)) => {
@@ -207,7 +207,7 @@ impl ArtifactProcessor {
                 Err(error) => {
                     let cancelled = self.state().queue.cancel_waiter(id);
                     if cancelled.is_some() {
-                        callback(&"admission was cancelled".into()).map_err(VendorError::Other)?;
+                        callback("admission was cancelled").map_err(VendorError::Other)?;
                     }
                     return Err(error);
                 }
@@ -346,7 +346,7 @@ impl ArtifactProcessor {
             decided.complete(Ok(Some(info)));
         }
     }
-    pub async fn await_owner(&self, owner: &String, context: &VendorContext) -> VendorResult<()> {
+    pub async fn await_owner(&self, owner: &str, context: &VendorContext) -> VendorResult<()> {
         let started = self.now("apple.ArtifactProcessor.await")?;
         let done = self.state().queue.owner_done(owner);
         if let Some(done) = done {
@@ -377,11 +377,11 @@ impl ArtifactProcessor {
             state.queue.closed
         };
         if late {
-            callback(&"artifact queue is closed".into())?;
+            callback("artifact queue is closed")?;
         }
         Ok(())
     }
-    pub fn release(&self, owner: &String, source: &String) {
+    pub fn release(&self, owner: &str, source: &str) {
         let mut state = self.state();
         if let Some(owned) = state.sources.get_mut(owner)
             && owned.get(source).is_some_and(|s| s.state == SourceState::Registered)
@@ -389,14 +389,14 @@ impl ArtifactProcessor {
             owned.shift_remove(source);
         }
     }
-    pub fn report_undelivered(&self, owner: &String, source: Option<&String>, diagnostic: String) -> bool {
+    pub fn report_undelivered(&self, owner: &str, source: Option<&str>, diagnostic: String) -> bool {
         let mut state = self.state();
         if let Some(source) = source {
             let entry = state
                 .sources
-                .entry(owner.clone())
+                .entry(owner.to_owned())
                 .or_default()
-                .entry(source.clone())
+                .entry(source.to_owned())
                 .or_insert(Source {
                     callback: None,
                     state: SourceState::Registered,
@@ -410,7 +410,7 @@ impl ArtifactProcessor {
         true
     }
     /// Insertion order becomes the wire-visible `find ... ! -name` argument order.
-    pub fn kept_sources(&self, owner: &String) -> Vec<String> {
+    pub fn kept_sources(&self, owner: &str) -> Vec<String> {
         self.state()
             .sources
             .get(owner)
@@ -421,7 +421,7 @@ impl ArtifactProcessor {
         let snapshot = self.state().queue.stats_snapshot();
         AdmissionCore::<Work>::summarize(snapshot)
     }
-    fn report_safely(&self, reason: &String, callback: &Undelivered) {
+    fn report_safely(&self, reason: &str, callback: &Undelivered) {
         if let Err(error) = callback(reason) {
             self.log(
                 Level::Error,
@@ -500,15 +500,13 @@ impl ArtifactProcessor {
         }
         for work in stuck {
             self.report_safely(
-                &format!("still running {cancel_timeout} ms after shutdown cancelled it")
-                    .as_str()
-                    .into(),
+                &format!("still running {cancel_timeout} ms after shutdown cancelled it").as_str(),
                 &work.payload.undelivered,
             );
             self.complete(&work).await?;
         }
         for work in residual {
-            self.report_safely(&"not started before shutdown".into(), &work.payload.undelivered);
+            self.report_safely("not started before shutdown", &work.payload.undelivered);
             self.complete(&work).await?;
         }
         context
@@ -520,7 +518,7 @@ impl ArtifactProcessor {
             )
             .await?;
         for waiter in rejected {
-            self.report_safely(&"artifact queue is closed".into(), &waiter.item.payload.undelivered);
+            self.report_safely("artifact queue is closed", &waiter.item.payload.undelivered);
         }
         let unresolved = {
             let mut state = self.state();
@@ -536,7 +534,7 @@ impl ArtifactProcessor {
                 .collect::<Vec<_>>()
         };
         for callback in unresolved {
-            self.report_safely(&"never handed to the artifact queue".into(), &callback);
+            self.report_safely("never handed to the artifact queue", &callback);
         }
         let elapsed = self.now("apple.ArtifactProcessor.closeAndJoin")?.wrapping_sub(started) / 1_000_000;
         self.log(

@@ -227,7 +227,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
     }
 }
 
-fn basename(path: &String) -> String {
+fn basename(path: &str) -> String {
     let path = jcompat::file_manager::file_path(&path.to_owned());
     String::from_utf16_lossy(path.0.rsplit(|u| *u == 47).next().unwrap_or(&[]))
 }

@@ -145,13 +145,8 @@ async fn eof_reset_and_slow_peers_match_jvm_wrappers_causes_and_connection_count
 #[tokio::test]
 async fn refused_v2_query_wraps_connect_exception() {
     let expected = observation("v2-refused-query");
-    let http = Http::new(
-        &"http://127.0.0.1:1".into(),
-        Some("Token dummy-token".into()),
-        context(),
-        false,
-    )
-    .unwrap_or_else(|e| panic!("{e:?}"));
+    let http = Http::new("http://127.0.0.1:1", Some("Token dummy-token".into()), context(), false)
+        .unwrap_or_else(|e| panic!("{e:?}"));
     let Err(OperationError::Failed(error)) = influx2::api(
         &http,
         "POST",

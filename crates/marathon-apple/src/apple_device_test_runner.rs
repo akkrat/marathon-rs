@@ -279,7 +279,11 @@ pub async fn process_events(events: &[TestEvent], listener: &dyn AppleTestRunLis
                 start_time,
                 end_time,
                 trace,
-            } => listener.test_failed(id, *start_time, *end_time, trace.as_ref()).await?,
+            } => {
+                listener
+                    .test_failed(id, *start_time, *end_time, trace.as_deref())
+                    .await?
+            }
             TestEvent::TestIgnored {
                 id,
                 start_time,

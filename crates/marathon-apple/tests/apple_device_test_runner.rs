@@ -63,7 +63,7 @@ impl AppleTestRunListener for Listener {
             Ok(())
         })
     }
-    fn test_run_failed<'a>(&'a self, _: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a str, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.calls
                 .lock()
@@ -191,7 +191,7 @@ async fn closing_case(
             assert!(not_closed.stack_trace().to_owned().contains(class));
         }
         assert_eq!(calls.last().unwrap(), "run ended");
-        assert!(!calls.contains(&"closed".into()));
+        assert!(!calls.contains(&"closed".to_owned()));
     } else {
         if failure {
             assert_eq!(result.unwrap_err().reason, Some(DeviceFailureReason::Unknown));

@@ -4,7 +4,7 @@
 //! BasicGraphiteClient's Kotlin source is adapted from
 //! https://github.com/mihkels/graphite-client-kotlin/blob/master/graphite-client/src/main/kotlin/com/mihkels/graphite/client/BasicGraphiteClient.kt.
 use crate::{http::*, points};
-use jcompat::{file_manager::escape_utf16, formatting::format_graphite, jtime::Instant, net::form_encode};
+use jcompat::{file_manager::escape, formatting::format_graphite, jtime::Instant, net::form_encode};
 use marathon_core::{
     analytics::{
         MetricsContext, TrackerInternalAdapter,
@@ -155,9 +155,7 @@ impl GraphiteTracker {
         }
         let result = &event.test_result;
         let test = &result.test;
-        let serial = text(&String::from_utf16_lossy(&escape_utf16(
-            &event.device.serial_number.encode_utf16().collect::<Vec<_>>(),
-        )))?;
+        let serial = text(&escape(&event.device.serial_number))?;
         let base = format!(
             "tests.{}.{}.{}.{}.{serial}",
             text(&test.to_safe_test_name())?.replace('.', "--"),
@@ -197,7 +195,7 @@ impl QueryableGraphiteClient {
         Self::with_endpoint(&format!("http://{host}:80"), context)
     }
     /// Internal endpoint seam, retaining production's host-only/port-80 setup.
-    pub fn with_endpoint(endpoint: &String, context: MetricsContext) -> Self {
+    pub fn with_endpoint(endpoint: &str, context: MetricsContext) -> Self {
         Self {
             http: Http::new(endpoint, None, context, false),
         }

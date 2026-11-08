@@ -193,7 +193,7 @@ impl LogWriter for RecordingWriter {
         _: &'a DevicePoolId,
         _: &'a DeviceInfo,
         _: &'a Test,
-        _: &'a String,
+        _: &'a str,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -217,7 +217,7 @@ fn log_save_failure_clears_before_await_and_suppresses_attachments() {
             let provider: Arc<dyn AttachmentProvider> = listener.clone();
             let collector = AttachmentCollector::new(std::slice::from_ref(&provider)).unwrap();
             let t = test("test");
-            listener.on_line(&"lost".into()).await.unwrap();
+            listener.on_line("lost").await.unwrap();
             assert_eq!(listener.test_ended(&t).await, Err(VendorError::Other(failure())));
             listener.test_ended(&t).await.unwrap();
             assert_eq!(writer.saved.lock().unwrap().len(), 1);
@@ -458,7 +458,7 @@ struct Line {
     fail: bool,
 }
 impl LineListener for Line {
-    fn on_line<'a>(&'a self, _: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, _: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             assert_worker();
             self.calls.lock().unwrap().push(self.name.into());
@@ -499,7 +499,7 @@ fn composite_line_and_close_stop_at_first_failure() {
                     })
                     .collect(),
             };
-            assert!(composite.on_line(&"line".into()).await.is_err());
+            assert!(composite.on_line("line").await.is_err());
             assert!(composite.close().await.is_err());
             assert_eq!(*calls.lock().unwrap(), ["a", "bad", "close-a", "close-bad"]);
             Ok(())
@@ -538,10 +538,10 @@ fn file_transfer_finally_and_folder_success_use_tapes_and_integer_kilobytes() {
                 clock: hooks.clone(),
                 logger: MarathonLogging::default().logger("Device", None),
                 serial: "serial".into(),
-                log: Arc::new(move |_: &Logger, level: Level, message: &String, _| {
+                log: Arc::new(move |_: &Logger, level: Level, message: &str, _| {
                     assert_worker();
                     assert_eq!(level, Level::Debug);
-                    recorded.lock().unwrap().push(message.clone());
+                    recorded.lock().unwrap().push(message.to_owned());
                 }),
             };
             let value = String::from("borrowed transfer result");
@@ -638,7 +638,7 @@ fn dropping_transfer_cancels_borrowed_body_without_stat_or_log() {
                     logger: MarathonLogging::default().logger("Device", None),
                     serial: "serial".into(),
                     log: Arc::new(move |_, _, message, _| {
-                        recorded.lock().unwrap().push(message.clone());
+                        recorded.lock().unwrap().push(message.to_owned());
                     }),
                 };
                 let dropped = AtomicBool::new(false);
@@ -697,7 +697,10 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
                 MarathonLogging::default().logger("FileManager", None),
                 Arc::new(move |_, _, message, _| {
                     assert_worker();
-                    capture.lock().unwrap().push((message.clone(), expected_dir.is_dir()));
+                    capture
+                        .lock()
+                        .unwrap()
+                        .push((message.to_owned(), expected_dir.is_dir()));
                 }),
             );
             let path = files
@@ -743,7 +746,7 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
             }));
             task.join().await.unwrap();
             let files = output(io, blocked);
-            let result = files.create_test_result_file(&"raw.json".into()).await?;
+            let result = files.create_test_result_file("raw.json").await?;
             assert!(
                 String::from_utf16(&result.0)
                     .unwrap()

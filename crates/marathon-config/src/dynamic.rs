@@ -97,7 +97,7 @@ impl FrameError {
             Self::Truncated { expected, received, .. } => {
                 format!("Unexpected EOF: expected {} more bytes", expected - received)
             }
-            Self::Substitution(error) => error.message.clone(),
+            Self::Substitution(error) => error.message.to_owned(),
             Self::Binding(error) => error.message.as_ref().map_or_else(String::new, |m| m.to_owned()),
             Self::NullDocument => "device provider update is a null document".to_owned(),
             Self::Worker(error) => error.to_string(),

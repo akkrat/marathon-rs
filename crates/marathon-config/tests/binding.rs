@@ -238,13 +238,13 @@ fn p2_registry_has_no_java_time_or_marathonfile_path_resolver() {
     );
 }
 #[test]
-fn lossless_strings_and_d9_utf8_keys() {
+fn native_strings_decode_lossily_before_binding() {
     let got = bind("k: \"\\uD800x\\uDC00\"", |v| reference_schema(v, false))
         .unwrap()
         .unwrap();
-    assert_eq!(got.encode_utf16().collect::<Vec<_>>(), vec![0xd800, 120, 0xdc00]);
-    assert!(bind("\"\\uD800\": x", |v| reference_schema(v, true)).is_err());
-    assert!(bind("\"\\uD800\"", |v| v.regex()).is_err());
+    assert_eq!(got, "�x�");
+    assert!(bind("\"\\uD800\": x", |v| reference_schema(v, true)).is_ok());
+    assert!(bind("\"\\uD800\"", |v| v.regex()).is_ok());
 }
 
 // A real 2.2-shaped section with nested polymorphism. Representation remains test-only.
@@ -393,11 +393,9 @@ fn read_tree_materialization_matches_jvm() -> std::result::Result<(), Box<dyn st
                     k = match target {
                         "TreeString" => value.string()?.map_or(Json::Null, |s| json!(s)),
                         "TreeDouble" => json!(value.double()?),
-                        "TreeMap" => value
-                            .map(|v| Ok(v.string()?))?
-                            .map_or(Json::Null, |pairs| {
-                                Json::Object(pairs.into_iter().map(|(k, v)| (k, json!(v))).collect())
-                            }),
+                        "TreeMap" => value.map(|v| Ok(v.string()?))?.map_or(Json::Null, |pairs| {
+                            Json::Object(pairs.into_iter().map(|(k, v)| (k, json!(v))).collect())
+                        }),
                         _ => unreachable!(),
                     };
                 }

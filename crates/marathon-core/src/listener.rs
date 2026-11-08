@@ -22,7 +22,7 @@ pub trait TestRunListener: Send + Sync {
     }
 }
 pub trait LineListener: Send + Sync {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()>;
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()>;
     fn close(&self) -> VendorFuture<'_, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -48,7 +48,7 @@ pub trait LogWriter: Send + Sync {
         pool: &'a DevicePoolId,
         device: &'a DeviceInfo,
         test: &'a Test,
-        log: &'a String,
+        log: &'a str,
     ) -> ServiceFuture<'a, ()>;
 }
 /// In-memory synchronous callback. Must not perform file I/O or block on core.

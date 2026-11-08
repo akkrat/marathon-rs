@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 pub type Record = BTreeMap<String, Value>;
 pub trait FluxQuery: Send + Sync {
-    fn query<'a>(&'a self, flux: &'a String) -> ServiceFuture<'a, Vec<Record>>;
+    fn query<'a>(&'a self, flux: &'a str) -> ServiceFuture<'a, Vec<Record>>;
     fn close(&self) -> ServiceFuture<'_, ()>;
 }
 pub struct InfluxDB2DataSource {

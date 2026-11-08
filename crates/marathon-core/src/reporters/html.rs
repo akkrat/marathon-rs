@@ -12,7 +12,7 @@ use crate::{
     time::WallClock,
 };
 use jcompat::{
-    file_manager::{escape_utf16, relative_file},
+    file_manager::{escape, relative_file},
     formatting::{DatePattern, format_date},
     jstring::lines,
     report_text::{escape_xml11, replace},
@@ -20,15 +20,13 @@ use jcompat::{
 use std::sync::Arc;
 
 fn safe_serial(device: &DeviceInfo) -> String {
-    String::from_utf16_lossy(&escape_utf16(&device.serial_number.encode_utf16().collect::<Vec<_>>()))
+    escape(&device.serial_number)
 }
 fn id(test: &TestResult) -> String {
     test.test.to_test_name('.', '.')
 }
 pub fn filename(test: &TestResult) -> String {
-    let mut units = escape_utf16(&id(test).encode_utf16().collect::<Vec<_>>());
-    units.truncate(128);
-    let mut name = String::from_utf16_lossy(&units);
+    let mut name = jcompat::jstring::take_utf16(&escape(&id(test)), 128);
     name.push_str(".html");
     name
 }
@@ -84,7 +82,7 @@ pub fn pool_summary(p: &PoolSummary) -> WriterValue {
         ),
     ])
 }
-pub fn index(summary: &Summary, title: &String) -> VendorResult<WriterValue> {
+pub fn index(summary: &Summary, title: &str) -> VendorResult<WriterValue> {
     let totals: Vec<i64> = summary
         .pools
         .iter()
@@ -120,20 +118,14 @@ pub fn index(summary: &Summary, title: &String) -> VendorResult<WriterValue> {
         ),
     ]))
 }
-pub fn logcat_html(log: &String) -> String {
+pub fn logcat_html(log: &str) -> String {
     if log.is_empty() {
         return String::default();
     }
     let mut out = String::from("<div class=\"content\"><div class=\"card log\">");
     for line in lines(log) {
         // Kotlin Char.isLetter tests UTF-16 chars, so supplementary letters do not match.
-        let first = line
-            .encode_utf16()
-            .collect::<Vec<_>>()
-            .iter()
-            .copied()
-            .find(|u| jcompat::jstring::is_letter(*u))
-            .and_then(|u| char::from_u32(u as u32));
+        let first = line.chars().find(|c| jcompat::jstring::is_letter(*c));
         let css = match first {
             Some('V') => "verbose",
             Some('D') => "debug",
@@ -173,7 +165,10 @@ fn full_test(
         ("filename", string(&filename(r))),
         ("duration_millis", duration(r).into()),
         ("status", status(r.status)),
-        ("stacktrace", r.stacktrace.as_ref().map_or(WriterValue::Null, string)),
+        (
+            "stacktrace",
+            r.stacktrace.as_ref().map_or(WriterValue::Null, |text| string(text)),
+        ),
         ("deviceId", string(&safe_serial(&r.device))),
         (
             "diagnostic_video",
@@ -188,7 +183,7 @@ fn full_test(
         ("log_file", string(&log)),
     ])
 }
-fn page(path: &JavaPath, html: &JavaPath, data: String, log: String, date: &String) -> VendorResult<()> {
+fn page(path: &JavaPath, html: &JavaPath, data: String, log: String, date: &str) -> VendorResult<()> {
     let parent = JavaPath(path.0[..path.0.iter().rposition(|u| *u == 47).unwrap_or(0)].to_vec());
     let mut prefix = relative_file(html, &parent, html);
     if !prefix.is_empty() {
@@ -196,7 +191,7 @@ fn page(path: &JavaPath, html: &JavaPath, data: String, log: String, date: &Stri
     }
     let mut text = String::from(include_str!("../../../../fixtures/reporters/html/index.html"));
     for (key, value) in [
-        ("${relative_path}", &prefix),
+        ("${relative_path}", prefix.as_str()),
         ("${data_json}", &data),
         ("${log}", &log),
         ("${date}", date),

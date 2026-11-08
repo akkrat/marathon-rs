@@ -60,11 +60,11 @@ fn test_default() {
     a.test_started(&t[0], None).unwrap();
     a.test_ended(&t[0], metrics("metric", "value"), None, None).unwrap();
     a.test_started(&t[1], None).unwrap();
-    a.test_failed(&t[1], &"trace".into(), None, None).unwrap();
+    a.test_failed(&t[1], "trace", None, None).unwrap();
     a.test_started(&t[2], None).unwrap();
     a.test_ignored(&t[2]).unwrap();
     a.test_started(&t[3], None).unwrap();
-    a.test_assumption_failure(&t[3], &"trace".into()).unwrap();
+    a.test_assumption_failure(&t[3], "trace").unwrap();
     a.test_started(&t[4], None).unwrap();
     a.test_run_ended(1234, metrics("metric1", "value1")).unwrap();
     assert_eq!(
@@ -107,7 +107,7 @@ fn test_run_failed() {
     assert!(!a.has_failed_tests());
     assert!(a.is_run_failure());
     assert_eq!(a.num_tests_in_state(TestStatus::Failure), 0);
-    assert_eq!(a.run_failure_message(), Some(&"Problems are everywhere".into()));
+    assert_eq!(a.run_failure_message(), Some("Problems are everywhere"));
 }
 #[test]
 fn test_run_stopped() {
@@ -131,7 +131,7 @@ fn test_only_test_ended() {
     let t1 = test("method1");
     let t2 = test("method2");
     a.test_run_started("testing".into(), 3);
-    a.test_failed(&t1, &"trace".into(), None, None).unwrap();
+    a.test_failed(&t1, "trace", None, None).unwrap();
     a.test_ended(&t2, vec![], None, None).unwrap();
     a.test_run_ended(300, vec![]).unwrap();
     assert_eq!(
@@ -178,7 +178,7 @@ fn repeated_runs_keep_records_metrics_and_elapsed_and_replacements_keep_first_ke
     });
     let alias = test("a");
     a.test_started(&t, Some(10)).unwrap();
-    a.test_failed(&alias, &"trace".into(), Some(11), Some(12)).unwrap();
+    a.test_failed(&alias, "trace", Some(11), Some(12)).unwrap();
     a.test_run_ended(i64::MAX, metrics("old", "value")).unwrap();
     a.test_run_failed("oops".into()).unwrap();
     a.test_run_started("again".into(), 0);
@@ -281,14 +281,14 @@ fn synthesis_uses_maximum_even_incomplete_or_zero_and_reads_once_per_requested_t
 fn blank_trace_preserves_previous_and_assumptions_have_distinct_success_and_count_predicates() {
     let mut a = zero();
     let t = test("a");
-    a.test_failed(&t, &"trace".into(), None, None).unwrap();
+    a.test_failed(&t, "trace", None, None).unwrap();
     a.test_failed(&t, &String::from_utf16_lossy(&vec![0x2003, 0x1c]), None, None)
         .unwrap();
     assert_eq!(
         a.temporal_test_results.get(&t).unwrap().stack_trace,
         Some("trace".into())
     );
-    a.test_assumption_failure(&t, &"".into()).unwrap();
+    a.test_assumption_failure(&t, "").unwrap();
     assert!(a.temporal_test_results.get(&t).unwrap().is_successful());
     assert!(a.has_failed_tests());
     assert_eq!(
@@ -302,7 +302,7 @@ fn blank_trace_preserves_previous_and_assumptions_have_distinct_success_and_coun
 fn missing_start_diagnostic_is_stamped_by_the_injected_wall_source() {
     // Replay overrides the wall clock; the record must not read the host's.
     let mut a = TestRunResultsAccumulator::new(ScriptTimer::new(vec![0; 3]), Arc::new(|| 4242)).unwrap();
-    a.test_failed(&test("a"), &"trace".into(), None, None).unwrap();
+    a.test_failed(&test("a"), "trace", None, None).unwrap();
     let logs = a.take_logs();
     assert_eq!((logs.len(), logs[0].wall_millis, logs[0].at_millis), (1, 4242, 0));
 }
@@ -402,11 +402,11 @@ fn run_lifecycle_replays_the_jvm_snapshots() {
             "missingEnded" => a.test_ended(&t, metrics("metric", "v"), None, None).unwrap(),
             "existingEndedIgnoresStart" => a.test_ended(&t, vec![], Some(999), None).unwrap(),
             "blankTrace" => {
-                a.test_failed(&t, &"trace".into(), Some(11), Some(12)).unwrap();
-                a.test_failed(&t, &"\u{2003}".into(), None, None).unwrap();
+                a.test_failed(&t, "trace", Some(11), Some(12)).unwrap();
+                a.test_failed(&t, "\u{2003}", None, None).unwrap();
             }
             "replace" => a.test_started(&test("method"), Some(20)).unwrap(),
-            "assumption" => a.test_assumption_failure(&t, &"assumed".into()).unwrap(),
+            "assumption" => a.test_assumption_failure(&t, "assumed").unwrap(),
             "runFailed" => {
                 let mut b = t.clone();
                 b.method = "b".into();

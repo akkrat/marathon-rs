@@ -53,8 +53,8 @@ pub fn has_no_datapoint(line: &str) -> bool {
 }
 impl GraphiteDataSource {
     /// D51: keeps every line that has a value, so one empty series can't discard the query.
-    fn with_datapoints<'a>(&'a self, lines: &'a [String]) -> impl Iterator<Item = &'a String> {
-        lines.iter().filter(|line| {
+    fn with_datapoints<'a>(&'a self, lines: &'a [String]) -> impl Iterator<Item = &'a str> {
+        lines.iter().map(String::as_str).filter(|line| {
             let skip = has_no_datapoint(line);
             if let (true, Some(context)) = (skip, &self.context) {
                 let text = format!("Skipping a Graphite series with no datapoints: {line}");

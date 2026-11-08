@@ -60,7 +60,7 @@ impl LogcatAccumulatingListener {
 
 impl LogcatListener for LogcatAccumulatingListener {
     fn on_message(&self, message: &LogCatMessage) {
-        if message.tag().encode_utf16().collect::<Vec<_>>() == "AndroidRuntime".encode_utf16().collect::<Vec<u16>>() {
+        if message.tag() == "AndroidRuntime" {
             match message.log_level() {
                 LogLevel::Error | LogLevel::Warn => {
                     let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());

@@ -41,11 +41,11 @@ pub enum Outcome {
     Err(Box<ConfigurationError>),
 }
 
-fn s(v: &String) -> Json {
+fn s(v: &str) -> Json {
     json!(v.to_owned())
 }
 fn os(v: &Option<String>) -> Json {
-    v.as_ref().map_or(Json::Null, s)
+    v.as_ref().map_or(Json::Null, |text| s(text))
 }
 fn f(v: f64) -> Json {
     if v.is_finite() {
@@ -159,7 +159,7 @@ fn output(v: &OutputConfiguration) -> Json {
 }
 fn rvf(v: &RegexValuesFileFilter, ty: &str) -> Json {
     json!({"enabled": v.enabled, "file": v.file.as_ref().map(path), "regex": v.regex.as_ref().map(|r| r.pattern().to_owned()),
-        "type": ty, "values": v.values.as_ref().map(|xs| xs.iter().map(s).collect::<Vec<_>>())})
+        "type": ty, "values": v.values.as_ref().map(|xs| xs.iter().map(|text| s(text)).collect::<Vec<_>>())})
 }
 fn filter(v: &TestFilterConfiguration) -> Json {
     use TestFilterConfiguration as F;
@@ -172,7 +172,7 @@ fn filter(v: &TestFilterConfiguration) -> Json {
         F::Annotation(x) => rvf(x, "annotation"),
         F::TestPackage(x) => json!({"enabled": x.enabled, "file": x.file.as_ref().map(path),
             "regex": x.regex.as_ref().map(|r| r.pattern().to_owned()), "subpackages": x.subpackages,
-            "type": "package", "values": x.values.as_ref().map(|xs| xs.iter().map(s).collect::<Vec<_>>())}),
+            "type": "package", "values": x.values.as_ref().map(|xs| xs.iter().map(|text| s(text)).collect::<Vec<_>>())}),
         F::AnnotationData {
             name_regex,
             value_regex,

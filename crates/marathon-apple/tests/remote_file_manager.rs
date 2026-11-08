@@ -114,7 +114,7 @@ fn paths_and_utf16_video_names_match_jvm() {
                         "app" => fm.remote_application(),
                         "log" => fm.remote_log(),
                         "pid" => fm.remote_video_pidfile(),
-                        "xcresult" => fm.remote_xcresult_for_id(&"b/id/".into()).to_owned(),
+                        "xcresult" => fm.remote_xcresult_for_id("b/id/").to_owned(),
                         "xctestrunName" => fm.xctestrun_file_name().into(),
                         "appName" => fm.app_under_test_file_name().into(),
                         "runnerName" => fm.test_runner_file_name().into(),
@@ -166,7 +166,7 @@ fn architecture_is_recomputed_for_every_sdk_abi_and_udid() {
             .find(|sdk| sdk.name() == string(&row["sdk"]))
             .unwrap();
         assert_eq!(
-            apple_arch(sdk, &string(&row["abi"]).into(), string(&row["udid"])).value(),
+            apple_arch(sdk, &string(&row["abi"]), string(&row["udid"])).value(),
             string(&row["arch"])
         );
     }

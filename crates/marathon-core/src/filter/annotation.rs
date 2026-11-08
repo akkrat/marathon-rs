@@ -179,15 +179,7 @@ pub(super) fn matches(
     Ok(false)
 }
 
-pub fn array_element_value(text: &String) -> String {
-    let delimiter: Vec<u16> = "(value=".encode_utf16().collect();
-    let start = text
-        .encode_utf16()
-        .collect::<Vec<_>>()
-        .windows(delimiter.len())
-        .position(|w| w == delimiter)
-        .map_or(0, |i| i + delimiter.len());
-    let tail = &text.encode_utf16().collect::<Vec<_>>()[start..];
-    let end = tail.iter().position(|u| *u == u16::from(b')')).unwrap_or(tail.len());
-    std::string::String::from_utf16_lossy(&tail[..end])
+pub fn array_element_value(text: &str) -> String {
+    let tail = text.split_once("(value=").map_or(text, |(_, tail)| tail);
+    tail.split_once(')').map_or(tail, |(value, _)| value).to_owned()
 }

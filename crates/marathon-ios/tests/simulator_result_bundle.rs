@@ -56,7 +56,7 @@ async fn next_real_runner_batch_starts_during_blocked_transfer_while_finalizatio
     assert_eq!(bridge.pulls.load(Ordering::SeqCst), 1);
     assert!(!bridge.trace.lock().unwrap().iter().any(|s| s.starts_with("rm ")));
     let close = h.services.artifacts.close_and_join(1000, 1000, &h.services.context);
-    let owner = "a@local".into();
+    let owner = "a@local";
     let barrier = h.services.artifacts.await_owner(&owner, &h.services.context);
     tokio::pin!(close, barrier);
     assert!(futures_util::poll!(close.as_mut()).is_pending());
@@ -104,7 +104,7 @@ async fn fixed(
         assert!(result.is_ok(), "{result:?}");
         h.services
             .artifacts
-            .await_owner(&"a@local".into(), &h.services.context)
+            .await_owner("a@local", &h.services.context)
             .await
             .unwrap();
     } else {
@@ -243,7 +243,7 @@ async fn policies_results_traces_and_attachments_match_synchronous_baseline_for_
                         policy == PullingPolicy::Always || policy == PullingPolicy::OnFailure && outcome != "passed";
                     assert_eq!(bridge.pulls.load(Ordering::SeqCst), if expected { 2 } else { 0 });
                     assert_eq!(
-                        h.services.artifacts.kept_sources(&"a@local".into()).len(),
+                        h.services.artifacts.kept_sources("a@local").len(),
                         usize::from(expected && !delivered)
                     );
                     assert_eq!(result_folders(h.dir.path()).len(), usize::from(expected && delivered));
@@ -324,7 +324,7 @@ async fn bundle_skipped_by_a_failing_earlier_finalizer_stays_protected_and_is_re
             signal.cancel(marathon_apple::cmd::cancelled("caller"));
         }
         assert!(batch.await?.0.is_err());
-        let kept = h.services.artifacts.kept_sources(&"a@local".into());
+        let kept = h.services.artifacts.kept_sources("a@local");
         assert_eq!(kept.len(), 1);
         d.remote_file_manager()
             .remove_remote_directory(

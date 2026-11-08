@@ -210,15 +210,15 @@ impl PoolProgressAccumulator {
     pub fn state(&self, test: &Test) -> Option<TestState> {
         self.data(&test.to_test_name('.', '#')).map(|data| *data.state.state())
     }
-    fn data(&self, name: &String) -> Option<&TestExecutionData> {
+    fn data(&self, name: &str) -> Option<&TestExecutionData> {
         self.index.get(name).map(|&at| &self.tests[at].1)
     }
-    fn data_mut(&mut self, name: &String) -> Option<&mut TestExecutionData> {
+    fn data_mut(&mut self, name: &str) -> Option<&mut TestExecutionData> {
         self.index.get(name).map(|&at| &mut self.tests[at].1)
     }
-    fn log(&self, level: Level, prefix: &str, test: &String, suffix: &str) {
+    fn log(&self, level: Level, prefix: &str, test: &str, suffix: &str) {
         let mut message = String::from(prefix);
-        message.push_str(&test.clone());
+        message.push_str(&test.to_owned());
         message.push_str(suffix);
         self.logs.log(
             "com.malinskiy.marathon.execution.progress.PoolProgressAccumulator",

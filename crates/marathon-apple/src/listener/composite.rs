@@ -42,7 +42,7 @@ impl AppleTestRunListener for CompositeTestRunListener {
         test: &'a Test,
         start_time: i64,
         end_time: i64,
-        trace: Option<&'a String>,
+        trace: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             for listener in &self.listeners {
@@ -75,7 +75,7 @@ impl AppleTestRunListener for CompositeTestRunListener {
             Ok(())
         })
     }
-    fn test_run_failed<'a>(&'a self, error_message: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, error_message: &'a str, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             for listener in &self.listeners {
                 listener.test_run_failed(error_message, reason).await?;

@@ -162,7 +162,7 @@ async fn replay(
     if batch_failure {
         listeners
             .recorder
-            .test_run_failed(&"failure".into(), DeviceFailureReason::Unknown)
+            .test_run_failed("failure", DeviceFailureReason::Unknown)
             .await
             .map_err(|e| format!("{e:?}"))?;
     } else if outcome == 2 {
@@ -244,7 +244,7 @@ async fn replay(
         std::fs::write(&src, b"second")?;
         listeners
             .recorder
-            .test_run_failed(&"failure".into(), DeviceFailureReason::Unknown)
+            .test_run_failed("failure", DeviceFailureReason::Unknown)
             .await
             .map_err(|e| format!("{e:?}"))?;
         assert_eq!(std::fs::read(&dst)?, b"second");
@@ -253,7 +253,7 @@ async fn replay(
         std::fs::write(&src, b"kept")?;
         listeners
             .recorder
-            .test_run_failed(&"failure".into(), DeviceFailureReason::Unknown)
+            .test_run_failed("failure", DeviceFailureReason::Unknown)
             .await
             .map_err(|e| format!("{e:?}"))?;
         assert_eq!(std::fs::read(&src)?, b"kept", "rename failure Boolean is ignored");

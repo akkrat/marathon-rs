@@ -51,13 +51,7 @@ impl AmInstrumentTestParser {
             let b = bundle.clone();
             let info = blocking(self.runtime.dependencies.io.as_ref(), move || b.instrumentation_info()).await?;
             message.push_str(&format!("\n- testPackage: {}", info.instrumentation_package.to_owned()));
-            if !info
-                .application_package
-                .encode_utf16()
-                .collect::<Vec<_>>()
-                .iter()
-                .all(|&u| jcompat::jstring::is_whitespace(u))
-            {
+            if !info.application_package.chars().all(jcompat::jstring::is_whitespace) {
                 message.push_str(&format!("\n  targetPackage: {}", info.application_package.to_owned()));
             }
         }
@@ -319,11 +313,11 @@ impl SessionEnd {
 fn server_is_not_in_question(error: &VendorError) -> bool {
     matches!(error, VendorError::TestParsing(failure) if failure.cause.is_none())
 }
-fn failure_of_session(device: &AndroidDevice, reason: &String) -> Failure {
+fn failure_of_session(device: &AndroidDevice, reason: &str) -> Failure {
     let mut message = String::from("Unable to parse test list using ");
     message.push_str(&device.serial_number());
     message.push_str(": ");
-    message.push_str(&reason.clone());
+    message.push_str(&reason.to_owned());
     self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
 }
 fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {

@@ -144,7 +144,7 @@ impl MetricsProvider for Analytics {
         tests: &'a [Test],
         percentile: f64,
         limit: Instant,
-        usage: &'a String,
+        usage: &'a str,
     ) -> ServiceFuture<'a, ()> {
         match &self.backend {
             Backend::Remote(provider) => provider.report_execution_time_coverage(tests, percentile, limit, usage),

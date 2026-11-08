@@ -326,11 +326,9 @@ async fn build(
     };
     let log: ServiceLog = {
         let record = record.clone();
-        Arc::new(
-            move |logger: &Logger, level, message: &String, cause: Option<&Failure>| {
-                record.push(logger.name(), level, message.clone(), cause.cloned());
-            },
-        )
+        Arc::new(move |logger: &Logger, level, message: &str, cause: Option<&Failure>| {
+            record.push(logger.name(), level, message.to_string(), cause.cloned());
+        })
     };
     let logging = inputs.logging.clone();
     let registry = logging.clone();

@@ -25,8 +25,34 @@ public class Writers {
     List<Integer> bytes=new ArrayList<>();for(byte b:s.getBytes(java.nio.charset.StandardCharsets.UTF_8))bytes.add(b&255);
     return obj("ok",units(s),"bytes",bytes);
   }
+  static boolean nativeStrings;
+  static String nativeText(String s) {
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if (Character.isHighSurrogate(c) && i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) {
+        out.append(c).append(s.charAt(++i));
+      } else out.append(Character.isSurrogate(c) ? '\ufffd' : c);
+    }
+    return out.toString();
+  }
+  static Object nativeValue(Object v) {
+    if (v instanceof String) return nativeText((String)v);
+    if (v instanceof Map) {
+      Map<String,Object> out = new LinkedHashMap<>();
+      for (Map.Entry<?,?> e : ((Map<?,?>)v).entrySet()) out.put(nativeText(e.getKey().toString()), nativeValue(e.getValue()));
+      return out;
+    }
+    if (v instanceof List) {
+      List<Object> out = new ArrayList<>();
+      for (Object x : (List<?>)v) out.add(nativeValue(x));
+      return out;
+    }
+    return v;
+  }
   static void row(String id,Object v) throws Exception {
     Map<String,Object> r=obj("id",id,"input",input(v));
+    if (nativeStrings) v = nativeValue(v);
     for(boolean pretty:new boolean[]{false,true}) {
       GsonBuilder b=new GsonBuilder();if(pretty)b.setPrettyPrinting();
       try {r.put(pretty?"pretty":"gson",success(b.create().toJson(v)));}
@@ -37,6 +63,7 @@ public class Writers {
     System.out.println(transport.toJson(r));
   }
   public static void main(String[] args) throws Exception {
+    nativeStrings = args.length == 1 && args[0].equals("--native-strings");
     if (args.length == 1 && args[0].equals("--round1")) {
       System.out.println(transport.toJson(obj("table","writer_round1","rows",18,"jdk",System.getProperty("java.runtime.version"),"generator","tools/oracle/writer-probes/run --round1")));
       String[] names = {"cr", "lf", "crlf", "nel", "ls", "ps"};

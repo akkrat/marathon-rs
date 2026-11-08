@@ -141,27 +141,16 @@ pub fn allure_history_id(class: &str, method: &str) -> String {
 /// Why the JDK's Xalan serializer rejects a text node (environment-writer catches it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum XmlTextError {
-    /// SAXException: a control character or an unpaired low surrogate.
+    /// SAXException: a control character.
     InvalidCharacter(u16),
-    /// IOException wrapped in SAXException: a high surrogate followed by a non-low unit.
-    InvalidSurrogate(u16, u16),
 }
 impl XmlTextError {
-    /// The SAXException message; InvalidSurrogate's is the wrapped IOException's toString.
+    /// The SAXException message.
     pub fn sax_message(self) -> String {
         match self {
             Self::InvalidCharacter(u) => {
                 format!("An invalid XML character (Unicode: 0x{u:x}) was found in the node's character data content.")
             }
-            Self::InvalidSurrogate(..) => format!("java.io.IOException: {}", self.io_message().unwrap_or_default()),
-        }
-    }
-    pub fn io_message(self) -> Option<String> {
-        match self {
-            Self::InvalidSurrogate(high, next) => {
-                Some(format!("Invalid UTF-16 surrogate detected: {high:x} {next:x} ?"))
-            }
-            Self::InvalidCharacter(_) => None,
         }
     }
 }

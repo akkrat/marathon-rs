@@ -71,7 +71,7 @@ fn close_failed(first: &mut Option<OperationError>, error: OperationError, log: 
     };
     match (first.is_some(), log) {
         (false, _) => *first = Some(error),
-        (true, Some((log, logger))) => log(logger, Level::Error, &"A later close also failed".into(), Some(failure)),
+        (true, Some((log, logger))) => log(logger, Level::Error, "A later close also failed", Some(failure)),
         (true, None) => {}
     }
     Ok(())
@@ -239,12 +239,12 @@ impl BackendGuard {
                 state.skip_until = Some(tokio::time::Instant::now() + self.limits.cool_off);
             }
             let first_of_kind = state.kinds.len() < LOGGED_KINDS
-                && state.kinds.insert((failure.class.clone(), failure.message.clone()));
+                && state.kinds.insert((failure.class.clone(), failure.message.to_owned()));
             let announce = slow && !std::mem::replace(&mut state.announced_skip, true);
             (first_of_kind, announce)
         };
         if first_of_kind {
-            let text = "Cannot send test metrics to the analytics backend; the run carries on. Each kind of failure is logged once".into();
+            let text = "Cannot send test metrics to the analytics backend; the run carries on. Each kind of failure is logged once";
             (self.log)(&self.logger, Level::Warn, &text, Some(failure));
         }
         if announce {
@@ -360,22 +360,22 @@ impl Tracker for MappingTracker {
             self.internal.track(&event).await
         })
     }
-    fn device_provider_init<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, serial: &'a str, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let event = Event::DeviceProviderPreparing(DeviceProviderPreparingEvent {
                 start,
                 finish,
-                serial_number: serial.clone(),
+                serial_number: serial.to_string(),
             });
             self.internal.track(&event).await
         })
     }
-    fn device_preparing<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, serial: &'a str, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let event = Event::DevicePreparing(DevicePreparingEvent {
                 start,
                 finish,
-                serial_number: serial.clone(),
+                serial_number: serial.to_string(),
             });
             self.internal.track(&event).await
         })
@@ -500,9 +500,9 @@ impl Tracker for Track {
             .await
         })
     }
-    fn device_provider_init<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, serial: &'a str, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         let this = self.clone();
-        let serial = serial.clone();
+        let serial = serial.to_owned();
         Box::pin(async move {
             on_io(
                 self.io.as_ref(),
@@ -517,9 +517,9 @@ impl Tracker for Track {
             .await
         })
     }
-    fn device_preparing<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, serial: &'a str, start: Instant, finish: Instant) -> VendorFuture<'a, ()> {
         let this = self.clone();
-        let serial = serial.clone();
+        let serial = serial.to_owned();
         Box::pin(async move {
             on_io(
                 self.io.as_ref(),

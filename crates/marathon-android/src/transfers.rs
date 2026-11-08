@@ -107,21 +107,17 @@ impl AndroidDevice {
             )
             .await;
         match result {
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PullFailedException" => {
-                Err(with_cause(
-                    transfer(
-                        format!(
-                            "Couldn't pull file {remote} from device {}",
-                            self.serial_number().to_owned()
-                        )
-                        .as_str(),
-                    ),
-                    e,
-                ))
-            }
-            Err(e)
-                if e.failure().class == "com.malinskiy.adam.exception.UnsupportedSyncProtocolException" =>
-            {
+            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PullFailedException" => Err(with_cause(
+                transfer(
+                    format!(
+                        "Couldn't pull file {remote} from device {}",
+                        self.serial_number().to_owned()
+                    )
+                    .as_str(),
+                ),
+                e,
+            )),
+            Err(e) if e.failure().class == "com.malinskiy.adam.exception.UnsupportedSyncProtocolException" => {
                 Err(with_cause(
                     transfer(
                         format!(
@@ -428,12 +424,7 @@ impl AndroidDevice {
         let features = self.supported_features();
         let args: Vec<_> = params
             .iter()
-            .filter(|v| {
-                !v.encode_utf16()
-                    .collect::<Vec<_>>()
-                    .iter()
-                    .all(|u| jcompat::jstring::is_whitespace(*u))
-            })
+            .filter(|v| !v.chars().all(jcompat::jstring::is_whitespace))
             .map(String::clone)
             .collect();
         if features.contains(&Feature::AbbExec) || features.contains(&Feature::Cmd) {
@@ -574,9 +565,7 @@ impl AndroidDevice {
         })
         .await;
         match result {
-            Err(e)
-                if e.failure().class == "com.malinskiy.adam.exception.UnsupportedImageProtocolException" =>
-            {
+            Err(e) if e.failure().class == "com.malinskiy.adam.exception.UnsupportedImageProtocolException" => {
                 self.log(
                     Level::Warn,
                     &format!(
@@ -596,7 +585,7 @@ impl AndroidDevice {
         options: &marathon_config::vendor::AndroidVideoConfiguration,
         context: VendorContext,
     ) -> VendorResult<()> {
-        let cmd = to_screen_recorder_command(options, &remote.into(), self.api_level() >= 34).to_owned();
+        let cmd = to_screen_recorder_command(options, &remote, self.api_level() >= 34).to_owned();
         let result = timed(
             &context,
             millis(self.runtime().configuration.timeout_configuration.screenrecorder)?,

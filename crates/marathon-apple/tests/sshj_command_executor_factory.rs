@@ -164,7 +164,7 @@ async fn retries_log_each_failure_and_rethrow_the_last() {
                 logger.as_str(),
                 *level,
                 message.as_str(),
-                throwable.as_ref().and_then(|t| t.message.clone()),
+                throwable.as_ref().and_then(|t| t.message.to_owned()),
             )
         })
         .collect();

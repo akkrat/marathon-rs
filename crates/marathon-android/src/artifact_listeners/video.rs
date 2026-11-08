@@ -11,7 +11,7 @@ use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorConte
 pub fn grep_pid(output: &str) -> String {
     let last = output.split(['\r', '\n']).rfind(|s| !s.is_empty()).unwrap_or("");
     last.split(' ')
-        .filter(|s| !s.chars().all(jcompat::jstring::is_whitespace_char))
+        .filter(|s| !s.chars().all(jcompat::jstring::is_whitespace))
         .nth(1)
         .and_then(jcompat::jnum::parse_int)
         .map(|i| i.to_string())
@@ -32,7 +32,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
                 .map(|r| r.output.to_owned())
                 .unwrap_or_default();
             let pid = grep_pid(&output);
-            if !output.chars().all(jcompat::jstring::is_whitespace_char) {
+            if !output.chars().all(jcompat::jstring::is_whitespace) {
                 device.log_named(
                     "ScreenRecorder",
                     Level::Trace,
@@ -152,7 +152,7 @@ impl ScreenRecorderTestBatchListener {
     }
     async fn pull(
         &self,
-        remote: &String,
+        remote: &str,
         test: Option<&Test>,
         chunk: Option<String>,
         context: VendorContext,
@@ -185,7 +185,7 @@ impl ScreenRecorderTestBatchListener {
         );
         Ok(local)
     }
-    async fn remove(&self, remote: &String, context: VendorContext) -> VendorResult<()> {
+    async fn remove(&self, remote: &str, context: VendorContext) -> VendorResult<()> {
         let start = self
             .artifacts
             .now("android.ScreenRecorderTestBatchListener.removeRemoteVideoFile")?;

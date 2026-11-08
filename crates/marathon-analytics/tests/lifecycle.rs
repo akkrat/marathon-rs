@@ -142,9 +142,7 @@ fn separate_history_and_tracking_clients_run_setup_twice() {
                 debug: false,
             };
             let tracker = factory
-                .create(BackendRequest::Influx {
-                    url: peer.url.clone(),
-                })
+                .create(BackendRequest::Influx { url: peer.url.clone() })
                 .await?
                 .map_err(OperationError::Failed)?
                 .ok_or_else(|| failure("test.Factory", "missing tracker"))?;
@@ -206,7 +204,7 @@ fn close_is_awaited_during_an_in_flight_query() {
             let query_client = client.clone();
             let query = tokio::spawn(async move {
                 use marathon_core::analytics::remote::influx2::FluxQuery;
-                query_client.query(&"bad".into()).await
+                query_client.query("bad").await
             });
             started
                 .await

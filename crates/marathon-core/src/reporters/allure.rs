@@ -139,13 +139,10 @@ impl AllureReporter {
         Ok(())
     }
 }
-/// TransformerException(SAXException[(IOException)]) as thrown by the identity transform.
+/// TransformerException(SAXException) as thrown by the identity transform.
 fn xml_failure(error: XmlTextError) -> Failure {
     let sax = error.sax_message();
-    let mut cause = failure("org.xml.sax.SAXException", &sax);
-    if let Some(io) = error.io_message() {
-        cause.cause = Some(Box::new(failure("java.io.IOException", &io)));
-    }
+    let cause = failure("org.xml.sax.SAXException", &sax);
     let mut top = failure(
         "javax.xml.transform.TransformerException",
         &format!("org.xml.sax.SAXException: {sax}"),
@@ -169,7 +166,7 @@ fn allure_error(message: &str, error: VendorError) -> VendorError {
     f.cause = Some(Box::new(error.failure().clone()));
     VendorError::Other(f)
 }
-fn value<'a>(test: &'a Test, name: &str) -> Option<&'a String> {
+fn value<'a>(test: &'a Test, name: &str) -> Option<&'a str> {
     let property = test.meta_properties.iter().find(|p| p.name == name)?;
     match property
         .values
@@ -182,10 +179,10 @@ fn value<'a>(test: &'a Test, name: &str) -> Option<&'a String> {
         _ => None,
     }
 }
-fn label(name: &str, value: &String) -> WriterValue {
+fn label(name: &str, value: &str) -> WriterValue {
     object([("name", name.into()), ("value", string(value))])
 }
-fn issue(value: &String) -> WriterValue {
+fn issue(value: &str) -> WriterValue {
     object([("name", "Issue".into()), ("url", string(value))])
 }
 fn attachment_type(kind: AttachmentType) -> (&'static str, &'static str) {
@@ -201,7 +198,7 @@ fn attachment_type(kind: AttachmentType) -> (&'static str, &'static str) {
 }
 /// `retained` is already filtered through the shared attachment emptiness service.
 pub fn result_model(
-    uuid: &String,
+    uuid: &str,
     device: &DeviceInfo,
     r: &TestResult,
     retained: &[Attachment],
@@ -236,7 +233,10 @@ pub fn result_model(
             }
             let (default, mime) = attachment_type(a.kind);
             object([
-                ("name", a.name.as_ref().map_or_else(|| default.into(), string)),
+                (
+                    "name",
+                    a.name.as_ref().map_or_else(|| default.into(), |text| string(text)),
+                ),
                 (
                     "source",
                     WriterValue::String(String::from_utf16_lossy(

@@ -237,7 +237,7 @@ impl Device for DeviceStub {
 
 pub struct StubTestBundle(pub String);
 impl TestBundle for StubTestBundle {
-    fn id(&self) -> &String {
+    fn id(&self) -> &str {
         &self.0
     }
 }

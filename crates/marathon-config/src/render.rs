@@ -179,10 +179,10 @@ fn object(class: &str) -> KotlinValue {
         .fold(0_i32, |h, c| h.wrapping_mul(31).wrapping_add(i32::from(c)));
     KotlinValue::Text(format!("{class}@{:x}", hash as u32))
 }
-fn text(s: &String) -> KotlinValue {
-    KotlinValue::Text(s.clone())
+fn text(s: &str) -> KotlinValue {
+    KotlinValue::Text(s.to_string())
 }
-fn quoted(s: &String) -> KotlinValue {
+fn quoted(s: &str) -> KotlinValue {
     let mut out = String::from("'");
     out.push_str(s);
     out.push('\'');
@@ -311,7 +311,7 @@ impl Kotlin for AnalyticsConfiguration {
                 vec![
                     ("host", text(&c.host)),
                     ("port", opt(c.port.as_ref(), |n| number(n))),
-                    ("prefix", opt(c.prefix.as_ref(), text)),
+                    ("prefix", opt(c.prefix.as_ref(), |s| text(s))),
                     ("defaults", c.defaults.kotlin()),
                     ("readOnly", boolean(c.read_only)),
                 ],
@@ -464,7 +464,7 @@ fn values_filter(name: &str, f: &RegexValuesFileFilter) -> KotlinValue {
         name,
         vec![
             ("regex", opt(f.regex.as_ref(), regex)),
-            ("values", opt(f.values.as_ref(), |v| list(v, text))),
+            ("values", opt(f.values.as_ref(), |v| list(v, |s| text(s)))),
             ("file", opt(f.file.as_ref(), path)),
             ("enabled", boolean(f.enabled)),
         ],
@@ -489,7 +489,7 @@ impl Kotlin for TestFilterConfiguration {
                 "TestPackageFilterConfiguration",
                 vec![
                     ("regex", opt(r.as_ref(), regex)),
-                    ("values", opt(values.as_ref(), |v| list(v, text))),
+                    ("values", opt(values.as_ref(), |v| list(v, |s| text(s)))),
                     ("file", opt(file.as_ref(), path)),
                     ("subpackages", boolean(*subpackages)),
                     ("enabled", boolean(*enabled)),
@@ -795,7 +795,7 @@ impl Kotlin for IosConfiguration {
                         "SigningConfiguration",
                         vec![(
                             "testRunnerProvisioningProfile",
-                            opt(self.signing.test_runner_provisioning_profile.as_ref(), text),
+                            opt(self.signing.test_runner_provisioning_profile.as_ref(), |s| text(s)),
                         )],
                     ),
                 ),
@@ -1122,8 +1122,8 @@ fn typed(id: &str, mut entries: Vec<(&str, WriterValue)>) -> WriterValue {
     entries.insert(0, ("type", id.into()));
     obj(entries)
 }
-fn w_text(s: &String) -> WriterValue {
-    WriterValue::String(s.clone())
+fn w_text(s: &str) -> WriterValue {
+    WriterValue::String(s.to_string())
 }
 fn w_path(p: &JavaPath) -> WriterValue {
     WriterValue::String(String::from_utf16_lossy(&p.0.clone()))
@@ -1291,7 +1291,7 @@ impl WriterProjection for AnalyticsConfiguration {
                 vec![
                     ("host", w_text(&c.host)),
                     ("port", w_opt(c.port.as_ref(), |p| w_int(*p))),
-                    ("prefix", w_opt(c.prefix.as_ref(), w_text)),
+                    ("prefix", w_opt(c.prefix.as_ref(), |s| w_text(s))),
                     ("defaults", w_defaults(&c.defaults)),
                     ("readOnly", WriterValue::Bool(c.read_only)),
                 ],
@@ -1414,7 +1414,7 @@ fn w_values_filter(id: &str, f: &RegexValuesFileFilter) -> WriterValue {
         id,
         vec![
             ("regex", w_opt(f.regex.as_ref(), w_regex)),
-            ("values", w_opt(f.values.as_ref(), |v| w_list(v, w_text))),
+            ("values", w_opt(f.values.as_ref(), |v| w_list(v, |s| w_text(s)))),
             ("file", w_opt(f.file.as_ref(), w_path)),
             ("enabled", WriterValue::Bool(f.enabled)),
         ],
@@ -1433,7 +1433,7 @@ impl WriterProjection for TestFilterConfiguration {
                 "package",
                 vec![
                     ("regex", w_opt(f.regex.as_ref(), w_regex)),
-                    ("values", w_opt(f.values.as_ref(), |v| w_list(v, w_text))),
+                    ("values", w_opt(f.values.as_ref(), |v| w_list(v, |s| w_text(s)))),
                     ("file", w_opt(f.file.as_ref(), w_path)),
                     ("subpackages", WriterValue::Bool(f.subpackages)),
                     ("enabled", WriterValue::Bool(f.enabled)),
@@ -1876,7 +1876,7 @@ fn ios(c: &IosConfiguration) -> WriterValue {
                 "signing",
                 obj(vec![(
                     "testRunnerProvisioningProfile",
-                    w_opt(c.signing.test_runner_provisioning_profile.as_ref(), w_text),
+                    w_opt(c.signing.test_runner_provisioning_profile.as_ref(), |s| w_text(s)),
                 )]),
             ),
             ("skipCopyingDerivedData", WriterValue::Bool(c.skip_copying_derived_data)),

@@ -33,7 +33,7 @@ impl LineListeners {
             entries.remove(index);
         }
     }
-    pub async fn on_line(&self, line: &String) -> VendorResult<()> {
+    pub async fn on_line(&self, line: &str) -> VendorResult<()> {
         let _gate = self.gate.lock().await;
         let entries = self.entries.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for entry in entries {

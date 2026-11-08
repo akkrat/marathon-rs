@@ -376,14 +376,14 @@ fn configuration_failure(error: &ConfigurationError) -> Failure {
     let cause = error.causes.iter().rev().fold(None, |cause, c| {
         Some(Box::new(Failure {
             class: c.class.clone(),
-            message: c.message.clone(),
+            message: c.message.to_owned(),
             cause,
             stacktrace: None,
         }))
     });
     Failure {
         class: error.class.clone(),
-        message: error.message.clone(),
+        message: error.message.to_owned(),
         cause,
         stacktrace: None,
     }

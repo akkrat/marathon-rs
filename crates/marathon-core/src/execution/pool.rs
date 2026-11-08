@@ -181,14 +181,14 @@ fn simple_name(message: &QueueMessage) -> &'static str {
 
 enum Part<'a> {
     S(&'a str),
-    J(&'a String),
+    J(&'a str),
 }
 fn text(parts: &[Part<'_>]) -> String {
     let mut out = String::default();
     for part in parts {
         match part {
             Part::S(s) => out.push_str(s),
-            Part::J(j) => out.push_str(&(*j).clone()),
+            Part::J(j) => out.push_str(&(*j).to_owned()),
         }
     }
     out

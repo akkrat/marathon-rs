@@ -44,18 +44,14 @@ impl DumpValue {
         Self::Object(entries.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 
-    /// An object with its keys sorted as Java's `String.compareTo` sorts them: by UTF-16 code units.
+    /// An object with its keys in native string order (D55).
     pub fn sorted(mut entries: Vec<(String, DumpValue)>) -> Self {
-        entries.sort_by(|a, b| {
-            a.0.encode_utf16()
-                .collect::<Vec<_>>()
-                .cmp(&b.0.encode_utf16().collect::<Vec<_>>())
-        });
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
         Self::Object(entries)
     }
 
     /// `Json.pretty`: two-space indentation, `": "`, empty containers as `[]`/`{}`, and a final newline. Strings are
-    /// UTF-8 except for `"`, `\`, control characters, DEL and unpaired surrogates, which are escaped.
+    /// UTF-8 except for `"`, `\`, control characters and DEL, which are escaped.
     pub fn pretty(&self) -> String {
         let mut out = String::new();
         self.write(&mut out, 0);
@@ -69,10 +65,10 @@ impl DumpValue {
             Self::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
             Self::Int(n) => out.push_str(&n.to_string()),
             Self::Number(text) => out.push_str(text),
-            Self::Str(s) => write_string(out, &s.encode_utf16().collect::<Vec<_>>()),
+            Self::Str(s) => write_string(out, s),
             Self::Array(items) => container(out, '[', ']', items, depth, |out, item, depth| item.write(out, depth)),
             Self::Object(entries) => container(out, '{', '}', entries, depth, |out, (key, value), depth| {
-                write_string(out, &key.encode_utf16().collect::<Vec<_>>());
+                write_string(out, key);
                 out.push_str(": ");
                 value.write(out, depth);
             }),
@@ -106,20 +102,19 @@ fn container<T>(
     out.push(close);
 }
 
-fn write_string(out: &mut String, units: &[u16]) {
+fn write_string(out: &mut String, text: &str) {
     out.push('"');
-    for c in char::decode_utf16(units.iter().copied()) {
+    for c in text.chars() {
         match c {
-            Ok('"') => out.push_str("\\\""),
-            Ok('\\') => out.push_str("\\\\"),
-            Ok('\n') => out.push_str("\\n"),
-            Ok('\r') => out.push_str("\\r"),
-            Ok('\t') => out.push_str("\\t"),
-            Ok('\u{8}') => out.push_str("\\b"),
-            Ok('\u{c}') => out.push_str("\\f"),
-            Ok(c) if c < ' ' || c == '\u{7f}' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
-            Ok(c) => out.push(c),
-            Err(lone) => out.push_str(&format!("\\u{:04x}", lone.unpaired_surrogate())),
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            c if c < ' ' || c == '\u{7f}' => out.push_str(&format!("\\u{:04x}", u32::from(c))),
+            c => out.push(c),
         }
     }
     out.push('"');
@@ -132,7 +127,7 @@ pub fn canonical_configuration(configuration: &Configuration, process_dir: &Java
 }
 
 /// `class: message` of a throwable's causes as the oracle's `errorJson` writes them (a null message reads `null`).
-pub fn error_json(class: &String, message: Option<&String>, causes: &[(String, Option<String>)]) -> DumpValue {
+pub fn error_json(class: &str, message: Option<&str>, causes: &[(String, Option<String>)]) -> DumpValue {
     let causes = causes
         .iter()
         .map(|(class, message)| {
@@ -146,10 +141,10 @@ pub fn error_json(class: &String, message: Option<&String>, causes: &[(String, O
         })
         .collect();
     DumpValue::object(vec![
-        ("class", DumpValue::Str(class.clone())),
+        ("class", DumpValue::Str(class.to_string())),
         (
             "message",
-            message.map_or(DumpValue::Null, |m| DumpValue::Str(m.clone())),
+            message.map_or(DumpValue::Null, |m| DumpValue::Str(m.to_string())),
         ),
         ("causes", DumpValue::Array(causes)),
     ])
@@ -169,8 +164,8 @@ fn typed(name: &str, mut fields: Fields) -> DumpValue {
     fields.push(("type", DumpValue::str(name)));
     obj(fields)
 }
-fn text(s: &String) -> DumpValue {
-    DumpValue::Str(s.clone())
+fn text(s: &str) -> DumpValue {
+    DumpValue::Str(s.to_string())
 }
 fn int(n: impl Into<i64>) -> DumpValue {
     DumpValue::Int(n.into())
@@ -275,7 +270,7 @@ impl Canonical<'_> {
             type_name,
             vec![
                 ("regex", opt(f.regex.as_ref(), regex)),
-                ("values", opt(f.values.as_ref(), |v| list(v, text))),
+                ("values", opt(f.values.as_ref(), |v| list(v, |s| text(s)))),
                 ("file", opt(f.file.as_ref(), |p| self.file(p))),
                 ("enabled", boolean(f.enabled)),
             ],
@@ -300,7 +295,7 @@ impl Canonical<'_> {
                 "package",
                 vec![
                     ("regex", opt(r.as_ref(), regex)),
-                    ("values", opt(values.as_ref(), |v| list(v, text))),
+                    ("values", opt(values.as_ref(), |v| list(v, |s| text(s)))),
                     ("file", opt(file.as_ref(), |p| self.file(p))),
                     ("subpackages", boolean(*subpackages)),
                     ("enabled", boolean(*enabled)),
@@ -614,7 +609,7 @@ impl Canonical<'_> {
                     "signing",
                     obj(vec![(
                         "testRunnerProvisioningProfile",
-                        opt(c.signing.test_runner_provisioning_profile.as_ref(), text),
+                        opt(c.signing.test_runner_provisioning_profile.as_ref(), |s| text(s)),
                     )]),
                 ),
                 ("skipCopyingDerivedData", boolean(c.skip_copying_derived_data)),
@@ -770,7 +765,7 @@ fn analytics(a: &AnalyticsConfiguration) -> DumpValue {
             vec![
                 ("host", text(&c.host)),
                 ("port", opt(c.port.as_ref(), |n| int(*n))),
-                ("prefix", opt(c.prefix.as_ref(), text)),
+                ("prefix", opt(c.prefix.as_ref(), |s| text(s))),
                 ("defaults", defaults(&c.defaults)),
                 ("readOnly", boolean(c.read_only)),
             ],

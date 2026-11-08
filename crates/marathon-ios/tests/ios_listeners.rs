@@ -577,7 +577,7 @@ async fn batch_failure_health_swallow_and_no_inflight_test() -> TestResult {
             })
         });
         h.worker.commands.lock().unwrap().clear();
-        l.test_run_failed(&"failure".into(), DeviceFailureReason::Unknown)
+        l.test_run_failed("failure", DeviceFailureReason::Unknown)
             .await
             .map_err(|e| format!("{e:?}"))?;
         assert_eq!(h.worker.commands.lock().unwrap().len(), if mode == 0 { 2 } else { 1 });
@@ -688,7 +688,7 @@ async fn screenshot_zero_captures_deletes_and_no_inflight_batch_failure_is_inert
         let collector =
             AttachmentCollector::new(&[l.attachments.clone() as Arc<dyn marathon_core::listener::AttachmentProvider>])
                 .map_err(|e| format!("{e:?}"))?;
-        l.test_run_failed(&"failure".into(), DeviceFailureReason::Unknown)
+        l.test_run_failed("failure", DeviceFailureReason::Unknown)
             .await
             .map_err(|e| format!("{e:?}"))?;
         match outcome {
@@ -755,7 +755,7 @@ async fn non_transfer_failure_aborts_composite_before_next_listener() -> TestRes
             _: &'a marathon_core::model::Test,
             _: i64,
             _: i64,
-            _: Option<&'a String>,
+            _: Option<&'a str>,
         ) -> marathon_core::runtime::VendorFuture<'a, ()> {
             Box::pin(async move {
                 self.0.fetch_add(1, Ordering::SeqCst);

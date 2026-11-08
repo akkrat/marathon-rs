@@ -18,8 +18,8 @@ use std::{
 use tower_service::Service;
 use url::Url;
 
-pub(crate) fn text(value: &String) -> OperationResult<String> {
-    Ok(value.clone())
+pub(crate) fn text(value: &str) -> OperationResult<String> {
+    Ok(value.to_owned())
 }
 pub(crate) fn quote(value: &str) -> String {
     match GsonWriter::default().write(&WriterValue::String(value.into())) {
@@ -67,7 +67,7 @@ pub(crate) struct Reply {
     pub retry_after: Option<String>,
 }
 impl Http {
-    pub fn new(base: &String, auth: Option<String>, context: MetricsContext, debug: bool) -> OperationResult<Self> {
+    pub fn new(base: &str, auth: Option<String>, context: MetricsContext, debug: bool) -> OperationResult<Self> {
         let raw = text(base)?;
         // P4: reject URL forms which WHATWG would silently repair.
         if !raw
@@ -477,9 +477,7 @@ pub(crate) mod tests {
             };
             let result = http.request("POST", "slow", Some("text/plain"), None, body).await;
             done.notify_one();
-            assert!(
-                matches!(result,Err(OperationError::Failed(f)) if f.class=="java.net.SocketTimeoutException")
-            );
+            assert!(matches!(result,Err(OperationError::Failed(f)) if f.class=="java.net.SocketTimeoutException"));
         };
         let (_, server) = futures_util::future::join(request, server).await;
         server?;
@@ -494,7 +492,7 @@ pub(crate) mod tests {
         assert_eq!(roots().len(), expected.len());
         assert!(roots().len() >= webpki_roots::TLS_SERVER_ROOTS.len());
         assert!(tls_config().is_ok());
-        assert!(Http::new(&"https://127.0.0.1:1".into(), None, context(), false).is_ok());
+        assert!(Http::new("https://127.0.0.1:1", None, context(), false).is_ok());
     }
     #[test]
     fn v1_error_bodies_map_to_influxdb_java_subclasses() {

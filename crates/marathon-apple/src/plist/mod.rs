@@ -2,6 +2,7 @@
 
 pub mod bundle;
 pub mod delegates;
+mod native_strings;
 mod reader;
 pub mod writer;
 
@@ -242,9 +243,10 @@ fn convert(value: plist::Value) -> PlistResult<PlistValue> {
     })
 }
 
-fn parse_value(bytes: Vec<u8>) -> PlistResult<PlistValue> {
+fn parse_value(mut bytes: Vec<u8>) -> PlistResult<PlistValue> {
     sniff_format(&bytes)?;
     if bytes.starts_with(b"bplist") {
+        native_strings::decode(&mut bytes)?;
         let value = plist::Value::from_reader(Cursor::new(bytes)).map_err(|e| {
             // plist surfaces some I/O errors through its own error type; reading from an
             // in-memory cursor, what remains is a parse failure.

@@ -4,78 +4,58 @@
 /// space character (`isSpaceChar`), i.e. the Zs/Zl/Zp categories, the ASCII
 /// controls `\t`..`\r`, and the file/group/record/unit separators. Every such
 /// character is in the BMP, so a per-unit test is exact.
-pub fn is_whitespace(c: u16) -> bool {
-    matches!(
-        c,
-        0x0009..=0x000D
-            | 0x001C..=0x001F
-            | 0x0020
-            | 0x00A0
-            | 0x1680
-            | 0x2000..=0x200A
-            | 0x2028
-            | 0x2029
-            | 0x202F
-            | 0x205F
-            | 0x3000
-    )
+pub fn is_whitespace(c: char) -> bool {
+    matches!(c as u32,
+        0x0009..=0x000D | 0x001C..=0x001F | 0x0020 | 0x00A0 | 0x1680 |
+        0x2000..=0x200A | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000)
 }
 
-/// Kotlin whitespace for native Rust strings.
-pub fn is_whitespace_char(c: char) -> bool {
-    u16::try_from(u32::from(c)).is_ok_and(is_whitespace)
+pub fn trim(text: &str) -> &str {
+    text.trim_matches(is_whitespace)
 }
 
-/// Kotlin `String.trim()` over UTF-16 units.
-pub fn trim(units: &[u16]) -> &[u16] {
-    trim_end(trim_start(units))
-}
-
-/// Kotlin `String.trimStart()` over UTF-16 units.
-pub fn trim_start(units: &[u16]) -> &[u16] {
-    let start = units.iter().position(|&c| !is_whitespace(c)).unwrap_or(units.len());
-    &units[start..]
-}
-
-/// Kotlin `String.trimEnd()` over UTF-16 units.
-pub fn trim_end(units: &[u16]) -> &[u16] {
-    let end = units.iter().rposition(|&c| !is_whitespace(c)).map_or(0, |i| i + 1);
-    &units[..end]
+/// Output names use Kotlin's unit limit. A cut through a pair used to reach
+/// the JVM UTF-8 encoder as a lone high surrogate, encoded as `?`. Preserve
+/// that filename byte; D55 replaces malformed *input* with U+FFFD instead.
+pub fn take_utf16(text: &str, count: usize) -> String {
+    char::decode_utf16(text.encode_utf16().take(count))
+        .map(|c| c.unwrap_or('?'))
+        .collect()
 }
 
 /// Kotlin `String.lines()`: splits around `\r\n`, `\n` and `\r`. The segment
 /// after the last separator is always present, so an empty string is one
 /// empty line and a trailing separator yields a trailing empty line.
 pub fn lines(text: &str) -> Vec<String> {
-    let units: Vec<u16> = text.encode_utf16().collect();
+    let units = text.as_bytes();
     let mut result = Vec::new();
     let mut start = 0;
     let mut i = 0;
     while i < units.len() {
         match units[i] {
             0x0D => {
-                result.push(String::from_utf16_lossy(&units[start..i]));
+                result.push(text[start..i].to_owned());
                 i += if units.get(i + 1) == Some(&0x0A) { 2 } else { 1 };
                 start = i;
             }
             0x0A => {
-                result.push(String::from_utf16_lossy(&units[start..i]));
+                result.push(text[start..i].to_owned());
                 i += 1;
                 start = i;
             }
             _ => i += 1,
         }
     }
-    result.push(String::from_utf16_lossy(&units[start..]));
+    result.push(text[start..].to_owned());
     result
 }
 
 /// Kotlin Char.isLetter uses Unicode letter categories on one UTF-16 unit.
-pub fn is_letter(unit: u16) -> bool {
+pub fn is_letter(c: char) -> bool {
     static LETTER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let Some(c) = char::from_u32(u32::from(unit)) else {
+    if c.len_utf16() != 1 {
         return false;
-    };
+    }
     let mut buffer = [0; 4];
     LETTER
         .get_or_init(|| regex::Regex::new(r"\A\p{L}\z").unwrap())
@@ -91,6 +71,15 @@ mod tests {
     }
 
     #[test]
+    fn take_counts_utf16_and_preserves_split_pair_filename_bytes() {
+        assert_eq!(take_utf16("a😀z", 0), "");
+        assert_eq!(take_utf16("a😀z", 2), "a?");
+        assert_eq!(take_utf16("a😀z", 3), "a😀");
+        assert_eq!(take_utf16("a😀z", 8), "a😀z");
+        assert_eq!(take_utf16("a�z", 2), "a�");
+    }
+
+    #[test]
     fn lines_split_on_all_separators_and_keep_final_segment() {
         assert_eq!(lines(&js("")), vec![js("")]);
         assert_eq!(lines(&js("a")), vec![js("a")]);
@@ -101,11 +90,10 @@ mod tests {
 
     #[test]
     fn trim_uses_kotlin_whitespace() {
-        let units: Vec<u16> = "\t\u{a0}x\u{3000}\u{1c}".encode_utf16().collect();
-        assert_eq!(trim(&units), "x".encode_utf16().collect::<Vec<_>>().as_slice());
-        assert!(!is_whitespace(0x200B)); // zero-width space is not Kotlin whitespace
-        assert!(is_whitespace_char('\u{a0}'));
-        assert!(!is_whitespace_char('\u{200b}'));
-        assert!(!is_whitespace_char('😀'));
+        assert_eq!(trim("\t\u{a0}x\u{3000}\u{1c}"), "x");
+        assert!(!is_whitespace('\u{200b}')); // zero-width space is not Kotlin whitespace
+        assert!(is_whitespace('\u{a0}'));
+        assert!(!is_whitespace('\u{200b}'));
+        assert!(!is_whitespace('😀'));
     }
 }

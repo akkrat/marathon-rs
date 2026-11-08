@@ -108,7 +108,7 @@ impl OutputFiles for FailFiles {
     ) -> ServiceFuture<'a, JavaPath> {
         self.inner.create_folder(kind, pool, device)
     }
-    fn create_test_result_file<'a>(&'a self, name: &'a String) -> ServiceFuture<'a, JavaPath> {
+    fn create_test_result_file<'a>(&'a self, name: &'a str) -> ServiceFuture<'a, JavaPath> {
         self.inner.create_test_result_file(name)
     }
 }

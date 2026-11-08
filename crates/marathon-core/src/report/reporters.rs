@@ -148,7 +148,7 @@ impl Reporter for RawJsonReporter {
                     ("duration", r.end_time.wrapping_sub(r.start_time).into()),
                 ]));
             }
-            let path = self.output.files.create_test_result_file(&"raw.json".into()).await?;
+            let path = self.output.files.create_test_result_file("raw.json").await?;
             self.output.write(path, json(WriterValue::Array(values))?).await
         })
     }
@@ -222,7 +222,7 @@ impl Reporter for BillingReporter {
                         log(
                             &logger,
                             Level::Warn,
-                            &"Failure to process device bill: missing timeline event".into(),
+                            "Failure to process device bill: missing timeline event",
                             None,
                         );
                         Ok(())

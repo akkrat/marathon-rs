@@ -103,6 +103,6 @@ impl ConsoleSink for RecordingConsole {
 }
 
 /// Text of a String for assertions.
-pub fn text(value: &String) -> String {
+pub fn text(value: &str) -> String {
     value.to_owned()
 }

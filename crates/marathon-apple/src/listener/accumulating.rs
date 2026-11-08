@@ -53,7 +53,7 @@ impl AppleTestRunListener for AccumulatingTestResultListener {
         test: &'a Test,
         start_time: i64,
         end_time: i64,
-        trace: Option<&'a String>,
+        trace: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.update(|a| {
@@ -81,7 +81,7 @@ impl AppleTestRunListener for AccumulatingTestResultListener {
     fn test_run_ended<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async move { self.update(|a| a.test_run_ended(0, Metrics::default())) })
     }
-    fn test_run_failed<'a>(&'a self, error_message: &'a String, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
-        Box::pin(async move { self.update(|a| a.test_run_failed(error_message.clone())) })
+    fn test_run_failed<'a>(&'a self, error_message: &'a str, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+        Box::pin(async move { self.update(|a| a.test_run_failed(error_message.to_owned())) })
     }
 }

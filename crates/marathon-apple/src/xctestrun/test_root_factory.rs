@@ -60,9 +60,7 @@ impl From<VendorError> for FactoryError {
     fn from(error: VendorError) -> Self {
         let error = match error {
             VendorError::Other(detail) if detail.class == SETUP => VendorError::DeviceSetup(detail),
-            VendorError::Other(detail) if detail.class == INCOMPATIBLE => {
-                VendorError::IncompatibleDevice(detail)
-            }
+            VendorError::Other(detail) if detail.class == INCOMPATIBLE => VendorError::IncompatibleDevice(detail),
             VendorError::Other(detail) if detail.class == TRANSFER => VendorError::Transfer(detail),
             other => other,
         };
@@ -85,10 +83,6 @@ fn setup(message: String) -> VendorError {
 }
 fn io_error(error: std::io::Error) -> VendorError {
     VendorError::Other(failure("java.io.IOException", error.to_string()))
-}
-fn checked(value: &String, field: &str) -> FactoryResult<String> {
-    String::from_utf16(&value.encode_utf16().collect::<Vec<_>>())
-        .map_err(|_| configuration(&format!("{field} contains an unpaired UTF-16 surrogate")))
 }
 fn path_text(path: &Path) -> VendorResult<&str> {
     path.to_str()
@@ -182,7 +176,7 @@ impl<'a> TestRootFactory<'a> {
         if self.device.sdk() == Sdk::Macos {
             // A28: the required delegate throws when the key is absent, before the nullable check.
             let minimum = bundle.operating_system_version().ls_minimum_system_version()?;
-            let device_version = checked(&info.operating_system.version, "device operating system version")?;
+            let device_version = info.operating_system.version.clone();
             let bundle_version = AppleOperatingSystemVersion::new(&minimum)?;
             if AppleOperatingSystemVersion::new(&device_version)? < bundle_version {
                 let mut message = String::from("Device ");
@@ -307,7 +301,7 @@ impl<'a> TestRootFactory<'a> {
                 Ok(relative_file(&local, &base, &JavaPath::from_text(path_text(&cwd)?)))
             })
             .await?;
-            let remote_test = self.join(&runner, &[&checked(&relative, "xctest relative path")?]);
+            let remote_test = self.join(&runner, &[&relative]);
             let test_binary = bundle.test_binary().await?;
             self.match_architectures(
                 &self.binary_path(bundle, &remote_test, stem(&test_binary)?),
@@ -385,13 +379,6 @@ impl<'a> TestRootFactory<'a> {
         }
         Ok(())
     }
-    fn user_env(&self) -> FactoryResult<OrderedStringMap> {
-        self.env
-            .test_envs
-            .iter()
-            .map(|(k, v)| Ok((k.clone(), checked(v, &format!("xctestrunEnv.testEnvs.{k}"))?)))
-            .collect()
-    }
     fn user_paths(user: &OrderedStringMap, key: &str) -> Vec<String> {
         user.iter().find(|(k, _)| k == key).map_or_else(Vec::new, |(_, v)| {
             v.split(':').filter(|s| !kt::is_blank(s)).map(str::to_owned).collect()
@@ -413,13 +400,7 @@ impl<'a> TestRootFactory<'a> {
         }
         params.testing_environment_variables = env;
         if !self.env.app_envs.is_empty() {
-            params.environment_variables = Some(
-                self.env
-                    .app_envs
-                    .iter()
-                    .map(|(k, v)| Ok((k.clone(), checked(v, &format!("xctestrunEnv.appEnvs.{k}"))?)))
-                    .collect::<FactoryResult<_>>()?,
-            );
+            params.environment_variables = Some(self.env.app_envs.clone());
         }
         params.product_module_name = Some(bundle.test_bundle_id().into());
         params.system_attachment_lifetime = Some(self.xcresult.attachments.system_attachment_lifetime.value().into());
@@ -445,12 +426,10 @@ impl<'a> TestRootFactory<'a> {
             for (local, remote) in &coverage.static_libraries {
                 fm.create_remote_directory(Some(fm.parent_of(remote)), context).await?;
                 if !self.device.push_shared(local, remote, context).await? {
-                    return Err(setup(
-                        format!(
-                            "failed to push static library {} for code coverage to remote device",
-                            local.display()
-                        ),
-                    )
+                    return Err(setup(format!(
+                        "failed to push static library {} for code coverage to remote device",
+                        local.display()
+                    ))
                     .into());
                 }
             }
@@ -479,7 +458,7 @@ impl<'a> TestRootFactory<'a> {
             return Err(Self::todo(Some("generate phone provisioning")));
         }
         let developer = format!("__PLATFORMS__/{}.platform/Developer", self.device.sdk().platform_name());
-        let user = self.user_env()?;
+        let user = self.env.test_envs.clone();
         let mut frameworks = vec![
             "__TESTROOT__".into(),
             self.framework_path(bundle, &app),
@@ -580,7 +559,7 @@ impl<'a> TestRootFactory<'a> {
             return Err(Self::todo(Some("generate phone provisioning")));
         }
         let developer = format!("__PLATFORMS__/{}.platform/Developer", self.device.sdk().platform_name());
-        let user = self.user_env()?;
+        let user = self.env.test_envs.clone();
         let mut frameworks = vec![
             "__TESTROOT__".into(),
             format!("{developer}/Library/Frameworks"),

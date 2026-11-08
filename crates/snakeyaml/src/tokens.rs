@@ -69,7 +69,7 @@ impl From<&YamlError> for TokenError {
                 YamlErrorKind::Generic => JACKSON_YAML_PARSE_EXCEPTION,
                 YamlErrorKind::SpecialCharacter | YamlErrorKind::CodePointLimit => JACKSON_YAML_PARSE_EXCEPTION,
             },
-            message: e.message.clone(),
+            message: e.message.to_owned(),
             context: e.context,
             problem: e.problem,
             location: if e.kind == YamlErrorKind::Depth {
@@ -82,7 +82,7 @@ impl From<&YamlError> for TokenError {
 }
 
 /// The field name of a mapping key, or the error Jackson raises for anything but a scalar there.
-pub fn check_key(key: &Node) -> Result<&String, KeyProblem> {
+pub fn check_key(key: &Node) -> Result<&str, KeyProblem> {
     match &key.kind {
         NodeKind::Scalar { text, .. } => Ok(text),
         NodeKind::Cut => Err(KeyProblem::Cut),
@@ -123,7 +123,7 @@ pub fn check_depth(depth: usize) -> Result<(), Box<TokenError>> {
 }
 
 /// Strips every leading `!`, as `YAMLParser.getTypeId` does.
-fn type_id(tag: Option<&String>) -> Option<String> {
+fn type_id(tag: Option<&str>) -> Option<String> {
     tag.map(|t| t.trim_start_matches('!').to_owned())
 }
 
@@ -182,19 +182,15 @@ fn walk<'a>(
         };
         match w {
             Work::Value(n, depth) => {
-                let tag = type_id(n.tag.as_ref());
+                let tag = type_id(n.tag.as_deref());
                 match &n.kind {
                     NodeKind::Cut => {
                         out.error = Some(stream_error());
                         break;
                     }
-                    NodeKind::Alias { name } => push(
-                        Tok::Str(name.clone()),
-                        None,
-                        None,
-                        n.span,
-                        Some(name.as_str().into()),
-                    ),
+                    NodeKind::Alias { name } => {
+                        push(Tok::Str(name.clone()), None, None, n.span, Some(name.as_str().into()))
+                    }
                     NodeKind::Scalar { text, style } => {
                         let projected = text.to_owned();
                         let tok = match decode_scalar(&projected, *style, n.tag.as_deref()) {
@@ -245,7 +241,7 @@ fn walk<'a>(
                             let (anchor, key_tag) = if i == 0 {
                                 (key.anchor.clone().or_else(|| n.anchor.clone()), tag.clone())
                             } else {
-                                (key.anchor.clone(), type_id(key.tag.as_ref()))
+                                (key.anchor.clone(), type_id(key.tag.as_deref()))
                             };
                             work.push(Work::Field(key, anchor, key_tag));
                         }
@@ -253,7 +249,13 @@ fn walk<'a>(
                 }
             }
             Work::Field(key, anchor, tag) => match check_key(key) {
-                Ok(text) => push(Tok::Field(text.clone()), anchor, tag, key.span, Some(text.clone())),
+                Ok(text) => push(
+                    Tok::Field(text.to_string()),
+                    anchor,
+                    tag,
+                    key.span,
+                    Some(text.to_string()),
+                ),
                 Err(KeyProblem::Cut) => {
                     out.error = Some(stream_error());
                     break;

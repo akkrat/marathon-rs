@@ -620,7 +620,7 @@ impl AndroidDevice {
         }
         Ok(())
     }
-    pub async fn on_line(&self, line: &String) -> VendorResult<()> {
+    pub async fn on_line(&self, line: &str) -> VendorResult<()> {
         let listeners = lock(&self.inner.line_listeners).clone();
         for listener in listeners {
             listener.on_line(line).await?;
@@ -1042,7 +1042,7 @@ pub fn detect_serial(
         Ddms => adb.to_owned(),
     }
 }
-pub fn parse_rotation(output: &String) -> Rotation {
+pub fn parse_rotation(output: &str) -> Rotation {
     let text = output.to_owned();
     let parse = || {
         let start = text.find("SurfaceOrientation")?;

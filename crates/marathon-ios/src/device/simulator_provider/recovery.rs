@@ -239,7 +239,7 @@ impl SimulatorRecovery {
         Ok(!left)
     }
     fn not_admitted(&self, provider: &AppleSimulatorProvider, device: &Simulator) -> VendorResult<bool> {
-        let id = apple_id(&device.udid().into(), device.transport());
+        let id = apple_id(&device.udid(), device.transport());
         if !self.state().awaiting_admission.contains(&id) {
             return Ok(false);
         }
@@ -554,7 +554,7 @@ impl SimulatorRecovery {
                 if device.retired() || self.not_admitted(provider, device)? {
                     continue;
                 }
-                let id = apple_id(&device.udid().into(), transport);
+                let id = apple_id(&device.udid(), transport);
                 let removed = {
                     let mut state = provider.state();
                     let removed = state.removed.contains(&id);
@@ -597,7 +597,7 @@ impl SimulatorRecovery {
             true => 0,
             false => provider.services.timing.elapsed().unwrap_or(0),
         };
-        let keys: Vec<_> = lost.iter().map(|d| apple_id(&d.udid().into(), transport)).collect();
+        let keys: Vec<_> = lost.iter().map(|d| apple_id(&d.udid(), transport)).collect();
         let (failures, again_for) = provider.settle(&keys, |state, current| {
             // In the section that ends `recovering`, so that no scan finds the handle between the two.
             let mut again_for = Vec::new();
@@ -610,7 +610,7 @@ impl SimulatorRecovery {
                     let Some(old) = lost.iter().find(|d| d.udid() == udid) else {
                         return false;
                     };
-                    let id = apple_id(&old.udid().into(), transport);
+                    let id = apple_id(&old.udid(), transport);
                     // A registration rejected because the simulator left the file or the run is no failed setup.
                     let usable = state.devices.get(&id).is_some_and(|c| Arc::ptr_eq(&c.handle, old))
                         && !state.removed.contains(&id)
@@ -643,7 +643,7 @@ impl SimulatorRecovery {
             // A90: worker-loss replacement predecessors are not retained by the source.
             if loss.is_some() || readded {
                 for old in lost {
-                    let id = apple_id(&old.udid().into(), transport);
+                    let id = apple_id(&old.udid(), transport);
                     if state
                         .devices
                         .get(&id)
@@ -704,7 +704,7 @@ impl SimulatorRecovery {
         let provider = provider.this()?;
         let transport = transport.clone();
         let caller = caller.clone();
-        let claims = provider.claim_now([apple_id(&device.udid().into(), &transport)]);
+        let claims = provider.claim_now([apple_id(&device.udid(), &transport)]);
         self.recoveries
             .spawn(provider.services.runtime.clone().as_ref(), async move {
                 with_claims(
@@ -765,7 +765,7 @@ impl SimulatorRecovery {
         self.schedule_setup_retry(provider, transport, failed_targets, started)
     }
 }
-fn not_current(state: &State, id: &String, device: &Simulator) -> bool {
+fn not_current(state: &State, id: &str, device: &Simulator) -> bool {
     state
         .devices
         .get(id)
@@ -898,10 +898,10 @@ impl ProviderRecovery for SimulatorRecovery {
             self.schedule_setup_retry(&provider, &transport, targets, started)
         })
     }
-    fn forget_setup(&self, id: &String) {
+    fn forget_setup(&self, id: &str) {
         self.state().setup.forget(id);
     }
-    fn admit(&self, id: &String, device: &Simulator) -> ProvisioningResult<()> {
+    fn admit(&self, id: &str, device: &Simulator) -> ProvisioningResult<()> {
         let provider = self.provider()?;
         // D33: a retried simulator joins as late as one of a late worker, under the same cut-off.
         let joining = self.state().pending.contains_key(device.transport()) || setup_retry::in_retried_setup();
@@ -911,17 +911,15 @@ impl ProviderRecovery for SimulatorRecovery {
                 if let Some(previous) = provider.state().devices.get(id) {
                     previous.handle.retire();
                 }
-                return Err(SetupDropped(
-                    format!(
-                        "Simulator {} doesn't join the run late, since {reason}",
-                        device.serial()
-                    ),
-                )
+                return Err(SetupDropped(format!(
+                    "Simulator {} doesn't join the run late, since {reason}",
+                    device.serial()
+                ))
                 .into());
             }
-            self.state().awaiting_admission.insert(id.clone());
+            self.state().awaiting_admission.insert(id.to_string());
             let this = self.me.clone();
-            let id = id.clone();
+            let id = id.to_owned();
             let serial = device.serial().to_owned();
             device.set_admission(Some(Arc::new(move || {
                 let this = this.upgrade().ok_or_else(|| {
@@ -953,7 +951,7 @@ impl ProviderRecovery for SimulatorRecovery {
             let mut readded = Vec::new();
             for device in provider.devices() {
                 let d = device.handle;
-                let id = apple_id(&d.udid().into(), d.transport());
+                let id = apple_id(&d.udid(), d.transport());
                 let retired = d.retired();
                 let disposed = d.disposed();
                 {
@@ -1002,7 +1000,7 @@ impl ProviderRecovery for SimulatorRecovery {
             }
             let mut groups: Vec<_> = workers.into_iter().map(|(t, d)| (t, d, None, false)).collect();
             for d in failed {
-                let id = apple_id(&d.udid().into(), d.transport());
+                let id = apple_id(&d.udid(), d.transport());
                 let loss = {
                     let mut state = self.state();
                     let count = state.losses.entry(id.clone()).or_default();
@@ -1033,7 +1031,7 @@ impl ProviderRecovery for SimulatorRecovery {
                     ..caller.clone()
                 };
                 // D44: the recovery acts for these simulators at their generations now.
-                let claims = provider.claim_now(lost.iter().map(|d| apple_id(&d.udid().into(), &transport)));
+                let claims = provider.claim_now(lost.iter().map(|d| apple_id(&d.udid(), &transport)));
                 self.recoveries
                     .spawn(provider.services.runtime.clone().as_ref(), async move {
                         with_claims(

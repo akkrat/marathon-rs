@@ -324,7 +324,7 @@ pub fn lines(events: &Events) -> Vec<(String, Level, String)> {
         .lock()
         .unwrap()
         .iter()
-        .map(|(logger, level, message, _)| (logger.clone(), *level, message.clone()))
+        .map(|(logger, level, message, _)| (logger.clone(), *level, message.to_owned()))
         .collect()
 }
 

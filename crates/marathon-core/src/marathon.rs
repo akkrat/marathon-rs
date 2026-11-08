@@ -290,14 +290,14 @@ pub fn configuration_failure(error: &ConfigurationError) -> Failure {
     let cause = error.causes.iter().rev().fold(None, |inner, c| {
         Some(Box::new(Failure {
             class: c.class.clone(),
-            message: c.message.clone(),
+            message: c.message.to_owned(),
             cause: inner,
             stacktrace: None,
         }))
     });
     Failure {
         class: error.class.clone(),
-        message: error.message.clone(),
+        message: error.message.to_owned(),
         cause,
         stacktrace: None,
     }
@@ -535,7 +535,11 @@ impl Marathon {
             let name = output_file_name.clone();
             let tests = parsed_filtered_tests.clone();
             self.vendor(task, move |_| {
-                Box::pin(async move { output.execute(&tests, &flaky_tests, name.as_ref()).await })
+                Box::pin(async move {
+                    output
+                        .execute(&tests, &flaky_tests, name.as_ref().map(|x| x.as_str()))
+                        .await
+                })
             })
             .await?;
             self.flush(task.job.cancellation_signal()).await?;

@@ -404,7 +404,7 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
                 Arc::new(move |_, level, message, _| {
                     assert_ne!(std::thread::current().name(), Some("marathon-core"));
                     assert_eq!(level, jcompat::logging::Level::Warn);
-                    captured_warnings.lock().unwrap().push(message.clone())
+                    captured_warnings.lock().unwrap().push(message.to_owned())
                 }),
             )?;
             let registrations = reporter_registrations(

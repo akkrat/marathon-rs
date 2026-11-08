@@ -30,9 +30,9 @@ struct Influx {
     commands: Mutex<Vec<(String, String)>>,
 }
 impl InfluxQuery for Influx {
-    fn query<'a>(&'a self, c: &'a String, d: &'a String) -> ServiceFuture<'a, QueryResult> {
+    fn query<'a>(&'a self, c: &'a str, d: &'a str) -> ServiceFuture<'a, QueryResult> {
         Box::pin(async move {
-            self.commands.lock().unwrap().push((c.clone(), d.clone()));
+            self.commands.lock().unwrap().push((c.to_string(), d.to_string()));
             Ok(self.reply.clone())
         })
     }
@@ -42,7 +42,7 @@ impl InfluxQuery for Influx {
 }
 struct Flux;
 impl FluxQuery for Flux {
-    fn query<'a>(&'a self, _: &'a String) -> ServiceFuture<'a, Vec<Record>> {
+    fn query<'a>(&'a self, _: &'a str) -> ServiceFuture<'a, Vec<Record>> {
         Box::pin(async { Ok(vec![]) })
     }
     fn close(&self) -> ServiceFuture<'_, ()> {

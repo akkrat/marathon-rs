@@ -24,7 +24,7 @@ pub fn apple_worker_id(transport: &Transport) -> Option<String> {
 
 /// Recompute after simulator setup: setup can change the ABI. Other SDKs retain
 /// Kotlin's UDID heuristic, including macOS and non-iOS simulators (A45).
-pub fn apple_arch(sdk: Sdk, abi: &String, udid: &str) -> Arch {
+pub fn apple_arch(sdk: Sdk, abi: &str, udid: &str) -> Arch {
     if sdk == Sdk::IphoneSimulator {
         if *abi == String::from("x86_64") {
             Arch::x86_64

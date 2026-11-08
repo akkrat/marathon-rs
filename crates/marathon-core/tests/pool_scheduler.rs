@@ -279,8 +279,11 @@ fn disconnect_is_broadcast_and_never_tracked() {
             compare("broadcast", after_return_wait(run.snapshot(&h), 1000));
             let logs = h.logs();
             for pool in ["A", "B"] {
-                assert!(logs.iter().any(|l| l.logger == format!("DevicePoolActor[{pool}]")
-                    && l.message == "remove device serial-A"));
+                assert!(
+                    logs.iter().any(
+                        |l| l.logger == format!("DevicePoolActor[{pool}]") && l.message == "remove device serial-A"
+                    )
+                );
             }
             run.finish(&h).await;
         })
@@ -410,7 +413,7 @@ impl marathon_core::wiring::Tracker for CancelTracker {
     }
     fn device_provider_init<'a>(
         &'a self,
-        s: &'a String,
+        s: &'a str,
         a: jcompat::jtime::Instant,
         b: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {
@@ -418,7 +421,7 @@ impl marathon_core::wiring::Tracker for CancelTracker {
     }
     fn device_preparing<'a>(
         &'a self,
-        s: &'a String,
+        s: &'a str,
         a: jcompat::jtime::Instant,
         b: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {
@@ -439,10 +442,7 @@ fn buffered_disconnect_is_processed_after_cancellation() {
             run.connect(&d);
             run.disconnect(&d);
             h.run_current().await;
-            let processed = h
-                .logs()
-                .iter()
-                .any(|l| l.message == "device buffered disconnected");
+            let processed = h.logs().iter().any(|l| l.message == "device buffered disconnected");
             assert!(processed);
             assert_eq!(lock(&h.tracker.connected).len(), 1);
             run.provider.channel.cancel(job_was_cancelled());

@@ -23,7 +23,7 @@ impl StubTestBundle {
     }
 }
 impl TestBundle for StubTestBundle {
-    fn id(&self) -> &String {
+    fn id(&self) -> &str {
         &self.id
     }
 }

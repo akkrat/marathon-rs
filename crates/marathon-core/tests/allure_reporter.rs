@@ -107,7 +107,7 @@ fn annotation_casts_duplicate_links_and_all_attachment_types_match_library() {
     r.stacktrace = Some("".into());
     r.test.meta_properties = annotations();
     let actual = model_json(&result_model(
-        &"00000000-0000-0000-0000-000000000008".into(),
+        "00000000-0000-0000-0000-000000000008",
         &device(),
         &r,
         &attachments,
@@ -439,7 +439,7 @@ fn profiling_links_use_form_encoding_and_replace_every_placeholder() {
         name: None,
     };
     let actual = model_json(&result_model(
-        &"android".into(),
+        "android",
         &device(),
         &result("profile", TestStatus::Passed, 1, 2),
         &[attachment],

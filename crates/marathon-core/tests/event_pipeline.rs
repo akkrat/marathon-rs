@@ -331,10 +331,10 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                 let log = Arc::new(
                     move |_: &jcompat::logging::Logger,
                           _: jcompat::logging::Level,
-                          message: &String,
+                          message: &str,
                           _: Option<&Failure>| {
                         assert_worker();
-                        log_calls.lock().unwrap().push(message.clone());
+                        log_calls.lock().unwrap().push(message.to_owned());
                     },
                 );
                 let reporter = |slot, name| ReporterRegistration {
@@ -394,7 +394,7 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                     assert_eq!(got[0], "setup");
                     if outcome == 1 {
                         assert_eq!(got[1], "Failed to reach InfluxDB at http://unreachable");
-                        assert!(!got.contains(&"remote-close".into()));
+                        assert!(!got.contains(&"remote-close".to_owned()));
                     } else if !reporter_failure {
                         assert_eq!(got.last().unwrap(), "remote-close");
                     }
@@ -525,7 +525,7 @@ impl Tracker for Fanout {
     }
     fn device_provider_init<'a>(
         &'a self,
-        _: &'a String,
+        _: &'a str,
         _: jcompat::jtime::Instant,
         _: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {
@@ -533,7 +533,7 @@ impl Tracker for Fanout {
     }
     fn device_preparing<'a>(
         &'a self,
-        _: &'a String,
+        _: &'a str,
         _: jcompat::jtime::Instant,
         _: jcompat::jtime::Instant,
     ) -> VendorFuture<'a, ()> {

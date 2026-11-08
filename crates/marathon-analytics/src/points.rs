@@ -2,7 +2,7 @@
 //! and external/influx2/InfluxDb2Tracker.kt (Point encoding).
 use crate::http::text;
 use jcompat::{
-    file_manager::escape_utf16,
+    file_manager::escape as escape_serial,
     jnum::influx_duration,
     jtime::{influx_epoch_millis, instant_to_epoch_milli},
 };
@@ -31,9 +31,7 @@ fn escape(value: &str, v2: bool) -> String {
 pub(crate) fn line(event: &TestEvent, v2: bool) -> OperationResult<String> {
     let r = &event.test_result;
     let t = &r.test;
-    let serial = String::from_utf16_lossy(&escape_utf16(
-        &event.device.serial_number.encode_utf16().collect::<Vec<_>>(),
-    ));
+    let serial = escape_serial(&event.device.serial_number);
     let mut out = String::from("tests");
     // Both pinned Point classes store tags and fields in TreeMap order.
     for (key, value) in [

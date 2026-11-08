@@ -246,7 +246,7 @@ impl SshFailure {
     /// `Throwable.getMessage()`; SSHException falls back to its cause's message.
     pub fn message(&self) -> Option<String> {
         if self.message.is_some() || !self.is_ssh() || self.class == OPEN_FAIL_EXCEPTION {
-            return self.message.clone();
+            return self.message.to_owned();
         }
         self.cause.as_ref().and_then(|cause| cause.message())
     }

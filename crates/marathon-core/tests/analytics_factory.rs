@@ -78,7 +78,7 @@ fn should_return_noop_provider_when_configuration_is_invalid() {
             .create_for(&influx(), false)
             .await
             .unwrap();
-        p.report_execution_time_coverage(&generate_tests(1), 80.0, limit(), &"sorting".into())
+        p.report_execution_time_coverage(&generate_tests(1), 80.0, limit(), "sorting")
             .await
             .unwrap();
         let events = h.logs.take();
@@ -136,7 +136,7 @@ fn should_return_0_as_execution_time() {
 async fn noop_coverage(unavailable: bool) {
     let h = Harness::new();
     let p = NoOpMetricsProvider::new(unavailable, h.context.clone()).unwrap();
-    p.report_execution_time_coverage(&generate_tests(2), 80.0, limit(), &"the batch duration limit".into())
+    p.report_execution_time_coverage(&generate_tests(2), 80.0, limit(), "the batch duration limit")
         .await
         .unwrap();
     let e = h.logs.take();
@@ -172,10 +172,10 @@ impl MetricsProvider for Recorder {
         t: &'a [Test],
         p: f64,
         l: Instant,
-        u: &'a String,
+        u: &'a str,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
-            self.0.lock().unwrap().push((t.to_vec(), p, l, u.clone()));
+            self.0.lock().unwrap().push((t.to_vec(), p, l, u.to_string()));
             Ok(())
         })
     }
@@ -337,7 +337,7 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
             }
             p.execution_time(&generate_tests(1)[0], 80.0, limit()).await.unwrap();
             p.success_rate(&generate_tests(1)[0], limit()).await.unwrap();
-            noop.report_execution_time_coverage(&generate_tests(1), 80.0, limit(), &"sorting".into())
+            noop.report_execution_time_coverage(&generate_tests(1), 80.0, limit(), "sorting")
                 .await
                 .unwrap();
             let events = h

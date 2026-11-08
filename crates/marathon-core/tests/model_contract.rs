@@ -144,7 +144,7 @@ fn decoded_array_elements_keep_pinned_wrapper_rendering() {
         ),
     ];
     for (wrapper, expected, filter_value) in cases {
-        let rendered = wrapper.kotlin_value(&"abc".into()).render();
+        let rendered = wrapper.kotlin_value("abc").render();
         assert_eq!(rendered, String::from(expected));
         // Witness the filter's first-delimiter extraction; WP 3.3 owns it.
         let after = expected.split_once("(value=").map_or(expected, |(_, after)| after);
@@ -152,7 +152,7 @@ fn decoded_array_elements_keep_pinned_wrapper_rendering() {
         let element = MetaValue::Decoded(wrapper);
         assert_eq!(element, element.clone());
     }
-    assert_eq!(DecodedChar(0xd800).kotlin_value(&"abc".into()).render(), {
+    assert_eq!(DecodedChar(0xd800).kotlin_value("abc").render(), {
         let mut text = String::from("DecodedChar(value=");
         text.push('\u{fffd}');
         text.push_str(")");

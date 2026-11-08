@@ -107,7 +107,7 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
             Ok(())
         })
     }
-    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a String>) -> VendorFuture<'a, ()> {
+    fn test_failed<'a>(&'a self, test: &'a Test, _: i64, _: i64, _: Option<&'a str>) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, true))
     }
     fn test_passed<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
@@ -116,7 +116,7 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
     fn test_ignored<'a>(&'a self, test: &'a Test, _: i64, _: i64) -> VendorFuture<'a, ()> {
         Box::pin(self.ended(test, false))
     }
-    fn test_run_failed<'a>(&'a self, _: &'a String, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.c.cancel(&self.job).await?;
             let test = self.last.lock().unwrap_or_else(|e| e.into_inner()).clone();

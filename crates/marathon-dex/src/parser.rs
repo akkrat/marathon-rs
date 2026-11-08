@@ -289,7 +289,7 @@ fn parse_method_name(dex: &DexFile, method_id: &MethodIdItem) -> DexResult<Strin
 
 /// formatDescriptor (FormatUtils.kt): blindly drops the first and last
 /// UTF-16 unit and maps '/' to '.', whatever the descriptor was.
-pub fn format_descriptor(descriptor: &String) -> DexResult<String> {
+pub fn format_descriptor(descriptor: &str) -> DexResult<String> {
     if descriptor.is_empty() {
         // Kotlin: "".substring(1) throws StringIndexOutOfBoundsException.
         return Err(DexError::dex_exception("Empty type descriptor"));
@@ -492,16 +492,13 @@ fn push_unique(set: &mut Vec<TestMethod>, method: TestMethod) {
     }
 }
 
-fn test_name_without_class(test_name: &String) -> String {
+fn test_name_without_class(test_name: &str) -> String {
     // substring(indexOf('#') + 1); indexOf is -1 without a '#', giving the
     // whole string.
-    let start = test_name
-        .encode_utf16()
-        .collect::<Vec<_>>()
-        .iter()
-        .position(|&u| u == u16::from(b'#'))
-        .map_or(0, |i| i + 1);
-    String::from_utf16_lossy(&test_name.encode_utf16().collect::<Vec<_>>()[start..])
+    test_name
+        .split_once('#')
+        .map_or(test_name, |(_, method)| method)
+        .to_owned()
 }
 
 // ---- JUnit4 (JUnit4Extensions.kt) -----------------------------------------
@@ -652,7 +649,7 @@ fn combine_with_superclass(
     let class_name = format_class_name(dex, &result.class_def)?;
     let directory = annotations_directory(dex, &result.class_def)?;
     let child_annotations = class_annotation_values(dex, directory.as_ref())?;
-    let child_names: Vec<&String> = child_annotations.iter().map(|a| &a.name).collect();
+    let child_names: Vec<&str> = child_annotations.iter().map(|a| a.name.as_str()).collect();
     let own_method_names: Vec<String> = result
         .test_methods
         .iter()
@@ -674,7 +671,7 @@ fn combine_with_superclass(
         let mut annotations: Vec<TestAnnotation> = method
             .annotations
             .iter()
-            .filter(|a| !child_names.contains(&&a.name))
+            .filter(|a| !child_names.contains(&a.name.as_str()))
             .cloned()
             .collect();
         annotations.extend(child_annotations.iter().cloned());
@@ -696,7 +693,7 @@ fn combine_with_superclass(
             .map(|m| {
                 m.annotations
                     .iter()
-                    .filter(|a| a.inherited && !child_names.contains(&&a.name))
+                    .filter(|a| a.inherited && !child_names.contains(&a.name.as_str()))
                     .cloned()
                     .collect()
             })
@@ -784,19 +781,12 @@ fn find_junit3_tests_in_dex(dex: &DexFile, descriptors: &mut Vec<String>) -> Dex
         }
         Ok(out)
     };
-    let needle: Vec<u16> = "#test".encode_utf16().collect();
     let mut out = Vec::new();
     for class_def in &test_classes {
         // No visibility/arity/abstract checks: an abstract TestCase
         // subclass reports its own #test… methods (kept deliberately).
         for method in create_test_methods(dex, class_def, &all_finder)? {
-            if method
-                .test_name
-                .encode_utf16()
-                .collect::<Vec<_>>()
-                .windows(needle.len())
-                .any(|w| w == needle.as_slice())
-            {
+            if method.test_name.contains("#test") {
                 out.push(method);
             }
         }

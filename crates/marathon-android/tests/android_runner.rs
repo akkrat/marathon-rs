@@ -1485,7 +1485,7 @@ impl AndroidTestRunListener for InjectLine {
     fn on_event<'a>(&'a self, event: &'a E) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if matches!(event, E::TestStarted { .. }) {
-                self.0.on_line(&"hello".into()).await?;
+                self.0.on_line("hello").await?;
             }
             Ok(())
         })

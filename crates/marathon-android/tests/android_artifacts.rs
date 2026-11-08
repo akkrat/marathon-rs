@@ -1148,7 +1148,7 @@ fn unhealthy_run_failure_joins_recording_without_pull() {
             listener.cleanup_in(context).await?;
             assert!(attachments.get(&test()).is_none());
             assert_eq!(commands(&server).last().unwrap(), "echo quickhealthcheck");
-            assert!(!request_services(&server).contains(&"sync:".into()));
+            assert!(!request_services(&server).contains(&"sync:".to_owned()));
             finish(server, device).await;
             Ok(())
         })

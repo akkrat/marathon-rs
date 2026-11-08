@@ -58,12 +58,11 @@ impl DeviceState {
 /// A line without a tab fails like Kotlin's `split[1]` on the one-element list `split` returns (a
 /// `SingletonList`, hence its message), as a typed error instead of an exception (P6).
 pub fn parse_devices(text: &str) -> Result<Vec<Device>, AdbError> {
-    jstring::lines(&String::from(text))
+    jstring::lines(text)
         .iter()
         .filter(|line| !line.is_empty())
         .map(|line| {
-            let line =
-                String::from_utf16_lossy(jstring::trim(&line.encode_utf16().collect::<Vec<_>>())).to_owned();
+            let line = jstring::trim(line).to_owned();
             let mut split = line.split('\t');
             let serial = split.next().unwrap_or_default();
             let state = split

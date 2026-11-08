@@ -340,10 +340,10 @@ impl QueueActor {
         self.log
             .log(&self.logger, self.clock.now_millis(), level, message, None);
     }
-    fn debug(&self, prefix: &str, serial: &String) {
+    fn debug(&self, prefix: &str, serial: &str) {
         self.log(
             Level::Debug,
-            text(&[&|m| m.push_str(prefix), &|m| m.push_str(&serial.clone())]),
+            text(&[&|m| m.push_str(prefix), &|m| m.push_str(&serial.to_owned())]),
         );
     }
 
@@ -553,7 +553,7 @@ impl QueueActor {
     }
 
     /// Retries that last ran on `worker` are left for devices on other workers, unless nothing else is queued
-    fn next_batch(&mut self, device: &DeviceInfo, worker: Option<&String>) -> OperationResult<BatchRef> {
+    fn next_batch(&mut self, device: &DeviceInfo, worker: Option<&str>) -> OperationResult<BatchRef> {
         let avoided = worker.map(|worker| self.own_retries(worker)).unwrap_or_default();
         let copies: Vec<Test> = if avoided.is_empty() {
             Vec::new()
@@ -589,7 +589,7 @@ impl QueueActor {
     }
 
     /// Queued tests all of whose copies are retries of attempts on `worker`, in retryWorkers order.
-    fn own_retries(&self, worker: &String) -> Vec<Test> {
+    fn own_retries(&self, worker: &str) -> Vec<Test> {
         let mut copies: HashMap<&Test, i32> = HashMap::new();
         for test in self.queue.iter() {
             *copies.entry(test).or_insert(0) += 1;
@@ -608,7 +608,7 @@ impl QueueActor {
     /// one, otherwise a retry from another worker, otherwise one from `worker`
     ///
     /// Returns the worker of the retry taken, or None if the copy isn't a retry.
-    fn dispatched(&mut self, test: &Test, worker: Option<&String>) -> Option<String> {
+    fn dispatched(&mut self, test: &Test, worker: Option<&str>) -> Option<String> {
         // Counted after the batch has taken its copies, so two copies of one test in a
         // batch see the same count. ClassName takes every copy, so each still takes one
         // worker while any is left (WP 3.7 K3, refuted by the oracle).
@@ -617,7 +617,7 @@ impl QueueActor {
         if copies > workers.len() {
             return None;
         }
-        let index = workers.iter().position(|it| Some(it) != worker).unwrap_or(0);
+        let index = workers.iter().position(|it| Some(it.as_str()) != worker).unwrap_or(0);
         let taken = workers.remove(index);
         if workers.is_empty() {
             self.retry_workers.shift_remove(test);
@@ -646,7 +646,7 @@ impl QueueActor {
         while !pending.is_empty() && !self.terminated {
             let index = pending
                 .iter()
-                .position(|request| !self.only_own_retries(request.worker_id.as_ref()))
+                .position(|request| !self.only_own_retries(request.worker_id.as_ref().map(|x| x.as_str())))
                 .unwrap_or(0);
             let next = pending.remove(index);
             self.on_request_batch(next.device, next.worker_id).await?;
@@ -654,7 +654,7 @@ impl QueueActor {
         Ok(())
     }
 
-    fn only_own_retries(&self, worker: Option<&String>) -> bool {
+    fn only_own_retries(&self, worker: Option<&str>) -> bool {
         let Some(worker) = worker else { return false };
         if self.queue.is_empty() {
             return false;
@@ -740,7 +740,7 @@ impl QueueActor {
         // Don't separate the condition and the mutator into separate suspending blocks
         if !self.queue.is_empty() && !self.active_batches.contains_key(&serial) {
             self.debug("sending next batch for device ", &serial);
-            let batch = self.next_batch(&device, worker_id.as_ref())?;
+            let batch = self.next_batch(&device, worker_id.as_ref().map(|x| x.as_str()))?;
             self.active_batches.insert(serial, batch.clone());
             #[cfg(any(test, feature = "test-support"))]
             if let Some(hook) = &self.before_execute {

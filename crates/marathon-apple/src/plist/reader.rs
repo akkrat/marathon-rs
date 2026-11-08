@@ -36,9 +36,7 @@ fn decode_utf16(bytes: &[u8], big_endian: bool) -> PlistResult<String> {
             u16::from_le_bytes([pair[0], pair[1]])
         }
     });
-    char::decode_utf16(units)
-        .collect::<Result<String, _>>()
-        .map_err(|_| not_a_plist("unpaired surrogate in UTF-16 plist"))
+    Ok(char::decode_utf16(units).map(|c| c.unwrap_or('�')).collect())
 }
 
 /// The `encoding` pseudo-attribute of a leading `<?xml ... ?>` declaration (the
@@ -120,7 +118,19 @@ fn decode_xml(bytes: &[u8]) -> PlistResult<String> {
     Ok(decoded.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
+fn surrogate_ref(reference: &BytesRef<'_>) -> Option<u16> {
+    let raw: &str = reference.as_ref();
+    let unit = raw
+        .strip_prefix("#x")
+        .and_then(|s| u32::from_str_radix(s, 16).ok())
+        .or_else(|| raw.strip_prefix('#').and_then(|s| s.parse::<u32>().ok()))?;
+    (0xd800..=0xdfff).contains(&unit).then_some(unit as u16)
+}
+
 fn resolve_ref(reference: &BytesRef<'_>) -> PlistResult<String> {
+    if surrogate_ref(reference).is_some() {
+        return Ok("�".into());
+    }
     match reference.resolve_char_ref().map_err(|e| not_a_plist(e.to_string()))? {
         Some(ch) => {
             if is_xml_char(ch) {
@@ -239,13 +249,19 @@ impl<'a> Parser<'a> {
     /// The text of a scalar element, up to its end tag: plain text, entity and character
     /// references, and CDATA sections concatenate (`getWholeText` in dd-plist).
     fn read_content(&mut self) -> PlistResult<String> {
-        let mut content = String::new();
+        let mut content = Vec::new();
         loop {
             match self.next_event()? {
-                Event::Text(text) => content.push_str(text.as_ref()),
-                Event::CData(cdata) => content.push_str(cdata.as_ref()),
-                Event::GeneralRef(reference) => content.push_str(&resolve_ref(&reference)?),
-                Event::End(_) => return Ok(content),
+                Event::Text(text) => content.extend(text.as_ref().encode_utf16()),
+                Event::CData(cdata) => content.extend(cdata.as_ref().encode_utf16()),
+                Event::GeneralRef(reference) => {
+                    if let Some(unit) = surrogate_ref(&reference) {
+                        content.push(unit);
+                    } else {
+                        content.extend(resolve_ref(&reference)?.encode_utf16());
+                    }
+                }
+                Event::End(_) => return Ok(String::from_utf16_lossy(&content)),
                 Event::Eof => return Err(not_a_plist("unclosed XML element")),
                 Event::Start(_) => return Err(not_a_plist("nested element in scalar value")),
                 Event::Empty(_) => return Err(not_a_plist("nested element in scalar value")),
@@ -376,5 +392,36 @@ pub(super) fn parse_xml_value(bytes: &[u8]) -> PlistResult<PlistValue> {
     match parser.next_structural()? {
         Event::Eof => Ok(value),
         _ => Err(not_a_plist("content after the plist root element")),
+    }
+}
+
+#[cfg(test)]
+mod native_string_tests {
+    use super::*;
+
+    #[test]
+    fn xml_encodings_and_numeric_escapes_decode_lossily() -> PlistResult<()> {
+        let expected = "�x�😀";
+        let escaped = "<plist><dict><key>k</key><string>&#xD800;x&#56320;&#xD83D;&#xDE00;</string></dict></plist>";
+        let super::PlistValue::Dict(dict) = parse_xml_value(escaped.as_bytes())? else {
+            panic!("dict")
+        };
+        assert_eq!(dict.get_cloned("k"), Some(super::PlistValue::String(expected.into())));
+        for big_endian in [false, true] {
+            let mut units: Vec<u16> = "<plist><dict><key>k</key><string>".encode_utf16().collect();
+            units.extend([0xd800, 120, 0xdc00, 0xd83d, 0xde00]);
+            units.extend("</string></dict></plist>".encode_utf16());
+            let mut bytes = if big_endian { vec![0xfe, 0xff] } else { vec![0xff, 0xfe] };
+            bytes.extend(
+                units
+                    .into_iter()
+                    .flat_map(|u| if big_endian { u.to_be_bytes() } else { u.to_le_bytes() }),
+            );
+            let super::PlistValue::Dict(dict) = parse_xml_value(&bytes)? else {
+                panic!("dict")
+            };
+            assert_eq!(dict.get_cloned("k"), Some(super::PlistValue::String(expected.into())));
+        }
+        Ok(())
     }
 }

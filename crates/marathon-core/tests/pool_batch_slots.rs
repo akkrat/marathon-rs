@@ -15,7 +15,7 @@ use support::*;
 
 struct Apk(String);
 impl TestBundle for Apk {
-    fn id(&self) -> &String {
+    fn id(&self) -> &str {
         &self.0
     }
 }

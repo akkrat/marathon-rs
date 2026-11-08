@@ -348,7 +348,7 @@ impl BarrierPermit for Permit {
     }
 }
 impl ReplayBarriers for Arc<Barriers> {
-    fn enter<'a>(&'a self, label: &'static str, key: &'a String) -> BarrierFuture<'a> {
+    fn enter<'a>(&'a self, label: &'static str, key: &'a str) -> BarrierFuture<'a> {
         Box::pin(async move {
             if self.script.is_empty() {
                 return Ok(Box::new(NoopPermit) as Box<dyn BarrierPermit>);

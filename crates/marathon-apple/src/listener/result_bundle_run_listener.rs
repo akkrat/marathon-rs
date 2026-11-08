@@ -80,7 +80,7 @@ impl ResultBundleRunListener {
     }
 }
 impl Bundle {
-    fn remote(&self) -> &String {
+    fn remote(&self) -> &str {
         self.remote_path
             .get_or_init(|| self.device.remote_file_manager().remote_xcresult_file(&self.batch))
     }
@@ -213,7 +213,7 @@ impl Bundle {
             }
         }
     }
-    fn undelivered(&self, reason: &String) {
+    fn undelivered(&self, reason: &str) {
         let copy = self.local_copy.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let local = copy
             .filter(|p| p.exists())
@@ -222,13 +222,13 @@ impl Bundle {
         let mut diagnostic = String::from("xcresult bundle of batch ");
         diagnostic.push_str(&self.batch.id.clone());
         diagnostic.push_str(" was not delivered (");
-        diagnostic.push_str(&reason.clone());
+        diagnostic.push_str(&reason.to_owned());
         diagnostic.push_str("); remote bundle kept on worker ");
         diagnostic.push_str(&self.device.transport().id());
         diagnostic.push_str(" (");
         diagnostic.push_str(&self.owner());
         diagnostic.push_str(") at ");
-        diagnostic.push_str(&self.remote().clone());
+        diagnostic.push_str(&self.remote().to_owned());
         diagnostic.push_str("; local copy: ");
         diagnostic.push_str(&local);
         if self
@@ -276,19 +276,23 @@ impl AppleTestRunListener for ResultBundleRunListener {
         Box::pin(async move {
             if let Some(processor) = &self.processor {
                 processor
-                    .protect(self.inner.owner(), self.inner.remote().clone(), self.inner.callback())
+                    .protect(
+                        self.inner.owner(),
+                        self.inner.remote().to_owned(),
+                        self.inner.callback(),
+                    )
                     .map_err(VendorError::Other)?;
             }
             Ok(())
         })
     }
-    fn test_failed<'a>(&'a self, _: &'a Test, _: i64, _: i64, _: Option<&'a String>) -> VendorFuture<'a, ()> {
+    fn test_failed<'a>(&'a self, _: &'a Test, _: i64, _: i64, _: Option<&'a str>) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.inner.failed.store(true, Ordering::Release);
             Ok(())
         })
     }
-    fn test_run_failed<'a>(&'a self, _: &'a String, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             self.inner.failed.store(true, Ordering::Release);
             Ok(())
@@ -308,7 +312,7 @@ impl AppleTestRunListener for ResultBundleRunListener {
                 let callback = if pull {
                     inner.callback()
                 } else {
-                    Arc::new(|_: &String| Ok(()))
+                    Arc::new(|_: &str| Ok(()))
                 };
                 processor
                     .submit(

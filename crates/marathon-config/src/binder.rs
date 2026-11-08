@@ -122,7 +122,7 @@ fn token_error(
         .filter(|c| *c != e.class)
         .map(|_| ConfigurationCause {
             class: e.class.into(),
-            message: Some(e.message.clone()),
+            message: Some(e.message.to_owned()),
         })
         .into_iter()
         .collect();
@@ -140,13 +140,13 @@ fn token_error(
     if let Some(class) = original {
         causes.push(ConfigurationCause {
             class: class.into(),
-            message: Some(e.message.clone()),
+            message: Some(e.message.to_owned()),
         });
     }
     Box::new(ConfigurationError {
         stage: ValidationStage::Parse,
         class: wrap.unwrap_or(e.class).into(),
-        message: Some(e.message.clone()),
+        message: Some(e.message.to_owned()),
         causes,
         path,
         span,
@@ -167,7 +167,7 @@ fn wrap_stream(mut error: Box<ConfigurationError>) -> Box<ConfigurationError> {
             0,
             ConfigurationCause {
                 class: error.class.clone(),
-                message: error.message.clone(),
+                message: error.message.to_owned(),
             },
         );
         error.class = JSON_MAPPING.into();
@@ -194,7 +194,7 @@ impl<'a> Value<'a> {
         Box::new(ConfigurationError {
             stage: ValidationStage::Parse,
             class: class.into(),
-            message: Some(message.clone()),
+            message: Some(message.to_owned()),
             causes: Vec::new(),
             path: self.path.clone(),
             span: Some(self.node.opening),
@@ -294,7 +294,7 @@ impl<'a> Value<'a> {
     }
     fn key(&self, key: &Node) -> Result<String> {
         match tokens::check_key(key) {
-            Ok(s) => Ok(s.clone()),
+            Ok(s) => Ok(s.to_string()),
             Err(tokens::KeyProblem::NotScalar(e)) => Err(token_error(*e, self.path.clone(), Some(key.opening), None)),
             Err(tokens::KeyProblem::Cut) => Err(self.binder.stream_error(self.path.clone(), Some(key.opening), None)),
         }
@@ -475,7 +475,7 @@ impl<'a> Value<'a> {
                     error.causes.push(ConfigurationCause {
                         class: "java.lang.IllegalArgumentException".into(),
                         message: if enum_class.is_empty() {
-                            error.message.clone()
+                            error.message.to_owned()
                         } else {
                             Some(format!("No enum constant {enum_class}.{}", text.to_uppercase()))
                         },
@@ -644,7 +644,7 @@ impl<'a> Value<'a> {
             );
             error.causes.push(ConfigurationCause {
                 class: "java.lang.NullPointerException".into(),
-                message: error.message.clone(),
+                message: error.message.to_owned(),
             });
             return Err(error);
         }
@@ -669,7 +669,7 @@ impl<'a> Value<'a> {
             };
             error.causes.push(ConfigurationCause {
                 class: class.into(),
-                message: error.message.clone(),
+                message: error.message.to_owned(),
             });
             return Err(error);
         };
@@ -687,7 +687,7 @@ impl<'a> Value<'a> {
             let mut error = self.error("com.fasterxml.jackson.databind.JsonMappingException", e.to_string());
             error.causes.push(ConfigurationCause {
                 class: "java.util.regex.PatternSyntaxException".into(),
-                message: error.message.clone(),
+                message: error.message.to_owned(),
             });
             error
         })

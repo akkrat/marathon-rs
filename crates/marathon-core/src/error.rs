@@ -18,7 +18,7 @@ impl Failure {
         let mut text = self.class.clone();
         if let Some(message) = &self.message {
             text.push_str(": ");
-            text.push_str(&message.clone());
+            text.push_str(&message.to_owned());
         }
         text
     }

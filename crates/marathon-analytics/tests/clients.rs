@@ -227,7 +227,7 @@ fn query_dtos_round_trip_the_jvm_exchanges() {
         Box::pin(async move {
             let (peer, seen) = replay("v1-query").await?;
             let client = InfluxClient::connect(&v1(&peer.url), false, env.context.clone(), env.io.clone()).await?;
-            let result = client.query(&"SELECT x FROM tests".into(), &"db".into()).await?;
+            let result = client.query("SELECT x FROM tests", "db").await?;
             assert_eq!(
                 marathon_core::analytics::remote::influx::map_result(result, "percentile")?,
                 [("pkg.Clazz#method".into(), 5000.0)]
@@ -237,7 +237,7 @@ fn query_dtos_round_trip_the_jvm_exchanges() {
             peer.shutdown().await?;
             let (peer, seen) = replay("v2-query").await?;
             let client = Influx2Client::connect(&v2(&peer.url), false, env.context.clone()).await?;
-            let result = client.query(&"from(bucket: \"bucket\")".into()).await?;
+            let result = client.query("from(bucket: \"bucket\")").await?;
             assert_eq!(
                 marathon_core::analytics::remote::influx2::map_records(result)?,
                 [("pkg.Clazz#method".into(), 5000.0)]
@@ -308,7 +308,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
                         at_millis: 0,
                         wall_millis: 0,
                         level,
-                        message: message.clone(),
+                        message: message.to_string(),
                         cause: cause.cloned(),
                     })
                 }),
@@ -535,7 +535,7 @@ fn unicode_credentials_and_config_query_encoding_match_the_jvm() {
             }
             .track_test(&event(TestStatus::Passed, false))
             .await?;
-            client.query(&"SELECT x".into(), &config.db_name).await?;
+            client.query("SELECT x", &config.db_name).await?;
             client.shutdown().await?;
             assert_eq!(*seen.lock().unwrap(), 5);
             peer.shutdown().await?;
@@ -562,7 +562,7 @@ fn http_follow_ups_match_okhttp_without_adding_history_retries() {
                 let (peer, seen) = replay(scenario).await?;
                 let client = Influx2Client::connect(&v2(&peer.url), false, env.context.clone()).await?;
                 if scenario == "v2-redirect" {
-                    assert!(client.query(&"bad".into()).await.is_err());
+                    assert!(client.query("bad").await.is_err());
                 } else {
                     // What counts here is the exchanges; a final 503 is `BackendGuard`'s to log (D51).
                     let _ = Influx2Tracker::new(client.clone(), false)?
@@ -610,7 +610,7 @@ fn http_error_and_malformed_response_classes_match_the_jvm() {
                 })
                 .await?;
                 let client = Influx2Client::connect(&v2(&peer.url), false, env.context.clone()).await?;
-                let Err(OperationError::Failed(error)) = client.query(&"bad".into()).await else {
+                let Err(OperationError::Failed(error)) = client.query("bad").await else {
                     panic!("invalid response accepted")
                 };
                 assert_eq!(error.class.to_owned(), observed["class"]);
@@ -864,7 +864,7 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
                         at_millis: 0,
                         wall_millis: 0,
                         level,
-                        message: message.clone(),
+                        message: message.to_string(),
                         cause: cause.cloned(),
                     })
                 }),
@@ -1025,9 +1025,7 @@ fn v1_query_errors_keep_influxdb_exception_subclasses() {
             for scenario in ["v1-error-database", "v1-error-field", "v1-error-auth", "v1-error-other"] {
                 let peer = query_peer(scenario).await?;
                 let client = InfluxClient::connect(&v1(&peer.url), false, env.context.clone(), env.io.clone()).await?;
-                let Err(OperationError::Failed(error)) =
-                    client.query(&"SELECT x FROM tests".into(), &"db".into()).await
-                else {
+                let Err(OperationError::Failed(error)) = client.query("SELECT x FROM tests", "db").await else {
                     panic!("{scenario}: error accepted")
                 };
                 let expected = &observations(scenario)[0];
@@ -1052,7 +1050,7 @@ fn v2_invalid_numeric_cells_raise_influx_exception_caused_by_number_format() {
             for scenario in ["v2-csv-long", "v2-csv-double"] {
                 let peer = query_peer(scenario).await?;
                 let client = Influx2Client::connect(&v2(&peer.url), false, env.context.clone()).await?;
-                let Err(OperationError::Failed(error)) = client.query(&"bad".into()).await else {
+                let Err(OperationError::Failed(error)) = client.query("bad").await else {
                     panic!("{scenario}: invalid cell accepted")
                 };
                 let expected = &observations(scenario)[0];
@@ -1292,7 +1290,7 @@ fn a_last_flush_to_a_trickling_server_gives_way_at_the_close_limit() {
                         at_millis: 0,
                         wall_millis: 0,
                         level,
-                        message: message.clone(),
+                        message: message.to_string(),
                         cause: cause.cloned(),
                     })
                 }),

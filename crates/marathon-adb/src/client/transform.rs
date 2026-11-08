@@ -36,7 +36,7 @@ impl ResponseTransformer for StringResponseTransformer {
 
 /// Kotlin `String.trim()`. Every Kotlin whitespace character is in the BMP, so testing chars is exact.
 pub(crate) fn kotlin_trim(s: &str) -> &str {
-    s.trim_matches(jcompat::jstring::is_whitespace_char)
+    s.trim_matches(jcompat::jstring::is_whitespace)
 }
 
 #[cfg(test)]

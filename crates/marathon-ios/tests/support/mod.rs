@@ -181,7 +181,10 @@ impl ReplayHooks for Clock {
     }
     fn allocate_id(&self, label: &'static str) -> ClockResult<String> {
         assert_eq!(label, "ios.SimulatorProvisioner.create");
-        Ok(format!("00000000-0000-0000-0000-{:012}", IDS.fetch_add(1, Ordering::SeqCst)))
+        Ok(format!(
+            "00000000-0000-0000-0000-{:012}",
+            IDS.fetch_add(1, Ordering::SeqCst)
+        ))
     }
     fn identity_suffix(&self, _: &'static str, _: ObjectIdentity) -> ClockResult<String> {
         Ok("abc".into())

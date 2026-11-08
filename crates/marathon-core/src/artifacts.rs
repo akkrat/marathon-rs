@@ -74,7 +74,7 @@ impl OutputFiles for FileManagerOutput {
             .await
         })
     }
-    fn create_test_result_file<'a>(&'a self, filename: &'a String) -> ServiceFuture<'a, JavaPath> {
+    fn create_test_result_file<'a>(&'a self, filename: &'a str) -> ServiceFuture<'a, JavaPath> {
         Box::pin(async move { self.materialize(self.manager.plan_test_result_file(filename)).await })
     }
 }
@@ -132,7 +132,7 @@ impl LogWriter for FileLogWriter {
         pool: &'a DevicePoolId,
         device: &'a DeviceInfo,
         test: &'a Test,
-        log: &'a String,
+        log: &'a str,
     ) -> ServiceFuture<'a, ()> {
         let this = self.clone();
         let target = FileTarget {
@@ -144,7 +144,7 @@ impl LogWriter for FileLogWriter {
             id: None,
             chunk: None,
         };
-        let mut text = log.clone();
+        let mut text = log.to_owned();
         text.push('\n');
         Box::pin(async move {
             on_io(
@@ -172,8 +172,8 @@ pub struct CompositeLineListener {
     pub listeners: Vec<Arc<dyn LineListener>>,
 }
 impl LineListener for CompositeLineListener {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
-        let (listeners, line) = (self.listeners.clone(), line.clone());
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
+        let (listeners, line) = (self.listeners.clone(), line.to_owned());
         Box::pin(async move {
             on_io(
                 self.io.as_ref(),
@@ -325,10 +325,10 @@ impl AttachmentProvider for LogListener {
     }
 }
 impl LineListener for LogListener {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let mut buffer = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
-            buffer.push_str(&line.clone());
+            buffer.push_str(&line.to_owned());
             buffer.push('\n');
             Ok(())
         })
@@ -382,7 +382,7 @@ impl TestRunListener for LogListener {
                             Attachment {
                                 file,
                                 kind: AttachmentType::Log,
-                                name: Some(this.name.clone()),
+                                name: Some(this.name.to_owned()),
                             },
                         )?;
                     }

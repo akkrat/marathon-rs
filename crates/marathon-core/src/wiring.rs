@@ -32,7 +32,7 @@ pub trait MetricsProvider: Send + Sync {
         _tests: &'a [Test],
         _percentile: f64,
         _limit: Instant,
-        _usage: &'a String,
+        _usage: &'a str,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -43,8 +43,8 @@ pub trait MetricsProvider: Send + Sync {
 pub trait Tracker: Send + Sync {
     fn device_connected<'a>(&'a self, pool: &'a DevicePoolId, device: &'a DeviceInfo) -> VendorFuture<'a, ()>;
     fn device_disconnected<'a>(&'a self, pool: &'a DevicePoolId, device: &'a DeviceInfo) -> VendorFuture<'a, ()>;
-    fn device_provider_init<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()>;
-    fn device_preparing<'a>(&'a self, serial: &'a String, start: Instant, finish: Instant) -> VendorFuture<'a, ()>;
+    fn device_provider_init<'a>(&'a self, serial: &'a str, start: Instant, finish: Instant) -> VendorFuture<'a, ()>;
+    fn device_preparing<'a>(&'a self, serial: &'a str, start: Instant, finish: Instant) -> VendorFuture<'a, ()>;
     fn test<'a>(
         &'a self,
         pool: &'a DevicePoolId,
@@ -66,7 +66,7 @@ pub trait ParseOutput: Send + Sync {
         &'a self,
         tests: &'a [Test],
         flaky_tests: &'a [Test],
-        output_file_name: Option<&'a String>,
+        output_file_name: Option<&'a str>,
     ) -> VendorFuture<'a, ()>;
 }
 pub use crate::output::OutputFiles;

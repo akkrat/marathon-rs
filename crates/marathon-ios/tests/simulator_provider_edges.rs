@@ -217,7 +217,7 @@ async fn replacement_waits_for_predecessor_and_removal_rejects_an_in_flight_setu
             .contains("has left the devices file")
     );
     assert_eq!(
-        p.provider.skipped_removed(&"a@local".into()),
+        p.provider.skipped_removed("a@local"),
         fixture("registration-removal-race")["skipped"].as_bool().unwrap()
     );
     cleanup.device.0.dispose().await.map_err(test_error)?;

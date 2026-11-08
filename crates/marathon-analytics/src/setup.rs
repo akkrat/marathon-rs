@@ -110,7 +110,7 @@ impl BackendFactory for BackendClients {
                         client: BasicGraphiteClient {
                             host: text(&config.host)?,
                             port,
-                            prefix: config.prefix.as_ref().map(text).transpose()?,
+                            prefix: config.prefix.as_ref().map(|value| text(value)).transpose()?,
                             sender,
                             cancellation: self.clients.context.cancellation.clone(),
                         },

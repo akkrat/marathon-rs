@@ -341,7 +341,7 @@ impl AppleTestBundle {
     }
 }
 impl TestBundle for AppleTestBundle {
-    fn id(&self) -> &String {
+    fn id(&self) -> &str {
         &self.id
     }
 }

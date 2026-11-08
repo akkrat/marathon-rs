@@ -23,12 +23,12 @@ pub struct PlanTest {
     pub selector: Option<String>,
 }
 impl TestPlan {
-    pub fn is_selected(&self, id: Option<&String>, name: &String) -> bool {
+    pub fn is_selected(&self, id: Option<&str>, name: &str) -> bool {
         match self {
             Self::V1_0(tests) => tests
                 .iter()
                 .flat_map(|t| t.id.iter().chain(&t.selector))
-                .any(|value| value == name || Some(value) == id),
+                .any(|value| value == name || Some(value.as_str()) == id),
             Self::Unknown => false,
         }
     }
@@ -207,14 +207,14 @@ impl AllureFilter {
             return Ok(if negate { Vec::new() } else { tests.to_vec() });
         };
         select(tests, negate, |test| {
-            let first = test.meta_properties.iter().find(|p| {
-                p.name == "io.qameta.allure.AllureId"
-                    || p.name == "io.qameta.allure.kotlin.AllureId"
-            });
+            let first = test
+                .meta_properties
+                .iter()
+                .find(|p| p.name == "io.qameta.allure.AllureId" || p.name == "io.qameta.allure.kotlin.AllureId");
             let id = first
                 .and_then(|p| p.values.entries().iter().find(|(k, _)| *k == String::from("value")))
                 .and_then(|(_, v)| if let MetaValue::String(s) = v { Some(s) } else { None });
-            Ok(plan.is_selected(id, &test.to_test_name('.', '.')))
+            Ok(plan.is_selected(id.map(|x| x.as_str()), &test.to_test_name('.', '.')))
         })
     }
 }

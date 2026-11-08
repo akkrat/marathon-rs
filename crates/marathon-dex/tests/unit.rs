@@ -113,14 +113,14 @@ fn unknown_value_type_is_bad_value_type_error() {
 #[test]
 fn format_descriptor_blindly_drops_first_and_last_unit() {
     assert_eq!(
-        format_descriptor(&"Lorg/junit/Test;".into()).unwrap().to_owned(),
+        format_descriptor("Lorg/junit/Test;").unwrap().to_owned(),
         "org.junit.Test"
     );
     // Not an L…; descriptor: the first and last characters still go.
-    assert_eq!(format_descriptor(&"I".into()).unwrap().to_owned(), "");
-    assert_eq!(format_descriptor(&"[I".into()).unwrap().to_owned(), "");
-    assert_eq!(format_descriptor(&"XYZ".into()).unwrap().to_owned(), "Y");
-    assert!(format_descriptor(&"".into()).is_err());
+    assert_eq!(format_descriptor("I").unwrap().to_owned(), "");
+    assert_eq!(format_descriptor("[I").unwrap().to_owned(), "");
+    assert_eq!(format_descriptor("XYZ").unwrap().to_owned(), "Y");
+    assert!(format_descriptor("").is_err());
 }
 
 /// One stored classes.dex entry, as a build tool would write it.

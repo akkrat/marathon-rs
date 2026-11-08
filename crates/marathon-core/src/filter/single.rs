@@ -111,9 +111,7 @@ impl SingleValueFilter {
                     if self.subpackages && matches!(field, Field::Package) {
                         let mut prefix = value.clone();
                         prefix.push('.');
-                        name.encode_utf16()
-                            .collect::<Vec<_>>()
-                            .starts_with(&prefix.encode_utf16().collect::<Vec<_>>())
+                        name.starts_with(&prefix)
                     } else {
                         false
                     }
@@ -123,7 +121,7 @@ impl SingleValueFilter {
     }
 }
 
-pub(super) fn matches_regex(regex: &JavaRegex, text: &String, _field: &str) -> OperationResult<bool> {
+pub(super) fn matches_regex(regex: &JavaRegex, text: &str, _field: &str) -> OperationResult<bool> {
     let text = text.to_owned();
     Ok(regex.matches(&text))
 }

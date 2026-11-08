@@ -21,22 +21,20 @@ impl MetricMap {
         self.entries.push((key, value));
         None
     }
-    pub fn get(&self, key: &String) -> Option<&String> {
-        self.entries.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-    }
-    /// Lookup by an ASCII key without allocating a `String`.
-    pub fn get_str(&self, key: &str) -> Option<&String> {
+    pub fn get(&self, key: &str) -> Option<&str> {
         self.entries
             .iter()
-            .find(|(k, _)| {
-                k.encode_utf16().count() == key.len()
-                    && k.encode_utf16()
-                        .collect::<Vec<_>>()
-                        .iter()
-                        .zip(key.bytes())
-                        .all(|(&u, b)| u == u16::from(b))
-            })
+            .find(|(k, _)| k == key)
             .map(|(_, v)| v)
+            .map(|x| x.as_str())
+    }
+    /// Lookup by an ASCII key without allocating a `String`.
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v)
+            .map(|x| x.as_str())
     }
     pub fn contains_key_str(&self, key: &str) -> bool {
         self.get_str(key).is_some()

@@ -326,7 +326,7 @@ impl Shared {
             completion => {
                 let reason = completion
                     .and_then(|c| c.err())
-                    .and_then(|error| error.failure().message.clone())
+                    .and_then(|error| error.failure().message.to_owned())
                     .unwrap_or(reason);
                 self.log(
                     Level::Debug,
@@ -403,7 +403,7 @@ impl Shared {
                         OperationError::Cancelled(reason) => reason.failure().clone(),
                         OperationError::Failed(failure) => failure,
                     };
-                    let message = failure.message.clone().unwrap_or_else(|| "null".into());
+                    let message = failure.message.to_owned().unwrap_or_else(|| "null".into());
                     shared.log(Level::Error, text(&[&"Error ", &message]), Some(failure));
                     shared.transition(DeviceEvent::Terminate);
                 }

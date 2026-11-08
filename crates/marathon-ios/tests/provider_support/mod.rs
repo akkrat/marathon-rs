@@ -47,7 +47,7 @@ impl ProviderRecovery for Recovery {
         self.ticks.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     }
-    fn admit(&self, _: &String, _: &Simulator) -> marathon_ios::device::error::ProvisioningResult<()> {
+    fn admit(&self, _: &str, _: &Simulator) -> marathon_ios::device::error::ProvisioningResult<()> {
         Ok(())
     }
     fn offer(&self, _: &Transport, _: &[AppleTarget]) -> bool {
@@ -71,7 +71,7 @@ impl ProviderRecovery for Recovery {
         self.failed.lock().unwrap().push(targets);
         Box::pin(async { Ok(()) })
     }
-    fn forget_setup(&self, _: &String) {}
+    fn forget_setup(&self, _: &str) {}
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async {
             if self.fail_termination.load(Ordering::SeqCst) {

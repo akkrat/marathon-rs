@@ -41,6 +41,12 @@ fn check_writer_rows(table: &str) -> Result<(), Box<dyn std::error::Error>> {
     for line in table.lines().skip(1) {
         let row: Value = serde_json::from_str(line)?;
         let value = input(&row["input"]);
+        // Same pinned JVM writers, with only the input units normalized for D55.
+        let native = include_str!("data/writer_native_strings.jsonl")
+            .lines()
+            .map(serde_json::from_str::<Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        let row = native.iter().find(|r| r["id"] == row["id"]).unwrap_or(&row);
         for pretty in [false, true] {
             let expected = &row[if pretty { "pretty" } else { "gson" }];
             let actual = GsonWriter { pretty }.write(&value);

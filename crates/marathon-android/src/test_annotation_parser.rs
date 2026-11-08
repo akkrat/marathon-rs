@@ -37,7 +37,7 @@ impl TestAnnotationParser {
     }
 }
 
-fn extract_v4(value: &String) -> Vec<MetaProperty> {
+fn extract_v4(value: &str) -> Vec<MetaProperty> {
     let mut result = Vec::new();
     for annotation in length_framed_annotations(remove_surrounding(
         &value.encode_utf16().collect::<Vec<_>>(),
@@ -55,7 +55,7 @@ fn extract_v4(value: &String) -> Vec<MetaProperty> {
     result
 }
 
-fn extract_v3(value: &String) -> Vec<MetaProperty> {
+fn extract_v3(value: &str) -> Vec<MetaProperty> {
     serialized_annotations(value)
         .into_iter()
         .map(|annotation| {
@@ -72,7 +72,7 @@ fn extract_v3(value: &String) -> Vec<MetaProperty> {
         .collect()
 }
 
-fn extract_v2(value: &String) -> Vec<MetaProperty> {
+fn extract_v2(value: &str) -> Vec<MetaProperty> {
     serialized_annotations(value)
         .into_iter()
         .map(|annotation| {
@@ -85,12 +85,7 @@ fn extract_v2(value: &String) -> Vec<MetaProperty> {
                 .into_iter()
                 .filter_map(|parameter| {
                     let split = split_unit(parameter, u16::from(b'='));
-                    (split.len() == 2).then(|| {
-                        (
-                            String::from_utf16_lossy(split[0]),
-                            String::from_utf16_lossy(split[1]),
-                        )
-                    })
+                    (split.len() == 2).then(|| (String::from_utf16_lossy(split[0]), String::from_utf16_lossy(split[1])))
                 })
                 .collect();
             meta_property(String::from_utf16_lossy(&annotation[..index]), values)
@@ -100,19 +95,15 @@ fn extract_v2(value: &String) -> Vec<MetaProperty> {
 
 /// v3/v2 annotation discovery: `removeSurrounding("[", "]")`, then the N6
 /// regex over the result, each match trimmed, empties dropped.
-fn serialized_annotations(value: &String) -> Vec<Vec<u16>> {
-    let body =
-        String::from_utf16_lossy(remove_surrounding(&value.encode_utf16().collect::<Vec<_>>(), b'[', b']'));
-    // The regex works on &str; metric values arrive from UTF-8 decoding in
-    // the transformer, so lone surrogates (rendered as U+FFFD here) cannot
-    // occur on the production path.
-    let text: String = char::decode_utf16(body.encode_utf16().collect::<Vec<_>>().iter().copied())
-        .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
-        .collect();
+fn serialized_annotations(value: &str) -> Vec<Vec<u16>> {
+    let body = value
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .unwrap_or(value);
     METRIC_ANNOTATION_V2
-        .find_all(&text)
+        .find_all(body)
         .filter_map(|captures| captures.get(0))
-        .map(|m| jstring::trim(&m.as_str().encode_utf16().collect::<Vec<u16>>()).to_vec())
+        .map(|m| jstring::trim(m.as_str()).encode_utf16().collect::<Vec<_>>())
         .filter(|m| !m.is_empty())
         .collect()
 }
@@ -126,7 +117,10 @@ fn length_framed_annotations(mut body: &[u16]) -> Vec<Vec<u16>> {
         annotations.push(annotation.to_vec());
         body = &rest[length..];
         body = body.strip_prefix(&[u16::from(b',')]).unwrap_or(body);
-        body = jstring::trim_start(body);
+        body = &body[body
+            .iter()
+            .position(|&u| !char::from_u32(u32::from(u)).is_some_and(jstring::is_whitespace))
+            .unwrap_or(body.len())..];
     }
     annotations
 }

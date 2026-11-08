@@ -271,7 +271,7 @@ fn provider_stage_and_error_distinctions() {
 
 // ---- P2 oracle corpus ------------------------------------------------------------
 
-fn s(value: &String) -> Json {
+fn s(value: &str) -> Json {
     value.to_owned().into()
 }
 
@@ -300,10 +300,10 @@ fn canonical(devices: &MarathonDevices) -> Json {
                 AppleTarget::SimulatorProfile(profile) => json!({
                     "type": "simulatorProfile",
                     "deviceType": s(&profile.device_type_id),
-                    "runtime": profile.runtime_id.as_ref().map_or(Json::Null, s),
+                    "runtime": profile.runtime_id.as_ref().map_or(Json::Null, |text| s(text)),
                     "newNamePrefix": s(&profile.new_name_prefix),
                     "fqDeviceType": s(&profile.fully_qualified_device_type_id()),
-                    "fqRuntime": profile.fully_qualified_runtime_id().as_ref().map_or(Json::Null, s),
+                    "fqRuntime": profile.fully_qualified_runtime_id().as_ref().map_or(Json::Null, |text| s(text)),
                 }),
                 AppleTarget::Host => json!({"type": "host"}),
             }).collect::<Vec<_>>(),

@@ -80,7 +80,7 @@ fn provider_sequences_match_jvm_bits_calls_and_ordered_logs() {
                             .iter()
                             .map(|i| t[i.as_u64().unwrap() as usize].clone())
                             .collect::<Vec<_>>();
-                        p.report_execution_time_coverage(&tests, percentile, limit, &"sorting".into())
+                        p.report_execution_time_coverage(&tests, percentile, limit, "sorting")
                             .await
                             .unwrap();
                         None

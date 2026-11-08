@@ -183,7 +183,7 @@ async fn coverage_case(count: usize, min: Option<i32>, level: Level, text: &str)
     *source.times.lock().unwrap() = t[..count].iter().map(|t| time_row(t, 7000.0)).collect();
     t.push(t[0].clone());
     let p = h.provider(source, 300000, min);
-    p.report_execution_time_coverage(&t, 80.0, limit(), &"the batch duration limit".into())
+    p.report_execution_time_coverage(&t, 80.0, limit(), "the batch duration limit")
         .await
         .unwrap();
     let events = h.logs.take();
@@ -241,7 +241,7 @@ fn nan_payloads_share_a_key_signed_zeroes_do_not_and_empty_coverage_skips_fetch(
         let h = Harness::new();
         let source = Arc::new(Source::default());
         let p = h.provider(source.clone(), 300000, None);
-        p.report_execution_time_coverage(&[], 90.0, limit(), &"empty".into())
+        p.report_execution_time_coverage(&[], 90.0, limit(), "empty")
             .await
             .unwrap();
         assert!(source.calls.lock().unwrap().is_empty());

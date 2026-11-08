@@ -61,7 +61,7 @@ impl AppleTestRunListener for DebugTestRunListener {
         test: &'a Test,
         start_time: i64,
         end_time: i64,
-        trace: Option<&'a String>,
+        trace: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if !self.logging.enabled(&self.logger, Level::Info) {
@@ -71,7 +71,7 @@ impl AppleTestRunListener for DebugTestRunListener {
                 "testFailed {} test = {}, timespan = [{start_time},{end_time}], trace = \n{}",
                 self.device.0.info().serial_number.to_owned(),
                 test.kotlin_value(&*self.hooks)?.render().to_owned(),
-                trace.map_or_else(|| "null".into(), String::clone)
+                trace.map_or_else(|| "null".into(), str::to_owned)
             ));
             Ok(())
         })
@@ -111,7 +111,7 @@ impl AppleTestRunListener for DebugTestRunListener {
             Ok(())
         })
     }
-    fn test_run_failed<'a>(&'a self, error_message: &'a String, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, error_message: &'a str, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if !self.logging.enabled(&self.logger, Level::Info) {
                 return Ok(());

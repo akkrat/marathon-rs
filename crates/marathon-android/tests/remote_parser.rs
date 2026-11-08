@@ -554,7 +554,7 @@ fn a_session_that_keeps_failing_ends_in_a_parsing_error_with_its_reason_d42() {
                 .filter(|s| s.starts_with("am instrument"))
                 .count();
             *slot.lock().unwrap() = Some((
-                error.failure().message.clone(),
+                error.failure().message.to_owned(),
                 serial,
                 attempts,
                 probes(&server) - before,

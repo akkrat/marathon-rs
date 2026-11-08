@@ -108,7 +108,7 @@ impl Console {
     }
 
     /// UTF-16 println text uses the JVM encoder's replacement at the sink.
-    pub fn write_java_text(&self, text: &String) {
+    pub fn write_java_text(&self, text: &str) {
         let mut out = lock(&self.stdout);
         let _ = out.write_all(text.as_bytes());
         let _ = out.flush();
@@ -205,14 +205,14 @@ pub fn configuration_failure(error: &ConfigurationError) -> Failure {
     let cause = error.causes.iter().rev().fold(None, |inner, c| {
         Some(Box::new(Failure {
             class: c.class.clone(),
-            message: c.message.clone(),
+            message: c.message.to_owned(),
             cause: inner,
             stacktrace: None,
         }))
     });
     Failure {
         class: error.class.clone(),
-        message: error.message.clone(),
+        message: error.message.to_owned(),
         cause,
         stacktrace: None,
     }

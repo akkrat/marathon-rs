@@ -150,14 +150,14 @@ impl TestRunResultsAccumulator {
             logs: Vec::new(),
         })
     }
-    pub fn name(&self) -> &String {
+    pub fn name(&self) -> &str {
         &self.name
     }
     pub fn elapsed_time(&self) -> i64 {
         self.elapsed_time
     }
-    pub fn run_failure_message(&self) -> Option<&String> {
-        self.run_failure_message.as_ref()
+    pub fn run_failure_message(&self) -> Option<&str> {
+        self.run_failure_message.as_ref().map(|x| x.as_str())
     }
     pub fn is_run_failure(&self) -> bool {
         self.run_failure_message.is_some()
@@ -207,18 +207,18 @@ impl TestRunResultsAccumulator {
     }
     /// A test of an instrumentation that is over has that one's failure. Any other has the current failure: its
     /// instrumentation is the current one, or never ran because the current one ended the batch.
-    fn failure_of(&self, test: &Test) -> Option<&String> {
+    fn failure_of(&self, test: &Test) -> Option<&str> {
         match self.finished_instrumentations.iter().find(|i| i.tests.contains(test)) {
-            Some(finished) => finished.failure.as_ref(),
-            None => self.run_failure_message.as_ref(),
+            Some(finished) => finished.failure.as_ref().map(|x| x.as_str()),
+            None => self.run_failure_message.as_ref().map(|x| x.as_str()),
         }
     }
     /// D25 (Android): this run's output broke off, and that is why a test in progress never finished. Other run
     /// failures leave such a test without a text, as in Kotlin.
-    pub fn explain_tests_in_progress(&mut self, reason: &String) {
+    pub fn explain_tests_in_progress(&mut self, reason: &str) {
         for (_, result) in self.temporal_test_results.0.iter_mut().skip(self.tests_of_earlier_runs) {
             if result.status == TestStatus::Incomplete && result.stack_trace.is_none() {
-                result.stack_trace = Some(reason.clone());
+                result.stack_trace = Some(reason.to_string());
             }
         }
     }
@@ -245,7 +245,7 @@ impl TestRunResultsAccumulator {
         &mut self,
         test: &Test,
         status: TestStatus,
-        trace: Option<&String>,
+        trace: Option<&str>,
         start_time: Option<i64>,
         end_time: Option<i64>,
     ) -> ClockResult<()> {
@@ -268,13 +268,8 @@ impl TestRunResultsAccumulator {
             }
         };
         result.status = status;
-        if let Some(trace) = trace.filter(|s| {
-            !s.encode_utf16()
-                .collect::<Vec<_>>()
-                .iter()
-                .all(|&c| jstring::is_whitespace(c))
-        }) {
-            result.stack_trace = Some(trace.clone());
+        if let Some(trace) = trace.filter(|s| !s.chars().all(jstring::is_whitespace)) {
+            result.stack_trace = Some(trace.to_string());
         }
         if let Some(time) = start_time {
             result.start_time = time;
@@ -288,13 +283,13 @@ impl TestRunResultsAccumulator {
     pub fn test_failed(
         &mut self,
         test: &Test,
-        trace: &String,
+        trace: &str,
         start_time: Option<i64>,
         end_time: Option<i64>,
     ) -> ClockResult<()> {
         self.update(test, TestStatus::Failure, Some(trace), start_time, end_time)
     }
-    pub fn test_assumption_failure(&mut self, test: &Test, trace: &String) -> ClockResult<()> {
+    pub fn test_assumption_failure(&mut self, test: &Test, trace: &str) -> ClockResult<()> {
         self.update(test, TestStatus::AssumptionFailure, Some(trace), None, None)
     }
     pub fn test_ignored(&mut self, test: &Test) -> ClockResult<()> {
@@ -366,7 +361,7 @@ impl TestRunResultsAccumulator {
             .max()
             .unwrap_or(self.creation_time);
         let trace = |test: &Test| {
-            self.failure_of(test).cloned().unwrap_or_else(|| {
+            self.failure_of(test).map(str::to_owned).unwrap_or_else(|| {
                 "Test didn't complete. Either the test results are missing due to timeout or testing runtime crashed"
                     .into()
             })

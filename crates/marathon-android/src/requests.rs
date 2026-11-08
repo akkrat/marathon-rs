@@ -21,7 +21,7 @@ impl ComplexRequest for GetPropRequest {
         parse_props(&response.output().as_str().to_owned())
     }
 }
-pub fn parse_props(text: &String) -> Result<HashMap<String, String>, AdbError> {
+pub fn parse_props(text: &str) -> Result<HashMap<String, String>, AdbError> {
     let mut props = HashMap::new();
     for line in jstring::lines(text) {
         if line.is_empty() || line.encode_utf16().collect::<Vec<_>>()[0] == 35 {

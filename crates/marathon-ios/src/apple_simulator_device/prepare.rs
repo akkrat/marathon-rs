@@ -24,12 +24,12 @@ impl AppleSimulatorDevice {
         let started = self.timing.elapsed()?;
         self.services
             .artifacts
-            .await_owner(&self.serial.as_str().into(), &context)
+            .await_owner(&self.serial.as_str(), &context)
             .await?;
         let keep = self
             .services
             .artifacts
-            .kept_sources(&self.serial.as_str().into())
+            .kept_sources(&self.serial.as_str())
             .iter()
             .map(String::clone)
             .collect::<Vec<_>>();
@@ -62,7 +62,7 @@ impl AppleSimulatorDevice {
                 .await
                 .map_err(|error| {
                     if error.failure().class == "com.malinskiy.marathon.apple.ios.BootFailure" {
-                        PrepareError::Boot(error.failure().message.clone().unwrap_or_default())
+                        PrepareError::Boot(error.failure().message.to_owned().unwrap_or_default())
                     } else {
                         PrepareError::Vendor(error)
                     }

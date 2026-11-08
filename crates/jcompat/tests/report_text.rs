@@ -50,7 +50,7 @@ fn jackson_keeps_nulls_arrays_and_utf16_escapes() {
     ]));
     assert_eq!(
         actual.as_bytes().to_vec(),
-        br#"{"x":null,"empty":[],"utf16":"\uD800\uD83D\uDE00"}"#
+        r#"{"x":null,"empty":[],"utf16":"�\uD83D\uDE00"}"#.as_bytes()
     );
     // Jackson's byte[] default: padded standard base64 without line feeds.
     for (bytes, encoded) in [

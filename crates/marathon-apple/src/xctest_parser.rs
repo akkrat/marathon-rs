@@ -130,10 +130,10 @@ fn supply_message(problem: &str) -> String {
 #[derive(Default)]
 struct Buffer(Mutex<String>);
 impl LineListener for Buffer {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let mut buffer = self.0.lock().unwrap_or_else(|e| e.into_inner());
-            buffer.push_str(&line.clone());
+            buffer.push_str(&line.to_owned());
             buffer.push('\n');
             Ok(())
         })
@@ -187,11 +187,13 @@ impl<'a> XCTestParser<'a> {
             .map_err(|e| e.into_vendor())?;
         let sdk = device.sdk();
         let library = self.libraries.file(sdk).ok_or_else(|| {
-            parsing_error(format!("No libxctest-parser.dylib for platform {}", sdk.platform_name()))
+            parsing_error(format!(
+                "No libxctest-parser.dylib for platform {}",
+                sdk.platform_name()
+            ))
         })?;
         let temp = blocking(&*self.runtime, move || {
-            let mut source =
-                open_regular_file(&library).map_err(|problem| parsing_error(supply_message(&problem)))?;
+            let mut source = open_regular_file(&library).map_err(|problem| parsing_error(supply_message(&problem)))?;
             let mut file = tempfile::NamedTempFile::new().map_err(io_error)?;
             std::io::copy(&mut source, &mut file).map_err(io_error)?;
             Ok(file)

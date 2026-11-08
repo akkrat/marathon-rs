@@ -69,7 +69,7 @@ impl Reporter for JUnitReporter {
     }
 }
 const SCHEMA: &str = "https://raw.githubusercontent.com/jenkinsci/xunit-plugin/ae25da5089d4f94ac6c4669bf736e4d416cc4665/src/main/resources/org/jenkinsci/plugins/xunit/types/model/xsd/junit-10.xsd";
-fn attr(out: &mut String, key: &str, value: &String) {
+fn attr(out: &mut String, key: &str, value: &str) {
     out.push(' ');
     out.push_str(key);
     out.push_str("=\"");
@@ -85,7 +85,7 @@ fn attr(out: &mut String, key: &str, value: &String) {
     }
     out.push('"');
 }
-fn cdata(out: &mut String, text: &String) {
+fn cdata(out: &mut String, text: &str) {
     out.push_str("<![CDATA[");
     out.push_str(&text.replace("]]>", "]]]]><![CDATA[>"));
     out.push_str("]]>");
@@ -96,16 +96,12 @@ fn seconds(millis: i64) -> String {
 /// Exact StAX bytes for the only model JUnitReporter constructs (approved P2).
 pub fn junit_xml(pool: &PoolSummary) -> String {
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?><testsuite");
-    attr(&mut out, "xsi:noNamespaceSchemaLocation", &SCHEMA.into());
-    attr(
-        &mut out,
-        "xmlns:xsi",
-        &"http://www.w3.org/2001/XMLSchema-instance".into(),
-    );
+    attr(&mut out, "xsi:noNamespaceSchemaLocation", SCHEMA);
+    attr(&mut out, "xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
     attr(&mut out, "name", &pool.pool_id.name);
     attr(&mut out, "tests", &pool.tests.len().to_string());
     attr(&mut out, "failures", &pool.failed.len().to_string());
-    attr(&mut out, "errors", &"0".into());
+    attr(&mut out, "errors", "0");
     attr(
         &mut out,
         "time",
@@ -149,7 +145,7 @@ pub fn junit_xml(pool: &PoolSummary) -> String {
                 let tag = if failure { "rerunFailure" } else { "flakyFailure" };
                 out.push('<');
                 out.push_str(tag);
-                attr(&mut out, "type", &"rerun exception".into());
+                attr(&mut out, "type", "rerun exception");
                 out.push('>');
                 if let Some(trace) = &retry.test_result.stacktrace {
                     out.push_str("<stackTrace>");

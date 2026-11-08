@@ -53,7 +53,7 @@ impl SimulatorListenerFactory for MinimalSimulatorListenerFactory {
 }
 struct RetireOnFailure(Weak<AppleSimulatorDevice>);
 impl AppleTestRunListener for RetireOnFailure {
-    fn test_run_failed<'a>(&'a self, _: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _: &'a str, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if not_fixed_by_setup(reason)
                 && let Some(device) = self.0.upgrade()

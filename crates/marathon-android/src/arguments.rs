@@ -77,13 +77,7 @@ pub fn generate(
             } else {
                 result.insert(CONSOLE_PORT.into(), port.to_string().as_str().to_owned());
                 result.insert(CONSOLE_HOST.into(), "10.0.2.2".into());
-                if !access
-                    .console_token
-                    .encode_utf16()
-                    .collect::<Vec<_>>()
-                    .iter()
-                    .all(|&u| jstring::is_whitespace(u))
-                {
+                if !access.console_token.chars().all(jstring::is_whitespace) {
                     result.insert(AUTH_TOKEN.into(), access.console_token.clone());
                 }
             }

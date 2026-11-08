@@ -73,7 +73,7 @@ struct Lines {
     active: AtomicUsize,
 }
 impl LineListener for Lines {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             assert_eq!(self.active.fetch_add(1, Ordering::SeqCst), 0);
             tokio::task::yield_now().await;
@@ -170,7 +170,7 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
     );
     let seen = lines.seen.lock().unwrap();
     assert_eq!(seen.len(), 3);
-    assert!(seen.contains(&" warning ".into()));
+    assert!(seen.contains(&" warning ".to_owned()));
     let logs = logs.lock().unwrap();
     let warnings = logs
         .iter()

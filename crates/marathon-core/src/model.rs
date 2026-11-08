@@ -64,13 +64,7 @@ impl Test {
     }
     pub fn to_class_name(&self, separator: char) -> String {
         let mut name = String::default();
-        if !self
-            .pkg
-            .encode_utf16()
-            .collect::<Vec<_>>()
-            .iter()
-            .all(|&c| jstring::is_whitespace(c))
-        {
+        if !self.pkg.chars().all(jstring::is_whitespace) {
             name.push_str(&self.pkg);
             name.push(separator);
         }
@@ -173,7 +167,7 @@ pub enum DecodedWrapper {
 impl DecodedWrapper {
     /// Project the pinned data-class toString, including Arrays.toString for
     /// nested arrays. Supply the singleton's replay identity suffix, not Debug.
-    pub fn kotlin_value(&self, null_identity_suffix: &String) -> KotlinValue {
+    pub fn kotlin_value(&self, null_identity_suffix: &str) -> KotlinValue {
         use DecodedWrapper::*;
         let (name, value) = match self {
             DecodedByte(v) => ("DecodedByte", v.to_string()),

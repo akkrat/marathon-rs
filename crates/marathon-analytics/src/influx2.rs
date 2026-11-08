@@ -167,7 +167,7 @@ pub(crate) async fn api(
         {
             Err(Failure {
                 class: "com.influxdb.exceptions.InfluxException".into(),
-                message: cause.message.clone(),
+                message: cause.message.to_owned(),
                 cause: Some(Box::new(cause)),
                 stacktrace: None,
             }
@@ -177,7 +177,7 @@ pub(crate) async fn api(
     }
 }
 impl FluxQuery for Influx2Client {
-    fn query<'a>(&'a self, flux: &'a String) -> ServiceFuture<'a, Vec<Record>> {
+    fn query<'a>(&'a self, flux: &'a str) -> ServiceFuture<'a, Vec<Record>> {
         Box::pin(async move {
             let _operation = self.operations.lock().await;
             if self.closed.load(Ordering::Acquire) {

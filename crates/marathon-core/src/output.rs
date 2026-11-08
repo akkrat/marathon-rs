@@ -46,7 +46,7 @@ pub trait OutputFiles: Send + Sync {
         pool: Option<&'a DevicePoolId>,
         device: Option<&'a DeviceInfo>,
     ) -> ServiceFuture<'a, JavaPath>;
-    fn create_test_result_file<'a>(&'a self, filename: &'a String) -> ServiceFuture<'a, JavaPath>;
+    fn create_test_result_file<'a>(&'a self, filename: &'a str) -> ServiceFuture<'a, JavaPath>;
 }
 
 /// Called off core. Render Log through the shared console's write_event/Jansi

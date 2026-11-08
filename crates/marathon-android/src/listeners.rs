@@ -54,7 +54,7 @@ pub trait AndroidTestRunListener: Send + Sync {
     /// D25: the instrumentation's stream failed, for this reason; a `TestRunFailed` with the same text follows.
     fn on_stream_failed_in<'a>(
         &'a self,
-        _reason: &'a String,
+        _reason: &'a str,
         _context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
@@ -136,7 +136,7 @@ impl AndroidTestRunListener for CompositeTestRunListener {
     }
     fn on_stream_failed_in<'a>(
         &'a self,
-        reason: &'a String,
+        reason: &'a str,
         context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
@@ -291,22 +291,16 @@ impl TestResultsListener {
     }
     pub fn merge_parameterised_results(&self, results: &mut TemporalResults) -> TemporalResults {
         let mut merged = TemporalResults::default();
-        let explicit = self.batch.tests.iter().any(|t| {
-            t.method.encode_utf16().collect::<Vec<_>>().contains(&91)
-                && t.method.encode_utf16().collect::<Vec<_>>().contains(&93)
-        });
+        let explicit = self
+            .batch
+            .tests
+            .iter()
+            .any(|t| t.method.contains('[') && t.method.contains(']'));
         let mut origins: Vec<(Test, Test)> = vec![];
         for (test, result) in results.entries().to_vec() {
             let mut key = test.clone();
             if !explicit && PARAMETERIZED_METHOD.matches(&test.method.to_owned()) {
-                key.method.encode_utf16().collect::<Vec<_>>().truncate(
-                    key.method
-                        .encode_utf16()
-                        .collect::<Vec<_>>()
-                        .iter()
-                        .position(|&u| u == 91)
-                        .unwrap_or(key.method.encode_utf16().count()),
-                );
+                key.method.truncate(key.method.find('[').unwrap_or(key.method.len()));
                 key.meta_properties.clear();
                 if let Some(old) = merged.get_mut(&key) {
                     old.status = old.status + result.status;
@@ -345,7 +339,7 @@ impl AndroidTestRunListener for TestResultsListener {
     }
     fn on_stream_failed_in<'a>(
         &'a self,
-        reason: &'a String,
+        reason: &'a str,
         _context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {

@@ -279,7 +279,7 @@ fn capture_timeout_io_null_continue_fatal_and_cancellation_join_cleanup() {
                     wall: hooks,
                     files: output(core.vendor(), root),
                     log: Arc::new(move |_, level, message, _| {
-                        l.lock().unwrap().push((level, message.clone()));
+                        l.lock().unwrap().push((level, message.to_owned()));
                     }),
                 };
                 let mut cap = ScreenCapturer::new(settings, services, source, &mut MarathonLogging::default());

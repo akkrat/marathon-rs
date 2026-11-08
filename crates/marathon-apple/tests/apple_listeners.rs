@@ -300,7 +300,7 @@ async fn run_failing(h: &Harness) {
     for (i, t) in tests[..4].iter().enumerate() {
         l.test_started(t).await.unwrap();
         if i == 0 {
-            l.test_failed(t, 0, 1, Some(&"stdout trace".into())).await.unwrap();
+            l.test_failed(t, 0, 1, Some("stdout trace")).await.unwrap();
         } else {
             l.test_passed(t, i as i64, i as i64 + 1).await.unwrap();
         }
@@ -524,10 +524,7 @@ async fn xcode27_result_bundle_gives_the_trace_of_a_failed_test() {
             &test,
             0,
             1,
-            Some(
-                &"/Users/runner/marathon/sample/ios-app/sample-appUITests/FailingTests.swift:31:XCTAssertTrue failed"
-                    .into(),
-            ),
+            Some(&"/Users/runner/marathon/sample/ios-app/sample-appUITests/FailingTests.swift:31:XCTAssertTrue failed"),
         )
         .await
         .unwrap();
@@ -558,9 +555,7 @@ async fn clean_invocation_record_skips_target_summary_lookups() {
         l.test_started(&tests[0]).await.unwrap();
         l.test_passed(&tests[0], 0, 1).await.unwrap();
         l.test_started(&tests[1]).await.unwrap();
-        l.test_failed(&tests[1], 1, 2, Some(&"assertion failed".into()))
-            .await
-            .unwrap();
+        l.test_failed(&tests[1], 1, 2, Some("assertion failed")).await.unwrap();
         l.test_started(&tests[2]).await.unwrap();
         l.test_ignored(&tests[2], 2, 3).await.unwrap();
         l.test_started(&tests[3]).await.unwrap();
@@ -603,9 +598,7 @@ async fn keeps_log_results_on_truncated_xcresult() {
     l.test_started(&tests[0]).await.unwrap();
     l.test_passed(&tests[0], 0, 1).await.unwrap();
     l.test_started(&tests[1]).await.unwrap();
-    l.test_failed(&tests[1], 1, 2, Some(&"assertion failed".into()))
-        .await
-        .unwrap();
+    l.test_failed(&tests[1], 1, 2, Some("assertion failed")).await.unwrap();
     l.test_run_ended().await.unwrap();
     l.after_test_run().await.unwrap();
     let r = h.result();
@@ -619,7 +612,7 @@ async fn keeps_log_results_on_truncated_xcresult() {
 async fn forwards_the_failure_reason_to_every_listener() {
     struct Reasons(Mutex<Vec<DeviceFailureReason>>);
     impl AppleTestRunListener for Reasons {
-        fn test_run_failed<'a>(&'a self, _: &'a String, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+        fn test_run_failed<'a>(&'a self, _: &'a str, reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
             Box::pin(async move {
                 self.0.lock().unwrap().push(reason);
                 Ok(())
@@ -629,7 +622,7 @@ async fn forwards_the_failure_reason_to_every_listener() {
     let reasons = Arc::new(Reasons(Mutex::new(vec![])));
     let composite = CompositeTestRunListener::new(vec![reasons.clone(), reasons.clone()]);
     composite
-        .test_run_failed(&"error".into(), DeviceFailureReason::ServicesUnavailable)
+        .test_run_failed("error", DeviceFailureReason::ServicesUnavailable)
         .await
         .unwrap();
     assert_eq!(
@@ -670,7 +663,7 @@ async fn jvm_listener_production_and_test_sequences_keep_a6_and_incomplete_zero_
         l.test_started(&tests[0]).await.unwrap();
         l.test_passed(&tests[0], 10, 20).await.unwrap();
         l.test_started(&tests[1]).await.unwrap();
-        l.test_failed(&tests[1], 30, 40, Some(&"stdout".into())).await.unwrap();
+        l.test_failed(&tests[1], 30, 40, Some("stdout")).await.unwrap();
         l.test_started(&tests[2]).await.unwrap();
         l.test_ignored(&tests[2], 50, 60).await.unwrap();
         l.test_started(&tests[3]).await.unwrap();
@@ -722,14 +715,11 @@ async fn jvm_debug_lines_and_approved_artifact_order() {
     });
     debug.test_started(&annotated).await.unwrap();
     debug.test_failed(&t, 10, 20, None).await.unwrap();
-    debug
-        .test_failed(&t, 10, 20, Some(&"first\nsecond".into()))
-        .await
-        .unwrap();
+    debug.test_failed(&t, 10, 20, Some("first\nsecond")).await.unwrap();
     debug.test_passed(&t, 10, 20).await.unwrap();
     debug.test_ignored(&t, 10, 20).await.unwrap();
     debug
-        .test_run_failed(&"error".into(), DeviceFailureReason::ServicesUnavailable)
+        .test_run_failed("error", DeviceFailureReason::ServicesUnavailable)
         .await
         .unwrap();
     debug.test_run_ended().await.unwrap();
@@ -760,8 +750,8 @@ async fn jvm_debug_lines_and_approved_artifact_order() {
             .map(|p| p.as_str().unwrap().to_owned())
             .collect();
         for path in &paths {
-            finder.on_line(&format!("    {path}").into()).await.unwrap();
-            finder.on_line(&format!("    {path}").into()).await.unwrap();
+            finder.on_line(&format!("    {path}")).await.unwrap();
+            finder.on_line(&format!("    {path}")).await.unwrap();
         }
         finder.after_test_run().await.unwrap();
         assert_eq!(
@@ -824,7 +814,7 @@ async fn composite_stops_on_first_error_and_adapter_synthesizes_only_terminal_ca
     adapter.test_passed(&t, 1, 2).await.unwrap();
     adapter.test_ignored(&t, 1, 2).await.unwrap();
     adapter
-        .test_run_failed(&"failure".into(), DeviceFailureReason::Unknown)
+        .test_run_failed("failure", DeviceFailureReason::Unknown)
         .await
         .unwrap();
     adapter.test_run_ended().await.unwrap();
@@ -886,17 +876,17 @@ async fn diagnostic_lines_and_debug_printer_share_arc_and_initialize_lazily() {
     use marathon_core::listener::LineListener;
     let h = harness(vec![], ok(""), vec![], None, None);
     let hidden = DebugLogPrinter::new(Some("hidden".into()), true, h.logging.clone());
-    hidden.on_line(&"secret".into()).await.unwrap();
+    hidden.on_line("secret").await.unwrap();
     assert!(!h.logging.registry.lock().unwrap().is_registered("hidden"));
     let printer = DebugLogPrinter::new(Some("stdout".into()), false, h.logging.clone());
     assert!(!h.logging.registry.lock().unwrap().is_registered("stdout"));
-    printer.on_line(&"first".into()).await.unwrap();
-    printer.on_line(&"second".into()).await.unwrap();
+    printer.on_line("first").await.unwrap();
+    printer.on_line("second").await.unwrap();
     let finder = Arc::new(DiagnosticLogsPathFinder::new(h.logging.clone()));
     let line: Arc<dyn LineListener> = finder.clone();
     let run: Arc<dyn AppleTestRunListener> = finder;
-    line.on_line(&"prefix /tmp/diagnostic.log\r".into()).await.unwrap();
-    line.on_line(&" /tmp/diagnostic.log".into()).await.unwrap();
+    line.on_line("prefix /tmp/diagnostic.log\r").await.unwrap();
+    line.on_line(" /tmp/diagnostic.log").await.unwrap();
     run.after_test_run().await.unwrap();
     assert_eq!(
         *h.messages.lock().unwrap(),

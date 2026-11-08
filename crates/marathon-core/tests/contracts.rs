@@ -138,7 +138,7 @@ pub fn transport_contract(context: &VendorContext) -> ClockResult<(i64, i64)> {
 // WP 4.4–4.6, 6.4: vendor bundle payloads remain vendor-owned, with explicit
 // reference identity instead of assuming equality by ID.
 pub fn bundle_contract(identifier: &dyn TestBundleIdentifier, test: &Test) -> VendorResult<Option<String>> {
-    Ok(identifier.identify(test)?.map(|bundle| bundle.0.id().clone()))
+    Ok(identifier.identify(test)?.map(|bundle| bundle.0.id().to_owned()))
 }
 // WP 7.1–7.2: quiescence includes timer callbacks before an external event.
 pub async fn replay_contract(driver: &dyn ReplayDriver, hooks: &dyn ReplayHooks, at: i64) -> ClockResult<String> {
@@ -209,14 +209,11 @@ pub fn substitution_contract<F: Fn(&str) -> Option<String>>(
 pub fn file_plan_contract(
     files: &jcompat::file_manager::FileManager,
     target: &marathon_core::output::FileTarget,
-    test_name: Option<&String>,
+    test_name: Option<&str>,
 ) -> (jcompat::file_manager::PathPlan, Option<i64>) {
     (
-        files.plan_file(target.request(test_name.map(String::as_str))),
-        jcompat::fragment_hash::fragment_index_for_hash(
-            jcompat::fragment_hash::signed_md5_utf16(&target.pool.name.encode_utf16().collect::<Vec<_>>()),
-            2,
-        ),
+        files.plan_file(target.request(test_name)),
+        jcompat::fragment_hash::fragment_index_for_hash(jcompat::fragment_hash::signed_md5(&target.pool.name), 2),
     )
 }
 

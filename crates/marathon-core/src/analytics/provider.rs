@@ -417,7 +417,7 @@ impl Shared {
         debug_assert!(found.is_some(), "MetricsKey must be prefetched off core before lookup");
         found
     }
-    fn observed(&self, name: &String, p: f64) -> Option<f64> {
+    fn observed(&self, name: &str, p: f64) -> Option<f64> {
         let min = self.defaults.observed_duration_min_tests?;
         let observed = self.observed.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(index) = observed.index.get(name) {
@@ -584,7 +584,7 @@ impl MetricsProvider for MetricsProviderImpl {
         tests: &'a [Test],
         percentile: f64,
         limit: Instant,
-        usage: &'a String,
+        usage: &'a str,
     ) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
             let names: BTreeSet<_> = tests.iter().map(Test::to_safe_test_name).collect();
@@ -601,7 +601,7 @@ impl MetricsProvider for MetricsProviderImpl {
                 .count();
             let without = names.len() - with;
             let mut message = String::from("Execution time history for ");
-            message.push_str(&usage.clone());
+            message.push_str(&usage.to_owned());
             message.push_str(&format!(
                 " (percentile {} since {limit}): {with} of {} tests have it",
                 double_to_string(percentile),

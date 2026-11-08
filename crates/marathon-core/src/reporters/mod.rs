@@ -15,8 +15,8 @@ use std::io::Write;
 fn object<const N: usize>(fields: [(&str, WriterValue); N]) -> WriterValue {
     WriterValue::Object(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
 }
-fn string(s: &String) -> WriterValue {
-    WriterValue::String(s.clone())
+fn string(s: &str) -> WriterValue {
+    WriterValue::String(s.to_string())
 }
 fn gson(v: &WriterValue) -> VendorResult<String> {
     GsonWriter::default()

@@ -148,7 +148,7 @@ fn a_device_in_setup_has_no_grace_d41() {
             let mut server = server(script).await;
             let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
             provider.initialize(context).await?;
-            until(|| commands(&server).contains(&"dumpsys input".into())).await;
+            until(|| commands(&server).contains(&"dumpsys input".to_owned())).await;
             checked(server.set_device_state(SERIAL, "offline"));
             assert!(matches!(event(&provider).await, DeviceEvent::Disconnected(_)));
             checked(server.set_device_state(SERIAL, "device"));

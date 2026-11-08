@@ -16,12 +16,12 @@ pub async fn report_execution_time_coverage(
     } = &config.batching_strategy
     {
         provider
-            .report_execution_time_coverage(&tests, *percentile, *limit, &"the batch duration limit".into())
+            .report_execution_time_coverage(&tests, *percentile, *limit, "the batch duration limit")
             .await?;
     }
     if let SortingStrategyConfiguration::ExecutionTime { percentile, time_limit } = &config.sorting_strategy {
         provider
-            .report_execution_time_coverage(&tests, *percentile, *time_limit, &"execution time sorting".into())
+            .report_execution_time_coverage(&tests, *percentile, *time_limit, "execution time sorting")
             .await?;
     }
     Ok(())

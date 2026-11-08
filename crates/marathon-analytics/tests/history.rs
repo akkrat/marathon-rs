@@ -281,7 +281,7 @@ async fn recreation_replay(env: Env, v2_backend: bool) -> OperationResult<()> {
         tracker.track_test(&event).await?;
         second.shutdown().await?;
         let third = Influx2Client::connect(&config, false, env.context.clone()).await?;
-        let records = third.query(&"from(bucket: \"bucket\")".into()).await?;
+        let records = third.query("from(bucket: \"bucket\")").await?;
         assert_eq!(
             marathon_core::analytics::remote::influx2::map_records(records)?,
             [("pkg.Clazz.method".into(), 5000.0)]
@@ -302,7 +302,7 @@ async fn recreation_replay(env: Env, v2_backend: bool) -> OperationResult<()> {
         .await?;
         second.shutdown().await?;
         let third = InfluxClient::connect(&config, false, env.context.clone(), env.io.clone()).await?;
-        let result = third.query(&"SELECT x FROM tests".into(), &"db".into()).await?;
+        let result = third.query("SELECT x FROM tests", "db").await?;
         assert_eq!(
             marathon_core::analytics::remote::influx::map_result(result, "percentile")?,
             [("pkg.Clazz.method".into(), 5000.0)]

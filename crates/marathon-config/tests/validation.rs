@@ -618,7 +618,7 @@ fn regex_scalar_kinds_use_json_node_type_names() -> Result<(), Box<dyn std::erro
             [
                 (
                     "com.fasterxml.jackson.databind.JsonMappingException".into(),
-                    Some(message.clone())
+                    Some(message.to_owned())
                 ),
                 ("java.lang.IllegalStateException".into(), Some(message)),
             ],

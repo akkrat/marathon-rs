@@ -37,7 +37,7 @@ impl SetupRetries {
     }
     /// A removed simulator starts over if it is added back: the devices file changed, and that is bounded by its owner.
     /// The removal also cleared its count and moved its generation on.
-    pub(super) fn forget(&mut self, id: &String) {
+    pub(super) fn forget(&mut self, id: &str) {
         for due in self.due.values_mut() {
             due.retain(|waiting| waiting.key != *id);
         }

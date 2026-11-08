@@ -82,7 +82,7 @@ impl AndroidAppInstaller {
         );
         Ok(())
     }
-    async fn appops(&self, device: &AndroidDevice, package: &String, context: VendorContext) -> VendorResult<()> {
+    async fn appops(&self, device: &AndroidDevice, package: &str, context: VendorContext) -> VendorResult<()> {
         if !self.runtime.configuration.mock_location {
             return Ok(());
         }
@@ -116,7 +116,7 @@ impl AndroidAppInstaller {
     async fn reinstall(
         &self,
         device: &AndroidDevice,
-        package: &String,
+        package: &str,
         app: &JavaPath,
         splits: &[JavaPath],
         context: VendorContext,
@@ -235,13 +235,7 @@ impl AndroidAppInstaller {
         }
         let options = &self.runtime.configuration.install_options;
         if !options.is_empty() {
-            result.extend(
-                options
-                    .encode_utf16()
-                    .collect::<Vec<_>>()
-                    .split(|u| *u == 32)
-                    .map(|s| String::from_utf16_lossy(s)),
-            )
+            result.extend(options.split(' ').map(str::to_owned));
         }
         result
     }

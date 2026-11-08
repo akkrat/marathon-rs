@@ -30,7 +30,7 @@ impl ArtifactFinderListener {
     }
 }
 impl LineListener for ArtifactFinderListener {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if let Some(path) = find_artifact(&self.pattern, &line.to_owned()) {
                 let path = kt::trim(path).to_owned();
@@ -70,7 +70,7 @@ impl DiagnosticLogsPathFinder {
     }
 }
 impl LineListener for DiagnosticLogsPathFinder {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         self.0.on_line(line)
     }
 }
@@ -90,7 +90,7 @@ impl SessionResultsPathFinder {
     }
 }
 impl LineListener for SessionResultsPathFinder {
-    fn on_line<'a>(&'a self, line: &'a String) -> VendorFuture<'a, ()> {
+    fn on_line<'a>(&'a self, line: &'a str) -> VendorFuture<'a, ()> {
         self.0.on_line(line)
     }
 }

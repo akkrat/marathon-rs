@@ -406,7 +406,7 @@ impl RecordingPool {
         };
         self.entries.borrow_mut().push(Entry::Pool {
             at: self.core.clock().now_millis(),
-            message: message.clone(),
+            message: message.to_owned(),
             via: via.to_owned(),
         });
         if via == "send" || via == "trySend" {
@@ -638,7 +638,7 @@ impl Outcome {
         self.entries
             .iter()
             .filter_map(|entry| match entry {
-                Entry::Pool { message, via, .. } if via == "send" || via == "trySend" => Some(message.clone()),
+                Entry::Pool { message, via, .. } if via == "send" || via == "trySend" => Some(message.to_owned()),
                 _ => None,
             })
             .collect()
@@ -713,7 +713,7 @@ pub fn scenario_with(
 
 // ---- The probe's row ----------------------------------------------------------------------
 
-fn clean(text: &String, batch: &BatchRef) -> String {
+fn clean(text: &str, batch: &BatchRef) -> String {
     text.to_owned()
         .replace(&batch.id.to_owned(), "<batch>")
         .split('\n')

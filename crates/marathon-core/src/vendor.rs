@@ -108,7 +108,7 @@ pub enum TestParser {
 /// AppleTestBundle, AndroidTestBundle and StubTestBundle are ordinary Kotlin
 /// classes: equality is reference identity, even when their id strings match.
 pub trait TestBundle: Send + Sync {
-    fn id(&self) -> &String;
+    fn id(&self) -> &str;
 }
 #[derive(Clone)]
 pub struct BundleRef(pub Arc<dyn TestBundle>);

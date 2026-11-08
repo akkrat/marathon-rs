@@ -284,7 +284,7 @@ impl Harness {
         )
     }
     fn remote(&self, id: &str) -> String {
-        self.device.manager.remote_xcresult_for_id(&id.into())
+        self.device.manager.remote_xcresult_for_id(&id)
     }
     fn local(&self, id: &str) -> PathBuf {
         self.tmp
@@ -363,7 +363,7 @@ async fn failed_pulls_keep_remote_bundles_and_are_reported_at_finalization_witho
             assert!(d.contains(detail));
         }
         assert!(d.contains(if throws { "transport closed" } else { "pull failed" }));
-        assert_eq!(h.p.kept_sources(&"udid@worker".into()), vec![h.remote("failed")]);
+        assert_eq!(h.p.kept_sources("udid@worker"), vec![h.remote("failed")]);
         assert!(h.local("next").exists());
         assert_eq!(
             h.calls.lock().unwrap().as_slice(),
@@ -465,7 +465,7 @@ async fn cancelled_unstarted_and_rejected_bundles_are_reported_once_with_recover
     assert!(retained[0].to_owned().contains("processing did not complete"));
     assert!(retained[1].to_owned().contains("local copy: none"));
     assert!(retained[2].to_owned().contains("artifact queue is closed"));
-    assert_eq!(h.p.kept_sources(&"udid@worker".into()).len(), 3);
+    assert_eq!(h.p.kept_sources("udid@worker").len(), 3);
     assert!(h.calls.lock().unwrap().is_empty());
     let idle = Harness::new(2, 4, 1, successful(), false)?;
     idle.listener("unstarted").after_test_run().await?;
@@ -499,7 +499,7 @@ async fn pull_that_ignores_cancellation_is_reported_and_kept_at_the_shutdown_dea
             .to_owned()
             .contains("still running 500 ms after shutdown cancelled it")
     );
-    assert_eq!(h.p.kept_sources(&"udid@worker".into()), vec![h.remote("batch")]);
+    assert_eq!(h.p.kept_sources("udid@worker"), vec![h.remote("batch")]);
     gate.complete(Ok(false));
     settle().await;
     assert_eq!(h.close().await?, retained);
@@ -524,9 +524,9 @@ async fn same_run_device_cleanup_keeps_an_undelivered_bundle_until_a_later_run()
     let stale = Path::new(h.device.storage_path()).join("stale");
     std::fs::write(&stale, "stale").map_err(io)?;
     h.listener("failed").after_test_run().await?;
-    h.p.await_owner(&"udid@worker".into(), &h.context).await?;
+    h.p.await_owner("udid@worker", &h.context).await?;
     let keep =
-        h.p.kept_sources(&"udid@worker".into())
+        h.p.kept_sources("udid@worker")
             .iter()
             .map(String::clone)
             .collect::<Vec<_>>();
@@ -568,7 +568,7 @@ async fn cancelled_admission_to_a_full_queue_keeps_and_reports_the_bundle() -> V
     assert!(once(admission.as_mut()).await.is_pending());
     signal.cancel(requested("device disposed"));
     assert!(matches!(admission.await, Err(VendorError::Cancelled(_))));
-    assert_eq!(h.p.kept_sources(&"udid@worker".into()), vec![h.remote("blocked")]);
+    assert_eq!(h.p.kept_sources("udid@worker"), vec![h.remote("blocked")]);
     h.device
         .manager
         .remove_remote_directory(&[h.remote("blocked").to_owned()], &h.context)
@@ -651,9 +651,9 @@ async fn healthy_worker_hands_over_its_bundle_while_a_stalled_worker_holds_its_s
     let listener = h.custom("healthy", fast, Some(h.p.clone()), h.context.clone(), configuration());
     listener.before_test_run().await?;
     listener.after_test_run().await?;
-    h.p.await_owner(&"fast".into(), &h.context).await?;
-    assert_eq!(h.p.kept_sources(&"udid@worker".into()).len(), 3);
-    assert!(h.p.kept_sources(&"fast".into()).is_empty());
+    h.p.await_owner("fast", &h.context).await?;
+    assert_eq!(h.p.kept_sources("udid@worker").len(), 3);
+    assert!(h.p.kept_sources("fast").is_empty());
     assert_eq!(h.calls.lock().unwrap().len(), 1);
     gate.complete(Ok(()));
     waiting.await?;
@@ -681,7 +681,7 @@ fn production_bridge_delivers_renames_and_cleans_before_provider_report() {
                     h.context = context;
                     h.listener("bridge").before_test_run().await?;
                     h.listener("bridge").after_test_run().await?;
-                    h.p.await_owner(&"udid@worker".into(), &h.context).await?;
+                    h.p.await_owner("udid@worker", &h.context).await?;
                     assert!(h.local("bridge").exists());
                     assert!(h.close().await?.is_empty());
                     assert_eq!(
@@ -720,7 +720,7 @@ async fn macos_inline_path_obeys_policy_and_finishes_delivery_before_returning()
                 if failed {
                     listener
                         .test_run_failed(
-                            &"failed".into(),
+                            "failed",
                             marathon_apple::logparser::parser::DeviceFailureReason::Unknown,
                         )
                         .await?;

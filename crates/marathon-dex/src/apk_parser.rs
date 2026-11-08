@@ -118,11 +118,11 @@ fn parse_instrumentation_info_inner(apk: &Path) -> DexResult<InstrumentationInfo
     };
 
     // Support relative declaration of instrumentation test runner.
-    if runner.encode_utf16().collect::<Vec<_>>().first() == Some(&u16::from(b'.')) {
+    if runner.starts_with('.') {
         let mut combined = test_package.clone();
         combined.push_str(&runner);
         runner = combined;
-    } else if !runner.encode_utf16().collect::<Vec<_>>().contains(&u16::from(b'.')) {
+    } else if !runner.contains('.') {
         let mut combined = test_package.clone();
         combined.push('.');
         combined.push_str(&runner);

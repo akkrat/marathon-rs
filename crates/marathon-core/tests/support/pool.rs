@@ -464,10 +464,10 @@ impl Tracker for RecordingTracker {
         lock(&self.disconnected).push((pool.name.to_owned(), device.serial_number.to_owned()));
         Box::pin(async { Ok(()) })
     }
-    fn device_provider_init<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_provider_init<'a>(&'a self, _: &'a str, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn device_preparing<'a>(&'a self, _: &'a String, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
+    fn device_preparing<'a>(&'a self, _: &'a str, _: Instant, _: Instant) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
     fn test<'a>(

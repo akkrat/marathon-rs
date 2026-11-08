@@ -274,7 +274,7 @@ impl Harness {
                         at_millis: 0,
                         wall_millis: 1234,
                         level,
-                        message: message.clone(),
+                        message: message.to_string(),
                         cause: cause.cloned(),
                     });
                 })

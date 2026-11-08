@@ -182,7 +182,7 @@ impl<'a> AppleApplicationInstaller<'a> {
                     fm.create_remote_directory(None, context).await?;
                     fm.create_remote_shared_directory(context).await?;
                     if !device.push_shared(src, &destination, context).await? {
-                        return Err(setup(message.clone()));
+                        return Err(setup(message.to_owned()));
                     }
                     Ok(())
                 }

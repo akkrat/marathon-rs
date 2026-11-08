@@ -76,16 +76,8 @@ impl MetricsProviderFactory {
                 )
             }
             AnalyticsConfiguration::Graphite(config) => {
-                let host = String::from_utf16(&config.host.encode_utf16().collect::<Vec<_>>());
-                let prefix = config
-                    .prefix
-                    .as_ref()
-                    .map(|s| String::from_utf16(&s.encode_utf16().collect::<Vec<_>>()))
-                    .transpose();
-                let (client, prefix): (Arc<dyn GraphiteQuery>, _) = match (host, prefix) {
-                    (Ok(host), Ok(prefix)) => (self.setup.graphite(&host).await?, prefix),
-                    _ => (Arc::new(InvalidGraphiteQuery), None),
-                };
+                let client = self.setup.graphite(&config.host).await?;
+                let prefix = config.prefix.clone();
                 return Ok(Analytics::new(MetricsProviderImpl::new(
                     Arc::new(GraphiteDataSource {
                         client,
@@ -117,20 +109,5 @@ impl MetricsProviderFactory {
                 Ok(Analytics::noop(NoOpMetricsProvider::new(true, self.context.clone())?))
             }
         }
-    }
-}
-
-// P2 rejects lone surrogates at the query boundary, retaining retries/defaults
-// instead of turning malformed text into a factory failure.
-struct InvalidGraphiteQuery;
-impl GraphiteQuery for InvalidGraphiteQuery {
-    fn query<'a>(&'a self, _: &'a str, _: Instant) -> ServiceFuture<'a, Vec<String>> {
-        Box::pin(async {
-            Err(failure(
-                "java.lang.IllegalArgumentException",
-                "Graphite host and prefix must be UTF-8",
-            )
-            .into())
-        })
     }
 }

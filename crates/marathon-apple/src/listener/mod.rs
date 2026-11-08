@@ -33,7 +33,7 @@ pub trait AppleTestRunListener: Send + Sync {
         _test: &'a Test,
         _start_time: i64,
         _end_time: i64,
-        _trace: Option<&'a String>,
+        _trace: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
@@ -46,7 +46,7 @@ pub trait AppleTestRunListener: Send + Sync {
     fn test_run_ended<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
-    fn test_run_failed<'a>(&'a self, _error_message: &'a String, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
+    fn test_run_failed<'a>(&'a self, _error_message: &'a str, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
     fn after_test_run<'a>(&'a self) -> VendorFuture<'a, ()> {

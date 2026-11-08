@@ -1,21 +1,12 @@
 //! Port of the Kotlin stdlib text functions (`trim`, `isBlank`, `lines`, `trimIndent`) as the
 //! bin/ and model/ sources call them on command output. Kotlin's whitespace set is all BMP.
 
-use jcompat::jstring::is_whitespace as is_whitespace_unit;
-
-pub fn is_whitespace(c: char) -> bool {
-    u16::try_from(u32::from(c)).is_ok_and(is_whitespace_unit)
-}
-
-pub fn trim(text: &str) -> &str {
-    text.trim_matches(is_whitespace)
-}
+pub use jcompat::jstring::{is_whitespace, trim};
 
 pub fn is_blank(text: &str) -> bool {
     text.chars().all(is_whitespace)
 }
 
-/// `CharSequence.lines()`: splits around `\r\n`, `\n` and `\r`; the last segment is always present.
 pub fn lines(text: &str) -> Vec<&str> {
     let mut result = Vec::new();
     let bytes = text.as_bytes();

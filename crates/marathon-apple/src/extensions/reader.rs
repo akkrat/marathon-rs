@@ -18,12 +18,10 @@ use std::{
 use tokio::io::{AsyncRead, ReadBuf};
 
 pub fn current_time_millis(context: &VendorContext) -> VendorResult<i64> {
-    context.hooks.millis("apple.Reader.currentTimeMillis").map_err(|e| {
-        VendorError::Other(failure(
-            "ReplayError",
-            String::from_utf16_lossy(&e.message.encode_utf16().collect::<Vec<_>>()),
-        ))
-    })
+    context
+        .hooks
+        .millis("apple.Reader.currentTimeMillis")
+        .map_err(|e| VendorError::Other(failure("ReplayError", e.message)))
 }
 
 /// Polls an async stream once per backoff tick. A pending read never delays the

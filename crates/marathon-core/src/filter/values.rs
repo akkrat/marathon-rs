@@ -49,42 +49,34 @@ impl FilterValuesReader for FileValuesReader {
 }
 
 pub fn parse_values(bytes: &[u8]) -> Vec<String> {
-    let text: Vec<u16> = utf8::decode_utf8(bytes).encode_utf16().collect();
-    jstring::lines(&String::from_utf16_lossy(&text))
+    jstring::lines(&utf8::decode_utf8(bytes))
         .into_iter()
         .filter_map(|line| {
-            let units: Vec<u16> = line.encode_utf16().collect();
-            let line = units.as_slice();
-            let trimmed = jstring::trim(line);
-            if trimmed.is_empty() || trimmed.first() == Some(&u16::from(b'#')) {
+            let trimmed = jstring::trim(&line);
+            if trimmed.is_empty() || trimmed.starts_with('#') {
                 return None;
             }
-            // Java's built-in \s is ASCII; `$` can also match just before
-            // a final NEL/LS/PS, which must survive replacement (NEL is not
-            // Kotlin whitespace). Embedded terminators stop `.*`.
-            let mut result = line.to_vec();
-            for i in 0..line.len() {
-                if line[i] == u16::from(b'#') && i > 0 && ascii_space(line[i - 1]) {
-                    let terminator = line[i..]
-                        .iter()
-                        .position(|u| matches!(*u, 0x85 | 0x2028 | 0x2029))
-                        .map(|p| i + p);
-                    if terminator.is_some_and(|p| p + 1 != line.len()) {
+            // Java's built-in \s is ASCII; `$` also matches before a final NEL/LS/PS.
+            let mut result = line.clone();
+            for (i, c) in line.char_indices() {
+                if c == '#' && i > 0 && ascii_space(line.as_bytes()[i - 1]) {
+                    let terminator = line[i..].find(['\u{85}', '\u{2028}', '\u{2029}']).map(|p| i + p);
+                    if terminator.is_some_and(|p| line[p..].chars().count() != 1) {
                         continue;
                     }
                     let mut start = i;
-                    while start > 0 && ascii_space(line[start - 1]) {
+                    while start > 0 && ascii_space(line.as_bytes()[start - 1]) {
                         start -= 1;
                     }
-                    result.drain(start..terminator.unwrap_or(line.len()));
+                    result.replace_range(start..terminator.unwrap_or(line.len()), "");
                     break;
                 }
             }
-            Some(String::from_utf16_lossy(jstring::trim(&result)))
+            Some(jstring::trim(&result).to_owned())
         })
         .collect()
 }
-fn ascii_space(c: u16) -> bool {
+fn ascii_space(c: u8) -> bool {
     matches!(c, 9..=13 | 32)
 }
 

@@ -64,7 +64,7 @@ impl LogLevel {
         .find(|level| level.priority_letter() == letter)
     }
     /// Only the first character is used; empty input finds nothing.
-    pub fn get_by_letter_string(letter: &String) -> Option<Self> {
+    pub fn get_by_letter_string(letter: &str) -> Option<Self> {
         letter
             .encode_utf16()
             .collect::<Vec<_>>()
@@ -119,13 +119,13 @@ impl LogCatMessage {
     pub fn tid(&self) -> i32 {
         self.header.tid
     }
-    pub fn app_name(&self) -> &String {
+    pub fn app_name(&self) -> &str {
         &self.header.app_name
     }
-    pub fn tag(&self) -> &String {
+    pub fn tag(&self) -> &str {
         &self.header.tag
     }
-    pub fn timestamp(&self) -> &String {
+    pub fn timestamp(&self) -> &str {
         &self.header.timestamp
     }
     /// Kotlin `toString()`: `"$header: $message"`.
@@ -150,12 +150,8 @@ impl LogCatMessageParser {
 
     /// Parses one header line, or returns None when it does not match the
     /// whole-line header grammar (which has no year — see U26).
-    pub fn process_log_header(&mut self, line: &String) -> Option<LogCatHeader> {
-        // The fixed pattern operates on &str; header lines are ASCII on the
-        // wire, and anything else cannot match the grammar anyway.
-        let text: String = char::decode_utf16(line.encode_utf16().collect::<Vec<_>>().iter().copied())
-            .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
-            .collect();
+    pub fn process_log_header(&mut self, line: &str) -> Option<LogCatHeader> {
+        let text = line;
         let captures = LOGCAT_HEADER.find(&text)?;
         let whole = captures.get(0)?;
         // Java Matcher.matches(): the match must cover the whole line.
@@ -278,7 +274,7 @@ mod tests {
         let messages = parser.process_log_lines(&lines_of(FIXTURE));
         let summary: Vec<(String, LogLevel, String)> = messages
             .iter()
-            .map(|m| (m.tag().clone(), m.log_level(), m.message.clone()))
+            .map(|m| (m.tag().to_owned(), m.log_level(), m.message.to_owned()))
             .collect();
         assert_eq!(
             summary,

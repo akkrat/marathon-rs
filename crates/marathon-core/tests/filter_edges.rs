@@ -665,7 +665,7 @@ fn allure_file_supplier_precedence_json_dispatch_and_p2_replay_the_jvm() -> Oper
             assert_eq!(class, row["output"]["supplied"].as_str());
             if let Some(p @ TestPlan::V1_0(_)) = &plan {
                 assert_eq!(
-                    json!(p.is_selected(Some(&"7".into()), &"pkg.Class.method".into())),
+                    json!(p.is_selected(Some("7"), "pkg.Class.method")),
                     row["output"]["selected"]
                 );
             }
@@ -872,7 +872,7 @@ fn allure_process_child() -> OperationResult<()> {
         logger: Arc::new(Logs::default()),
     };
     let plan = supplier.supply()?.expect("relative plan exists");
-    assert!(plan.is_selected(Some(&"7".into()), &"anything".into()));
+    assert!(plan.is_selected(Some("7"), "anything"));
     Ok(())
 }
 #[test]

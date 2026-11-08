@@ -51,7 +51,7 @@ pub trait BarrierPermit: Send {
 pub type BarrierFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = ClockResult<Box<dyn BarrierPermit>>> + Send + 'a>>;
 pub trait ReplayBarriers: Send + Sync {
-    fn enter<'a>(&'a self, label: &'static str, key: &'a String) -> BarrierFuture<'a>;
+    fn enter<'a>(&'a self, label: &'static str, key: &'a str) -> BarrierFuture<'a>;
 }
 pub trait Timer: Send + Sync {
     fn start_time_millis(&self) -> i64;

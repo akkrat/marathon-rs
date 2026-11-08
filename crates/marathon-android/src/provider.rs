@@ -119,7 +119,7 @@ impl AdamDeviceProvider {
             let logging = AdamLogging::new(registry, move |name, level, text, error| {
                 let logger = lock(&registered).slf4j_logger(name);
                 let f = error.map(|e| throwable(e.to_throwable()));
-                sink(&logger, level, &text.as_str().into(), f.as_ref())
+                sink(&logger, level, &text.as_str(), f.as_ref())
             });
             let client = AndroidDebugBridgeClient::new(ip, port, self.inner.factory.clone(), Some(logging))
                 .with_host_name(&host);
@@ -546,7 +546,7 @@ impl AdamDeviceProvider {
             self.offer(client, devices, &[], blips, tx, context).await?;
             return Ok(None);
         };
-        let listed = |serial: &String| {
+        let listed = |serial: &str| {
             devices
                 .iter()
                 .any(|d| d.serial == *serial && d.state == DeviceState::Device)
@@ -829,9 +829,7 @@ impl DeviceProvider for AdamDeviceProvider {
                         .hooks
                         .choose_key("android.AdamDeviceProvider.borrow", &keys)
                         .map_err(|e| other("ReplayError", e.message))?;
-                    if let Some((_, identity, device)) = available
-                        .into_iter()
-                        .find(|(s, _, _)| selected == s.as_str())
+                    if let Some((_, identity, device)) = available.into_iter().find(|(s, _, _)| selected == s.as_str())
                     {
                         return Ok((device, identity));
                     }

@@ -81,8 +81,8 @@ fn parent(path: &str) -> Option<&str> {
 }
 
 impl DeviceFs {
-    pub(crate) fn entries(&self) -> impl Iterator<Item = (&String, &Node)> {
-        self.nodes.iter()
+    pub(crate) fn entries(&self) -> impl Iterator<Item = (&str, &Node)> {
+        self.nodes.iter().map(|(name, node)| (name.as_str(), node))
     }
 
     pub fn get(&self, path: &str) -> Option<&Node> {
@@ -159,8 +159,8 @@ impl DeviceFs {
             .collect()
     }
 
-    pub fn paths(&self) -> impl Iterator<Item = (&String, &Node)> {
-        self.nodes.iter()
+    pub fn paths(&self) -> impl Iterator<Item = (&str, &Node)> {
+        self.nodes.iter().map(|(name, node)| (name.as_str(), node))
     }
 }
 

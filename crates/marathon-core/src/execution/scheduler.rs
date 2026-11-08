@@ -320,7 +320,7 @@ impl Inner {
         progress
     }
 
-    fn filtered_by_configuration(&self, serial: &String) -> OperationResult<bool> {
+    fn filtered_by_configuration(&self, serial: &str) -> OperationResult<bool> {
         let configuration = &self.parts.configuration;
         let serial = serial.to_owned();
         let allow_list_accepted = configuration.include_serial_regexes.is_empty()

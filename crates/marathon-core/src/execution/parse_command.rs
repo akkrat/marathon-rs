@@ -54,7 +54,7 @@ impl MarathonTestParseCommand {
 
 /// `File(parent, child)` on Unix: the normalized child appended with one separator,
 /// even when the child is absolute; an empty child is the parent itself.
-fn java_child(parent: &JavaPath, child: &String) -> JavaPath {
+fn java_child(parent: &JavaPath, child: &str) -> JavaPath {
     let slash = u16::from(b'/');
     let mut normalized: Vec<u16> = Vec::with_capacity(child.encode_utf16().count());
     for &unit in &child.encode_utf16().collect::<Vec<_>>() {
@@ -86,7 +86,7 @@ impl ParseOutput for MarathonTestParseCommand {
         &'a self,
         tests: &'a [Test],
         flaky_tests: &'a [Test],
-        output_file_name: Option<&'a String>,
+        output_file_name: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let result = parse_results(tests, flaky_tests);
@@ -94,7 +94,7 @@ impl ParseOutput for MarathonTestParseCommand {
             match output_file_name {
                 Some(name) => {
                     let directory = absolute_file_path_utf16(&self.output_dir.0, &self.cwd.0);
-                    let mut file_name = name.clone();
+                    let mut file_name = name.to_owned();
                     file_name.push_str(EXTENSION);
                     blocking(self.io.as_ref(), move || {
                         // Files.createDirectories, then File(dirPath.toFile(), name + EXTENSION).writeText.
@@ -103,8 +103,7 @@ impl ParseOutput for MarathonTestParseCommand {
                         let target = java_child(&directory, &file_name);
                         let path = target.to_file_path_buf().map_err(|e| file_open_error(e, &target))?;
                         let mut file = std::fs::File::create(path).map_err(|e| file_open_error(e, &target))?;
-                        file.write_all(result.as_bytes())
-                            .map_err(crate::artifact_io::io_error)
+                        file.write_all(result.as_bytes()).map_err(crate::artifact_io::io_error)
                     })
                     .await
                 }
@@ -123,13 +122,13 @@ mod tests {
     #[test]
     fn java_child_matches_file_parent_child() {
         let parent = JavaPath::from_text("/out");
-        let child = |c: &str| String::from_utf16_lossy(&java_child(&parent, &c.into()).0);
+        let child = |c: &str| String::from_utf16_lossy(&java_child(&parent, &c).0);
         assert_eq!(child("r.yml"), "/out/r.yml");
         assert_eq!(child("/abs.yml"), "/out/abs.yml");
         assert_eq!(child("a//b/.yml"), "/out/a/b/.yml");
         assert_eq!(child(""), "/out");
         let root = JavaPath::from_text("/");
-        assert_eq!(String::from_utf16_lossy(&java_child(&root, &"/x".into()).0), "/x");
-        assert_eq!(String::from_utf16_lossy(&java_child(&root, &"x".into()).0), "/x");
+        assert_eq!(String::from_utf16_lossy(&java_child(&root, "/x").0), "/x");
+        assert_eq!(String::from_utf16_lossy(&java_child(&root, "x").0), "/x");
     }
 }

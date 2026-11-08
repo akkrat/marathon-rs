@@ -176,7 +176,7 @@ impl AppleSimulatorDevice {
         &self,
         outcome: Result<(), RunError>,
         job: &Arc<BatchJob>,
-        batch: &String,
+        batch: &str,
         results: &Arc<dyn Deferred<TestBatchResults>>,
         context: &VendorContext,
     ) -> VendorResult<()> {
@@ -249,7 +249,8 @@ impl AppleSimulatorDevice {
                     error
                         .error
                         .failure()
-                        .message.clone()
+                        .message
+                        .to_owned()
                         .unwrap_or_else(|| reason.name().into()),
                 )));
             }

@@ -83,7 +83,7 @@ impl<T> AdmissionCore<T> {
             waits: vec![],
         }
     }
-    pub fn admissible(&self, worker: &String) -> bool {
+    pub fn admissible(&self, worker: &str) -> bool {
         self.outstanding < self.capacity && self.workers.get(worker).map_or(0, |w| w.held) < self.worker_capacity
     }
     pub fn admit(&mut self, mut waiter: Waiter<T>, now: i64) -> Admitted {
@@ -137,7 +137,7 @@ impl<T> AdmissionCore<T> {
         let at = self.waiting.iter().position(|w| w.item.id == id)?;
         Some(self.waiting.remove(at).item)
     }
-    pub fn take(&mut self, worker: &String) -> Option<Item<T>> {
+    pub fn take(&mut self, worker: &str) -> Option<Item<T>> {
         let entry = self.workers.get_mut(worker)?;
         if let Some(item) = entry.queue.pop_front() {
             return Some(item);
@@ -145,15 +145,10 @@ impl<T> AdmissionCore<T> {
         self.workers.shift_remove(worker);
         None
     }
-    pub fn complete(&mut self, owner: &String, worker: &String, now: i64) -> Effects {
+    pub fn complete(&mut self, owner: &str, worker: &str, now: i64) -> Effects {
         self.complete_with_times(owner, worker, || now)
     }
-    pub fn complete_with_times(
-        &mut self,
-        owner: &String,
-        worker: &String,
-        mut timestamp: impl FnMut() -> i64,
-    ) -> Effects {
+    pub fn complete_with_times(&mut self, owner: &str, worker: &str, mut timestamp: impl FnMut() -> i64) -> Effects {
         let mut effects = Effects::default();
         if let Some(pending) = self.pending.get_mut(owner) {
             pending.count -= 1;
@@ -182,7 +177,7 @@ impl<T> AdmissionCore<T> {
         }
         effects
     }
-    pub fn owner_done(&self, owner: &String) -> Option<Arc<SharedDeferred<()>>> {
+    pub fn owner_done(&self, owner: &str) -> Option<Arc<SharedDeferred<()>>> {
         self.pending.get(owner).map(|p| p.done.clone())
     }
     pub fn close(&mut self) -> Vec<Waiter<T>> {

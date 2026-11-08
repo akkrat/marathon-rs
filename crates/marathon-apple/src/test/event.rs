@@ -63,7 +63,7 @@ impl TestEvent {
             TestRunFailed { message, reason } => (
                 "TestRunFailed",
                 vec![
-                    ("message".into(), KotlinValue::Text(message.clone())),
+                    ("message".into(), KotlinValue::Text(message.to_owned())),
                     ("reason".into(), reason.name().into()),
                 ],
             ),

@@ -22,7 +22,7 @@ fn without_date(s: String) -> String {
 fn jvm_html_model_bytes_and_xml11_log() {
     let r = mixed();
     assert_eq!(
-        json(&checked(index(r.summary(), &"Report <&> 名".into()))),
+        json(&checked(index(r.summary(), "Report <&> 名"))),
         checked(std::fs::read(fixture("index.json")))
     );
     assert_eq!(
@@ -244,10 +244,10 @@ fn connected_without_tests_and_empty_helper_arithmetic_match_jvm() {
         vec![],
     );
     assert_eq!(
-        json(&checked(index(report.summary(), &"Report <&> 名".into()))),
+        json(&checked(index(report.summary(), "Report <&> 名"))),
         checked(std::fs::read(fixture("index-connected-empty.json")))
     );
-    let error = index(empty().summary(), &"title".into()).err().unwrap();
+    let error = index(empty().summary(), "title").err().unwrap();
     assert_eq!(
         error.failure().to_java_string().to_owned(),
         oracle("empty-average")["error"]

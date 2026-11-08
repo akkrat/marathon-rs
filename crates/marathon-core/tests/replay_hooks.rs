@@ -193,11 +193,11 @@ fn barriers_admit_in_order_and_cancelled_wait_does_not_consume_token() {
                 core.clock().as_ref(),
             );
             let barriers = hooks.barriers();
-            let b = "b".into();
+            let b = "b";
             let mut waiting = barriers.enter("core.DeviceActor.prepare", &b);
             assert!(futures_util::poll!(waiting.as_mut()).is_pending());
             drop(waiting);
-            let a = "a".into();
+            let a = "a";
             let first = replay(barriers.enter("core.DeviceActor.prepare", &a).await);
             let mut waiting = barriers.enter("core.DeviceActor.prepare", &b);
             assert!(futures_util::poll!(waiting.as_mut()).is_pending());
@@ -223,7 +223,7 @@ fn duplicate_and_missing_barriers_are_sticky_errors() {
                 core.clock().as_ref(),
             );
             let barriers = hooks.barriers();
-            let key = "a".into();
+            let key = "a";
             let first = replay(barriers.enter("core.DeviceActor.prepare", &key).await);
             assert!(barriers.enter("core.DeviceActor.prepare", &key).await.is_err());
             replay(first.finish());
@@ -285,7 +285,7 @@ fn live_and_unspecified_barriers_pass_through() {
                 RuntimeHooks::taped(Tape::default(), core.clock().as_ref()),
             ] {
                 let barriers = hooks.barriers();
-                let key = "device".into();
+                let key = "device";
                 let permit = replay(barriers.enter("core.DeviceActor.prepare", &key).await);
                 replay(permit.finish());
                 replay(hooks.verify_consumed());

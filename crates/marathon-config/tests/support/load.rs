@@ -120,7 +120,7 @@ pub fn validate(configuration: &Configuration) -> Result<(), Box<ConfigurationEr
 }
 
 pub fn message(error: &ConfigurationError) -> String {
-    error.message.clone().unwrap_or_default()
+    error.message.to_owned().unwrap_or_default()
 }
 pub fn class(error: &ConfigurationError) -> String {
     error.class.to_owned()

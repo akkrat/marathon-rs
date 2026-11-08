@@ -125,20 +125,10 @@ impl SimulatorProfile {
 
 /// `expandTextualId` (AppleTarget.kt:46-57): an id already starting with
 /// the FQCN (no dot-boundary check) passes verbatim; otherwise every
-/// space and dot becomes `-` and `"<FQCN>."` is prefixed. Operates on
-/// UTF-16 units, as Kotlin's `Char` loop does.
-fn expand_textual_id(id: &String, expected_fqcn: &str) -> String {
-    let fqcn: Vec<u16> = expected_fqcn.encode_utf16().collect();
-    if id.encode_utf16().collect::<Vec<_>>().starts_with(&fqcn) {
-        return id.clone();
+/// space and dot becomes `-` and `"<FQCN>."` is prefixed.
+fn expand_textual_id(id: &str, expected_fqcn: &str) -> String {
+    if id.starts_with(expected_fqcn) {
+        return id.to_owned();
     }
-    let mut out: Vec<u16> = expected_fqcn.encode_utf16().collect();
-    out.push(u16::from(b'.'));
-    for &unit in &id.encode_utf16().collect::<Vec<_>>() {
-        out.push(match unit {
-            0x20 | 0x2e => u16::from(b'-'),
-            other => other,
-        });
-    }
-    String::from_utf16_lossy(&out)
+    format!("{expected_fqcn}.{}", id.replace([' ', '.'], "-"))
 }

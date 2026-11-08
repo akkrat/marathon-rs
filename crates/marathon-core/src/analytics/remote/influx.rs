@@ -29,7 +29,7 @@ pub struct StatementResult {
     pub series: Vec<Series>,
 }
 pub trait InfluxQuery: Send + Sync {
-    fn query<'a>(&'a self, command: &'a String, database: &'a String) -> ServiceFuture<'a, QueryResult>;
+    fn query<'a>(&'a self, command: &'a str, database: &'a str) -> ServiceFuture<'a, QueryResult>;
     fn close(&self) -> ServiceFuture<'_, ()>;
 }
 pub struct InfluxDBDataSource {

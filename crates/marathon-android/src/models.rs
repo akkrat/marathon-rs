@@ -44,7 +44,7 @@ impl AndroidTestBundle {
     }
 }
 impl TestBundle for AndroidTestBundle {
-    fn id(&self) -> &String {
+    fn id(&self) -> &str {
         &self.id
     }
 }
@@ -110,19 +110,12 @@ pub struct TestIdentifier {
 }
 impl TestIdentifier {
     pub fn to_test(&self, meta_properties: Vec<MetaProperty>) -> Test {
-        let dot = self
+        let (pkg, clazz) = self
             .class_name
-            .encode_utf16()
-            .collect::<Vec<_>>()
-            .iter()
-            .rposition(|u| *u == 46);
-        let (pkg, clazz) = match dot {
-            Some(i) => (
-                String::from_utf16_lossy(&self.class_name.encode_utf16().collect::<Vec<_>>()[..i]),
-                String::from_utf16_lossy(&self.class_name.encode_utf16().collect::<Vec<_>>()[i + 1..]),
-            ),
-            None => (String::default(), self.class_name.clone()),
-        };
+            .rsplit_once('.')
+            .map_or((String::new(), self.class_name.clone()), |(pkg, clazz)| {
+                (pkg.to_owned(), clazz.to_owned())
+            });
         Test {
             pkg,
             clazz,
@@ -205,7 +198,7 @@ pub fn select_recorder_type(features: &[DeviceFeature], c: &AndroidScreenRecordC
             .find(|f| features.contains(f) && enabled(*f))
     })
 }
-pub fn to_screen_recorder_command(c: &AndroidVideoConfiguration, path: &String, infinite: bool) -> String {
+pub fn to_screen_recorder_command(c: &AndroidVideoConfiguration, path: &str, infinite: bool) -> String {
     let mut result = String::from("screenrecord ");
     if c.width > 0 && c.height > 0 {
         result.push_str(&format!("--size {}x{} ", c.width, c.height));
@@ -231,6 +224,6 @@ pub fn to_screen_recorder_command(c: &AndroidVideoConfiguration, path: &String, 
             if infinite { seconds } else { seconds.min(180) }
         ));
     }
-    result.push_str(&path.clone());
+    result.push_str(&path.to_owned());
     result
 }

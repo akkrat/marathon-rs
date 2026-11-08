@@ -381,7 +381,7 @@ impl ScreenCapturer {
                                 Err(VendorError::Other(ref f))
                                     if f.class == "java.util.concurrent.TimeoutException" =>
                                 {
-                                    (services.log)(&logger, Level::Error, &"Timeout. Exiting".into(), Some(f));
+                                    (services.log)(&logger, Level::Error, "Timeout. Exiting", Some(f));
                                     None
                                 }
                                 Err(VendorError::Other(ref f)) if f.class == "java.io.IOException" => None,

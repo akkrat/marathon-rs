@@ -57,7 +57,7 @@ pub trait ProviderRecovery: Send + Sync {
         marathon_apple::device::connection_factory::Executor,
     >;
     fn reconnect(&self, provider: Arc<AppleSimulatorProvider>, caller: VendorContext) -> VendorFuture<'_, ()>;
-    fn admit(&self, id: &String, device: &Simulator) -> ProvisioningResult<()>;
+    fn admit(&self, id: &str, device: &Simulator) -> ProvisioningResult<()>;
     fn offer(&self, transport: &Transport, targets: &[AppleTarget]) -> bool;
     fn missing(
         &self,
@@ -77,7 +77,7 @@ pub trait ProviderRecovery: Send + Sync {
     /// D33: targets whose setup failed while their worker stayed reachable.
     fn setup_failed(&self, transport: Transport, targets: Vec<AppleTarget>, started: i64) -> VendorFuture<'_, ()>;
     /// D33: a snapshot removed this simulator, so a retry waiting for it is void.
-    fn forget_setup(&self, id: &String);
+    fn forget_setup(&self, id: &str);
     fn terminate(&self) -> VendorFuture<'_, ()>;
 }
 /// Which of the provider's setup cycles is running, for its timing line.
@@ -327,7 +327,7 @@ impl AppleSimulatorProvider {
             state.exhausted.shift_remove(&id);
         }
     }
-    pub fn skipped_removed(&self, id: &String) -> bool {
+    pub fn skipped_removed(&self, id: &str) -> bool {
         self.state().skipped_removed.contains(id)
     }
     fn notify(&self, event: DeviceEvent) {
@@ -747,7 +747,7 @@ impl AppleSimulatorProvider {
             .devices
             .values()
             .filter(|d| d.handle.transport() == transport)
-            .map(|d| apple_id(&d.handle.udid().into(), transport))
+            .map(|d| apple_id(&d.handle.udid(), transport))
             .collect();
         let claims = self.claim(targets.iter().map(|t| target_key(t, transport)).chain(registered));
         with_claims(
@@ -846,7 +846,7 @@ impl AppleSimulatorProvider {
         for failure in failures {
             // D44: a simulator removed or added back during this plan belongs to that update now.
             if let FailedSetup::Existing { udid, .. } = &failure
-                && self.stale(&apple_id(&udid.as_str().into(), transport))
+                && self.stale(&apple_id(&udid.as_str(), transport))
             {
                 continue;
             }
@@ -922,7 +922,7 @@ impl AppleSimulatorProvider {
             .map(|p| p.for_)
     }
     /// D44: the devices file changed, and that is bounded by its owner, so a simulator added back starts over.
-    fn restart_parked(&self, id: &String) -> ProvisioningResult<()> {
+    fn restart_parked(&self, id: &str) -> ProvisioningResult<()> {
         if !self.state().parked.iter().any(|p| parked_id(p) == *id) {
             return Ok(());
         }
@@ -934,16 +934,16 @@ impl AppleSimulatorProvider {
         Ok(())
     }
     /// D44: whether this simulator's old handle is parked for a retry to own.
-    fn parked_for_retry(&self, key: &String) -> bool {
+    fn parked_for_retry(&self, key: &str) -> bool {
         self.state()
             .parked
             .iter()
             .any(|p| parked_id(p) == *key && p.for_ == ParkedFor::Retry)
     }
-    fn is_parked(&self, id: &String) -> bool {
+    fn is_parked(&self, id: &str) -> bool {
         self.state().parked.iter().any(|p| parked_id(p) == *id)
     }
-    fn generation(&self, key: &String) -> u64 {
+    fn generation(&self, key: &str) -> u64 {
         self.state().generations.get(key).copied().unwrap_or(0)
     }
     /// D44: claims on these keys at their generations now, keeping any the running operation already holds.
@@ -969,7 +969,7 @@ impl AppleSimulatorProvider {
         )
     }
     /// D44: whether the running operation holds a claim on this key that is still current.
-    fn claimed(&self, key: &String) -> bool {
+    fn claimed(&self, key: &str) -> bool {
         CLAIMS
             .try_with(|claims| claims.0.get(key).copied())
             .ok()
@@ -977,7 +977,7 @@ impl AppleSimulatorProvider {
             .is_some_and(|claimed| claimed == self.generation(key))
     }
     /// D44: whether the running operation's claim on this key is out of date. One it holds no claim on isn't.
-    fn stale(&self, key: &String) -> bool {
+    fn stale(&self, key: &str) -> bool {
         CLAIMS
             .try_with(|claims| claims.0.get(key).copied())
             .ok()
@@ -1017,7 +1017,7 @@ impl AppleSimulatorProvider {
     /// D44: the parked simulators among `udids` on this worker are out of the run until the devices file adds them back.
     /// True if one was parked and the running operation may still decide for it.
     fn give_up_parked(&self, transport: &Transport, udids: &[&str], reason: ParkedFor) -> bool {
-        let keys: Vec<_> = udids.iter().map(|udid| apple_id(&(*udid).into(), transport)).collect();
+        let keys: Vec<_> = udids.iter().map(|udid| apple_id(&(*udid), transport)).collect();
         self.settle(&keys, |state, current| {
             let mut found = false;
             for parked in state
@@ -1084,7 +1084,7 @@ impl AppleSimulatorProvider {
         let (eligible, unclaimed): (Vec<_>, Vec<_>) = current
             .eligible_disposed
             .into_iter()
-            .partition(|udid| self.claimed(&apple_id(&udid.as_str().into(), transport)));
+            .partition(|udid| self.claimed(&apple_id(&udid.as_str(), transport)));
         current.eligible_disposed = eligible;
         current.kept.extend(unclaimed);
         Ok(current)
@@ -1095,7 +1095,7 @@ impl AppleSimulatorProvider {
             kept: Vec::new(),
         };
         for device in self.devices().into_iter().filter(|d| d.handle.transport() == transport) {
-            let id = apple_id(&device.handle.udid().into(), transport);
+            let id = apple_id(&device.handle.udid(), transport);
             let free = device.handle.disposed() && device.handle.connected();
             let eligible = !device.handle.retired() && {
                 let state = self.state();
@@ -1324,18 +1324,18 @@ impl DeviceProvider for AppleSimulatorProvider {
         })
     }
 }
-fn bump(state: &mut State, id: &String) {
-    let generation = state.generations.entry(id.clone()).or_default();
+fn bump(state: &mut State, id: &str) {
+    let generation = state.generations.entry(id.to_string()).or_default();
     *generation = generation.wrapping_add(1);
 }
 fn parked_id(parked: &Parked) -> String {
-    apple_id(&parked.handle.udid().into(), parked.handle.transport())
+    apple_id(&parked.handle.udid(), parked.handle.transport())
 }
-pub fn apple_id(udid: &String, transport: &Transport) -> String {
-    let mut id = udid.clone();
+pub fn apple_id(udid: &str, transport: &Transport) -> String {
+    let mut id = udid.to_owned();
     id.push('@');
     id.push_str(&transport.id());
-    id
+    id.to_owned()
 }
 fn other(class: &str, message: impl AsRef<str>) -> VendorError {
     VendorError::Other(failure(class, message.as_ref()))
@@ -1362,7 +1362,8 @@ pub fn describe_failure(error: &marathon_core::error::Failure) -> String {
     std::iter::successors(Some(error), |e| e.cause.as_deref())
         .take(4)
         .map(|e| {
-            e.message.clone()
+            e.message
+                .to_owned()
                 .unwrap_or_else(|| e.class.to_owned().rsplit(['.', '$']).next().unwrap_or("").to_owned())
         })
         .collect::<Vec<_>>()

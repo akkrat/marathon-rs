@@ -58,7 +58,7 @@ fn concurrent_pools_share_single_flight_and_first_touch_keys() {
         let p = Arc::new(h.provider(source.clone(), 300000, None));
         // Marathon-level first touches share the very same cache as queue prefetch.
         p.success_rate(&default_test(), limit()).await.unwrap();
-        p.report_execution_time_coverage(&generate_tests(2), 80.0, limit(), &"sorting".into())
+        p.report_execution_time_coverage(&generate_tests(2), 80.0, limit(), "sorting")
             .await
             .unwrap();
         source.block.store(true, Ordering::SeqCst);
