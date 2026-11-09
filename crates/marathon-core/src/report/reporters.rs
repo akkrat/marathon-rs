@@ -15,7 +15,6 @@ use jcompat::{
     formatting::format_stdout_duration,
     jtime::{instant_duration_millis, instant_to_epoch_milli},
     logging::{Level, Logger},
-    writers::WriterValue,
 };
 use std::path::PathBuf;
 use std::{collections::BTreeMap, io::Write};
@@ -52,11 +51,6 @@ impl ReporterFiles {
 fn json(value: impl serde::Serialize) -> OperationResult<String> {
     serde_json::to_string(&value)
         .map_err(|e| crate::executor::shared::failure("java.lang.IllegalArgumentException", &e.to_string()).into())
-}
-fn legacy_json(value: WriterValue) -> OperationResult<String> {
-    jcompat::writers::GsonWriter::default()
-        .write(&value)
-        .map_err(|e| crate::executor::shared::failure("java.lang.IllegalArgumentException", &e.0).into())
 }
 fn arithmetic(value: Option<i64>) -> OperationResult<i64> {
     value.ok_or_else(|| crate::executor::shared::failure("java.lang.ArithmeticException", "long overflow").into())
@@ -99,12 +93,35 @@ impl Reporter for TestJsonReporter {
                     .output
                     .target(FileType::TestResult, &e.pool_id, &e.device, Some(&e.test_result.test));
                 let path = self.output.files.create_file(&target).await?;
-                let text = legacy_json(p::test_result(&e.test_result, &self.output.cwd))?;
+                let text = json(schema::TestResultJson::new(&e.test_result, &self.output.cwd))?;
                 self.output.write(path, text).await?;
             }
             Ok(())
         })
     }
+}
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RawTest<'a> {
+    package: &'a str,
+    class: &'a str,
+    method: &'a str,
+    meta_properties: Vec<RawProperty<'a>>,
+    device_serial: &'a str,
+    status: &'static str,
+    ignored: bool,
+    success: bool,
+    timestamp: i64,
+    duration: i64,
+}
+#[derive(serde::Serialize)]
+struct RawProperty<'a> {
+    name: &'a str,
+    #[serde(serialize_with = "string_map")]
+    values: Vec<(&'a str, String)>,
+}
+fn string_map<S: serde::Serializer>(entries: &[(&str, String)], serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.collect_map(entries.iter().map(|(key, value)| (key, value)))
 }
 pub struct RawJsonReporter {
     pub output: ReporterFiles,
@@ -132,28 +149,28 @@ impl Reporter for RawJsonReporter {
                                 .map_err(operation_error)?
                                 .render()
                         };
-                        entries.push((key.clone(), WriterValue::String(text)));
+                        entries.push((key.as_str(), text));
                     }
-                    properties.push(p::object([
-                        ("name", WriterValue::String(prop.name.clone())),
-                        ("values", WriterValue::Object(entries)),
-                    ]));
+                    properties.push(RawProperty {
+                        name: &prop.name,
+                        values: entries,
+                    });
                 }
-                values.push(p::object([
-                    ("package", WriterValue::String(r.test.pkg.clone())),
-                    ("class", WriterValue::String(r.test.clazz.clone())),
-                    ("method", WriterValue::String(r.test.method.clone())),
-                    ("metaProperties", WriterValue::Array(properties)),
-                    ("deviceSerial", WriterValue::String(e.device.serial_number.clone())),
-                    ("status", p::status(r.status).into()),
-                    ("ignored", WriterValue::Bool(r.is_ignored())),
-                    ("success", WriterValue::Bool(r.is_success())),
-                    ("timestamp", r.start_time.into()),
-                    ("duration", r.end_time.wrapping_sub(r.start_time).into()),
-                ]));
+                values.push(RawTest {
+                    package: &r.test.pkg,
+                    class: &r.test.clazz,
+                    method: &r.test.method,
+                    meta_properties: properties,
+                    device_serial: &e.device.serial_number,
+                    status: p::status(r.status),
+                    ignored: r.is_ignored(),
+                    success: r.is_success(),
+                    timestamp: r.start_time,
+                    duration: r.end_time.wrapping_sub(r.start_time),
+                });
             }
             let path = self.output.files.create_test_result_file("raw.json").await?;
-            self.output.write(path, legacy_json(WriterValue::Array(values))?).await
+            self.output.write(path, json(values)?).await
         })
     }
 }

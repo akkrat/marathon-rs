@@ -436,7 +436,7 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
             if id == "fail-json" {
                 let error = match outcome {
                     Err(e) => e,
-                    Ok(()) => panic!("Gson accepted nonfinite metadata"),
+                    Ok(()) => panic!("JSON writer accepted nonfinite metadata"),
                 };
                 let expected = row("fail-json");
                 assert_eq!(error.failure().class, text(&expected["error"]["class"]));
