@@ -21,17 +21,17 @@ fn devices_dump(devices: &MarathonDevices, root: &Path) -> Value {
             Transport::Ssh { addr, port, authentication, check_reachability } => {
                 let authentication = match authentication {
                     None => Value::Null,
-                    Some(SshAuthentication::Password { username, password }) => json!({"type": "password", "username": username.0, "password": password.0}),
-                    Some(SshAuthentication::PublicKey { username, key }) => json!({"type": "public-key", "username": username.0, "key": path(&key.0)}),
+                    Some(SshAuthentication::Password { username, password }) => json!({"type": "password", "username": username, "password": password}),
+                    Some(SshAuthentication::PublicKey { username, key }) => json!({"type": "public-key", "username": username, "key": path(&key.0)}),
                 };
-                json!({"type": "ssh", "addr": addr.0, "port": port, "authentication": authentication, "checkReachability": check_reachability})
+                json!({"type": "ssh", "addr": addr, "port": port, "authentication": authentication, "checkReachability": check_reachability})
             }
         };
         let targets: Vec<Value> = worker.devices.iter().map(|target| match target {
             AppleTarget::Host => json!({"type": "host"}),
-            AppleTarget::Simulator { udid } => json!({"type": "simulator", "udid": udid.0}),
-            AppleTarget::Physical { udid } => json!({"type": "physical", "udid": udid.0}),
-            AppleTarget::SimulatorProfile(profile) => json!({"type": "simulator-profile", "deviceTypeId": profile.device_type_id.0, "runtimeId": profile.runtime_id.as_ref().map(|x| &x.0), "newNamePrefix": profile.new_name_prefix.0}),
+            AppleTarget::Simulator { udid } => json!({"type": "simulator", "udid": udid}),
+            AppleTarget::Physical { udid } => json!({"type": "physical", "udid": udid}),
+            AppleTarget::SimulatorProfile(profile) => json!({"type": "simulator-profile", "deviceTypeId": profile.device_type_id, "runtimeId": profile.runtime_id.as_ref(), "newNamePrefix": profile.new_name_prefix}),
         }).collect();
         json!({"transport": transport, "devices": targets})
     }).collect::<Vec<_>>())

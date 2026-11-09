@@ -631,8 +631,8 @@
           "Z": "U+005A",
           "a": "U+0061",
           "é": "U+00E9",
-          "😀": "U+1F600",
-          "ｚ": "fullwidth z, U+FF5A"
+          "ｚ": "fullwidth z, U+FF5A",
+          "😀": "U+1F600"
         },
         "mockLocation": false,
         "outputs": null,
@@ -5345,183 +5345,32 @@
         "devices": [
           {
             "type": "simulator",
-            "udid": [
-              88,
-              88,
-              88
-            ]
+            "udid": "XXX"
           },
           {
             "type": "physical",
-            "udid": [
-              89,
-              89,
-              89
-            ]
+            "udid": "YYY"
           }
         ]
       },
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            110,
-            111,
-            100,
-            101,
-            45,
-            49,
-            46,
-            100,
-            101,
-            118,
-            105,
-            99,
-            101,
-            45,
-            102,
-            97,
-            114,
-            109,
-            46,
-            101,
-            120,
-            97,
-            109,
-            112,
-            108,
-            101,
-            46,
-            99,
-            111,
-            109
-          ],
+          "addr": "node-1.device-farm.example.com",
           "port": 44,
           "authentication": {
             "type": "password",
-            "username": [
-              118,
-              97,
-              115,
-              121,
-              97
-            ],
-            "password": [
-              112,
-              117,
-              112,
-              107,
-              105,
-              110,
-              103
-            ]
+            "username": "vasya",
+            "password": "pupking"
           },
           "checkReachability": true
         },
         "devices": [
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              68,
-              101,
-              118,
-              105,
-              99,
-              101,
-              84,
-              121,
-              112,
-              101,
-              46,
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              45,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              54,
-              45,
-              50
-            ],
-            "newNamePrefix": [
-              112,
-              114,
-              101,
-              102,
-              105,
-              120
-            ]
+            "deviceTypeId": "com.apple.CoreSimulator.SimDeviceType.iPhone-X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-16-2",
+            "newNamePrefix": "prefix"
           }
         ]
       }
@@ -5541,32 +5390,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -5574,114 +5402,17 @@
         "devices": [
           {
             "type": "simulator",
-            "udid": [
-              49,
-              50,
-              51,
-              52,
-              53,
-              45,
-              65,
-              66,
-              67,
-              68,
-              69,
-              45,
-              53,
-              52,
-              51,
-              50,
-              49
-            ]
+            "udid": "12345-ABCDE-54321"
           },
           {
             "type": "physical",
-            "udid": [
-              57,
-              56,
-              55,
-              54,
-              53,
-              45,
-              90,
-              89,
-              88,
-              87,
-              86,
-              45,
-              53,
-              54,
-              55,
-              56,
-              57
-            ]
+            "udid": "98765-ZYXWV-56789"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "host"
@@ -5696,32 +5427,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -5729,228 +5439,34 @@
         "devices": [
           {
             "type": "simulator",
-            "udid": [
-              49,
-              50,
-              51,
-              52,
-              53,
-              45,
-              65,
-              66,
-              67,
-              68,
-              69,
-              45,
-              53,
-              52,
-              51,
-              50,
-              49
-            ]
+            "udid": "12345-ABCDE-54321"
           },
           {
             "type": "physical",
-            "udid": [
-              57,
-              56,
-              55,
-              54,
-              53,
-              45,
-              90,
-              89,
-              88,
-              87,
-              86,
-              45,
-              53,
-              54,
-              55,
-              56,
-              57
-            ]
+            "udid": "98765-ZYXWV-56789"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "host"
           },
           {
             "type": "simulator",
-            "udid": [
-              49,
-              50,
-              51,
-              52,
-              53,
-              45,
-              65,
-              66,
-              67,
-              68,
-              69,
-              45,
-              53,
-              52,
-              51,
-              50,
-              50
-            ]
+            "udid": "12345-ABCDE-54322"
           },
           {
             "type": "physical",
-            "udid": [
-              57,
-              56,
-              55,
-              54,
-              53,
-              45,
-              90,
-              89,
-              88,
-              87,
-              86,
-              45,
-              53,
-              54,
-              55,
-              56,
-              48
-            ]
+            "udid": "98765-ZYXWV-56780"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           }
         ]
       }
@@ -5965,32 +5481,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -6009,32 +5504,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -6042,25 +5516,7 @@
         "devices": [
           {
             "type": "simulator",
-            "udid": [
-              49,
-              50,
-              51,
-              52,
-              53,
-              45,
-              65,
-              66,
-              67,
-              68,
-              69,
-              45,
-              53,
-              52,
-              51,
-              50,
-              49
-            ]
+            "udid": "12345-ABCDE-54321"
           }
         ]
       }
@@ -6072,32 +5528,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -6105,70 +5540,9 @@
         "devices": [
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           }
         ]
       }
@@ -6180,32 +5554,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -6213,137 +5566,15 @@
         "devices": [
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           }
         ]
       }
@@ -6355,32 +5586,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -6388,204 +5598,21 @@
         "devices": [
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           }
         ]
       }
@@ -6597,32 +5624,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -6630,271 +5636,27 @@
         "devices": [
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           },
           {
             "type": "simulator-profile",
-            "deviceTypeId": [
-              105,
-              80,
-              104,
-              111,
-              110,
-              101,
-              32,
-              88
-            ],
-            "runtimeId": [
-              99,
-              111,
-              109,
-              46,
-              97,
-              112,
-              112,
-              108,
-              101,
-              46,
-              67,
-              111,
-              114,
-              101,
-              83,
-              105,
-              109,
-              117,
-              108,
-              97,
-              116,
-              111,
-              114,
-              46,
-              83,
-              105,
-              109,
-              82,
-              117,
-              110,
-              116,
-              105,
-              109,
-              101,
-              46,
-              105,
-              79,
-              83,
-              45,
-              49,
-              52,
-              45,
-              53
-            ],
-            "newNamePrefix": [
-              116,
-              101,
-              115,
-              116,
-              83,
-              105,
-              109
-            ]
+            "deviceTypeId": "iPhone X",
+            "runtimeId": "com.apple.CoreSimulator.SimRuntime.iOS-14-5",
+            "newNamePrefix": "testSim"
           }
         ]
       }
@@ -6906,32 +5668,11 @@
       {
         "transport": {
           "type": "ssh",
-          "addr": [
-            49,
-            57,
-            50,
-            46,
-            49,
-            54,
-            56,
-            46,
-            49,
-            46,
-            49,
-            48
-          ],
+          "addr": "192.168.1.10",
           "port": 22,
           "authentication": {
             "type": "public-key",
-            "username": [
-              117,
-              115,
-              101,
-              114,
-              49,
-              50,
-              51
-            ],
+            "username": "user123",
             "key": "/path/to/private/key"
           },
           "checkReachability": true
@@ -6939,25 +5680,7 @@
         "devices": [
           {
             "type": "physical",
-            "udid": [
-              57,
-              56,
-              55,
-              54,
-              53,
-              45,
-              90,
-              89,
-              88,
-              87,
-              86,
-              45,
-              53,
-              54,
-              55,
-              56,
-              57
-            ]
+            "udid": "98765-ZYXWV-56789"
           }
         ]
       }
