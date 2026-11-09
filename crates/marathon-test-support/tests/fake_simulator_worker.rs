@@ -10,7 +10,7 @@ use std::sync::{
 };
 use support::{Runtime, context, duration};
 fn worker() -> FakeSimulatorWorker {
-    FakeSimulatorWorker::new(Arc::new(Runtime), &mut jcompat::logging::MarathonLogging::default())
+    FakeSimulatorWorker::new(Arc::new(Runtime), &mut marathon_logging::LogSettings::default())
 }
 async fn run(w: &FakeSimulatorWorker, args: &[&str]) -> CommandResult {
     let ctx = context();

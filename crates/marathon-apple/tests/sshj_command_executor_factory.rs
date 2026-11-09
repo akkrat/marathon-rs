@@ -168,13 +168,13 @@ async fn retries_log_each_failure_and_rethrow_the_last() {
             )
         })
         .collect();
-    let logger = "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutorFactory";
+    let logger = "marathon_apple::cmd::remote::ssh::sshj::factory";
     assert_eq!(
         warnings,
         (1..=3)
             .map(|n| (
                 logger,
-                jcompat::logging::Level::Warn,
+                marathon_logging::Level::WARN,
                 "Retrying after failure",
                 Some(format!("attempt {n}"))
             ))

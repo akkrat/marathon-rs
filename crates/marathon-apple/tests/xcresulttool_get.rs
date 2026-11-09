@@ -1,7 +1,9 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/xcresulttool/XcresulttoolGetTest.kt
 
 mod support;
-use jcompat::{jtime::Duration, logging::MarathonLogging};
+use marathon_logging::LogSettings;
+
+use jcompat::{jtime::Duration, };
 use marathon_apple::{
     bin::{
         Tools,
@@ -50,7 +52,7 @@ fn xcresulttool(
             stderr,
             exit_code,
         },
-        &mut MarathonLogging::default(),
+        &mut LogSettings::default(),
     ));
     let mut parameters = AppleTimeoutParameters::empty();
     parameters.xcresulttool = Some(Duration::of_seconds(7 * 60));
@@ -59,7 +61,7 @@ fn xcresulttool(
         timeouts: Arc::new(apple_timeout_configuration(parameters)),
         runtime: Arc::new(Runtime),
         logging: SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(|_, _, _, _| {}),
         ),
     };

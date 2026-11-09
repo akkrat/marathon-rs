@@ -1,12 +1,14 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamAndroidDevice.kt
 //! (file transfer, package installation, screenshot and recording methods).
 
+use marathon_logging::Level;
+
 use crate::{
     device::AndroidDevice,
     models::{ShellCommandResult, to_screen_recorder_command},
     support::*,
 };
-use jcompat::{file_manager::escape, jtime::Duration, logging::Level};
+use jcompat::{file_manager::escape, jtime::Duration, };
 use marathon_adb::client::sync::listing::{AndroidFileType, ListFilesRequest};
 use marathon_adb::client::{
     AdbError, Feature, framebuffer::ScreenCaptureRequest, pkg::*, sync::directory::PushRequest, sync::*,
@@ -28,7 +30,7 @@ impl AndroidDevice {
         TransferMeasurement {
             io: self.runtime().dependencies.io.clone(),
             clock: self.runtime().dependencies.hooks.clone(),
-            logger: self.runtime().logger("AndroidDevice"),
+            logger: self.runtime().component("marathon_android::device"),
             serial: self.serial_number(),
             log: self.runtime().log.clone(),
         }
@@ -192,7 +194,7 @@ impl AndroidDevice {
         let command = self.md5_command();
         if command.is_empty() || md5.is_empty() {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 &format!("no md5 was calculated for {remote}. unable to sync"),
                 None,
             );
@@ -240,7 +242,7 @@ impl AndroidDevice {
             .millis("android.BaseAndroidDevice.waitForRemoteFile")
             .map_err(|e| other(FailureKind::ReplayClock, e.message))?
             .wrapping_sub(start);
-        self.log(Level::Debug, &format!("{remote} synced in {elapsed}ms"), None);
+        self.log(Level::DEBUG, &format!("{remote} synced in {elapsed}ms"), None);
         Ok(())
     }
     pub async fn safe_pull_file(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
@@ -260,9 +262,9 @@ impl AndroidDevice {
         )
         .await;
         match result {
-            Ok(None) => self.log(Level::Warn, &format!("Pulling {remote} timed out. Ignoring"), None),
+            Ok(None) => self.log(Level::WARN, &format!("Pulling {remote} timed out. Ignoring"), None),
             Err(VendorError::Transfer(f)) => {
-                self.log(Level::Warn, &format!("Pulling {remote} failed. Ignoring"), Some(&f))
+                self.log(Level::WARN, &format!("Pulling {remote} failed. Ignoring"), Some(&f))
             }
             Err(e) => return Err(e),
             _ => {}
@@ -295,7 +297,7 @@ impl AndroidDevice {
                 .await?;
                 match response {
                     None => self.log(
-                        Level::Warn,
+                        Level::WARN,
                         &format!("Listing {dir} timed out. Ignoring the rest"),
                         None,
                     ),
@@ -341,7 +343,7 @@ impl AndroidDevice {
             .await?
             .is_none()
             {
-                self.log(Level::Warn, &format!("Pulling {source} timed out. Ignoring"), None);
+                self.log(Level::WARN, &format!("Pulling {source} timed out. Ignoring"), None);
             }
         }
         Ok(())
@@ -349,7 +351,7 @@ impl AndroidDevice {
     pub async fn safe_pull_folder(&self, remote: &str, local: &str, context: VendorContext) -> VendorResult<()> {
         match self.pull_folder(remote, local, context).await {
             Err(VendorError::Transfer(f)) => {
-                self.log(Level::Warn, &format!("Pulling {remote} failed. Ignoring"), Some(&f));
+                self.log(Level::WARN, &format!("Pulling {remote} failed. Ignoring"), Some(&f));
                 Ok(())
             }
             r => r,
@@ -382,7 +384,7 @@ impl AndroidDevice {
         )
         .await?;
         if result.is_none() {
-            self.log(Level::Warn, &format!("Pushing {local} timed out. Ignoring"), None)
+            self.log(Level::WARN, &format!("Pushing {local} timed out. Ignoring"), None)
         }
         Ok(())
     }
@@ -563,7 +565,7 @@ impl AndroidDevice {
         match result {
             Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::UnsupportedImageProtocol) => {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     &format!(
                         "Unable to retrieve screenshot from device {}",
                         self.serial_number().to_owned()
@@ -587,7 +589,7 @@ impl AndroidDevice {
             millis(self.runtime().configuration.timeout_configuration.screenrecorder)?,
             |signal| {
                 Box::pin(cancellable(signal, async {
-                    self.log(Level::Debug, &format!("Running screenrecorder for {remote}"), None);
+                    self.log(Level::DEBUG, &format!("Running screenrecorder for {remote}"), None);
                     // A silent recording of up to 180 s is why Kotlin's idle unit bug went unnoticed (N12).
                     let r = self
                         .bounded_client()
@@ -599,7 +601,7 @@ impl AndroidDevice {
                         .map_err(adb_error)?;
                     let output = r.output();
                     self.log(
-                        Level::Debug,
+                        Level::DEBUG,
                         &format!(
                             "screenrecord result: {}exit code={}",
                             if trim(&output).is_empty() {
@@ -618,11 +620,11 @@ impl AndroidDevice {
         .await;
         match result {
             Err(e @ VendorError::Cancelled(_)) => {
-                self.log(Level::Warn, "screenrecord start was interrupted", Some(e.failure()));
+                self.log(Level::WARN, "screenrecord start was interrupted", Some(e.failure()));
                 Err(e)
             }
             Err(e) => {
-                self.log(Level::Error, "Unable to start screenrecord", Some(e.failure()));
+                self.log(Level::ERROR, "Unable to start screenrecord", Some(e.failure()));
                 Err(e)
             }
             _ => Ok(()),

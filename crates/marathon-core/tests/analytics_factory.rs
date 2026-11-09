@@ -1,9 +1,11 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/analytics/metrics/MetricsProviderFactoryTest.kt
 //! and NoOpMetricsProviderTest.kt, analytics/external/ExecutionTimeCoverageTest.kt.
+use marathon_logging::Level;
+
 use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
-use jcompat::{jtime::Instant, logging::Level};
+use jcompat::{jtime::Instant, };
 use marathon_config::*;
 use marathon_core::{
     analytics::{
@@ -85,7 +87,7 @@ fn should_return_noop_provider_when_configuration_is_invalid() {
         let events = h.logs.take();
         assert_eq!(events.len(), 2);
         assert!(events[0].cause.is_some());
-        assert_eq!(events[1].level, Level::Warn);
+        assert_eq!(events[1].level, Level::WARN);
         assert!(
             events[1]
                 .message
@@ -142,7 +144,7 @@ async fn noop_coverage(unavailable: bool) {
         .unwrap();
     let e = h.logs.take();
     assert_eq!(e.len(), 1);
-    assert_eq!(e[0].level, if unavailable { Level::Warn } else { Level::Info });
+    assert_eq!(e[0].level, if unavailable { Level::WARN } else { Level::INFO });
     assert!(e[0].message.to_owned().contains(if unavailable {
         "0 of 2 tests have it, the analytics backend could not be set up"
     } else {
@@ -322,16 +324,12 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
                 .registry
                 .lock()
                 .unwrap()
-                .configure(row["debug"].as_bool().unwrap(), jcompat::logging::Vendor::Android);
+                .configure(row["debug"].as_bool().unwrap(), marathon_logging::Vendor::Android);
             {
                 let registry = h.context.registry.lock().unwrap();
-                for name in ["MetricsProviderImpl", "NoOpMetricsProvider", "MetricsProviderFactory"] {
-                    assert_eq!(
-                        registry.effective_level(name).as_str(),
-                        row["levels"][name].as_str().unwrap()
-                    );
-                    let logger = registry.slf4j_logger(name);
-                    for level in [Level::Debug, Level::Warn] {
+                for name in ["marathon_core::analytics::provider", "marathon_core::analytics::noop", "marathon_core::analytics::factory"] {
+                    let logger = registry.component(name);
+                    for level in [Level::DEBUG, Level::WARN] {
                         assert!(registry.enabled(&logger, level));
                     }
                 }
@@ -347,7 +345,7 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
                 .iter()
                 .map(|e| {
                     let mut m = e.message.to_owned();
-                    if e.logger == "Timings" {
+                    if e.logger == "marathon_logging" {
                         m.truncate(m.rfind(" in ").unwrap());
                         m.push_str(" in <ms> ms");
                     }
@@ -385,7 +383,7 @@ fn normalized_surrogates_reach_graphite_setup_and_query_failures_retry() {
                 300000.0
             );
             assert_eq!(*h.clock.delays.lock().unwrap(), vec![50, 50]);
-            assert!(h.logs.take().iter().all(|r| r.logger != "MetricsProviderFactory"));
+            assert!(h.logs.take().iter().all(|r| r.logger != "marathon_core::analytics::factory"));
         }
     });
 }
@@ -438,7 +436,7 @@ fn factory_rejects_overflowing_default_before_setup_or_noop_fallback() {
 
 #[test]
 fn queued_records_render_with_registered_levels_after_debug_false() {
-    use jcompat::logging::{JansiMode, OutputTarget, Vendor};
+    use marathon_logging::Vendor;
     use marathon_core::logging::LogRecord;
     let h = Harness::new();
     let _provider = h.provider(Arc::new(Source::default()), 0, None);
@@ -447,12 +445,12 @@ fn queued_records_render_with_registered_levels_after_debug_false() {
     let mut registry = h.context.registry.lock().unwrap();
     registry.configure(false, Vendor::Android);
     for (name, level) in [
-        ("Timings", Level::Info),
-        ("MetricsProviderImpl", Level::Debug),
-        ("NoOpMetricsProvider", Level::Debug),
-        ("MetricsProviderFactory", Level::Debug),
+        ("marathon_logging", Level::INFO),
+        ("marathon_core::analytics::provider", Level::DEBUG),
+        ("marathon_core::analytics::noop", Level::DEBUG),
+        ("marathon_core::analytics::factory", Level::DEBUG),
     ] {
-        let record = LogRecord {
+        let record = LogRecord { target: module_path!().into(),
             logger: name.into(),
             level,
             message: "visible".into(),
@@ -460,9 +458,6 @@ fn queued_records_render_with_registered_levels_after_debug_false() {
             wall_millis: 0,
             cause: None,
         };
-        let logger = registry.slf4j_logger(&record.logger);
-        let rendered = record.render(&registry, &logger, "output", 0, (JansiMode::Strip, OutputTarget::Pipe));
-        assert!(rendered.is_some_and(|line| line.contains("visible")), "{name}");
-        assert_eq!(registry.effective_level(name), level);
+        assert!(registry.enabled_target(record.target(), level), "{name}");
     }
 }

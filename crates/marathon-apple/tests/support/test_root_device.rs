@@ -1,11 +1,13 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/StartupPhasesTest.kt (generated xctestrun rows).
 //! Factory-only oracle witnesses complement the four reduced preparation harnesses approved in 4.5b.
 #![allow(dead_code)]
+use marathon_logging::{Component, LogSettings};
+
 use crate::support;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use jcompat::{
     jtime::Duration,
-    logging::{Logger, MarathonLogging},
+    
 };
 use marathon_apple::{
     apple_device::AppleDevice,
@@ -89,8 +91,8 @@ impl CommandExecutor for Recorder {
     fn host(&self) -> &CommandHost {
         self.worker.host()
     }
-    fn logger(&self) -> &Logger {
-        self.worker.logger()
+    fn component(&self) -> &Component {
+        self.worker.component()
     }
     fn connected(&self) -> bool {
         self.worker.connected()
@@ -128,7 +130,7 @@ pub(crate) struct Fake {
 }
 impl Fake {
     pub(crate) fn new(input: Value, root: &Path) -> Self {
-        let registry = Arc::new(Mutex::new(MarathonLogging::default()));
+        let registry = Arc::new(Mutex::new(LogSettings::default()));
         let logs = Arc::new(Mutex::new(vec![]));
         let captured = logs.clone();
         registry.lock().unwrap().debug = true;
@@ -136,7 +138,7 @@ impl Fake {
         let logging = SshLogging::new(
             registry.clone(),
             Arc::new(move |logger, level, text, _| {
-                if logger.name() == "com.malinskiy.marathon.apple.AppleApplicationInstaller" {
+                if logger.name() == "marathon_ios::apple_simulator_media_importer" {
                     captured.lock().unwrap().push(json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":text.replace(&root_text,"<bundle>")}));
                 }
             }),
@@ -311,8 +313,8 @@ impl Device for Fake {
     fn worker_id(&self) -> Option<String> {
         Some(self.transport.id())
     }
-    fn logger(&self) -> &Logger {
-        self.recorder.logger()
+    fn component(&self) -> &Component {
+        self.recorder.component()
     }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, _: VendorContext) -> VendorFuture<'a, ()> {
         panic!("unused")

@@ -7,6 +7,8 @@
 //! `@cert-authority` entries never apply because no certificate host-key algorithm is proposed; the SSH-1
 //! `bits e n` form is skipped as unparseable.
 
+use marathon_logging::{Level, Component};
+
 use super::config::SshLogging;
 use super::error::{FILE_NOT_FOUND_EXCEPTION, PATTERN_SYNTAX_EXCEPTION, SshFailure, io_failure};
 use base64::{
@@ -18,7 +20,7 @@ use base64::{
 use hmac::{Hmac, KeyInit, Mac};
 use jcompat::{
     JavaRegex,
-    logging::{Level, Logger},
+    
 };
 use marathon_error::{FailureKind, SshKind};
 use russh::keys::PublicKey;
@@ -217,8 +219,8 @@ pub struct OpenSshKnownHosts {
     file: PathBuf,
     entries: Vec<HostEntry>,
     logging: SshLogging,
-    logger: Logger,
-    matchers: Logger,
+    logger: Component,
+    matchers: Component,
 }
 impl OpenSshKnownHosts {
     /// `OpenSSHKnownHosts(File)`: blocking file I/O, so 4.3 calls it on the vendor runtime's blocking pool.
@@ -240,12 +242,12 @@ impl OpenSshKnownHosts {
     }
     /// Fails like the Java constructor on a wildcard entry that is not a valid regex.
     pub fn parse(file: &Path, text: &str, logging: SshLogging) -> Result<Self, SshFailure> {
-        // LoggerFactory.DEFAULT: a plain slf4j logger, not one MarathonLogging configured.
+        // ComponentFactory.DEFAULT: a plain slf4j logger, not one LogSettings configured.
         let (logger, matchers) = {
             let registry = logging.registry.lock().unwrap_or_else(|e| e.into_inner());
             (
-                registry.slf4j_logger("net.schmizz.sshj.transport.verification.OpenSSHKnownHosts"),
-                registry.slf4j_logger("com.hierynomus.sshj.transport.verification.KnownHostMatchers"),
+                registry.component("marathon_apple::cmd::remote::ssh::sshj::known_hosts"),
+                registry.component("marathon_apple::cmd::remote::ssh::sshj::known_hosts"),
             )
         };
         let mut known = Self {
@@ -263,10 +265,10 @@ impl OpenSshKnownHosts {
         Ok(known)
     }
     fn error(&self, message: String) {
-        self.logging.log(&self.logger, Level::Error, || message, None);
+        self.logging.log(&self.logger, Level::ERROR, || message, None);
     }
     fn warn_matcher(&self, message: String, cause: SshFailure) {
-        self.logging.log(&self.matchers, Level::Warn, || message, Some(&cause));
+        self.logging.log(&self.matchers, Level::WARN, || message, Some(&cause));
     }
     fn parse_entry(&self, line: &str, number: usize) -> Result<Option<HostEntry>, SshFailure> {
         if line.is_empty() || line.starts_with('#') {
@@ -310,7 +312,7 @@ impl OpenSshKnownHosts {
                 };
                 self.logging.log(
                     &self.logger,
-                    Level::Warn,
+                    Level::WARN,
                     || "Error decoding Base64 key bytes".into(),
                     Some(&cause),
                 );
@@ -324,7 +326,7 @@ impl OpenSshKnownHosts {
             Err(Unmatchable::HashedFormat) => {
                 self.logging.log(
                     &self.logger,
-                    Level::Debug,
+                    Level::DEBUG,
                     || {
                         format!(
                             "Bad line ({}: Unrecognized format for hashed hostname): {line} ",
@@ -370,7 +372,7 @@ impl HostKeyVerifier for OpenSshKnownHosts {
         if found {
             self.logging.log(
                 &self.logger,
-                Level::Warn,
+                Level::WARN,
                 || format!("Host key for `{host}` has changed!"),
                 None,
             );

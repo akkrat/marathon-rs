@@ -89,24 +89,24 @@ fn unparseable_lines_are_logged_like_sshj() {
         .iter()
         .map(|(logger, level, message, _)| (logger.as_str(), *level, message.as_str()))
         .collect();
-    use jcompat::logging::Level::*;
-    let logger = "net.schmizz.sshj.transport.verification.OpenSSHKnownHosts";
+    use marathon_logging::Level;
+    let logger = "marathon_apple::cmd::remote::ssh::sshj::known_hosts";
     assert_eq!(
         lines,
         [
-            (logger, Error, "Error reading entry `   `"),
-            (logger, Error, "Error reading entry `[localhost]:2222 ssh-ed25519`"),
+            (logger, Level::ERROR, "Error reading entry `   `"),
+            (logger, Level::ERROR, "Error reading entry `[localhost]:2222 ssh-ed25519`"),
             (
                 logger,
-                Error,
+                Level::ERROR,
                 "Error reading entry `[localhost]:2222 ssh-foo AAAA`, could not determine type"
             ),
             (
                 logger,
-                Debug,
+                Level::DEBUG,
                 "Bad line (SSH failure: Unrecognized format for hashed hostname): |1|abc ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGHFJiLi8foDtOdrjRFCdmC6Vvhl3w3sO7bjMUMnBxAR "
             ),
-            (logger, Warn, "Error decoding Base64 key bytes"),
+            (logger, Level::WARN, "Error decoding Base64 key bytes"),
         ]
     );
     let base64 = events[4].3.as_ref().unwrap();

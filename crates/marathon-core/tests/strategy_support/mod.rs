@@ -3,10 +3,12 @@
 //! plus the recording doubles that replay fixtures/oracle/strategies.
 #![allow(dead_code)]
 
+use marathon_logging::{Component, LogSettings};
+
 use jcompat::{
     jnum,
     jtime::Instant,
-    logging::{Logger, MarathonLogging},
+    
 };
 use marathon_config::Configuration;
 use marathon_core::{
@@ -158,7 +160,7 @@ pub fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 pub struct DeviceStub {
     pub info: DeviceInfo,
     pub abi: String,
-    logger: Logger,
+    logger: Component,
 }
 impl DeviceStub {
     /// OS "25", abi "x64", model "model", manufacturer "manufacturer".
@@ -174,7 +176,7 @@ impl DeviceStub {
                 healthy: true,
             },
             abi: "x64".into(),
-            logger: MarathonLogging::default().logger("DeviceStub", None),
+            logger: LogSettings::default().component("DeviceStub"),
         }
     }
     pub fn abi(mut self, abi: &str) -> Self {
@@ -212,7 +214,7 @@ impl Device for DeviceStub {
     fn worker_id(&self) -> Option<String> {
         None
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _configuration: Arc<Configuration>, _context: VendorContext) -> VendorFuture<'a, ()> {

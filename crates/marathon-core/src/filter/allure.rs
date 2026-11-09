@@ -3,13 +3,13 @@
 
 use super::{
     failure, select,
-    values::{FilterLogger, io_failure},
+    values::{FilterComponent, io_failure},
 };
 use crate::{
     error::OperationResult,
     model::{MetaValue, Test},
 };
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -49,9 +49,9 @@ impl PlanEnvironment for ProcessEnvironment {
 }
 pub struct FileTestPlanSupplier {
     pub environment: Arc<dyn PlanEnvironment>,
-    pub logger: Arc<dyn FilterLogger>,
+    pub logger: Arc<dyn FilterComponent>,
 }
-const LOGGER: &str = "io.qameta.allure.testfilter.FileTestPlanSupplier";
+const LOGGER: &str = "marathon_core::filter::allure";
 impl AllurePlanSupplier for FileTestPlanSupplier {
     fn supply(&self) -> OperationResult<Option<TestPlan>> {
         let Some(path) = ["ALLURE_TESTPLAN_PATH", "AS_TESTPLAN_PATH"]
@@ -66,7 +66,7 @@ impl AllurePlanSupplier for FileTestPlanSupplier {
             let mut message = String::from("could not read test plan file ");
             message.push_str(&path);
             message.push_str(": invalid path");
-            self.logger.log(Level::Warn, LOGGER, message, None);
+            self.logger.log(Level::WARN, LOGGER, message, None);
             return Ok(None);
         }
         if !native.is_file() {
@@ -82,7 +82,7 @@ impl AllurePlanSupplier for FileTestPlanSupplier {
             Err(error) => {
                 let mut message = String::from("could not read test plan file ");
                 message.push_str(&display.to_string_lossy());
-                self.logger.log(Level::Warn, LOGGER, message, Some(error));
+                self.logger.log(Level::WARN, LOGGER, message, Some(error));
                 Ok(None)
             }
         }

@@ -10,7 +10,7 @@
 //!
 //! Every read of the child's stderr has a deadline, and a test that fails kills and reaps its child.
 #![cfg(unix)]
-use jcompat::logging::OutputTarget;
+use marathon_logging::OutputTarget;
 use marathon_cli::{
     VendorFactories,
     application::{CliOutput, CliRunner},
@@ -164,6 +164,7 @@ fn hooks(mode: &str) -> SignalHooks {
     };
     let repeat = mode == "run-repeat";
     SignalHooks {
+        immediate_exit: None,
         registration: Some(Arc::new(move |number| {
             if Some(number) == failing {
                 return Err(std::io::Error::other("injected registration failure"));
@@ -190,7 +191,7 @@ fn signal_child() {
     } else {
         Box::new(std::io::sink())
     };
-    let cli = CliOutput::new(stdout, Box::new(std::io::sink()), OutputTarget::Pipe, Box::new(|| 0));
+    let cli = CliOutput::new(stdout, Box::new(std::io::sink()), OutputTarget::Pipe, Box::new(|| 0)).unwrap_or_else(|error| panic!("test console: {error}"));
     let runner = ProductionRunner {
         factories: Arc::new(factories(&mode)),
         cwd: std::env::current_dir().unwrap(),

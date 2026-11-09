@@ -2,7 +2,7 @@
 //! (derived runner/argument/cleanup integration corpus; this class has no Kotlin tests).
 use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_adb::testrunner::TestEvent as E;
 use marathon_android::{arguments, device::AndroidBatchExecutor, listener_factory::*, listeners::*, runner::*};
 use marathon_config::vendor::TestAccessConfiguration;
@@ -82,7 +82,7 @@ fn argument_corpus() {
     access.console = true;
     arguments::generate("physical", 12345, None, false, &[], &access, |l, s| logs.push((l, s)));
     assert_eq!(logs.len(), 4);
-    assert!(logs.iter().all(|(l, _)| *l == Level::Warn));
+    assert!(logs.iter().all(|(l, _)| *l == Level::WARN));
 }
 #[derive(Default)]
 struct Events {

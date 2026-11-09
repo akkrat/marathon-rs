@@ -3,10 +3,12 @@
 //! report/attachment/AttachmentCollector.kt, AttachmentProviderDelegate.kt,
 //! execution/Attachment.kt and io/FileManager.kt (service adapter).
 
+use marathon_logging::{Level, Component};
+
 use crate::{artifact_io::*, error::*, listener::*, model::*, output::*, runtime::*};
 use jcompat::{
     file_manager::{FileManager, PathPlan},
-    logging::{Level, Logger},
+    
 };
 use marathon_error::FailureKind;
 use std::path::PathBuf;
@@ -21,7 +23,7 @@ pub struct FileManagerOutput {
     io: Arc<dyn VendorRuntime>,
     manager: Arc<FileManager>,
     output: PathBuf,
-    logger: Logger,
+    logger: Component,
     log: ServiceLog,
 }
 impl FileManagerOutput {
@@ -29,7 +31,7 @@ impl FileManagerOutput {
         io: Arc<dyn VendorRuntime>,
         manager: FileManager,
         output: PathBuf,
-        logger: Logger,
+        logger: Component,
         log: ServiceLog,
     ) -> Self {
         Self {
@@ -43,7 +45,7 @@ impl FileManagerOutput {
     async fn materialize(&self, plan: PathPlan) -> OperationResult<PathBuf> {
         let (logger, log) = (self.logger.clone(), self.log.clone());
         blocking(self.io.as_ref(), move || {
-            plan.materialize(|text| log(&logger, Level::Error, text, None))
+            plan.materialize(|text| log(&logger, Level::ERROR, text, None))
                 .map_err(|error| nio_error(error, &plan.directory))
         })
         .await

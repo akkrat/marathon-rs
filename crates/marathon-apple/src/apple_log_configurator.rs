@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleLogConfigurator.kt
 
 use crate::cmd::blocking;
-use jcompat::logging::{MarathonLogging, Vendor};
+use marathon_logging::{LogSettings, Vendor};
 use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::LogConfigurator,
@@ -13,7 +13,7 @@ pub struct AppleLogConfigurator {
     pub runtime: Arc<dyn VendorRuntime>,
 }
 impl LogConfigurator for AppleLogConfigurator {
-    fn configure(&self, debug: bool, logging: Arc<Mutex<MarathonLogging>>) -> VendorFuture<'_, ()> {
+    fn configure(&self, debug: bool, logging: Arc<Mutex<LogSettings>>) -> VendorFuture<'_, ()> {
         let compact_output = self.compact_output;
         Box::pin(async move {
             blocking(self.runtime.as_ref(), move || {

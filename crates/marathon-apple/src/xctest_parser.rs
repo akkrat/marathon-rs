@@ -3,6 +3,8 @@
 //! D20 (PLAN.md §3.11): Kotlin loads libxctest-parser.dylib from its own resources. This program neither contains nor
 //! ships that third-party library, so an `xctest` run reads a copy the user supplies. What follows the read, the push to
 //! the worker and the fake test run, is the port.
+use marathon_logging::{Level, Component};
+
 use crate::{
     apple_application_installer::AppleApplicationInstaller,
     apple_device::AppleDevice,
@@ -16,7 +18,7 @@ use crate::{
 };
 use jcompat::{
     jtime::Duration,
-    logging::{Level, Logger},
+    
 };
 use marathon_config::VendorConfiguration;
 use marathon_core::{
@@ -148,7 +150,7 @@ pub struct XCTestParser<'a> {
     pub logging: SshLogging,
     pub session_close_timeout: Duration,
     libraries: ParserLibraries,
-    logger: Logger,
+    logger: Component,
     buffer: Arc<Buffer>,
 }
 impl<'a> XCTestParser<'a> {
@@ -161,7 +163,7 @@ impl<'a> XCTestParser<'a> {
         logging: SshLogging,
         libraries: ParserLibraries,
     ) -> Self {
-        let logger = logging.logger("XCTestParser");
+        let logger = logging.component("marathon_apple::xctest_parser");
         Self {
             configuration,
             registry,
@@ -226,7 +228,7 @@ impl<'a> XCTestParser<'a> {
         log(
             &self.logging,
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             format!("Remote xctestrun = {remote}"),
             None,
         );
@@ -254,7 +256,7 @@ impl<'a> XCTestParser<'a> {
             log(
                 &self.logging,
                 &self.logger,
-                Level::Debug,
+                Level::DEBUG,
                 "Execution finished".into(),
                 None,
             );
@@ -265,7 +267,7 @@ impl<'a> XCTestParser<'a> {
             log(
                 &self.logging,
                 &self.logger,
-                Level::Error,
+                Level::ERROR,
                 "Test parsing got stuck. You can increase the timeout in settings if it's too strict".into(),
                 Some(error),
             );
@@ -278,7 +280,7 @@ impl<'a> XCTestParser<'a> {
             log(
                 &self.logging,
                 &self.logger,
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "xcodebuild session of test parsing on {} has not been closed",
                     device.info().serial_number.to_owned()
@@ -292,7 +294,7 @@ impl<'a> XCTestParser<'a> {
             log(
                 &self.logging,
                 &self.logger,
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "XCTestParser failed to parse tests. xcodebuild output:\n{}",
                     self.buffer.0.lock().unwrap_or_else(|e| e.into_inner()).to_owned()
@@ -343,7 +345,7 @@ impl RemoteTestParser for XCTestParser<'_> {
                             log(
                                 &self.logging,
                                 &self.logger,
-                                Level::Debug,
+                                Level::DEBUG,
                                 "Remote parsing failed. Retrying".into(),
                                 Some(&error),
                             );

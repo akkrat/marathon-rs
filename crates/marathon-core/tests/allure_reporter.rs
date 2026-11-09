@@ -365,7 +365,7 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
 
 #[test]
 fn real_registration_failure_does_not_stop_later_html() {
-    use jcompat::logging::MarathonLogging;
+    use marathon_logging::LogSettings;
     use marathon_core::{
         analytics::{ExecutionReportGenerator, TrackerInternal},
         report::{DeviceConnectedEvent, Event},
@@ -399,7 +399,7 @@ fn real_registration_failure_does_not_stop_later_html() {
                     Arc::new(Console::default()),
                 )
                 .registration(),
-                TimelineReporter::new(core.vendor(), root, &mut MarathonLogging::default()).registration(),
+                TimelineReporter::new(core.vendor(), root, &mut LogSettings::default()).registration(),
             ];
             registrations.sort_by_key(|r| r.slot);
             let generator =

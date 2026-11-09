@@ -2,13 +2,13 @@
 //! and analytics/internal/sub/ExecutionReportGenerator.kt (off-core service calls).
 
 use crate::{error::*, runtime::*};
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_error::FailureKind;
 use std::sync::Arc;
 
 /// The run's output task supplies the existing registry/console sink (3.10).
 /// Invoked on I/O workers, never while holding a listener collection lock.
-pub type ServiceLog = Arc<dyn Fn(&Logger, Level, &str, Option<&Failure>) + Send + Sync>;
+pub type ServiceLog = Arc<dyn Fn(&Component, Level, &str, Option<&Failure>) + Send + Sync>;
 
 pub(crate) fn operation_error(error: VendorError) -> OperationError {
     match error {

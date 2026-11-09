@@ -135,7 +135,7 @@ async fn idle_gap_clock_is_read_only_when_the_debug_message_is_enabled() -> Test
     {
         let mut registry = h.services.logging.registry.lock().unwrap();
         registry.debug = true;
-        registry.logger(d.logger().name(), None);
+        registry.component(d.component().name());
     }
     assert!(run(&h, &d).await.0.is_ok());
     assert_eq!(reads.labels.lock().unwrap().len(), 4);

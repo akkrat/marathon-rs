@@ -225,7 +225,7 @@ impl Harness {
                 Arc::new(Runtime),
                 FileManager::new(0, 0, dir.path().to_str().unwrap(), "/"),
                 PathBuf::from(dir.path().to_str().unwrap()),
-                logging.logger("com.malinskiy.marathon.io.FileManager"),
+                logging.component("com.malinskiy.marathon.io.FileManager"),
                 {
                     let log = logging.clone();
                     Arc::new(move |logger, level, message, error| {

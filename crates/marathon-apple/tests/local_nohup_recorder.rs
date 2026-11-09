@@ -1,8 +1,8 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandExecutor.kt
 //! A nohup-started worker process must outlive the command session that started it, until the stop command signals it.
+#![cfg(target_os = "macos")]
 // The stop command runs on macOS workers, whose sh treats `&>` as a redirect;
 // dash (Linux /bin/sh) backgrounds the command instead, so this check is macOS-only.
-#![cfg(target_os = "macos")]
 mod support;
 use marathon_apple::cmd::{CommandExecutor, CommandRequest};
 use support::*;

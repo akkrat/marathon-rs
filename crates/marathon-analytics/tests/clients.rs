@@ -304,7 +304,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
             let guard = BackendGuard::new(
                 tracker.clone(),
                 Arc::new(move |_, level, message, cause| {
-                    context.logs.push(marathon_core::logging::LogRecord {
+                    context.logs.push(marathon_core::logging::LogRecord { target: module_path!().into(),
                         logger: "guard".into(),
                         at_millis: 0,
                         wall_millis: 0,
@@ -313,7 +313,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
                         cause: cause.cloned(),
                     })
                 }),
-                jcompat::logging::MarathonLogging::default().logger("guard", None),
+                marathon_logging::LogSettings::default().component("guard"),
                 BackendLimits::default(),
             );
             let tracked = Event::Test(event(TestStatus::Passed, false));
@@ -870,7 +870,7 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
             let guard = BackendGuard::new(
                 tracker,
                 Arc::new(move |_, level, message, cause| {
-                    context.logs.push(marathon_core::logging::LogRecord {
+                    context.logs.push(marathon_core::logging::LogRecord { target: module_path!().into(),
                         logger: "guard".into(),
                         at_millis: 0,
                         wall_millis: 0,
@@ -879,7 +879,7 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
                         cause: cause.cloned(),
                     })
                 }),
-                jcompat::logging::MarathonLogging::default().logger("guard", None),
+                marathon_logging::LogSettings::default().component("guard"),
                 BackendLimits {
                     slow_failure: std::time::Duration::from_secs(3600),
                     ..BackendLimits::default()
@@ -1311,7 +1311,7 @@ fn a_last_flush_to_a_trickling_server_gives_way_at_the_close_limit() {
             let guard = BackendGuard::new(
                 tracker,
                 Arc::new(move |_, level, message, cause| {
-                    context.logs.push(marathon_core::logging::LogRecord {
+                    context.logs.push(marathon_core::logging::LogRecord { target: module_path!().into(),
                         logger: "guard".into(),
                         at_millis: 0,
                         wall_millis: 0,
@@ -1320,7 +1320,7 @@ fn a_last_flush_to_a_trickling_server_gives_way_at_the_close_limit() {
                         cause: cause.cloned(),
                     })
                 }),
-                jcompat::logging::MarathonLogging::default().logger("guard", None),
+                marathon_logging::LogSettings::default().component("guard"),
                 BackendLimits {
                     send: std::time::Duration::from_millis(500),
                     ..BackendLimits::default()

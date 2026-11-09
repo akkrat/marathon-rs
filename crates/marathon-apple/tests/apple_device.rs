@@ -1,8 +1,10 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDevice.kt
 mod support;
+use marathon_logging::{Component, LogSettings};
+
 use jcompat::{
     jtime::Duration,
-    logging::{Logger, MarathonLogging},
+    
 };
 use marathon_apple::{
     apple_device::{AppleDevice, apple_worker_id, storage_path_for},
@@ -41,15 +43,15 @@ impl WorkerCommands for NullCommands {
 }
 struct Fake {
     manager: RemoteFileManager,
-    logger: Logger,
+    logger: Component,
     transport: Transport,
     arm: AtomicBool,
     pushes: AtomicUsize,
 }
 impl Fake {
     fn new() -> Self {
-        let registry = Arc::new(Mutex::new(MarathonLogging::default()));
-        let logger = registry.lock().unwrap().logger("Fake", None);
+        let registry = Arc::new(Mutex::new(LogSettings::default()));
+        let logger = registry.lock().unwrap().component("Fake");
         Self {
             manager: RemoteFileManager::new(
                 "/s".into(),
@@ -78,7 +80,7 @@ impl Device for Fake {
     fn worker_id(&self) -> Option<String> {
         apple_worker_id(&self.transport)
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, _: VendorContext) -> VendorFuture<'a, ()> {

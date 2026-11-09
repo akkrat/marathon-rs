@@ -3,11 +3,13 @@
 //! tools/oracle/apple-bin-probes ran against the frozen Kotlin wrappers, replayed here. Each case compares the
 //! argv, timeouts, env and workdir of every request (before executor quoting), the return value or error, and
 //! the log events. The few approved differences (P1, P2, D38) are listed in `deviation`.
+use marathon_logging::{Level, Component, LogSettings};
+
 use marathon_error::{FailureKind, SshKind};
 mod support;
 use jcompat::{
     jtime::Duration,
-    logging::{Level, Logger, MarathonLogging},
+    
 };
 use marathon_apple::{
     bin::{
@@ -81,7 +83,7 @@ fn variant(name: &str) -> Answer {
 
 struct Scripted {
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     answers: Mutex<VecDeque<Answer>>,
     requests: Mutex<Vec<Value>>,
 }
@@ -89,7 +91,7 @@ impl CommandExecutor for Scripted {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {
@@ -144,9 +146,9 @@ type Logs = Arc<Mutex<Vec<Value>>>;
 fn logging(logs: &Logs) -> SshLogging {
     let logs = logs.clone();
     SshLogging::new(
-        Arc::new(Mutex::new(MarathonLogging::default())),
+        Arc::new(Mutex::new(LogSettings::default())),
         Arc::new(
-            move |logger: &Logger, level: Level, message: String, cause: Option<Failure>| {
+            move |logger: &Component, level: Level, message: String, cause: Option<Failure>| {
                 logs.lock().unwrap().push(json!({
                 "level": level.as_str(), "logger": logger.name(), "message": message,
                 "throwable": cause.map(|f| format!("{}: {}", f.kind.description().to_owned(), f.message.map(|m| m.to_owned()).unwrap_or_default())),
@@ -673,7 +675,7 @@ fn rows() -> Vec<(String, Value)> {
 async fn observe(case: &str) -> Value {
     let executor = Arc::new(Scripted {
         host: KotlinProcessHost::host(),
-        logger: MarathonLogging::default().logger("probe.Recording", None),
+        logger: LogSettings::default().component("probe.Recording"),
         answers: Mutex::new(answers(case).into()),
         requests: Mutex::new(vec![]),
     });

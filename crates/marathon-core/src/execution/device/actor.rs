@@ -17,7 +17,7 @@ use crate::{
     vendor::{Device, DeviceRef, VendorContext},
 };
 use futures_util::future::Either;
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
 use std::{
@@ -286,7 +286,7 @@ impl Shared {
                 ..
             }) => self.side_effect(effect),
             Ok(Transition::Invalid { from_state, event }) => self.log(
-                Level::Error,
+                Level::ERROR,
                 format!("Invalid transition from {from_state} event {event}"),
                 None,
             ),
@@ -327,7 +327,7 @@ impl Shared {
                     .and_then(|error| error.failure().message.to_owned())
                     .unwrap_or(reason);
                 self.log(
-                    Level::Debug,
+                    Level::DEBUG,
                     text(&[&"Returning batch ", &execution.test_batch.id, &". Reason: ", &reason]),
                     None,
                 );
@@ -336,7 +336,7 @@ impl Shared {
         };
         if !self.pool_try_send(outcome) {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 text(&[
                     &"Pool is closed, outcome of batch ",
                     &execution.test_batch.id,
@@ -384,7 +384,7 @@ impl Shared {
     }
 
     fn initialize(self: &Rc<Self>) {
-        self.log(Level::Debug, text(&[&"initialize ", &self.serial]), None);
+        self.log(Level::DEBUG, text(&[&"initialize ", &self.serial]), None);
         let shared = self.clone();
         let job = self.launch(move |context| async move {
             let attempts = shared.clone();
@@ -402,7 +402,7 @@ impl Shared {
                         OperationError::Failed(failure) => failure,
                     };
                     let message = failure.message.to_owned().unwrap_or_else(|| "null".into());
-                    shared.log(Level::Error, text(&[&"Error ", &message]), Some(failure));
+                    shared.log(Level::ERROR, text(&[&"Error ", &message]), Some(failure));
                     shared.transition(DeviceEvent::Terminate);
                 }
             }
@@ -433,7 +433,7 @@ impl Shared {
             Err(error) => {
                 let failure = error.failure().clone();
                 self.log(
-                    Level::Debug,
+                    Level::DEBUG,
                     text(&[&"device ", &self.serial, &" initialization failed. Retrying"]),
                     Some(failure.clone()),
                 );
@@ -443,7 +443,7 @@ impl Shared {
     }
 
     fn execute_batch(self: &Rc<Self>, batch: BatchRef, result: Arc<SharedDeferred<TestBatchResults>>) {
-        self.log(Level::Debug, text(&[&"executeBatch ", &self.serial]), None);
+        self.log(Level::DEBUG, text(&[&"executeBatch ", &self.serial]), None);
         let shared = self.clone();
         let job = self.launch(move |context| async move {
             let (configuration, pool_id) = (shared.configuration.clone(), shared.pool_id.clone());
@@ -458,15 +458,15 @@ impl Shared {
                 Ok(()) => shared.transition(DeviceEvent::Complete),
                 Err(error @ (VendorError::Cancelled(_) | VendorError::LeavePool { .. })) => {
                     let failure = error.failure().clone();
-                    shared.log(Level::Warn, "Device execution has been cancelled".into(), Some(failure));
+                    shared.log(Level::WARN, "Device execution has been cancelled".into(), Some(failure));
                     shared.transition(DeviceEvent::Terminate);
                 }
                 Err(VendorError::DeviceLost(failure)) => {
-                    shared.log(Level::Error, "Critical error during execution".into(), Some(failure));
+                    shared.log(Level::ERROR, "Critical error during execution".into(), Some(failure));
                     shared.transition(DeviceEvent::Terminate);
                 }
                 Err(VendorError::BatchExecution(failure)) => {
-                    shared.log(Level::Warn, "Test batch failed execution".into(), Some(failure.clone()));
+                    shared.log(Level::WARN, "Test batch failed execution".into(), Some(failure.clone()));
                     result.cancel(cancellation(text(&[
                         &"Test batch failed execution:\n",
                         &failure.stack_trace(),
@@ -476,7 +476,7 @@ impl Shared {
                 Err(error) => {
                     let failure = error.failure().clone();
                     shared.log(
-                        Level::Error,
+                        Level::ERROR,
                         "Unknown vendor exception caught. Considering this a recoverable error".into(),
                         Some(failure.clone()),
                     );
@@ -533,7 +533,7 @@ impl Shared {
 
     /// Cancellable joins, as Kotlin's cancelAndJoin is cancel + join (`:211–219`).
     fn terminate(self: &Rc<Self>) {
-        self.log(Level::Debug, text(&[&"terminate ", &self.serial]), None);
+        self.log(Level::DEBUG, text(&[&"terminate ", &self.serial]), None);
         let shared = self.clone();
         self.launch(move |context| async move {
             for slot in [&shared.initialize_job, &shared.execute_job] {

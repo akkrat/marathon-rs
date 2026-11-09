@@ -52,14 +52,14 @@ pub fn transcode_command(config: &IosVideoConfiguration, src: &str, temp: &str) 
 }
 pub struct ScreenRecordingListener {
     c: ListenerContext,
-    logger: Logger,
+    logger: Component,
     job: Mutex<Option<Arc<dyn VendorTask>>>,
     last: Mutex<Option<String>>,
     pub attachments: Arc<AttachmentProviderDelegate>,
 }
 impl ScreenRecordingListener {
     pub fn new(c: ListenerContext) -> Self {
-        let logger = c.logger("com.malinskiy.marathon.apple.ios.listener.video.ScreenRecordingListener");
+        let logger = c.component("marathon_ios::listener::video");
         Self {
             c,
             logger,
@@ -76,7 +76,7 @@ impl ScreenRecordingListener {
             if !pid.is_empty() {
                 self.c.device.stop_video_recording(&self.c.context).await?;
                 self.c
-                    .log(&self.logger, Level::Debug, format!("stopped video recording pid={pid}"));
+                    .log(&self.logger, Level::DEBUG, format!("stopped video recording pid={pid}"));
             }
         }
         Ok(())
@@ -103,7 +103,7 @@ impl ScreenRecordingListener {
         if let Some(result) = result.filter(|r| !r.successful()) {
             self.c.log(
                 &self.logger,
-                Level::Error,
+                Level::ERROR,
                 format!(
                     "Transcoding failed for {src}: {}, {}",
                     result.combined_stdout(),
@@ -113,7 +113,7 @@ impl ScreenRecordingListener {
         }
         self.c.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             format!(
                 "Transcoding finished in {}ms {src}",
                 self.c
@@ -134,7 +134,7 @@ impl ScreenRecordingListener {
         self.c.device.pull_file(src, &local, &self.c.context).await?;
         self.c.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             format!(
                 "Pulling finished in {}ms {src}",
                 self.c.millis(label)?.wrapping_sub(start)
@@ -161,7 +161,7 @@ impl ScreenRecordingListener {
             .await?;
         self.c.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             format!(
                 "Removed file in {}ms {src}",
                 self.c
@@ -174,7 +174,7 @@ impl ScreenRecordingListener {
     fn catch_transfer(&self, result: VendorResult<()>) -> VendorResult<()> {
         match result {
             Err(VendorError::Transfer(_)) => {
-                self.c.log(&self.logger, Level::Warn, "Can't pull video".into());
+                self.c.log(&self.logger, Level::WARN, "Can't pull video".into());
                 Ok(())
             }
             other => other,
@@ -283,7 +283,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
                         || {
                             c.log(
                                 &logger,
-                                Level::Warn,
+                                Level::WARN,
                                 "Previous video recording didn't finish yet. Current recording might be missing or cut from the start".into(),
                             );
                         },
@@ -299,7 +299,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
                     if !done {
                         c.log(
                             &logger,
-                            Level::Warn,
+                            Level::WARN,
                             "Previous video recording didn't finish in 10s, starting a new one anyway".into(),
                         );
                     }
@@ -314,7 +314,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
                             .await?
                             .map(|p| super::trim(&p).to_owned())
                             .unwrap_or_else(|| "null".into());
-                        c.log(&logger, Level::Debug, format!("started video recording pid={pid} to {src}"));
+                        c.log(&logger, Level::DEBUG, format!("started video recording pid={pid} to {src}"));
                     }
                     Ok(())
                 })
@@ -339,7 +339,7 @@ impl AppleTestRunListener for ScreenRecordingListener {
                     if !self.healthy().await {
                         self.c.log(
                             &self.logger,
-                            Level::Warn,
+                            Level::WARN,
                             "Device is unhealthy, can't pull batch fail video".into(),
                         );
                         return Ok(());

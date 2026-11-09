@@ -4,6 +4,8 @@
 //! Info.plists, as Kotlin's `appId`/`testBundleId` initializers force their lazies (decision 4); the binary
 //! getters scan on first use, keep a successful value and retry after a failure, like Kotlin's `lazy`.
 
+use marathon_logging::{Level, Component};
+
 use super::Sdk;
 use crate::{
     cmd::{blocking, failure, remote::ssh::sshj::config::SshLogging},
@@ -11,7 +13,7 @@ use crate::{
     plist::{PropertyList, bundle::BundleInfo, plist_failure},
 };
 use jcompat::{
-    logging::{Level, Logger},
+    
     regex_patterns::BUNDLE_NAME,
 };
 use marathon_config::CONFIGURATION_EXCEPTION_CLASS;
@@ -127,7 +129,7 @@ pub struct AppleTestBundle {
     test_bundle_id: String,
     runtime: Arc<dyn VendorRuntime>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
     test_binary: Mutex<Option<PathBuf>>,
     test_runner_binary: Mutex<Option<PathBuf>>,
     application_binary: Mutex<Option<Option<PathBuf>>>,
@@ -146,7 +148,7 @@ impl AppleTestBundle {
         let file = |path: PathBuf| PathBuf::from(java_file(&path));
         let (application, test_application, xctest_bundle) =
             (application.map(file), test_application.map(file), file(xctest_bundle));
-        let logger = logging.logger("com.malinskiy.marathon.apple.model.AppleTestBundle");
+        let logger = logging.component("marathon_apple::model::apple_test_bundle");
         let root = Self::root_path(sdk);
         let (app, xctest) = (application.clone(), xctest_bundle.clone());
         let (id, application_bundle_info, app_id, test_bundle_info, test_bundle_id) = blocking(&*runtime, move || {
@@ -245,8 +247,8 @@ impl AppleTestBundle {
         blocking(&*self.runtime, move || binaries(&binary_dir(sdk, &relative, &bundle)?)).await
     }
     fn warn(&self, message: String) {
-        if self.logging.enabled(&self.logger, Level::Warn) {
-            (self.logging.sink)(&self.logger, Level::Warn, message, None);
+        if self.logging.enabled(&self.logger, Level::WARN) {
+            (self.logging.sink)(&self.logger, Level::WARN, message, None);
         }
     }
     /// Several candidates: warn, prefer the one named like the bundle, else the first listed.

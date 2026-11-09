@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/ScreenCapturerTestRunListener.kt
 use super::*;
 use crate::listeners::{AndroidTestRunListener, to_test};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_config::ScreenRecordingPolicy;
 use marathon_core::{executor::shared::requested, runtime::*, screenshot::*, vendor::VendorContext};
@@ -83,8 +83,8 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                     let test = to_test(id);
                     *lock(&self.state) = (false, Some(test.clone()));
                     self.artifacts.device.log_named(
-                        "ScreenCapturerTestRunListener",
-                        Level::Debug,
+                        "marathon_ios::listener::screenshot",
+                        Level::DEBUG,
                         &format!(
                             "Starting recording for {}",
                             test.to_simple_safe_test_name('.').to_owned()
@@ -106,8 +106,8 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                     let test = to_test(id);
                     lock(&self.state).1 = None;
                     self.artifacts.device.log_named(
-                        "ScreenCapturerTestRunListener",
-                        Level::Debug,
+                        "marathon_ios::listener::screenshot",
+                        Level::DEBUG,
                         &format!(
                             "Finished recording for {}",
                             test.to_simple_safe_test_name('.').to_owned()

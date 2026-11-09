@@ -2,7 +2,7 @@
 //! worker, compared with the Kotlin outcomes in `fixtures/fake-worker/evidence` and `fixtures/oracle/ssh`.
 mod support;
 use fake_worker::script::{Disconnect, Faults, Script};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_apple::{
     cmd::{
         CommandExecutor, CommandRequest,
@@ -110,14 +110,14 @@ async fn disconnect_before_kex_is_retried_four_times_with_the_wire_reason() {
         assert_eq!(
             lines[0],
             (
-                "TransportImpl".into(),
-                Level::Error,
+                "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+                Level::ERROR,
                 format!("Dying because - fixture disconnect {reason}")
             )
         );
         assert_eq!(
             lines[1],
-            ("Promise".into(), Level::Error, format!("<<kex done>> woke to: {error}"))
+            ("marathon_apple::cmd::remote::ssh::sshj::wire".into(), Level::ERROR, format!("<<kex done>> woke to: {error}"))
         );
     }
 }
@@ -150,8 +150,8 @@ async fn disconnect_after_auth_makes_safe_execute_return_null_d36() {
     let request = || CommandRequest::new(["echo", "hello"], duration(5000));
     assert_eq!(executor.safe_execute(request(), context()).await, Ok(None));
     let safe_logged = (
-        "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor".to_owned(),
-        Level::Error,
+        "marathon_apple::cmd::remote::ssh::sshj::client".to_owned(),
+        Level::ERROR,
         "Unable to start a remote shell session [echo, hello]".to_owned(),
     );
     assert!(ssh::lines(&events).contains(&safe_logged), "{:?}", ssh::lines(&events));
@@ -341,16 +341,16 @@ async fn disconnect_during_exec_fails_execute_with_the_wire_reason() {
         assert_eq!(
             lines[0],
             (
-                "TransportImpl".into(),
-                Level::Error,
+                "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+                Level::ERROR,
                 format!("Dying because - fixture disconnect {reason}")
             )
         );
         assert_eq!(
             lines[1],
             (
-                "Promise".into(),
-                Level::Error,
+                "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+                Level::ERROR,
                 format!("<<chan#0 / chanreq for exec>> woke to: SSH connection failure: fixture disconnect {reason}")
             )
         );
@@ -596,7 +596,7 @@ async fn refused_connection_is_retried_and_rethrown() {
     assert_eq!(
         ssh::lines(&events)
             .iter()
-            .filter(|(_, level, m)| *level == Level::Warn && m == "Retrying after failure")
+            .filter(|(_, level, m)| *level == Level::WARN && m == "Retrying after failure")
             .count(),
         3
     );
@@ -667,7 +667,7 @@ async fn unknown_host_key_is_rejected_four_times_like_sshj() {
             .map(|line| {
                 (line["logger"].as_str().unwrap().to_owned(), {
                     let message = localise(line["message"].as_str().unwrap());
-                    if line["logger"] == "Promise" {
+                    if line["logger"] == "marathon_apple::cmd::remote::ssh::sshj::wire" {
                         let rest = message
                             .strip_prefix("<<kex done>> woke to: ")
                             .expect("recorded Promise failure");
@@ -683,7 +683,7 @@ async fn unknown_host_key_is_rejected_four_times_like_sshj() {
             .collect();
         let actual: Vec<_> = ssh::lines(&events)
             .into_iter()
-            .filter(|(_, level, _)| *level == Level::Error)
+            .filter(|(_, level, _)| *level == Level::ERROR)
             .map(|(logger, _, message)| (logger, message))
             .collect();
         assert_eq!(actual, expected, "{case}");

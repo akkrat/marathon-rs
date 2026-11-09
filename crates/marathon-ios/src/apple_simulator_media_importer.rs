@@ -6,13 +6,13 @@ use marathon_core::{error::VendorResult, vendor::VendorContext};
 
 pub struct AppleSimulatorMediaImporter<'a> {
     device: &'a AppleSimulatorDevice,
-    logger: jcompat::logging::Logger,
+    logger: marathon_logging::Component,
 }
 impl<'a> AppleSimulatorMediaImporter<'a> {
     pub fn new(device: &'a AppleSimulatorDevice) -> Self {
         let logging = &device.services().logging;
-        let _ = logging.logger("com.malinskiy.marathon.apple.AppleApplicationInstaller");
-        let logger = logging.logger("com.malinskiy.marathon.apple.ios.AppleSimulatorMediaImporter");
+        let _ = logging.component("marathon_ios::apple_simulator_media_importer");
+        let logger = logging.component("marathon_ios::apple_simulator_media_importer");
         Self { device, logger }
     }
     pub async fn import_media(&self, context: &VendorContext) -> VendorResult<()> {
@@ -31,10 +31,10 @@ impl<'a> AppleSimulatorMediaImporter<'a> {
                     .setup_failure(format!("Error transferring {dst} to {}", self.device.serial())));
             }
             for attempt in 0..3 {
-                if services.logging.enabled(&self.logger, jcompat::logging::Level::Debug) {
+                if services.logging.enabled(&self.logger, marathon_logging::Level::DEBUG) {
                     (services.logging.sink)(
                         &self.logger,
-                        jcompat::logging::Level::Debug,
+                        marathon_logging::Level::DEBUG,
                         format!(
                             "Importing media {} to {}",
                             file.to_string_lossy().into_owned(),

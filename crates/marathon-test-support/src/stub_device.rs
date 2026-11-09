@@ -5,7 +5,7 @@
 //! a batch exception takes precedence over device loss, and only PASSED/FAILURE/INCOMPLETE
 //! results are reported (ignored and assumption statuses are dropped).
 use crate::lock;
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_config::Configuration;
 use marathon_core::{
     error::*,
@@ -104,7 +104,7 @@ pub struct StubDevice {
     options: StubDeviceOptions,
     pending: Mutex<Option<Step>>,
     recorder: Mutex<Option<Recorder>>,
-    logger: Logger,
+    logger: Component,
     cursor: Mutex<Cursor>,
     me: Weak<StubDevice>,
 }
@@ -114,9 +114,9 @@ impl StubDevice {
             options,
             pending: Mutex::new(None),
             recorder: Mutex::new(None),
-            // `MarathonLogging.logger(StubDevice::class.java.simpleName)`; the stub's own
+            // `LogSettings.component(StubDevice::class.java.simpleName)`; the stub's own
             // debug lines (Preparing/Disposing) are not routed to the console here (P2).
-            logger: MarathonLogging::default().slf4j_logger("StubDevice"),
+            logger: LogSettings::default().component("StubDevice"),
             cursor: Mutex::default(),
             me: me.clone(),
         })
@@ -216,7 +216,7 @@ impl Device for StubDevice {
     fn worker_id(&self) -> Option<String> {
         None
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {

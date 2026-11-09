@@ -9,7 +9,7 @@ use crate::{
     application::{CliRunner, Console, MarathonRun, VERSION, failure, render_throwable},
     core_output::RunConsoleSink,
 };
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_analytics::{AnalyticsClients, BackendClients};
 use marathon_config::{AnalyticsConfiguration, Configuration};
 use marathon_core::{
@@ -96,13 +96,15 @@ fn zone_offset_millis(wall: i64) -> i64 {
 struct Run {
     command: Arc<SharedDeferred<ExecutionCommand>>,
     thread: Option<JoinHandle<OperationResult<Option<bool>>>>,
+    late: Option<marathon_core::logging::LateOutput>,
+    console: Arc<Console>,
 }
 
 impl CliRunner for ProductionRunner {
     fn construct(
         &self,
         configuration: Arc<Configuration>,
-        logging: Arc<Mutex<MarathonLogging>>,
+        logging: Arc<Mutex<LogSettings>>,
         console: Arc<Console>,
     ) -> Result<Box<dyn MarathonRun>, Failure> {
         self.construct_with_hooks(
@@ -121,7 +123,7 @@ impl ProductionRunner {
     pub fn construct_with_hooks(
         &self,
         configuration: Arc<Configuration>,
-        logging: Arc<Mutex<MarathonLogging>>,
+        logging: Arc<Mutex<LogSettings>>,
         console: Arc<Console>,
         hooks: Arc<RuntimeHooks>,
         wall: marathon_core::logging::WallSource,
@@ -131,6 +133,12 @@ impl ProductionRunner {
         let debug = configuration.debug;
         let barriers = hooks.barriers();
         let live_output = hooks.is_live();
+        let exit_console = console.clone();
+        let late_console = console.clone();
+        let exit_tail = Arc::new(std::sync::OnceLock::<marathon_core::logging::LateOutput>::new());
+        let publish_tail = exit_tail.clone();
+        let mut signal_hooks = self.signal_hooks.clone();
+        signal_hooks.immediate_exit = Some(Arc::new(|status| std::process::exit(status)));
         let inputs = RunInputs {
             configuration,
             logging: logging.clone(),
@@ -162,28 +170,36 @@ impl ProductionRunner {
             barriers,
             timer: None,
             wall,
-            exit: Some(Arc::new(|status| std::process::exit(status))),
+            exit: Some(Arc::new(move |status| {
+                let tail = exit_tail.get().cloned();
+                let console = exit_console.clone();
+                if exit_console.exit_after_preparing(status, Box::new(move || {
+                    if let Some(tail) = tail { let _ = tail.close(Arc::new(move |record| match record { marathon_core::logging::OutputRecord::Raw(text) => console.write_text(&text), marathon_core::logging::OutputRecord::Log(record) => console.write_record(&record) })); }
+                })).is_err() { std::process::exit(status); }
+            })),
             signal_trigger: None,
-            signal_hooks: self.signal_hooks.clone(),
+            signal_hooks,
             // Taped hooks mark a paired probe, whose stdout keeps the deterministic flush points.
             live_output,
         };
         let command = SharedDeferred::<ExecutionCommand>::new();
         let waiting = command.clone();
-        let (constructed, outcome) = std::sync::mpsc::channel::<Result<(), Failure>>();
+        let (constructed, outcome) = std::sync::mpsc::channel::<(Result<(), Failure>, marathon_core::logging::LateOutput)>();
         let thread = std::thread::Builder::new()
             .name("marathon-run".into())
             .spawn(move || {
                 CoreExecutor::run(move |core| {
                     Box::pin(async move {
+                        let late = core.log_queue().late_output();
+                        let _ = publish_tail.set(late.clone());
                         let marathon = match construct(core.clone(), inputs).await {
                             Ok(marathon) => marathon,
                             Err(error) => {
-                                let _ = constructed.send(Err(error));
+                                let _ = constructed.send((Err(error), late));
                                 return Ok(None);
                             }
                         };
-                        let _ = constructed.send(Ok(()));
+                        let _ = constructed.send((Ok(()), late));
                         let command = match waiting.wait().await {
                             Ok(command) => (*command).clone(),
                             Err(_) => return Ok(None),
@@ -196,10 +212,13 @@ impl ProductionRunner {
         let mut run = Run {
             command,
             thread: Some(thread),
+            late: None,
+            console: late_console,
         };
         match outcome.recv() {
-            Ok(Ok(())) => Ok(Box::new(run)),
-            Ok(Err(error)) => {
+            Ok((Ok(()), late)) => { run.late = Some(late); Ok(Box::new(run)) },
+            Ok((Err(error), late)) => {
+                run.late = Some(late);
                 let _ = run.join();
                 Err(error)
             }
@@ -213,12 +232,17 @@ impl ProductionRunner {
 
 impl Run {
     fn join(&mut self) -> OperationResult<Option<bool>> {
-        match self.thread.take() {
+        let result = match self.thread.take() {
             Some(thread) => thread
                 .join()
                 .unwrap_or_else(|_| Err(failure(FailureKind::IllegalState, "the run thread panicked").into())),
             None => Ok(None),
+        };
+        if let Some(late) = self.late.take() {
+            let console = self.console.clone();
+            let _ = late.close(Arc::new(move |record| match record { marathon_core::logging::OutputRecord::Raw(text) => console.write_text(&text), marathon_core::logging::OutputRecord::Log(record) => console.write_record(&record) }));
         }
+        result
     }
 }
 

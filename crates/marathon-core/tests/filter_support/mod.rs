@@ -1,11 +1,13 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/TestGenerator.kt
 //! and execution/filter test helpers.
 #![allow(dead_code)]
+use marathon_logging::Level;
+
 use marathon_error::FailureKind;
 #[path = "../strategy_support/mod.rs"]
 mod strategy_support;
 
-use jcompat::{JavaRegex, logging::Level};
+use jcompat::{JavaRegex, };
 use marathon_config::schema::{RegexValuesFileFilter, TestFilterConfiguration as C};
 use marathon_core::{
     error::{Failure, OperationResult},
@@ -13,7 +15,7 @@ use marathon_core::{
     filter::{
         AnnotationRenderer, FilterDependencies, TestFilter,
         allure::{AllurePlanSupplier, TestPlan},
-        values::{FileValuesReader, FilterLogger},
+        values::{FileValuesReader, FilterComponent},
     },
     model::{MetaArray, MetaMap, MetaProperty, MetaValue, Test},
 };
@@ -74,7 +76,7 @@ pub struct Record {
 }
 #[derive(Default)]
 pub struct Logs(pub Mutex<Vec<Record>>);
-impl FilterLogger for Logs {
+impl FilterComponent for Logs {
     fn log(&self, level: Level, logger: &str, message: String, cause: Option<Failure>) {
         self.0.lock().expect("test log lock").push(Record {
             level,

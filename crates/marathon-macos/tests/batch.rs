@@ -234,7 +234,7 @@ async fn default_budgets_and_fresh_disposal_wait_use_virtual_time() -> R {
     assert!(
         warnings
             .iter()
-            .all(|r| r.level == jcompat::logging::Level::Warn && r.message.to_owned().contains("PT1M10S"))
+            .all(|r| r.level == marathon_logging::Level::WARN && r.message.to_owned().contains("PT1M10S"))
     );
     running.release.notify_one();
     v(d.join_pending().await)?;
@@ -452,7 +452,7 @@ async fn only_first_concurrent_disposer_logs_join_failure() -> R {
         .filter(|record| record.message.to_owned().starts_with("Error disposing"))
         .collect::<Vec<_>>();
     assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].level, jcompat::logging::Level::Debug);
+    assert_eq!(errors[0].level, marathon_logging::Level::DEBUG);
     running.release.notify_one();
     let error = task.await?.err().ok_or("cancelled execution overflow")?;
     assert_eq!(error.failure().kind.description(), "arithmetic failure".to_owned());

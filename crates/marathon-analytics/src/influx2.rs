@@ -1,8 +1,10 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx2/InfluxDb2Provider.kt
 //! and external/influx2/InfluxDb2Tracker.kt, external/influx2/Influxdb2Exception.kt.
+use marathon_logging::Level;
+
 use crate::http::query_encode;
 use crate::{http::*, points};
-use jcompat::{jnum, logging::Level};
+use jcompat::{jnum, };
 use marathon_config::InfluxDb2Configuration;
 use marathon_core::{
     analytics::{
@@ -73,7 +75,7 @@ impl Influx2Client {
             log(
                 &context,
                 "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
-                Level::Warn,
+                Level::WARN,
                 format!("Multiple organizations with name = {organization} found. Using first one, id = {id}"),
                 None,
             );
@@ -102,7 +104,7 @@ impl Influx2Client {
             log(
                 &context,
                 "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
-                Level::Info,
+                Level::INFO,
                 format!(
                     "Creating InfluxDB 2 bucket: orgId = {id}, bucket = {bucket}, retention: RetentionPolicyConfiguration(everySeconds={}, shardGroupDurationSeconds={})",
                     rp.every_seconds, rp.shard_group_duration_seconds

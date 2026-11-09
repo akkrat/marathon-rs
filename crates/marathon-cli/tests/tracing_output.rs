@@ -71,8 +71,8 @@ fn configurators_preserve_levels_and_compact_output() -> Result<(), Box<dyn std:
     for configurator in [
         Configurator::Startup,
         Configurator::Android,
-        Configurator::Apple { compact: false },
-        Configurator::Apple { compact: true },
+        Configurator::Apple { compact_output: false },
+        Configurator::Apple { compact_output: true },
     ] {
         for debug in [false, true] {
             let buffer = Buffer::default();
@@ -82,8 +82,8 @@ fn configurators_preserve_levels_and_compact_output() -> Result<(), Box<dyn std:
                 tracing::info!(target: "marathon_android::device", "ordinary");
                 tracing::debug!(target: "marathon_adb::client::log", "adb");
                 tracing::info!(target: "marathon_ios::device::timing", "timing");
-                tracing::info!(target: "marathon_apple::xcodebuild_stderr", "hidden stderr");
-                tracing::warn!(target: "marathon_apple::xcodebuild_stderr", "visible stderr");
+                tracing::info!(target: "marathon_logging", "hidden stderr");
+                tracing::warn!(target: "marathon_logging", "visible stderr");
                 tracing::warn!(target: "marathon_core::reporters::timeline", "timeline");
                 tracing::info!(target: "unrelated", "hidden dependency");
                 tracing::trace!(target: "marathon_adb::client::log", "hidden trace");
@@ -102,7 +102,7 @@ fn configurators_preserve_levels_and_compact_output() -> Result<(), Box<dyn std:
             );
             assert_eq!(
                 text.starts_with("12:34:56.789 "),
-                !matches!(configurator, Configurator::Apple { compact: true })
+                !matches!(configurator, Configurator::Apple { compact_output: true })
             );
         }
     }
@@ -291,7 +291,7 @@ async fn adb_rejection_reaches_the_same_subscriber_from_another_thread() -> Resu
 
 #[test]
 fn crash_events_preserve_external_trace_whitespace() -> Result<(), Box<dyn std::error::Error>> {
-    use jcompat::logging::MarathonLogging;
+    use marathon_logging::LogSettings;
     use marathon_cli::application::{CliRunner, Console, MarathonRun};
     use marathon_core::{error::Failure, model::ExecutionCommand};
 
@@ -300,7 +300,7 @@ fn crash_events_preserve_external_trace_whitespace() -> Result<(), Box<dyn std::
         fn construct(
             &self,
             _: Arc<marathon_config::Configuration>,
-            _: Arc<Mutex<MarathonLogging>>,
+            _: Arc<Mutex<LogSettings>>,
             _: Arc<Console>,
         ) -> Result<Box<dyn MarathonRun>, Failure> {
             Ok(Box::new(Crash))

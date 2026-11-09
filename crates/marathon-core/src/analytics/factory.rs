@@ -23,7 +23,7 @@ pub struct MetricsProviderFactory {
 pub type AnalyticsFactory = MetricsProviderFactory;
 impl MetricsProviderFactory {
     pub fn new(context: MetricsContext, setup: Arc<dyn MetricsSetup>) -> OperationResult<Self> {
-        context.register("MetricsProviderFactory")?;
+        context.register("marathon_core::analytics::factory")?;
         Ok(Self { context, setup })
     }
     pub async fn create(&self, configuration: &Configuration) -> OperationResult<Analytics> {
@@ -52,7 +52,7 @@ impl MetricsProviderFactory {
             }
             AnalyticsConfiguration::InfluxDb(config) => {
                 // Kotlin eagerly constructs the fallback even when setup succeeds.
-                self.context.register("NoOpMetricsProvider")?;
+                self.context.register("marathon_core::analytics::noop")?;
                 (
                     self.setup.influx(config, debug).await.map(|client| {
                         Arc::new(InfluxDBDataSource {
@@ -65,7 +65,7 @@ impl MetricsProviderFactory {
                 )
             }
             AnalyticsConfiguration::InfluxDb2(config) => {
-                self.context.register("NoOpMetricsProvider")?;
+                self.context.register("marathon_core::analytics::noop")?;
                 (
                     self.setup.influx2(config, debug).await.map(|client| {
                         Arc::new(InfluxDB2DataSource {
@@ -102,8 +102,8 @@ impl MetricsProviderFactory {
                     crate::error::OperationError::Cancelled(c) => c.failure().clone(),
                 };
                 self.context.log(
-                    "MetricsProviderFactory",
-                    Level::Warn,
+                    "marathon_core::analytics::factory",
+                    Level::WARN,
                     "Cannot read history from the analytics backend".into(),
                     Some(cause),
                 );

@@ -2,7 +2,7 @@
 //! Supplemental rule tests: this source has no Kotlin test rows.
 use marathon_error::FailureKind;
 mod support;
-use jcompat::logging::{Level, Logger, MarathonLogging};
+use marathon_logging::{Level, Component, LogSettings};
 use marathon_apple::{
     apple_device::apple_arch,
     cmd::{CommandResult, cancelled, failure, remote::ssh::sshj::config::SshLogging},
@@ -66,9 +66,9 @@ fn setup(storage: &str, mode: &str) -> (RemoteFileManager, Arc<Scripted>, Logs) 
     let logs = Arc::new(Mutex::new(vec![]));
     let out = logs.clone();
     let logging = SshLogging::new(
-        Arc::new(Mutex::new(MarathonLogging::default())),
-        Arc::new(move |logger: &Logger, level, message, cause| {
-            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.kind.identifier().into_owned())}));
+        Arc::new(Mutex::new(LogSettings::default())),
+        Arc::new(move |logger: &Component, level, message, cause| {
+            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::ERROR { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.kind.identifier().into_owned())}));
         }),
     );
     (
@@ -209,7 +209,7 @@ async fn every_command_result_and_log_matches_jvm_including_swallowed_cancellati
         });
         assert_eq!(thrown, json!(expected_thrown), "{row}");
         assert_eq!(json!(*commands.argv.lock().unwrap()), row["argv"], "{row}");
-        let mut expected_logs = row["logs"].clone();
+        let mut expected_logs = marathon_test_support::recorded_logs::native_logs(&row["logs"]).clone();
         for log in expected_logs.as_array_mut().unwrap() {
             if let Some(class) = log["throwable"].as_str() {
                 log["throwable"] = marathon_test_support::recorded_errors::kind(class).identifier().into();

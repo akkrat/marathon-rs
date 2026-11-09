@@ -41,7 +41,7 @@ pub struct CoreExecutor {
     completions: RefCell<Vec<completion_logging::CompletionLog>>,
     log: Rc<crate::logging::LogQueue>,
     pub(crate) mailboxes: RefCell<Vec<(&'static str, Rc<dyn MailboxProbe>)>>,
-    logging: Arc<Mutex<jcompat::logging::MarathonLogging>>,
+    logging: Arc<Mutex<marathon_logging::LogSettings>>,
 }
 /// What the vendor runtime gets to stop once the run is over: D34's allowance for a call that blocks its thread.
 const VENDOR_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(3);
@@ -101,9 +101,10 @@ impl CoreExecutor {
                     completions: RefCell::new(Vec::new()),
                     log: Rc::default(),
                     mailboxes: RefCell::new(Vec::new()),
-                    logging: Arc::new(Mutex::new(jcompat::logging::MarathonLogging::default())),
+                    logging: Arc::new(Mutex::new(marathon_logging::LogSettings::default())),
                 });
-                runtime.block_on(local.run_until(async move {
+                let output = core.log_queue();
+                let result = runtime.block_on(local.run_until(async move {
                     match std::panic::AssertUnwindSafe(async move { body(core).await })
                         .catch_unwind()
                         .await
@@ -111,7 +112,9 @@ impl CoreExecutor {
                         Ok(result) => result,
                         Err(payload) => Err(panic_failure(payload).into()),
                     }
-                }))
+                }));
+                output.detach_output();
+                result
             })
             .map_err(|e| failure(FailureKind::Io, &e.to_string()))?;
         if let Some(limit) = watchdog
@@ -162,7 +165,7 @@ impl CoreExecutor {
     }
     /// Share this same registry with VendorDependencies and the output task.
     /// Core enqueues typed records; filtering/formatting and locking run off core.
-    pub fn logging(&self) -> Arc<Mutex<jcompat::logging::MarathonLogging>> {
+    pub fn logging(&self) -> Arc<Mutex<marathon_logging::LogSettings>> {
         self.logging.clone()
     }
     /// Core actors' log records, rendered off core (lifecycle.md "Core log records").
@@ -239,7 +242,7 @@ impl CoreExecutor {
             Some(logger) => self.log.log(
                 &logger,
                 crate::time::SchedulerClock::now_millis(&*self.clock),
-                jcompat::logging::Level::Error,
+                marathon_logging::Level::ERROR,
                 completion_logging::UNRECOVERABLE.into(),
                 Some(failure),
             ),

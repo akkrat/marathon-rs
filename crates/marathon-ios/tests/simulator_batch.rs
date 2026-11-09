@@ -374,8 +374,8 @@ async fn a_wedged_batch_that_keeps_writing_output_ends_at_the_batch_timeout() ->
         fn host(&self) -> &CommandHost {
             self.fake.host()
         }
-        fn logger(&self) -> &jcompat::logging::Logger {
-            self.fake.logger()
+        fn component(&self) -> &marathon_logging::Component {
+            self.fake.component()
         }
         fn connected(&self) -> bool {
             self.fake.connected()
@@ -410,7 +410,7 @@ async fn a_wedged_batch_that_keeps_writing_output_ends_at_the_batch_timeout() ->
         process: marathon_apple::cmd::local::KotlinProcessCommandExecutor::new(
             Arc::new(support::Runtime),
             logging.registry.clone(),
-            move |logger, message| (logging.sink)(logger, jcompat::logging::Level::Error, message, None),
+            move |logger, message| (logging.sink)(logger, marathon_logging::Level::ERROR, message, None),
             false,
             128,
         ),

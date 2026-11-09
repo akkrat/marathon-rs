@@ -50,7 +50,7 @@ async fn dynamic() -> TestResult<(ProviderHarness, TcpStream)> {
         .registry
         .lock()
         .unwrap()
-        .logger("AppleSimulatorProvider", Some(jcompat::logging::Level::Debug));
+        .component("marathon_ios::device::simulator_provider");
     p.provider
         .initialize(p.h.services.context.clone())
         .await
@@ -644,7 +644,7 @@ async fn refused_connections_wait_five_seconds_then_connect_without_restarting_a
         .registry
         .lock()
         .unwrap()
-        .logger("AppleSimulatorProvider", Some(jcompat::logging::Level::Debug));
+        .component("marathon_ios::device::simulator_provider");
     provider
         .initialize(h.services.context.clone())
         .await
@@ -923,7 +923,7 @@ async fn lost_planning_warning_uses_kotlin_cause_descriptions_and_preserves_miss
         .registry
         .lock()
         .unwrap()
-        .logger("AppleSimulatorProvider", Some(jcompat::logging::Level::Warn));
+        .component("marathon_ios::device::simulator_provider");
     let connected = Arc::downgrade(&p.h.worker);
     *p.h.worker.before.lock().unwrap() = Arc::new(move |_| {
         if let Some(worker) = connected.upgrade() {

@@ -70,7 +70,7 @@ async fn provisioning_and_preparation_log_their_timings_without_debug() -> TestR
     let logs = p.h.logs.lock().unwrap().clone();
     let lines: Vec<_> = logs
         .iter()
-        .filter(|(logger, _, _, _)| logger == "Timings")
+        .filter(|(logger, _, _, _)| logger == "marathon_logging")
         .map(|(_, _, s, _)| s.as_str())
         .collect();
     assert!(lines.iter().any(|s| s.starts_with("Worker worker-1:22: connected in ")
@@ -182,7 +182,7 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> TestResult {
         .registry
         .lock()
         .unwrap()
-        .logger("AppleSimulatorProvider", Some(jcompat::logging::Level::Info));
+        .component("marathon_ios::device::simulator_provider");
     let path = p.h.dir.path().join("Marathondevices");
     std::fs::write(path, "workers: []\n")?;
     assert!(p.provider.initialize(p.h.services.context.clone()).await.is_err());
@@ -191,8 +191,8 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> TestResult {
             .lock()
             .unwrap()
             .iter()
-            .any(|(name, level, s, _)| name == "AppleSimulatorProvider"
-                && *level == jcompat::logging::Level::Info
+            .any(|(name, level, s, _)| name == "marathon_ios::device::simulator_provider"
+                && *level == marathon_logging::Level::INFO
                 && *s
                     == marathon_apple::bin::xcrun::xcresulttool::describe_timeout(
                         &p.h.services.vendor.timeout_configuration

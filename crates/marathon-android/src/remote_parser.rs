@@ -4,7 +4,7 @@ use crate::{
     provider::AdamDeviceProvider, runner::InstrumentationChannel, services::AndroidRuntime, support::*,
     test_annotation_parser::TestAnnotationParser,
 };
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_adb::{
     instrument_request::{InstrumentOptions, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent},
@@ -37,12 +37,8 @@ impl AmInstrumentTestParser {
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         let logger = {
             let mut registry = lock(&self.runtime.dependencies.logging);
-            let name = "com.malinskiy.marathon.android.adam.AmInstrumentTestParser";
-            if registry.is_registered(name) {
-                registry.slf4j_logger(name)
-            } else {
-                registry.logger(name, None)
-            }
+            let name = "marathon_android::services";
+            registry.component(name)
         };
         self.runtime.emit(&logger, level, message, error);
     }
@@ -56,7 +52,7 @@ impl AmInstrumentTestParser {
                 message.push_str(&format!("\n  targetPackage: {}", info.application_package.to_owned()));
             }
         }
-        self.log(Level::Debug, &message, None);
+        self.log(Level::DEBUG, &message, None);
         let device = self.provider.android_device(&reference).ok_or_else(|| {
             other(
                 CONFIGURATION_EXCEPTION_CLASS,
@@ -91,9 +87,9 @@ impl AmInstrumentTestParser {
                             let info =
                                 blocking(self.runtime.dependencies.io.as_ref(), move || b.instrumentation_info())
                                     .await?;
-                            self.log(Level::Warn, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_owned(), bundle.files.test_application.to_string_lossy().into_owned(), logcat.to_owned()), None);
+                            self.log(Level::WARN, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_owned(), bundle.files.test_application.to_string_lossy().into_owned(), logcat.to_owned()), None);
                         } else {
-                            self.log(Level::Debug, "Remote parsing failed. Retrying", Some(error.failure()));
+                            self.log(Level::DEBUG, "Remote parsing failed. Retrying", Some(error.failure()));
                             // D22, D41: the retries have no delay, so an outage or a brief `offline` would use them all
                             // up within its first moments, on a server or device that is about to return.
                             if !server_is_not_in_question(&error) && device.wait_out_passing_loss(&context).await? {
@@ -246,7 +242,7 @@ impl AmInstrumentTestParser {
             }
             if !observed {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     &format!("Bundle {} did not report any test annotations. If you need test annotations retrieval, remote test parser requires additional setup see https://docs.marathonlabs.io/runner/android/configure#test-parser", bundle.id().to_owned()),
                     None,
                 );

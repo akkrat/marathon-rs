@@ -20,7 +20,7 @@ use crate::{
     vendor::{DeviceRef, TestParser, VendorContext},
     wiring::RunDependencies,
 };
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_config::{TestFilterConfiguration, binding::ConfigurationError, loader::LogicalConfigurationValidator};
 use marathon_error::FailureKind;
 use std::{
@@ -29,10 +29,10 @@ use std::{
     sync::Arc,
 };
 
-/// `private val log = MarathonLogging.logger {}` in Marathon.kt: kotlin-logging drops the `Kt` suffix.
-pub const LOGGER: &str = "com.malinskiy.marathon.Marathon";
+/// `private val log = LogSettings.logger {}` in Marathon.kt: kotlin-logging drops the `Kt` suffix.
+pub const LOGGER: &str = "marathon_core::marathon";
 /// `TimingLog.LOGGER_NAME`.
-pub const TIMINGS: &str = "Timings";
+pub const TIMINGS: &str = "marathon_logging";
 const NO_DEVICES: FailureKind = FailureKind::NoDevices;
 const NO_TESTS: FailureKind = FailureKind::NoTests;
 
@@ -76,6 +76,8 @@ pub type SignalRegistration = Arc<dyn Fn(i32) -> std::io::Result<SignalStream> +
 /// Test seams for the OS relay. The default registers through tokio and announces nothing.
 #[derive(Clone, Default)]
 pub struct SignalHooks {
+    /// Production emergency exit, which bypasses output draining on the second signal.
+    pub immediate_exit: Option<Arc<dyn Fn(i32) + Send + Sync>>,
     /// Replaces the tokio registration (failure injection).
     pub registration: Option<SignalRegistration>,
     /// Called once both registrations have been attempted.
@@ -166,7 +168,7 @@ impl SignalRelay {
             .clone()
             .unwrap_or_else(|| Arc::new(tokio_registration));
         let ready = self.hooks.ready.clone();
-        let exit = self.exit.clone();
+        let exit = self.hooks.immediate_exit.clone().unwrap_or_else(|| self.exit.clone());
         let listener = vendor.spawn_cancellable(Box::new(move |cancelled| {
             Box::pin(async move {
                 let numbered = |number: i32| {
@@ -366,7 +368,7 @@ impl Marathon {
     fn timing(&self, message: impl FnOnce() -> VendorResult<String>) -> VendorResult<()> {
         let message = message()?;
         let line = timing_message(&message, self.deps.vendor.timer.as_ref()).map_err(clock_error)?;
-        self.log(TIMINGS, Level::Info, line, None);
+        self.log(TIMINGS, Level::INFO, line, None);
         Ok(())
     }
     fn context(&self, cancellation: Arc<dyn CancellationSignal>) -> VendorContext {
@@ -389,7 +391,7 @@ impl Marathon {
         .await
     }
 
-    /// `configureLogging()`: `MarathonLogging.debug` first, then the vendor's appenders.
+    /// `configureLogging()`: `LogSettings.debug` first, then the vendor's appenders.
     async fn configure_logging(&self, task: &TaskContext) -> VendorResult<()> {
         let debug = self.deps.vendor.configuration.debug;
         let logging = self.deps.vendor.logging.clone();
@@ -421,12 +423,12 @@ impl Marathon {
 
     /// `logSystemInformation()` under P1: the heading, then the documented OS facts.
     fn log_system_information(&self) {
-        self.log(LOGGER, Level::Info, "System Information:".into(), None);
+        self.log(LOGGER, Level::INFO, "System Information:".into(), None);
         for (key, value) in &self.services.system_information {
             let mut line = key.clone();
             line.push_str(": ");
             line.push_str(&value.clone());
-            self.log(LOGGER, Level::Info, line, None);
+            self.log(LOGGER, Level::INFO, line, None);
         }
     }
 
@@ -446,7 +448,7 @@ impl Marathon {
         if parse && matches!(self.deps.parser, TestParser::Local(_)) {
             self.log(
                 LOGGER,
-                Level::Info,
+                Level::INFO,
                 "DeviceProvider is not required for local parsing".into(),
                 None,
             );
@@ -505,7 +507,7 @@ impl Marathon {
         let parsing_finished = hooks.millis("core.Marathon.runAsync.parsing").map_err(clock_error)?;
         self.log(
             LOGGER,
-            Level::Debug,
+            Level::DEBUG,
             format!("Parsing took {} ms", parsing_finished.wrapping_sub(parsing_started)),
             None,
         );
@@ -567,7 +569,7 @@ impl Marathon {
             }
             names.push_str(&test.to_test_name('.', '#'));
         }
-        self.log(LOGGER, Level::Debug, names, None);
+        self.log(LOGGER, Level::DEBUG, names, None);
 
         let scheduler = Scheduler::new(SchedulerParts {
             core: self.services.core.clone(),
@@ -602,7 +604,7 @@ impl Marathon {
             // empty list as before.
             self.log(
                 LOGGER,
-                Level::Error,
+                Level::ERROR,
                 format!("No tests left to run after filtering: {}", filter_stages.join(", ")),
                 None,
             );
@@ -795,7 +797,7 @@ impl Marathon {
             let mut message = text(&["Output "]);
             message.push_str(&output.to_string_lossy());
             message.push_str(" already exists");
-            self.log(LOGGER, Level::Info, message, None);
+            self.log(LOGGER, Level::INFO, message, None);
         }
         blocking(self.services.core.vendor().as_ref(), move || {
             if exists {
@@ -817,7 +819,7 @@ impl Marathon {
             Err(error) => {
                 self.log(
                     LOGGER,
-                    Level::Error,
+                    Level::ERROR,
                     format!("{step} failed during cleanup"),
                     Some(error.failure().clone()),
                 );
@@ -941,7 +943,7 @@ impl Marathon {
         // At ERROR because this logger shows nothing below that without `debug: true`, and the line must reach a CI log.
         self.log(
             LOGGER,
-            Level::Error,
+            Level::ERROR,
             format!(
                 "Signal {number}: stopping the tests, writing the reports and cleaning up for up to {} s. A second signal exits at once",
                 (CANCEL_LIMIT_MILLIS + CANCEL_FLUSH_MILLIS) / 1000
@@ -1052,13 +1054,13 @@ impl Marathon {
                 // `log.error(th) {}`: the empty lambda's Unit is the message.
                 self.log(
                     LOGGER,
-                    Level::Error,
+                    Level::ERROR,
                     "kotlin.Unit".into(),
                     Some(error.failure().clone()),
                 );
                 match error {
                     VendorError::NoDevices(_) => {
-                        self.log(LOGGER, Level::Warn, "No devices found".into(), None);
+                        self.log(LOGGER, Level::WARN, "No devices found".into(), None);
                         false
                     }
                     _ => self.deps.vendor.configuration.ignore_failures,
@@ -1167,7 +1169,7 @@ impl Marathon {
                         if let futures_util::future::Either::Right(_) = finished {
                             marathon.log(
                                 LOGGER,
-                                Level::Error,
+                                Level::ERROR,
                                 format!("Cleanup did not finish in {CANCEL_LIMIT_MILLIS} ms; exiting anyway"),
                                 None,
                             );

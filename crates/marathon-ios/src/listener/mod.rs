@@ -6,7 +6,7 @@ pub mod screenshot;
 pub mod video;
 
 use crate::apple_simulator_device::{AppleSimulatorDevice, SimulatorListenerFactory, SimulatorListeners};
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_apple::bin::kt::trim;
 use marathon_apple::{apple_device::AppleDevice, listener::AppleTestRunListener};
 use marathon_core::{
@@ -29,10 +29,10 @@ pub struct ListenerContext {
     pub context: VendorContext,
 }
 impl ListenerContext {
-    fn logger(&self, name: &str) -> Logger {
-        self.device.services().logging.logger(name)
+    fn component(&self, name: &str) -> Component {
+        self.device.services().logging.component(name)
     }
-    fn log(&self, logger: &Logger, level: Level, message: String) {
+    fn log(&self, logger: &Component, level: Level, message: String) {
         let logging = &self.device.services().logging;
         if logging.enabled(logger, level) {
             (logging.sink)(logger, level, message, None);

@@ -1,12 +1,14 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/listener/LogListener.kt
 //! and report/logs/LogWriter.kt, report/attachment/, device/file/FileTransferExtensions.kt.
+use marathon_logging::{Level, Component, LogSettings};
+
 use marathon_error::FailureKind;
 mod event_support;
 
 use event_support::*;
 use jcompat::{
     file_manager::FileManager,
-    logging::{Level, Logger, MarathonLogging},
+    
 };
 use marathon_core::{
     artifacts::*,
@@ -77,7 +79,7 @@ fn output(io: Arc<dyn VendorRuntime>, path: PathBuf) -> Arc<FileManagerOutput> {
         io,
         FileManager::new(0, 0, &path.to_string_lossy(), ""),
         path,
-        MarathonLogging::default().logger("FileManager", None),
+        LogSettings::default().component("FileManager"),
         Arc::new(|_, _, _, _| assert_worker()),
     ))
 }
@@ -538,11 +540,11 @@ fn file_transfer_finally_and_folder_success_use_tapes_and_integer_kilobytes() {
             let measure = TransferMeasurement {
                 io: core.vendor(),
                 clock: hooks.clone(),
-                logger: MarathonLogging::default().logger("Device", None),
+                logger: LogSettings::default().component("Device"),
                 serial: "serial".into(),
-                log: Arc::new(move |_: &Logger, level: Level, message: &str, _| {
+                log: Arc::new(move |_: &Component, level: Level, message: &str, _| {
                     assert_worker();
-                    assert_eq!(level, Level::Debug);
+                    assert_eq!(level, Level::DEBUG);
                     recorded.lock().unwrap().push(message.to_owned());
                 }),
             };
@@ -637,7 +639,7 @@ fn dropping_transfer_cancels_borrowed_body_without_stat_or_log() {
                 let measure = TransferMeasurement {
                     io: io.clone(),
                     clock: hooks.clone(),
-                    logger: MarathonLogging::default().logger("Device", None),
+                    logger: LogSettings::default().component("Device"),
                     serial: "serial".into(),
                     log: Arc::new(move |_, _, message, _| {
                         recorded.lock().unwrap().push(message.to_owned());
@@ -701,7 +703,7 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
                     "",
                 ),
                 out.clone(),
-                MarathonLogging::default().logger("FileManager", None),
+                LogSettings::default().component("FileManager"),
                 Arc::new(move |_, _, message, _| {
                     assert_worker();
                     capture
@@ -744,7 +746,7 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
                     "",
                 ),
                 folder_root,
-                MarathonLogging::default().logger("FileManager", None),
+                LogSettings::default().component("FileManager"),
                 Arc::new(move |_, _, _, _| {
                     assert_worker();
                     capture.lock().unwrap().push(checked.clone().exists());

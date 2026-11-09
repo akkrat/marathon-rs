@@ -7,7 +7,7 @@ use crate::{
     support::*,
     tracker::{DeviceStateTracker, MultiServerDeviceStateTracker, TrackingUpdate, is_passing},
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_adb::client::{
     AdamLogging, AdbError, AndroidDebugBridgeClient, ChannelStream, SocketFactory,
     device::{AsyncDeviceMonitorRequest, Device as AdbDevice, DeviceState, ListDevicesRequest},
@@ -43,7 +43,7 @@ struct Provided {
 struct Inner {
     runtime: Arc<AndroidRuntime>,
     factory: Arc<SocketFactory>,
-    logger: Logger,
+    logger: Component,
     channel: Arc<SharedChannel<DeviceEvent>>,
     // D18: keyed by (adb server, serial); Kotlin keys by serial alone (docs/known-kotlin-bugs.md N27).
     devices: Mutex<HashMap<(String, String), Provided>>,
@@ -60,7 +60,7 @@ impl AdamDeviceProvider {
             marathon_adb::client::transport::DEFAULT_CONNECT_TIMEOUT_MS,
             millis(runtime.configuration.timeout_configuration.socket_idle_timeout)?,
         ));
-        let logger = runtime.logger("AdamDeviceProvider");
+        let logger = runtime.component("marathon_android::provider");
         Ok(Self {
             inner: Arc::new(Inner {
                 runtime,
@@ -116,7 +116,7 @@ impl AdamDeviceProvider {
             let sink = runtime.log.clone();
             let registered = registry.clone();
             let logging = AdamLogging::new(registry, move |name, level, text, error| {
-                let logger = lock(&registered).slf4j_logger(name);
+                let logger = lock(&registered).component(name);
                 let f = error.map(|e| throwable(e.to_failure()));
                 sink(&logger, level, text.as_str(), f.as_ref())
             });
@@ -127,7 +127,7 @@ impl AdamDeviceProvider {
                 clients.push(client)
             } else {
                 self.log(
-                    Level::Error,
+                    Level::ERROR,
                     &format!("adb server {} is unavailable", server_name(&client)),
                     None,
                 )
@@ -180,7 +180,7 @@ impl AdamDeviceProvider {
                     && !matches!(e, VendorError::Cancelled(_))
                 {
                     this.log(
-                        Level::Error,
+                        Level::ERROR,
                         "CoroutineContext closing due to unrecoverable error",
                         Some(e.failure()),
                     );
@@ -220,7 +220,7 @@ impl AdamDeviceProvider {
         })
         .await?;
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             &format!("Android Debug Bridge {}: version {version}", server_name(client)),
             None,
         );
@@ -322,7 +322,7 @@ impl AdamDeviceProvider {
                                             && !matches!(e, VendorError::Cancelled(_))
                                         {
                                             connected.log(
-                                                Level::Error,
+                                                Level::ERROR,
                                                 "CoroutineContext closing due to unrecoverable error",
                                                 Some(e.failure()),
                                             );
@@ -382,7 +382,7 @@ impl AdamDeviceProvider {
                     }
                     if update != TrackingUpdate::NothingToDo {
                         self.log(
-                            Level::Debug,
+                            Level::DEBUG,
                             &format!("Device {serial} changed state to {}", update.name()),
                             None,
                         )
@@ -453,7 +453,7 @@ impl AdamDeviceProvider {
                 }
                 TrackStep::BlipOver(serial) => {
                     self.log(
-                        Level::Warn,
+                        Level::WARN,
                         &format!("Device {serial} did not return in time; disconnecting it"),
                         None,
                     );
@@ -472,7 +472,7 @@ impl AdamDeviceProvider {
                 return Ok(());
             }
             self.log(
-                Level::Warn,
+                Level::WARN,
                 &format!("Lost device tracking on adb server {name}; reconnecting"),
                 cause.as_ref().map(VendorError::failure),
             );
@@ -492,7 +492,7 @@ impl AdamDeviceProvider {
             .await?;
             let (new_stream, devices) = match recovered {
                 Some(recovered) => {
-                    self.log(Level::Info, &format!("adb server {name} is back"), None);
+                    self.log(Level::INFO, &format!("adb server {name} is back"), None);
                     settling = Some(Settling {
                         kept,
                         latest: vec![],
@@ -502,7 +502,7 @@ impl AdamDeviceProvider {
                 }
                 None => {
                     self.log(
-                        Level::Error,
+                        Level::ERROR,
                         &format!("adb server {name} did not return in {wait} ms; disconnecting its devices"),
                         None,
                     );
@@ -602,14 +602,14 @@ impl AdamDeviceProvider {
             }
             if tracker.blips(serial) >= BLIPS_PER_DEVICE {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     &format!("Device {serial} went offline too often; disconnecting it"),
                     None,
                 );
                 continue;
             }
             self.log(
-                Level::Warn,
+                Level::WARN,
                 &format!(
                     "Device {serial} is in state {:?}; waiting up to {BLIP_GRACE_MILLIS} ms for it to return",
                     device.state
@@ -645,13 +645,13 @@ impl AdamDeviceProvider {
         for serial in &returned {
             if restarted.contains(serial) {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     &format!("Device {serial} returned as if restarted; setting it up again"),
                     None,
                 );
             } else if let Some(device) = provided(serial) {
                 device.resume_after_blip(context.clone()).await?;
-                self.log(Level::Info, &format!("Device {serial} is back"), None);
+                self.log(Level::INFO, &format!("Device {serial} is back"), None);
             }
         }
         for serial in returned.iter().chain(&gone) {

@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt
 use super::*;
 use crate::listeners::{AndroidTestRunListener, to_test};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_error::FailureKind;
@@ -38,7 +38,7 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                         _ => None,
                     };
                     // N30/N31: wrong logger name and no pull despite promising a report file.
-                    let logger = "ScreenCapturerTestRunListener";
+                    let logger = "marathon_ios::listener::screenshot";
                     if let Some((kind, attachment)) = pair {
                         let test = to_test(id);
                         let uuid = context
@@ -63,13 +63,13 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                             .await?;
                         self.artifacts.device.log_named(
                             logger,
-                            Level::Debug,
+                            Level::DEBUG,
                             &format!("Received screen capture file {path}"),
                             None,
                         );
                         self.attachments.emit(&test, file, attachment, "screen")?;
                     } else {
-                        self.artifacts.device.log_named(logger,Level::Warn,&format!("Unable to decode image format of screen capture {path}. The file will be available in the report directory, but will not be included as part of any visual report"),None);
+                        self.artifacts.device.log_named(logger,Level::WARN,&format!("Unable to decode image format of screen capture {path}. The file will be available in the report directory, but will not be included as part of any visual report"),None);
                     }
                 }
             }

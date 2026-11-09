@@ -1,14 +1,14 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/log/MarathonLogging.kt
 //! (shared core/Send producer queue with ordered raw output).
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_core::logging::{LogQueue, LogRecord, OutputRecord};
 
 fn sent(message: &str) -> LogRecord {
-    LogRecord {
+    LogRecord { target: module_path!().into(),
         logger: "provider".into(),
         at_millis: 0,
         wall_millis: 0,
-        level: Level::Warn,
+        level: Level::WARN,
         message: message.into(),
         cause: None,
     }
@@ -26,7 +26,7 @@ fn sender_records_drain_in_push_order_with_core_logs_and_raw_text() {
     let sender = q.sender();
     q.raw("a".into());
     sender.push(sent("b"));
-    q.log("core", 1, Level::Info, "c".into(), None);
+    q.log("core", 1, Level::INFO, "c".into(), None);
     std::thread::spawn(move || sender.push(sent("d"))).join().unwrap();
     q.raw("e".into());
     assert_eq!(

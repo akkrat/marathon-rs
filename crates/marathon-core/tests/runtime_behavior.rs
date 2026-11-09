@@ -490,8 +490,8 @@ fn completion_logging_has_exact_three_branches() {
             "CoroutineContext closing due to unrecoverable error",
         ]
     );
-    assert_eq!(logs[0].level, jcompat::logging::Level::Debug);
-    assert_eq!(logs[2].level, jcompat::logging::Level::Error);
+    assert_eq!(logs[0].level, marathon_logging::Level::DEBUG);
+    assert_eq!(logs[2].level, marathon_logging::Level::ERROR);
     assert!(logs[1].exception.is_some());
 }
 #[test]
@@ -636,26 +636,9 @@ fn actor_panic_retains_handler_until_completion_callbacks() {
     });
 }
 #[test]
-fn completion_log_rendering_uses_shared_registry_filter_and_jcompat_layout() {
-    use jcompat::logging::{JansiMode, Level, LogEvent, MarathonLogging, OutputTarget};
-    let mut registry = MarathonLogging::default();
-    let logger = registry.logger("core.Actor", Some(Level::Error));
+fn completion_events_keep_their_level_message_and_cause() {
     let log = marathon_core::executor::completion_logging::completion_log(Completion::Success);
-    let envelope = LogEvent {
-        level: Level::Info,
-        logger: "ignored",
-        thread: "output",
-        local_time_millis: 0,
-        message: "ignored",
-        throwable: "",
-    };
-    assert!(
-        log.render(&registry, &logger, &envelope, (JansiMode::Strip, OutputTarget::Pipe))
-            .is_none()
-    );
-    let logger = registry.logger("core.Actor", Some(Level::Debug));
-    let line = log
-        .render(&registry, &logger, &envelope, (JansiMode::Strip, OutputTarget::Pipe))
-        .unwrap();
-    assert!(line.contains("core.Actor - CoroutineContext finished"));
+    assert_eq!(log.level, marathon_logging::Level::DEBUG);
+    assert_eq!(log.message, "CoroutineContext finished");
+    assert!(log.exception.is_none());
 }

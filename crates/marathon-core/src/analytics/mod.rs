@@ -1,5 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/Analytics.kt
 //! and analytics/external/AnalyticsFactory.kt.
+use marathon_logging::{Level, LogSettings};
+
 use marathon_error::FailureKind;
 mod coverage;
 mod event_pipeline;
@@ -25,7 +27,7 @@ use crate::{
 };
 use jcompat::{
     jtime::Instant,
-    logging::{Level, MarathonLogging},
+    
 };
 use std::sync::{Arc, Mutex};
 
@@ -38,7 +40,7 @@ pub struct MetricsContext {
     pub vendor: Arc<dyn VendorRuntime>,
     pub monotonic: Arc<dyn MonotonicClock>,
     pub cancellation: Arc<dyn CancellationSignal>,
-    pub registry: Arc<Mutex<MarathonLogging>>,
+    pub registry: Arc<Mutex<LogSettings>>,
     pub logs: LogSender,
     pub stamp: Arc<dyn Fn() -> (i64, i64) + Send + Sync>,
 }
@@ -48,7 +50,7 @@ impl MetricsContext {
             .registry
             .lock()
             .map_err(|_| failure(FailureKind::IllegalState, "Poisoned logging registry"))?;
-        registry.logger(name, None);
+        registry.component(name);
         Ok(())
     }
     fn timings(&self) -> OperationResult<()> {
@@ -60,7 +62,7 @@ impl MetricsContext {
     }
     fn log(&self, logger: &str, level: Level, message: String, cause: Option<Failure>) {
         let (at_millis, wall_millis) = (self.stamp)();
-        self.logs.push(LogRecord {
+        self.logs.push(LogRecord { target: module_path!().into(),
             logger: logger.to_owned(),
             at_millis,
             wall_millis,

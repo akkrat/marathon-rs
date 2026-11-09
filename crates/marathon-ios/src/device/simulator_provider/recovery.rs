@@ -153,14 +153,14 @@ impl SimulatorRecovery {
         if others_left {
             if late > 0 {
                 provider.log(
-                    Level::Info,
+                    Level::INFO,
                     || format!("Worker {worker}: {late} devices don't join the run late, since {reason}"),
                     None,
                 );
             }
         } else {
             provider.log(
-                Level::Info,
+                Level::INFO,
                 || format!("Worker {worker} doesn't join the run late, since {reason}. No longer connecting to it"),
                 None,
             );
@@ -219,7 +219,7 @@ impl SimulatorRecovery {
                 provider.give_up_parked(transport, &[udid], ParkedFor::GivenUp);
             }
             provider.log(
-                Level::Error,
+                Level::ERROR,
                 || {
                     format!(
                         "Simulator {} has no connection {} s after it lost its worker, it stays out of the run",
@@ -246,7 +246,7 @@ impl SimulatorRecovery {
             return Ok(false);
         };
         provider.log(
-            Level::Info,
+            Level::INFO,
             || {
                 format!(
                     "Simulator {} doesn't join the run late, since {reason}",
@@ -363,11 +363,11 @@ impl SimulatorRecovery {
         };
         loop {
             let Some(pause) = config.pause_after(attempt) else {
-                provider.log(Level::Error, || format!("Failed to connect to worker {worker} after {attempt} attempts ({}), its devices stay out of the run", describe_failure(&last.failure())), None);
+                provider.log(Level::ERROR, || format!("Failed to connect to worker {worker} after {attempt} attempts ({}), its devices stay out of the run", describe_failure(&last.failure())), None);
                 return Ok(());
             };
             if attempt == config.attempts {
-                provider.log(Level::Warn, || format!("Failed to connect to worker {worker} after {attempt} attempts ({}), retrying every {} s while the run is active", describe_failure(&last.failure()), pause.seconds()), None);
+                provider.log(Level::WARN, || format!("Failed to connect to worker {worker} after {attempt} attempts ({}), retrying every {} s while the run is active", describe_failure(&last.failure()), pause.seconds()), None);
             }
             caller
                 .clock
@@ -381,7 +381,7 @@ impl SimulatorRecovery {
             *claims = provider.claim_now(keys(pending));
             attempt = attempt.wrapping_add(1);
             provider.log(
-                Level::Debug,
+                Level::DEBUG,
                 || format!("Connecting to worker {worker}, attempt {attempt}"),
                 None,
             );
@@ -402,14 +402,14 @@ impl SimulatorRecovery {
                     }
                     if !transient {
                         provider.log(
-                            Level::Error,
+                            Level::ERROR,
                             || format!("Failed to connect to worker {worker}, attempt {attempt}, not retrying"),
                             Some(error.output_failure()),
                         );
                         return Ok(());
                     }
                     provider.log(
-                        Level::Debug,
+                        Level::DEBUG,
                         || {
                             format!(
                                 "Failed to connect to worker {worker}, attempt {attempt}: {}",
@@ -424,7 +424,7 @@ impl SimulatorRecovery {
             };
             let result: VendorResult<bool> = with_claims(claims.clone(), async {
                 let connected = provider.services.timing.elapsed()?;
-                provider.log(Level::Warn, || format!("Connected to worker {worker} on attempt {attempt}, {} ms after the first one, setting up its devices", connected.wrapping_sub(started)), None);
+                provider.log(Level::WARN, || format!("Connected to worker {worker} on attempt {attempt}, {} ms after the first one, setting up its devices", connected.wrapping_sub(started)), None);
                 if self.prune_pending(provider, transport, pending)? { return Ok(false); }
                 loop {
                     let Some(taken) = pending.take() else { return Ok(false); };
@@ -451,7 +451,7 @@ impl SimulatorRecovery {
                             Ok(unfinished) => unfinished,
                             Err(error) if error.is_cancelled() => return Err(error.into_vendor()),
                             Err(error) => {
-                                provider.log(Level::Error, || format!("Failed to initialize worker {worker}"), Some(error.output_failure()));
+                                provider.log(Level::ERROR, || format!("Failed to initialize worker {worker}"), Some(error.output_failure()));
                                 self.schedule_setup_retry(provider, transport, targets.clone(), started)?;
                                 return Ok(Late::Stop);
                             }
@@ -459,7 +459,7 @@ impl SimulatorRecovery {
                         self.schedule_setup_retry(provider, transport, unfinished.failed, started)?;
                         let missing = provider.still_claimed(transport, unfinished.missing);
                         if missing.is_empty() { return Ok(Late::Next); }
-                        provider.log(Level::Warn, || format!("Worker {worker}: {} devices could not connect, retrying", missing.len()), None);
+                        provider.log(Level::WARN, || format!("Worker {worker}: {} devices could not connect, retrying", missing.len()), None);
                         pending.offer(&entries(provider, transport, &missing));
                         Ok(Late::Retry(missing.len()))
                     }).await?;
@@ -478,7 +478,7 @@ impl SimulatorRecovery {
             // Kotlin's finally releases even a denied admission or a failed setup.
             let retry = finish_retry_attempt(result, released, |error| {
                 provider.log(
-                    Level::Error,
+                    Level::ERROR,
                     || format!("Failed to release connection to worker {worker}"),
                     Some(error.failure().clone()),
                 );
@@ -503,7 +503,7 @@ impl SimulatorRecovery {
             // D44: `again` is the attempt of a simulator added back while an older recovery of it ran.
             if readded || again {
                 provider.log(
-                    Level::Warn,
+                    Level::WARN,
                     || format!("Re-provisioning {}, added back to the devices file", lost[0].serial()),
                     None,
                 );
@@ -527,7 +527,7 @@ impl SimulatorRecovery {
             if let Some(loss) = loss {
                 if loss > self.max_recoveries {
                     provider.log(
-                        Level::Warn,
+                        Level::WARN,
                         || {
                             format!(
                                 "Simulator {} has been lost {loss} times, not re-provisioning it again",
@@ -563,7 +563,7 @@ impl SimulatorRecovery {
                 if removed {
                     continue;
                 }
-                provider.log(Level::Warn, || format!("Re-provisioning {}", device.serial()), None);
+                provider.log(Level::WARN, || format!("Re-provisioning {}", device.serial()), None);
                 udids.push(device.udid().to_owned());
             }
             provider
@@ -669,7 +669,7 @@ impl SimulatorRecovery {
             .map_err(ProvisioningError::into_vendor)?;
         if let Err(error) = self.hand_over(provider, transport, failures, now, caller).await {
             provider.log(
-                Level::Error,
+                Level::ERROR,
                 || {
                     format!(
                         "Failed to hand over the recovery of {}",
@@ -738,7 +738,7 @@ impl SimulatorRecovery {
                 });
             } else if refused {
                 provider.log(
-                    Level::Error,
+                    Level::ERROR,
                     || {
                         format!(
                             "Simulator {udid} on worker {}: its connection was refused, it stays out of the run",
@@ -800,7 +800,7 @@ impl ProviderRecovery for SimulatorRecovery {
         let offered = self.state().pending.get(transport).is_some_and(|p| p.offer(&offered));
         if offered {
             provider.log(
-                Level::Info,
+                Level::INFO,
                 || {
                     format!(
                         "Worker {} is not connected yet, its {} new devices will be set up once it connects",
@@ -826,7 +826,7 @@ impl ProviderRecovery for SimulatorRecovery {
             let transient = matches!(&error.original, SetupError::Connection(e) if is_transient_connection_failure(e));
             if !transient || provider.services.vendor.worker_connection.pause_after(1).is_none() {
                 provider.log(
-                    Level::Error,
+                    Level::ERROR,
                     || {
                         format!(
                             "Failed to initialize connection to worker {}",
@@ -839,7 +839,7 @@ impl ProviderRecovery for SimulatorRecovery {
                 return Ok(());
             }
             provider.log(
-                Level::Warn,
+                Level::WARN,
                 || {
                     format!(
                         "Failed to connect to worker {} ({}), retrying",
@@ -863,7 +863,7 @@ impl ProviderRecovery for SimulatorRecovery {
             let provider = self.provider()?;
             let retry = provider.services.vendor.worker_connection.pause_after(1).is_some();
             provider.log(
-                if retry { Level::Warn } else { Level::Error },
+                if retry { Level::WARN } else { Level::ERROR },
                 || {
                     format!(
                         "Worker {}: {} devices could not connect, {}",
@@ -920,7 +920,7 @@ impl ProviderRecovery for SimulatorRecovery {
                 if let Some(reason) = &reason {
                     let provider = this.provider()?;
                     provider.log(
-                        Level::Info,
+                        Level::INFO,
                         || format!("Simulator {serial} doesn't join the run late, since {reason}"),
                         None,
                     );

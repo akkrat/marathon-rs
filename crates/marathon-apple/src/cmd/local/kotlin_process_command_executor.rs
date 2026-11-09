@@ -7,7 +7,7 @@ use super::super::{
 };
 use super::KotlinProcessHost;
 use crate::extensions::reader::{current_time_millis, produce_lines_manually};
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_core::{
     error::{VendorError, VendorResult},
     runtime::{VendorFuture, VendorRuntime},
@@ -55,11 +55,11 @@ impl<R: AsFd + Unpin> AsyncRead for PollingPipe<R> {
     }
 }
 
-type LogSink = dyn Fn(&Logger, String) + Send + Sync;
+type LogSink = dyn Fn(&Component, String) + Send + Sync;
 pub struct KotlinProcessCommandExecutor {
     runtime: Arc<dyn VendorRuntime>,
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     log_error: Arc<LogSink>,
     destroy_forcibly: bool,
     capacity: usize,
@@ -67,15 +67,13 @@ pub struct KotlinProcessCommandExecutor {
 impl KotlinProcessCommandExecutor {
     pub fn new(
         runtime: Arc<dyn VendorRuntime>,
-        logging: Arc<Mutex<MarathonLogging>>,
-        log_error: impl Fn(&Logger, String) + Send + Sync + 'static,
+        logging: Arc<Mutex<LogSettings>>,
+        log_error: impl Fn(&Component, String) + Send + Sync + 'static,
         destroy_forcibly: bool,
         capacity: usize,
     ) -> Self {
-        let logger = logging.lock().unwrap_or_else(|e| e.into_inner()).logger(
-            "com.malinskiy.marathon.apple.cmd.local.KotlinProcessCommandExecutor",
-            None,
-        );
+        let logger = logging.lock().unwrap_or_else(|e| e.into_inner()).component(
+            "marathon_apple::cmd::local::kotlin_process_command_executor");
         Self {
             runtime,
             host: KotlinProcessHost::host(),
@@ -308,7 +306,7 @@ impl CommandExecutor for KotlinProcessCommandExecutor {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {

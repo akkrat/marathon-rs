@@ -1,10 +1,12 @@
 //! Port of vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt
 
+use marathon_logging::{Level, Component};
+
 use crate::device::{MacosDevice, MacosDeviceOptions};
 use indexmap::IndexMap;
 use jcompat::{
     file_manager::absolute_file_path,
-    logging::{Level, Logger},
+    
 };
 use marathon_apple::{
     apple_device::AppleDevice,
@@ -55,7 +57,7 @@ pub struct AppleMacosProvider {
     leases: Mutex<Vec<Executor>>,
     channel: Arc<SharedChannel<DeviceEvent>>,
     tasks: RetainedTasks,
-    logger: Logger,
+    logger: Component,
     process_dir: PathBuf,
     environment: Vec<(String, String)>,
 }
@@ -67,7 +69,7 @@ impl AppleMacosProvider {
         process_dir: PathBuf,
         environment: Vec<(String, String)>,
     ) -> Arc<Self> {
-        let logger = options.logging.logger("AppleMacosProvider");
+        let logger = options.logging.component("marathon_macos::provider");
         Arc::new(Self {
             options,
             registry,
@@ -207,7 +209,7 @@ impl AppleMacosProvider {
             .insert(device.info().serial_number, device.clone());
         if let Some(previous) = previous {
             self.log(
-                Level::Error,
+                Level::ERROR,
                 "replaced existing device MacosDevice with new MacosDevice.".into(),
             );
             previous.dispose().await?;
@@ -242,9 +244,9 @@ impl AppleMacosProvider {
 impl DeviceProvider for AppleMacosProvider {
     fn initialize(&self, context: VendorContext) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            self.log(Level::Debug, "Initializing AppleMacosProvider".into());
+            self.log(Level::DEBUG, "Initializing AppleMacosProvider".into());
             self.log(
-                Level::Info,
+                Level::INFO,
                 describe_timeout(&self.options.vendor.timeout_configuration),
             );
             let input = self.read_devices()?;
@@ -252,10 +254,10 @@ impl DeviceProvider for AppleMacosProvider {
             for worker in input.workers {
                 hosts.insert(worker.transport, worker.devices);
             }
-            if self.options.logging.enabled(&self.logger, Level::Debug) {
+            if self.options.logging.enabled(&self.logger, Level::DEBUG) {
                 let local = "Local";
                 self.log(
-                    Level::Debug,
+                    Level::DEBUG,
                     format!(
                         "Establishing communication with [{}]",
                         hosts
@@ -273,7 +275,7 @@ impl DeviceProvider for AppleMacosProvider {
                         keep = true;
                     } else {
                         self.log(
-                            Level::Warn,
+                            Level::WARN,
                             "macOS vendor runs do not use anything but host device for testing. Skipping".into(),
                         );
                     }
@@ -339,7 +341,7 @@ impl DeviceProvider for AppleMacosProvider {
     }
     fn terminate(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
-            self.log(Level::Debug, "Terminating AppleMacosProvider".into());
+            self.log(Level::DEBUG, "Terminating AppleMacosProvider".into());
             self.channel.close(None);
             let results = futures_util::future::join_all(self.snapshot().into_iter().map(|device| async move {
                 let outcome = async {
@@ -353,7 +355,7 @@ impl DeviceProvider for AppleMacosProvider {
                     return Err(error);
                 }
                 self.registry.remove(&DeviceRef(device.clone()));
-                self.log(Level::Debug, format!("Disposed device {}", device.udid()));
+                self.log(Level::DEBUG, format!("Disposed device {}", device.udid()));
                 Ok(())
             }))
             .await;

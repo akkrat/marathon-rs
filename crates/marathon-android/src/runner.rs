@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AndroidDeviceTestRunner.kt
 //! and adam/AdamAndroidDevice.kt:461-489 (the execute exception boundary).
+use marathon_logging::Level;
+
 use crate::{
     arguments::ArgumentsFactory,
     device::{AndroidBatchExecutor, AndroidDevice},
@@ -7,7 +9,7 @@ use crate::{
     models::*,
     support::*,
 };
-use jcompat::{logging::Level, writers::KotlinValue};
+use jcompat::{ writers::KotlinValue};
 use marathon_adb::{
     instrument_request::{InstrumentOptions, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent, TestIdentifier},
@@ -53,7 +55,7 @@ impl InstrumentationChannel {
                             .await;
                             if let Some(request) = stream.request_mut() {
                                 for warning in request.take_warnings() {
-                                    owned.log(Level::Warn, &warning.to_string(), None);
+                                    owned.log(Level::WARN, &warning.to_string(), None);
                                 }
                             }
                             match chunk? {
@@ -141,7 +143,7 @@ impl AndroidDeviceTestRunner<'_> {
             .collect();
         self.device.log_named(
             "AndroidDeviceTestRunner",
-            Level::Debug,
+            Level::DEBUG,
             &format!(
                 "tests = {}",
                 KotlinValue::List(tests.iter().cloned().map(KotlinValue::Text).collect())
@@ -220,7 +222,7 @@ impl AndroidDeviceTestRunner<'_> {
                 let result = self.device.clear_package(&package.to_owned(), context.clone()).await?;
                 self.device.log_named(
                     "AndroidDeviceTestRunner",
-                    Level::Debug,
+                    Level::DEBUG,
                     &format!(
                         "Package {} cleared: {}",
                         package.to_owned(),
@@ -259,7 +261,7 @@ impl AndroidDeviceTestRunner<'_> {
                     .await?;
                 self.device.log_named(
                     "AndroidDeviceTestRunner",
-                    Level::Debug,
+                    Level::DEBUG,
                     &format!(
                         "File pull requested. Granted {permission} to {}: {}",
                         info.application_package.to_owned(),
@@ -293,7 +295,7 @@ impl AndroidDeviceTestRunner<'_> {
         message.push_str(&failure.failure().to_string());
         self.device.log_named(
             "AndroidDeviceTestRunner",
-            Level::Error,
+            Level::ERROR,
             &message.to_owned(),
             Some(failure.failure()),
         );
@@ -389,7 +391,7 @@ impl AndroidDeviceTestRunner<'_> {
                     }
                     self.device.log_named(
                         "AndroidDeviceTestRunner",
-                        Level::Debug,
+                        Level::DEBUG,
                         &format!("Running {}", request.command().to_owned()),
                         None,
                     );
@@ -429,7 +431,7 @@ impl AndroidDeviceTestRunner<'_> {
                         }
                     }
                     self.device
-                        .log_named("AndroidDeviceTestRunner", Level::Debug, "Execution finished", None);
+                        .log_named("AndroidDeviceTestRunner", Level::DEBUG, "Execution finished", None);
                     Ok(())
                 })
             })
@@ -463,7 +465,7 @@ impl AndroidDeviceTestRunner<'_> {
                     );
                     self.device.log_named(
                         "AndroidDeviceTestRunner",
-                        Level::Error,
+                        Level::ERROR,
                         &message.to_owned(),
                         Some(error.failure()),
                     );
@@ -578,7 +580,7 @@ impl AndroidBatchExecutor for AndroidRunnerExecutor {
                 if let Err(error) = &cleanup {
                     owned.log_named(
                         "AndroidDeviceTestRunner",
-                        Level::Error,
+                        Level::ERROR,
                         "Artifact listener cleanup failed",
                         Some(error.failure()),
                     );

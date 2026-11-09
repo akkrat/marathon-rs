@@ -8,7 +8,7 @@ pub struct NoOpMetricsProvider {
 }
 impl NoOpMetricsProvider {
     pub fn new(backend_unavailable: bool, context: MetricsContext) -> OperationResult<Self> {
-        context.register("NoOpMetricsProvider")?;
+        context.register("marathon_core::analytics::noop")?;
         Ok(Self {
             backend_unavailable,
             context,
@@ -43,16 +43,16 @@ impl MetricsProvider for NoOpMetricsProvider {
                 return Ok(());
             }
             let (level, reason) = if self.backend_unavailable {
-                (Level::Warn, "the analytics backend could not be set up")
+                (Level::WARN, "the analytics backend could not be set up")
             } else {
-                (Level::Info, "analytics is disabled")
+                (Level::INFO, "analytics is disabled")
             };
             let mut message = String::from("Execution time history for ");
             message.push_str(usage);
             message.push_str(&format!(
                 ": 0 of {count} tests have it, {reason}, so every test is expected to take 0 ms"
             ));
-            self.context.log("NoOpMetricsProvider", level, message, None);
+            self.context.log("marathon_core::analytics::noop", level, message, None);
             Ok(())
         })
     }

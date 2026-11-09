@@ -1,10 +1,12 @@
 //! Port of vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt
 
+use marathon_logging::{Level, Component};
+
 use crate::installer::MacosApplicationInstaller;
 use jcompat::{
     file_manager::FileManager,
     jtime::Duration,
-    logging::{Level, Logger},
+    
 };
 use marathon_apple::{
     apple_application_installer::AppleApplicationInstaller,
@@ -102,7 +104,7 @@ pub struct MacosDevice {
     bridge: Bridge,
     commands: Arc<ExecutorWorkerCommands>,
     remote: RemoteFileManager,
-    logger: Logger,
+    logger: Component,
     facts: Mutex<Facts>,
     execution: Mutex<Execution>,
     listeners: Arc<LineListeners>,
@@ -120,7 +122,7 @@ impl MacosDevice {
     ) -> Arc<Self> {
         let serial: String = format!("{udid}@{}", binary.command_executor.host().id);
         let storage = storage_path_for(&udid);
-        let logger = options.logging.logger("com.malinskiy.marathon.apple.macos.MacosDevice");
+        let logger = options.logging.component("marathon_macos::device");
         let commands = Arc::new(ExecutorWorkerCommands {
             executor: binary.command_executor.clone(),
             timeouts: Arc::new(options.vendor.timeout_configuration.clone()),
@@ -365,7 +367,7 @@ impl MacosDevice {
             .is_some();
         if !finished {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Cancelled batch on {} has not finished within {}, not waiting for it any longer",
                     self.serial.to_owned(),
@@ -579,7 +581,7 @@ impl Device for MacosDevice {
     fn worker_id(&self) -> Option<String> {
         Some(self.transport.id())
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
@@ -669,7 +671,7 @@ impl Device for MacosDevice {
                     return Err(error);
                 }
                 self.log(
-                    Level::Debug,
+                    Level::DEBUG,
                     format!("Error disposing {}", self.serial.to_owned()),
                     Some(error.failure().clone()),
                 );

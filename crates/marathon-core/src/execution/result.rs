@@ -1,11 +1,13 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/result/TestRunResultsAccumulator.kt
 //! and execution/result/TemporalTestResult.kt.
+use marathon_logging::Level;
+
 use crate::{
     logging::{LogRecord, WallSource},
     model::{DeviceInfo, Test, TestBatch, TestResult, TestStatus},
     time::{ClockResult, Timer, WallClock},
 };
-use jcompat::{jstring, logging::Level};
+use jcompat::{jstring, };
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Default, Eq)]
@@ -256,11 +258,11 @@ impl TestRunResultsAccumulator {
                 message.push_str(&test.to_safe_test_name());
                 // Plain records keep this Send vendor-side owner free of core-local
                 // Rc state; adapters forward them without rendering.
-                self.logs.push(LogRecord {
+                self.logs.push(LogRecord { target: module_path!().into(),
                     logger: "com.malinskiy.marathon.execution.result.TestRunResultsAccumulator".to_owned(),
                     at_millis: 0,
                     wall_millis: (self.wall)(),
-                    level: Level::Debug,
+                    level: Level::DEBUG,
                     message,
                     cause: None,
                 });

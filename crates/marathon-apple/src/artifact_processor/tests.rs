@@ -25,7 +25,7 @@ impl Harness {
         let logs: Logs = Arc::default();
         let output = logs.clone();
         let logging = SshLogging::new(
-            Arc::new(Mutex::new(jcompat::logging::MarathonLogging::default())),
+            Arc::new(Mutex::new(marathon_logging::LogSettings::default())),
             Arc::new(move |_, level, message, error| output.lock().unwrap().push((level, message, error))),
         );
         let p = ArtifactProcessor::new(
@@ -490,7 +490,7 @@ async fn every_undelivered_bundle_is_returned_and_logged_as_an_error_at_finaliza
     let logs = h.logs.lock().unwrap();
     let summary = logs
         .iter()
-        .find(|(l, m, _)| *l == Level::Error && m.starts_with("3 artifact bundle"))
+        .find(|(l, m, _)| *l == Level::ERROR && m.starts_with("3 artifact bundle"))
         .unwrap();
     for d in retained {
         assert!(summary.1.contains(&d.to_owned()));
@@ -1250,7 +1250,7 @@ async fn admission_waits_are_logged_per_submission_and_summarized_at_finalizatio
     for line in include_str!("../../../../fixtures/oracle/artifact-queue/events.jsonl").lines() {
         let event: serde_json::Value = serde_json::from_str(line).unwrap();
         if event["scenario"] == "admission waits are logged per submission and summarized at finalization"
-            && event["logger"] == "com.malinskiy.marathon.apple.ArtifactProcessor"
+            && event["logger"] == "marathon_apple::artifact_processor"
         {
             let message = event["message"].as_str().unwrap();
             if message.contains("device-") || message.starts_with("Artifact queue admission: 20") {

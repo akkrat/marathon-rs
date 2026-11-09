@@ -18,7 +18,7 @@ use super::{
 use crate::apple_simulator_device::AppleSimulatorDevice;
 use futures_util::future::join_all;
 use indexmap::{IndexMap, IndexSet};
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_apple::{
     apple_device::AppleDevice,
     apple_device_registry::AppleDeviceRegistry,
@@ -208,7 +208,7 @@ fn target_key(target: &AppleTarget, transport: &Transport) -> String {
 pub struct AppleSimulatorProvider {
     me: Weak<Self>,
     services: ProviderServices,
-    logger: Logger,
+    logger: Component,
     state: Mutex<State>,
     tracker: Mutex<Option<DeviceTracker>>,
     updates: tokio::sync::Mutex<()>,
@@ -260,7 +260,7 @@ impl AppleSimulatorProvider {
         )?;
         let provider = Arc::new_cyclic(|me| Self {
             me: me.clone(),
-            logger: services.logging.logger("AppleSimulatorProvider"),
+            logger: services.logging.component("marathon_ios::device::simulator_provider"),
             tracker: Mutex::new(Some(DeviceTracker::new(services.logging.clone()))),
             services: services.clone(),
             state: Mutex::default(),
@@ -348,8 +348,8 @@ impl AppleSimulatorProvider {
                 .cause
                 .unwrap_or_else(|| failure(FailureKind::ChannelSendClosed, "Channel was closed"));
             // A root launch reports a failed send independently of its registering caller.
-            if logging.enabled(&logger, Level::Error) {
-                (logging.sink)(&logger, Level::Error, String::new(), Some(detail.clone()));
+            if logging.enabled(&logger, Level::ERROR) {
+                (logging.sink)(&logger, Level::ERROR, String::new(), Some(detail.clone()));
             }
             Err(VendorError::Other(detail))
         });
@@ -413,9 +413,9 @@ impl AppleSimulatorProvider {
         };
         let replaced: ProvisioningResult<()> = async {
             self.services.registry.remove(&previous.device);
-            if self.services.logging.enabled(&self.logger, Level::Error) {
+            if self.services.logging.enabled(&self.logger, Level::ERROR) {
                 self.log(
-                    Level::Error,
+                    Level::ERROR,
                     || "replaced existing device AppleSimulatorDevice with new AppleSimulatorDevice.".into(),
                     None,
                 );
@@ -472,7 +472,7 @@ impl AppleSimulatorProvider {
         let mut additions = Vec::new();
         for (transport, updates) in updates {
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 || {
                     let lines = updates
                         .iter()
@@ -504,12 +504,12 @@ impl AppleSimulatorProvider {
                         }
                     }
                     TrackingUpdate::Disconnected(AppleTarget::Host) => self.log(
-                        Level::Warn,
+                        Level::WARN,
                         || "host devices are not support by apple simulator provider".into(),
                         None,
                     ),
                     TrackingUpdate::Disconnected(AppleTarget::SimulatorProfile(_)) => self.log(
-                        Level::Warn,
+                        Level::WARN,
                         || "simulator profile devices do not support disconnect".into(),
                         None,
                     ),
@@ -571,7 +571,7 @@ impl AppleSimulatorProvider {
             result?;
         }
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             || format!("Providing {} devices", self.state().devices.len()),
             None,
         );
@@ -581,7 +581,7 @@ impl AppleSimulatorProvider {
         match result {
             Err(e) if e.is_cancelled() => Err(e),
             Err(e) => {
-                self.log(Level::Error, message, Some(e.output_failure()));
+                self.log(Level::ERROR, message, Some(e.output_failure()));
                 Ok(())
             }
             Ok(()) => Ok(()),
@@ -752,7 +752,7 @@ impl AppleSimulatorProvider {
             Err(e) if e.is_cancelled() || executor.connected() => return Err(e),
             Err(e) => {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     || {
                         format!(
                             "Lost the connection to worker {} while planning its simulators ({})",
@@ -1099,9 +1099,9 @@ impl AppleSimulatorProvider {
     }
     async fn initialize_inner(self: Arc<Self>, caller: VendorContext) -> VendorResult<()> {
         let _lifecycle = self.lifecycle.lock().await;
-        self.log(Level::Debug, || "Initializing AppleSimulatorProvider".into(), None);
+        self.log(Level::DEBUG, || "Initializing AppleSimulatorProvider".into(), None);
         self.log(
-            Level::Info,
+            Level::INFO,
             || describe_timeout(&self.services.vendor.timeout_configuration),
             None,
         );
@@ -1126,7 +1126,7 @@ impl AppleSimulatorProvider {
             && initial.is_none()
         {
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 || {
                     format!(
                         "Using dynamic device provider at Dynamic(host={}, port={port})",
@@ -1150,7 +1150,7 @@ impl AppleSimulatorProvider {
     }
     async fn terminate_inner(&self) -> VendorResult<()> {
         let _lifecycle = self.lifecycle.lock().await;
-        self.log(Level::Debug, || "Terminating AppleSimulatorProvider".into(), None);
+        self.log(Level::DEBUG, || "Terminating AppleSimulatorProvider".into(), None);
         self.monitor_cancel.cancel(requested("Provider terminated"));
         let monitoring = self.state().monitoring.take();
         if let Some(task) = monitoring {
@@ -1161,7 +1161,7 @@ impl AppleSimulatorProvider {
         }
         if let Err(error) = self.services.recovery.terminate().await {
             self.log(
-                Level::Error,
+                Level::ERROR,
                 || "Failed to terminate provider recovery".into(),
                 Some(error.failure().clone()),
             );
@@ -1187,7 +1187,7 @@ impl AppleSimulatorProvider {
             .await;
             self.services.registry.remove(&device.device);
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 || format!("Disposed device {}", device.handle.udid()),
                 None,
             );

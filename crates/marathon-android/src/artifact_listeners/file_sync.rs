@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/filesync/FileSyncTestRunListener.kt
 use super::*;
 use crate::{listeners::AndroidTestRunListener, remote_file_manager::TMP_PATH};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_config::vendor::{AggregationMode, PathRoot};
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;
@@ -78,7 +78,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                 if entry.path_root == PathRoot::AppData {
                     device.log_named(
                         "FileSyncTestRunListener",
-                        Level::Error,
+                        Level::ERROR,
                         "Pushing files to app storage is not supported",
                         None,
                     );
@@ -98,7 +98,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                 let local = local.to_string_lossy().into_owned();
                 device.log_named(
                     "FileSyncTestRunListener",
-                    Level::Debug,
+                    Level::DEBUG,
                     &format!(
                         "Pushing {} {local} into {remote}",
                         if directory { "folder" } else { "file" }
@@ -202,7 +202,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                 .await?;
                 device.log_named(
                     "FileSyncTestRunListener",
-                    Level::Debug,
+                    Level::DEBUG,
                     &format!("Pulling into {local}"),
                     None,
                 );
@@ -220,7 +220,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                             AggregationMode::DeviceAndPool => "DEVICE_AND_POOL",
                             AggregationMode::TestRun => "TEST_RUN",
                         };
-                        device.log_named("FileSyncTestRunListener",Level::Warn,&format!("Unable to pull FileSyncEntry(relativePath={relative}, pathRoot=APP_DATA, aggregationMode={aggregation}): application package is unknown"),None);
+                        device.log_named("FileSyncTestRunListener",Level::WARN,&format!("Unable to pull FileSyncEntry(relativePath={relative}, pathRoot=APP_DATA, aggregationMode={aggregation}): application package is unknown"),None);
                         continue;
                     }
                 }

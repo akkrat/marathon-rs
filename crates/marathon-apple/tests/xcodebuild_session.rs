@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XcodebuildSession.kt (state-machine probe replay).
 use marathon_error::FailureKind;
 mod support;
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_apple::{
     cmd::{BaseCommand, CommandSession, SessionControl, remote::ssh::sshj::config::SshLogging},
     xcodebuild_session::XcodebuildSession,
@@ -9,7 +9,7 @@ use marathon_apple::{
 use std::sync::{Arc, Mutex};
 fn logging() -> SshLogging {
     SshLogging::new(
-        Arc::new(Mutex::new(MarathonLogging::default())),
+        Arc::new(Mutex::new(LogSettings::default())),
         Arc::new(|_, _, _, _| {}),
     )
 }

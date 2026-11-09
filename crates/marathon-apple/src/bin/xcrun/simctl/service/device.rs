@@ -7,19 +7,19 @@ use crate::{
     device::connection_factory::{ConnectionError, ConnectionResult},
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
-use jcompat::logging::Logger;
+use marathon_logging::Component;
 use marathon_core::vendor::VendorContext;
 
 pub struct DeviceService {
     service: SimctlService,
-    _logger: Logger,
+    _logger: Component,
 }
 impl DeviceService {
     pub fn new(service: SimctlService) -> Self {
         // Declared and never used in Kotlin; the lookup still registers the name.
         let _logger = service
             .tools
-            .logger("com.malinskiy.marathon.apple.bin.xcrun.simctl.service.DeviceService");
+            .component("marathon_apple::bin::xcrun::simctl::service::device");
         Self { service, _logger }
     }
     /// Command failures are `ConnectionError::Vendor`; ServicesUnavailable is `ConnectionError::Device`.

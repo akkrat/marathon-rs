@@ -46,7 +46,7 @@ impl VendorFactories {
 
 /// `main(args)`: parses the command line and runs it; returns the exit status.
 pub fn run_cli(args: &[String], process: &Process, runner: &dyn CliRunner, output: &CliOutput) -> i32 {
-    match args::parse(args) {
+    let code = match args::parse(args) {
         Invocation::Help(text) => {
             output.out(&text);
             0
@@ -57,5 +57,7 @@ pub fn run_cli(args: &[String], process: &Process, runner: &dyn CliRunner, outpu
         }
         Invocation::ConfigDump(args) => config_dump::config_dump(&args, process, output),
         Invocation::Execute(configuration) => application::execute(configuration, process, runner, output),
-    }
+    };
+    output.flush();
+    code
 }

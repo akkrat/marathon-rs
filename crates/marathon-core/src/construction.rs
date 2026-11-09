@@ -7,6 +7,8 @@
 //! the parse command. Vendor, analytics and file work runs on the vendor runtime; the
 //! concrete executor, console driver and contexts stay on core (`RunServices`).
 
+use marathon_logging::{Level, Component, LogSettings};
+
 use crate::{
     analytics::{
         BackendFactory, BackendRegistration, BackendRequest, MetricsContext, MetricsProviderFactory, MetricsSetup,
@@ -21,7 +23,7 @@ use crate::{
     filter::{
         AnnotationRenderer, FilterDependencies,
         allure::{FileTestPlanSupplier, ProcessEnvironment},
-        values::{FileValuesReader, FilterLogger},
+        values::{FileValuesReader, FilterComponent},
     },
     logging::{LogRecord, LogSender, WallSource},
     marathon::{Marathon, RunServices, SignalHooks, SignalRelay},
@@ -38,7 +40,7 @@ use crate::{
 };
 use jcompat::{
     file_manager::{FileManager, child_file},
-    logging::{Level, Logger, MarathonLogging},
+    
 };
 use marathon_config::{AnalyticsConfiguration, Configuration};
 use marathon_error::FailureKind;
@@ -104,13 +106,13 @@ pub struct ReporterContext {
     pub hooks: Arc<dyn ReplayHooks>,
     pub console: Arc<dyn ConsoleSink>,
     pub stderr: Arc<dyn Fn(&Failure) + Send + Sync>,
-    pub logging: Arc<Mutex<MarathonLogging>>,
+    pub logging: Arc<Mutex<LogSettings>>,
 }
 
 pub struct RunInputs {
     pub configuration: Arc<Configuration>,
     /// The per-process registry the CLI's startup lines used.
-    pub logging: Arc<Mutex<MarathonLogging>>,
+    pub logging: Arc<Mutex<LogSettings>>,
     /// stdout: log records and raw println text, through the shared console.
     pub console: Arc<dyn ConsoleSink>,
     /// stderr for throwables the source prints rather than logs (Allure's environment writer).
@@ -174,7 +176,7 @@ struct RecordLog {
 impl RecordLog {
     fn push(&self, logger: &str, level: Level, message: String, cause: Option<Failure>) {
         let (at_millis, wall_millis) = (self.stamp)();
-        self.logs.push(LogRecord {
+        self.logs.push(LogRecord { target: module_path!().into(),
             logger: logger.to_owned(),
             at_millis,
             wall_millis,
@@ -184,17 +186,17 @@ impl RecordLog {
         });
     }
 }
-impl FilterLogger for RecordLog {
+impl FilterComponent for RecordLog {
     fn log(&self, level: Level, logger: &str, message: String, cause: Option<Failure>) {
         self.push(logger, level, message, cause);
     }
 }
 
-fn registry_logger(logging: &Mutex<MarathonLogging>, name: &str) -> VendorResult<Logger> {
+fn registry_logger(logging: &Mutex<LogSettings>, name: &str) -> VendorResult<Component> {
     Ok(logging
         .lock()
         .map_err(|_| VendorError::Other(failure(FailureKind::IllegalState, "Poisoned logging registry")))?
-        .logger(name, None))
+        .component(name))
 }
 
 struct Built {
@@ -317,8 +319,9 @@ async fn build(
     };
     let log: ServiceLog = {
         let record = record.clone();
-        Arc::new(move |logger: &Logger, level, message: &str, cause: Option<&Failure>| {
-            record.push(logger.name(), level, message.to_string(), cause.cloned());
+        Arc::new(move |logger: &Component, level, message: &str, cause: Option<&Failure>| {
+            let (at_millis, wall_millis) = (record.stamp)();
+            record.logs.push(LogRecord { target: logger.target().into(), logger: logger.name().into(), at_millis, wall_millis, level, message: message.into(), cause: cause.cloned() });
         })
     };
     let logging = inputs.logging.clone();
@@ -372,7 +375,7 @@ async fn build(
     let registry = logging.clone();
     let (bill_logger, factory_logger) = blocking(io.as_ref(), move || {
         Ok((
-            registry_logger(&registry, "com.malinskiy.marathon.report.bill.BillingReporter")?,
+            registry_logger(&registry, "marathon_core::construction")?,
             registry_logger(&registry, "TrackerFactory")?,
         ))
     })

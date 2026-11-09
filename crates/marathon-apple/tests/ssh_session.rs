@@ -2,7 +2,7 @@
 //! (T08, T09, T14-T16, T22-T25), D7, D29, D30, D32, U154, U157, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
 mod support;
 use fake_worker::script::{Action, Chunk, Faults, Keepalive};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_apple::cmd::{
     CommandExecutor, CommandRequest, CommandSession, cancelled, consume_output,
     remote::ssh::sshj::{
@@ -146,8 +146,8 @@ async fn open_failure_is_a_connection_exception_and_safe_execute_returns_null() 
     );
     let lines = ssh::lines(&events);
     assert!(lines.contains(&(
-        "Promise".into(),
-        Level::Error,
+        "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+        Level::ERROR,
         "<<chan#1 / open>> woke to: Opening `session` channel failed: Resource shortage".into()
     )));
     let last = events.lock().unwrap().last().cloned().unwrap();
@@ -191,8 +191,8 @@ async fn exec_rejection_is_request_failed_and_closes_the_channel_d29() {
     );
     assert!(executor.connected());
     assert!(ssh::lines(&events).contains(&(
-        "Promise".into(),
-        Level::Error,
+        "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+        Level::ERROR,
         "<<chan#0 / chanreq for exec>> woke to: SSH connection failure: Request failed".into()
     )));
     // D29 (A33): Kotlin never closes the rejected channel, so with MaxSessions 1 the next command could not open one
@@ -250,7 +250,7 @@ async fn exec_rejection_by_a_peer_that_never_answers_close_is_still_request_fail
     );
     let woke: Vec<_> = ssh::lines(&events)
         .into_iter()
-        .filter(|(logger, ..)| logger == "Promise")
+        .filter(|(logger, ..)| logger == "marathon_apple::cmd::remote::ssh::sshj::wire")
         .map(|(.., message)| message)
         .collect();
     assert_eq!(
@@ -306,7 +306,7 @@ async fn an_exec_with_no_reply_fails_with_its_timeout_and_gives_its_slot_back_u1
     assert!(started.elapsed() >= Duration::from_secs(3), "{:?}", started.elapsed());
     assert_is_the_exec_timeout(&failure);
     let lines = ssh::lines(&events);
-    let logged: Vec<_> = lines.iter().filter(|(_, level, _)| *level == Level::Error).collect();
+    let logged: Vec<_> = lines.iter().filter(|(_, level, _)| *level == Level::ERROR).collect();
     assert_eq!(logged.len(), 1, "{lines:?}");
     assert_eq!(logged[0].2, NO_REPLY_LINE);
     assert!(executor.connected());
@@ -354,7 +354,7 @@ async fn an_exec_with_no_reply_from_a_peer_that_never_answers_close_still_return
     assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
     // Neither wait logs a `woke to` line: nothing woke them.
     assert!(
-        !ssh::lines(&events).iter().any(|(logger, ..)| logger == "Promise"),
+        !ssh::lines(&events).iter().any(|(logger, ..)| logger == "marathon_apple::cmd::remote::ssh::sshj::wire"),
         "{:?}",
         ssh::lines(&events)
     );
@@ -421,7 +421,7 @@ async fn an_open_with_no_reply_fails_with_its_timeout_and_a_late_reply_is_closed
     assert!(started.elapsed() >= Duration::from_secs(3), "{:?}", started.elapsed());
     assert_is_the_exec_timeout(&failure);
     let lines = ssh::lines(&events);
-    let logged: Vec<_> = lines.iter().filter(|(_, level, _)| *level == Level::Error).collect();
+    let logged: Vec<_> = lines.iter().filter(|(_, level, _)| *level == Level::ERROR).collect();
     assert_eq!(logged.len(), 1, "{lines:?}");
     assert_eq!(logged[0].2, NO_OPEN_REPLY_LINE);
     // The reply comes after the caller has gone, and the channel it opens is closed, exec-less.
@@ -445,7 +445,7 @@ async fn a_slow_open_inside_its_30_s_still_works_u157() {
     );
     assert_eq!(fake.events_at_least("late_open_reply", 1).await.len(), 1);
     let lines = ssh::lines(&events);
-    assert!(!lines.iter().any(|(_, level, _)| *level == Level::Error), "{lines:?}");
+    assert!(!lines.iter().any(|(_, level, _)| *level == Level::ERROR), "{lines:?}");
     assert_eq!(fake.events("exec").await.len(), 1);
 }
 
@@ -774,8 +774,8 @@ async fn bad_extended_data_type_kills_the_connection() {
     assert_eq!(class_chain(&error), lost);
     assert!(!executor.connected());
     assert!(ssh::lines(&events).contains(&(
-        "TransportImpl".into(),
-        Level::Error,
+        "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+        Level::ERROR,
         "Dying because - Bad extended data type = 42".into()
     )));
     let disconnect: Vec<_> = fake.events_at_least("connection_end", 1).await;
@@ -797,7 +797,7 @@ async fn transport_loss_fails_an_in_flight_await() {
     assert!(
         ssh::lines(&events)
             .iter()
-            .any(|(logger, _, message)| logger == "TransportImpl" && message.starts_with("Dying because - "))
+            .any(|(logger, _, message)| logger == "marathon_apple::cmd::remote::ssh::sshj::wire" && message.starts_with("Dying because - "))
     );
     let _ = session.close().await;
 }
@@ -919,7 +919,7 @@ async fn first_close_fails_after_term_kill_and_thirty_seconds_and_second_close_c
     let lines = ssh::lines(&events);
     let abandoned = lines
         .iter()
-        .filter(|(_, level, message)| *level == Level::Error && message.starts_with("Abandoning session `held`:"))
+        .filter(|(_, level, message)| *level == Level::ERROR && message.starts_with("Abandoning session `held`:"))
         .count();
     assert_eq!(abandoned, 1, "{lines:?}");
     // Approved P5: the second close skips the backend (Kotlin's closed flag) but cancels and joins the scope.
@@ -1074,7 +1074,7 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
     let (_, level, message, throwable) = &last;
     assert_eq!(
         (*level, message.as_str()),
-        (Level::Error, "Unable to start a remote shell session [held]")
+        (Level::ERROR, "Unable to start a remote shell session [held]")
     );
     assert_eq!(throwable.as_ref().unwrap().kind, CONNECTION_EXCEPTION);
     assert!(executor.connected());
@@ -1152,8 +1152,8 @@ async fn keep_alive_loss_fails_the_in_flight_await_while_output_flows() {
     );
     assert!(!executor.connected());
     assert!(ssh::lines(&events).contains(&(
-        "TransportImpl".into(),
-        Level::Error,
+        "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+        Level::ERROR,
         format!("Dying because - {message}")
     )));
 }
@@ -1689,7 +1689,7 @@ async fn ssh_debug_logs_the_exec_command_only_when_enabled() {
         ssh::run(&executor, &["echo", "Hello world"], 5000).await.unwrap();
         let exec = (
             "PatchedExecChannel".to_owned(),
-            Level::Debug,
+            Level::DEBUG,
             "Will request to exec `echo 'Hello world'`".to_owned(),
         );
         assert_eq!(ssh::lines(&events).contains(&exec), debug);

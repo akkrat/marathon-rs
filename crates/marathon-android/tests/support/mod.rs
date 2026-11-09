@@ -97,7 +97,7 @@ fn on_core(
                 io.clone(),
                 FileManager::new(4096, 255, &output.to_string_lossy(), ""),
                 output,
-                logging.lock().unwrap().logger("FileManager", None),
+                logging.lock().unwrap().component("FileManager"),
                 log.clone(),
             ));
             let dependencies = VendorDependencies {

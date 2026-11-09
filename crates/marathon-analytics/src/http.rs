@@ -6,7 +6,7 @@ use hyper::{Request, header};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_core::{analytics::MetricsContext, error::*, executor::shared::failure};
 use marathon_error::{AnalyticsKind, FailureKind};
 use std::{
@@ -30,7 +30,7 @@ pub(crate) fn vendor(error: OperationError) -> VendorError {
 }
 pub(crate) fn log(context: &MetricsContext, logger: &str, level: Level, message: String, cause: Option<Failure>) {
     let (at_millis, wall_millis) = (context.stamp)();
-    context.logs.push(marathon_core::logging::LogRecord {
+    context.logs.push(marathon_core::logging::LogRecord { target: module_path!().into(),
         logger: logger.into(),
         at_millis,
         wall_millis,
@@ -44,7 +44,7 @@ pub(crate) fn register(context: &MetricsContext, name: &str) -> OperationResult<
         .registry
         .lock()
         .map_err(|_| failure(FailureKind::IllegalState, "Poisoned logging registry"))?
-        .logger(name, None);
+        .component(name);
     Ok(())
 }
 #[derive(Clone)]
@@ -203,7 +203,7 @@ impl Http {
                 log(
                     &self.context,
                     "okhttp3.OkHttpClient",
-                    Level::Info,
+                    Level::INFO,
                     format!("--> {method} {url}"),
                     None,
                 );
@@ -217,7 +217,7 @@ impl Http {
                 log(
                     &self.context,
                     "okhttp3.OkHttpClient",
-                    Level::Info,
+                    Level::INFO,
                     format!("<-- {} {url}", response.status),
                     None,
                 );

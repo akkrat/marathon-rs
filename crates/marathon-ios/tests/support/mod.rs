@@ -260,12 +260,12 @@ pub fn profile() -> SimulatorProfile {
         new_name_prefix: "test".into(),
     }
 }
-pub type Logs = Arc<Mutex<Vec<(String, jcompat::logging::Level, String, Option<Failure>)>>>;
+pub type Logs = Arc<Mutex<Vec<(String, marathon_logging::Level, String, Option<Failure>)>>>;
 pub fn logging() -> (SshLogging, Logs) {
     let records = Logs::default();
     let sink = records.clone();
-    let mut registry = jcompat::logging::MarathonLogging::default();
-    registry.configure(false, jcompat::logging::Vendor::Apple { compact_output: false });
+    let mut registry = marathon_logging::LogSettings::default();
+    registry.configure(false, marathon_logging::Vendor::Apple { compact_output: false });
     (
         SshLogging::new(
             Arc::new(Mutex::new(registry)),
@@ -303,7 +303,7 @@ pub struct TestDevice {
     pub serial: String,
     pub disposed: AtomicUsize,
     pub dispose_error: Mutex<Option<VendorError>>,
-    logger: jcompat::logging::Logger,
+    logger: marathon_logging::Component,
 }
 impl TestDevice {
     pub fn new(serial: &str) -> Arc<Self> {
@@ -311,7 +311,7 @@ impl TestDevice {
             serial: serial.into(),
             disposed: AtomicUsize::new(0),
             dispose_error: Mutex::default(),
-            logger: jcompat::logging::MarathonLogging::default().logger("TestDevice", None),
+            logger: marathon_logging::LogSettings::default().component("TestDevice"),
         })
     }
     pub fn device(self: &Arc<Self>) -> DeviceRef {
@@ -336,7 +336,7 @@ impl Device for TestDevice {
     fn worker_id(&self) -> Option<String> {
         None
     }
-    fn logger(&self) -> &jcompat::logging::Logger {
+    fn component(&self) -> &marathon_logging::Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _: Arc<marathon_config::Configuration>, _: VendorContext) -> VendorFuture<'a, ()> {

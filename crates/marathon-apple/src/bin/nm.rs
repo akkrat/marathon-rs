@@ -2,7 +2,7 @@
 
 use super::{Tools, argv, kt};
 use crate::cmd::failure;
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
@@ -13,11 +13,11 @@ pub const MAX_XARGS: i32 = 131072;
 
 pub struct Nm {
     tools: Tools,
-    logger: Logger,
+    logger: Component,
 }
 impl Nm {
     pub fn new(tools: Tools) -> Self {
-        let logger = tools.logger("com.malinskiy.marathon.apple.bin.nm.Nm");
+        let logger = tools.component("marathon_apple::bin::nm");
         Self { tools, logger }
     }
     /// `prefilter` is the Kotlin set in its iteration order.
@@ -85,7 +85,7 @@ impl Nm {
                 if !kt::trim(&stdout).is_empty() || !kt::trim(&stderr).is_empty() {
                     self.tools.log(
                         &self.logger,
-                        Level::Warn,
+                        Level::WARN,
                         || {
                             kt::trim_indent(&format!(
                                 "\n                failed to extract symbol table from {path}\n                stdout: {stdout}\n                stderr: {stderr}\n            "

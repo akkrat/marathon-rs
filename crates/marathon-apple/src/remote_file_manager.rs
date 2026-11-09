@@ -1,9 +1,11 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/RemoteFileManager.kt
 
+use marathon_logging::{Level, Component};
+
 use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging, worker_commands::WorkerCommands};
 use jcompat::{
     file_manager::escape,
-    logging::{Level, Logger},
+    
 };
 use marathon_config::vendor::ScreenshotType;
 use marathon_core::{
@@ -23,12 +25,12 @@ pub struct RemoteFileManager {
     udid: String,
     commands: Arc<dyn WorkerCommands>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl RemoteFileManager {
     /// Construct off core, like the device and its other vendor services.
     pub fn new(storage_path: String, udid: String, commands: Arc<dyn WorkerCommands>, logging: SshLogging) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.RemoteFileManager");
+        let logger = logging.component("marathon_apple::remote_file_manager");
         Self {
             storage_path,
             udid,
@@ -251,10 +253,10 @@ impl RemoteFileManager {
             Ok(Some(result)) => {
                 let stderr = result.combined_stderr();
                 let stderr = kt::trim(&stderr);
-                if !kt::is_blank(stderr) && self.logging.enabled(&self.logger, Level::Error) {
+                if !kt::is_blank(stderr) && self.logging.enabled(&self.logger, Level::ERROR) {
                     (self.logging.sink)(
                         &self.logger,
-                        Level::Error,
+                        Level::ERROR,
                         format!("cmd={}, stderr={stderr}", command.join(" ")),
                         None,
                     );
@@ -263,8 +265,8 @@ impl RemoteFileManager {
             Ok(None) => {}
             // Kotlin catches Exception, including cancellation, and ignores exit status (A43–A44).
             Err(error) => {
-                if self.logging.enabled(&self.logger, Level::Error) {
-                    (self.logging.sink)(&self.logger, Level::Error, error_message, Some(error.failure().clone()));
+                if self.logging.enabled(&self.logger, Level::ERROR) {
+                    (self.logging.sink)(&self.logger, Level::ERROR, error_message, Some(error.failure().clone()));
                 }
             }
         }

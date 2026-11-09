@@ -8,7 +8,7 @@
 //! outputDir path in `Output … already exists`, P1's OS facts after `System Information:`, and
 //! D1's usage slot (a no-op here, so its close is absent from the Rust trace).
 
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_core::{
     analytics::{
         Analytics, MetricsProviderImpl, ReporterRegistration, ReporterSlot,
@@ -35,7 +35,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-const PARSE: &str = "com.malinskiy.marathon.execution.command.parse.MarathonTestParseCommand";
+const PARSE: &str = "marathon_core::execution::parse_command";
 type Trace = Arc<Mutex<Vec<String>>>;
 
 fn row(case: &str) -> Value {
@@ -64,7 +64,7 @@ fn push(trace: &Trace, name: &str, fail: &Option<String>) -> VendorResult<()> {
 
 struct Configurator(Trace);
 impl LogConfigurator for Configurator {
-    fn configure(&self, _: bool, _: Arc<Mutex<jcompat::logging::MarathonLogging>>) -> VendorFuture<'_, ()> {
+    fn configure(&self, _: bool, _: Arc<Mutex<marathon_logging::LogSettings>>) -> VendorFuture<'_, ()> {
         self.0.lock().unwrap().push("configure".into());
         Box::pin(async { Ok(()) })
     }

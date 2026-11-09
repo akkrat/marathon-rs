@@ -306,7 +306,7 @@ async fn wrong_device_is_retried_three_times_with_the_jvm_logs() -> TestResult {
         error.failure().kind,
         marathon_test_support::recorded_errors::kind(row["error"]["class"].as_str().unwrap())
     );
-    let mut expected_logs = row["logs"].clone();
+    let mut expected_logs = marathon_test_support::recorded_logs::native_logs(&row["logs"]).clone();
     for log in expected_logs.as_array_mut().unwrap() {
         log["throwable"] = marathon_test_support::recorded_errors::rendered(log["throwable"].as_str().unwrap())
             .unwrap()

@@ -3,7 +3,7 @@ use super::*;
 use marathon_apple::model::Sdk;
 pub struct DeviceLogListener {
     c: ListenerContext,
-    logger: Logger,
+    logger: Component,
     pid: Mutex<Option<String>>,
 }
 pub fn log_stream_command(udid: &str, path: &str) -> Vec<String> {
@@ -21,7 +21,7 @@ pub fn parse_pid(successful: bool, stdout: &str) -> Option<String> {
 }
 impl DeviceLogListener {
     pub fn new(c: ListenerContext) -> Self {
-        let logger = c.logger("com.malinskiy.marathon.apple.ios.listener.log.DeviceLogListener");
+        let logger = c.component("marathon_ios::listener::device_log");
         Self {
             c,
             logger,
@@ -38,7 +38,7 @@ impl DeviceLogListener {
         ) {
             self.c.log(
                 &self.logger,
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Device {} does not support capturing device logs",
                     self.c.device.serial()
@@ -88,7 +88,7 @@ impl AppleTestRunListener for DeviceLogListener {
                 self.c.device.pull_file(&remote, &local, &self.c.context).await?;
                 self.c.log(
                     &self.logger,
-                    Level::Debug,
+                    Level::DEBUG,
                     format!(
                         "Pulling finished in {}ms {remote} ",
                         self.c.millis("ios.DeviceLogListener.pullLogfile")?.wrapping_sub(start)

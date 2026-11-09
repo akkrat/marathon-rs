@@ -344,7 +344,7 @@ fn one_malformed_graphite_datapoint_fails_the_whole_query_and_is_cached_for_the_
                 assert_eq!(p.execution_time(test, 80.0, limit()).await.unwrap(), 300000.0);
             }
             assert_eq!(client.targets.lock().unwrap().len(), 6);
-            assert_eq!(h.logs.take().iter().filter(|e| e.logger == "Timings").count(), 2);
+            assert_eq!(h.logs.take().iter().filter(|e| e.logger == "marathon_logging").count(), 2);
         }
     });
 }
@@ -401,7 +401,7 @@ fn a_skipped_none_datapoint_logs_at_debug_only() {
         assert!(source.request_all_success_rates(limit()).await.unwrap().is_empty());
         let logs = h.logs.take();
         assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0].level, jcompat::logging::Level::Debug);
+        assert_eq!(logs[0].level, marathon_logging::Level::DEBUG);
         assert_eq!(
             logs[0].message.to_owned(),
             "Skipping a Graphite series with no datapoints: pkg0--clazz0--method0,1,2,3|None"
@@ -468,14 +468,14 @@ fn influx_server_errors_match_jvm_logged_causes_after_retries() {
                 .iter()
                 .map(|e| {
                     let mut message = e.message.to_owned();
-                    if e.logger == "Timings" {
+                    if e.logger == "marathon_logging" {
                         message.truncate(message.rfind(" in ").unwrap());
                         message.push_str(" in <ms> ms");
                     }
                     serde_json::json!([e.logger, e.level.as_str(), message])
                 })
                 .collect();
-            assert_eq!(logs, *row["logs"].as_array().unwrap());
+            assert_eq!(logs, *marathon_test_support::recorded_logs::native_logs(&row["logs"]).as_array().unwrap());
         }
     });
 }

@@ -1,9 +1,11 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/ExecutionReport.kt
 //! and ExecutionReportGenerator.kt, analytics/internal/pub/Track.kt, analytics/TrackerFactory.kt.
+use marathon_logging::LogSettings;
+
 use marathon_error::{FailureKind, InjectedKind};
 mod event_support;
 use event_support::*;
-use jcompat::{jtime::instant_of, logging::MarathonLogging};
+use jcompat::{jtime::instant_of, };
 use marathon_core::{
     analytics::*,
     error::*,
@@ -330,8 +332,8 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                 let reports = Arc::new(Mutex::new(vec![]));
                 let log_calls = calls.clone();
                 let log = Arc::new(
-                    move |_: &jcompat::logging::Logger,
-                          _: jcompat::logging::Level,
+                    move |_: &marathon_logging::Component,
+                          _: marathon_logging::Level,
                           message: &str,
                           _: Option<&Failure>| {
                         assert_worker();
@@ -375,7 +377,7 @@ fn factory_orders_reporters_before_remote_and_only_catches_influx_setup() {
                             outcome,
                         }),
                     }),
-                    logger: MarathonLogging::default().logger("TrackerFactory", None),
+                    logger: LogSettings::default().component("TrackerFactory"),
                     log,
                 }
                 .create()
@@ -850,7 +852,7 @@ fn public_pipeline_hops_once_per_event_and_close() {
                         outcome: 0,
                     }),
                 }),
-                logger: MarathonLogging::default().logger("TrackerFactory", None),
+                logger: LogSettings::default().component("TrackerFactory"),
                 log: Arc::new(|_, _, _, _| assert_worker()),
             }
             .create()
@@ -957,7 +959,7 @@ fn a_later_failed_reporter_is_logged_and_the_first_failure_is_returned() {
                 Arc::new(Fails("first", calls.clone())),
                 Arc::new(Fails("second", calls.clone())),
             ])
-            .with_close_log(log, MarathonLogging::default().logger("TrackerFactory", None));
+            .with_close_log(log, LogSettings::default().component("TrackerFactory"));
             let error = close_generator(core.vendor().as_ref(), &generator).await.unwrap_err();
             let OperationError::Failed(error) = error else {
                 panic!("expected ordinary failure")
@@ -967,7 +969,7 @@ fn a_later_failed_reporter_is_logged_and_the_first_failure_is_returned() {
             assert_eq!(
                 *logged.lock().unwrap(),
                 [(
-                    jcompat::logging::Level::Error,
+                    marathon_logging::Level::ERROR,
                     "A later close also failed".to_owned(),
                     true
                 )]
@@ -1034,14 +1036,14 @@ impl TrackerInternalAdapter for Scripted {
         })
     }
 }
-type Logged = Arc<Mutex<Vec<(jcompat::logging::Level, String)>>>;
+type Logged = Arc<Mutex<Vec<(marathon_logging::Level, String)>>>;
 fn guard(backend: Arc<Scripted>, limits: BackendLimits) -> (BackendGuard, Logged) {
     let logged: Logged = Arc::default();
     let captured = logged.clone();
     let guard = BackendGuard::new(
         backend,
         Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_owned()))),
-        MarathonLogging::default().logger("TrackerFactory", None),
+        LogSettings::default().component("TrackerFactory"),
         limits,
     );
     (guard, logged)
@@ -1204,7 +1206,7 @@ fn a_close_that_never_finishes_gives_way_and_is_logged_once() {
             let guard = BackendGuard::new(
                 Arc::new(NeverCloses),
                 Arc::new(move |_, level, message, _| captured.lock().unwrap().push((level, message.to_owned()))),
-                MarathonLogging::default().logger("TrackerFactory", None),
+                LogSettings::default().component("TrackerFactory"),
                 BackendLimits {
                     send: std::time::Duration::from_millis(50),
                     ..never_slow()
@@ -1221,7 +1223,7 @@ fn a_close_that_never_finishes_gives_way_and_is_logged_once() {
             assert_eq!(
                 *logged.lock().unwrap(),
                 vec![(
-                    jcompat::logging::Level::Warn,
+                    marathon_logging::Level::WARN,
                     "The analytics backend did not close in 50 ms; test metrics it still held are lost".to_owned()
                 )]
             );

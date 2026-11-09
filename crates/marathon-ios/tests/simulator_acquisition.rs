@@ -35,8 +35,8 @@ impl CommandExecutor for Counting {
     fn host(&self) -> &CommandHost {
         self.inner.host()
     }
-    fn logger(&self) -> &jcompat::logging::Logger {
-        self.inner.logger()
+    fn component(&self) -> &marathon_logging::Component {
+        self.inner.component()
     }
     fn log_error(&self, s: String) {
         self.inner.log_error(s)

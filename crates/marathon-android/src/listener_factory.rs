@@ -193,7 +193,7 @@ pub fn create(
         accumulator: AccumulatingResultTestRunListener {
             result: Mutex::new(accumulator),
             logs: Arc::new(move |record| {
-                let logger = log_runtime.logger(&record.logger);
+                let logger = log_runtime.component(&record.logger);
                 (log_runtime.dependencies.log)(&logger, record.level, &record.message, record.cause.as_ref());
             }),
         },
@@ -205,7 +205,7 @@ pub fn create(
             let device = device.clone();
             Arc::new(move |level, text| {
                 device.log_named(
-                    "com.malinskiy.marathon.android.executor.listeners.TestResultsListener",
+                    "marathon_android::listener_factory",
                     level,
                     &text.to_owned(),
                     None,

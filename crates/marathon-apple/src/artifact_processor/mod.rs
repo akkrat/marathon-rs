@@ -6,7 +6,7 @@ use crate::cmd::{remote::ssh::sshj::config::SshLogging, retained_tasks::Retained
 pub use core::AdmissionStats;
 use core::{AdmissionCore, Effects, Item, Waiter};
 use indexmap::IndexMap;
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_config::vendor::XcresultQueueConfiguration;
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
@@ -58,7 +58,7 @@ pub struct ArtifactProcessor {
     supervisor: Arc<Signal>,
     retained: RetainedTasks,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl ArtifactProcessor {
     pub fn new(
@@ -72,7 +72,7 @@ impl ArtifactProcessor {
         if capacity < 1 || max_concurrent < 1 || !(1..=capacity).contains(&worker_capacity) {
             return Err(InvalidLimits(format!("Invalid artifact queue limits: capacity={capacity}, maxConcurrent={max_concurrent}, workerCapacity={worker_capacity}").as_str().into()));
         }
-        let logger = logging.logger("com.malinskiy.marathon.apple.ArtifactProcessor");
+        let logger = logging.component("marathon_apple::artifact_processor");
         Ok(Arc::new(Self {
             state: Mutex::new(State {
                 queue: AdmissionCore::new(capacity, max_concurrent, worker_capacity),
@@ -133,7 +133,7 @@ impl ArtifactProcessor {
             Arc::new(move |reason| {
                 if let Some(this) = weak.upgrade() {
                     this.log(
-                        Level::Error,
+                        Level::ERROR,
                         text(&[
                             "Artifact for ",
                             &owner.to_owned(),
@@ -220,7 +220,7 @@ impl ArtifactProcessor {
             Some(false) => format!(" waiting for worker {}", worker.to_owned()),
         };
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             format!(
                 "Artifact admission for {}, batch {} took {} ms{}; outstanding={}, on worker {}={}",
                 owner.to_owned(),
@@ -284,7 +284,7 @@ impl ArtifactProcessor {
                     permit = self.transfers.acquire() => permit.map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, &e.to_string())))?,
                 };
                 let wait = self.now("apple.ArtifactProcessor.clock")?.wrapping_sub(work.enqueued_at) / 1_000_000;
-                self.log(Level::Debug, format!("Artifact queue wait for {}, batch {}: {wait} ms", work.owner.to_owned(), work.payload.batch.to_owned()).as_str().into(), None);
+                self.log(Level::DEBUG, format!("Artifact queue wait for {}, batch {}: {wait} ms", work.owner.to_owned(), work.payload.batch.to_owned()).as_str().into(), None);
                 let mut context = work.payload.context.clone();
                 context.cancellation = signal.clone();
                 let result = (work.payload.action)(context).await;
@@ -294,7 +294,7 @@ impl ArtifactProcessor {
             let owned = self.state().running.shift_remove(&work.id).is_some();
             if !owned {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     format!(
                         "Artifact work for {}, batch {} returned after shutdown reported it as undelivered",
                         work.owner.to_owned(),
@@ -308,7 +308,7 @@ impl ArtifactProcessor {
             }
             let report = if let Err(error) = outcome {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     format!(
                         "Artifact processing failed for {}, batch {}",
                         work.owner.to_owned(),
@@ -355,7 +355,7 @@ impl ArtifactProcessor {
         }
         let elapsed = self.now("apple.ArtifactProcessor.await")?.wrapping_sub(started) / 1_000_000;
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             format!("Artifact barrier for {} took {elapsed} ms", owner.to_owned())
                 .as_str()
                 .into(),
@@ -425,7 +425,7 @@ impl ArtifactProcessor {
     fn report_safely(&self, reason: &str, callback: &Undelivered) {
         if let Err(error) = callback(reason) {
             self.log(
-                Level::Error,
+                Level::ERROR,
                 text(&["Reporting an undelivered artifact failed: ", reason]),
                 Some(&error),
             );
@@ -462,7 +462,7 @@ impl ArtifactProcessor {
                 .collect::<Vec<_>>()
                 .join(", ");
             self.log(
-                Level::Warn,
+                Level::WARN,
                 format!("Artifact drain timed out; cancelling pending work and retaining remote bundles: [{pending}]")
                     .as_str()
                     .into(),
@@ -497,7 +497,7 @@ impl ArtifactProcessor {
                 .map(|w| format!("{}, batch {}", w.owner.to_owned(), w.payload.batch.to_owned()))
                 .collect::<Vec<_>>()
                 .join(", ");
-            self.log(Level::Warn, format!("Artifact work did not stop within {cancel_timeout} ms of cancellation; finalizing without it: [{names}]").as_str().into(), None);
+            self.log(Level::WARN, format!("Artifact work did not stop within {cancel_timeout} ms of cancellation; finalizing without it: [{names}]").as_str().into(), None);
         }
         for work in stuck {
             self.report_safely(
@@ -539,7 +539,7 @@ impl ArtifactProcessor {
         }
         let elapsed = self.now("apple.ArtifactProcessor.closeAndJoin")?.wrapping_sub(started) / 1_000_000;
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             format!("Artifact finalization took {elapsed} ms").as_str().into(),
             None,
         );
@@ -553,11 +553,11 @@ impl ArtifactProcessor {
             )
         };
         if stats.admitted > 0 {
-            self.log(Level::Info, format!("Artifact queue admission: {} bundles admitted, {} after waiting ({} for run capacity, {} for their worker); wait max {} ms, p95 {} ms, total {} ms; capacity={capacity}, concurrency={concurrency}, workerCapacity={worker_capacity}", stats.admitted, stats.waited, stats.waited_for_run, stats.waited - stats.waited_for_run, stats.max_wait_millis, stats.p95_wait_millis, stats.total_wait_millis).as_str().into(), None);
+            self.log(Level::INFO, format!("Artifact queue admission: {} bundles admitted, {} after waiting ({} for run capacity, {} for their worker); wait max {} ms, p95 {} ms, total {} ms; capacity={capacity}, concurrency={concurrency}, workerCapacity={worker_capacity}", stats.admitted, stats.waited, stats.waited_for_run, stats.waited - stats.waited_for_run, stats.max_wait_millis, stats.p95_wait_millis, stats.total_wait_millis).as_str().into(), None);
         }
         let retained = self.state().undelivered.clone();
         if !retained.is_empty() {
-            self.log(Level::Error, format!("{} artifact bundle(s) were not delivered; their remote sources are kept on the workers until a later run prepares the same device:\n{}", retained.len(), retained.iter().map(String::clone).collect::<Vec<_>>().join("\n")).as_str().into(), None);
+            self.log(Level::ERROR, format!("{} artifact bundle(s) were not delivered; their remote sources are kept on the workers until a later run prepares the same device:\n{}", retained.len(), retained.iter().map(String::clone).collect::<Vec<_>>().join("\n")).as_str().into(), None);
         }
         Ok(retained)
     }

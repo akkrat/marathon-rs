@@ -1,6 +1,8 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/execution/ArgumentsFactory.kt
+use marathon_logging::Level;
+
 use crate::{device::AndroidDevice, support::trim};
-use jcompat::{jnum, jstring, logging::Level};
+use jcompat::{jnum, jstring, };
 use marathon_adb::{instrument_request::*, testrunner::MetricMap};
 use marathon_config::vendor::TestAccessConfiguration;
 
@@ -49,7 +51,7 @@ pub fn generate(
         }
         if !local {
             log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Access to emulator {} port is requested, but device {serial} is not a local emulator",
                     if grpc { "gRPC" } else { "console" }
@@ -58,7 +60,7 @@ pub fn generate(
                 .into(),
             );
             log(
-                Level::Warn,
+                Level::WARN,
                 format!("If {serial} is an emulator, connect the adb server instead of `adb connect` for this to work")
                     .as_str()
                     .into(),
@@ -67,7 +69,7 @@ pub fn generate(
             if grpc {
                 let grpc_port = port.wrapping_add(3000);
                 log(
-                    Level::Debug,
+                    Level::DEBUG,
                     format!("Assuming gRPC port is console port {port} + 3000 = {grpc_port}")
                         .as_str()
                         .into(),
@@ -83,7 +85,7 @@ pub fn generate(
             }
         } else {
             log(
-                Level::Debug,
+                Level::DEBUG,
                 format!("Unable to parse emulator console port for serial {serial}")
                     .as_str()
                     .into(),

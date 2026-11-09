@@ -1,21 +1,23 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/filter/FilterValuesFileReader.kt
 
+use marathon_logging::Level;
+
 use super::failure;
 use crate::error::{Failure, OperationResult};
-use jcompat::{file_manager::absolute_file_path, jstring, logging::Level};
+use jcompat::{file_manager::absolute_file_path, jstring, };
 use marathon_error::FailureKind;
 use std::{io, sync::Arc};
 
 /// Called only on the vendor blocking pool. A run can forward these records to
 /// its output task; the sink must retain the supplied logger and cause.
-pub trait FilterLogger: Send + Sync {
+pub trait FilterComponent: Send + Sync {
     fn log(&self, level: Level, logger: &str, message: String, cause: Option<Failure>);
 }
 pub trait FilterValuesReader: Send + Sync {
     fn read_values(&self, path: &std::path::Path) -> OperationResult<Vec<String>>;
 }
 pub struct FileValuesReader {
-    pub logger: Arc<dyn FilterLogger>,
+    pub logger: Arc<dyn FilterComponent>,
 }
 impl FilterValuesReader for FileValuesReader {
     fn read_values(&self, path: &std::path::Path) -> OperationResult<Vec<String>> {
@@ -35,7 +37,7 @@ impl FilterValuesReader for FileValuesReader {
             let mut message = String::from("Filtering configuration file ");
             message.push_str(&absolute.to_string_lossy());
             message.push_str(" does not exist. Applying empty list.");
-            self.logger.log(Level::Error, "FilterValuesFileReader", message, None);
+            self.logger.log(Level::ERROR, "FilterValuesFileReader", message, None);
             return Ok(Vec::new());
         }
 

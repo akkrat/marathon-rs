@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/xcodebuild/XcodebuildTest.kt
 
 mod support;
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_apple::{
     bin::{
         Tools,
@@ -19,14 +19,14 @@ fn xcodebuild(result: CommandResult) -> (Xcodebuild, Arc<FakeCommandExecutor>) {
     let executor = Arc::new(FakeCommandExecutor::new(
         Arc::new(Runtime),
         result,
-        &mut MarathonLogging::default(),
+        &mut LogSettings::default(),
     ));
     let tools = Tools {
         executor: executor.clone(),
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
         logging: SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(|_, _, _, _| {}),
         ),
     };

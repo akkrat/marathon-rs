@@ -5,7 +5,7 @@ use fake_worker::{
     script::{Action, Chunk, Matcher, Rule, Script},
     server::AuthPolicy,
 };
-use jcompat::logging::{Level, MarathonLogging};
+use marathon_logging::{Level, LogSettings};
 use marathon_apple::cmd::remote::ssh::sshj::{
     SshAuthentication, SshCommandExecutor, SshjCommandExecutorFactory, config::SshLogging,
 };
@@ -100,7 +100,7 @@ pub fn client_key_pair() -> &'static PrivateKey {
 pub type Events = Arc<Mutex<Vec<(String, Level, String, Option<Failure>)>>>;
 /// A registry configured like a run without `--debug`, and every event that reached the sink.
 pub fn logging(debug: bool) -> (SshLogging, Events) {
-    let mut registry = MarathonLogging::default();
+    let mut registry = LogSettings::default();
     registry.debug = debug;
     let events: Events = Arc::default();
     let sink = events.clone();

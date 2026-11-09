@@ -1,4 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunner.kt
+use marathon_logging::{Level, Component};
+
 use crate::{
     apple_device::AppleDevice,
     cmd::{failure, remote::ssh::sshj::config::SshLogging},
@@ -10,7 +12,7 @@ use crate::{
 };
 use jcompat::{
     jtime::Duration,
-    logging::{Level, Logger},
+    
     writers::KotlinValue,
 };
 use marathon_config::Configuration;
@@ -95,11 +97,11 @@ pub struct AppleDeviceTestRunner {
     pub runtime: Arc<dyn VendorRuntime>,
     pub logging: SshLogging,
     pub session_close_timeout: Duration,
-    logger: Logger,
+    logger: Component,
 }
 impl AppleDeviceTestRunner {
     pub fn new(device: Arc<dyn AppleDevice>, runtime: Arc<dyn VendorRuntime>, logging: SshLogging) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.AppleDeviceTestRunner");
+        let logger = logging.component("marathon_apple::apple_device_test_runner");
         Self {
             device,
             runtime,
@@ -123,10 +125,10 @@ impl AppleDeviceTestRunner {
     ) -> Result<(), RunError> {
         let fm = self.device.remote_file_manager();
         let remote = fm.remote_xctestrun_file();
-        self.log(Level::Debug, format!("Remote xctestrun = {remote}"), None);
+        self.log(Level::DEBUG, format!("Remote xctestrun = {remote}"), None);
         let tests = batch.tests.iter().map(|t| t.kotlin_value()).collect();
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             format!("Tests = {}", KotlinValue::List(tests).render().to_owned()),
             None,
         );
@@ -162,7 +164,7 @@ impl AppleDeviceTestRunner {
                     process_events(&events, listener).await?;
                 }
             }
-            self.log(Level::Debug, "Execution finished", None);
+            self.log(Level::DEBUG, "Execution finished", None);
             Ok(())
         }
         .await;
@@ -181,7 +183,7 @@ impl AppleDeviceTestRunner {
                 "Tests {} got stuck. You can increase the timeout in settings if it's too strict",
                 names.to_owned()
             );
-            self.log(Level::Error, message.to_owned(), Some(error.error.failure().clone()));
+            self.log(Level::ERROR, message.to_owned(), Some(error.error.failure().clone()));
             if let Err(error) = listener.test_run_failed(&message, DeviceFailureReason::Unknown).await {
                 result = Err(error.into());
                 run_failure = None;
@@ -224,7 +226,7 @@ impl AppleDeviceTestRunner {
                 .is_some_and(|e| matches!(e.error, VendorError::Cancelled(_)))
             {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     "Cancelled run left its xcodebuild session unclosed",
                     Some(detail),
                 );
@@ -238,7 +240,7 @@ impl AppleDeviceTestRunner {
                     suppressed: suppressed.into(),
                 });
             }
-        } else if self.logging.enabled(&self.logger, Level::Debug) {
+        } else if self.logging.enabled(&self.logger, Level::DEBUG) {
             let clock_error = |e: marathon_core::time::ReplayError| {
                 RunError::from(VendorError::Other(failure(FailureKind::ReplayClock, &e.message)))
             };
@@ -249,7 +251,7 @@ impl AppleDeviceTestRunner {
                 .wrapping_sub(started.map_err(clock_error)?)
                 / 1_000_000;
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 format!(
                     "xcodebuild session on {} closed in {elapsed} ms",
                     self.device.info().serial_number.to_owned()

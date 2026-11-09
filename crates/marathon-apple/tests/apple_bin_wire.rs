@@ -4,7 +4,7 @@
 //! end with a quote pass through) and that env is dropped over SSH (A2), plus how the reply is interpreted.
 mod support;
 use base64::{Engine, prelude::BASE64_STANDARD};
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::CommandExecutor,
@@ -60,7 +60,7 @@ async fn wrappers_send_these_exec_strings_over_ssh() {
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
         logging: SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(|_, _, _, _| {}),
         ),
     };
@@ -155,7 +155,7 @@ async fn xcodebuild_runs_on_the_worker_with_the_unbuffered_prefix_d32() {
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
         logging: SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(|_, _, _, _| {}),
         ),
     };

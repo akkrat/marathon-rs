@@ -1,7 +1,9 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/ (JVM reporter probes).
 #![allow(dead_code)]
 
-use jcompat::{file_manager::FileManager, jtime::instant_of, logging::MarathonLogging};
+use marathon_logging::LogSettings;
+
+use jcompat::{file_manager::FileManager, jtime::instant_of, };
 use marathon_core::{artifacts::FileManagerOutput, model::*, report::*, runtime::VendorRuntime};
 use std::{
     path::PathBuf,
@@ -42,7 +44,7 @@ pub fn output(io: Arc<dyn VendorRuntime>, path: PathBuf) -> Arc<FileManagerOutpu
         io,
         FileManager::new(4096, 255, &path.to_string_lossy(), ""),
         path,
-        MarathonLogging::default().logger("FileManager", None),
+        LogSettings::default().component("FileManager"),
         Arc::new(|_, _, _, _| assert_ne!(std::thread::current().name(), Some("marathon-core"))),
     ))
 }

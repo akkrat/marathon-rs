@@ -1,8 +1,10 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/TestRunProgressParser.kt
+use marathon_logging::{Level, Component};
+
 use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging, test::TestEvent};
 use jcompat::{
     jnum, jtime,
-    logging::{Level, Logger},
+    
     regex_patterns::*,
 };
 use marathon_core::{
@@ -45,11 +47,11 @@ pub struct TestRunProgressParser {
     target_name: String,
     failing_trace: Option<String>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl TestRunProgressParser {
     pub fn new(timer: Arc<dyn Timer>, target_name: impl Into<String>, logging: SshLogging) -> Self {
-        let logger = logging.logger("TestRunProgressParser");
+        let logger = logging.component("marathon_apple::logparser::parser::progress");
         Self {
             timer,
             target_name: target_name.into(),
@@ -79,7 +81,7 @@ impl TestRunProgressParser {
             let test = self.test(&c[1], &c[2]);
             self.logging.log(
                 &self.logger,
-                Level::Trace,
+                Level::TRACE,
                 || format!("Test {} started", log_name(&test)),
                 None,
             );
@@ -94,7 +96,7 @@ impl TestRunProgressParser {
             let test = self.test(&c[1], &c[2]);
             self.logging.log(
                 &self.logger,
-                Level::Debug,
+                Level::DEBUG,
                 || {
                     format!(
                         "Test {} finished with result <{}> after {} seconds",
@@ -135,7 +137,7 @@ impl TestRunProgressParser {
             let test = self.test(&c[1], &c[2]);
             self.logging.log(
                 &self.logger,
-                Level::Debug,
+                Level::DEBUG,
                 || {
                     format!(
                         "Test {} finished with result <timeout> after {} seconds",
@@ -148,7 +150,7 @@ impl TestRunProgressParser {
             if !allowance.understood {
                 self.logging.log(
                     &self.logger,
-                    Level::Warn,
+                    Level::WARN,
                     || {
                         format!(
                             "Execution time allowance '{}' of test {} is not understood, taking it as 0 seconds",

@@ -204,7 +204,7 @@ async fn empty_parse_returns_empty_and_warns_with_the_jvm_text() -> TestResult {
     let logging = SshLogging::new(
         inner.logging.registry.clone(),
         Arc::new(move |logger, level, message, _| {
-            if logger.name() == "XCTestParser" {
+            if logger.name() == "marathon_apple::xctest_parser" {
                 captured.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":message}));
             }
         }),
@@ -230,7 +230,7 @@ async fn empty_parse_returns_empty_and_warns_with_the_jvm_text() -> TestResult {
         .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
         .find(|r| r["case"] == "xctest-empty")
         .unwrap();
-    assert_eq!(serde_json::json!(*logs.lock().unwrap()), row["logs"]);
+    assert_eq!(serde_json::json!(*logs.lock().unwrap()), marathon_test_support::recorded_logs::native_logs(&row["logs"]));
     Ok(())
 }
 
@@ -247,7 +247,7 @@ async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_
     let logging = marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
         inner.logging.registry.clone(),
         Arc::new(move |logger, level, message, cause| {
-            if logger.name() == "XCTestParser" {
+            if logger.name() == "marathon_apple::xctest_parser" {
                 captured.lock().unwrap().push((level, message, cause));
             }
         }),
@@ -271,7 +271,7 @@ async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_
     let logs = logs.lock().unwrap();
     assert_eq!(logs.len(), 3);
     for (level, message, cause) in logs.iter() {
-        assert_eq!(*level, jcompat::logging::Level::Debug);
+        assert_eq!(*level, marathon_logging::Level::DEBUG);
         assert_eq!(message, "Remote parsing failed. Retrying");
         assert_eq!(cause.as_ref(), Some(error.failure()));
     }

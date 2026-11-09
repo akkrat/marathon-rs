@@ -1,8 +1,10 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/WriteFile.kt
 
+use marathon_logging::Level;
+
 use super::{CommandExecutor, CommandRequest, remote::ssh::sshj::config::SshLogging};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use jcompat::{jtime::Duration, logging::Level};
+use jcompat::{jtime::Duration, };
 use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
@@ -49,12 +51,12 @@ pub async fn write_file(
         Ok(success) => Ok(success),
         Err(error @ VendorError::Cancelled(_)) => Err(error),
         Err(error) => {
-            if logging.enabled(executor.logger(), Level::Debug) {
+            if logging.enabled(executor.component(), Level::DEBUG) {
                 let cause = match error {
                     VendorError::Other(failure) => Some(failure),
                     _ => None,
                 };
-                (logging.sink)(executor.logger(), Level::Debug, format!("Unable to write {dst}"), cause);
+                (logging.sink)(executor.component(), Level::DEBUG, format!("Unable to write {dst}"), cause);
             }
             Ok(false)
         }

@@ -7,7 +7,7 @@ use fake_worker::{
     processes::Processes,
     router::{Request, Router},
 };
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_apple::cmd::{
     BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, FileBridge, SessionControl,
     line_buffer::LineBuffer,
@@ -48,7 +48,7 @@ pub struct WorldExecutor {
     backend: Arc<Backend>,
     connection: Arc<Connection>,
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     pub connected: AtomicBool,
     closed_locally: AtomicBool,
     pub before: Mutex<BeforeHook>,
@@ -57,7 +57,7 @@ pub struct WorldExecutor {
 impl WorldExecutor {
     pub fn new(
         runtime: Arc<dyn VendorRuntime>,
-        logging: &mut MarathonLogging,
+        logging: &mut LogSettings,
         router: Router,
         fs: VirtualFs,
         fixtures: PathBuf,
@@ -78,7 +78,7 @@ impl WorldExecutor {
                 id: "local".into(),
                 charset: "UTF-8".into(),
             },
-            logger: logging.logger("marathon.test.WorldExecutor", None),
+            logger: logging.component("marathon_test_support::apple::world_executor"),
             connected: AtomicBool::new(true),
             closed_locally: AtomicBool::new(false),
             before: Mutex::new(Arc::new(|_| Box::pin(async { Ok(None) }))),
@@ -190,7 +190,7 @@ impl CommandExecutor for WorldExecutor {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {

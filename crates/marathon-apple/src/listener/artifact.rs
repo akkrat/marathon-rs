@@ -1,10 +1,12 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ArtifactFinderListener.kt
 //! and logparser/parser/{DiagnosticLogsPathFinder,SessionResultsPathFinder}.kt.
+use marathon_logging::{Level, Component};
+
 use super::AppleTestRunListener;
 use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging};
 use jcompat::{
     JavaRegex,
-    logging::{Level, Logger},
+    
     regex_patterns::{DIAGNOSTIC_LOGS_PATH, SESSION_RESULTS_PATH, find_artifact},
 };
 use marathon_core::{listener::LineListener, runtime::VendorFuture};
@@ -15,11 +17,11 @@ pub struct ArtifactFinderListener {
     message: String,
     matches: Mutex<Vec<String>>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl ArtifactFinderListener {
     pub fn new(pattern: JavaRegex, message: impl Into<String>, logging: SshLogging) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.listener.ArtifactFinderListener");
+        let logger = logging.component("marathon_apple::listener::artifact");
         Self {
             pattern,
             message: message.into(),
@@ -50,7 +52,7 @@ impl AppleTestRunListener for ArtifactFinderListener {
             if !paths.is_empty() {
                 self.logging.log(
                     &self.logger,
-                    Level::Info,
+                    Level::INFO,
                     || format!("{} {}", self.message, paths.join(", ")),
                     None,
                 );

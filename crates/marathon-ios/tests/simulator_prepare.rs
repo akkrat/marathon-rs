@@ -320,10 +320,8 @@ async fn wrong_state_type_after_failed_boot_warns_without_sending_shutdown() -> 
     for xml in ["<string>1</string>", "<real>1.0</real>", "<true/>"] {
         let h = Harness::new(|_| {})?;
         let d = h.device().await?;
-        h.services.logging.registry.lock().unwrap().logger(
-            "com.malinskiy.marathon.apple.ios.AppleSimulatorDevice",
-            Some(jcompat::logging::Level::Warn),
-        );
+        h.services.logging.registry.lock().unwrap().component(
+            "marathon_ios::apple_simulator_device");
         let reads = Arc::new(AtomicUsize::new(0));
         let count = reads.clone();
         let boot = h.boot.clone();
@@ -356,7 +354,7 @@ async fn wrong_state_type_after_failed_boot_warns_without_sending_shutdown() -> 
             .collect();
         assert_eq!(warnings.len(), 2);
         for (_, level, _, error) in warnings {
-            assert_eq!(level, jcompat::logging::Level::Warn);
+            assert_eq!(level, marathon_logging::Level::WARN);
             assert_eq!(error.unwrap().kind.description().to_owned(), "incompatible value type");
         }
         h.finish(&[d]).await;

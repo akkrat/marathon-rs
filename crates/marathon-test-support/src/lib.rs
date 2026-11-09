@@ -18,3 +18,5 @@ pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, 
 }
 
 pub mod recorded_errors;
+
+pub mod recorded_logs;

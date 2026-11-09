@@ -82,7 +82,7 @@ impl MetricsProviderImpl {
         defaults: Defaults,
         context: MetricsContext,
     ) -> OperationResult<Self> {
-        context.register("MetricsProviderImpl")?;
+        context.register("marathon_core::analytics::provider")?;
         context.timings()?;
         let state = SkipMap::new();
         state.insert(0, Arc::new(State::default()));
@@ -145,8 +145,8 @@ impl Drop for RefreshEnd<'_> {
             drop(refresh);
             if std::thread::panicking() {
                 self.shared.context.log(
-                    "MetricsProviderImpl",
-                    Level::Warn,
+                    "marathon_core::analytics::provider",
+                    Level::WARN,
                     "The history refresh panicked, so its failed queries are not tried again. Tests without history use the defaults".into(),
                     None,
                 );
@@ -248,7 +248,7 @@ impl Shared {
         }
         if let Err(error) = &fetched {
             self.context
-                .log("MetricsProviderImpl", Level::Warn, warning.into(), Some(error.clone()));
+                .log("marathon_core::analytics::provider", Level::WARN, warning.into(), Some(error.clone()));
         }
         let elapsed = self
             .context
@@ -261,8 +261,8 @@ impl Shared {
             .as_ref()
             .map_or_else(|_| "failed".to_owned(), |rows| format!("returned {} tests", rows.len()));
         self.context.log(
-            "Timings",
-            Level::Info,
+            "marathon_logging",
+            Level::INFO,
             format!("{description} {outcome} in {elapsed} ms"),
             None,
         );
@@ -280,7 +280,7 @@ impl Shared {
                     .collect(),
             )
             .render();
-            self.context.log("MetricsProviderImpl", Level::Debug, message, None);
+            self.context.log("marathon_core::analytics::provider", Level::DEBUG, message, None);
         }
         Ok(fetched)
     }
@@ -352,8 +352,8 @@ impl Shared {
                     "Queues built and batches composed from now on use it; a queue that already exists keeps its order"
                 };
                 self.context.log(
-                    "MetricsProviderImpl",
-                    Level::Info,
+                    "marathon_core::analytics::provider",
+                    Level::INFO,
                     format!("{description} returned {count} tests after failing earlier. {effect}"),
                     None,
                 );
@@ -366,8 +366,8 @@ impl Shared {
                 refresh.failed.remove(index);
                 drop(refresh);
                 self.context.log(
-                    "MetricsProviderImpl",
-                    Level::Warn,
+                    "marathon_core::analytics::provider",
+                    Level::WARN,
                     format!(
                         "{description} failed {} more times. Tests without history use the defaults for the rest of this run",
                         REFRESH_DELAYS_MILLIS.len()
@@ -396,8 +396,8 @@ impl Shared {
         match race(task.join(), bound).await {
             Either::Left(_) => {}
             Either::Right(Ok(())) => self.context.log(
-                "MetricsProviderImpl",
-                Level::Warn,
+                "marathon_core::analytics::provider",
+                Level::WARN,
                 format!(
                     "The history refresh did not stop within {CLOSE_JOIN_BOUND_MILLIS} ms of being cancelled. Closing the analytics backend with its query still running"
                 ),
@@ -466,7 +466,7 @@ impl Shared {
             let mut message = String::from("No execution time found for ");
             message.push_str(&name);
             message.push_str(&format!(". Using {} ms", double_to_string(expected)));
-            self.context.log("MetricsProviderImpl", Level::Debug, message, None);
+            self.context.log("marathon_core::analytics::provider", Level::DEBUG, message, None);
         }
         Ok(expected)
     }
@@ -487,7 +487,7 @@ impl Shared {
             let mut message = String::from("No success rate found for ");
             message.push_str(&name);
             message.push_str(&format!(". Using {}", double_to_string(self.defaults.success_rate)));
-            self.context.log("MetricsProviderImpl", Level::Warn, message, None);
+            self.context.log("marathon_core::analytics::provider", Level::WARN, message, None);
         }
         self.defaults.success_rate
     }
@@ -608,7 +608,7 @@ impl MetricsProvider for MetricsProviderImpl {
                 double_to_string(percentile),
                 names.len()
             ));
-            let mut level = Level::Info;
+            let mut level = Level::INFO;
             if without > 0 {
                 let millis = self.shared.default_millis()?;
                 match self.shared.defaults.observed_duration_min_tests {
@@ -616,14 +616,14 @@ impl MetricsProvider for MetricsProviderImpl {
                     Some(min) => message.push_str(&format!(", {without} tests are estimated from this run, using the default {millis} ms until {min} tests have passed or failed")),
                 }
                 if without * 2 > names.len() {
-                    level = Level::Warn;
+                    level = Level::WARN;
                     message.push_str(". Most tests have no history; check that the analytics backend can be queried");
                     if self.shared.defaults.observed_duration_min_tests.is_none() {
                         message.push_str(", or set analyticsConfiguration.defaults.duration or analyticsConfiguration.defaults.observedDurationMinTests");
                     }
                 }
             }
-            self.shared.context.log("MetricsProviderImpl", level, message, None);
+            self.shared.context.log("marathon_core::analytics::provider", level, message, None);
             Ok(())
         })
     }

@@ -1324,7 +1324,7 @@ async fn stalled_receive_runs() {
     assert!(
         lines
             .iter()
-            .any(|(_, level, message)| *level == jcompat::logging::Level::Error
+            .any(|(_, level, message)| *level == marathon_logging::Level::ERROR
                 && message.starts_with(
                     "receive error: no progress in 300 s receiving 127.0.0.1:/tmp/marathon/stuck, rsync stopped: "
                 )),
@@ -1491,14 +1491,14 @@ async fn stalled_send_runs() {
     assert_eq!(
         lines
             .iter()
-            .any(|(_, level, message)| *level == jcompat::logging::Level::Warn
+            .any(|(_, level, message)| *level == marathon_logging::Level::WARN
                 && message == "Not sending to /tmp/marathon/next: a send to this worker stalled while this one waited"),
         mode == "hung",
         "{lines:?}"
     );
     let errors: Vec<_> = lines
         .iter()
-        .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+        .filter(|(_, level, _)| *level == marathon_logging::Level::ERROR)
         .map(|(.., message)| message.as_str())
         .collect();
     assert_eq!(errors.len(), 1, "{errors:?}");
@@ -2076,7 +2076,7 @@ async fn stopped_transfer_runs() {
     }
     let errors: Vec<_> = ssh::lines(&events)
         .into_iter()
-        .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+        .filter(|(_, level, _)| *level == marathon_logging::Level::ERROR)
         .map(|(.., message)| message)
         .collect();
     let expected: Vec<String> = match (lost, receive) {
@@ -2122,7 +2122,7 @@ async fn a_transfer_stopped_before_it_starts_returns_its_stop_d54() {
     assert_eq!(
         ssh::lines(&events)
             .into_iter()
-            .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+            .filter(|(_, level, _)| *level == marathon_logging::Level::ERROR)
             .count(),
         1
     );

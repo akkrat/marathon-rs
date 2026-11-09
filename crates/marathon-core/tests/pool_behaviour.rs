@@ -353,7 +353,7 @@ fn all_devices_terminated_error_is_logged_even_after_the_last_result_passed() {
             let actual = h
                 .logs()
                 .iter()
-                .filter(|l| l.logger == "DevicePoolActor[B4]" && l.level == jcompat::logging::Level::Error)
+                .filter(|l| l.logger == "DevicePoolActor[B4]" && l.level == marathon_logging::Level::ERROR)
                 .map(|l| l.message.to_owned())
                 .collect::<Vec<_>>();
             let expected: serde_json::Value = include_str!("../../../fixtures/oracle/pool/scheduler.jsonl")
@@ -457,7 +457,7 @@ fn duplicate_serial_add_keeps_the_original_device() {
             pool.add(&duplicate);
             h.run_current().await;
             assert_eq!(pool.actors.borrow().len(), 1);
-            assert!(h.logs().iter().any(|l| l.level == jcompat::logging::Level::Warn
+            assert!(h.logs().iter().any(|l| l.level == marathon_logging::Level::WARN
                 && l.message == "device same already present in pool scheduling"));
             prepared.open();
             h.await_pool_termination().await;

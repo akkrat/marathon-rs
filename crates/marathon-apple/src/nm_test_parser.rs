@@ -8,7 +8,7 @@ use crate::{
     distributed_derived_data::require_distributed_test_bundle,
     model::AppleTestBundle,
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_config::{VendorConfiguration, vendor::TestClassRegex};
 use marathon_core::{
     error::{VendorError, VendorResult},
@@ -26,7 +26,7 @@ pub struct NmTestParser {
     pub test_class_regexes: Vec<TestClassRegex>,
     pub runtime: Arc<dyn VendorRuntime>,
     pub logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl NmTestParser {
     pub fn new(
@@ -37,7 +37,7 @@ impl NmTestParser {
         runtime: Arc<dyn VendorRuntime>,
         logging: SshLogging,
     ) -> Self {
-        let logger = logging.logger("NmTestParser");
+        let logger = logging.component("marathon_apple::nm_test_parser");
         Self {
             configuration,
             registry,
@@ -58,7 +58,7 @@ impl NmTestParser {
         log(
             &self.logging,
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             format!(
                 "Found test binary {} for xctest {}",
                 binary.display(),
@@ -121,7 +121,7 @@ impl NmTestParser {
         log(
             &self.logging,
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             format!("Scanning {binary} again"),
             Some(error),
         );
@@ -149,7 +149,7 @@ impl RemoteTestParser for NmTestParser {
                             log(
                                 &self.logging,
                                 &self.logger,
-                                Level::Debug,
+                                Level::DEBUG,
                                 "Remote parsing failed. Retrying".into(),
                                 Some(&error),
                             );
@@ -196,7 +196,7 @@ pub(crate) fn parsing_error(message: String) -> VendorError {
     detail.message = Some(message);
     VendorError::TestParsing(detail)
 }
-pub(crate) fn log(logging: &SshLogging, logger: &Logger, level: Level, message: String, error: Option<&VendorError>) {
+pub(crate) fn log(logging: &SshLogging, logger: &Component, level: Level, message: String, error: Option<&VendorError>) {
     if logging.enabled(logger, level) {
         (logging.sink)(logger, level, message, error.map(|e| e.failure().clone()));
     }

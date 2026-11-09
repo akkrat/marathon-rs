@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandExecutor.kt
 
+use marathon_logging::Component;
+
 use marathon_error::{AppleKind, FailureKind};
 pub mod base_command;
 pub mod channel;
@@ -17,7 +19,7 @@ pub mod write_file;
 use crate::extensions::Durations;
 pub use base_command::{BaseCommand, CommandSession, ExitCode, SessionControl, SessionScope};
 pub use command_session_output::consume_output;
-use jcompat::{jtime::Duration, logging::Logger};
+use jcompat::{jtime::Duration, };
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorFuture},
@@ -113,7 +115,7 @@ impl CommandRequest {
 // Static dispatch within Apple; concrete sessions also suit the future SSH backend.
 pub trait CommandExecutor: Send + Sync {
     fn host(&self) -> &CommandHost;
-    fn logger(&self) -> &Logger;
+    fn component(&self) -> &Component;
     fn connected(&self) -> bool;
     fn log_error(&self, message: String);
     /// `logger.error(e) { message }`; executors whose sink keeps the throwable override this.

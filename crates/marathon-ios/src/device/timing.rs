@@ -1,9 +1,11 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/log/TimingLog.kt
 //! and vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt:474–476,518–532.
 
+use marathon_logging::{Level, Component};
+
 use super::error::clock_error;
 use jcompat::{
-    logging::{Level, Logger},
+    
     writers::KotlinValue,
 };
 use marathon_apple::cmd::remote::ssh::sshj::config::SshLogging;
@@ -15,7 +17,7 @@ use std::sync::Arc;
 pub struct ProvisioningTiming {
     pub timer: Arc<dyn Timer>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl ProvisioningTiming {
     pub fn new(timer: Arc<dyn Timer>, logging: SshLogging) -> Self {
@@ -26,7 +28,7 @@ impl ProvisioningTiming {
         self.timer.elapsed_time_millis().map_err(clock_error)
     }
     pub fn info(&self, message: impl FnOnce() -> VendorResult<String>) -> VendorResult<()> {
-        if self.logging.enabled(&self.logger, Level::Info) {
+        if self.logging.enabled(&self.logger, Level::INFO) {
             let message = message()?;
             // TimingLog evaluates the lazy message before its independent elapsed read.
             let elapsed = self.elapsed()?;
@@ -37,7 +39,7 @@ impl ProvisioningTiming {
                 .unwrap_or_else(|e| e.into_inner())
                 .timing_message(|| Some(elapsed), || message);
             if let Some(text) = text {
-                (self.logging.sink)(&self.logger, Level::Info, text, None);
+                (self.logging.sink)(&self.logger, Level::INFO, text, None);
             }
         }
         Ok(())

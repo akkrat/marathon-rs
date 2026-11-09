@@ -2,7 +2,7 @@
 //! and vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorderTestBatchListener.kt.
 use super::*;
 use crate::listeners::{AndroidTestRunListener, to_test};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_config::ScreenRecordingPolicy;
 use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorContext};
@@ -19,7 +19,7 @@ pub fn grep_pid(output: &str) -> String {
         .unwrap_or_default()
 }
 pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
-    device.log_named("ScreenRecorder", Level::Debug, "Stopping screen recorder", None);
+    device.log_named("ScreenRecorder", Level::DEBUG, "Stopping screen recorder", None);
     for _ in 0..5 {
         let killed: VendorResult<bool> = async {
             let cmd = if device.version().is_greater_or_equal_than(26) {
@@ -36,7 +36,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
             if !output.chars().all(jcompat::jstring::is_whitespace) {
                 device.log_named(
                     "ScreenRecorder",
-                    Level::Trace,
+                    Level::TRACE,
                     &format!("Extracted PID {pid} from output {output}"),
                     None,
                 );
@@ -44,7 +44,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
             if pid.is_empty() {
                 device.log_named(
                     "ScreenRecorder",
-                    Level::Warn,
+                    Level::WARN,
                     "Did not kill any screen recording process",
                     None,
                 );
@@ -52,7 +52,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
             }
             device.log_named(
                 "ScreenRecorder",
-                Level::Trace,
+                Level::TRACE,
                 &format!("Killing PID {pid} on {}", device.serial_number().to_owned()),
                 None,
             );
@@ -67,7 +67,7 @@ pub async fn stop_screen_record(device: &AndroidDevice, context: VendorContext) 
             Err(e) => {
                 device.log_named(
                     "ScreenRecorder",
-                    Level::Error,
+                    Level::ERROR,
                     "Error while killing recording processes",
                     Some(e.failure()),
                 );
@@ -133,19 +133,19 @@ impl ScreenRecorderTestBatchListener {
         let end = self.artifacts.now("android.ScreenRecorderTestBatchListener.stop")?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
-            Level::Trace,
+            Level::TRACE,
             &format!("stop {}ms", end.wrapping_sub(start)),
             None,
         );
         let start = self.artifacts.now("android.ScreenRecorderTestBatchListener.join")?;
         self.artifacts
             .device
-            .log_named("ScreenRecorderTestBatchListener", Level::Trace, "cancel", None);
+            .log_named("ScreenRecorderTestBatchListener", Level::TRACE, "cancel", None);
         self.join().await;
         let end = self.artifacts.now("android.ScreenRecorderTestBatchListener.join")?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
-            Level::Trace,
+            Level::TRACE,
             &format!("join {}ms", end.wrapping_sub(start)),
             None,
         );
@@ -172,7 +172,7 @@ impl ScreenRecorderTestBatchListener {
         let end = self.artifacts.now(label)?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
-            Level::Trace,
+            Level::TRACE,
             &format!(
                 "Pulling finished in {}ms {} ",
                 end.wrapping_sub(start),
@@ -196,7 +196,7 @@ impl ScreenRecorderTestBatchListener {
             .now("android.ScreenRecorderTestBatchListener.removeRemoteVideoFile")?;
         self.artifacts.device.log_named(
             "ScreenRecorderTestBatchListener",
-            Level::Trace,
+            Level::TRACE,
             &format!("Removed file in {}ms {}", end.wrapping_sub(start), remote.to_owned()),
             None,
         );
@@ -293,7 +293,7 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                                         let end = artifacts.now("android.ScreenRecorder.startRecordingTestVideo")?;
                                         artifacts.device.log_named(
                                             "ScreenRecorder",
-                                            Level::Debug,
+                                            Level::DEBUG,
                                             &format!(
                                                 "Recording finished in {}ms {}",
                                                 end.wrapping_sub(start),
@@ -306,9 +306,9 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                                     .await;
                                     if let Err(e) = result {
                                         let (level, msg) = if matches!(e, VendorError::Cancelled(_)) {
-                                            (Level::Warn, "screenrecord start was interrupted")
+                                            (Level::WARN, "screenrecord start was interrupted")
                                         } else {
-                                            (Level::Error, "Something went wrong while screen recording")
+                                            (Level::ERROR, "Something went wrong while screen recording")
                                         };
                                         artifacts
                                             .device
@@ -343,7 +343,7 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                     match self.finish_test(&to_test(id), context).await {
                         Err(VendorError::Transfer(_)) => self.artifacts.device.log_named(
                             "ScreenRecorderTestBatchListener",
-                            Level::Warn,
+                            Level::WARN,
                             "Can't pull video",
                             None,
                         ),
@@ -389,7 +389,7 @@ impl AndroidTestRunListener for ScreenRecorderTestBatchListener {
                     match result {
                         Err(VendorError::Transfer(_)) => self.artifacts.device.log_named(
                             "ScreenRecorderTestBatchListener",
-                            Level::Warn,
+                            Level::WARN,
                             "Can't pull video",
                             None,
                         ),

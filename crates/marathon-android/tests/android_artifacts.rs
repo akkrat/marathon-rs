@@ -712,7 +712,7 @@ fn adam_capture_with_relative_output_directory() {
                 runtime.dependencies.io.clone(),
                 jcompat::file_manager::FileManager::new(4096, 255, &output.to_string_lossy(), &cwd.to_string_lossy()),
                 output,
-                runtime.logger("FileManager"),
+                runtime.component("FileManager"),
                 runtime.log.clone(),
             );
             Arc::get_mut(&mut runtime).unwrap().dependencies.files = Arc::new(files);

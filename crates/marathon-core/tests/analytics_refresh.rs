@@ -1,9 +1,11 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
 //! (D34: a failed history query is not final; Kotlin caches it for the whole run).
+use marathon_logging::Level;
+
 use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
-use jcompat::{jtime::Instant, logging::Level};
+use jcompat::{jtime::Instant, };
 use marathon_config::schema::{BatchingStrategyConfiguration, SortingStrategyConfiguration};
 use marathon_core::{
     analytics::{Analytics, remote::*},
@@ -38,7 +40,7 @@ fn timings(h: &Harness) -> Vec<String> {
     h.logs
         .records()
         .iter()
-        .filter(|r| r.logger == "Timings")
+        .filter(|r| r.logger == "marathon_logging")
         .map(|r| {
             let message = r.message.to_owned();
             message[..message.rfind(" in ").unwrap()].to_owned()
@@ -90,9 +92,9 @@ fn a_failed_query_recovers_on_a_later_refresh() {
             timings(&h),
             vec![format!("{QUERY} failed"), format!("{QUERY} returned 1 tests")]
         );
-        assert_eq!(lines_with(&h, Level::Warn, "Cannot fetch execution time"), 1);
-        assert_eq!(lines_with(&h, Level::Info, "after failing earlier"), 1);
-        assert_eq!(lines_with(&h, Level::Info, "from now on use it"), 1);
+        assert_eq!(lines_with(&h, Level::WARN, "Cannot fetch execution time"), 1);
+        assert_eq!(lines_with(&h, Level::INFO, "after failing earlier"), 1);
+        assert_eq!(lines_with(&h, Level::INFO, "from now on use it"), 1);
         // The recovery ends the refresh: once read, a successful value never changes.
         *source.times.lock().unwrap() = vec![time_row(&test, 1.0)];
         h.clock.release_refreshes(8);
@@ -126,12 +128,12 @@ fn an_empty_answer_is_a_success_so_it_is_cached_and_never_refreshed() {
         assert_eq!(
             lines_with(
                 &h,
-                Level::Info,
+                Level::INFO,
                 "returned 0 tests after failing earlier. There is no history to use, so nothing changes"
             ),
             1
         );
-        assert_eq!(lines_with(&h, Level::Info, "from now on use it"), 0);
+        assert_eq!(lines_with(&h, Level::INFO, "from now on use it"), 0);
         p.prefetch(&[key(80.0), other]).await.unwrap();
         assert_eq!(source.calls.lock().unwrap().len(), 1 + 3 + 1);
     });
@@ -154,10 +156,10 @@ fn a_backend_that_stays_down_gets_a_capped_schedule_and_a_bounded_total() {
         assert_eq!(source.calls.lock().unwrap().len(), 3 + SCHEDULE.len());
         assert_eq!(timings(&h), vec![format!("{QUERY} failed"); 1 + SCHEDULE.len()]);
         assert_eq!(
-            lines_with(&h, Level::Warn, "Cannot fetch execution time"),
+            lines_with(&h, Level::WARN, "Cannot fetch execution time"),
             1 + SCHEDULE.len()
         );
-        assert_eq!(lines_with(&h, Level::Warn, "failed 8 more times"), 1);
+        assert_eq!(lines_with(&h, Level::WARN, "failed 8 more times"), 1);
         assert_eq!(h.logs.records().len(), 2 * (1 + SCHEDULE.len()) + 1);
         // After the last one nothing wakes it again, and the defaults keep answering.
         p.prefetch(&[key(80.0)]).await.unwrap();
@@ -256,7 +258,7 @@ fn close_ends_a_pending_refresh_without_waiting_and_nothing_queries_after_it() {
         h.clock.release_refreshes(8);
         tokio::task::yield_now().await;
         assert_eq!(source.calls.lock().unwrap().len(), 3);
-        assert_eq!(h.logs.take().iter().filter(|r| r.logger == "Timings").count(), 1);
+        assert_eq!(h.logs.take().iter().filter(|r| r.logger == "marathon_logging").count(), 1);
         // A query that starts failing after close starts no refresh.
         p.prefetch(&[key(90.0)]).await.unwrap();
         assert_eq!(h.running.load(AtomicOrdering::SeqCst), 0);
@@ -393,7 +395,7 @@ fn close_stops_waiting_for_a_source_that_blocks_inside_its_future() {
         .await;
         assert!(!closing.is_finished());
         assert!(!source.closed.load(AtomicOrdering::SeqCst));
-        assert_eq!(lines_with(&h, Level::Warn, "did not stop"), 0);
+        assert_eq!(lines_with(&h, Level::WARN, "did not stop"), 0);
 
         h.clock.expire_close_bound();
         tokio::time::timeout(std::time::Duration::from_secs(60), closing)
@@ -402,7 +404,7 @@ fn close_stops_waiting_for_a_source_that_blocks_inside_its_future() {
             .unwrap()
             .unwrap();
         assert!(source.closed.load(AtomicOrdering::SeqCst));
-        assert_eq!(lines_with(&h, Level::Warn, "did not stop within 3000 ms"), 1);
+        assert_eq!(lines_with(&h, Level::WARN, "did not stop within 3000 ms"), 1);
         assert_eq!(h.running.load(AtomicOrdering::SeqCst), 1);
 
         // When the query does end, it is too late for it to log or publish.
@@ -548,14 +550,14 @@ fn a_source_that_panics_during_a_refresh_ends_it_with_one_warning_and_no_stale_h
         p.prefetch(&[key(80.0)]).await.unwrap();
         h.clock.release_refreshes(1);
         // `h.running` never falls here: the harness's task count does not survive a panic.
-        until("the warning", || lines_with(&h, Level::Warn, "refresh panicked") == 1).await;
+        until("the warning", || lines_with(&h, Level::WARN, "refresh panicked") == 1).await;
         assert_eq!(p.lookup().execution_time(&default_test(), 80.0, limit()), 300000.0);
         // The next failure starts a refresh of its own, from the start of the schedule.
         p.prefetch(&[key(90.0)]).await.unwrap();
         h.clock.refresh_delay_started(2).await;
         assert_eq!(*h.clock.refresh_delays.lock().unwrap(), vec![5000, 5000]);
         p.close().await.unwrap();
-        assert_eq!(lines_with(&h, Level::Warn, "refresh panicked"), 1);
+        assert_eq!(lines_with(&h, Level::WARN, "refresh panicked"), 1);
     });
 }
 #[test]

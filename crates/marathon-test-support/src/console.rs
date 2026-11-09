@@ -5,10 +5,9 @@
 //! level; any other name is created at its first rendered record, with the registry's debug
 //! state at that moment (C18).
 use crate::lock;
-use jcompat::logging::{Level, Logger, MarathonLogging};
+use marathon_logging::{Level, LogSettings};
 use marathon_core::{error::Failure, logging::OutputRecord, output::ConsoleSink, runtime::VendorFuture};
 use std::{
-    collections::HashMap,
     sync::{Arc, Mutex},
 };
 
@@ -24,17 +23,15 @@ pub enum Line {
 }
 
 pub struct RecordingConsole {
-    registry: Arc<Mutex<MarathonLogging>>,
-    loggers: Mutex<HashMap<String, Logger>>,
+    registry: Arc<Mutex<LogSettings>>,
     lines: Mutex<Vec<Line>>,
     /// Record count of every `write` call: the flush points, as seen by the sink.
     batches: Mutex<Vec<usize>>,
 }
 impl RecordingConsole {
-    pub fn new(registry: Arc<Mutex<MarathonLogging>>) -> Arc<Self> {
+    pub fn new(registry: Arc<Mutex<LogSettings>>) -> Arc<Self> {
         Arc::new(Self {
             registry,
-            loggers: Mutex::default(),
             lines: Mutex::default(),
             batches: Mutex::default(),
         })
@@ -75,18 +72,7 @@ impl ConsoleSink for RecordingConsole {
             match record {
                 OutputRecord::Raw(text) => lock(&self.lines).push(Line::Raw(text.to_owned())),
                 OutputRecord::Log(record) => {
-                    let enabled = {
-                        let mut registry = lock(&self.registry);
-                        let mut loggers = lock(&self.loggers);
-                        let logger = loggers.entry(record.logger.clone()).or_insert_with(|| {
-                            if registry.is_registered(&record.logger) {
-                                registry.slf4j_logger(&record.logger)
-                            } else {
-                                registry.logger(&record.logger, None)
-                            }
-                        });
-                        registry.enabled(logger, record.level)
-                    };
+                    let enabled = lock(&self.registry).enabled_target(record.target(), record.level);
                     if enabled {
                         lock(&self.lines).push(Line::Log {
                             logger: record.logger,

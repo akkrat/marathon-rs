@@ -2,9 +2,11 @@
 //! every row of the run-outcome table, construction failure, the Stub/Empty gate, what `parse` hands the runner, and
 //! the throwable rendering (`fixtures/oracle/logging/details.jsonl` `op: throwable`, D12).
 
+use marathon_logging::{Level, LogSettings, OutputTarget, Vendor};
+
 use jcompat::{
     jtime::instant_of,
-    logging::{Level, LogEvent, MarathonLogging, OutputTarget, Vendor},
+    
 };
 use marathon_cli::{
     application::{
@@ -80,7 +82,7 @@ struct StubRunner {
 
 struct StubRun {
     outcome: Outcome,
-    logging: Arc<Mutex<MarathonLogging>>,
+    logging: Arc<Mutex<LogSettings>>,
     console: Arc<Console>,
     seen: Arc<Mutex<Vec<String>>>,
 }
@@ -89,7 +91,7 @@ impl CliRunner for StubRunner {
     fn construct(
         &self,
         configuration: Arc<Configuration>,
-        logging: Arc<Mutex<MarathonLogging>>,
+        logging: Arc<Mutex<LogSettings>>,
         console: Arc<Console>,
     ) -> Result<Box<dyn MarathonRun>, Failure> {
         self.seen.lock().unwrap().push(format!(
@@ -117,23 +119,12 @@ impl MarathonRun for StubRun {
                 Err(e)
             }
             Outcome::LogThenCrash(e) => {
-                let (layout, logger) = {
-                    let mut logging = self.logging.lock().unwrap();
-                    logging.configure(false, Vendor::Android);
-                    (
-                        logging.layout(),
-                        logging.logger("com.malinskiy.marathon.Marathon", None),
-                    )
-                };
-                let event = LogEvent {
-                    level: Level::Info,
-                    logger: logger.name(),
-                    thread: "main",
-                    local_time_millis: 45_296_789,
-                    message: "from the run",
-                    throwable: "",
-                };
-                self.console.write_event(layout, &event);
+                self.logging.lock().unwrap().configure(true, Vendor::Android);
+                self.console.write_record(&marathon_core::logging::LogRecord {
+                    target: "marathon_core::marathon".into(), logger: "marathon_core::marathon".into(),
+                    at_millis: 0, wall_millis: 45_296_789, level: Level::INFO,
+                    message: "from the run".into(), cause: None,
+                });
                 Err(e)
             }
         }
@@ -182,14 +173,14 @@ fn invoke(args: &[&str], cwd: &Path, runner: &dyn CliRunner, stdout: &Buffer, st
         Box::new(stderr.clone()),
         OutputTarget::Pipe,
         Box::new(|| 45_296_789),
-    );
+    ).unwrap_or_else(|error| panic!("test console: {error}"));
     let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
     run_cli(&args, &process, runner, &output)
 }
 
-const START: &str = "12:34:56.789 [main] INFO  c.m.marathon.cli.ApplicationView - Starting marathon v0.10.1, CliConfiguration: MarathonRunCommandCliConfiguration(marathonfile=Marathonfile, analyticsTracking=true, bugsnagReporting=true)\n\
-12:34:56.789 [main] INFO  c.m.marathon.cli.ApplicationView - Checking Marathonfile config\n\
-12:34:56.789 [main] INFO  c.m.marathon.cli.ApplicationView - Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored\n";
+const START: &str = "12:34:56.789 INFO marathon_cli::application: Starting marathon v0.10.1, CliConfiguration: MarathonRunCommandCliConfiguration(marathonfile=Marathonfile, analyticsTracking=true, bugsnagReporting=true)\n\
+12:34:56.789 INFO marathon_cli::application: Checking Marathonfile config\n\
+12:34:56.789 INFO marathon_cli::application: Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored\n";
 
 fn start() -> String {
     START.replace("v0.10.1", &format!("v{}", marathon_cli::application::VERSION))
@@ -235,8 +226,8 @@ fn run_crash_logs_kotlin_unit_and_the_throwable() {
     assert_eq!(
         r.stdout,
         format!(
-            "{}12:34:56.789 [main] ERROR c.m.marathon.cli.ApplicationView - kotlin.Unit\n\
-             invalid state: boom\nCaused by: I/O error: inner\n",
+            "{}12:34:56.789 ERROR marathon_cli::application: kotlin.Unit error=\
+             invalid state: boom\nCaused by: I/O error: inner\n\n",
             start()
         )
     );
@@ -251,7 +242,7 @@ fn run_crash_after_configure_logging_uses_the_runtime_layout() {
     assert_eq!(
         r.stdout,
         format!(
-            "{}E 12:34:56.789 [main] <c.malinskiy.marathon.cli.ApplicationView> kotlin.Unit\nruntime failure: late\n",
+            "{}12:34:56.789 ERROR marathon_cli::application: kotlin.Unit error=runtime failure: late\n\n",
             start()
         )
     );
@@ -265,8 +256,8 @@ fn run_events_and_the_crash_log_share_the_console() {
     assert_eq!(
         r.stdout,
         format!(
-            "{}I 12:34:56.789 [main] <com.malinskiy.marathon.Marathon> from the run\n\
-             E 12:34:56.789 [main] <c.malinskiy.marathon.cli.ApplicationView> kotlin.Unit\nruntime failure: late\n",
+            "{}12:34:56.789 INFO marathon_core::marathon: from the run\n\
+             12:34:56.789 ERROR marathon_cli::application: kotlin.Unit error=runtime failure: late\n\n",
             start()
         )
     );
@@ -531,7 +522,7 @@ fn the_message_links_to_a_section_that_exists() {
 
 /// The 1.6 hand-off row: the JVM's rendering of a three-level chain, frames removed (D12).
 #[test]
-fn throwable_rendering_matches_the_logback_row_without_frames() {
+fn throwable_rendering_matches_the_recorded_row_without_frames() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/oracle/logging/details.jsonl");
     let row: Json = fs::read_to_string(path)
         .unwrap()

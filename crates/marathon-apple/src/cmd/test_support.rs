@@ -1,9 +1,11 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/cmd/FakeCommandExecutor.kt
 
+use marathon_logging::{Component, LogSettings};
+
 use super::{CommandExecutor, CommandHost, CommandRequest, CommandResult, CommandSession, local::KotlinProcessHost};
 use jcompat::{
     jtime::Duration,
-    logging::{Logger, MarathonLogging},
+    
 };
 use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
@@ -18,18 +20,18 @@ pub struct FakeCommandExecutor {
     runtime: Arc<dyn VendorRuntime>,
     result: CommandResult,
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     pub commands: Mutex<Vec<Vec<String>>>,
     pub envs: Mutex<Vec<BTreeMap<String, String>>>,
     pub timeout: Mutex<Option<Duration>>,
 }
 impl FakeCommandExecutor {
-    pub fn new(runtime: Arc<dyn VendorRuntime>, result: CommandResult, logging: &mut MarathonLogging) -> Self {
+    pub fn new(runtime: Arc<dyn VendorRuntime>, result: CommandResult, logging: &mut LogSettings) -> Self {
         Self {
             runtime,
             result,
             host: KotlinProcessHost::host(),
-            logger: logging.logger("com.malinskiy.marathon.apple.cmd.FakeCommandExecutor", None),
+            logger: logging.component("marathon_apple::cmd::test_support"),
             commands: Mutex::new(Vec::new()),
             envs: Mutex::new(Vec::new()),
             timeout: Mutex::new(None),
@@ -40,7 +42,7 @@ impl CommandExecutor for FakeCommandExecutor {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {

@@ -12,6 +12,7 @@ workspace = true
 test-support = []
 
 [dependencies]
+marathon-logging = { path = "../marathon-logging" }
 jcompat = { path = "../jcompat" }
 marathon-error = { path = "../marathon-error" }
 marathon-config = { path = "../marathon-config" }

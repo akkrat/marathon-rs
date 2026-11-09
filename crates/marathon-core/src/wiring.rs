@@ -4,13 +4,15 @@
 //! Per-run explicit services. These declarations do not perform Koin's lazy
 //! construction side effects; WP 3.10 controls when each service is used.
 
+use marathon_logging::LogSettings;
+
 use crate::{
     model::{DeviceInfo, DevicePoolId, Test, TestResult},
     runtime::{CoreRuntime, ServiceFuture, TimeoutScope, VendorClock, VendorFuture, VendorRuntime},
     time::{ReplayBarriers, ReplayHooks, SchedulerClock, Timer},
     vendor::{DeviceProvider, LogConfigurator, TestBundleIdentifier, TestParser},
 };
-use jcompat::{jtime::Instant, logging::MarathonLogging};
+use jcompat::{jtime::Instant, };
 use marathon_config::Configuration;
 use std::{
     rc::Rc,
@@ -77,7 +79,7 @@ pub struct VendorDependencies {
     pub configuration: Arc<Configuration>,
     pub io: Arc<dyn VendorRuntime>,
     pub clock: Arc<dyn VendorClock>,
-    pub logging: Arc<Mutex<MarathonLogging>>,
+    pub logging: Arc<Mutex<LogSettings>>,
     /// Same output queue as `logs`, with scheduler and wall timestamps captured by
     /// construction. Keep this adapter: `wall` alone cannot reproduce Android
     /// service records' scheduler timestamps, and VendorClock has no now source.

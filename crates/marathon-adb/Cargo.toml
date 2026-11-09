@@ -13,6 +13,7 @@ workspace = true
 server = ["tokio/fs", "tokio/rt-multi-thread", "dep:serde", "dep:serde_json", "dep:serde_norway", "dep:regex", "dep:sha2"]
 
 [dependencies]
+marathon-logging = { path = "../marathon-logging" }
 tracing.workspace = true
 marathon-error = { path = "../marathon-error" }
 lcms2 = { version = "=6.1.1", features = ["static"] }

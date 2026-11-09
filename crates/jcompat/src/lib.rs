@@ -12,7 +12,6 @@ pub mod jackson;
 pub mod jnum;
 pub mod jstring;
 pub mod jtime;
-pub mod logging;
 pub mod writers;
 
 mod regex;

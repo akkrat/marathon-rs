@@ -2,17 +2,18 @@
 //! (the logger calls of core actors; docs/design/lifecycle.md, "Core log records").
 //!
 //! Core may not do I/O or take the registry lock, so actors append structured
-//! records here and the run's output task renders them off core with jcompat.
+//! records here and the run's output task sends them through tracing off core.
 
 use crate::error::Failure;
 use crossbeam_queue::SegQueue;
-use jcompat::logging::{JansiMode, Level, LogEvent, Logger, MarathonLogging, OutputTarget};
+use marathon_logging::Level;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 /// One `logger.<level>(cause) { message }` call. The message is already
 /// interpolated: Kotlin's lazy message lambdas in core have no side effects.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogRecord {
+    pub target: String,
     pub logger: String,
     /// Scheduler time of the call: replay order and timelines.
     pub at_millis: i64,
@@ -31,6 +32,7 @@ pub struct LogQueue {
     /// output order; reads drain it into `records` first.
     incoming: Arc<SegQueue<OutputRecord>>,
     wall: RefCell<Rc<dyn Fn() -> i64>>,
+    late: LateOutput,
     output_tail: RefCell<Option<tokio::sync::oneshot::Receiver<()>>>,
     /// Signalled by every push; only a live run's output pump waits on it.
     wake: Arc<tokio::sync::Notify>,
@@ -39,9 +41,11 @@ pub struct LogQueue {
 }
 impl Default for LogQueue {
     fn default() -> Self {
+        let incoming: Arc<SegQueue<OutputRecord>> = Arc::default();
         Self {
+            late: LateOutput::new(incoming.clone()),
             records: RefCell::default(),
-            incoming: Arc::default(),
+            incoming,
             wall: RefCell::new(Rc::new(host_millis)),
             output_tail: RefCell::default(),
             wake: Arc::default(),
@@ -59,9 +63,14 @@ pub fn host_millis() -> i64 {
     }
 }
 impl LogQueue {
+    pub fn late_output(&self) -> LateOutput { self.late.clone() }
+    pub(crate) fn detach_output(&self) {
+        let pending = std::mem::take(&mut *self.records.borrow_mut());
+        if !pending.is_empty() { self.late.head.push(pending); }
+    }
     pub fn log(&self, logger: &str, at_millis: i64, level: Level, message: String, cause: Option<Failure>) {
         let wall_millis = (self.wall.borrow())();
-        self.incoming.push(OutputRecord::Log(LogRecord {
+        self.late.push(OutputRecord::Log(LogRecord { target: module_path!().into(),
             logger: logger.to_owned(),
             at_millis,
             wall_millis,
@@ -77,8 +86,8 @@ impl LogQueue {
     }
     pub fn sender(&self) -> LogSender {
         LogSender {
-            queue: self.incoming.clone(),
             wake: self.wake.clone(),
+            late: self.late.clone(),
         }
     }
     /// Pushes since the last wait wake the next one (a stored permit, so none is lost).
@@ -129,7 +138,7 @@ pub enum OutputRecord {
 }
 impl LogQueue {
     pub fn raw(&self, text: String) {
-        self.incoming.push(OutputRecord::Raw(text));
+        self.late.push(OutputRecord::Raw(text));
         self.wake.notify_one();
     }
     /// Reserve delivery order on core before vendor tasks can race to start.
@@ -184,49 +193,76 @@ impl Drop for OutputDone {
     }
 }
 
-impl LogRecord {
-    /// Off core: `logger` is the registry handle for `self.logger`. For already
-    /// registered loggers (Timings, MetricsProviderImpl, NoOpMetricsProvider,
-    /// MetricsProviderFactory), reuse the handle or resolve with `slf4j_logger`.
-    /// Calling `MarathonLogging::logger(name, None)` again resets their levels.
-    /// Only previously unregistered names are created once by the output task.
-    /// `zone_offset_millis` is the local zone's offset at `wall_millis`.
-    pub fn render(
-        &self,
-        registry: &MarathonLogging,
-        logger: &Logger,
-        thread: &str,
-        zone_offset_millis: i64,
-        output: (JansiMode, OutputTarget),
-    ) -> Option<String> {
-        registry.enabled(logger, self.level).then(|| {
-            let throwable = self.cause.as_ref().map(|c| c.stack_trace().to_owned());
-            registry.layout().format(
-                &LogEvent {
-                    level: self.level,
-                    logger: logger.name(),
-                    thread,
-                    local_time_millis: self.wall_millis.wrapping_add(zone_offset_millis),
-                    message: &self.message.to_owned(),
-                    throwable: throwable.as_deref().unwrap_or(""),
-                },
-                output.0,
-                output.1,
-            )
-        })
-    }
-}
-
 /// Send producer for the same run queue. The caller stamps the record at its
 /// call site; rendering and registry access still happen off core.
 #[derive(Clone)]
 pub struct LogSender {
-    queue: Arc<SegQueue<OutputRecord>>,
+    late: LateOutput,
     wake: Arc<tokio::sync::Notify>,
 }
 impl LogSender {
     pub fn push(&self, record: LogRecord) {
-        self.queue.push(OutputRecord::Log(record));
+        self.late.push(OutputRecord::Log(record));
         self.wake.notify_one();
+    }
+}
+
+impl LogRecord {
+    pub fn target(&self) -> &str {
+        if self.logger.starts_with("marathon_") { &self.logger }
+        else if self.logger.contains("DeviceActor[") { "marathon_core::execution::device::actor" }
+        else if self.logger.starts_with("DevicePoolActor[") { "marathon_core::execution::pool" }
+        else if self.logger.starts_with("QueueActor[") { "marathon_core::execution::queue" }
+        else { &self.target }
+    }
+    pub fn emit(&self) {
+        let cause = self.cause.as_ref().map(Failure::stack_trace);
+        marathon_logging::emit(self.target(), self.level, &self.message, cause.as_deref(), (self.target() != self.logger).then_some(self.logger.as_str()));
+    }
+}
+
+/// Hands the unbounded queue to an off-core forwarding task during final shutdown.
+#[derive(Clone)]
+pub struct LateOutput {
+    queue: Arc<SegQueue<OutputRecord>>,
+    head: Arc<SegQueue<Vec<OutputRecord>>>,
+    sender: Arc<std::sync::OnceLock<std::sync::mpsc::Sender<LateRecord>>>,
+    active: Arc<std::sync::atomic::AtomicUsize>,
+    setup: Arc<std::sync::Mutex<()>>,
+}
+enum LateRecord { Output(OutputRecord), Fence(std::sync::mpsc::Sender<()>) }
+impl LateOutput {
+    fn new(queue: Arc<SegQueue<OutputRecord>>) -> Self { Self { queue, head: Arc::default(), sender: Arc::default(), active: Arc::default(), setup: Arc::default() } }
+    fn push(&self, record: OutputRecord) {
+        use std::sync::atomic::Ordering;
+        self.active.fetch_add(1, Ordering::SeqCst);
+        if let Some(sender) = self.sender.get() {
+            // The forwarder lives for as long as any producer. A failed send is reported explicitly.
+            if sender.send(LateRecord::Output(record)).is_err() { self.active.fetch_sub(1, Ordering::SeqCst); return; }
+        } else { self.queue.push(record); }
+        self.active.fetch_sub(1, Ordering::SeqCst);
+    }
+    /// Off core. The fence includes the buffered tail and all forwarded events submitted before it.
+    pub fn close(&self, sink: Arc<dyn Fn(OutputRecord) + Send + Sync>) -> std::io::Result<()> {
+        use std::sync::{atomic::Ordering, mpsc};
+        let _setup = self.setup.lock().unwrap_or_else(|e| e.into_inner());
+        if self.sender.get().is_none() {
+            let (sender, receive) = mpsc::channel();
+            let (start, prefix) = mpsc::channel::<Vec<OutputRecord>>();
+            std::thread::Builder::new().name("marathon-late-output".into()).spawn(move || {
+                if let Ok(records) = prefix.recv() { for record in records { sink(record); } }
+                for record in receive { match record { LateRecord::Output(record) => sink(record), LateRecord::Fence(done) => { let _ = done.send(()); } } }
+            })?;
+            let _ = self.sender.set(sender);
+            while self.active.load(Ordering::SeqCst) != 0 { std::thread::park_timeout(std::time::Duration::from_millis(1)); }
+            let mut records = Vec::new();
+            while let Some(batch) = self.head.pop() { records.extend(batch); }
+            while let Some(record) = self.queue.pop() { records.push(record); }
+            start.send(records).map_err(|_| std::io::Error::other("late output forwarder stopped"))?;
+        }
+        let (send, receive) = mpsc::channel();
+        let Some(sender) = self.sender.get() else { return Err(std::io::Error::other("late output forwarder missing")) };
+        sender.send(LateRecord::Fence(send)).map_err(|_| std::io::Error::other("late output forwarder stopped"))?;
+        receive.recv_timeout(std::time::Duration::from_secs(1)).map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "late output fence deadline elapsed"))
     }
 }

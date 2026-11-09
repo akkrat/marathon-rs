@@ -7,7 +7,7 @@ use crate::{
     model::{AppleTestBundle, Sdk},
     xctestrun::test_root_factory::{FactoryError, FactoryResult, TestRootFactory},
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_config::{CONFIGURATION_EXCEPTION_CLASS, VendorConfiguration, vendor::TestType};
 use marathon_core::{
     error::{Cancellation, OperationError, VendorError},
@@ -50,7 +50,7 @@ pub struct AppleApplicationInstaller<'a> {
     configuration: Cow<'a, VendorConfiguration>,
     runtime: Arc<dyn VendorRuntime>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
     hook: &'a dyn AfterInstall,
     owned_hook: Option<Arc<dyn AfterInstall>>,
     code_coverage: bool,
@@ -65,7 +65,7 @@ fn setup(message: String) -> VendorError {
 }
 impl<'a> AppleApplicationInstaller<'a> {
     pub fn new(configuration: &'a VendorConfiguration, runtime: Arc<dyn VendorRuntime>, logging: SshLogging) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.AppleApplicationInstaller");
+        let logger = logging.component("marathon_ios::apple_simulator_media_importer");
         Self {
             configuration: Cow::Borrowed(configuration),
             runtime,
@@ -87,7 +87,7 @@ impl<'a> AppleApplicationInstaller<'a> {
         runtime: Arc<dyn VendorRuntime>,
         logging: SshLogging,
     ) -> AppleApplicationInstaller<'static> {
-        let logger = logging.logger("com.malinskiy.marathon.apple.AppleApplicationInstaller");
+        let logger = logging.component("marathon_ios::apple_simulator_media_importer");
         AppleApplicationInstaller {
             configuration: Cow::Owned(configuration),
             runtime,
@@ -112,7 +112,7 @@ impl<'a> AppleApplicationInstaller<'a> {
     fn device_log(&self, prefix: &str, device: &dyn AppleDevice) {
         let mut message = String::from(prefix);
         message.push_str(&device.info().serial_number);
-        self.log(Level::Debug, message);
+        self.log(Level::DEBUG, message);
     }
     /// Run on the vendor runtime through the core bridge and await completion.
     pub async fn prepare_installation(
@@ -229,7 +229,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             && coverage.is_none()
             && !WARNED_ABOUT_COVERAGE.swap(true, std::sync::atomic::Ordering::SeqCst)
         {
-            self.log(Level::Warn, "isCodeCoverageEnabled without bundle.xctestrun: xcodebuild gathers no coverage for the generated xctestrun".into());
+            self.log(Level::WARN, "isCodeCoverageEnabled without bundle.xctestrun: xcodebuild gathers no coverage for the generated xctestrun".into());
         }
         TestRootFactory::new(device, env, xcresult, skip, self.runtime.clone())
             .with_code_coverage(coverage)
@@ -260,7 +260,7 @@ impl<'a> AppleApplicationInstaller<'a> {
                 message.push_str(&shown);
                 message.push_str(" to ");
                 message.push_str(&device.info().serial_number);
-                self.log(Level::Debug, message);
+                self.log(Level::DEBUG, message);
                 let remote = fm.remote_extra_application(name);
                 device.push_shared(&local, &remote, context).await?;
                 device.install(&remote, context).await?;
@@ -268,7 +268,7 @@ impl<'a> AppleApplicationInstaller<'a> {
                 let mut message = String::from("Extra application ");
                 message.push_str(&shown);
                 message.push_str(" should be a directory with extension app");
-                self.log(Level::Warn, message);
+                self.log(Level::WARN, message);
             }
         }
         Ok(())
@@ -303,7 +303,7 @@ impl<'a> AppleApplicationInstaller<'a> {
         match (detected, device.sdk(), app.is_some()) {
             (TestType::LogicTest, Sdk::Iphoneos, true) => {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     "Overriding test type to XCTest. Reason: target sdk (iPhone) doesn't support running logic tests"
                         .into(),
                 );
@@ -313,7 +313,7 @@ impl<'a> AppleApplicationInstaller<'a> {
                 Err(configuration("Logic tests should target only iPhone Simulator"))
             }
             (TestType::Xctest, Sdk::IphoneSimulator, false) => {
-                self.log(Level::Warn, "Overriding test type to Logic Test. Reason: found xctest bundle without application and targeting iPhone Simulator".into());
+                self.log(Level::WARN, "Overriding test type to Logic Test. Reason: found xctest bundle without application and targeting iPhone Simulator".into());
                 Ok(TestType::LogicTest)
             }
             (kind, _, false) if kind != TestType::LogicTest => Err(configuration(&format!(

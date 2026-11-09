@@ -2,7 +2,7 @@
 
 use super::error::ProvisioningResult;
 use indexmap::IndexMap;
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_apple::cmd::{failure, remote::ssh::sshj::config::SshLogging};
 use marathon_config::devices::{AppleTarget, MarathonDevices, Transport};
 use marathon_core::error::VendorError;
@@ -30,7 +30,7 @@ pub struct WorkerTracker {
     pub transport: Transport,
     devices: IndexMap<String, DeviceState>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 pub fn target_id(target: &AppleTarget) -> String {
     match target {
@@ -49,7 +49,7 @@ fn same_kind(left: &AppleTarget, right: &AppleTarget) -> bool {
 }
 impl WorkerTracker {
     pub fn new(transport: Transport, logging: SshLogging) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.WorkerTracker");
+        let logger = logging.component("marathon_ios::device::device_tracker");
         Self {
             transport,
             devices: IndexMap::new(),
@@ -60,7 +60,7 @@ impl WorkerTracker {
     fn warn(&self, current: usize, desired: usize) {
         self.logging.log(
             &self.logger,
-            Level::Warn,
+            Level::WARN,
             || format!("Deprovisioning simulators is not supported. Current = {current}, desired = {desired}"),
             None,
         );

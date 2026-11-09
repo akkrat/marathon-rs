@@ -2,7 +2,7 @@
 //! and StartupTimingsTest.kt (analytics query timings).
 mod metrics_support;
 mod strategy_support;
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_core::{model::*, strategy::MetricsKey, wiring::MetricsProvider};
 use metrics_support::*;
 use std::sync::Arc;
@@ -196,7 +196,7 @@ fn coverage_is_a_warning_if_most_tests_have_no_history() {
     run(coverage_case(
         1,
         None,
-        Level::Warn,
+        Level::WARN,
         "2 tests are expected to take the default 300000 ms",
     ));
 }
@@ -205,7 +205,7 @@ fn coverage_is_info_if_most_tests_have_history() {
     run(coverage_case(
         2,
         Some(20),
-        Level::Info,
+        Level::INFO,
         "1 tests are estimated from this run",
     ));
 }
@@ -223,10 +223,10 @@ fn analytics_queries_log_their_duration_and_outcome() {
             .unwrap();
         assert_eq!(*h.clock.delays.lock().unwrap(), vec![50, 50, 50, 50]);
         let events = h.logs.take();
-        let timings: Vec<_> = events.iter().filter(|e| e.logger == "Timings").collect();
+        let timings: Vec<_> = events.iter().filter(|e| e.logger == "marathon_logging").collect();
         assert_eq!(timings.len(), 2);
         for e in timings {
-            assert_eq!(e.level, Level::Info);
+            assert_eq!(e.level, Level::INFO);
             assert!(e.message.to_owned().ends_with("failed in 100 ms"));
         }
         p.prefetch(&[key(80.0)]).await.unwrap();

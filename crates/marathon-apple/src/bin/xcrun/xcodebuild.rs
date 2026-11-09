@@ -7,7 +7,7 @@ use crate::{
     model::{Sdk, XcodeVersion},
     test::TestRequest,
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
@@ -52,11 +52,11 @@ pub struct Xcodebuild {
     tools: Tools,
     test_batch_timeout_millis: i64,
     test_output_timeout_millis: i64,
-    logger: Logger,
+    logger: Component,
 }
 impl Xcodebuild {
     pub fn new(tools: Tools, test_batch_timeout_millis: i64, test_output_timeout_millis: i64) -> Self {
-        let logger = tools.logger("com.malinskiy.marathon.apple.bin.xcrun.xcodebuild.Xcodebuild");
+        let logger = tools.component("marathon_apple::bin::xcrun::xcodebuild");
         Self {
             tools,
             test_batch_timeout_millis,
@@ -103,7 +103,7 @@ impl Xcodebuild {
         }
         self.tools.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             || format!("Running {}", command.join(" ")),
             None,
         );

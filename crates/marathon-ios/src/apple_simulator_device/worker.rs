@@ -132,7 +132,7 @@ impl AppleSimulatorDevice {
                 .await?;
         } else {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Failed to clear app container:\nstdout: {}\nstderr: {}",
                     path.combined_stdout(),
@@ -412,7 +412,7 @@ impl AppleDevice for AppleSimulatorDevice {
             };
             if !stopped {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     format!(
                         "error while killing recording process, stdout={} stderr={}, exitCode={}",
                         result

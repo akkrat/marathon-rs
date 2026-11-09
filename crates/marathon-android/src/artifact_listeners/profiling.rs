@@ -1,7 +1,9 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/profiling/ProfilingRunListener.kt
+use marathon_logging::Level;
+
 use super::*;
 use crate::listeners::{AndroidTestRunListener, to_test};
-use jcompat::{StringSubstitutor, logging::Level};
+use jcompat::{StringSubstitutor, };
 use marathon_adb::testrunner::TestEvent;
 use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;
@@ -27,7 +29,7 @@ impl ProfilingRunListener {
             .log_named("ProfilingRunListener", level, message, None);
     }
     async fn stop(&self, context: VendorContext, cancel: bool) -> VendorResult<()> {
-        self.log(Level::Debug, "Stopping perfetto");
+        self.log(Level::DEBUG, "Stopping perfetto");
         let start = self.artifacts.now("android.ProfilingRunListener.stop")?;
         let result = self
             .artifacts
@@ -36,7 +38,7 @@ impl ProfilingRunListener {
             .await;
         let end = self.artifacts.now("android.ProfilingRunListener.stop")?;
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             &format!("Stopped perfetto: {}ms", end.wrapping_sub(start)),
         );
         let start = self.artifacts.now("android.ProfilingRunListener.join")?;
@@ -49,7 +51,7 @@ impl ProfilingRunListener {
         }
         let end = self.artifacts.now("android.ProfilingRunListener.join")?;
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             &format!("Joining perfetto: {}ms", end.wrapping_sub(start)),
         );
         result.map(|_| ())
@@ -138,7 +140,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         .await?;
                     let pid = jcompat::jnum::parse_int(&trim(&result.output.to_owned()));
                     self.log(
-                        Level::Debug,
+                        Level::DEBUG,
                         &format!(
                             "Target pid: {}",
                             pid.map(|i| i.to_string()).unwrap_or_else(|| "null".into())
@@ -153,7 +155,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         })
                         .replace(&config)
                         .map_err(|e| other(FailureKind::Arithmetic, e.message.as_str().to_owned()))?;
-                        self.log(Level::Debug, &format!("Rendered config:\n{rendered}"));
+                        self.log(Level::DEBUG, &format!("Rendered config:\n{rendered}"));
                         lock(&self.config).1 = Some(rendered);
                     }
                 }
@@ -181,7 +183,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                                 match &result {
                                     Ok(r) => device.log_named(
                                         "ProfilingRunListener",
-                                        Level::Debug,
+                                        Level::DEBUG,
                                         &format!(
                                             "perfetto process finished: {}",
                                             r.as_ref()
@@ -196,9 +198,9 @@ impl AndroidTestRunListener for ProfilingRunListener {
                                     ),
                                     Err(e) => {
                                         let (level, text) = if matches!(e, VendorError::Cancelled(_)) {
-                                            (Level::Warn, "perfetto start was interrupted")
+                                            (Level::WARN, "perfetto start was interrupted")
                                         } else {
-                                            (Level::Error, "Something went wrong while recording perfetto trace")
+                                            (Level::ERROR, "Something went wrong while recording perfetto trace")
                                         };
                                         device.log_named("ProfilingRunListener", level, text, Some(e.failure()));
                                     }
@@ -225,7 +227,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                             .await?;
                         let end = self.artifacts.now("android.ProfilingRunListener.pullTracing")?;
                         self.log(
-                            Level::Trace,
+                            Level::TRACE,
                             &format!(
                                 "Pulling finished in {}ms {} ",
                                 end.wrapping_sub(start),
@@ -242,10 +244,10 @@ impl AndroidTestRunListener for ProfilingRunListener {
                     }
                     .await;
                     match result {
-                        Err(VendorError::Transfer(_)) => self.log(Level::Warn, "Can't pull tracing file"),
+                        Err(VendorError::Transfer(_)) => self.log(Level::WARN, "Can't pull tracing file"),
                         r => r?,
                     }
-                    self.log(Level::Debug, "Finished processing");
+                    self.log(Level::DEBUG, "Finished processing");
                 }
                 // P4: stop and join on run failure, without pulling or removing the trace.
                 TestEvent::TestRunFailed { .. } if lock(&self.job).is_some() => {

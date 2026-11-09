@@ -3,7 +3,7 @@
 //!
 //! Each runs the production run graph, including the real scheduler, with the Stub vendor. Without
 //! `BackendGuard` the first test result ends the queue actor, and the run never ends.
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_config::{AnalyticsConfiguration, Defaults, GraphiteConfiguration};
 use marathon_core::{
     analytics::{
@@ -67,7 +67,7 @@ fn warnings(outcome: &Outcome) -> usize {
     outcome
         .lines
         .iter()
-        .filter(|line| matches!(line, Line::Log { level: Level::Warn, message, .. } if message == WARNING))
+        .filter(|line| matches!(line, Line::Log { level: Level::WARN, message, .. } if message == WARNING))
         .count()
 }
 

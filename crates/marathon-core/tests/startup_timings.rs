@@ -1,8 +1,10 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/StartupTimingsTest.kt
 //! (the fifth method, about analytics query timings, is 3.4a's).
+use marathon_logging::{Level, LogSettings};
+
 use jcompat::{
     jtime::{duration_of, instant_of},
-    logging::{Level, MarathonLogging},
+    
 };
 use marathon_config::{Defaults, schema::SortingStrategyConfiguration};
 use marathon_core::{
@@ -43,7 +45,7 @@ fn timings(lines: &[Line]) -> Vec<String> {
             Line::Log {
                 logger, level, message, ..
             } if logger == TIMINGS => {
-                assert_eq!(*level, Level::Info);
+                assert_eq!(*level, Level::INFO);
                 Some(message.to_owned())
             }
             _ => None,
@@ -66,27 +68,27 @@ fn connect_at_1000(device: &Arc<StubDevice>, end: i64) -> Script {
 
 #[test]
 fn timings_are_logged_at_info_while_other_loggers_only_log_errors_without_debug() {
-    let registry = Arc::new(Mutex::new(MarathonLogging::default()));
+    let registry = Arc::new(Mutex::new(LogSettings::default()));
     let other = {
         let mut registry = registry.lock().unwrap();
         registry.debug = false;
         registry.timings();
-        registry.logger("StartupTimingsTest-other", None)
+        registry.component("StartupTimingsTest-other")
     };
     let line = timing_message("Phase took 5 ms", &FakeTimer(Arc::new(|| 1234))).unwrap();
     let console = RecordingConsole::new(registry.clone());
-    futures_util::FutureExt::now_or_never(console.write(vec![OutputRecord::Log(LogRecord {
+    futures_util::FutureExt::now_or_never(console.write(vec![OutputRecord::Log(LogRecord { target: module_path!().into(),
         logger: TIMINGS.into(),
         at_millis: 0,
         wall_millis: 0,
-        level: Level::Info,
+        level: Level::INFO,
         message: line,
         cause: None,
     })]))
     .unwrap()
     .unwrap();
 
-    assert!(!registry.lock().unwrap().enabled(&other, Level::Info));
+    assert!(!registry.lock().unwrap().enabled(&other, Level::INFO));
     assert_eq!(
         timings(&console.lines()),
         vec!["Phase took 5 ms (+1234 ms since start)"]

@@ -2,18 +2,18 @@
 use super::AppleTestRunListener;
 use crate::cmd::remote::ssh::sshj::config::SshLogging;
 use crate::logparser::parser::DeviceFailureReason;
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 
 use marathon_core::vendor::DeviceRef;
 use marathon_core::{model::Test, runtime::VendorFuture};
 pub struct DebugTestRunListener {
     device: DeviceRef,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl DebugTestRunListener {
     pub fn new(device: DeviceRef, logging: SshLogging) -> Self {
-        let logger = logging.logger("DebugTestRunListener");
+        let logger = logging.component("marathon_apple::listener::debug");
         Self {
             device,
             logging,
@@ -21,13 +21,13 @@ impl DebugTestRunListener {
         }
     }
     fn log(&self, message: String) {
-        self.logging.log(&self.logger, Level::Info, || message, None);
+        self.logging.log(&self.logger, Level::INFO, || message, None);
     }
 }
 impl AppleTestRunListener for DebugTestRunListener {
     fn test_run_started<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log(format!(
@@ -39,7 +39,7 @@ impl AppleTestRunListener for DebugTestRunListener {
     }
     fn test_started<'a>(&'a self, test: &'a Test) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log(format!(
@@ -58,7 +58,7 @@ impl AppleTestRunListener for DebugTestRunListener {
         trace: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log(format!(
@@ -72,7 +72,7 @@ impl AppleTestRunListener for DebugTestRunListener {
     }
     fn test_passed<'a>(&'a self, test: &'a Test, start_time: i64, end_time: i64) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log(format!(
@@ -85,7 +85,7 @@ impl AppleTestRunListener for DebugTestRunListener {
     }
     fn test_ignored<'a>(&'a self, test: &'a Test, start_time: i64, end_time: i64) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log(format!(
@@ -98,7 +98,7 @@ impl AppleTestRunListener for DebugTestRunListener {
     }
     fn test_run_ended<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log("testRunEnded".into());
@@ -107,7 +107,7 @@ impl AppleTestRunListener for DebugTestRunListener {
     }
     fn test_run_failed<'a>(&'a self, error_message: &'a str, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log(format!(
@@ -120,7 +120,7 @@ impl AppleTestRunListener for DebugTestRunListener {
     }
     fn after_test_run<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            if !self.logging.enabled(&self.logger, Level::Info) {
+            if !self.logging.enabled(&self.logger, Level::INFO) {
                 return Ok(());
             }
             self.log("afterTestRun".into());

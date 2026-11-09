@@ -1,7 +1,9 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/analytics/metrics/remote/influx/MetricsProviderImplTest.kt (scripted mocks).
 #![allow(dead_code)]
+use marathon_logging::LogSettings;
+
 use super::strategy_support::*;
-use jcompat::{jtime::duration_of, logging::MarathonLogging};
+use jcompat::{jtime::duration_of, };
 use marathon_config::Defaults;
 use marathon_core::{
     analytics::{remote::*, *},
@@ -200,7 +202,7 @@ impl Harness {
             vendor: Arc::new(runtime),
             monotonic: clock.clone(),
             cancellation: Signal::new(),
-            registry: Arc::new(Mutex::new(MarathonLogging::default())),
+            registry: Arc::new(Mutex::new(LogSettings::default())),
             logs: logs.sender(),
             stamp: Arc::new(|| (0, 0)),
         };

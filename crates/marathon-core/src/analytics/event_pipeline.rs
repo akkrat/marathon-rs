@@ -2,6 +2,8 @@
 //! and analytics/MappingTracker.kt, TrackerFactory.kt, internal/sub/DelegatingTrackerInternal.kt,
 //! TrackerInternal.kt, TrackerInternalAdapter.kt and ExecutionReportGenerator.kt.
 
+use marathon_logging::{Level, Component};
+
 use crate::{
     artifact_io::*,
     error::*,
@@ -13,7 +15,7 @@ use crate::{
 };
 use jcompat::{
     jtime::Instant,
-    logging::{Level, Logger},
+    
 };
 use marathon_error::FailureKind;
 use std::{
@@ -63,7 +65,7 @@ impl<T: TrackerInternalAdapter> TrackerInternal for T {
     }
 }
 /// Where a close's later failures go: the first is returned, and `Marathon::on_finish` logs that one.
-pub type CloseLog = Option<(ServiceLog, Logger)>;
+pub type CloseLog = Option<(ServiceLog, Component)>;
 /// D51: a failed close doesn't stop the later ones (Kotlin: it does, C11). Cancellation still stops
 /// them, since the closes after it would only be cancelled too.
 fn close_failed(first: &mut Option<OperationError>, error: OperationError, log: &CloseLog) -> OperationResult<()> {
@@ -72,7 +74,7 @@ fn close_failed(first: &mut Option<OperationError>, error: OperationError, log: 
     };
     match (first.is_some(), log) {
         (false, _) => *first = Some(error),
-        (true, Some((log, logger))) => log(logger, Level::Error, "A later close also failed", Some(failure)),
+        (true, Some((log, logger))) => log(logger, Level::ERROR, "A later close also failed", Some(failure)),
         (true, None) => {}
     }
     Ok(())
@@ -86,7 +88,7 @@ impl DelegatingTrackerInternal {
     pub fn new(delegates: Vec<Arc<dyn TrackerInternal>>) -> Self {
         Self { delegates, log: None }
     }
-    pub fn with_close_log(mut self, log: ServiceLog, logger: Logger) -> Self {
+    pub fn with_close_log(mut self, log: ServiceLog, logger: Component) -> Self {
         self.log = Some((log, logger));
         self
     }
@@ -126,7 +128,7 @@ impl ExecutionReportGenerator {
             log: None,
         }
     }
-    pub fn with_close_log(mut self, log: ServiceLog, logger: Logger) -> Self {
+    pub fn with_close_log(mut self, log: ServiceLog, logger: Component) -> Self {
         self.log = Some((log, logger));
         self
     }
@@ -215,12 +217,12 @@ struct GuardState {
 pub struct BackendGuard {
     inner: Arc<dyn TrackerInternal>,
     log: ServiceLog,
-    logger: Logger,
+    logger: Component,
     limits: BackendLimits,
     state: Mutex<GuardState>,
 }
 impl BackendGuard {
-    pub fn new(inner: Arc<dyn TrackerInternal>, log: ServiceLog, logger: Logger, limits: BackendLimits) -> Self {
+    pub fn new(inner: Arc<dyn TrackerInternal>, log: ServiceLog, logger: Component, limits: BackendLimits) -> Self {
         Self {
             inner,
             log,
@@ -248,14 +250,14 @@ impl BackendGuard {
         };
         if first_of_kind {
             let text = "Cannot send test metrics to the analytics backend; the run carries on. Each kind of failure is logged once";
-            (self.log)(&self.logger, Level::Warn, text, Some(failure));
+            (self.log)(&self.logger, Level::WARN, text, Some(failure));
         }
         if announce {
             let text = format!(
                 "The analytics backend failed slowly, so test metrics are skipped for {} s after each such failure",
                 self.limits.cool_off.as_secs()
             );
-            (self.log)(&self.logger, Level::Warn, &text, None);
+            (self.log)(&self.logger, Level::WARN, &text, None);
         }
     }
 }
@@ -307,7 +309,7 @@ impl TrackerInternal for BackendGuard {
                 let text = format!(
                     "The analytics backend lost test metrics: {failed} results failed to send, and up to {skipped} were skipped"
                 );
-                (self.log)(&self.logger, Level::Warn, &text, None);
+                (self.log)(&self.logger, Level::WARN, &text, None);
             }
             // A close's last flush is a send too, and a server that trickles its answer never trips
             // the clients' idle timeouts. Dropping the close is how it stops: InfluxDB's client then
@@ -319,7 +321,7 @@ impl TrackerInternal for BackendGuard {
                         "The analytics backend did not close in {} ms; test metrics it still held are lost",
                         self.limits.send.as_millis()
                     );
-                    (self.log)(&self.logger, Level::Warn, &text, None);
+                    (self.log)(&self.logger, Level::WARN, &text, None);
                     Ok(())
                 }
             }
@@ -627,7 +629,7 @@ pub struct TrackerFactory {
     pub clock: Arc<dyn WallClock>,
     pub reporters: Vec<ReporterRegistration>,
     pub backend: Option<BackendRegistration>,
-    pub logger: Logger,
+    pub logger: Component,
     pub log: ServiceLog,
 }
 impl TrackerFactory {
@@ -661,7 +663,7 @@ impl TrackerFactory {
                                 text.push_str(&url);
                                 let (log, logger) = (self.log.clone(), self.logger.clone());
                                 blocking(self.io.as_ref(), move || {
-                                    log(&logger, Level::Warn, &text, Some(&failure));
+                                    log(&logger, Level::WARN, &text, Some(&failure));
                                     Ok(())
                                 })
                                 .await?;
@@ -705,7 +707,7 @@ mod kind_tests {
         let guard = BackendGuard::new(
             Arc::new(Unused),
             log,
-            jcompat::logging::MarathonLogging::default().logger("BackendGuardTest", None),
+            marathon_logging::LogSettings::default().component("marathon_core::analytics::event_pipeline"),
             BackendLimits::default(),
         );
         let failure = |problem, retry, message: &str| {

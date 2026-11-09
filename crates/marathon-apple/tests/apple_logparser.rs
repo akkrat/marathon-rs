@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/logparser/parser/{DeviceFailureParserTest,TestRunProgressParserTest}.kt
 mod support;
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_apple::{
     cmd::remote::ssh::sshj::config::SshLogging,
     logparser::{
@@ -33,7 +33,7 @@ impl Timer for FixedTimer {
 }
 fn logging() -> SshLogging {
     SshLogging::new(
-        Arc::new(Mutex::new(MarathonLogging::default())),
+        Arc::new(Mutex::new(LogSettings::default())),
         Arc::new(|_, _, _, _| {}),
     )
 }
@@ -637,7 +637,7 @@ fn the_d45_allowance_hides_nothing_else_in_the_recordings() -> Result<(), Box<dy
 
 #[test]
 fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std::error::Error>> {
-    use jcompat::logging::{Level, Vendor};
+    use marathon_logging::{Level, Vendor};
     for line in include_str!("../../../fixtures/oracle/apple-logparser/probes.jsonl")
         .split('\n')
         .filter(|l| !l.is_empty())
@@ -646,14 +646,14 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
         if row["kind"] != "stream" {
             continue;
         }
-        let mut registry = MarathonLogging::default();
+        let mut registry = LogSettings::default();
         registry.configure(true, Vendor::Apple { compact_output: false });
         let logs = Arc::new(Mutex::new(vec![]));
         let output = logs.clone();
         let logging = SshLogging::new(
             Arc::new(Mutex::new(registry)),
             Arc::new(move |logger, level, message, _| {
-                output.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":match level {Level::Debug=>"DEBUG",Level::Trace=>"TRACE",_=>"OTHER"},"message":message}))
+                output.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":match level {Level::DEBUG=>"DEBUG",Level::TRACE=>"TRACE",_=>"OTHER"},"message":message}))
             }),
         );
         let progress = TestRunProgressParser::new(
@@ -719,7 +719,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 }
             }
         }
-        let mut recorded_logs = row["logs"].as_array().unwrap().clone();
+        let mut recorded_logs = marathon_test_support::recorded_logs::native_logs(&row["logs"]).as_array().unwrap().clone();
         if let Some((_, _, seconds)) = D45_RECORDED_THROWS.iter().find(|(case, ..)| row["case"] == *case) {
             // D45: the JVM threw before this line.
             let name = if row["case"] == "real/xcode27-timeout" {
@@ -727,7 +727,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
             } else {
                 "p.C.m"
             };
-            recorded_logs.push(serde_json::json!({"logger":"TestRunProgressParser","level":"DEBUG","message":format!("Test {name} finished with result <timeout> after {seconds} seconds")}));
+            recorded_logs.push(serde_json::json!({"logger":"marathon_apple::logparser::parser::progress","level":"DEBUG","message":format!("Test {name} finished with result <timeout> after {seconds} seconds")}));
         }
         assert_eq!(
             serde_json::to_value(logs.lock().unwrap().clone())?,

@@ -10,7 +10,7 @@
 use std::collections::VecDeque;
 use std::future::Future;
 
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use tokio::sync::mpsc;
 
 use super::consts::MAX_PACKET_LENGTH;
@@ -123,7 +123,7 @@ pub async fn handshake(request: &[u8], socket: &mut Socket) -> Result<(), AdbErr
     let response = socket.read_transport_response().await;
     if !response.okay {
         if let Some(logging) = socket.logging() {
-            logging.log(REQUEST_LOGGER, Level::Warn, None, || {
+            logging.log(REQUEST_LOGGER, Level::WARN, None, || {
                 format!(
                     "adb server rejected command {}",
                     String::from_utf8_lossy(request).into_owned()

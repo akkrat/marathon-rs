@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidAppInstaller.kt
 use crate::{device::AndroidDevice, models::AndroidTestBundle, services::AndroidRuntime, support::*};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_core::{error::*, vendor::VendorContext};
 use marathon_error::{AndroidKind, FailureKind};
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ impl AndroidAppInstaller {
     }
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         self.runtime
-            .emit(&self.runtime.logger("AndroidAppInstaller"), level, message, error)
+            .emit(&self.runtime.component("marathon_android::installer"), level, message, error)
     }
     pub async fn prepare_installation(&self, device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
         for bundle in &self.runtime.bundles {
@@ -33,7 +33,7 @@ impl AndroidAppInstaller {
         let info = blocking(self.runtime.dependencies.io.as_ref(), move || b.instrumentation_info()).await?;
         let serial = device.serial_number().to_owned();
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             &format!("Installing application output to {serial}"),
             None,
         );
@@ -56,7 +56,7 @@ impl AndroidAppInstaller {
             self.appops(device, &info.application_package, context.clone()).await?;
         }
         for extra in &bundle.files.extra_applications {
-            self.log(Level::Debug, &format!("Installing extra application to {serial}"), None);
+            self.log(Level::DEBUG, &format!("Installing extra application to {serial}"), None);
             let path = extra.clone();
             let package = blocking(self.runtime.dependencies.io.as_ref(), move || {
                 marathon_dex::apk_parser::parse_app_package_name(&path).map_err(dex_error)
@@ -65,7 +65,7 @@ impl AndroidAppInstaller {
             self.reinstall(device, &package, extra, &[], context.clone()).await?;
         }
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             &format!("Installing instrumentation package to {serial}"),
             None,
         );
@@ -78,7 +78,7 @@ impl AndroidAppInstaller {
         )
         .await?;
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             &format!("Prepare installation finished for {serial}"),
             None,
         );
@@ -90,7 +90,7 @@ impl AndroidAppInstaller {
         }
         if device.api_level() < 23 {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 &format!(
                     "Can't setup mock location: device {} doesn't support appops",
                     device.serial_number().to_owned()
@@ -111,7 +111,7 @@ impl AndroidAppInstaller {
             let r = device
                 .critical_execute_shell_command("appops query-op android:mock_location allow", "", context)
                 .await?;
-            self.log(Level::Error,&format!("Can't set android:mock_location on {package}. List of apps currently using android:mock_location:{}",r.output.to_owned()),None)
+            self.log(Level::ERROR,&format!("Can't set android:mock_location on {package}. List of apps currently using android:mock_location:{}",r.output.to_owned()),None)
         }
         Ok(())
     }
@@ -156,7 +156,7 @@ impl AndroidAppInstaller {
                     .any(|line| *line == format!("package:{package}"))
                 {
                     self.log(
-                        Level::Info,
+                        Level::INFO,
                         &format!(
                             "Uninstalling {} from {}",
                             package.to_owned(),
@@ -165,11 +165,11 @@ impl AndroidAppInstaller {
                         None,
                     );
                     if let Some(r) = device.safe_uninstall_package(package, false, context.clone()).await? {
-                        self.log(Level::Debug, &trim(&r.output.to_owned()), None);
+                        self.log(Level::DEBUG, &trim(&r.output.to_owned()), None);
                     }
                 }
                 self.log(
-                    Level::Info,
+                    Level::INFO,
                     &format!(
                         "Installing {}, {} to {}",
                         package.to_owned(),
@@ -190,7 +190,7 @@ impl AndroidAppInstaller {
                         .await?
                 };
                 let output = trim(&output.to_owned());
-                self.log(Level::Debug, &output, None);
+                self.log(Level::DEBUG, &output, None);
                 if !output.contains("Success") {
                     return Err(install(output.as_str().to_owned()));
                 }
@@ -200,7 +200,7 @@ impl AndroidAppInstaller {
             let result = result.map_err(|e| {
                 if e.failure().kind == FailureKind::Android(AndroidKind::Install) {
                     self.log(
-                        Level::Error,
+                        Level::ERROR,
                         &format!(
                             "Error while installing {}, {} on {}",
                             package.to_owned(),

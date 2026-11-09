@@ -1,9 +1,11 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/device/file/FileTransferExtensions.kt
 
+use marathon_logging::{Level, Component};
+
 use crate::{artifact_io::*, error::VendorResult, runtime::*, time::WallClock};
 use jcompat::{
     formatting::format_fixed,
-    logging::{Level, Logger},
+    
 };
 use std::path::PathBuf;
 use std::{path::Path, sync::Arc};
@@ -12,7 +14,7 @@ use std::{path::Path, sync::Arc};
 pub struct TransferMeasurement {
     pub io: Arc<dyn VendorRuntime>,
     pub clock: Arc<dyn WallClock>,
-    pub logger: Logger,
+    pub logger: Component,
     pub serial: String,
     pub log: ServiceLog,
 }
@@ -115,7 +117,7 @@ impl TransferMeasurement {
         message.push_str(" bytes in ");
         message.push_str(&seconds);
         message.push(')');
-        (self.log)(&self.logger, Level::Debug, &message, None);
+        (self.log)(&self.logger, Level::DEBUG, &message, None);
     }
 }
 fn walk(path: &Path, counts: &mut (i32, i32, i64)) {

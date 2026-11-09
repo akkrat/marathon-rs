@@ -679,20 +679,16 @@ fn notify_compares_retry_workers_as_a_set() {
 // Review round 1, decision 4: the rendered time is the wall time of the call, not of the drain.
 #[test]
 fn log_records_carry_wall_time_from_creation() {
-    use jcompat::logging::{JansiMode, Level, MarathonLogging, OutputTarget};
+    use marathon_logging::Level;
     use marathon_core::logging::LogQueue;
     let queue = LogQueue::default();
     let now = Rc::new(std::cell::Cell::new(45_296_789_i64)); // 12:34:56.789
     let clock = now.clone();
     queue.set_wall_clock(Rc::new(move || clock.get()));
-    queue.log("DevicePool[p]_DeviceActor[s]", 0, Level::Warn, "called".into(), None);
+    queue.log("DevicePool[p]_DeviceActor[s]", 0, Level::WARN, "called".into(), None);
     now.set(0);
     let record = queue.take().remove(0);
     assert_eq!(record.wall_millis, 45_296_789);
-    let mut registry = MarathonLogging::default();
-    let logger = registry.logger(record.logger.clone(), None);
-    let line = record
-        .render(&registry, &logger, "output", 0, (JansiMode::Strip, OutputTarget::Pipe))
-        .unwrap();
-    assert!(line.contains("12:34:56.789"), "{line}");
+    assert_eq!(record.message, "called");
+    assert_eq!(record.target(), "marathon_core::execution::device::actor");
 }

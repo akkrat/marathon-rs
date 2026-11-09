@@ -5,11 +5,13 @@
 //! Licensed under Creative Commons Attribution 3.0 Unported:
 //! http://creativecommons.org/licenses/by/3.0/ .
 
+use marathon_logging::{Level, Component, LogSettings};
+
 use crate::{artifact_io::*, error::*, executor::shared::failure, model::*, output::*, runtime::*, time::WallClock};
 use image::{RgbaImage, imageops};
 use jcompat::{
     jtime::Duration,
-    logging::{Level, Logger, MarathonLogging},
+    
 };
 use marathon_error::{FailureKind, ReportKind};
 use std::{
@@ -287,14 +289,14 @@ pub struct ScreenCapturer {
     source: Arc<dyn Screenshottable>,
     transform: Arc<Mutex<FrameTransform>>,
     captures: Arc<AtomicI32>,
-    logger: Logger,
+    logger: Component,
 }
 impl ScreenCapturer {
     pub fn new(
         settings: CaptureSettings,
         services: CaptureServices,
         source: Arc<dyn Screenshottable>,
-        registry: &mut MarathonLogging,
+        registry: &mut LogSettings,
     ) -> Self {
         Self {
             settings,
@@ -302,7 +304,7 @@ impl ScreenCapturer {
             source,
             transform: Arc::new(Mutex::new(FrameTransform::default())),
             captures: Arc::new(AtomicI32::new(0)),
-            logger: registry.logger("com.malinskiy.marathon.device.screenshot.ScreenCapturer", None),
+            logger: registry.component("marathon_core::screenshot"),
         }
     }
     pub fn captures_taken(&self) -> i32 {
@@ -383,7 +385,7 @@ impl ScreenCapturer {
                                 .map_err(clock_error)?;
                             let frame = match source.screenshot(settings.timeout, cancellation.clone()).await {
                                 Err(VendorError::Other(ref f)) if f.kind == FailureKind::Timeout => {
-                                    (services.log)(&logger, Level::Error, "Timeout. Exiting", Some(f));
+                                    (services.log)(&logger, Level::ERROR, "Timeout. Exiting", Some(f));
                                     None
                                 }
                                 Err(VendorError::Other(ref f)) if f.kind == FailureKind::Io => None,

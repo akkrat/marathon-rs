@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/rsync/RsyncFileBridge.kt
 
+use marathon_logging::{Level, Component};
+
 use super::RsyncTarget;
 use crate::cmd::{
     FileBridge, SessionScope, TransferStop, TransferStopped, blocking, failure, io_error,
@@ -9,7 +11,7 @@ use crate::cmd::{
 };
 use jcompat::{
     file_manager::absolute_file_path,
-    logging::{Level, Logger},
+    
 };
 use marathon_config::vendor::{RsyncConfiguration, SshAuthentication, SshConfiguration};
 use marathon_core::{
@@ -71,7 +73,7 @@ struct Inner {
     runtime: Arc<dyn VendorRuntime>,
     clock: Arc<dyn VendorClock>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
     send: tokio::sync::Mutex<()>,
     stalls: StallRecord,
     tasks: RetainedTasks,
@@ -88,7 +90,7 @@ impl RsyncFileBridge {
         clock: Arc<dyn VendorClock>,
         logging: SshLogging,
     ) -> VendorResult<Self> {
-        let logger = logging.logger("com.malinskiy.marathon.apple.cmd.remote.rsync.RsyncFileBridge");
+        let logger = logging.component("marathon_apple::cmd::remote::rsync::rsync_file_bridge");
         let bridge = Self(Arc::new(Inner {
             target,
             debug,
@@ -116,7 +118,7 @@ impl RsyncFileBridge {
                         )
                         .await?;
                     let first = output.stdout.split('\n').next().unwrap_or_default().to_owned();
-                    inner.logging.log(&inner.logger, Level::Debug, || first, None);
+                    inner.logging.log(&inner.logger, Level::DEBUG, || first, None);
                     Ok(true)
                 })
                 .await?;
@@ -540,7 +542,7 @@ impl Inner {
             let text = stderr.clone();
             self.logging.log(
                 &self.logger,
-                Level::Error,
+                Level::ERROR,
                 || match (receive, stalled) {
                     (true, false) => text,
                     (true, true) => format!(
@@ -578,13 +580,13 @@ impl Inner {
         match stopped {
             TransferStopped::Cancelled(reason) => Err(VendorError::Cancelled(reason)),
             TransferStopped::Lost(lost) => {
-                if self.logging.enabled(&self.logger, Level::Error) {
+                if self.logging.enabled(&self.logger, Level::ERROR) {
                     let message = if receive {
                         format!("receive error: the device's connection was lost while receiving {remote}")
                     } else {
                         format!("send error: the device's connection was lost while sending to {remote}")
                     };
-                    (self.logging.sink)(&self.logger, Level::Error, message, Some(lost.clone()));
+                    (self.logging.sink)(&self.logger, Level::ERROR, message, Some(lost.clone()));
                 }
                 if receive {
                     Ok(false)
@@ -976,7 +978,7 @@ impl FileBridge for RsyncFileBridge {
                 if let Some(error) = inner.stalls.since(arrived) {
                     inner.logging.log(
                         &inner.logger,
-                        Level::Warn,
+                        Level::WARN,
                         || format!("Not sending to {dst}: a send to this worker stalled while this one waited"),
                         None,
                     );

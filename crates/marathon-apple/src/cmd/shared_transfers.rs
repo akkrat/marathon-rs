@@ -1,11 +1,13 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/SharedTransfers.kt
 
+use marathon_logging::{Level, Component};
+
 use super::{
     TransferStop, TransferStopped, blocking, io_error, remote::ssh::sshj::config::SshLogging, stall_record::StallRecord,
 };
 use jcompat::{
     file_manager::{absolute_file_path, file_path},
-    logging::{Level, Logger},
+    
 };
 use marathon_core::{
     error::{LeavePoolReason, VendorError, VendorResult},
@@ -30,11 +32,11 @@ pub struct SharedTransfers {
     destinations: Mutex<HashMap<Destination, TransferState>>,
     runtime: Arc<dyn VendorRuntime>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl SharedTransfers {
     pub fn new(runtime: Arc<dyn VendorRuntime>, logging: SshLogging) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.cmd.SharedTransfers");
+        let logger = logging.component("marathon_apple::cmd::shared_transfers");
         Self {
             destinations: Mutex::new(HashMap::new()),
             runtime,
@@ -77,12 +79,12 @@ impl SharedTransfers {
             previous = state.previous.lock() => previous,
             stopped = waiting.stopped() => {
                 if let TransferStopped::Lost(lost) = &stopped
-                    && self.logging.enabled(&self.logger, Level::Error)
+                    && self.logging.enabled(&self.logger, Level::ERROR)
                 {
                     let message = format!(
                         "Not sending {display_path} to {worker}:{dst}: the device's connection was lost while this one waited"
                     );
-                    (self.logging.sink)(&self.logger, Level::Error, message, Some(lost.clone()));
+                    (self.logging.sink)(&self.logger, Level::ERROR, message, Some(lost.clone()));
                 }
                 return Err(stopped.into_error());
             }
@@ -91,7 +93,7 @@ impl SharedTransfers {
         if let Some(error) = state.stalls.since(arrived) {
             self.logging.log(
                 &self.logger,
-                Level::Warn,
+                Level::WARN,
                 || {
                     format!(
                         "Not sending {display_path} to {worker}:{dst}: the send there stalled while this one waited"
@@ -108,7 +110,7 @@ impl SharedTransfers {
                 None => {
                     self.logging.log(
                         &self.logger,
-                        Level::Warn,
+                        Level::WARN,
                         || {
                             format!(
                                 "Unable to check {worker}:{dst}, reusing the previous transfer of {}",
@@ -126,7 +128,7 @@ impl SharedTransfers {
         if reusable {
             self.logging.log(
                 &self.logger,
-                Level::Debug,
+                Level::DEBUG,
                 || format!("{} is already transferred to {worker}:{dst}", display_path),
                 None,
             );

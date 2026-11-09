@@ -1,10 +1,12 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XcodebuildSession.kt
 
+use marathon_logging::Level;
+
 use crate::{
     cmd::{CommandSession, SessionScope, cancelled, failure, millis, remote::ssh::sshj::config::SshLogging},
     test::TestEvent,
 };
-use jcompat::{jtime::Duration, logging::Level};
+use jcompat::{jtime::Duration, };
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorRuntime, VendorTask},
@@ -186,11 +188,11 @@ impl XcodebuildSession {
                 && let Err(error) = &result
                 && !matches!(error, VendorError::Cancelled(_))
             {
-                let logger = this.logging.logger("com.malinskiy.marathon.apple.XcodebuildSession");
-                if this.logging.enabled(&logger, Level::Debug) {
+                let logger = this.logging.component("marathon_apple::xcodebuild_session");
+                if this.logging.enabled(&logger, Level::DEBUG) {
                     (this.logging.sink)(
                         &logger,
-                        Level::Debug,
+                        Level::DEBUG,
                         "xcodebuild session failed after its events were no longer read".into(),
                         Some(error.failure().clone()),
                     );

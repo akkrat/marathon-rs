@@ -533,7 +533,7 @@ mod tests {
     use super::super::config::{PerformanceDefaultConfig, SshLogging};
     use super::super::error::is_instance;
     use super::*;
-    use jcompat::logging::MarathonLogging;
+    use marathon_logging::LogSettings;
     use marathon_core::runtime::{CancellationSignal, VendorFuture, VendorTimeoutBody};
 
     /// sshj's grant, which looked only at the stream just read.
@@ -621,7 +621,7 @@ mod tests {
         // A conforming peer cannot reach this any more, and the fake honours the window, so the channel is driven
         // directly: memory stays bounded and the failure stays sshj's.
         let logging = SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(|_, _, _, _| {}),
         );
         let shared = ConnectionShared::new(PerformanceDefaultConfig::new(false, logging).loggers());

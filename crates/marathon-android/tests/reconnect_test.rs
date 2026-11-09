@@ -12,7 +12,7 @@
 use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
 
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_adb::server::{FakeAdbServer, Script, ServerOptions};
 use marathon_android::{
     device::{AndroidBatchExecutor, AndroidDevice},
@@ -418,7 +418,7 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
         RUN_TIMEOUT + Duration::from_secs(60),
         move |core, replay| {
             Box::pin(async move {
-                let logging = Arc::new(Mutex::new(MarathonLogging::default()));
+                let logging = Arc::new(Mutex::new(LogSettings::default()));
                 let console = RecordingConsole::new(logging.clone());
                 let hooks = RuntimeHooks::live();
                 let barriers = hooks.barriers();
@@ -637,7 +637,7 @@ pub fn state_changes(lines: &[Line]) -> Vec<String> {
         .iter()
         .filter_map(|line| match line {
             Line::Log { logger, message, .. }
-                if logger == "AdamDeviceProvider" && message.contains("changed state to") =>
+                if logger == "marathon_android::provider" && message.contains("changed state to") =>
             {
                 Some(message.to_owned())
             }

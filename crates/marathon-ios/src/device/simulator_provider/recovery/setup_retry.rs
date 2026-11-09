@@ -142,7 +142,7 @@ impl SimulatorRecovery {
         provider.give_up_targets(transport, &spent, ParkedFor::GivenUp);
         for (target, failures) in exhausted {
             provider.log(
-                Level::Error,
+                Level::ERROR,
                 || {
                     format!(
                         "Simulator {} on worker {worker}: setup failed {failures} times, it stays out of the run",
@@ -161,7 +161,7 @@ impl SimulatorRecovery {
         for (round, batch) in rounds {
             let pause = self.recovery_pause_millis.wrapping_mul(i64::from(round));
             provider.log(
-                Level::Warn,
+                Level::WARN,
                 || {
                     format!(
                         "Worker {worker}: setup of {} failed, setting up again in {} s (retry {round} of {})",
@@ -229,7 +229,7 @@ impl SimulatorRecovery {
                 return Err(error);
             }
             provider.log(
-                Level::Error,
+                Level::ERROR,
                 || format!("Failed to retry setups on worker {}", transport.id().to_owned()),
                 Some(error.failure().clone()),
             );
@@ -368,7 +368,7 @@ impl SimulatorRecovery {
         // A failed release costs this attempt's lease, not the retries of what it didn't set up.
         if let Err(error) = provider.services.connections.release(executor).await {
             provider.log(
-                Level::Error,
+                Level::ERROR,
                 || format!("Failed to release connection to worker {worker}"),
                 Some(error.failure().clone()),
             );
@@ -378,7 +378,7 @@ impl SimulatorRecovery {
             Err(error) if error.is_cancelled() => return Err(error.into_vendor()),
             Err(error) => {
                 provider.log(
-                    Level::Error,
+                    Level::ERROR,
                     || format!("Failed to initialize worker {worker}"),
                     Some(error.output_failure()),
                 );

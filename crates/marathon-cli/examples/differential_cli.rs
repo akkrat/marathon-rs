@@ -1,5 +1,5 @@
 //! Hermetic paired CLI probe; real parsing, construction, vendors and reports.
-use jcompat::logging::{MarathonLogging, OutputTarget};
+use marathon_logging::{LogSettings, OutputTarget};
 use marathon_cli::{
     application::{CliOutput, CliRunner, Console, MarathonRun, Process},
     runner::{ProductionRunner, missing_vendors},
@@ -27,7 +27,7 @@ impl CliRunner for Probe {
     fn construct(
         &self,
         config: Arc<Configuration>,
-        log: Arc<Mutex<MarathonLogging>>,
+        log: Arc<Mutex<LogSettings>>,
         console: Arc<Console>,
     ) -> Result<Box<dyn MarathonRun>, Failure> {
         self.production
@@ -85,11 +85,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(std::io::stderr()),
         OutputTarget::File,
         Box::new(|| WALL),
-    );
+    )?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     let code = marathon_cli::run_cli(&args, &process, &probe, &output);
     hooks.verify_consumed().map_err(|e| format!("{e:?}"))?;
     let report = std::env::var_os("MRS_DIFFERENTIAL_HOOKS").ok_or("missing hook report path")?;
     std::fs::write(report, b"{\"active\":true,\"unused\":[],\"failures\":[]}")?;
+    output.shutdown();
     std::process::exit(code);
 }

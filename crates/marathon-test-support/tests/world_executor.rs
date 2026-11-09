@@ -55,7 +55,7 @@ async fn world_executor(s: Scenario, script: Script) -> Result<(tempfile::TempDi
     let fs = VirtualFs::create(dir.path().join("root")).await?;
     let e = WorldExecutor::new(
         Arc::new(Runtime),
-        &mut jcompat::logging::MarathonLogging::default(),
+        &mut marathon_logging::LogSettings::default(),
         router(&world, script),
         fs,
         dir.path().to_owned(),
@@ -76,7 +76,7 @@ fn env(executor: Arc<dyn CommandExecutor>) -> AppleBinaryEnvironment {
             timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
             runtime: Arc::new(Runtime),
             logging: SshLogging::new(
-                Arc::new(Mutex::new(jcompat::logging::MarathonLogging::default())),
+                Arc::new(Mutex::new(marathon_logging::LogSettings::default())),
                 Arc::new(|_, _, _, _| {}),
             ),
         },
@@ -366,8 +366,8 @@ impl CommandExecutor for Capture {
     fn host(&self) -> &marathon_apple::cmd::CommandHost {
         self.executor.host()
     }
-    fn logger(&self) -> &jcompat::logging::Logger {
-        self.executor.logger()
+    fn component(&self) -> &marathon_logging::Component {
+        self.executor.component()
     }
     fn connected(&self) -> bool {
         self.executor.connected()
@@ -503,7 +503,7 @@ async fn ssh_worker(world: World) -> Result<(tempfile::TempDir, fake_worker::Run
     };
     let w = fake_worker::start(config, vec![Arc::new(world)]).await?;
     let logging = SshLogging::new(
-        Arc::new(Mutex::new(jcompat::logging::MarathonLogging::default())),
+        Arc::new(Mutex::new(marathon_logging::LogSettings::default())),
         Arc::new(|_, _, _, _| {}),
     );
     let e = v(

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -264,7 +264,7 @@ async fn finish<R: AsyncChannelRequest>(
     if let Err(e) = session.request.close(&mut items).await
         && let Some(logging) = &session.logging
     {
-        logging.log(CLIENT_LOGGER, Level::Debug, Some(&e), || {
+        logging.log(CLIENT_LOGGER, Level::DEBUG, Some(&e), || {
             "Exception during cleanup. Ignoring".into()
         });
     }

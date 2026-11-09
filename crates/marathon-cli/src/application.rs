@@ -5,11 +5,14 @@
 //! configuration errors, the vendor gate, construction) are rendered as the JVM's uncaught-exception output, without
 //! stack frames (D12). Exceptions reporting is gone (D1): one INFO line after a successful parse replaces it.
 
+use marathon_logging::{Level, LogSettings, OutputTarget};
+use crate::tracing_output::{OutputGuard, TracingOutput};
+
 use crate::args::CliConfiguration;
 use jcompat::{
     file_manager::absolute_file_path,
     jtime::Instant,
-    logging::{ConsoleOutput, JansiMode, Layout, Level, LogEvent, Logger, MarathonLogging, OutputTarget},
+    
 };
 use marathon_config::{
     Configuration, VendorConfiguration,
@@ -31,7 +34,6 @@ pub const VERSION: &str = match option_env!("GIT_TAG_NAME") {
     None => "0.10.1",
 };
 
-const LOGGER: &str = "com.malinskiy.marathon.cli.ApplicationView";
 const D1_LINE: &str = "Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored";
 
 /// The run seam for WP 3.10: `marathonStartKoin(configuration, modules)` and `koin.get<Marathon>()`
@@ -42,7 +44,7 @@ pub trait CliRunner {
     fn construct(
         &self,
         configuration: Arc<Configuration>,
-        logging: Arc<Mutex<MarathonLogging>>,
+        logging: Arc<Mutex<LogSettings>>,
         console: Arc<Console>,
     ) -> Result<Box<dyn MarathonRun>, Failure>;
 }
@@ -59,7 +61,7 @@ impl CliRunner for UnsupportedRunner {
     fn construct(
         &self,
         _: Arc<Configuration>,
-        _: Arc<Mutex<MarathonLogging>>,
+        _: Arc<Mutex<LogSettings>>,
         _: Arc<Console>,
     ) -> Result<Box<dyn MarathonRun>, Failure> {
         Err(failure(
@@ -78,143 +80,62 @@ pub struct Process {
 
 pub type Sink = Box<dyn Write + Send>;
 
-/// `System.out` with the console appender's Jansi state: plain text (`println`) and log events share one stream.
+/// Raw output and diagnostic events share one non-blocking stdout writer.
 pub struct Console {
-    stdout: Mutex<Sink>,
-    output: Mutex<ConsoleOutput>,
+    pub(crate) tracing: TracingOutput,
+    target: OutputTarget,
 }
-
-fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
+fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> { m.lock().unwrap_or_else(PoisonError::into_inner) }
 impl Console {
-    pub fn new(stdout: Sink, mode: JansiMode, target: OutputTarget) -> Self {
-        Self {
-            stdout: Mutex::new(stdout),
-            output: Mutex::new(ConsoleOutput::new(mode, target)),
-        }
+    pub fn new(stdout: Sink, target: OutputTarget) -> io::Result<(Self, OutputGuard)> {
+        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, || chrono::Local::now().format("%H:%M:%S%.3f").to_string())?;
+        Ok((Self { tracing, target }, guard))
     }
-
-    /// Where stdout goes (a terminal or not), which decides what Jansi keeps.
-    pub fn target(&self) -> OutputTarget {
-        lock(&self.output).target
-    }
-
-    // The JVM's System.out swallows write errors (PrintStream.checkError); so do we.
-    pub fn write_text(&self, text: &str) {
-        let mut out = lock(&self.stdout);
-        let _ = out.write_all(text.as_bytes());
-        let _ = out.flush();
-    }
-
-    /// One event in `layout` through the Jansi state; the state stays locked until its bytes are written, so events
-    /// from several threads reach stdout in the order the parser saw them.
-    pub fn write_event(&self, layout: Layout, event: &LogEvent<'_>) {
-        let mut output = lock(&self.output);
-        let bytes = output.format(layout, event);
-        let mut out = lock(&self.stdout);
-        let _ = out.write_all(&bytes);
-        let _ = out.flush();
+    pub fn exit_after_preparing(&self, status: i32, prepare: Box<dyn FnOnce() + Send>) -> io::Result<()> { self.tracing.exit_after_preparing(status, prepare) }
+    pub fn exit_after_flush(&self, status: i32) -> io::Result<()> { self.tracing.exit_after_flush(status) }
+    pub fn tracing_dispatch(&self) -> tracing::Dispatch { self.tracing.dispatch() }
+    pub fn target(&self) -> OutputTarget { self.target }
+    pub fn write_text(&self, text: &str) { let _ = self.tracing.writer().write_all(text.as_bytes()); }
+    pub fn write_record(&self, record: &marathon_core::logging::LogRecord) {
+        tracing::dispatcher::with_default(&self.tracing.dispatch(), || record.emit());
     }
 }
 
-/// The process's stdout console and stderr, and the logging registry with its stdout console appender.
 pub struct CliOutput {
     console: Arc<Console>,
     stderr: Mutex<Sink>,
-    logging: Arc<Mutex<MarathonLogging>>,
-    logger: Logger,
-    clock: Box<dyn Fn() -> i64 + Send + Sync>,
-    tracing: Option<crate::tracing_output::TracingOutput>,
+    logging: Arc<Mutex<LogSettings>>,
+    guard: Mutex<Option<OutputGuard>>,
 }
-
 impl CliOutput {
-    /// `clock` gives the local wall-clock time in milliseconds (only its time of day is printed). Jansi keeps its
-    /// default mode (D2: no `jansi.mode` override).
-    pub fn new(stdout: Sink, stderr: Sink, target: OutputTarget, clock: Box<dyn Fn() -> i64 + Send + Sync>) -> Self {
-        let mut logging = MarathonLogging::default();
-        let logger = logging.logger(LOGGER, None);
-        Self {
-            console: Arc::new(Console::new(stdout, JansiMode::Default, target)),
-            stderr: Mutex::new(stderr),
-            logging: Arc::new(Mutex::new(logging)),
-            logger,
-            clock,
-            tracing: None,
-        }
+    pub fn new(stdout: Sink, stderr: Sink, target: OutputTarget, clock: Box<dyn Fn() -> i64 + Send + Sync>) -> io::Result<Self> {
+        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, move || {
+            let millis = clock().rem_euclid(86_400_000);
+            format!("{:02}:{:02}:{:02}.{:03}", millis / 3_600_000, millis / 60_000 % 60, millis / 1000 % 60, millis % 1000)
+        })?;
+        let output = Self::traced(tracing, stderr);
+        *lock(&output.guard) = Some(guard);
+        Ok(output)
     }
-
-    /// Design pilot; the production binary switches after the milestone-1 review.
-    pub fn traced(tracing: crate::tracing_output::TracingOutput, stderr: Sink) -> Self {
-        let mut output = Self::new(Box::new(tracing.writer()), stderr, OutputTarget::Pipe, Box::new(|| 0));
-        output.tracing = Some(tracing);
-        output
+    pub fn traced(tracing: TracingOutput, stderr: Sink) -> Self {
+        let configure = tracing.clone();
+        let logging = LogSettings::with_configure(Arc::new(move |debug, vendor| { let _ = configure.configure(vendor, debug); }));
+        Self { console: Arc::new(Console { tracing, target: OutputTarget::Pipe }), stderr: Mutex::new(stderr), logging: Arc::new(Mutex::new(logging)), guard: Mutex::new(None) }
     }
-
-    /// The per-process registry (later `VendorDependencies.logging`).
-    pub fn logging(&self) -> Arc<Mutex<MarathonLogging>> {
-        Arc::clone(&self.logging)
-    }
-
-    /// The per-process console (later the runtime appenders' stdout).
-    pub fn console(&self) -> Arc<Console> {
-        Arc::clone(&self.console)
-    }
-
-    pub fn out(&self, text: &str) {
-        self.console.write_text(text);
-    }
-
-    // As System.err, write errors are swallowed.
-    pub fn err(&self, text: &str) {
-        let mut err = lock(&self.stderr);
-        let _ = err.write_all(text.as_bytes());
-        let _ = err.flush();
-    }
-
-    /// One event through the registry's current layout, on thread `main`.
+    pub fn logging(&self) -> Arc<Mutex<LogSettings>> { self.logging.clone() }
+    pub fn console(&self) -> Arc<Console> { self.console.clone() }
+    pub fn out(&self, text: &str) { self.console.write_text(text); }
+    pub fn err(&self, text: &str) { let mut err = lock(&self.stderr); let _ = err.write_all(text.as_bytes()); let _ = err.flush(); }
+    pub fn flush(&self) { if let Err(error) = self.console.tracing.flush() { self.err(&format!("Console flush failed: {error}\n")); } }
+    pub fn shutdown(&self) { if let Some(guard) = lock(&self.guard).take() { if let Err(error) = guard.shutdown() { self.err(&format!("Console shutdown failed: {error}\n")); } } }
     fn log(&self, level: Level, message: &str, throwable: &str) {
-        if let Some(output) = &self.tracing {
-            tracing::dispatcher::with_default(&output.dispatch(), || {
-                macro_rules! emit {
-                    ($macro:ident) => {
-                        if throwable.is_empty() {
-                            tracing::$macro!("{message}");
-                        } else {
-                            tracing::$macro!(error = %throwable, "{message}");
-                        }
-                    };
-                }
-                match level {
-                    Level::All | Level::Trace => emit!(trace),
-                    Level::Debug => emit!(debug),
-                    Level::Info => emit!(info),
-                    Level::Warn => emit!(warn),
-                    Level::Error => emit!(error),
-                    Level::Off => {}
-                }
-            });
-            return;
-        }
-        let (layout, enabled) = {
-            let logging = lock(&self.logging);
-            (logging.layout(), logging.enabled(&self.logger, level))
-        };
-        if !enabled {
-            return;
-        }
-        let event = LogEvent {
-            level,
-            logger: self.logger.name(),
-            thread: "main",
-            local_time_millis: (self.clock)(),
-            message,
-            throwable,
-        };
-        self.console.write_event(layout, &event);
+        tracing::dispatcher::with_default(&self.console.tracing.dispatch(), || {
+            macro_rules! emit { ($macro:ident) => { if throwable.is_empty() { tracing::$macro!("{message}"); } else { tracing::$macro!(error = %throwable, "{message}"); } }; }
+            match level { Level::TRACE => emit!(trace), Level::DEBUG => emit!(debug), Level::INFO => emit!(info), Level::WARN => emit!(warn), Level::ERROR => emit!(error) }
+        });
     }
 }
+impl Drop for CliOutput { fn drop(&mut self) { self.shutdown(); } }
 
 pub(crate) fn failure(kind: FailureKind, message: &str) -> Failure {
     Failure::from_kind(kind, Some(message.into()))
@@ -329,7 +250,7 @@ pub(crate) fn canonical_parent(absolute: &str) -> Result<PathBuf, Failure> {
 /// `ApplicationView.execute`: returns the exit status after printing everything the JVM would.
 pub fn execute(configuration: CliConfiguration, process: &Process, runner: &dyn CliRunner, output: &CliOutput) -> i32 {
     output.log(
-        Level::Info,
+        Level::INFO,
         &format!(
             "Starting marathon v{VERSION}, CliConfiguration: {}",
             configuration.to_kotlin_string()
@@ -383,7 +304,7 @@ fn run(
     output: &CliOutput,
 ) -> Result<i32, Failure> {
     let given = lossy(&start.marathonfile);
-    output.log(Level::Info, &format!("Checking {given} config"), "");
+    output.log(Level::INFO, &format!("Checking {given} config"), "");
     let cwd = PathBuf::from(process.cwd.to_string_lossy().into_owned());
     // `File.absolutePath`: joined to the working directory, not canonicalised.
     let absolute = lossy(&absolute_file_path(
@@ -392,7 +313,7 @@ fn run(
     ));
     if !is_file(&absolute) {
         let message = format!("No config {absolute} present");
-        output.log(Level::Error, &message, "");
+        output.log(Level::ERROR, &message, "");
         return Err(failure(
             FailureKind::Config(marathon_error::ConfigKind::Rejected),
             &message,
@@ -414,7 +335,7 @@ fn run(
         .parse_sync(&bytes, &context)
         .map_err(|e| configuration_failure(&e))?;
 
-    output.log(Level::Info, D1_LINE, "");
+    output.log(Level::INFO, D1_LINE, "");
 
     if matches!(
         configuration.vendor_configuration,
@@ -430,23 +351,6 @@ fn run(
     // a Marathonfile that `run` refuses should fail at a CI job's first step. `config-dump` runs no test and doesn't come here.
     validate_uncompleted_retries_bounded(&configuration).map_err(|e| configuration_failure(&e))?;
 
-    if let Some(output) = &output.tracing {
-        use crate::tracing_output::Configurator;
-        let configurator = match &configuration.vendor_configuration {
-            VendorConfiguration::Android(_) => Configurator::Android,
-            VendorConfiguration::Ios(c) => Configurator::Apple {
-                compact: c.compact_output,
-            },
-            VendorConfiguration::Macos(c) => Configurator::Apple {
-                compact: c.compact_output,
-            },
-            _ => Configurator::Startup,
-        };
-        output
-            .configure(configurator, configuration.debug)
-            .map_err(|e| failure(FailureKind::IllegalState, &e.to_string()))?;
-    }
-
     let ignore_failures = configuration.ignore_failures;
     let marathon = runner.construct(Arc::new(configuration), output.logging(), output.console())?;
 
@@ -454,7 +358,7 @@ fn run(
     match marathon.run(start.command) {
         Err(e) => {
             // `logger.error(e) {}`: the empty lambda's `Unit` is the message (C34).
-            output.log(Level::Error, "kotlin.Unit", &render_throwable(&e));
+            output.log(Level::ERROR, "kotlin.Unit", &render_throwable(&e));
             output.err("Marathon execution crashed\n");
             Ok(1)
         }

@@ -3,7 +3,7 @@
 use crate::{
     device::AndroidBatchExecutor, dex_test_parser::DexTestParser, models::*, provider::AdamDeviceProvider, support::*,
 };
-use jcompat::logging::{Level, Logger, MarathonLogging, Vendor};
+use marathon_logging::{Level, Component, LogSettings, Vendor};
 use marathon_config::{
     VendorConfiguration,
     vendor::{AndroidConfiguration, AndroidTestParserConfiguration, FileSyncConfiguration},
@@ -50,10 +50,11 @@ impl AndroidRuntime {
             executor,
         }))
     }
-    pub fn logger(&self, name: &str) -> Logger {
-        lock(&self.dependencies.logging).logger(name, None)
+    #[track_caller]
+    pub fn component(&self, name: &str) -> Component {
+        lock(&self.dependencies.logging).component(name)
     }
-    pub fn emit(&self, logger: &Logger, level: Level, message: &str, error: Option<&Failure>) {
+    pub fn emit(&self, logger: &Component, level: Level, message: &str, error: Option<&Failure>) {
         (self.log)(logger, level, message, error)
     }
 }
@@ -61,7 +62,7 @@ struct AndroidLogConfigurator {
     io: Arc<dyn VendorRuntime>,
 }
 impl LogConfigurator for AndroidLogConfigurator {
-    fn configure(&self, debug: bool, logging: Arc<Mutex<MarathonLogging>>) -> VendorFuture<'_, ()> {
+    fn configure(&self, debug: bool, logging: Arc<Mutex<LogSettings>>) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             blocking(self.io.as_ref(), move || {
                 lock(&logging).configure(debug, Vendor::Android);
@@ -95,7 +96,7 @@ pub async fn create_services_with_executor(
         ))),
         AndroidTestParserConfiguration::Remote { .. } => {
             // Kotlin constructs the parser/logger before Marathon sets debug.
-            runtime.logger("com.malinskiy.marathon.android.adam.AmInstrumentTestParser");
+            runtime.component("marathon_android::services");
             TestParser::Remote(Arc::new(crate::remote_parser::AmInstrumentTestParser {
                 runtime: runtime.clone(),
                 provider: provider.clone(),

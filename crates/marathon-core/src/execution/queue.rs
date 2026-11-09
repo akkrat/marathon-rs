@@ -2,6 +2,8 @@
 //!
 //! A line-by-line port, including the fork's retry placement and the Kotlin bugs
 //! listed in docs/known-kotlin-bugs.md (C5, C30, C45–C47), with D60's ordered queue.
+use marathon_logging::Level;
+
 use crate::{
     analytics::Analytics,
     error::*,
@@ -27,7 +29,6 @@ use crate::{
     wiring::MetricsProvider,
 };
 use indexmap::IndexMap;
-use jcompat::logging::Level;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
 use std::{
@@ -340,7 +341,7 @@ impl QueueActor {
             .log(&self.logger, self.clock.now_millis(), level, message, None);
     }
     fn debug(&self, prefix: &str, serial: &str) {
-        self.log(Level::Debug, text(&[&|m| m.push_str(prefix), &|m| m.push_str(serial)]));
+        self.log(Level::DEBUG, text(&[&|m| m.push_str(prefix), &|m| m.push_str(serial)]));
     }
 
     async fn send_pool(&self, message: FromQueue) -> OperationResult<()> {
@@ -426,7 +427,7 @@ impl QueueActor {
             uncompleted_tests.iter().partition(|_| over.next().unwrap_or(false));
         for test in exceeded {
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 text(&[&|m| m.push_str("uncompletedTestRetryQuota exceeded for "), &|m| {
                     m.push_str(&test.test.to_test_name('.', '#'))
                 }]),
@@ -458,7 +459,7 @@ impl QueueActor {
         signal: Arc<dyn CancellationSignal>,
     ) -> OperationResult<()> {
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             text(&[
                 &|m| m.push_str("onReturnBatch "),
                 &|m| m.push_str(&device.serial_number.clone()),
@@ -505,7 +506,7 @@ impl QueueActor {
             .is_some_and(|active| Arc::ptr_eq(active, &batch))
         {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 text(&[
                     &|m| m.push_str("Batch "),
                     &|m| m.push_str(&batch.id.clone()),
@@ -757,7 +758,7 @@ impl QueueActor {
                     }
                     message.push_str(&key.clone());
                 }
-                self.log(Level::Debug, message);
+                self.log(Level::DEBUG, message);
             }
             self.send_pool(FromQueue::NoBatch(device)).await
         }

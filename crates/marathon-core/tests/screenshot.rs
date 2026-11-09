@@ -1,9 +1,11 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/model/RotationTest.kt
 //! and core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/ScreenCapturer.kt (oracle witnesses).
+use marathon_logging::LogSettings;
+
 use marathon_error::FailureKind;
 mod report_probe_support;
 use image::{Rgba, RgbaImage};
-use jcompat::{jtime::duration_of, logging::MarathonLogging};
+use jcompat::{jtime::duration_of, };
 use marathon_core::{
     error::*,
     executor::{
@@ -277,7 +279,7 @@ fn capture_timeout_io_null_continue_fatal_and_cancellation_join_cleanup() {
                         l.lock().unwrap().push((level, message.to_owned()));
                     }),
                 };
-                let mut cap = ScreenCapturer::new(settings, services, source, &mut MarathonLogging::default());
+                let mut cap = ScreenCapturer::new(settings, services, source, &mut LogSettings::default());
                 assert_eq!(cap.start(&test("capture"), Signal::new()).await, Err(expected));
                 assert_eq!(cap.captures_taken(), 1);
                 Ok(())
@@ -325,7 +327,7 @@ fn capturer(
         files: output(core.vendor(), root),
         log: Arc::new(|_, _, _, _| {}),
     };
-    ScreenCapturer::new(settings, services, source, &mut MarathonLogging::default())
+    ScreenCapturer::new(settings, services, source, &mut LogSettings::default())
 }
 #[test]
 fn start_owned_runs_as_a_spawned_static_task() {
@@ -582,7 +584,7 @@ fn cancellation_during_capture_write_and_delay_waits_for_cleanup() {
                     width: 2,
                     timeout: duration_of(0, 7_000_000).unwrap(),
                 };
-                let mut cap = ScreenCapturer::new(settings, services, source, &mut MarathonLogging::default());
+                let mut cap = ScreenCapturer::new(settings, services, source, &mut LogSettings::default());
                 let (s, d) = (signal.clone(), done.clone());
                 let task = core.vendor().spawn(Box::pin(async move {
                     let result = cap.start(&test("cancel"), s).await;

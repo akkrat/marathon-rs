@@ -261,7 +261,7 @@ mod android_debug_bridge_client_test {
     use super::shell::v1::ShellCommandRequest;
     use super::*;
     use crate::client::log::capture;
-    use jcompat::logging::Level;
+    use marathon_logging::Level;
 
     #[tokio::test]
     async fn test_request_rejection() {
@@ -299,8 +299,8 @@ mod android_debug_bridge_client_test {
         assert_eq!(
             *events.lock().unwrap(),
             vec![(
-                "com.malinskiy.adam.request.Request".to_string(),
-                Level::Warn,
+                "marathon_adb::client::log".to_string(),
+                Level::WARN,
                 "adb server rejected command 0011shell:xx;echo x$?".to_string()
             )]
         );

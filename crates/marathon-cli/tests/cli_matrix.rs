@@ -30,12 +30,14 @@ fn normalise(text: &str, sandbox: &[String]) -> String {
             {
                 line = format!("<TIME>{}", &line[12..]);
             }
+            line = line.replace("[main] INFO  c.m.marathon.cli.ApplicationView - ", "INFO marathon_cli::application: ");
+            line = line.replace("[main] ERROR c.m.marathon.cli.ApplicationView - ", "ERROR marathon_cli::application: ");
             line = line.replace(&format!("Starting marathon v{VERSION},"), "Starting marathon v<VERSION>,");
             if line == VERSION {
                 line = "<VERSION>".into();
             }
-            if line.starts_with("<TIME> [main] INFO  c.m.marathon.cli.ApplicationView - Crash reporting and usage analytics are not supported by this build;") {
-                line = "<TIME> [main] INFO  <D1>".into();
+            if line.starts_with("<TIME> INFO marathon_cli::application: Crash reporting and usage analytics are not supported by this build;") {
+                line = "<TIME> INFO <D1>".into();
             }
             line
         })

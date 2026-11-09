@@ -1,11 +1,12 @@
 #![allow(dead_code)]
+use marathon_logging::LogSettings;
 use marathon_error::{FailureKind, InjectedKind};
 pub mod executor_suite;
 pub mod exit_state;
 pub mod ssh;
 use jcompat::{
     jtime::{Duration, Instant, duration_of, instant_of},
-    logging::MarathonLogging,
+    
 };
 use marathon_apple::cmd::{BaseCommand, SessionScope, failure};
 use marathon_core::{
@@ -202,7 +203,7 @@ pub fn context() -> VendorContext {
 pub fn executor() -> marathon_apple::cmd::local::KotlinProcessCommandExecutor {
     marathon_apple::cmd::local::KotlinProcessCommandExecutor::new(
         Arc::new(Runtime),
-        Arc::new(Mutex::new(MarathonLogging::default())),
+        Arc::new(Mutex::new(LogSettings::default())),
         |_, _| {},
         false,
         64,

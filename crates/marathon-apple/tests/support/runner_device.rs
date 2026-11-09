@@ -1,7 +1,9 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunnerTest.kt (recording device).
 #![allow(dead_code)]
+use marathon_logging::Component;
+
 use crate::{support, test_root_device::Fake};
-use jcompat::{jtime::Duration, logging::Logger};
+use jcompat::{jtime::Duration, };
 use marathon_apple::{
     apple_device::AppleDevice,
     bin::AppleBinaryEnvironment,
@@ -77,8 +79,8 @@ impl Device for RunnerDevice {
     fn worker_id(&self) -> Option<String> {
         self.inner.worker_id()
     }
-    fn logger(&self) -> &Logger {
-        self.inner.logger()
+    fn component(&self) -> &Component {
+        self.inner.component()
     }
     fn prepare<'a>(&'a self, c: Arc<Configuration>, ctx: VendorContext) -> VendorFuture<'a, ()> {
         self.inner.prepare(c, ctx)

@@ -254,7 +254,7 @@ async fn run(id: &str) -> TestResult<Value> {
     );
     assert_eq!(json!(*device.pushes.lock().unwrap()), row["pushes"], "{id}: sends");
     assert_eq!(json!(*device.xml.lock().unwrap()), row["xml"], "{id}: xctestrun bytes");
-    assert_eq!(json!(*device.logs.lock().unwrap()), row["logs"], "{id}: logs");
+    assert_eq!(json!(*device.logs.lock().unwrap()), marathon_test_support::recorded_logs::native_logs(&row["logs"]), "{id}: logs");
     for path in device.staged.lock().unwrap().iter() {
         assert!(!path.exists());
     }

@@ -1,8 +1,10 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/AndroidTestRunListener.kt,
 //! AccumulatingResultTestRunListener.kt, CompositeTestRunListener.kt, DebugTestRunListener.kt,
 //! NoOpTestRunListener.kt, TestResultsListener.kt and TestRunListenerAdapter.kt.
+use marathon_logging::Level;
+
 use crate::{models::TestIdentifier, support::*};
-use jcompat::{logging::Level, regex_patterns::PARAMETERIZED_METHOD};
+use jcompat::{ regex_patterns::PARAMETERIZED_METHOD};
 use marathon_adb::testrunner::{TestEvent, TestIdentifier as AdamIdentifier};
 use marathon_core::{
     artifacts::AttachmentCollector,
@@ -404,7 +406,7 @@ impl AndroidTestRunListener for TestResultsListener {
                 text.push_str(&result.test.to_test_name('.', '#'));
                 text.push_str(", ");
                 text.push_str(&self.device.0.info().serial_number);
-                (self.log)(Level::Warn, text);
+                (self.log)(Level::WARN, text);
             }
             self.deferred.complete(Ok(TestBatchResults {
                 device: self.device.clone(),
@@ -472,7 +474,7 @@ impl AndroidTestRunListener for DebugTestRunListener {
                     elapsed_time_millis, ..
                 } => format!("testRunEnded elapsedTime {elapsed_time_millis}"),
             };
-            self.device.log_named("DebugTestRunListener", Level::Info, &s, None);
+            self.device.log_named("marathon_apple::listener::debug", Level::INFO, &s, None);
             Ok(())
         })
     }

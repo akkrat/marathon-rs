@@ -7,7 +7,7 @@ use super::{
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use indexmap::{IndexMap, IndexSet};
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, xcrun::simctl::model::SimctlDeviceState},
     cmd::remote::ssh::sshj::config::SshLogging,
@@ -29,12 +29,12 @@ pub struct CurrentDevices {
 }
 pub struct PlanCalculator {
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
     timing: ProvisioningTiming,
 }
 impl PlanCalculator {
     pub fn new(logging: SshLogging, timing: ProvisioningTiming) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider");
+        let logger = logging.component("marathon_ios::device::provisioning_plan");
         Self {
             logging,
             logger,
@@ -72,7 +72,7 @@ impl PlanCalculator {
                 AppleTarget::SimulatorProfile(profile) => profiles.push(profile),
                 AppleTarget::Host => self.logging.log(
                     &self.logger,
-                    Level::Warn,
+                    Level::WARN,
                     || "iOS vendor runs do not use host device for testing. Skipping".into(),
                     None,
                 ),
@@ -87,7 +87,7 @@ impl PlanCalculator {
             } else {
                 self.logging.log(
                     &self.logger,
-                    Level::Error,
+                    Level::ERROR,
                     || format!("udid {udid} is not available at {}", transport_text(transport, "Local")),
                     None,
                 );

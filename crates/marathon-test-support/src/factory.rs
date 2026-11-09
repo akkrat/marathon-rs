@@ -5,7 +5,7 @@
 //! the configured tests, the bundle identifier and log configurator are inert, and the
 //! graph is the production `construction::construct` with the Stub vendor factory.
 use crate::{console::RecordingConsole, stub_bundle::MockTestBundleIdentifier, stub_provider::StubDeviceProvider};
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_config::{
     Configuration, VendorConfiguration,
     binding::{BindingContext, Profile},
@@ -120,7 +120,7 @@ impl LocalTestParser for StubTestParser {
 /// `mock<MarathonLogConfigurator>()`.
 pub struct MockLogConfigurator;
 impl LogConfigurator for MockLogConfigurator {
-    fn configure(&self, _debug: bool, _logging: Arc<Mutex<MarathonLogging>>) -> VendorFuture<'_, ()> {
+    fn configure(&self, _debug: bool, _logging: Arc<Mutex<LogSettings>>) -> VendorFuture<'_, ()> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -200,7 +200,7 @@ pub struct MarathonFactory {
     pub signal_trigger: Option<Arc<marathon_core::executor::SharedDeferred<i32>>>,
     /// Appended through the 3.9c reporter seam.
     pub reporters: Vec<marathon_core::analytics::ReporterRegistration>,
-    pub logging: Arc<Mutex<MarathonLogging>>,
+    pub logging: Arc<Mutex<LogSettings>>,
     /// Prompt console output, as the CLI's live run has it; the oracle runs leave it off.
     pub live_output: bool,
 }
@@ -232,7 +232,7 @@ impl MarathonFactory {
             exit: None,
             signal_trigger: None,
             reporters: vec![],
-            logging: Arc::new(Mutex::new(MarathonLogging::default())),
+            logging: Arc::new(Mutex::new(LogSettings::default())),
             live_output: false,
         }
     }

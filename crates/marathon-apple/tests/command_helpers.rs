@@ -2,7 +2,7 @@
 //! Additional contract tests; there are no Kotlin matrix rows for these helpers.
 use marathon_error::{AppleKind, FailureKind, SshKind};
 mod support;
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     cmd::{
         BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandResult, CommandSession, SessionControl,
@@ -20,7 +20,7 @@ use support::*;
 
 struct FaultExecutor {
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     detail: Failure,
     during_await: bool,
     logs: Mutex<Vec<String>>,
@@ -29,7 +29,7 @@ impl FaultExecutor {
     fn new(class: FailureKind, during_await: bool) -> Self {
         Self {
             host: KotlinProcessHost::host(),
-            logger: MarathonLogging::default().logger("fault", None),
+            logger: LogSettings::default().component("fault"),
             detail: failure(class, "detail"),
             during_await,
             logs: Mutex::new(Vec::new()),
@@ -40,7 +40,7 @@ impl CommandExecutor for FaultExecutor {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {
@@ -189,7 +189,7 @@ async fn fake_records_timeout_and_the_exact_unquoted_nohup_command() {
             stderr: vec![],
             exit_code: Some(0),
         },
-        &mut MarathonLogging::default(),
+        &mut LogSettings::default(),
     );
     let result = executor
         .safe_execute_nohup(

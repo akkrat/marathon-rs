@@ -8,7 +8,7 @@ use crate::{
     model::XcodeVersion,
     xcresult::{LegacyDecode, decode_legacy},
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_config::vendor::AppleTimeoutConfiguration;
 use marathon_core::{error::VendorResult, vendor::VendorContext};
 
@@ -44,11 +44,11 @@ pub fn describe_timeout(timeouts: &AppleTimeoutConfiguration) -> String {
 #[derive(Clone)]
 pub struct Xcresulttool {
     tools: Tools,
-    logger: Logger,
+    logger: Component,
 }
 impl Xcresulttool {
     pub fn new(tools: Tools) -> Self {
-        let logger = tools.logger("com.malinskiy.marathon.apple.bin.xcrun.xcresulttool.Xcresulttool");
+        let logger = tools.component("marathon_apple::bin::xcrun::xcresulttool");
         Self { tools, logger }
     }
     /// `xcode_version` decides `--legacy` (unknown: without). `version` is accepted and never emitted (A42).
@@ -77,7 +77,7 @@ impl Xcresulttool {
             // A timed out call (null exit code) leaves truncated output: never parse it.
             self.tools.log(
                 &self.logger,
-                Level::Warn,
+                Level::WARN,
                 || {
                     format!(
                         "xcresulttool get failed for {path} with exit code {}: {}",
@@ -98,7 +98,7 @@ impl Xcresulttool {
             Err(error) => {
                 self.tools.log(
                     &self.logger,
-                    Level::Warn,
+                    Level::WARN,
                     || format!("Unable to parse xcresulttool output for {path}"),
                     Some(error.failure),
                 );

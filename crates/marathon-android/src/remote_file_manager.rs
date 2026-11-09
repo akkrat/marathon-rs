@@ -1,6 +1,8 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/RemoteFileManager.kt
+use marathon_logging::Level;
+
 use crate::{device::AndroidDevice, support::*};
-use jcompat::{file_manager::escape, logging::Level};
+use jcompat::{file_manager::escape, };
 use marathon_adb::client::sync::directory::bash_escape;
 use marathon_core::{error::VendorResult, model::Test, vendor::VendorContext};
 use marathon_error::{AndroidKind, FailureKind};
@@ -134,7 +136,7 @@ impl RemoteFileManager<'_> {
         let mut result = jcompat::jstring::take_utf16(&raw, count);
         result.push_str(&suffix);
         if raw.encode_utf16().count() > count {
-            self.device.log_named("com.malinskiy.marathon.android.RemoteFileManager",Level::Error,&format!("Remote filename length cannot exceed 255 characters and has been trimmed to {} and can create a conflict. This happened because the combination of test class name and test name is too long.",result.to_owned()),None);
+            self.device.log_named("marathon_android::remote_file_manager",Level::ERROR,&format!("Remote filename length cannot exceed 255 characters and has been trimmed to {} and can create a conflict. This happened because the combination of test class name and test name is too long.",result.to_owned()),None);
         }
         Ok(result)
     }

@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -103,7 +103,7 @@ async fn handshake_eof_and_its_warning() {
     );
     let events = events.lock().unwrap().clone();
     let (logger, level, message) = &events[0];
-    assert_eq!(*level, Level::Warn);
+    assert_eq!(*level, Level::WARN);
     assert_eq!(
         format!("WARN {message}"),
         kotlin[&format!("log:{logger}")],

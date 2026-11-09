@@ -139,7 +139,7 @@ impl RecoveryHarness {
             .registry
             .lock()
             .unwrap()
-            .logger("AppleSimulatorProvider", Some(jcompat::logging::Level::Debug));
+            .component("marathon_ios::device::simulator_provider");
         let time = Arc::new(Time {
             clock: base.h.clock.clone(),
             wall_offset: 0.into(),
@@ -162,17 +162,15 @@ impl RecoveryHarness {
             connections.clone(),
             recovery.clone(),
         ))?;
-        base.h.services.logging.registry.lock().unwrap().logger(
-            "com.malinskiy.marathon.apple.ios.device.SimulatorProvisioner",
-            Some(jcompat::logging::Level::Info),
-        );
+        base.h.services.logging.registry.lock().unwrap().component(
+            "marathon_ios::device::simulator_provisioner");
         base.h
             .services
             .logging
             .registry
             .lock()
             .unwrap()
-            .logger("AppleSimulatorProvider", Some(jcompat::logging::Level::Debug));
+            .component("marathon_ios::device::simulator_provider");
         Ok(Self {
             base,
             connections,

@@ -225,7 +225,7 @@ impl AppleSimulatorDevice {
         if actions.contains(&LifecycleAction::Shutdown) || actions.contains(&LifecycleAction::Erase) {
             let success = self.shutdown_device(context).await?;
             self.log(
-                if success { Level::Info } else { Level::Warn },
+                if success { Level::INFO } else { Level::WARN },
                 if success {
                     format!("Simulator {} shutdown", self.udid)
                 } else {
@@ -237,7 +237,7 @@ impl AppleSimulatorDevice {
         if actions.contains(&LifecycleAction::Erase) {
             let success = self.erase_device(context).await?;
             self.log(
-                if success { Level::Info } else { Level::Warn },
+                if success { Level::INFO } else { Level::WARN },
                 if success {
                     format!("Erased simulator {}", self.udid)
                 } else {
@@ -275,10 +275,10 @@ impl AppleSimulatorDevice {
             )
             .await?;
         if result.as_ref().is_some_and(|r| r.successful()) {
-            self.log(Level::Debug, "Terminated loaded simulators", None);
+            self.log(Level::DEBUG, "Terminated loaded simulators", None);
         } else {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Failed to terminate loaded simulators, stdout={}, stderr={}",
                     result
@@ -300,7 +300,7 @@ impl AppleSimulatorDevice {
             .unwrap_or_default();
         if !ps.is_empty() {
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 format!("Terminated loaded simulators, but there are still some processes with simulator udid: \n{ps}"),
                 None,
             );
@@ -314,7 +314,7 @@ impl AppleSimulatorDevice {
         self.bin.plist_buddy.add(&file, &key, "bool", "false", context).await?;
         self.bin.plist_buddy.set(&file, &key, "false", context).await?;
         self.log(
-            Level::Debug,
+            Level::DEBUG,
             format!("Disabled hardware keyboard for {}", self.udid),
             None,
         );

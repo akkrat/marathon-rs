@@ -8,7 +8,7 @@ use super::{
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use futures_util::future::join_all;
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_apple::{
     bin::AppleBinaryEnvironment,
     cmd::{failure, remote::ssh::sshj::config::SshLogging},
@@ -176,7 +176,7 @@ pub struct SimulatorProvisioner<H> {
     concurrency: usize,
     permits: Mutex<HashMap<String, Arc<Semaphore>>>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
 }
 impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
     pub fn new(
@@ -193,7 +193,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             ))
             .into());
         }
-        let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.SimulatorProvisioner");
+        let logger = logging.component("marathon_ios::device::simulator_provisioner");
         Ok(Self {
             commands: Arc::new(SimctlCommands),
             connections,
@@ -310,7 +310,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                         if let Some(reason) = error.cancellation() { siblings.cancel(reason); }
                         Err(error)
                     },
-                    Err(error) => { self.log(Level::Error, || format!("Failed to set up simulator on {}", transport_text(&transport, "Local")), Some(&error)); Ok(Some(failure)) },
+                    Err(error) => { self.log(Level::ERROR, || format!("Failed to set up simulator on {}", transport_text(&transport, "Local")), Some(&error)); Ok(Some(failure)) },
                     result => result,
                 }
             }
@@ -347,7 +347,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     return Err(error);
                 }
                 self.log(
-                    Level::Error,
+                    Level::ERROR,
                     || {
                         format!(
                             "Failed to connect to {} to set up simulator {udid}",
@@ -393,7 +393,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             Err(error) if error.is_cancelled() => Err(error),
             Err(error) if matches!(error.original, SetupError::Dropped(_)) => {
                 self.log(
-                    Level::Info,
+                    Level::INFO,
                     || error.failure().message.unwrap_or_default().to_owned(),
                     None,
                 );
@@ -401,7 +401,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             }
             Err(error) if !executor.connected() => {
                 self.log(
-                    Level::Error,
+                    Level::ERROR,
                     || {
                         format!(
                             "Lost the connection to {} while setting up simulator {udid}",
@@ -447,7 +447,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                 .is_some_and(|r| !available.runtimes.iter().any(|d| d.identifier.as_ref() == Some(r)))
         {
             self.log(
-                Level::Error,
+                Level::ERROR,
                 || {
                     format!(
                         "Simulator profile {} is not available at {}",
@@ -474,7 +474,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             active(caller)?;
             let Some(udid) = &udid else {
                 self.log(
-                    Level::Error,
+                    Level::ERROR,
                     || format!("Failed to create simulator for profile {}", profile_text(profile)),
                     None,
                 );
@@ -502,7 +502,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             if !matches!(deleted, Ok(true)) {
                 let error = deleted.err().map(ProvisioningError::from);
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     || {
                         format!(
                             "Failed to delete partially provisioned simulator {udid} on {}",

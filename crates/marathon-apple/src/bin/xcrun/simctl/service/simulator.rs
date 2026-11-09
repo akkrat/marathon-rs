@@ -1,21 +1,23 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/simctl/service/SimulatorService.kt
 
+use marathon_logging::Component;
+
 use super::SimctlService;
 use crate::bin::{argv, kt};
-use jcompat::{logging::Logger, regex_patterns::UDID};
+use jcompat::{ regex_patterns::UDID};
 use marathon_core::{error::VendorResult, vendor::VendorContext};
 use std::collections::BTreeMap;
 
 pub struct SimulatorService {
     service: SimctlService,
-    _logger: Logger,
+    _logger: Component,
 }
 impl SimulatorService {
     pub fn new(service: SimctlService) -> Self {
         // Kotlin's only use is in an unreachable `when` branch.
         let _logger = service
             .tools
-            .logger("com.malinskiy.marathon.apple.bin.xcrun.simctl.service.SimulatorService");
+            .component("marathon_apple::bin::xcrun::simctl::service::simulator");
         Self { service, _logger }
     }
     /// The last stdout line whose trimmed text is a UDID, untrimmed; an empty line also matches (A4).

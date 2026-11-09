@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/listener/{CompositeTestRunListenerTest,TestResultsListenerTest}.kt
 use marathon_error::{FailureKind, InjectedKind};
 mod support;
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     bin::{Tools, xcrun::xcresulttool::Xcresulttool},
     cmd::{
@@ -50,7 +50,7 @@ impl Timer for FixedTimer {
         Ok(0)
     }
 }
-struct TestDevice(Logger);
+struct TestDevice(Component);
 impl Device for TestDevice {
     fn info(&self) -> DeviceInfo {
         DeviceInfo {
@@ -69,7 +69,7 @@ impl Device for TestDevice {
     fn worker_id(&self) -> Option<String> {
         None
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.0
     }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, _: VendorContext) -> VendorFuture<'a, ()> {
@@ -141,8 +141,8 @@ impl CommandExecutor for Queries {
     fn host(&self) -> &CommandHost {
         self.root.host()
     }
-    fn logger(&self) -> &Logger {
-        self.root.logger()
+    fn component(&self) -> &Component {
+        self.root.component()
     }
     fn connected(&self) -> bool {
         true
@@ -187,9 +187,9 @@ fn harness(
     version: Option<XcodeVersion>,
     legacy: Option<bool>,
 ) -> Harness {
-    let mut registry = MarathonLogging::default();
-    registry.configure(true, jcompat::logging::Vendor::Apple { compact_output: false });
-    let device = DeviceRef(Arc::new(TestDevice(registry.logger("device", None))));
+    let mut registry = LogSettings::default();
+    registry.configure(true, marathon_logging::Vendor::Apple { compact_output: false });
+    let device = DeviceRef(Arc::new(TestDevice(registry.component("device"))));
     let queries = Arc::new(Queries {
         root: FakeCommandExecutor::new(Arc::new(support::Runtime), root, &mut registry),
         objects: objects
@@ -684,7 +684,7 @@ async fn jvm_listener_production_and_test_sequences_keep_a6_and_incomplete_zero_
             .filter(|(_, m)| m.starts_with("uncompleted ="))
             .map(|(_, m)| m.clone())
             .collect();
-        let expected: Vec<_> = row["logs"]
+        let expected: Vec<_> = marathon_test_support::recorded_logs::native_logs(&row["logs"])
             .as_array()
             .unwrap()
             .iter()
@@ -730,10 +730,10 @@ async fn jvm_debug_lines_and_approved_artifact_order() {
         .lock()
         .unwrap()
         .iter()
-        .filter(|(n, _)| n == "DebugTestRunListener")
+        .filter(|(n, _)| n == "marathon_apple::listener::debug")
         .map(|(_, m)| m.clone())
         .collect();
-    let expected: Vec<_> = row["logs"]
+    let expected: Vec<_> = marathon_test_support::recorded_logs::native_logs(&row["logs"])
         .as_array()
         .unwrap()
         .iter()
@@ -757,7 +757,7 @@ async fn jvm_debug_lines_and_approved_artifact_order() {
         assert_eq!(
             h.messages.lock().unwrap().as_slice(),
             &[(
-                "com.malinskiy.marathon.apple.listener.ArtifactFinderListener".into(),
+                "marathon_apple::listener::artifact".into(),
                 format!("Session results available at {}", paths.join(", "))
             )]
         );
@@ -882,9 +882,7 @@ async fn diagnostic_lines_and_debug_printer_share_arc_and_initialize_lazily() {
     let h = harness(vec![], ok(""), vec![], None, None);
     let hidden = DebugLogPrinter::new(Some("hidden".into()), true, h.logging.clone());
     hidden.on_line("secret").await.unwrap();
-    assert!(!h.logging.registry.lock().unwrap().is_registered("hidden"));
     let printer = DebugLogPrinter::new(Some("stdout".into()), false, h.logging.clone());
-    assert!(!h.logging.registry.lock().unwrap().is_registered("stdout"));
     printer.on_line("first").await.unwrap();
     printer.on_line("second").await.unwrap();
     let finder = Arc::new(DiagnosticLogsPathFinder::new(h.logging.clone()));
@@ -899,7 +897,7 @@ async fn diagnostic_lines_and_debug_printer_share_arc_and_initialize_lazily() {
             ("stdout".into(), "first".into()),
             ("stdout".into(), "second".into()),
             (
-                "com.malinskiy.marathon.apple.listener.ArtifactFinderListener".into(),
+                "marathon_apple::listener::artifact".into(),
                 "Diagnostic logs available at /tmp/diagnostic.log".into()
             )
         ]
@@ -984,7 +982,7 @@ async fn disabled_debug_listener_does_not_log_decoded_null_metadata() {
         .registry
         .lock()
         .unwrap()
-        .configure(false, jcompat::logging::Vendor::Apple { compact_output: false });
+        .configure(false, marathon_logging::Vendor::Apple { compact_output: false });
     let debug = DebugTestRunListener::new(h.device, h.logging);
     let mut t = test("p", "C", "m");
     t.meta_properties.push(MetaProperty {

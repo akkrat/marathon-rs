@@ -96,7 +96,7 @@ pub(super) async fn load(provider: &AppleSimulatorProvider) -> VendorResult<Opti
         if !matches!(vendor.device_provider, Source::Static { .. }) && !file.exists() {
             return Ok(None);
         }
-        this.log(Level::Debug, || "Using static device provider".into(), None);
+        this.log(Level::DEBUG, || "Using static device provider".into(), None);
         let bytes = std::fs::read(&file).map_err(|e| file_read_error(&file, &e))?;
         let devices = bind_devices_bytes(&bytes, &binding)
             .map_err(|e| load_error(e, &format!("Invalid Marathondevices file {} format", file.display())))?;
@@ -184,7 +184,7 @@ impl AppleSimulatorProvider {
                 Ok(socket) => socket,
                 Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
                     self.log(
-                        Level::Warn,
+                        Level::WARN,
                         || "Connection refused, retrying in 5 seconds...".into(),
                         None,
                     );
@@ -210,7 +210,7 @@ impl AppleSimulatorProvider {
     fn source_error(&self, error: VendorError) {
         let detail = error.failure().clone();
         self.log(
-            Level::Error,
+            Level::ERROR,
             || {
                 format!(
                     "Error occurred: {}",

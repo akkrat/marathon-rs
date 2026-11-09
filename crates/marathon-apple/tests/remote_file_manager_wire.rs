@@ -2,7 +2,7 @@
 use marathon_error::FailureKind;
 mod support;
 use base64::{Engine, prelude::BASE64_STANDARD};
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     cmd::{
         CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, local::KotlinProcessCommandExecutor,
@@ -32,7 +32,7 @@ fn manager(executor: Arc<dyn CommandExecutor>, storage: String) -> RemoteFileMan
             timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         }),
         SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(|_, _, _, _| {}),
         ),
     )
@@ -80,8 +80,8 @@ impl CommandExecutor for RecordingLocal {
     fn host(&self) -> &CommandHost {
         self.local.host()
     }
-    fn logger(&self) -> &Logger {
-        self.local.logger()
+    fn component(&self) -> &Component {
+        self.local.component()
     }
     fn connected(&self) -> bool {
         true

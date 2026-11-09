@@ -4,7 +4,7 @@
 //! the frozen Kotlin class on them; this test rebuilds them in a temp dir and compares construction failures,
 //! the derived ids, every getter (including a retry after a failed first access) and the warnings.
 mod support;
-use jcompat::logging::{Level, Logger, MarathonLogging};
+use marathon_logging::{Level, Component, LogSettings};
 use marathon_apple::{
     cmd::remote::ssh::sshj::config::SshLogging,
     model::{AppleTestBundle, Sdk},
@@ -267,9 +267,9 @@ fn strip(kotlin: &Value) -> Value {
 async fn observe(case: &Case, logs: &Arc<Mutex<Vec<Value>>>) -> Value {
     let logs_sink = logs.clone();
     let logging = SshLogging::new(
-        Arc::new(Mutex::new(MarathonLogging::default())),
+        Arc::new(Mutex::new(LogSettings::default())),
         Arc::new(
-            move |logger: &Logger, level: Level, message: String, _: Option<Failure>| {
+            move |logger: &Component, level: Level, message: String, _: Option<Failure>| {
                 logs_sink
                     .lock()
                     .unwrap()

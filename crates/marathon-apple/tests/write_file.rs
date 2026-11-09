@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/cmd/WriteFileTest.kt
 use marathon_error::FailureKind;
 mod support;
-use jcompat::logging::Logger;
+use marathon_logging::Component;
 use marathon_apple::cmd::{
     CommandExecutor, CommandHost, CommandRequest, CommandSession, failure,
     local::KotlinProcessCommandExecutor,
@@ -25,8 +25,8 @@ impl CommandExecutor for Recording {
     fn host(&self) -> &CommandHost {
         self.local.host()
     }
-    fn logger(&self) -> &Logger {
-        self.local.logger()
+    fn component(&self) -> &Component {
+        self.local.component()
     }
     fn connected(&self) -> bool {
         true

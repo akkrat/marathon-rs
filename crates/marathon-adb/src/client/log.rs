@@ -1,13 +1,13 @@
 //! Port of adam 0.5.8 `adam/src/main/kotlin/com/malinskiy/adam/log/AdamLogging.kt`.
 //! adam portions: Copyright (C) 2019-2021 Anton Malinskiy; Apache-2.0.
 //!
-//! adam calls `KotlinLogging.logger` itself, not marathon's `MarathonLogging.logger`, so its loggers get no
+//! adam calls `KotlinLogging.logger` itself, not marathon's `LogSettings.logger`, so its loggers get no
 //! level of their own: they inherit through the logback hierarchy (ROOT, or `io.netty`/`io.vertx`). The
-//! level check therefore uses [`MarathonLogging::effective_level`] without registering the name.
+//! level check therefore uses [`LogSettings::effective_level`] without registering the name.
 
 use std::sync::{Arc, Mutex};
 
-use jcompat::logging::{Level, MarathonLogging};
+use marathon_logging::{Level, LogSettings};
 
 use super::error::AdbError;
 
@@ -15,9 +15,9 @@ use super::error::AdbError;
 pub type LogSink = dyn Fn(&str, Level, String, Option<&AdbError>) + Send + Sync;
 
 /// The `com.malinskiy.adam.request.Request` logger (`Request.kt:74`).
-pub const REQUEST_LOGGER: &str = "com.malinskiy.adam.request.Request";
+pub const REQUEST_LOGGER: &str = "marathon_adb::client::log";
 /// The `com.malinskiy.adam.AndroidDebugBridgeClient` logger (`AndroidDebugBridgeClient.kt:138`).
-pub const CLIENT_LOGGER: &str = "com.malinskiy.adam.AndroidDebugBridgeClient";
+pub const CLIENT_LOGGER: &str = "marathon_adb::client::log";
 
 #[derive(Clone)]
 pub struct AdamLogging {
@@ -27,7 +27,7 @@ pub struct AdamLogging {
 #[derive(Clone)]
 enum Backend {
     Legacy {
-        logging: Arc<Mutex<MarathonLogging>>,
+        logging: Arc<Mutex<LogSettings>>,
         sink: Arc<LogSink>,
     },
     Tracing(tracing::Dispatch),
@@ -35,7 +35,7 @@ enum Backend {
 
 impl AdamLogging {
     pub fn new(
-        logging: Arc<Mutex<MarathonLogging>>,
+        logging: Arc<Mutex<LogSettings>>,
         sink: impl Fn(&str, Level, String, Option<&AdbError>) + Send + Sync + 'static,
     ) -> Self {
         Self {
@@ -68,12 +68,12 @@ impl AdamLogging {
                         };
                     }
                     match level {
-                        Level::All | Level::Trace => emit!(trace),
-                        Level::Debug => emit!(debug),
-                        Level::Info => emit!(info),
-                        Level::Warn => emit!(warn),
-                        Level::Error => emit!(error),
-                        Level::Off => {}
+                        Level::TRACE => emit!(trace),
+                        Level::DEBUG => emit!(debug),
+                        Level::INFO => emit!(info),
+                        Level::WARN => emit!(warn),
+                        Level::ERROR => emit!(error),
+                        
                     }
                 });
             }
@@ -81,8 +81,7 @@ impl AdamLogging {
         };
         let enabled = {
             let logging = logging.lock().unwrap_or_else(|e| e.into_inner());
-            let threshold = logging.effective_level(logger);
-            threshold != Level::Off && level >= threshold
+            logging.enabled_target(logger, level)
         };
         if enabled {
             sink(logger, level, message(), error);
@@ -105,11 +104,11 @@ pub(crate) mod capture {
 
     pub fn logging(debug: bool) -> (AdamLogging, Events) {
         let events: Events = Arc::default();
-        let mut marathon = MarathonLogging::default();
+        let mut marathon = LogSettings::default();
         marathon.debug = debug;
         if !debug {
             // What `configure(debug = false)` leaves for adam: an ERROR root.
-            marathon.logger("ROOT", Some(Level::Error));
+            marathon.component("marathon_adb::client::log");
         }
         let sink_events = events.clone();
         let logging = AdamLogging::new(Arc::new(Mutex::new(marathon)), move |name, level, message, _| {
@@ -129,9 +128,9 @@ mod tests {
     #[test]
     fn levels_are_inherited_not_registered() {
         let (logging, events) = capture::logging(true);
-        logging.log(REQUEST_LOGGER, Level::Debug, None, || "a".into());
+        logging.log(REQUEST_LOGGER, Level::DEBUG, None, || "a".into());
         let (quiet, quiet_events) = capture::logging(false);
-        quiet.log(REQUEST_LOGGER, Level::Warn, None, || {
+        quiet.log(REQUEST_LOGGER, Level::WARN, None, || {
             unreachable!("not built when disabled")
         });
         assert_eq!(events.lock().unwrap().len(), 1);

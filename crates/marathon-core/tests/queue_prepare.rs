@@ -130,7 +130,7 @@ fn cancelled_prepare_holder_stops_fetch_without_caching_and_another_pool_refetch
             QueueActor::prepare(vendor.as_ref(), analytics.clone(), &configuration, Signal::new()).await?;
             QueueActor::prepare(vendor.as_ref(), analytics, &configuration, Signal::new()).await?;
             assert_eq!(source.calls.load(Ordering::SeqCst), 2);
-            assert_eq!(h.logs.take().iter().filter(|r| r.logger == "Timings").count(), 1);
+            assert_eq!(h.logs.take().iter().filter(|r| r.logger == "marathon_logging").count(), 1);
             Ok(())
         })
     });
@@ -172,7 +172,7 @@ fn cancelling_a_prepare_waiter_keeps_the_other_pools_single_flight_fetch() {
             holder.await?;
             QueueActor::prepare(vendor.as_ref(), analytics, &configuration, Signal::new()).await?;
             assert_eq!(source.calls.load(Ordering::SeqCst), 1);
-            assert_eq!(h.logs.take().iter().filter(|r| r.logger == "Timings").count(), 1);
+            assert_eq!(h.logs.take().iter().filter(|r| r.logger == "marathon_logging").count(), 1);
             Ok(())
         })
     });

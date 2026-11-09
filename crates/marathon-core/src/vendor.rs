@@ -7,7 +7,7 @@ use crate::{
     runtime::{CancellationSignal, Deferred, EventChannel, VendorClock, VendorFuture},
     time::ReplayHooks,
 };
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_config::Configuration;
 use std::sync::{Arc, Mutex};
 
@@ -43,8 +43,8 @@ pub trait Device: Send + Sync {
     fn info(&self) -> DeviceInfo;
     fn abi(&self) -> String;
     fn worker_id(&self) -> Option<String>;
-    /// Handle from the per-run jcompat MarathonLogging registry.
-    fn logger(&self) -> &Logger;
+    /// Handle from the per-run jcompat LogSettings registry.
+    fn component(&self) -> &Component;
     fn prepare<'a>(&'a self, configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()>;
     /// Returning and completing result are independent. Empty/no result and a
     /// result followed by a failure are both valid. Never auto-complete on return.
@@ -124,7 +124,7 @@ pub trait TestBundleIdentifier: Send + Sync {
 pub trait LogConfigurator: Send + Sync {
     /// Set registry.debug first (Marathon.kt:67), then configure vendor appenders.
     /// Registry mutation runs off core; never hold its lock across await.
-    fn configure(&self, debug: bool, logging: Arc<Mutex<MarathonLogging>>) -> VendorFuture<'_, ()>;
+    fn configure(&self, debug: bool, logging: Arc<Mutex<LogSettings>>) -> VendorFuture<'_, ()>;
 }
 /// Koin module replacement. Construction itself must not initialize the provider
 /// or query analytics; Marathon owns those lifecycle stages.

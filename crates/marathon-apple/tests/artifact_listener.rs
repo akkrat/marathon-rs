@@ -1,10 +1,12 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListenerTest.kt
+use marathon_logging::{Component, LogSettings};
+
 use marathon_error::FailureKind;
 mod support;
 use jcompat::{
     file_manager::FileManager,
     jtime::Duration,
-    logging::{Logger, MarathonLogging},
+    
 };
 use marathon_apple::{
     apple_device::AppleDevice,
@@ -81,7 +83,7 @@ struct Fake {
     manager: RemoteFileManager,
     serial: String,
     transport: Transport,
-    logger: Logger,
+    logger: Component,
     pull: Pull,
     pulls: Arc<Mutex<Vec<String>>>,
 }
@@ -103,7 +105,7 @@ impl Device for Fake {
     fn worker_id(&self) -> Option<String> {
         Some(self.transport.id())
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, _: VendorContext) -> VendorFuture<'a, ()> {
@@ -193,9 +195,9 @@ impl Harness {
         let errors: Arc<Mutex<Vec<String>>> = Arc::default();
         let e = errors.clone();
         let logging = SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(move |_, level, m, _| {
-                if level == jcompat::logging::Level::Error {
+                if level == marathon_logging::Level::ERROR {
                     e.lock().unwrap().push(m);
                 }
             }),
@@ -232,7 +234,7 @@ impl Harness {
             ),
             serial: "udid@worker".into(),
             transport: Transport::Local,
-            logger: logging.logger("Fake"),
+            logger: logging.component("Fake"),
             pull,
             pulls: Arc::default(),
         });
@@ -657,7 +659,7 @@ async fn healthy_worker_hands_over_its_bundle_while_a_stalled_worker_holds_its_s
             authentication: None,
             check_reachability: false,
         },
-        logger: h.logging.logger("Fake"),
+        logger: h.logging.component("Fake"),
         pull: successful(),
         pulls: Arc::default(),
     });
@@ -724,10 +726,8 @@ async fn macos_inline_path_obeys_policy_and_finishes_delivery_before_returning()
                 let mut config = configuration();
                 config.pulling_policy = policy;
                 config.remote_clean = clean;
-                let fm_logger = h.logging.registry.lock().unwrap().logger(
-                    "com.malinskiy.marathon.io.FileManager",
-                    Some(jcompat::logging::Level::Warn),
-                );
+                let fm_logger = h.logging.registry.lock().unwrap().component(
+                    "com.malinskiy.marathon.io.FileManager");
                 let listener = h.custom("inline", h.device.clone(), None, h.context.clone(), config);
                 listener.before_test_run().await?;
                 if failed {
@@ -739,7 +739,7 @@ async fn macos_inline_path_obeys_policy_and_finishes_delivery_before_returning()
                         .await?;
                 }
                 listener.after_test_run().await?;
-                assert!(!h.logging.enabled(&fm_logger, jcompat::logging::Level::Debug));
+                assert!(!h.logging.enabled(&fm_logger, marathon_logging::Level::DEBUG));
                 let pull = policy == PullingPolicy::Always || (policy == PullingPolicy::OnFailure && failed);
                 assert_eq!(h.local("inline").exists(), pull);
                 assert_eq!(h.device.pulls.lock().unwrap().len(), usize::from(pull));

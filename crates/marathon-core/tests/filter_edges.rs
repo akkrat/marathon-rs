@@ -2,7 +2,7 @@
 //! (JVM differential probes and lifecycle regressions beyond the Kotlin tests).
 mod filter_support;
 use filter_support::*;
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_config::schema::{CompositionOperation as Op, TestFilterConfiguration as C, TestPackageFilter};
 use marathon_core::{
     error::{Cancellation, OperationError, OperationResult},
@@ -324,7 +324,7 @@ fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResu
             .message
             .to_owned()
             .replace(tmp.0.to_str().expect("temp UTF-8"), "<tmp>"),
-        row["logs"][0]["message"]
+        marathon_test_support::recorded_logs::native_logs(&row["logs"])[0]["message"]
     );
     Ok(())
 }
@@ -358,7 +358,7 @@ fn missing_values_are_logged_once_and_cached_across_operations() -> OperationRes
     assert!(apply(f, t, false)?.is_empty());
     let records = logs.0.lock().expect("logs");
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].level, Level::Error);
+    assert_eq!(records[0].level, Level::ERROR);
     assert_eq!(records[0].logger, "FilterValuesFileReader");
     assert_eq!(
         records[0].message.to_owned(),
@@ -678,8 +678,8 @@ fn allure_file_supplier_precedence_json_dispatch_and_p2_replay_the_jvm() -> Oper
             );
         }
         for record in logs.0.lock().expect("logs").iter() {
-            assert_eq!(record.level, Level::Warn);
-            assert_eq!(record.logger, "io.qameta.allure.testfilter.FileTestPlanSupplier");
+            assert_eq!(record.level, Level::WARN);
+            assert_eq!(record.logger, "marathon_core::filter::allure");
             assert_eq!(
                 record.message.to_owned(),
                 format!("could not read test plan file {}", tmp.0.join("plan.json").display())
@@ -735,7 +735,7 @@ fn p2_plans_jackson_accepts_warn_and_become_absent() -> OperationResult<()> {
         assert_eq!(supplier.supply()?, None, "{json}");
         let records = logs.0.lock().expect("logs");
         assert_eq!(records.len(), 1, "{json}");
-        assert_eq!(records[0].level, Level::Warn);
+        assert_eq!(records[0].level, Level::WARN);
         assert!(records[0].cause.is_some());
     }
     Ok(())

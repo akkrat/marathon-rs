@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/AppleBinaryEnvironment.kt
 
+use marathon_logging::{Level, Component};
+
 use marathon_error::FailureKind;
 pub mod chmod;
 pub mod codesign;
@@ -22,7 +24,7 @@ use crate::{
 };
 use jcompat::{
     jtime::Duration,
-    logging::{Level, Logger},
+    
 };
 use marathon_config::{Configuration, vendor::AppleTimeoutConfiguration};
 use marathon_core::{
@@ -48,11 +50,11 @@ pub struct Tools {
     pub logging: SshLogging,
 }
 impl Tools {
-    /// `MarathonLogging.logger {}` inside a class: named after it, looked up at construction.
-    pub(crate) fn logger(&self, name: &str) -> Logger {
-        self.logging.logger(name)
+    /// `LogSettings.logger {}` inside a class: named after it, looked up at construction.
+    pub(crate) fn component(&self, name: &str) -> Component {
+        self.logging.component(name)
     }
-    pub(crate) fn log(&self, logger: &Logger, level: Level, message: impl FnOnce() -> String, cause: Option<Failure>) {
+    pub(crate) fn log(&self, logger: &Component, level: Level, message: impl FnOnce() -> String, cause: Option<Failure>) {
         if self.logging.enabled(logger, level) {
             (self.logging.sink)(logger, level, message(), cause);
         }

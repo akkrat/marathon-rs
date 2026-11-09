@@ -11,7 +11,7 @@ use crate::{
     model::XcodeVersion,
     xcresult::{ActionTestPlanRunSummaries, ActionsInvocationRecord},
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_error::FailureKind;
 
 use marathon_core::{
@@ -46,7 +46,7 @@ pub struct TestResultsListener {
     pub accumulator: AccumulatingTestResultListener,
     config: TestResultsListenerConfig,
     attachments: Arc<AttachmentCollector>,
-    logger: Logger,
+    logger: Component,
 }
 impl TestResultsListener {
     pub fn new(config: TestResultsListenerConfig) -> VendorResult<Self> {
@@ -58,7 +58,7 @@ impl TestResultsListener {
         let attachments = AttachmentCollector::new(&config.attachment_providers)?;
         let logger = config
             .logging
-            .logger("com.malinskiy.marathon.apple.listener.TestResultsListener");
+            .component("marathon_apple::listener::results");
         Ok(Self {
             accumulator,
             config,
@@ -69,7 +69,7 @@ impl TestResultsListener {
     fn warn(&self, message: &str) {
         self.config
             .logging
-            .log(&self.logger, Level::Warn, || message.into(), None);
+            .log(&self.logger, Level::WARN, || message.into(), None);
     }
     async fn enhance_results(&self) -> VendorResult<()> {
         let started = (self.config.wall)();
@@ -77,7 +77,7 @@ impl TestResultsListener {
         let ended = (self.config.wall)();
         self.config.logging.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             || {
                 format!(
                     "Enhancing report using xcresult took {} ms",

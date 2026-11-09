@@ -45,7 +45,7 @@ pub fn harness(
         .registry
         .lock()
         .unwrap()
-        .configure(true, jcompat::logging::Vendor::Apple { compact_output: false });
+        .configure(true, marathon_logging::Vendor::Apple { compact_output: false });
     h.services.runtime = Arc::new(Runtime);
     h.services.listeners = Arc::new(marathon_ios::listener::ProductionSimulatorListenerFactory);
     Ok(h)

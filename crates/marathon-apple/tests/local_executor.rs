@@ -376,7 +376,7 @@ async fn dropped_execute_during_spawn_or_delivery_closes_and_joins_the_undeliver
             });
             let executor = marathon_apple::cmd::local::KotlinProcessCommandExecutor::new(
                 runtime.clone(),
-                Arc::new(std::sync::Mutex::new(jcompat::logging::MarathonLogging::default())),
+                Arc::new(std::sync::Mutex::new(marathon_logging::LogSettings::default())),
                 |_, _| {},
                 false,
                 64,

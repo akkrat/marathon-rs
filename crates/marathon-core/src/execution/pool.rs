@@ -24,7 +24,7 @@ use crate::{
 };
 use futures_util::future::Either;
 use indexmap::IndexMap;
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
 use std::{
@@ -271,7 +271,7 @@ impl DevicePoolActor {
             .log(&self.logger, self.clock.now_millis(), level, message, None);
     }
     fn debug(&self, parts: &[Part<'_>]) {
-        self.log(Level::Debug, text(parts));
+        self.log(Level::DEBUG, text(parts));
     }
     fn pool(&self) -> String {
         // "$poolId" with the data class toString.
@@ -371,7 +371,7 @@ impl DevicePoolActor {
 
     fn log_all_terminated(&self) {
         self.log(
-            Level::Error,
+            Level::ERROR,
             text(&[
                 S("pool "),
                 J(&self.pool()),
@@ -419,7 +419,7 @@ impl DevicePoolActor {
             }
             let millis = left.to_string();
             self.log(
-                Level::Warn,
+                Level::WARN,
                 text(&[
                     S("pool "),
                     J(&self.pool()),
@@ -513,7 +513,7 @@ impl DevicePoolActor {
         }
         let millis = self.configuration.device_initialization_timeout_millis.to_string();
         self.log(
-            Level::Warn,
+            Level::WARN,
             text(&[
                 S("pool "),
                 J(&self.pool()),
@@ -800,7 +800,7 @@ impl DevicePoolActor {
         let serial = serial(&device);
         if self.devices.contains_key(&serial) {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 text(&[
                     S("device "),
                     J(&serial),
@@ -812,7 +812,7 @@ impl DevicePoolActor {
         }
         if self.ending {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 text(&[
                     S("pool "),
                     J(&self.pool()),
@@ -830,7 +830,7 @@ impl DevicePoolActor {
         }
         if std::mem::take(&mut self.announced) {
             self.log(
-                Level::Info,
+                Level::INFO,
                 text(&[
                     S("pool "),
                     J(&self.pool()),

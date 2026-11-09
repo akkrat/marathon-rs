@@ -82,7 +82,7 @@ async fn omitted_worker_connection_defaults_retry_at_0_10_30_90_150_seconds_with
     let logs = p.h().logs.lock().unwrap().clone();
     let messages: Vec<_> = logs
         .iter()
-        .filter(|(name, _, _, _)| name == "AppleSimulatorProvider")
+        .filter(|(name, _, _, _)| name == "marathon_ios::device::simulator_provider")
         .map(|(_, _, m, _)| m.as_str())
         .collect();
     assert_eq!(

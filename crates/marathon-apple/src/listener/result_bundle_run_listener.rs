@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListener.kt
 
+use marathon_logging::{Level, Component};
+
 use super::AppleTestRunListener;
 use crate::{
     apple_device::AppleDevice,
@@ -9,7 +11,7 @@ use crate::{
 };
 use jcompat::{
     file_manager::{FileManager, FolderType},
-    logging::{Level, Logger},
+    
 };
 use marathon_config::vendor::{PullingPolicy, XcresultConfiguration};
 use marathon_core::{
@@ -43,7 +45,7 @@ struct Bundle {
     processor: Option<Weak<ArtifactProcessor>>,
     context: VendorContext,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
     failed: AtomicBool,
     local_copy: Mutex<Option<PathBuf>>,
     remote_path: OnceLock<String>,
@@ -60,7 +62,7 @@ impl ResultBundleRunListener {
         context: VendorContext,
         logging: SshLogging,
     ) -> Self {
-        let logger = logging.logger("com.malinskiy.marathon.apple.listener.ResultBundleRunListener");
+        let logger = logging.component("marathon_apple::listener::result_bundle_run_listener");
         Self {
             inner: Arc::new(Bundle {
                 device,
@@ -136,7 +138,7 @@ impl Bundle {
                 .wrapping_sub(start)
                 / 1_000_000;
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 format!(
                     "xcresult cleanup for batch {} took {elapsed} ms",
                     self.batch.id.to_owned()
@@ -157,16 +159,12 @@ impl Bundle {
             let fm_logger = {
                 let mut registry = self.logging.registry.lock().unwrap_or_else(|e| e.into_inner());
                 let name = "com.malinskiy.marathon.io.FileManager";
-                if registry.is_registered(name) {
-                    registry.slf4j_logger(name)
-                } else {
-                    registry.logger(name, None)
-                }
+                registry.component(name)
             };
             let local = plan
                 .materialize(|message| {
-                    if self.logging.enabled(&fm_logger, Level::Error) {
-                        (self.logging.sink)(&fm_logger, Level::Error, message.to_owned(), None);
+                    if self.logging.enabled(&fm_logger, Level::ERROR) {
+                        (self.logging.sink)(&fm_logger, Level::ERROR, message.to_owned(), None);
                     }
                 })
                 .map_err(|e| io_failure(e, ""))?
@@ -179,7 +177,7 @@ impl Bundle {
             let pulled = self.device.pull_folder(&remote, &local, context).await?;
             let elapsed = self.now("apple.ResultBundleRunListener.deliver")?.wrapping_sub(start) / 1_000_000;
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 format!("xcresult pull for batch {} took {elapsed} ms", self.batch.id.to_owned())
                     .as_str()
                     .into(),
@@ -229,7 +227,7 @@ impl Bundle {
         {
             return;
         }
-        self.log(Level::Error, diagnostic);
+        self.log(Level::ERROR, diagnostic);
     }
 }
 fn io_failure(error: std::io::Error, path: &str) -> VendorError {

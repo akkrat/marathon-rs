@@ -9,7 +9,7 @@ use crate::{
     report::{ExecutionReport, Reporter},
     runtime::{ServiceFuture, VendorRuntime},
 };
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -80,12 +80,12 @@ pub struct TimelineExecutionResult {
     pub measures: Vec<Measure>,
 }
 pub struct TimelineSummaryProvider {
-    pub logger: Logger,
+    pub logger: Component,
 }
 impl TimelineSummaryProvider {
-    pub fn new(registry: &mut MarathonLogging) -> Self {
+    pub fn new(registry: &mut LogSettings) -> Self {
         Self {
-            logger: registry.logger("TimelineSummaryProvider", None),
+            logger: registry.component("marathon_core::reporters::timeline"),
         }
     }
     pub fn generate(report: &ExecutionReport) -> VendorResult<TimelineExecutionResult> {
@@ -226,17 +226,17 @@ impl TimelineSummaryProvider {
 pub struct TimelineReporter {
     io: Arc<dyn VendorRuntime>,
     root: PathBuf,
-    pub logger: Logger,
+    pub logger: Component,
     pub provider: Arc<TimelineSummaryProvider>,
 }
 impl TimelineReporter {
-    pub fn new(io: Arc<dyn VendorRuntime>, root: PathBuf, registry: &mut MarathonLogging) -> Self {
+    pub fn new(io: Arc<dyn VendorRuntime>, root: PathBuf, registry: &mut LogSettings) -> Self {
         let provider = Arc::new(TimelineSummaryProvider::new(registry));
         Self {
             io,
             root,
             provider,
-            logger: registry.logger("TimelineSummaryProvider", None),
+            logger: registry.component("marathon_core::reporters::timeline"),
         }
     }
     pub fn registration(self) -> ReporterRegistration {

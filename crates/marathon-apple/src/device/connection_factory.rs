@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/device/ConnectionFactory.kt
 
+use marathon_logging::{Level, Component};
+
 use crate::{
     cmd::{
         CommandExecutor, FileBridge, blocking, failure,
@@ -19,7 +21,7 @@ use crate::{
 };
 use jcompat::{
     jtime::Duration,
-    logging::{Level, Logger},
+    
     writers::KotlinValue,
 };
 use marathon_config::{
@@ -116,7 +118,7 @@ pub struct ConnectionFactory {
     runtime: Arc<dyn VendorRuntime>,
     clock: Arc<dyn VendorClock>,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
     debug: bool,
     ssh: SshConfiguration,
     rsync: RsyncConfiguration,
@@ -181,7 +183,7 @@ impl ConnectionFactory {
             )
             .into());
         }
-        let logger = logging.logger("com.malinskiy.marathon.apple.device.ConnectionFactory");
+        let logger = logging.component("marathon_apple::device::connection_factory");
         Ok(Arc::new(Self {
             runtime,
             clock,
@@ -269,10 +271,10 @@ impl ConnectionFactory {
         match self.acquire(transport.clone()).await {
             Ok(executor) => Ok((Some(executor), bridge)),
             Err(ConnectionError::Device(error)) if catch_device => {
-                if self.logging.enabled(&self.logger, Level::Error) {
+                if self.logging.enabled(&self.logger, Level::ERROR) {
                     (self.logging.sink)(
                         &self.logger,
-                        Level::Error,
+                        Level::ERROR,
                         format!("Failed to initialize connection to {}", transport.id().to_owned()),
                         Some(error.to_failure()),
                     );
@@ -289,8 +291,8 @@ impl ConnectionFactory {
             self.runtime.clone(),
             self.logging.registry.clone(),
             move |logger, message| {
-                if logging.enabled(logger, Level::Error) {
-                    (logging.sink)(logger, Level::Error, message, None);
+                if logging.enabled(logger, Level::ERROR) {
+                    (logging.sink)(logger, Level::ERROR, message, None);
                 }
             },
             false,
@@ -462,7 +464,7 @@ impl ConnectionFactory {
         let Some(lease) = released else {
             self.logging.log(
                 &self.logger,
-                Level::Warn,
+                Level::WARN,
                 || {
                     format!(
                         "Command executor for {} is not in use, ignoring dispose",
@@ -475,7 +477,7 @@ impl ConnectionFactory {
         };
         self.logging.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             || format!("Disposing of command executor for {}", executor.host().id),
             None,
         );

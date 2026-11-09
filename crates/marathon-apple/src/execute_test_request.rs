@@ -8,7 +8,7 @@ use crate::{
     test::TestRequest,
     xcodebuild_session::{EventReceiver, XcodebuildSession},
 };
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_core::{
     error::{VendorError, VendorResult},
     listener::LineListener,
@@ -110,17 +110,17 @@ pub fn execute_test_request(
                             (logger, registry.xcodebuild_message(label, &line))
                         };
                         if let Some(message) = message {
-                            (logging.sink)(&logger, Level::Warn, message, None);
+                            (logging.sink)(&logger, Level::WARN, message, None);
                         }
                         listeners.on_line(&line).await
                     }
                 },
             )
             .await?;
-            if logging.enabled(device.logger(), Level::Debug) {
+            if logging.enabled(device.component(), Level::DEBUG) {
                 (logging.sink)(
-                    device.logger(),
-                    Level::Debug,
+                    device.component(),
+                    Level::DEBUG,
                     format!(
                         "Finished test batch execution with exit status {}",
                         exit.map_or_else(|| "null".into(), |v| v.to_string())

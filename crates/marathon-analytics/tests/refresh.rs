@@ -1,9 +1,11 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
 //! (D34 through the real clients: a failed history query is not final; Kotlin caches it for the
 //! whole run).
+use marathon_logging::Level;
+
 use marathon_error::{FailureKind, InjectedKind};
 mod support;
-use jcompat::{jtime::Instant, logging::Level};
+use jcompat::{jtime::Instant, };
 use marathon_analytics::AnalyticsClients;
 use marathon_config::{AnalyticsConfiguration, GraphiteConfiguration};
 use marathon_core::{
@@ -209,11 +211,11 @@ fn lines(logs: &[LogRecord], level: Level, text: &str) -> usize {
 fn recovery_case(backend: &'static str, outage: Outage) {
     let logs = run(move |env| Box::pin(recovers(env, backend, outage)));
     let context = format!("{backend} {outage:?}");
-    assert_eq!(lines(&logs, Level::Info, "failed in"), 2, "{context}");
-    assert_eq!(lines(&logs, Level::Warn, "Cannot fetch execution time"), 2, "{context}");
-    assert_eq!(lines(&logs, Level::Info, "returned 1 tests in"), 1, "{context}");
+    assert_eq!(lines(&logs, Level::INFO, "failed in"), 2, "{context}");
+    assert_eq!(lines(&logs, Level::WARN, "Cannot fetch execution time"), 2, "{context}");
+    assert_eq!(lines(&logs, Level::INFO, "returned 1 tests in"), 1, "{context}");
     assert_eq!(
-        lines(&logs, Level::Info, "returned 1 tests after failing earlier"),
+        lines(&logs, Level::INFO, "returned 1 tests after failing earlier"),
         1,
         "{context}"
     );
@@ -367,8 +369,8 @@ fn close_gets_past_a_blocked_vendor_worker_on_the_real_runtime_and_clock() {
     // The first query's three lines and close's warning: nothing from the query that ended later.
     let messages: Vec<_> = logs.iter().map(|r| r.message.to_owned()).collect();
     assert_eq!(messages.len(), 4, "{messages:?}");
-    assert_eq!(lines(&logs, Level::Debug, "No execution time found"), 1);
-    assert_eq!(lines(&logs, Level::Warn, "Cannot fetch execution time"), 1);
-    assert_eq!(lines(&logs, Level::Info, "failed in"), 1);
-    assert_eq!(lines(&logs, Level::Warn, "did not stop within 3000 ms"), 1);
+    assert_eq!(lines(&logs, Level::DEBUG, "No execution time found"), 1);
+    assert_eq!(lines(&logs, Level::WARN, "Cannot fetch execution time"), 1);
+    assert_eq!(lines(&logs, Level::INFO, "failed in"), 1);
+    assert_eq!(lines(&logs, Level::WARN, "did not stop within 3000 ms"), 1);
 }

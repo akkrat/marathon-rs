@@ -24,12 +24,12 @@ use crate::{
 };
 use futures_util::future::Either;
 use indexmap::IndexMap;
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
-const LOGGER: &str = "Scheduler";
+const LOGGER: &str = "marathon_core::execution::scheduler";
 
 /// The Kotlin constructor's parameters, plus what the accumulators and actors need on core.
 /// `context` is the run's coroutine context: the subscription is its child.
@@ -173,7 +173,7 @@ impl Inner {
     fn debug(&self, message: String) {
         let core = &self.parts.core;
         core.log_queue()
-            .log(LOGGER, core.clock().now_millis(), Level::Debug, message, None);
+            .log(LOGGER, core.clock().now_millis(), Level::DEBUG, message, None);
     }
 
     /// Launched in the run's context, not under `job`: a NoDevices timeout leaves it running.

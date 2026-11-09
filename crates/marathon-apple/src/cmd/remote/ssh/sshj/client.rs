@@ -6,12 +6,12 @@
 //! Tokio), never on core. Reply timeouts (30 s, sshj's `getTimeoutMs`) and the keep-alive go through `VendorClock`.
 
 use super::channel::ExecChannel;
-use super::config::{BridgeSink, SshLoggers, bridge_russh_logs};
+use super::config::{BridgeSink, SshComponents, bridge_russh_logs};
 use super::error::*;
 use super::keep_alive::{KeepAliveConnection, KeepAliveRunner};
 use super::known_hosts::{HostKeyVerifier, key_type_of, md5_fingerprint};
 use crate::cmd::{SessionScope, cancelled};
-use jcompat::logging::Level;
+use marathon_logging::Level;
 use marathon_core::runtime::{CancellationSignal, VendorClock, VendorRuntime, VendorTask};
 use russh::{
     Channel, ChannelId, ChannelMsg, Disconnect, Error as RusshError,
@@ -68,7 +68,7 @@ pub(crate) async fn within<T>(
 
 /// Transport state shared by the russh handler, the keep-alive and every channel.
 pub struct ConnectionShared {
-    pub loggers: SshLoggers,
+    pub loggers: SshComponents,
     death: Mutex<Option<SshFailure>>,
     dead: watch::Sender<bool>,
     received_disconnect: AtomicBool,
@@ -80,7 +80,7 @@ pub struct ConnectionShared {
     peak_unread: std::sync::atomic::AtomicUsize,
 }
 impl ConnectionShared {
-    pub(super) fn new(loggers: SshLoggers) -> Arc<Self> {
+    pub(super) fn new(loggers: SshComponents) -> Arc<Self> {
         Arc::new(Self {
             loggers,
             death: Mutex::new(None),
@@ -157,8 +157,8 @@ impl ConnectionShared {
         let logger = self
             .loggers
             .logging
-            .logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor");
-        self.loggers.logging.log(&logger, Level::Error, || message, None);
+            .component("marathon_apple::cmd::remote::ssh::sshj::client");
+        self.loggers.logging.log(&logger, Level::ERROR, || message, None);
     }
     /// A dead transport rejects writes, as sshj's closed socket does.
     pub fn write_failure(&self) -> SshFailure {
@@ -190,7 +190,7 @@ impl client::Handler for ClientHandler {
         let loggers = &self.shared.loggers;
         loggers.logging.log(
             &loggers.key_exchanger,
-            Level::Error,
+            Level::ERROR,
             || {
                 format!(
                     "Disconnecting because none of the configured Host key verifiers ([{}]) could verify '{key_type}' host key with fingerprint {fingerprint} for {}:{}",
@@ -276,7 +276,7 @@ fn wire_reason(reason: DisconnectReason) -> Disconnect {
 pub struct ClientConfig {
     pub keep_alive: KeepAliveRunner,
     pub verifier: Arc<dyn HostKeyVerifier>,
-    pub loggers: SshLoggers,
+    pub loggers: SshComponents,
     pub runtime: Arc<dyn VendorRuntime>,
     pub clock: Arc<dyn VendorClock>,
 }
@@ -919,7 +919,7 @@ impl SshConnection {
 mod tests {
     use super::super::config::{PerformanceDefaultConfig, SshLogging};
     use super::*;
-    use jcompat::logging::MarathonLogging;
+    use marathon_logging::LogSettings;
     use std::task::{Context, Waker};
 
     fn ready(future: impl Future<Output = ()>) -> bool {
@@ -935,7 +935,7 @@ mod tests {
         let watched = connection.clone();
         let records = observed.clone();
         let logging = SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(move |logger, level, message, _| {
                 let shared = watched.get().unwrap().upgrade().unwrap();
                 // Inspect at sink entry so an early notification fails without depending on scheduling.
@@ -960,8 +960,8 @@ mod tests {
         assert_eq!(
             *observed.lock().unwrap(),
             vec![(
-                "TransportImpl".to_owned(),
-                Level::Error,
+                "marathon_apple::cmd::remote::ssh::sshj::wire".to_owned(),
+                Level::ERROR,
                 "Dying because - fixture disconnect 11".to_owned(),
                 false,
                 false,

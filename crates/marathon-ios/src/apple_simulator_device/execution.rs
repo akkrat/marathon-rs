@@ -119,7 +119,7 @@ impl AppleSimulatorDevice {
         }
         let previous = self.state().previous_batch_finished_at;
         if let Some(previous) = previous
-            && self.services.logging.enabled(&self.logger, Level::Debug)
+            && self.services.logging.enabled(&self.logger, Level::DEBUG)
         {
             let now = self
                 .services
@@ -127,7 +127,7 @@ impl AppleSimulatorDevice {
                 .nanos("ios.AppleSimulatorDevice.nanoTime")
                 .map_err(clock_error)?;
             self.log(
-                Level::Debug,
+                Level::DEBUG,
                 format!(
                     "Device {} idle gap before batch {}: {} ms",
                     self.serial,
@@ -256,7 +256,7 @@ impl AppleSimulatorDevice {
                 )));
             }
             self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Test batch {} failed on {}, keeping the device",
                     batch.to_owned(),
@@ -295,7 +295,7 @@ impl AppleSimulatorDevice {
             .is_some();
         if !finished {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Cancelled batch on {} has not finished within {}, taking the device out of the run",
                     self.serial,
@@ -349,7 +349,7 @@ impl AppleSimulatorDevice {
                 .await;
                 if let Err(error) = outcome {
                     device.log(
-                        Level::Debug,
+                        Level::DEBUG,
                         "Error closing command executor",
                         Some(error.failure().clone()),
                     );

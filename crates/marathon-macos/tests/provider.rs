@@ -28,8 +28,8 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> R {
         .filter(|r| r.message.to_owned().starts_with("xcresulttool"))
         .collect::<Vec<_>>();
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].logger, "AppleMacosProvider");
-    assert_eq!(messages[0].level, jcompat::logging::Level::Info);
+    assert_eq!(messages[0].logger, "marathon_macos::provider");
+    assert_eq!(messages[0].level, marathon_logging::Level::INFO);
     assert_eq!(
         messages[0].message.to_owned(),
         "xcresulttool timeout is PT5M (timeoutConfiguration.xcresulttool; when not set, the larger of shell PT5M and PT2M)"
@@ -71,7 +71,7 @@ async fn file_boundaries_and_equal_transport_overwrite() -> R {
         h.logs
             .records()
             .iter()
-            .filter(|r| r.level == jcompat::logging::Level::Warn)
+            .filter(|r| r.level == marathon_logging::Level::WARN)
             .count(),
         1
     );

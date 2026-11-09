@@ -3,7 +3,7 @@
 //! The command alone, not through Marathon's no-tests guard. Besides the source's
 //! `trimIndent()` comparison, each file is checked against the JVM's exact bytes
 //! (fixtures/oracle/run-flow/parse-command.jsonl).
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_core::{
     analytics::MetricsContext,
     execution::parse_command::{EXTENSION, MarathonTestParseCommand},
@@ -36,7 +36,7 @@ fn execute(tests: Vec<Test>, flaky_tests: Vec<Test>) -> String {
                 vendor: core.vendor(),
                 monotonic: RuntimeHooks::live(),
                 cancellation: Signal::new(),
-                registry: Arc::new(Mutex::new(MarathonLogging::default())),
+                registry: Arc::new(Mutex::new(LogSettings::default())),
                 logs: core.log_queue().sender(),
                 stamp: Arc::new(|| (0, 0)),
             };

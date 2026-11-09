@@ -5,8 +5,10 @@
 //! Every recorded call takes a number from one counter, the log queue's wall clock included, so the
 //! events of a message keep the order they happened in although logs and output reach the sink later.
 #![allow(dead_code)]
+use marathon_logging::Level;
+
 use futures_util::future::{Either, select};
-use jcompat::{jtime::Instant, logging::Level};
+use jcompat::{jtime::Instant, };
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},
@@ -131,14 +133,14 @@ pub fn batch_results(
 ) -> TestBatchResults {
     TestBatchResults {
         device: marathon_core::vendor::DeviceRef(Arc::new(NoDevice(
-            jcompat::logging::MarathonLogging::default().logger("NoDevice", None),
+            marathon_logging::LogSettings::default().component("NoDevice"),
         ))),
         finished,
         failed,
         uncompleted,
     }
 }
-struct NoDevice(jcompat::logging::Logger);
+struct NoDevice(marathon_logging::Component);
 impl marathon_core::vendor::Device for NoDevice {
     fn info(&self) -> DeviceInfo {
         device("device")
@@ -149,7 +151,7 @@ impl marathon_core::vendor::Device for NoDevice {
     fn worker_id(&self) -> Option<String> {
         None
     }
-    fn logger(&self) -> &jcompat::logging::Logger {
+    fn component(&self) -> &marathon_logging::Component {
         &self.0
     }
     fn prepare<'a>(
@@ -213,12 +215,11 @@ pub fn status_name(status: TestStatus) -> &'static str {
 }
 fn level_name(level: Level) -> &'static str {
     match level {
-        Level::Trace => "TRACE",
-        Level::Debug => "DEBUG",
-        Level::Info => "INFO",
-        Level::Warn => "WARN",
-        Level::Error => "ERROR",
-        Level::All | Level::Off => "OTHER",
+        Level::TRACE => "TRACE",
+        Level::DEBUG => "DEBUG",
+        Level::INFO => "INFO",
+        Level::WARN => "WARN",
+        Level::ERROR => "ERROR",
     }
 }
 pub fn logger_name(pool: &str) -> String {

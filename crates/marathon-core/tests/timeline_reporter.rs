@@ -1,6 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/timeline/TimelineSummaryProvider.kt.
 mod report_probe_support;
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_core::{executor::CoreExecutor, report::Reporter, reporters::timeline::*};
 use report_probe_support::*;
 #[test]
@@ -21,7 +21,7 @@ fn writes_exact_resources_and_template_even_for_empty_report() {
         let root = temp.path("");
         checked(CoreExecutor::run(move |core| {
             Box::pin(async move {
-                TimelineReporter::new(core.vendor(), root, &mut MarathonLogging::default())
+                TimelineReporter::new(core.vendor(), root, &mut LogSettings::default())
                     .generate(&report)
                     .await
             })

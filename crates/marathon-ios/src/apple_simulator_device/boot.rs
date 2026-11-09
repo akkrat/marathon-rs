@@ -83,7 +83,7 @@ impl AppleSimulatorDevice {
                     / 1_000_000
             );
             self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Simulator {} on worker {} failed to boot: {reason}",
                     self.udid,
@@ -144,7 +144,7 @@ impl AppleSimulatorDevice {
         loop {
             let state = self.simulator_state(context).await?;
             if state == SimulatorState::Booted {
-                self.log(Level::Debug, format!("Device {} booted!", self.udid), None);
+                self.log(Level::DEBUG, format!("Device {} booted!", self.udid), None);
                 return Ok(None);
             }
             let left = deadline.saturating_sub(self.nanos("ios.AppleSimulatorDevice.nanoTime")?);
@@ -164,7 +164,7 @@ impl AppleSimulatorDevice {
                     context.cancellation.clone(),
                 )
                 .await?;
-            self.log(Level::Debug, format!("Device {} is still booting...", self.udid), None);
+            self.log(Level::DEBUG, format!("Device {} is still booting...", self.udid), None);
         }
     }
     async fn shutdown_after_failed_boot(&self, context: &VendorContext) -> VendorResult<()> {
@@ -208,7 +208,7 @@ impl AppleSimulatorDevice {
         match outcome {
             Ok(Some(())) => {}
             Ok(None) => self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Simulator {} on worker {}: not shut down within {budget} after a failed boot",
                     self.udid,
@@ -218,7 +218,7 @@ impl AppleSimulatorDevice {
             ),
             Err(e @ VendorError::Cancelled(_)) => return Err(e),
             Err(e) => self.log(
-                Level::Warn,
+                Level::WARN,
                 format!(
                     "Simulator {} on worker {}: unable to shut it down after a failed boot",
                     self.udid,

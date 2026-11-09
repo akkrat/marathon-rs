@@ -1,7 +1,9 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/device/ConnectionFactoryTest.kt
+use marathon_logging::Component;
+
 use marathon_error::FailureKind;
 mod support;
-use jcompat::{JavaRegex, logging::Logger};
+use jcompat::{JavaRegex, };
 use marathon_apple::{
     cmd::{
         CommandExecutor, CommandHost, CommandRequest, CommandSession, failure,
@@ -78,7 +80,7 @@ impl BlockingGate {
 }
 struct Fake {
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     alive: AtomicBool,
     closing: AtomicBool,
     closed: AtomicUsize,
@@ -95,7 +97,7 @@ impl Fake {
                 id: t.id().to_owned(),
                 charset: "UTF-8".into(),
             },
-            logger: logging.logger("FakeExecutor"),
+            logger: logging.component("FakeExecutor"),
             alive: AtomicBool::new(true),
             closing: AtomicBool::new(false),
             closed: AtomicUsize::new(0),
@@ -114,7 +116,7 @@ impl CommandExecutor for Fake {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn log_error(&self, _: String) {}

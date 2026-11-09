@@ -1,5 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/progress/PoolProgressAccumulator.kt
 //! and execution/queue/TestState.kt, TestEvent.kt.
+use marathon_logging::Level;
+
 use crate::{
     ci::Ci,
     error::{VendorError, VendorResult},
@@ -13,7 +15,7 @@ use crate::{
     time::SchedulerClock,
     wiring::Tracker,
 };
-use jcompat::{formatting::format_percent, logging::Level};
+use jcompat::{formatting::format_percent, };
 use marathon_config::schema::{ExecutionMode, ExecutionStrategyConfiguration};
 use marathon_error::FailureKind;
 use std::{collections::HashMap, rc::Rc, sync::Arc};
@@ -222,7 +224,7 @@ impl PoolProgressAccumulator {
         message.push_str(test);
         message.push_str(suffix);
         self.logs.log(
-            "com.malinskiy.marathon.execution.progress.PoolProgressAccumulator",
+            "marathon_core::execution::progress",
             self.clock.now_millis(),
             level,
             message,
@@ -232,7 +234,7 @@ impl PoolProgressAccumulator {
     fn transition(&mut self, test: &Test, event: TestEvent) -> Option<TestAction> {
         let name = test.to_test_name('.', '#');
         let Some(data) = self.data_mut(&name) else {
-            self.log(Level::Warn, "No FSM registered for test ", &name, "");
+            self.log(Level::WARN, "No FSM registered for test ", &name, "");
             return None;
         };
         // The construction defines every state/event pair; no invalid transition is reachable.
@@ -262,12 +264,12 @@ impl PoolProgressAccumulator {
         for (name, data) in &self.tests {
             let success = match data.state.state() {
                 TestState::Added { .. } => {
-                    self.log(Level::Error, "Expected to run ", name, " but no events received");
+                    self.log(Level::ERROR, "Expected to run ", name, " but no events received");
                     false
                 }
                 TestState::Failing { .. } | TestState::Passing { .. } => {
                     self.log(
-                        Level::Error,
+                        Level::ERROR,
                         "Expected to run ",
                         name,
                         " more, but no terminal events received",

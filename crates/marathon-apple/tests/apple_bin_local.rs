@@ -6,7 +6,7 @@
 //! itself sent no env. Only the `sh -c` wrappers are exercised: the executor resolves its program with the
 //! parent's PATH (as Java's ProcessBuilder does), the shell resolves the pipeline with the request's.
 mod support;
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::{
@@ -31,8 +31,8 @@ impl CommandExecutor for WithPath {
     fn host(&self) -> &CommandHost {
         self.local.host()
     }
-    fn logger(&self) -> &Logger {
-        self.local.logger()
+    fn component(&self) -> &Component {
+        self.local.component()
     }
     fn connected(&self) -> bool {
         true
@@ -89,7 +89,7 @@ async fn wrappers_run_these_commands_locally() {
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
         logging: SshLogging::new(
-            Arc::new(Mutex::new(MarathonLogging::default())),
+            Arc::new(Mutex::new(LogSettings::default())),
             Arc::new(|_, _, _, _| {}),
         ),
     };

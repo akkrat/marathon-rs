@@ -1,7 +1,9 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/report/JUnitReporterTest.kt.
 #![allow(dead_code)]
 
-use jcompat::{file_manager::FileManager, jtime::instant_of, logging::MarathonLogging};
+use marathon_logging::LogSettings;
+
+use jcompat::{file_manager::FileManager, jtime::instant_of, };
 use marathon_core::{
     artifacts::FileManagerOutput,
     error::*,
@@ -334,7 +336,7 @@ pub fn files(io: Arc<dyn VendorRuntime>, path: PathBuf, max_filename: i32) -> Re
             io.clone(),
             FileManager::new(0, max_filename, &path.to_string_lossy(), ""),
             path,
-            MarathonLogging::default().logger("FileManager", None),
+            LogSettings::default().component("FileManager"),
             Arc::new(|_, _, _, _| assert_ne!(std::thread::current().name(), Some("marathon-core"))),
         )),
         io,
@@ -383,10 +385,10 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
             let bill = BillingReporter::new(
                 output.clone(),
                 hooks.as_ref(),
-                MarathonLogging::default().logger("com.malinskiy.marathon.report.bill.BillingReporter", None),
+                LogSettings::default().component("marathon_core::construction"),
                 Arc::new(move |_, level, message, _| {
                     assert_ne!(std::thread::current().name(), Some("marathon-core"));
-                    assert_eq!(level, jcompat::logging::Level::Warn);
+                    assert_eq!(level, marathon_logging::Level::WARN);
                     captured_warnings.lock().unwrap().push(message.to_owned())
                 }),
             )?;

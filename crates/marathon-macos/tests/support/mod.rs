@@ -1,11 +1,13 @@
 //! Port of vendor/vendor-apple/macos/src/test/kotlin/com/malinskiy/marathon/apple/macos/MacosTestRootTest.kt (bundle builders and recording bridge).
 #![allow(dead_code)]
+use marathon_logging::{LogSettings, Vendor};
+
 use marathon_error::{FailureKind, InjectedKind};
 pub mod runtime;
 use jcompat::{
     file_manager::FileManager,
     jtime::instant_of,
-    logging::{MarathonLogging, Vendor},
+    
 };
 use marathon_apple::{
     apple_device_registry::AppleDeviceRegistry,
@@ -65,8 +67,8 @@ impl CommandExecutor for Worker {
     fn host(&self) -> &CommandHost {
         self.fake.host()
     }
-    fn logger(&self) -> &jcompat::logging::Logger {
-        self.fake.logger()
+    fn component(&self) -> &marathon_logging::Component {
+        self.fake.component()
     }
     fn connected(&self) -> bool {
         self.fake.connected()
@@ -239,7 +241,7 @@ impl Harness {
         let clock = Arc::new(runtime::Clock::default());
         let hooks = RuntimeHooks::live();
         let logs = LogQueue::default();
-        let registry = Arc::new(Mutex::new(MarathonLogging::default()));
+        let registry = Arc::new(Mutex::new(LogSettings::default()));
         {
             let mut r = registry.lock().unwrap();
             r.debug = true;
@@ -264,7 +266,7 @@ impl Harness {
             registry
                 .lock()
                 .unwrap()
-                .logger("com.malinskiy.marathon.io.FileManager", None),
+                .component("com.malinskiy.marathon.io.FileManager"),
             Arc::new(|_, _, _, _| {}),
         ));
         let deps = VendorDependencies {
@@ -273,8 +275,7 @@ impl Harness {
             log: {
                 let logs = logs.sender();
                 Arc::new(move |logger, level, message, cause| {
-                    logs.push(marathon_core::logging::LogRecord {
-                        logger: logger.name().into(),
+                    logs.push(marathon_core::logging::LogRecord { target: logger.target().to_owned(), logger: logger.name().into(),
                         at_millis: 0,
                         wall_millis: 1234,
                         level,

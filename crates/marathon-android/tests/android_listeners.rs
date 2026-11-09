@@ -73,7 +73,7 @@ fn results_listener(
                     Arc::new(|| 0),
                 ))),
                 logs: Arc::new(move |r| {
-                    (logging.log)(&logging.logger(&r.logger), r.level, &r.message, r.cause.as_ref())
+                    (logging.log)(&logging.component(&r.logger), r.level, &r.message, r.cause.as_ref())
                 }),
             },
             batch: Arc::new(TestBatch {

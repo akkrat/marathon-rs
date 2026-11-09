@@ -1,10 +1,12 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/metrics/remote/graphite/GraphiteDataSource.kt
 //! and core/src/main/kotlin/com/malinskiy/marathon/extension/StringExtensions.kt (withPrefix).
+use marathon_logging::Level;
+
 use super::*;
 use crate::{analytics::MetricsContext, error::OperationResult, executor::shared::failure};
 use jcompat::{
     jnum::{double_to_string, parse_double_with_error},
-    logging::Level,
+    
 };
 use marathon_error::FailureKind;
 use std::sync::Arc;
@@ -58,7 +60,7 @@ impl GraphiteDataSource {
             let skip = has_no_datapoint(line);
             if let (true, Some(context)) = (skip, &self.context) {
                 let text = format!("Skipping a Graphite series with no datapoints: {line}");
-                context.log("MetricsProviderImpl", Level::Debug, text, None);
+                context.log("marathon_core::analytics::provider", Level::DEBUG, text, None);
             }
             !skip
         })

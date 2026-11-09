@@ -132,7 +132,7 @@ async fn shutdown_is_serial_and_final_eligibility_is_read_after_the_last_await()
         logs.lock()
             .unwrap()
             .iter()
-            .any(|(name, _, message, _)| name == "Timings"
+            .any(|(name, _, message, _)| name == "marathon_logging"
                 && message.starts_with("Worker local: shut down 2 unused simulators in "))
     );
     Ok(())
@@ -214,10 +214,8 @@ async fn host_warning_precedes_missing_simulator_error() -> TestResult {
     let (logging, logs) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
     let planner = PlanCalculator::new(logging.clone(), timing);
-    logging.registry.lock().unwrap().logger(
-        "com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider",
-        Some(jcompat::logging::Level::Warn),
-    );
+    logging.registry.lock().unwrap().component(
+        "marathon_ios::device::provisioning_plan");
     planner
         .plan(
             &worker("worker"),

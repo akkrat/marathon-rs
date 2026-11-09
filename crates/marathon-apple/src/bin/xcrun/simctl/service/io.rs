@@ -2,19 +2,19 @@
 
 use super::SimctlService;
 use crate::{bin::argv, cmd::CommandResult};
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_config::vendor::{Codec, Display, Mask, ScreenshotType};
 use marathon_core::{error::VendorResult, vendor::VendorContext};
 
 pub struct IoService {
     service: SimctlService,
-    logger: Logger,
+    logger: Component,
 }
 impl IoService {
     pub fn new(service: SimctlService) -> Self {
         let logger = service
             .tools
-            .logger("com.malinskiy.marathon.apple.bin.xcrun.simctl.service.IoService");
+            .component("marathon_apple::bin::xcrun::simctl::service::io");
         Self { service, logger }
     }
     pub async fn screenshot(
@@ -42,7 +42,7 @@ impl IoService {
         }
         self.service.tools.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             || {
                 let text = |stream: Option<String>| stream.unwrap_or_else(|| "null".into());
                 format!(

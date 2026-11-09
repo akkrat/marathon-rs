@@ -384,7 +384,7 @@ async fn a_shared_send_waiter_observes_its_own_timeout_d54() {
     assert_eq!(alongside.await.unwrap(), Ok(true));
     let errors: Vec<_> = support::ssh::lines(&events)
         .into_iter()
-        .filter(|(_, level, _)| *level == jcompat::logging::Level::Error)
+        .filter(|(_, level, _)| *level == marathon_logging::Level::ERROR)
         .map(|(.., message)| message)
         .collect();
     assert_eq!(

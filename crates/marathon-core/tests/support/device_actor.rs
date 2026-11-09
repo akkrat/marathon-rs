@@ -5,7 +5,7 @@
 //!
 //! Every scenario runs on `run_virtual`: virtual time, explicit drains, no sleeps.
 #![allow(dead_code)]
-use jcompat::logging::{Level, Logger, MarathonLogging};
+use marathon_logging::{Level, Component, LogSettings};
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},
@@ -181,7 +181,7 @@ impl Stub {
 /// the call counts the probe records.
 pub struct ScriptedDevice {
     me: Weak<ScriptedDevice>,
-    logger: Logger,
+    logger: Component,
     stub: Stub,
     prepare: Option<PrepareScript>,
     execute: Option<ExecuteScript>,
@@ -194,7 +194,7 @@ impl ScriptedDevice {
     pub fn new(stub: Stub, prepare: Option<PrepareScript>, execute: Option<ExecuteScript>) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
-            logger: MarathonLogging::default().logger("StubDevice", None),
+            logger: LogSettings::default().component("StubDevice"),
             stub,
             prepare,
             execute,
@@ -308,7 +308,7 @@ impl Device for ScriptedDevice {
     fn worker_id(&self) -> Option<String> {
         None
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
@@ -710,10 +710,10 @@ fn clean(text: &str, batch: &BatchRef) -> String {
 }
 fn level(level: Level) -> &'static str {
     match level {
-        Level::Error => "ERROR",
-        Level::Warn => "WARN",
-        Level::Info => "INFO",
-        Level::Debug => "DEBUG",
+        Level::ERROR => "ERROR",
+        Level::WARN => "WARN",
+        Level::INFO => "INFO",
+        Level::DEBUG => "DEBUG",
         _ => "TRACE",
     }
 }

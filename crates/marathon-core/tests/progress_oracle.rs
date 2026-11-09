@@ -118,7 +118,7 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                 for e in effects {
                     match e {
                         Effect::Output(OutputRecord::Log(log)) => {
-                            let log = json!({"logger":log.logger,"level":match log.level {jcompat::logging::Level::Warn=>"WARN",jcompat::logging::Level::Debug=>"DEBUG",_=>"ERROR"},"message":log.message});
+                            let log = json!({"logger":log.logger,"level":match log.level {marathon_logging::Level::WARN=>"WARN",marathon_logging::Level::DEBUG=>"DEBUG",_=>"ERROR"},"message":log.message});
                             order.push(json!({"log":log}));
                             logs.push(log);
                         }
@@ -131,11 +131,11 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                     }
                 }
                 for log in core.log_queue().take() {
-                    let log = json!({"logger":log.logger,"level":if log.level==jcompat::logging::Level::Warn {"WARN"}else{"ERROR"},"message":log.message});
+                    let log = json!({"logger":log.logger,"level":if log.level==marathon_logging::Level::WARN {"WARN"}else{"ERROR"},"message":log.message});
                     order.push(json!({"log":log}));
                     logs.push(log);
                 }
-                assert_eq!(json!(logs), row["logs"], "{line}");
+                assert_eq!(json!(logs), marathon_test_support::recorded_logs::native_logs(&row["logs"]), "{line}");
                 assert_eq!(json!(tracks), row["tracks"], "{line}");
                 assert_eq!(json!(order), row["effects"], "{line}");
             }

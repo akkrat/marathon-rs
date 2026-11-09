@@ -1,6 +1,8 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/command/parse/MarathonTestParseCommand.kt
 //! and execution/command/parse/ParseCommandResult.kt (the YAML itself is 3.9b's `parse_results`).
 
+use marathon_logging::Level;
+
 use crate::{
     analytics::MetricsContext,
     artifact_io::{blocking, file_open_error, nio_error},
@@ -10,12 +12,12 @@ use crate::{
     runtime::{VendorFuture, VendorRuntime},
     wiring::ParseOutput,
 };
-use jcompat::{file_manager::absolute_file_path, logging::Level};
+use jcompat::{file_manager::absolute_file_path, };
 use std::path::PathBuf;
 use std::{io::Write, sync::Arc};
 
-/// `private val log = MarathonLogging.logger {}` in MarathonTestParseCommand.kt.
-pub const LOGGER: &str = "com.malinskiy.marathon.execution.command.parse.MarathonTestParseCommand";
+/// `private val log = LogSettings.logger {}` in MarathonTestParseCommand.kt.
+pub const LOGGER: &str = "marathon_core::execution::parse_command";
 /// `EXTENSION`: the file is `.yml` although `parse -o`'s help says `.yaml` (C12).
 pub const EXTENSION: &str = ".yml";
 
@@ -39,11 +41,11 @@ impl MarathonTestParseCommand {
     }
     fn info(&self, message: String) {
         let (at_millis, wall_millis) = (self.stamp)();
-        self.logs.push(LogRecord {
+        self.logs.push(LogRecord { target: module_path!().into(),
             logger: LOGGER.into(),
             at_millis,
             wall_millis,
-            level: Level::Info,
+            level: Level::INFO,
             message,
             cause: None,
         });

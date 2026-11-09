@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
 
+use marathon_logging::{Level, Component};
+
 use marathon_error::FailureKind;
 mod boot;
 mod execution;
@@ -17,7 +19,7 @@ use crate::device::{
 };
 use jcompat::{
     file_manager::FileManager,
-    logging::{Level, Logger},
+    
 };
 use marathon_apple::{
     apple_device::{AppleDevice, apple_worker_id, storage_path_for},
@@ -135,7 +137,7 @@ pub struct AppleSimulatorDevice {
     storage_path: String,
     services: SimulatorServices,
     timing: ProvisioningTiming,
-    logger: Logger,
+    logger: Component,
     state: Mutex<State>,
     retained: RetainedTasks,
     lines: Arc<LineListeners>,
@@ -156,7 +158,7 @@ impl AppleSimulatorDevice {
         let storage_path = storage_path_for(&udid);
         let logger = services
             .logging
-            .logger("com.malinskiy.marathon.apple.ios.AppleSimulatorDevice");
+            .component("marathon_ios::apple_simulator_device");
         let remote = RemoteFileManager::new(
             storage_path.clone(),
             udid.clone(),
@@ -335,7 +337,7 @@ impl Device for AppleSimulatorDevice {
     fn worker_id(&self) -> Option<String> {
         apple_worker_id(&self.transport)
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {

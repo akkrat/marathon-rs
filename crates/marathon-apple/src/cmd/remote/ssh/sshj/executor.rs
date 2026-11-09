@@ -11,7 +11,7 @@ use crate::extensions::{
     poll_backoff::PollBackoff,
     reader::{current_time_millis, produce_lines_manually},
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorClock, VendorFuture, VendorRuntime},
@@ -29,7 +29,7 @@ pub struct SshCommandExecutor {
     pub ssh_host: SshCommandHost,
     connection: Arc<SshConnection>,
     channel_capacity: usize,
-    logger: Logger,
+    logger: Component,
     logging: SshLogging,
     config: PerformanceDefaultConfig,
     runtime: Arc<dyn VendorRuntime>,
@@ -43,7 +43,7 @@ impl SshCommandExecutor {
     ) -> Self {
         let logging = config.logging.clone();
         Self {
-            logger: logging.logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor"),
+            logger: logging.component("marathon_apple::cmd::remote::ssh::sshj::client"),
             runtime: connection.runtime.clone(),
             connection: Arc::new(connection),
             ssh_host: host,
@@ -190,7 +190,7 @@ async fn execute(
     let channel_logger = config.logger_for_class(Some("PatchedExecChannel"));
     config.logging.log(
         &channel_logger,
-        Level::Debug,
+        Level::DEBUG,
         || format!("Will request to exec `{command}`"),
         None,
     );
@@ -307,7 +307,7 @@ impl CommandExecutor for SshCommandExecutor {
     fn host(&self) -> &CommandHost {
         &self.ssh_host.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {
@@ -318,11 +318,11 @@ impl CommandExecutor for SshCommandExecutor {
         Box::pin(async move { shared.wait_lost().await.to_failure() })
     }
     fn log_error(&self, message: String) {
-        self.logging.log(&self.logger, Level::Error, || message, None);
+        self.logging.log(&self.logger, Level::ERROR, || message, None);
     }
     fn log_error_with(&self, message: String, cause: &Failure) {
-        if self.logging.enabled(&self.logger, Level::Error) {
-            (self.logging.sink)(&self.logger, Level::Error, message, Some(cause.clone()));
+        if self.logging.enabled(&self.logger, Level::ERROR) {
+            (self.logging.sink)(&self.logger, Level::ERROR, message, Some(cause.clone()));
         }
     }
     fn execute(&self, request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession> {

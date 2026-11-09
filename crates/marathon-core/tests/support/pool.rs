@@ -6,9 +6,11 @@
 //! `runCurrent` is a drain, `advanceUntilIdle` runs the virtual timers out, and Kotlin's
 //! `CompletableDeferred`s and `Channel`s that the devices wait on are `Gate`s and `Finish`es.
 #![allow(dead_code)]
+use marathon_logging::{Level, Component, LogSettings};
+
 use jcompat::{
     jtime::Instant,
-    logging::{Level, Logger, MarathonLogging},
+    
 };
 use marathon_config::{
     Configuration,
@@ -289,7 +291,7 @@ pub struct TestDevice {
     serial: String,
     pub model: String,
     pub worker_id: Option<String>,
-    logger: Logger,
+    logger: Component,
     prepare: Option<OnPrepare>,
     execute: OnExecute,
     pub batches: Mutex<Vec<Vec<String>>>,
@@ -312,7 +314,7 @@ impl TestDevice {
             serial: serial.into(),
             model: model.into(),
             worker_id: worker_id.map(Into::into),
-            logger: MarathonLogging::default().logger("StubDevice", None),
+            logger: LogSettings::default().component("StubDevice"),
             prepare,
             execute,
             batches: Mutex::new(vec![]),
@@ -394,7 +396,7 @@ impl Device for TestDevice {
     fn worker_id(&self) -> Option<String> {
         self.worker_id.as_deref().map(Into::into)
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn prepare<'a>(&'a self, _configuration: Arc<Configuration>, context: VendorContext) -> VendorFuture<'a, ()> {
@@ -892,11 +894,10 @@ pub fn scheduling_test(body: impl FnOnce(Rc<Harness>) -> LocalFuture<'static, ()
 
 pub fn level_name(level: Level) -> &'static str {
     match level {
-        Level::Trace => "TRACE",
-        Level::Debug => "DEBUG",
-        Level::Info => "INFO",
-        Level::Warn => "WARN",
-        Level::Error => "ERROR",
-        _ => "OFF",
+        Level::TRACE => "TRACE",
+        Level::DEBUG => "DEBUG",
+        Level::INFO => "INFO",
+        Level::WARN => "WARN",
+        Level::ERROR => "ERROR",
     }
 }

@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+marathon-logging = { path = "../marathon-logging" }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 marathon-error = { path = "../marathon-error" }

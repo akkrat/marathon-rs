@@ -4,7 +4,7 @@ use marathon_apple::logparser::parser::DeviceFailureReason;
 use marathon_core::screenshot::{CaptureServices, CaptureSettings, ScreenCapturer};
 pub struct ScreenCapturerTestRunListener {
     c: ListenerContext,
-    logger: Logger,
+    logger: Component,
     capturer: Arc<ScreenCapturer>,
     job: Mutex<Option<Arc<dyn VendorTask>>>,
     last: Mutex<Option<Test>>,
@@ -12,7 +12,7 @@ pub struct ScreenCapturerTestRunListener {
 }
 impl ScreenCapturerTestRunListener {
     pub fn new(c: ListenerContext) -> Self {
-        let logger = c.logger("ScreenCapturerTestRunListener");
+        let logger = c.component("marathon_ios::listener::screenshot");
         let s = c.device.services();
         let config = &s.vendor.screen_record_configuration.screenshot_configuration;
         let logging = s.logging.clone();
@@ -53,7 +53,7 @@ impl ScreenCapturerTestRunListener {
         *self.last.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.c.log(
             &self.logger,
-            Level::Debug,
+            Level::DEBUG,
             format!(
                 "Finished recording for {}",
                 test.to_simple_safe_test_name('.').to_owned()
@@ -87,7 +87,7 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
             *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(test.clone());
             self.c.log(
                 &self.logger,
-                Level::Debug,
+                Level::DEBUG,
                 format!(
                     "Starting recording for {}",
                     test.to_simple_safe_test_name('.').to_owned()

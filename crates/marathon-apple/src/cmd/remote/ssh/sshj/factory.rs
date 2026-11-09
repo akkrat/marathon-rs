@@ -3,6 +3,8 @@
 //!
 //! Plain parameters only: mapping `SshConfiguration` onto them is ConnectionFactory's (4.3).
 
+use marathon_logging::{Level, Component};
+
 use super::auth::SshAuthentication;
 use super::client::{ClientConfig, RusshClient, SshClient};
 use super::config::{PerformanceDefaultConfig, SshLogging};
@@ -13,7 +15,7 @@ use super::keep_alive::KeepAliveRunner;
 use super::known_hosts::{HostKeyVerifier, PromiscuousVerifier};
 use jcompat::{
     jtime::Duration,
-    logging::{Level, Logger},
+    
 };
 use marathon_core::runtime::{VendorClock, VendorRuntime};
 use std::{future::Future, sync::Arc};
@@ -26,7 +28,7 @@ pub struct SshjCommandExecutorFactory {
     /// `Channel.BUFFERED`.
     pub channel_capacity: usize,
     logging: SshLogging,
-    logger: Logger,
+    logger: Component,
     runtime: Arc<dyn VendorRuntime>,
     clock: Arc<dyn VendorClock>,
 }
@@ -47,7 +49,7 @@ impl SshjCommandExecutorFactory {
             keep_alive_interval: Duration::of_seconds(15),
             keep_alive_max_count: 4,
             channel_capacity: 64,
-            logger: logging.logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutorFactory"),
+            logger: logging.component("marathon_apple::cmd::remote::ssh::sshj::factory"),
             logging,
         }
     }
@@ -160,7 +162,7 @@ async fn close_on_failure<C: SshClient, T>(client: &mut C, result: Result<T, Ssh
 pub async fn with_retry_sync<T, Fut: Future<Output = Result<T, SshFailure>>>(
     attempts: i32,
     logging: &SshLogging,
-    logger: &Logger,
+    logger: &Component,
     mut f: impl FnMut() -> Fut,
 ) -> Result<T, SshFailure> {
     let mut attempt = 1;
@@ -168,7 +170,7 @@ pub async fn with_retry_sync<T, Fut: Future<Output = Result<T, SshFailure>>>(
         match f().await {
             Ok(value) => return Ok(value),
             Err(error) if attempt == attempts => return Err(error),
-            Err(error) => logging.log(logger, Level::Warn, || "Retrying after failure".into(), Some(&error)),
+            Err(error) => logging.log(logger, Level::WARN, || "Retrying after failure".into(), Some(&error)),
         }
         attempt += 1;
     }

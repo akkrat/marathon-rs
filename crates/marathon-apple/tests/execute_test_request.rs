@@ -3,7 +3,7 @@ use marathon_error::{FailureKind, InjectedKind};
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
-use jcompat::logging::{Level, Logger, MarathonLogging};
+use marathon_logging::{Level, Component, LogSettings};
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::{
@@ -44,14 +44,14 @@ impl Timer for FixedTimer {
 }
 struct Executor {
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     command: Mutex<Option<CommandSession>>,
 }
 impl CommandExecutor for Executor {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {
@@ -89,7 +89,7 @@ impl LineListener for Lines {
 }
 #[tokio::test]
 async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners() -> TestResult {
-    let registry = Arc::new(Mutex::new(MarathonLogging::default()));
+    let registry = Arc::new(Mutex::new(LogSettings::default()));
     let logs = Arc::new(Mutex::new(vec![]));
     let captured = logs.clone();
     let logging = SshLogging::new(
@@ -122,7 +122,7 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
             id: "test".into(),
             charset: "UTF-8".into(),
         },
-        logger: registry.lock().unwrap().logger("test", None),
+        logger: registry.lock().unwrap().component("test"),
         command: Mutex::new(Some(command)),
     });
     let mut device = Fake::new(test_root_device::input(), std::path::Path::new("/tmp"));
@@ -178,14 +178,14 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
     let logs = logs.lock().unwrap();
     let warnings = logs
         .iter()
-        .filter(|(name, _, _)| name == "Xcodebuild")
+        .filter(|(name, _, _)| name == "marathon_logging")
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1);
     assert_eq!(
         warnings[0],
         &(
-            "Xcodebuild".into(),
-            Level::Warn,
+            "marathon_logging".into(),
+            Level::WARN,
             "simulator udid: stderr= warning ".into()
         )
     );
@@ -194,7 +194,7 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
         .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
         .find(|r| r["case"] == "stderr")
         .unwrap();
-    assert_eq!(row["logs"][0]["message"], warnings[0].2);
+    assert_eq!(marathon_test_support::recorded_logs::native_logs(&row["logs"])[0]["message"], warnings[0].2);
     Ok(())
 }
 
@@ -240,7 +240,7 @@ async fn requests_match_the_frozen_fake_worker_argv() -> TestResult {
             .lines()
             .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
             .collect::<Vec<_>>();
-        let mut registry = MarathonLogging::default();
+        let mut registry = LogSettings::default();
         let executor = Arc::new(FakeCommandExecutor::new(
             Arc::new(support::Runtime),
             CommandResult {

@@ -7,7 +7,7 @@ mod runner_device;
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
-use jcompat::logging::MarathonLogging;
+use marathon_logging::LogSettings;
 use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     cmd::{SessionScope, cancelled, failure},
@@ -34,7 +34,7 @@ fn setup(plan: Plan) -> (Arc<RunnerDevice>, AppleDeviceTestRunner) {
     (device, runner)
 }
 fn logging() -> marathon_apple::cmd::remote::ssh::sshj::config::SshLogging {
-    let mut registry = MarathonLogging::default();
+    let mut registry = LogSettings::default();
     registry.debug = true;
     marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
         Arc::new(Mutex::new(registry)),
@@ -272,7 +272,7 @@ fn unchanged_kotlin_tests_passed() {
 
 #[tokio::test]
 async fn execute_builds_the_request_and_logs_remote_path_and_tests() -> TestResult {
-    use jcompat::logging::Level;
+    use marathon_logging::Level;
     use marathon_apple::{apple_device::AppleDevice, cmd::remote::ssh::sshj::config::SshLogging};
     use marathon_core::model::{Test, TestBatch};
     let tmp = tempfile::tempdir()?;
@@ -337,13 +337,13 @@ async fn execute_builds_the_request_and_logs_remote_path_and_tests() -> TestResu
         &logs[..2],
         &[
             (
-                "com.malinskiy.marathon.apple.AppleDeviceTestRunner".into(),
-                Level::Debug,
+                "marathon_apple::apple_device_test_runner".into(),
+                Level::DEBUG,
                 "Remote xctestrun = /tmp/marathon/udid/marathon.xctestrun".into()
             ),
             (
-                "com.malinskiy.marathon.apple.AppleDeviceTestRunner".into(),
-                Level::Debug,
+                "marathon_apple::apple_device_test_runner".into(),
+                Level::DEBUG,
                 "Tests = [Test(pkg=UITests, clazz=SampleTests, method=testSample, metaProperties=[])]".into()
             ),
         ]

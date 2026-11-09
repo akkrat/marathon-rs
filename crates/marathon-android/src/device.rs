@@ -9,7 +9,7 @@ use crate::{
     tracker::{DeviceStateTracker, is_passing},
     version::AndroidVersion,
 };
-use jcompat::logging::{Level, Logger};
+use marathon_logging::{Level, Component};
 use marathon_adb::client::{
     AndroidDebugBridgeClient, AsyncChannelRequest, ChannelStream, ComplexRequest, Feature,
     device::{DeviceState, FetchDeviceFeaturesRequest, ListDevicesRequest},
@@ -96,7 +96,7 @@ struct Inner {
     adb_serial: String,
     runtime: Arc<AndroidRuntime>,
     tracker: Arc<DeviceStateTracker>,
-    logger: Logger,
+    logger: Component,
     state: Mutex<State>,
     line_listeners: Mutex<Vec<Arc<dyn LineListener>>>,
     logcat_listeners: Mutex<Vec<Arc<dyn crate::logcat_listener::LogcatListener>>>,
@@ -132,7 +132,7 @@ impl AndroidDevice {
         tracker: Arc<DeviceStateTracker>,
         runtime: Arc<AndroidRuntime>,
     ) -> Self {
-        let logger = runtime.logger("AndroidDevice");
+        let logger = runtime.component("marathon_android::device");
         Self {
             inner: Arc::new(Inner {
                 reference: Mutex::default(),
@@ -265,7 +265,7 @@ impl AndroidDevice {
         .into()
     }
     pub(crate) fn log_named(&self, name: &str, level: Level, message: &str, error: Option<&Failure>) {
-        self.runtime().emit(&self.runtime().logger(name), level, message, error)
+        self.runtime().emit(&self.runtime().component(name), level, message, error)
     }
     pub(crate) fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         self.runtime().emit(&self.inner.logger, level, message, error)
@@ -325,14 +325,14 @@ impl AndroidDevice {
                         break;
                     }
                     self.log(
-                        Level::Debug,
+                        Level::DEBUG,
                         &format!("Device {} is still booting...", self.serial_number().to_owned()),
                         None,
                     );
                     boot_clock.delay(1000, signal.clone()).await?;
                 }
                 self.log(
-                    Level::Debug,
+                    Level::DEBUG,
                     &format!("Device {} booted!", self.serial_number().to_owned()),
                     None,
                 );
@@ -512,7 +512,7 @@ impl AndroidDevice {
     ) -> VendorResult<Option<ShellCommandResult>> {
         match result {
             Err(e) if e.failure().kind != FailureKind::Adb(AdbKind::TransportClosed) => {
-                self.log(Level::Error, message, Some(e.failure()));
+                self.log(Level::ERROR, message, Some(e.failure()));
                 Ok(None)
             }
             other => other,
@@ -587,8 +587,8 @@ impl AndroidDevice {
                         && !matches!(e, VendorError::Cancelled(_))
                     {
                         device.log_named(
-                            "com.malinskiy.marathon.android.adam.LogcatManager",
-                            Level::Error,
+                            "marathon_android::device",
+                            Level::ERROR,
                             "CoroutineContext closing due to unrecoverable error",
                             Some(e.failure()),
                         );
@@ -648,8 +648,8 @@ impl AndroidDevice {
             match result {
                 Ok(Some(_)) => {}
                 Err(e @ VendorError::Cancelled(_)) => return Err(e),
-                Ok(None) => self.log(Level::Warn, "Timed out restoring reverse port forward", None),
-                Err(e) => self.log(Level::Warn, "Unable to restore reverse port forward", Some(e.failure())),
+                Ok(None) => self.log(Level::WARN, "Timed out restoring reverse port forward", None),
+                Err(e) => self.log(Level::WARN, "Unable to restore reverse port forward", Some(e.failure())),
             }
         }
         Ok(())
@@ -665,7 +665,7 @@ impl AndroidDevice {
             Err(e @ VendorError::Cancelled(_)) => Err(e),
             Err(e) => {
                 self.log(
-                    Level::Warn,
+                    Level::WARN,
                     "Unable to read a returned device's properties",
                     Some(e.failure()),
                 );
@@ -723,7 +723,7 @@ impl AndroidDevice {
         let serial = self.adb_serial();
         if self.inner.tracker.request_losses(serial) >= REQUEST_LOSSES_PER_DEVICE {
             self.log(
-                Level::Warn,
+                Level::WARN,
                 &format!("Device {serial} lost {REQUEST_LOSSES_PER_DEVICE} requests already; not keeping it"),
                 None,
             );
@@ -796,7 +796,7 @@ impl AndroidDevice {
                 )
                 .await
             {
-                self.log(Level::Warn, "Unable to remove reverse port forward", Some(e.failure()));
+                self.log(Level::WARN, "Unable to remove reverse port forward", Some(e.failure()));
             }
         }
         *disposed = true;
@@ -841,7 +841,7 @@ impl Device for AndroidDevice {
     fn worker_id(&self) -> Option<String> {
         None
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.inner.logger
     }
     fn prepare<'a>(
@@ -955,7 +955,7 @@ impl Device for AndroidDevice {
                             match passing {
                                 Some(why) => {
                                     device.log(
-                                        Level::Warn,
+                                        Level::WARN,
                                         &format!("Batch failed because {why}; keeping the device"),
                                         Some(&failure),
                                     );

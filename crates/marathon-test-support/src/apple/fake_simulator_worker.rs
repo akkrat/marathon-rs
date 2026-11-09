@@ -1,5 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/FakeSimulatorWorker.kt
-use jcompat::logging::{Logger, MarathonLogging};
+use marathon_logging::{Component, LogSettings};
 use marathon_apple::cmd::{CommandExecutor, CommandHost, CommandRequest, CommandResult, CommandSession, failure};
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
@@ -77,7 +77,7 @@ pub type ConnectedHook = Arc<dyn Fn() + Send + Sync>;
 pub struct FakeSimulatorWorker {
     runtime: Arc<dyn VendorRuntime>,
     host: CommandHost,
-    logger: Logger,
+    logger: Component,
     pub arch: Mutex<String>,
     pub home: String,
     pub simulators: Simulators,
@@ -97,14 +97,14 @@ impl FakeSimulatorWorker {
         self.connected.store(false, Ordering::SeqCst);
         self.lost.send_replace(Some(cause));
     }
-    pub fn new(runtime: Arc<dyn VendorRuntime>, logging: &mut MarathonLogging) -> Self {
+    pub fn new(runtime: Arc<dyn VendorRuntime>, logging: &mut LogSettings) -> Self {
         Self {
             runtime,
             host: CommandHost {
                 id: "local".into(),
                 charset: "UTF-8".into(),
             },
-            logger: logging.logger("com.malinskiy.marathon.apple.ios.device.FakeSimulatorWorker", None),
+            logger: logging.component("marathon_test_support::apple::fake_simulator_worker"),
             arch: Mutex::new("arm64".into()),
             home: "/Users/worker".into(),
             simulators: Arc::default(),
@@ -231,7 +231,7 @@ impl CommandExecutor for FakeSimulatorWorker {
     fn host(&self) -> &CommandHost {
         &self.host
     }
-    fn logger(&self) -> &Logger {
+    fn component(&self) -> &Component {
         &self.logger
     }
     fn connected(&self) -> bool {
