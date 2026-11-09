@@ -1509,6 +1509,7 @@ dependencies = [
  "percent-encoding",
  "rustls",
  "rustls-native-certs",
+ "serde",
  "serde_json",
  "tokio",
  "tower-service",

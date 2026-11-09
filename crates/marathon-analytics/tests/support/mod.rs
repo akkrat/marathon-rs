@@ -317,10 +317,26 @@ impl Peer {
         Ok(self.requests.lock().unwrap().clone())
     }
 }
+fn native_request_json(mut row: serde_json::Value) -> serde_json::Result<serde_json::Value> {
+    if row["headers"]["content-type"]
+        .as_str()
+        .is_some_and(|t| t.starts_with("application/json"))
+    {
+        // Fixtures retain their original escaping; JSON bodies compare as data,
+        // with declaration order retained by preserve_order.
+        let body: serde_json::Value = serde_json::from_str(row["body"].as_str().unwrap_or(""))?;
+        row["body"] = serde_json::to_string(&body)?.into();
+    }
+    Ok(row)
+}
 pub fn exchanges(scenario: &str) -> Vec<serde_json::Value> {
     include_str!("../../../../fixtures/oracle/analytics-clients/exchanges.jsonl")
         .lines()
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .and_then(native_request_json)
+                .unwrap()
+        })
         .filter(|row| row["scenario"] == scenario)
         .collect()
 }

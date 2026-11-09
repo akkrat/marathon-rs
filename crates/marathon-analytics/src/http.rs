@@ -6,10 +6,7 @@ use hyper::{Request, header};
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
-use jcompat::{
-    logging::Level,
-    writers::{GsonWriter, WriterValue},
-};
+use jcompat::logging::Level;
 use marathon_core::{analytics::MetricsContext, error::*, executor::shared::failure};
 use std::{
     sync::{Arc, OnceLock},
@@ -21,11 +18,8 @@ use url::Url;
 pub(crate) fn text(value: &str) -> OperationResult<String> {
     Ok(value.to_owned())
 }
-pub(crate) fn quote(value: &str) -> String {
-    match GsonWriter::default().write(&WriterValue::String(value.into())) {
-        Ok(text) => text.to_owned(),
-        Err(_) => unreachable!("Gson string encoding is infallible"),
-    }
+pub(crate) fn json_body(value: &impl serde::Serialize) -> OperationResult<String> {
+    serde_json::to_string(value).map_err(|e| failure("java.lang.IllegalArgumentException", &e.to_string()).into())
 }
 pub(crate) fn vendor(error: OperationError) -> VendorError {
     match error {

@@ -108,13 +108,15 @@ impl Influx2Client {
                 ),
                 None,
             );
-            let body = format!(
-                "{{\"orgID\":{},\"name\":{},\"retentionRules\":[{{\"type\":\"expire\",\"everySeconds\":{},\"shardGroupDurationSeconds\":{}}}]}}",
-                quote(id),
-                quote(&bucket),
-                rp.every_seconds,
-                rp.shard_group_duration_seconds
-            );
+            let body = json_body(&BucketRequest {
+                org_id: id,
+                name: &bucket,
+                retention_rules: [RetentionRule {
+                    kind: "expire",
+                    every_seconds: rp.every_seconds,
+                    shard_group_duration_seconds: rp.shard_group_duration_seconds,
+                }],
+            })?;
             api(&http, "POST", "api/v2/buckets", Some("application/json"), None, body).await?;
         }
         Ok(Arc::new(Self {
@@ -177,6 +179,41 @@ pub(crate) async fn api(
         Err(error) => Err(error),
     }
 }
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BucketRequest<'a> {
+    #[serde(rename = "orgID")]
+    org_id: &'a str,
+    name: &'a str,
+    retention_rules: [RetentionRule; 1],
+}
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RetentionRule {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    every_seconds: i32,
+    shard_group_duration_seconds: i64,
+}
+#[derive(serde::Serialize)]
+struct FluxRequest<'a> {
+    query: &'a str,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    params: Empty,
+    dialect: FluxDialect,
+}
+#[derive(serde::Serialize)]
+struct Empty {}
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FluxDialect {
+    header: bool,
+    delimiter: &'static str,
+    annotations: [&'static str; 3],
+    comment_prefix: &'static str,
+    date_time_format: &'static str,
+}
 impl FluxQuery for Influx2Client {
     fn query<'a>(&'a self, flux: &'a str) -> ServiceFuture<'a, Vec<Record>> {
         Box::pin(async move {
@@ -184,10 +221,18 @@ impl FluxQuery for Influx2Client {
             if self.closed.load(Ordering::Acquire) {
                 return Err(closed());
             }
-            let body = format!(
-                "{{\"query\":{},\"type\":\"flux\",\"params\":{{}},\"dialect\":{{\"header\":true,\"delimiter\":\",\",\"annotations\":[\"datatype\",\"group\",\"default\"],\"commentPrefix\":\"#\",\"dateTimeFormat\":\"RFC3339\"}}}}",
-                quote(&text(flux)?)
-            );
+            let body = json_body(&FluxRequest {
+                query: flux,
+                kind: "flux",
+                params: Empty {},
+                dialect: FluxDialect {
+                    header: true,
+                    delimiter: ",",
+                    annotations: ["datatype", "group", "default"],
+                    comment_prefix: "#",
+                    date_time_format: "RFC3339",
+                },
+            })?;
             decode(
                 &api(
                     &self.http,

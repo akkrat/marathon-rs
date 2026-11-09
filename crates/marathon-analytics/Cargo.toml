@@ -16,6 +16,7 @@ marathon-core = { path = "../marathon-core" }
 marathon-config = { path = "../marathon-config" }
 tokio = { version = "=1.53.2", features = ["net", "io-util", "sync", "time", "rt", "macros"] }
 futures-util = "=0.3.34"
+serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
 csv = "=1.4.0"
 url = "=2.5.8"
@@ -32,4 +33,5 @@ hyper-timeout = "=0.5.2"
 tower-service = "=0.3.3"
 
 [dev-dependencies]
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
 marathon-core = { path = "../marathon-core", features = ["test-support"] }

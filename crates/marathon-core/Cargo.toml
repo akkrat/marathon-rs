@@ -28,6 +28,7 @@ gif = "=0.13.3"
 nix = { version = "0.30", default-features = false }
 
 [dev-dependencies]
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
 image = { version = "=0.25.8", default-features = false, features = ["png"] }
 marathon-core = { path = ".", features = ["test-support"] }
 marathon-test-support = { path = "../marathon-test-support" }
