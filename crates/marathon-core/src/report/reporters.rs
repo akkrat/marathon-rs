@@ -2,7 +2,7 @@
 //! report/bill/BillingReporter.kt, report/raw/RawJsonReporter.kt,
 //! report/test/TestJsonReporter.kt and report/stdout/StdoutReporter.kt.
 
-use super::{projection as p, *};
+use super::{json as schema, projection as p, *};
 use crate::{
     analytics::{ReporterRegistration, ReporterSlot},
     artifact_io::*,
@@ -15,7 +15,7 @@ use jcompat::{
     formatting::format_stdout_duration,
     jtime::{instant_duration_millis, instant_to_epoch_milli},
     logging::{Level, Logger},
-    writers::{GsonWriter, WriterValue},
+    writers::WriterValue,
 };
 use std::path::PathBuf;
 use std::{collections::BTreeMap, io::Write};
@@ -49,8 +49,12 @@ impl ReporterFiles {
         }
     }
 }
-fn json(value: WriterValue) -> OperationResult<String> {
-    GsonWriter::default()
+fn json(value: impl serde::Serialize) -> OperationResult<String> {
+    serde_json::to_string(&value)
+        .map_err(|e| crate::executor::shared::failure("java.lang.IllegalArgumentException", &e.to_string()).into())
+}
+fn legacy_json(value: WriterValue) -> OperationResult<String> {
+    jcompat::writers::GsonWriter::default()
         .write(&value)
         .map_err(|e| crate::executor::shared::failure("java.lang.IllegalArgumentException", &e.0).into())
 }
@@ -70,7 +74,7 @@ impl Reporter for DeviceInfoJsonReporter {
     fn generate<'a>(&'a self, report: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
         Box::pin(async move {
             for e in report.device_connected_events() {
-                let text = json(p::device(&e.device))?;
+                let text = json(schema::Device::from(&e.device))?;
                 let target = self.output.target(FileType::DeviceInfo, &e.pool_id, &e.device, None);
                 let path = self.output.files.create_file(&target).await?;
                 self.output.write(path, text).await?;
@@ -95,7 +99,7 @@ impl Reporter for TestJsonReporter {
                     .output
                     .target(FileType::TestResult, &e.pool_id, &e.device, Some(&e.test_result.test));
                 let path = self.output.files.create_file(&target).await?;
-                let text = json(p::test_result(&e.test_result, &self.output.cwd))?;
+                let text = legacy_json(p::test_result(&e.test_result, &self.output.cwd))?;
                 self.output.write(path, text).await?;
             }
             Ok(())
@@ -149,9 +153,17 @@ impl Reporter for RawJsonReporter {
                 ]));
             }
             let path = self.output.files.create_test_result_file("raw.json").await?;
-            self.output.write(path, json(WriterValue::Array(values))?).await
+            self.output.write(path, legacy_json(WriterValue::Array(values))?).await
         })
     }
+}
+#[derive(serde::Serialize)]
+struct Bill<'a> {
+    device: schema::Device<'a>,
+    pool: schema::Pool<'a>,
+    start: i64,
+    end: i64,
+    duration: i64,
 }
 pub struct BillingReporter {
     pub output: ReporterFiles,
@@ -231,13 +243,13 @@ impl Reporter for BillingReporter {
                     .map_err(operation_error)?;
                     continue;
                 };
-                let value = p::object([
-                    ("device", p::device(&e.device)),
-                    ("pool", p::pool(&e.pool_id)),
-                    ("start", arithmetic(instant_to_epoch_milli(start))?.into()),
-                    ("end", arithmetic(instant_to_epoch_milli(*end))?.into()),
-                    ("duration", arithmetic(instant_duration_millis(start, *end))?.into()),
-                ]);
+                let value = Bill {
+                    device: (&e.device).into(),
+                    pool: schema::Pool { name: &e.pool_id.name },
+                    start: arithmetic(instant_to_epoch_milli(start))?,
+                    end: arithmetic(instant_to_epoch_milli(*end))?,
+                    duration: arithmetic(instant_duration_millis(start, *end))?,
+                };
                 bills.push((e, value));
             }
             for (e, bill) in bills {

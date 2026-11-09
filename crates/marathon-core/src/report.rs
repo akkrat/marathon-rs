@@ -193,6 +193,7 @@ pub trait Reporter: Send + Sync {
     fn generate<'a>(&'a self, report: &'a ExecutionReport) -> ServiceFuture<'a, ()>;
 }
 
+pub mod json;
 mod junit;
 pub mod projection;
 mod reporters;

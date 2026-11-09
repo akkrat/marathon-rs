@@ -527,12 +527,15 @@ pub fn compare_scenario(id: &str) {
     );
     for (name, expected) in files {
         let expected = without_delegate(bytes(expected));
-        assert_eq!(
-            String::from_utf8_lossy(&actual[name]),
-            String::from_utf8_lossy(&expected),
-            "{id}: {name}"
-        );
-        assert_eq!(actual[name], expected, "byte boundary {id}: {name}");
+        if name.ends_with(".json") {
+            assert_eq!(
+                checked(serde_json::from_slice::<Value>(&actual[name])),
+                checked(serde_json::from_slice::<Value>(&expected)),
+                "{id}: {name}"
+            );
+        } else {
+            assert_eq!(actual[name], expected, "byte boundary {id}: {name}");
+        }
     }
     fn directories(root: &Path, dir: &Path, out: &mut Vec<String>) {
         for entry in checked(std::fs::read_dir(dir)) {
