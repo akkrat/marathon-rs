@@ -6,7 +6,7 @@ do not generate new JVM records.
 
 `./run check` validates historical evidence and checks native cases against
 `fixtures/contract/native-v1`. `./run native-vendors --output runs/new-native`
-runs the 15 bounded vendor cases. `./run all --profile PROFILE --output DIR`
+runs the 16 bounded vendor cases. `./run all --profile PROFILE --output DIR`
 runs the native gate and selected captures. The gate does not write goldens.
 The JVM `capture` command is historical and requires `--historical`.
 
@@ -28,3 +28,11 @@ array order, null/omission, and every byte outside the JSON values still differ.
 Only top-level assignments outside JavaScript comments, quoted strings and
 template literals (including interpolations) qualify; nested code stays text.
 Stored golden views and historical JVM comparisons remain unchanged.
+
+`android-instrumentation-eof` is native-only: its new scripted instrumentation
+stream starts `MainActivityTest#testText` and ends without a result. Marathon's
+own failure reaches JUnit, Allure, per-test JSON and the HTML test page. It is
+registered with `native_only: true`, with no historical JVM golden or verification
+record; historical capture rejects it. The other 17 adapters retain their JVM
+evidence and validation. Its stream lives under `tools/differential/scenarios/`;
+existing copied fixtures are unchanged.

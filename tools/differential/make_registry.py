@@ -46,7 +46,8 @@ release_variants = json.loads((ROOT/'tools/differential/release-variants.json').
 for name,spec in vendors.CASES.items():
     c = 'tools/differential/contracts/vendor-'+name+'.json'
     golden = 'fixtures/differential/vendors/'+name+'/jvm-c95b2128'
-    adapters[name] = dict(kind='vendor',contract=c,golden=golden)
+    native_only = spec.get('native_only', False)
+    adapters[name] = dict(kind='vendor',contract=c,**(dict(native_only=True) if native_only else dict(golden=golden)))
     if name in release_variants:
         variant = release_variants[name]
         if not variant['reason'].startswith('A20:') or not variant['paths']:
@@ -60,6 +61,8 @@ for name,spec in vendors.CASES.items():
         'tools/differential/vendors.py','tools/differential/vendor_reports.py',
         'tools/fake-worker/src/apple.rs','crates/marathon-adb/src/server/world.rs',
         'tools/differential/vendor_console.py','tools/differential/vendor_transport.py','tools/differential/gif_frames.py']
+    if 'execution' in spec:
+        source_inputs.append(spec['execution'])
     if vendors.apple(name):
         source_inputs += ['fixtures/fake-worker/apple/'+spec['base']+'/in/'+filename
                           for filename in ['Marathonfile','Marathondevices']]
@@ -70,7 +73,11 @@ for name,spec in vendors.CASES.items():
         source_inputs += [str(p.relative_to(ROOT)) for p in sorted((ROOT/'fixtures/fake-adb/android-runner-cli/script').glob('*.txt'))]
     active(name,'7.1b','ssh' if vendors.apple(name) else 'adb',
            'whole CLI: full report and worker manifests, typed bytes, ordered console, causal transport, final state',
-           target('marathon-cli','differential_vendors'),[golden,*adapters[name].get('alternates',[])],source_inputs)
+           target('marathon-cli','differential_vendors'),
+           ['fixtures/contract/native-v1/'+name+'.json.gz'] if native_only else [golden,*adapters[name].get('alternates',[])],source_inputs)
+    if native_only:
+        rows[-1]['owner'] = '8.6b'
+        rows[-1]['prerequisites'] = ['offline Rust toolchain', 'committed native contract golden']
 # P1: integrate the owning WPs' feature/fault contracts without multiplying every
 # feature into every whole-CLI baseline. Their narrower scopes remain explicit.
 for name,owner,transport,package,test,paths,scope in [
@@ -105,7 +112,7 @@ ledger = dict(format='marathon-differential/registry@1',source='c95b212882c7ba7b
               profile='registered-vendors',profiles=['macos-arm64','linux-x86_64'],adapters=adapters,
               **factory_fingerprints(ROOT),
               evidence_inventory=inputs('fixtures/differential/verification/manifest.json','fixtures/differential/vendor-verification-c95b2128/manifest.json','tools/differential/release-variants.json',
-                  *[row['golden']+'/evidence.json' for row in adapters.values()],
+                  *[row['golden']+'/evidence.json' for row in adapters.values() if 'golden' in row],
                   *[path+'/evidence.json' for row in adapters.values() for path in row.get('alternates',[])]),
               legacy_inventory=inputs(*sorted(set(legacy))),cases=rows)
 path = ROOT / 'tools/differential/registry.json'

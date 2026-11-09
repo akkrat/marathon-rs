@@ -21,7 +21,9 @@ APPLE = ('ios-smoke', 'ios-media', 'ios-screenshot', 'macos-smoke')
 CASES = {name:dict(base=name,mode='run',exit=1) for name in APPLE}
 CASES.update({'android-smoke':dict(base='android-smoke',mode='run',exit=0),
               'android-two-devices':dict(base='android-two-devices',mode='run',exit=1),
-              'android-remote':dict(base='android-smoke',mode='remote',exit=0)})
+              'android-remote':dict(base='android-smoke',mode='remote',exit=0),
+              'android-instrumentation-eof':dict(base='android-smoke',mode='run',exit=1,native_only=True,
+                  execution='tools/differential/scenarios/android-instrumentation-eof.txt')})
 for vendor,base in [('ios','ios-smoke'),('macos','macos-smoke'),('android','android-two-devices')]:
     CASES[vendor+'-ignore'] = dict(base=base,mode='ignore',exit=0)
     CASES[vendor+'-parse'] = dict(base=base if vendor != 'android' else 'android-smoke',mode='parse',exit=0)
@@ -110,6 +112,10 @@ def prepare_adb(work, name):
     for rule in script['shell']:
         if 'stdout_file' in rule:
             rule['stdout_file'] = str((source / rule['stdout_file']).resolve())
+    if 'execution' in CASES[name]:
+        for rule in script['shell']:
+            if rule.get('prefix') == 'am instrument':
+                rule['stdout_file'] = str(ROOT / CASES[name]['execution'])
     save(work / 'script.json', script)
     return work / 'script.json'
 

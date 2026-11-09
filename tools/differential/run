@@ -152,6 +152,8 @@ def build_vendor_binaries(work):
 
 
 def capture(name, implementation, work, binaries=None):
+    e.require(implementation == 'native' or not adapters()[name].get('native_only'),
+              'native-only scenario has no historical JVM capture')
     raw = work / 'raw'
     if adapters()[name]['kind'] == 'vendor':
         binaries = binaries or build_vendor_binaries(work/'binaries')
@@ -194,7 +196,7 @@ def capture(name, implementation, work, binaries=None):
         **({'driver_transcript':e.load(raw / 'transcript.json')} if name == 'parse' and implementation == 'jvm' else {})))
 
 
-def validate_registry():
+def validate_registry(require_native_goldens=True):
     ledger = e.load(HERE / 'registry.json')
     e.require(ledger['format'] == 'marathon-differential/registry@1', 'registry version')
     for path, digest in ledger['evidence_inventory'].items():
@@ -207,7 +209,8 @@ def validate_registry():
               'required vendor capture adapter inventory differs')
     e.require({name for name,row in registered.items() if row.get('kind') == 'portable'} == {'local','parse'},
               'required portable capture adapter inventory differs')
-    e.require(all(row.get('kind') in ('vendor','portable') and row.get('golden') and row.get('contract')
+    e.require(all(row.get('kind') in ('vendor','portable') and row.get('contract')
+                  and (row.get('golden') or row.get('native_only') is True)
                   for row in registered.values()),'invalid capture adapter')
     names = [r['id'] for r in ledger['cases']]
     e.require(len(set(names)) == len(names), 'duplicate scenario registration')
@@ -218,6 +221,8 @@ def validate_registry():
         if row['state'] == 'active':
             e.require(row.get('native') and row.get('evidence'), 'active case has no native runner/evidence')
             for path in row['evidence']:
+                if not require_native_goldens and registered.get(row['id'], {}).get('native_only'):
+                    continue
                 e.require((ROOT / path).exists(), f'missing active evidence: {path}')
     # A future factory registration must update the ledger, not leave a silently reduced gate.
     for key, digest in factory_fingerprints(ROOT).items():
@@ -228,7 +233,9 @@ def validate_registry():
 def validate_all():
     subprocess.run([sys.executable, '-I', str(HERE / 'make_registry.py'), '--check'], check=True, cwd=ROOT)
     ledger = validate_registry()
-    for name in adapters():
+    for name,row in adapters().items():
+        if row.get('native_only'):
+            continue
         for expected in [golden(name), *[ROOT/path for path in adapters()[name].get('alternates',[])]]:
             e.require(e.validate(expected, contract(name))['implementation'] == 'jvm', 'not JVM evidence')
             e.normalized(expected, contract(name))
@@ -249,7 +256,7 @@ def validate_all():
         verification = ROOT/'fixtures/differential/vendor-verification-c95b2128'
         manifest = e.load(verification/'manifest.json')
         e.require(manifest['format'] == 'marathon-differential/verification@1','vendor verification version')
-        required = {case+'/'+run for case,row in adapters().items() if row['kind'] == 'vendor'
+        required = {case+'/'+run for case,row in adapters().items() if row['kind'] == 'vendor' and not row.get('native_only')
                     for run in ('jvm-a','jvm-b','native')}
         e.require(set(manifest['records']) == required,'vendor repeatability inventory differs')
         for relative,digest in manifest['records'].items():
@@ -293,7 +300,7 @@ def main():
     if args.operation == 'diff-golden':
         diff_golden(args.against)
     elif args.operation == 'bless':
-        validate_registry()
+        validate_registry(require_native_goldens=False)
         destination = ROOT / 'fixtures/contract/native-v1'
         e.require(not destination.exists(), 'native generation already exists; remove it explicitly before re-blessing')
         with tempfile.TemporaryDirectory(prefix='native-bless-') as temp:
@@ -339,6 +346,7 @@ def main():
             print('PASS profile=registered-offline-native (whole vendor baselines plus scoped owner contracts)')
     elif args.operation == 'capture':
         e.require(args.historical, 'JVM capture is historical; pass --historical explicitly')
+        e.require(not adapters()[args.scenario].get('native_only'), 'native-only scenario has no historical JVM capture')
         # Never touch an existing generation, even if capture fails.
         e.require(not args.output.exists(), 'capture output already exists')
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -377,7 +385,8 @@ def main():
             pending = [r['id'] for r in ledger['cases'] if r['state'] == 'planned']
             e.require(not pending, 'full vendor profile is not active: ' + ', '.join(pending))
         command([ROOT / 'tools/oracle/build.sh', 'reference'], args.output / 'verified-reference-build', timeout=600)
-        selected = [name for name,row in adapters().items() if args.profile != 'harness-first' or row['kind'] == 'portable']
+        selected = [name for name,row in adapters().items()
+                    if not row.get('native_only') and (args.profile != 'harness-first' or row['kind'] == 'portable')]
         binaries = None
         if any(adapters()[name]['kind'] == 'vendor' for name in selected):
             command([ROOT/'tools/oracle/build.sh','patched'],args.output/'verified-patched-build',timeout=600)

@@ -3,8 +3,9 @@
 The Phase 8 contract is in [PLAN.md §3.12](../../PLAN.md#312-phase-8-contract).
 `0.12.0-rc.1` is the JVM-parity baseline. JVM captures and their verification
 records are historical; do not generate new JVM records. The gate compares fresh
-native captures against the selected Rust-owned `native-v1` views for all 17
-adapters, including 15 bounded vendor cases.
+native captures against the selected Rust-owned `native-v1` views for all 18
+adapters, including 16 bounded vendor cases. The new `android-instrumentation-eof`
+case is native-only; the other adapters retain their historical JVM evidence.
 
 ## The external-storage wipe (D27)
 
@@ -42,7 +43,7 @@ zeroed `stdin`. `write_record` applies these rules, and a JVM capture's redactio
 `tools/differential/run check` validates historical evidence and runs the native
 contracts and comparator self-tests. `scripts/check.sh` runs the offline checks
 and the native targets through the workspace tests. `native-vendors --output
-NEW_DIRECTORY` runs the 15 whole-vendor cases. The gate builds the YAML helper
+NEW_DIRECTORY` runs the 16 whole-vendor cases. The gate builds the YAML helper
 with `cargo build -q -p snakeyaml --example yaml_tree` before comparison; run
 that command first when using the harness directly. Missing or stale helpers
 are rejected with the build command. No JVM or JDK is needed.
@@ -81,6 +82,7 @@ configuration, and updating that configuration requires a macOS re-bless.
 | `ios-smoke`, `macos-smoke` | Passing, failed and ignored tests, real SSH commands/rsync argv, complete reports, xctestrun/xcresult bytes, permissions and worker cleanup |
 | `ios-media`, `ios-screenshot` | Video/transcode/device logs and A19 leftover; exact decoded GIF frames and timing; all report references |
 | `android-smoke`, `android-two-devices`, `android-remote` | Passing local discovery; two-device setup/install plus pass/fail/ignored batch; remote discovery plus execution; complete reports, shell output and final ADB state |
+| `android-instrumentation-eof` | Native instrumentation starts a test, then closes without a result; Marathon-generated EOF wording in JUnit, Allure, per-test JSON and HTML, with full transport and final-state checks |
 | Each vendor's `-ignore` and `-parse` | Failure suppression stays on stderr with CLI exit 0; named `.yml`, seeded output and parse/provider side effects |
 | `ios-pass`, `macos-pass` | Passing Apple CLI exit 0; Android passing is `android-smoke` |
 
@@ -93,8 +95,8 @@ P1 integrates the owners' installer, recovery/boot/crash, timeout/loss,
 coverage/file-sync, video/GIF and profiling JVM contracts as explicitly scoped
 registry rows. Those rows retain their component/request comparison claims;
 they do not become additional whole-CLI full-manifest scenarios. This avoids
-an exhaustive feature/transport cross-product. The 15 CLI scenarios provide the
-representative end-to-end manifests.
+an exhaustive feature/transport cross-product. The original 15 CLI scenarios provide the
+representative end-to-end manifests; the native-only EOF case adds generated-failure coverage.
 
 P3 retains actual `KotlinProcessCommandExecutor`/`JvmFileBridge` command and copy
 pairs, plus the labelled shared Apple world/loopback-SSH contracts from 5.1.

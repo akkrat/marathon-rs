@@ -291,6 +291,13 @@ class EvidenceTests(unittest.TestCase):
             DRIVER['main']()
         self.assertFalse((self.root/'never-created').exists())
 
+    def test_native_only_scenario_rejects_a_historical_jvm_capture(self):
+        args = ['run', 'capture', 'android-instrumentation-eof', '--historical',
+                '--output', str(self.root/'never-created')]
+        with mock.patch.object(sys, 'argv', args), self.assertRaisesRegex(e.Invalid, 'native-only'):
+            DRIVER['main']()
+        self.assertFalse((self.root/'never-created').exists())
+
     def test_all_uses_native_captures_only(self):
         namespace = DRIVER['main'].__globals__
         selected = {'local': {'kind':'portable'}, 'parse': {'kind':'portable'}}
