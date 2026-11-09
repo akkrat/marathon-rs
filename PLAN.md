@@ -698,12 +698,13 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.2 | Replace `JavaString` with `String` (docs/wp/8.2.md) | M | – |
 | 8.3 | Replace JavaPath with PathBuf; drop jcompat utf8 and net (docs/wp/8.3.md) | M | 8.2 |
 | 8.4 | Write JSON with serde instead of the Gson emulation (docs/wp/8.4.md) | M | 8.3 |
-| 8.5 | Remove JVM identity strings from outputs (docs/wp/8.5.md) | S | 8.4 |
+| 8.5 | Remove JVM identity strings from outputs (docs/wp/8.5.md) | L | 8.4 |
+| 8.6a | Typed error kinds instead of Java class strings (docs/wp/8.6a.md) | H | 8.5 |
+| 8.6b | Plain error wording instead of Java class names | M | 8.6a |
 
 Later candidates:
 
 - `jnum` and `jtime` (numbers and time; their parsers are the input syntax and stay)
-- Typed errors in `Failure` instead of Java class strings.
 - Serde YAML writer instead of the Jackson YAML emulation.
 - `tracing` instead of logback emulation.
 - Plain async reads instead of Apple polling readers.
