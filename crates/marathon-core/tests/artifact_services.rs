@@ -898,7 +898,10 @@ fn native_directory_failure_retains_jvm_class_and_message() {
                 panic!("ordinary I/O failure")
             };
             let expected = oracle("log-reset-failure");
-            assert_eq!(json!(error.kind.legacy_class()), expected["error"]);
+            assert_eq!(
+                error.kind,
+                marathon_test_support::recorded_errors::kind(expected["error"].as_str().unwrap())
+            );
             let message = error.message.unwrap();
             assert_eq!(
                 json!(message.replace(retained.0.to_str().unwrap(), "<tmp>")),

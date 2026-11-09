@@ -1309,11 +1309,7 @@ impl marathon_core::runtime::CancellationSignal for LinkedSignal {
 pub fn describe_failure(error: &marathon_core::error::Failure) -> String {
     std::iter::successors(Some(error), |e| e.cause.as_deref())
         .take(4)
-        .map(|e| {
-            e.message
-                .to_owned()
-                .unwrap_or_else(|| e.kind.legacy_class().rsplit(['.', '$']).next().unwrap_or("").to_owned())
-        })
+        .map(|e| e.message.to_owned().unwrap_or_else(|| e.kind.to_string()))
         .collect::<Vec<_>>()
         .join(": ")
 }

@@ -130,7 +130,7 @@ pub fn ise(message: &str) -> Failure {
 pub fn device_lost(cause: Failure) -> VendorError {
     VendorError::DeviceLost(Failure {
         kind: FailureKind::DeviceLost,
-        message: Some(cause.to_java_string()),
+        message: Some(cause.to_string()),
         cause: Some(Box::new(cause)),
         stacktrace: None,
     })

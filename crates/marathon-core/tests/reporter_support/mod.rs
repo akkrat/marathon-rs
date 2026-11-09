@@ -422,7 +422,10 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
                     Ok(()) => panic!("JSON writer accepted nonfinite metadata"),
                 };
                 let expected = row("fail-json");
-                assert_eq!(error.failure().kind.legacy_class(), text(&expected["error"]["class"]));
+                assert_eq!(
+                    error.failure().kind,
+                    marathon_test_support::recorded_errors::kind(&text(&expected["error"]["class"]))
+                );
                 assert_eq!(error.failure().message, Some(text(&expected["error"]["message"])));
             } else {
                 outcome.map_err(|e| OperationError::Failed(e.failure().clone()))?;

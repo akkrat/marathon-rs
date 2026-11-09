@@ -102,10 +102,16 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
     let Err(OperationError::Failed(error)) = result else {
         panic!("{scenario}: fault accepted")
     };
-    assert_eq!(error.kind.legacy_class().to_owned(), expected["class"], "{scenario}");
     assert_eq!(
-        error.cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
-        expected["cause"].as_str().map(str::to_owned),
+        error.kind,
+        marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap()),
+        "{scenario}"
+    );
+    assert_eq!(
+        error.cause.as_ref().map(|c| c.kind.clone()),
+        expected["cause"]
+            .as_str()
+            .map(marathon_test_support::recorded_errors::kind),
         "{scenario}"
     );
     assert_eq!(
@@ -160,9 +166,14 @@ async fn refused_v2_query_wraps_connect_exception() {
     else {
         panic!("refused query accepted")
     };
-    assert_eq!(error.kind.legacy_class().to_owned(), expected["class"]);
     assert_eq!(
-        error.cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
-        expected["cause"].as_str().map(str::to_owned)
+        error.kind,
+        marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap())
+    );
+    assert_eq!(
+        error.cause.as_ref().map(|c| c.kind.clone()),
+        expected["cause"]
+            .as_str()
+            .map(marathon_test_support::recorded_errors::kind)
     );
 }

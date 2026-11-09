@@ -173,10 +173,10 @@ fn failure_json(f: &Failure) -> DumpValue {
     let mut causes = Vec::new();
     let mut cause = f.cause.as_deref();
     while let Some(c) = cause {
-        causes.push((c.kind.legacy_class().to_owned(), c.message.to_owned()));
+        causes.push((c.kind.clone(), c.message.to_owned()));
         cause = c.cause.as_deref();
     }
-    error_json(f.kind.legacy_class(), f.message.as_deref(), &causes)
+    error_json(&f.kind, f.message.as_deref(), &causes)
 }
 
 /// `parseAndValidate`: stage (a) with both tracking flags true, then the logical validator.

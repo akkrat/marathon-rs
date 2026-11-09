@@ -154,7 +154,7 @@ fn timing_evaluates_the_message_before_its_separate_elapsed_read_with_debug_disa
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(clock.clone()).unwrap()), logging);
     timing
         .cycle(&Transport::Local, 2, 3, 4, 5)
-        .map_err(|e| e.failure().to_java_string().to_owned())?;
+        .map_err(|e| e.failure().to_string().to_owned())?;
     assert_eq!(
         logs.lock().unwrap()[0].2,
         "Worker local: connected in 2 ms, planned 4 simulators in 3 ms, provisioned them in 5 ms (+25 ms since start)"

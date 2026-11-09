@@ -263,10 +263,7 @@ async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_
     let error = parser.extract(id, support::context()).await.unwrap_err();
     v(device.dispose().await)?;
     assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
-    assert_eq!(
-        error.failure().kind.legacy_class().to_owned(),
-        "com.malinskiy.marathon.exceptions.TestParsingException"
-    );
+    assert_eq!(error.failure().kind.description().to_owned(), "test discovery failure");
     assert_eq!(
         error.failure().message.as_ref().unwrap().to_owned(),
         "No libxctest-parser.dylib for platform AppleTVOS"

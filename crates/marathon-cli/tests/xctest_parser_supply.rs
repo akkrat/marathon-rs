@@ -53,7 +53,7 @@ fn an_xctest_run_without_its_library_fails_during_construction_and_says_what_to_
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert_eq!(output.status.code(), Some(1), "{vendor} {variable:?}: {stderr}");
             for part in [
-                "ConfigurationException",
+                "configuration rejected",
                 problem,
                 VARIABLE,
                 "<platform name>/libxctest-parser.dylib",
@@ -152,7 +152,7 @@ fn a_fifo_in_place_of_the_library_fails_construction_instead_of_blocking() -> st
     let output = child.wait_with_output()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(output.status.code(), Some(1), "{stderr}");
-    for part in ["ConfigurationException", "is not a file", VARIABLE, "EULA"] {
+    for part in ["configuration rejected", "is not a file", VARIABLE, "EULA"] {
         assert!(stderr.contains(part), "{part} missing from {stderr}");
     }
     Ok(())

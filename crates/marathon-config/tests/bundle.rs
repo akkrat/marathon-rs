@@ -218,10 +218,7 @@ fn real_ios_bundle_smoke() {
 fn test_missing() {
     let mut config = bundle(None, None, None);
     let error = config.validate().unwrap_err();
-    assert_eq!(
-        error.fqcn(),
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-    );
+    assert_eq!(error.description(), "configuration rejected");
     assert_eq!(
         error.message,
         "please specify your application and test application either with files or provide derived data folder"
@@ -287,10 +284,7 @@ fn when_applications_are_not_specified_should_search_for_them_under_derived_data
 fn when_xctest_is_not_specified_should_throw_an_exception_if_such_file_is_not_available() {
     let tmp = tempfile::tempdir().unwrap();
     let error = parse_ios(tmp.path(), "").unwrap_err();
-    assert_eq!(
-        error.kind.legacy_class().to_owned(),
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-    );
+    assert_eq!(error.kind.description().to_owned(), "configuration rejected");
 }
 
 #[test]
@@ -854,7 +848,10 @@ fn bundle_probe_matches_jvm() {
             // S6 (round 1): stems "." and ".." wipe the parent/grandparent
             // on the JVM; the port rejects them up front.
             ("stem-dot" | "stem-dotdot", Err(error)) => {
-                assert_eq!(jvm_error_class, Some("java.nio.file.NoSuchFileException"));
+                assert_eq!(
+                    jvm_error_class.map(marathon_test_support::recorded_errors::kind),
+                    Some(marathon_error::FailureKind::NoSuchFile)
+                );
                 assert!(!jvm_tree.contains(&"a/KEEP=KEEP"), "the JVM wiped a/");
                 assert!(
                     error.message.starts_with("archive file name has no usable stem"),
@@ -870,7 +867,7 @@ fn bundle_probe_matches_jvm() {
             // survives its cleanup and writes nothing.
             ("symlink-escape", Err(error)) => {
                 assert!(jvm_tree.contains(&"outside/owned=ESCAPE"));
-                assert_eq!(error.fqcn(), "java.io.IOException");
+                assert_eq!(error.description(), "I/O error");
                 assert_eq!(
                     error.message,
                     format!(
@@ -914,7 +911,7 @@ fn bundle_probe_matches_jvm() {
             // not UTF-8 while parsing the directory; ZipFile never reads it.
             ("unicode-path-invalid", Err(error)) => {
                 assert!(result["ok"].is_object());
-                assert_eq!(error.fqcn(), "java.util.zip.ZipException");
+                assert_eq!(error.description(), "archive failure");
                 assert!(!dir.join("app/A.app").exists());
             }
             // R1-claude-5: deleteRecursively follows a symlinked extraction
@@ -932,13 +929,13 @@ fn bundle_probe_matches_jvm() {
             // R1-sol-7: ZipFile does not check stored CRCs; the zip crate does.
             ("bad-crc-stored", Err(error)) => {
                 assert!(jvm_tree.contains(&"app/B.app/data=WORLD"));
-                assert_eq!(error.fqcn(), "java.io.IOException");
+                assert_eq!(error.description(), "I/O error");
                 assert!(error.message.contains("checksum"), "{}", error.message);
             }
             // R1-sol-4: Kotlin ignores the failed mkdirs(); the port reports it.
             ("mkdirs-ignored", Err(error)) => {
                 assert!(result["ok"].is_object());
-                assert_eq!(error.fqcn(), "java.io.IOException");
+                assert_eq!(error.description(), "I/O error");
                 assert_eq!(
                     error.message,
                     format!(
@@ -950,9 +947,12 @@ fn bundle_probe_matches_jvm() {
             // R1-sol-3/-4: ZipFile keeps both copies (the first is written
             // before the collision fails); the zip crate keeps the last.
             ("duplicate-entries", Err(error)) => {
-                assert_eq!(jvm_error_class, Some("java.io.FileNotFoundException"));
+                assert_eq!(
+                    jvm_error_class.map(marathon_test_support::recorded_errors::kind),
+                    Some(marathon_error::FailureKind::FileNotFound)
+                );
                 assert!(jvm_tree.contains(&"app/B.app/data=FIRST"));
-                assert_eq!(error.fqcn(), "java.io.IOException");
+                assert_eq!(error.description(), "I/O error");
                 assert_eq!(fs::read_to_string(dir.join("app/B.app/data")).unwrap(), "LAST");
             }
             (_, Ok(())) => {
@@ -984,12 +984,16 @@ fn bundle_probe_matches_jvm() {
             (_, Err(error)) => {
                 let expected = &result["error"];
                 assert!(!expected.is_null(), "{id}: Kotlin validated, Rust failed: {error:?}");
-                assert_eq!(error.fqcn(), expected["class"].as_str().unwrap(), "{id} class");
+                assert_eq!(
+                    error.kind.failure_kind(),
+                    marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap()),
+                    "{id} class"
+                );
                 let expected_message = expected["message"]
                     .as_str()
                     .unwrap()
                     .replace("$DIR", &dir.to_string_lossy());
-                if error.fqcn().ends_with("ConfigurationException") {
+                if error.kind == marathon_error::config::ValidationKind::Configuration {
                     assert_eq!(error.message, expected_message, "{id} message");
                 }
                 assert_eq!(serde_json::Value::Array(actual_tree), result["tree"], "{id} tree");
@@ -1007,10 +1011,7 @@ fn s6_rejects_dot_and_dotdot_stems() {
         fs::write(tmp.path().join("a/KEEP"), "KEEP").unwrap();
         let file = make_zip(&sub, archive, &[("A.app/empty", Some(""))]);
         let error = marathon_config::bundle::default_temp_dir_for(&jp(&file)).unwrap_err();
-        assert_eq!(
-            error.fqcn(),
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-        );
+        assert_eq!(error.description(), "configuration rejected");
         assert_eq!(
             error.message,
             format!(
@@ -1097,7 +1098,7 @@ fn extraction_never_writes_through_a_stale_hard_link() {
         );
         if locked {
             let error = outcome.unwrap_err();
-            assert_eq!(error.fqcn(), "java.io.IOException");
+            assert_eq!(error.description(), "I/O error");
             assert_eq!(
                 error.message,
                 format!(

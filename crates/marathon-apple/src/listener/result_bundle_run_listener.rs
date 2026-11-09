@@ -200,7 +200,7 @@ impl Bundle {
             }
             Err(error @ VendorError::Cancelled(_)) => Err(error),
             Err(error) => {
-                self.undelivered(&error.failure().to_java_string());
+                self.undelivered(&error.failure().to_string());
                 Ok(false)
             }
         }

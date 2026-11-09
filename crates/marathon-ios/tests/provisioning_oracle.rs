@@ -128,9 +128,13 @@ fn approved_s3_witnesses_are_rejected_by_rust_without_mutating_the_tracker() {
         assert_eq!(tracker.update(&[AppleTarget::Host]).unwrap().len(), 1);
     }
     assert_eq!(witness("S3-approved-divergence:host-physical"), json!({"updates":1}));
+    let mut expected = witness("S3-approved-divergence:profile-physical");
+    expected["error"] = marathon_test_support::recorded_errors::kind(expected["error"].as_str().unwrap())
+        .identifier()
+        .into();
     assert_eq!(
-        witness("S3-approved-divergence:profile-physical"),
-        json!({"error":"java.lang.ClassCastException"})
+        expected,
+        json!({"error":marathon_error::FailureKind::ClassCast.identifier()})
     );
 }
 

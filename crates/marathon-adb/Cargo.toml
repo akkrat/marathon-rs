@@ -25,6 +25,7 @@ serde_norway = { version = "=0.9.42", optional = true }
 tokio = { version = "=1.53.2", features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
 
 [dev-dependencies]
+marathon-test-support = { path = "../marathon-test-support" }
 marathon-adb = { path = ".", features = ["server"] }
 serde_json = "=1.0.154"
 tempfile = "=3.27.0"

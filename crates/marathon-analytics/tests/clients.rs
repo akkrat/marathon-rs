@@ -291,12 +291,12 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
             let client = Influx2Client::connect(&v2(&peer.url), false, context).await?;
             let tracker = Arc::new(Influx2Tracker::new(client.clone(), false)?);
             let class = |result: OperationResult<()>| match result {
-                Err(OperationError::Failed(f)) => f.kind.legacy_class().to_owned(),
+                Err(OperationError::Failed(f)) => f.kind.description().to_owned(),
                 other => panic!("{other:?}"),
             };
             assert_eq!(
                 class(tracker.track_test(&event(TestStatus::Passed, false)).await),
-                "com.influxdb.exceptions.BadRequestException"
+                "InfluxDB bad request"
             );
             assert_eq!(*count.lock().unwrap(), 1);
             // D51: Kotlin logs per test. The guard logs this once, however many tests fail this way.
@@ -323,7 +323,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
             peer.shutdown().await?;
             assert_eq!(
                 class(tracker.track_test(&event(TestStatus::Failure, false)).await),
-                "com.influxdb.exceptions.InfluxException"
+                "InfluxDB v2 failure"
             );
             signal.cancel(requested("stop"));
             assert!(matches!(
@@ -337,8 +337,8 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
     let errors = logs.iter().filter(|r| r.logger == "guard").collect::<Vec<_>>();
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(
-        errors[0].cause.as_ref().unwrap().kind.legacy_class().to_owned(),
-        "com.influxdb.exceptions.BadRequestException"
+        errors[0].cause.as_ref().unwrap().kind.description().to_owned(),
+        "InfluxDB bad request"
     );
 }
 #[test]
@@ -614,7 +614,10 @@ fn http_error_and_malformed_response_classes_match_the_jvm() {
                 let Err(OperationError::Failed(error)) = client.query("bad").await else {
                     panic!("invalid response accepted")
                 };
-                assert_eq!(error.kind.legacy_class().to_owned(), observed["class"]);
+                assert_eq!(
+                    error.kind,
+                    marathon_test_support::recorded_errors::kind(observed["class"].as_str().unwrap())
+                );
                 client.shutdown().await?;
                 peer.shutdown().await?;
             }
@@ -623,10 +626,7 @@ fn http_error_and_malformed_response_classes_match_the_jvm() {
             else {
                 panic!("invalid setup accepted")
             };
-            assert_eq!(
-                error.kind.legacy_class().to_owned(),
-                "com.influxdb.exceptions.InfluxException"
-            );
+            assert_eq!(error.kind.description().to_owned(), "InfluxDB v2 failure");
             peer.shutdown().await?;
             Ok(())
         })
@@ -899,15 +899,12 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
         .map(|r| {
             (
                 r.message.to_owned(),
-                r.cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
+                r.cause.as_ref().map(|c| c.kind.description().to_owned()),
             )
         })
         .collect::<Vec<_>>();
     assert_eq!(lines.len(), 2, "{lines:?}");
-    assert_eq!(
-        lines[0].1.as_deref(),
-        Some("com.malinskiy.marathon.analytics.external.graphite.GraphiteException")
-    );
+    assert_eq!(lines[0].1.as_deref(), Some("Graphite failure"));
     assert_eq!(
         lines[1].0,
         "The analytics backend lost test metrics: 5 results failed to send, and up to 0 were skipped"
@@ -1045,7 +1042,11 @@ fn v1_query_errors_keep_influxdb_exception_subclasses() {
                     panic!("{scenario}: error accepted")
                 };
                 let expected = &observations(scenario)[0];
-                assert_eq!(error.kind.legacy_class().to_owned(), expected["class"], "{scenario}");
+                assert_eq!(
+                    error.kind.dedup_key(),
+                    marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap()).dedup_key(),
+                    "{scenario}"
+                );
                 assert_eq!(
                     error.message.map(|m| m.to_owned()).as_deref(),
                     expected["message"].as_str()
@@ -1070,14 +1071,20 @@ fn v2_invalid_numeric_cells_raise_influx_exception_caused_by_number_format() {
                     panic!("{scenario}: invalid cell accepted")
                 };
                 let expected = &observations(scenario)[0];
-                assert_eq!(error.kind.legacy_class().to_owned(), expected["class"], "{scenario}");
+                assert_eq!(
+                    error.kind.dedup_key(),
+                    marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap()).dedup_key(),
+                    "{scenario}"
+                );
                 assert_eq!(
                     error.message.map(|m| m.to_owned()).as_deref(),
                     expected["message"].as_str()
                 );
                 assert_eq!(
-                    error.cause.map(|c| c.kind.legacy_class().to_owned()).as_deref(),
-                    expected["cause"].as_str()
+                    error.cause.map(|c| c.kind),
+                    expected["cause"]
+                        .as_str()
+                        .map(marathon_test_support::recorded_errors::kind)
                 );
                 client.shutdown().await?;
                 peer.shutdown().await?;
@@ -1132,10 +1139,7 @@ fn setup_validation_messages_and_order_match_the_jars() {
                 else {
                     panic!("{message}: invalid setup accepted")
                 };
-                assert_eq!(
-                    error.kind.legacy_class().to_owned(),
-                    "java.lang.IllegalArgumentException"
-                );
+                assert_eq!(error.kind.description().to_owned(), "invalid argument");
                 assert_eq!(error.message.map(|m| m.to_owned()).as_deref(), Some(message));
             }
             let mut config = v2(&peer.url);
@@ -1208,7 +1212,10 @@ fn refused_carbon_connection_raises_graphite_exception() {
             else {
                 panic!("refused carbon send accepted")
             };
-            assert_eq!(error.kind.legacy_class().to_owned(), expected["class"]);
+            assert_eq!(
+                error.kind.dedup_key(),
+                marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap()).dedup_key()
+            );
             // P2: the native socket wording follows the prefix.
             assert!(
                 error

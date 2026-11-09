@@ -97,7 +97,10 @@ async fn handshake_eof_and_its_warning() {
         .execute(GetAdbServerVersionRequest, None)
         .await
         .unwrap_err();
-    assert_eq!(describe(&error), kotlin["handshake-eof"]);
+    assert_eq!(
+        describe(&error),
+        marathon_test_support::recorded_errors::rendered(&kotlin["handshake-eof"]).unwrap()
+    );
     let events = events.lock().unwrap().clone();
     let (logger, level, message) = &events[0];
     assert_eq!(*level, Level::Warn);
@@ -129,7 +132,10 @@ async fn track_devices_eof() {
         kotlin["track-devices-first"].to_uppercase()
     );
     let error = stream.next().await.unwrap().unwrap_err();
-    assert_eq!(describe(&error), kotlin["track-devices-eof"]);
+    assert_eq!(
+        describe(&error),
+        marathon_test_support::recorded_errors::rendered(&kotlin["track-devices-eof"]).unwrap()
+    );
     server.finish().await;
 }
 
@@ -143,7 +149,10 @@ async fn devices_line_without_tab() {
     })
     .await;
     let error = server.client().execute(ListDevicesRequest, None).await.unwrap_err();
-    assert_eq!(describe(&error), kotlin["devices-line-without-tab"]);
+    assert_eq!(
+        describe(&error),
+        marathon_test_support::recorded_errors::rendered(&kotlin["devices-line-without-tab"]).unwrap()
+    );
     server.finish().await;
 }
 
@@ -169,6 +178,11 @@ async fn idle_timeout_unit() {
         let tenths = started.elapsed().as_millis() / 100;
         let expected = &kotlin[&format!("idle-1ms-delay-{delay}")];
         let (expected_outcome, expected_after) = expected.rsplit_once(" after>=").unwrap();
+        let expected_outcome = if delay == 1500 {
+            marathon_test_support::recorded_errors::rendered(expected_outcome).unwrap()
+        } else {
+            expected_outcome.to_owned()
+        };
         assert_eq!(outcome, expected_outcome);
         // Kotlin's row floors the elapsed time to tenths of a second (1.0-1.3 s all read 1.0 s).
         let expected_tenths: u128 = (expected_after.trim_end_matches('s').parse::<f64>().unwrap() * 10.0) as u128;
@@ -245,14 +259,23 @@ async fn close() {
     logcat_stream.next().await.unwrap().unwrap();
     client(track.addr().port()).close();
     let error = track_stream.next().await.unwrap().unwrap_err();
-    assert_eq!(describe(&error), kotlin["close-track-devices"]);
+    assert_eq!(
+        describe(&error),
+        marathon_test_support::recorded_errors::rendered(&kotlin["close-track-devices"]).unwrap()
+    );
     let error = logcat_stream.next().await.unwrap().unwrap_err();
-    assert_eq!(describe(&error), kotlin["close-v1-stream"]);
+    assert_eq!(
+        describe(&error),
+        marathon_test_support::recorded_errors::rendered(&kotlin["close-v1-stream"]).unwrap()
+    );
     let error = client(track.addr().port())
         .execute(GetAdbServerVersionRequest, None)
         .await
         .unwrap_err();
-    assert_eq!(describe(&error), kotlin["close-new-request"]);
+    assert_eq!(
+        describe(&error),
+        marathon_test_support::recorded_errors::rendered(&kotlin["close-new-request"]).unwrap()
+    );
     assert_eq!(
         error.is_exception().to_string(),
         kotlin["close-new-request-is-Exception"]
@@ -269,7 +292,7 @@ async fn connect_refused() {
     let error = client.execute(GetAdbServerVersionRequest, None).await.unwrap_err();
     assert_eq!(
         describe(&error).replace(&format!(":{port}"), ":<port>"),
-        kotlin["connect-refused"]
+        marathon_test_support::recorded_errors::rendered(&kotlin["connect-refused"]).unwrap()
     );
     assert_eq!(
         error.is_connect_exception().to_string(),
@@ -293,15 +316,21 @@ async fn connect_refused() {
         }
     );
     assert_eq!(
-        (error.legacy_class(), cause_class),
-        (class.to_owned(), FailureKind::Connect.legacy_class())
+        (
+            error.failure_kind(),
+            marathon_test_support::recorded_errors::kind(cause_class)
+        ),
+        (
+            marathon_test_support::recorded_errors::kind(class),
+            FailureKind::Connect
+        )
     );
     let named = AndroidDebugBridgeClient::new([127, 0, 0, 1].into(), port, factory, None).with_host_name("localhost");
     assert_eq!(named.host_name(), Some("localhost"));
     let error = named.execute(GetAdbServerVersionRequest, None).await.unwrap_err();
     assert_eq!(
         describe(&error).replace(&format!(":{port}"), ":<port>"),
-        kotlin["connect-refused-named"]
+        marathon_test_support::recorded_errors::rendered(&kotlin["connect-refused-named"]).unwrap()
     );
 }
 
@@ -318,7 +347,7 @@ async fn connect_refused_ipv6() {
     let error = client.execute(GetAdbServerVersionRequest, None).await.unwrap_err();
     assert_eq!(
         describe(&error).replace(&format!(":{port}"), ":<port>"),
-        kotlin["connect-refused-ipv6"]
+        marathon_test_support::recorded_errors::rendered(&kotlin["connect-refused-ipv6"]).unwrap()
     );
 }
 
@@ -376,7 +405,10 @@ async fn idle_blocked_write() {
         .await
         .ok()
         .map(|r| r.map_or_else(|e| describe(&e), |()| "ok".to_string()));
-    assert_eq!(or_null(outcome), kotlin["idle-blocked-write"]);
+    assert_eq!(
+        or_null(outcome),
+        marathon_test_support::recorded_errors::rendered(&kotlin["idle-blocked-write"]).unwrap()
+    );
 }
 
 /// R1-sol-3: closing the factory closes an idle connection; its server reads EOF (-1) at once.

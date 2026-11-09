@@ -21,9 +21,9 @@ fn oracle() -> Vec<serde_json::Value> {
         .map(|line| serde_json::from_str(line).unwrap())
         .collect()
 }
-fn chain(failure: &SshFailure) -> Vec<(String, Option<String>)> {
+fn chain(failure: &SshFailure) -> Vec<(marathon_error::FailureKind, Option<String>)> {
     std::iter::successors(Some(failure), |f| f.cause.as_deref())
-        .map(|f| (f.kind.legacy_class().to_owned(), f.message()))
+        .map(|f| (f.kind.clone(), f.message()))
         .collect()
 }
 
@@ -82,7 +82,7 @@ async fn key_files_load_or_fail_like_sshj() {
                     .iter()
                     .map(|e| {
                         (
-                            e["class"].as_str().unwrap().to_owned(),
+                            marathon_test_support::recorded_errors::kind(e["class"].as_str().unwrap()),
                             e["message"].as_str().map(Into::into),
                         )
                     })

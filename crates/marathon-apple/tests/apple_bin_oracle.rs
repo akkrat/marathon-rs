@@ -149,7 +149,7 @@ fn logging(logs: &Logs) -> SshLogging {
             move |logger: &Logger, level: Level, message: String, cause: Option<Failure>| {
                 logs.lock().unwrap().push(json!({
                 "level": level.as_str(), "logger": logger.name(), "message": message,
-                "throwable": cause.map(|f| format!("{}: {}", f.kind.legacy_class().to_owned(), f.message.map(|m| m.to_owned()).unwrap_or_default())),
+                "throwable": cause.map(|f| format!("{}: {}", f.kind.description().to_owned(), f.message.map(|m| m.to_owned()).unwrap_or_default())),
             }));
             },
         ),
@@ -177,7 +177,7 @@ fn timeouts() -> marathon_config::vendor::AppleTimeoutConfiguration {
 
 fn describe(failure: &Failure) -> Value {
     json!({
-        "class": failure.kind.legacy_class().to_owned(),
+        "class": failure.kind.identifier(),
         "message": failure.message.as_ref().map(|m| m.to_owned()),
         "cause": failure.cause.as_deref().map(describe),
     })
@@ -574,7 +574,7 @@ async fn run(case: &str, e: &AppleBinaryEnvironment, c: &VendorContext) -> Vendo
 /// The approved differences: Kotlin's measured value is replaced by the Rust one, with the reason.
 fn deviation(case: &str, kotlin: &Value) -> Option<Value> {
     let unavailable = |stdout: &str| {
-        json!({"error": {"class": "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException",
+        json!({"error": {"class": "apple.device-failure",
                          "message": format!("Error parsing simctl output on local: [{stdout}]"), "cause": null}})
     };
     let shape_name = case.rsplit('/').next().unwrap_or_default();
@@ -654,7 +654,17 @@ fn rows() -> Vec<(String, Value)> {
         .lines()
         .map(|l| {
             let v: Value = serde_json::from_str(l).unwrap();
-            (v["case"].as_str().unwrap().to_owned(), v["value"].clone())
+            let mut value = v["value"].clone();
+            if value.get("class").is_some() {
+                marathon_test_support::recorded_errors::error_object(&mut value);
+            }
+            if let Some(error) = value.get_mut("error") {
+                marathon_test_support::recorded_errors::error_object(error);
+            }
+            if let Some(error) = value.pointer_mut("/outcome/error") {
+                marathon_test_support::recorded_errors::error_object(error);
+            }
+            (v["case"].as_str().unwrap().to_owned(), value)
         })
         .collect()
 }
@@ -920,10 +930,10 @@ fn pure_helpers_match_kotlin() {
         // P1: non-ASCII digits are rejected.
         let expected = match case.as_str() {
             "XcodeVersion/１４.0" => {
-                json!({"class": "java.lang.NumberFormatException", "message": "For input string: \"１４\"", "cause": null})
+                json!({"class": "number-format", "message": "For input string: \"１４\"", "cause": null})
             }
             "AppleOperatingSystemVersion/１７" => {
-                json!({"class": "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
+                json!({"class": "incompatible-device",
                                                        "message": "Unable to parser operating system version １７", "cause": null})
             }
             _ => kotlin,

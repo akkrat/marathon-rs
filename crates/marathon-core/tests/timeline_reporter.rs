@@ -60,8 +60,8 @@ fn overflowing_preparation_instant_is_arithmetic_exception() {
         );
         let error = TimelineSummaryProvider::generate(&report).err().unwrap();
         assert_eq!(
-            error.failure().to_java_string().to_owned(),
-            "java.lang.ArithmeticException: long overflow"
+            error.failure().to_string().to_owned(),
+            "arithmetic failure: long overflow"
         );
     }
 }

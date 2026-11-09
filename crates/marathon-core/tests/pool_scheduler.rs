@@ -128,7 +128,7 @@ impl Run {
             Some((at, Ok(v))) => (json!(at), json!(v)),
             Some((at, Err(e))) => (
                 json!(at),
-                json!({"exception":e.failure().kind.legacy_class().to_owned(),"message":e.failure().message.as_ref().map(|m|m.to_owned())}),
+                json!({"exception":e.failure().kind.identifier(),"message":e.failure().message.as_ref().map(|m|m.to_owned())}),
             ),
             None => (Value::Null, Value::Null),
         };
@@ -159,6 +159,11 @@ fn oracle(name: &str) -> Value {
 }
 fn compare(name: &str, actual: Value) {
     let mut expected = oracle(name);
+    if let Some(class) = expected.pointer_mut("/result/exception") {
+        *class = marathon_test_support::recorded_errors::kind(class.as_str().unwrap())
+            .identifier()
+            .into();
+    }
     expected["schedulerLogs"] = Value::Array(
         expected["events"]
             .as_array()

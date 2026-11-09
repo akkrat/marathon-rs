@@ -16,19 +16,42 @@ pub enum AdbKind {
 }
 
 impl AdbKind {
-    pub const fn legacy_class(&self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
-            Self::PullFailed => "com.malinskiy.adam.exception.PullFailedException",
-            Self::PushFailed => "com.malinskiy.adam.exception.PushFailedException",
-            Self::RequestRejected => "com.malinskiy.adam.exception.RequestRejectedException",
-            Self::RequestValidation => "com.malinskiy.adam.exception.RequestValidationException",
-            Self::UnsupportedForwardingSpec => "com.malinskiy.adam.exception.UnsupportedForwardingSpecException",
-            Self::UnsupportedImageProtocol => "com.malinskiy.adam.exception.UnsupportedImageProtocolException",
-            Self::UnsupportedSyncProtocol => "com.malinskiy.adam.exception.UnsupportedSyncProtocolException",
-            Self::ConnectRefused => "io.netty.channel.AbstractChannel$AnnotatedConnectException",
-            Self::ConnectTimeout => "io.netty.channel.ConnectTimeoutException",
-            Self::ClosedChannel => "io.netty.channel.StacklessClosedChannelException",
-            Self::TransportClosed => "io.vertx.core.impl.NoStackTraceThrowable",
+            Self::PullFailed => "ADB pull failure",
+            Self::PushFailed => "ADB push failure",
+            Self::RequestRejected => "ADB request rejected",
+            Self::RequestValidation => "invalid ADB request",
+            Self::UnsupportedForwardingSpec => "unsupported ADB forwarding specification",
+            Self::UnsupportedImageProtocol => "unsupported ADB image protocol",
+            Self::UnsupportedSyncProtocol => "unsupported ADB sync protocol",
+            Self::ConnectRefused => "ADB connection refused",
+            Self::ConnectTimeout => "ADB connection timed out",
+            Self::ClosedChannel => "ADB channel closed",
+            Self::TransportClosed => "ADB transport closed",
         }
+    }
+
+    /// Stable machine identifier, independent of user-facing wording.
+    pub const fn identifier(&self) -> &'static str {
+        match self {
+            Self::PullFailed => "adb.pull-failed",
+            Self::PushFailed => "adb.push-failed",
+            Self::RequestRejected => "adb.request-rejected",
+            Self::RequestValidation => "adb.request-validation",
+            Self::UnsupportedForwardingSpec => "adb.unsupported-forwarding-spec",
+            Self::UnsupportedImageProtocol => "adb.unsupported-image-protocol",
+            Self::UnsupportedSyncProtocol => "adb.unsupported-sync-protocol",
+            Self::ConnectRefused => "adb.connect-refused",
+            Self::ConnectTimeout => "adb.connect-timeout",
+            Self::ClosedChannel => "adb.closed-channel",
+            Self::TransportClosed => "adb.transport-closed",
+        }
+    }
+}
+
+impl std::fmt::Display for AdbKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.description())
     }
 }

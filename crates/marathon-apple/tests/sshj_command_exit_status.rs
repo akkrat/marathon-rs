@@ -73,3 +73,53 @@ async fn cancelled_wait_leaves_the_command_alone() {
     assert_eq!(command.joins.load(Ordering::SeqCst), 0);
     assert_eq!(command.closes.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn a_clock_failure_message_uses_display_and_keeps_external_message_text() {
+    use marathon_core::{
+        error::{Failure, FailureKind, VendorError},
+        runtime::{CancellationSignal, VendorFuture, VendorTimeoutBody},
+    };
+    struct FailingClock(Clock);
+    impl VendorClock for FailingClock {
+        fn delay(&self, _: i64, _: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
+            Box::pin(async {
+                Err(VendorError::Other(Failure::from_kind(
+                    FailureKind::IllegalState,
+                    Some("external java.io.IOException: remote".into()),
+                )))
+            })
+        }
+        fn with_timeout<'a>(
+            &'a self,
+            parent: Arc<dyn CancellationSignal>,
+            millis: i64,
+            body: VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, ()> {
+            self.0.with_timeout(parent, millis, body)
+        }
+        fn with_timeout_or_null<'a>(
+            &'a self,
+            parent: Arc<dyn CancellationSignal>,
+            millis: i64,
+            body: VendorTimeoutBody<'a>,
+        ) -> VendorFuture<'a, Option<()>> {
+            self.0.with_timeout_or_null(parent, millis, body)
+        }
+    }
+    let command = Command::new(|| true, None);
+    let outcome = suspend_for(
+        &command,
+        &FailingClock(Clock::default()),
+        Arc::new(SessionScope::default()),
+    )
+    .await;
+    let Err(marathon_apple::cmd::remote::ssh::sshj::executor::ExitWaitError::Failed(failure)) = outcome else {
+        panic!("clock failure did not propagate")
+    };
+    assert_eq!(failure.kind, FailureKind::Io);
+    assert_eq!(
+        failure.message().as_deref(),
+        Some("invalid state: external java.io.IOException: remote")
+    );
+}

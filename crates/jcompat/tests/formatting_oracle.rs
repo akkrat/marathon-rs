@@ -79,13 +79,13 @@ fn parsed_fields_unordered(message: &str) -> (String, Vec<String>) {
 }
 
 /// (class, message with the `Parsed` fields apart) per level of the exception chain.
-type Chain = Vec<(String, (String, Vec<String>))>;
+type Chain = Vec<(marathon_error::FailureKind, (String, Vec<String>))>;
 
 fn instant_parse_chain(input: &str) -> Result<String, Chain> {
     parse_instant_detailed(input).map(|i| i.to_string()).map_err(|e| {
         e.chain
             .iter()
-            .map(|(class, message)| (class.to_string(), parsed_fields_unordered(&message.to_owned())))
+            .map(|(class, message)| (class.clone(), parsed_fields_unordered(&message.to_owned())))
             .collect()
     })
 }
@@ -101,7 +101,12 @@ fn instant_parse_errors_oracle() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|e| (s(e, "class").to_owned(), parsed_fields_unordered(s(e, "message"))))
+                .map(|e| {
+                    (
+                        marathon_test_support::recorded_errors::kind(s(e, "class")),
+                        parsed_fields_unordered(s(e, "message")),
+                    )
+                })
                 .collect()),
         };
         assert_eq!(instant_parse_chain(s(&row, "input")), expected, "{row}");
@@ -109,7 +114,11 @@ fn instant_parse_errors_oracle() {
     for row in rows(include_str!("../../../fixtures/oracle/jcompat/instant_duration.jsonl")) {
         if let (Some("Instant.parse"), Some(error)) = (row["op"].as_str(), row["result"].get("error")) {
             let actual = instant_parse_chain(s(&row, "input")).unwrap_err();
-            assert_eq!(actual[0].0, s(error, "class"), "{row}");
+            assert_eq!(
+                actual[0].0,
+                marathon_test_support::recorded_errors::kind(s(error, "class")),
+                "{row}"
+            );
             assert_eq!(actual[0].1, parsed_fields_unordered(s(error, "message")), "{row}");
         }
     }

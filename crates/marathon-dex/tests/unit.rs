@@ -408,8 +408,8 @@ fn axml_header_followed_by_zeros_is_an_error() {
         bytes.resize(8 + zeros, 0);
         let err = walk_axml(&bytes).unwrap_err();
         assert_eq!(
-            err.kind.legacy_class().to_owned(),
-            "java.io.EOFException",
+            err.kind.description().to_owned(),
+            "unexpected end of input",
             "{zeros} zeros"
         );
     }
@@ -428,10 +428,7 @@ fn axml_utf16_length_overflow_is_an_error() {
     let at = 8 + strings_offset + manifest_offset;
     bytes[at..at + 4].copy_from_slice(&[0xff; 4]);
     let err = walk_axml(&bytes).unwrap_err();
-    assert_eq!(
-        err.kind.legacy_class().to_owned(),
-        "java.lang.IndexOutOfBoundsException"
-    );
+    assert_eq!(err.kind.description().to_owned(), "index out of bounds");
 }
 
 /// Every aligned int of a real manifest overwritten with extreme values

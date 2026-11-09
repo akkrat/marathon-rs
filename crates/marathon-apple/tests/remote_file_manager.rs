@@ -68,7 +68,7 @@ fn setup(storage: &str, mode: &str) -> (RemoteFileManager, Arc<Scripted>, Logs) 
     let logging = SshLogging::new(
         Arc::new(Mutex::new(MarathonLogging::default())),
         Arc::new(move |logger: &Logger, level, message, cause| {
-            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.kind.legacy_class().to_owned())}));
+            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.kind.identifier().to_owned())}));
         }),
     );
     (
@@ -199,11 +199,22 @@ async fn every_command_result_and_log_matches_jvm_including_swallowed_cancellati
         let result = invoke(&fm, string(&row["operation"]), &support::context()).await;
         let (result, thrown) = match result {
             Ok(value) => (value, Value::Null),
-            Err(error) => (Value::Null, json!(error.failure().kind.legacy_class().to_owned())),
+            Err(error) => (Value::Null, json!(error.failure().kind.identifier().to_owned())),
         };
         assert_eq!(result, row["result"], "{row}");
-        assert_eq!(thrown, row["thrown"], "{row}");
+        let expected_thrown = row["thrown"].as_str().map(|class| {
+            marathon_test_support::recorded_errors::kind(class)
+                .identifier()
+                .to_owned()
+        });
+        assert_eq!(thrown, json!(expected_thrown), "{row}");
         assert_eq!(json!(*commands.argv.lock().unwrap()), row["argv"], "{row}");
-        assert_eq!(json!(*logs.lock().unwrap()), row["logs"], "{row}");
+        let mut expected_logs = row["logs"].clone();
+        for log in expected_logs.as_array_mut().unwrap() {
+            if let Some(class) = log["throwable"].as_str() {
+                log["throwable"] = marathon_test_support::recorded_errors::kind(class).identifier().into();
+            }
+        }
+        assert_eq!(json!(*logs.lock().unwrap()), expected_logs, "{row}");
     }
 }

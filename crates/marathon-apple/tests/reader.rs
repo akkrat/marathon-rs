@@ -220,10 +220,7 @@ async fn idle_timeout_discards_tail_and_await_retains_cancellation_control_flow(
     match base.await_result(&ctx).await {
         Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(detail))) => {
             assert_eq!(detail.message, Some("Channel closed".into()));
-            assert_eq!(
-                detail.cause.unwrap().kind.legacy_class(),
-                "java.util.concurrent.TimeoutException".to_owned()
-            );
+            assert_eq!(detail.cause.unwrap().kind.description(), "timed out".to_owned());
         }
         other => panic!("{other:?}"),
     }

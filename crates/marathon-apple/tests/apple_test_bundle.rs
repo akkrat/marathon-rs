@@ -243,7 +243,7 @@ fn prepare(root: &Path, name: &str) -> Case {
 
 fn describe(failure: &Failure) -> Value {
     // Causes are not compared: Kotlin's carry JDK-internal NIO exceptions.
-    json!({"class": failure.kind.legacy_class().to_owned(), "message": failure.message.as_ref().map(|m| m.to_owned())})
+    json!({"class": failure.kind.identifier(), "message": failure.message.as_ref().map(|m| m.to_owned())})
 }
 fn fail(error: VendorError) -> Value {
     match error {
@@ -373,9 +373,19 @@ async fn every_probed_bundle_matches_kotlin() {
             .replace(&bundles.display().to_string(), "<bundles>");
         let mut expected = strip(&row["value"]);
         adjust_for_listing_order(name, &case, &mut expected);
+        for field in ["construct", "validate"] {
+            if let Some(error) = expected.get_mut(field).filter(|v| v.get("class").is_some()) {
+                marathon_test_support::recorded_errors::error_object(error);
+            }
+        }
+        for field in ["testRunnerBinary", "applicationBinary", "testBinary", "testBinaryAgain"] {
+            if let Some(error) = expected.get_mut(field).and_then(|v| v.get_mut("error")) {
+                marathon_test_support::recorded_errors::error_object(error);
+            }
+        }
         let expected = match name {
             // dd-plist's ClassCastException text names JDK classes; the class is kept, the text is WP 4.5a's.
-            "bundle-identifier-wrong-type" => json!({"construct": {"class": "java.lang.ClassCastException",
+            "bundle-identifier-wrong-type" => json!({"construct": {"class": "class-cast",
                 "message": "plist property CFBundleIdentifier is a integer, not a string"}}),
             _ => expected,
         };

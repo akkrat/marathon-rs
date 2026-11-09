@@ -57,7 +57,7 @@ async fn world_inventory_mutation_survives_replacement_connections_and_facts_are
         .simulator
         .boot(&udid, &[], &caller)
         .await
-        .map_err(|e| e.failure().to_java_string().to_owned())?;
+        .map_err(|e| e.failure().to_string().to_owned())?;
     assert_eq!(
         cycle.inventory(&first_bin, &caller).await?.devices.devices[0].udid,
         udid
@@ -79,13 +79,10 @@ async fn world_inventory_mutation_survives_replacement_connections_and_facts_are
         })
         .await?;
     assert_eq!(changed.arch.to_owned(), "replacement");
-    executor
-        .close()
-        .await
-        .map_err(|e| e.failure().to_java_string().to_owned())?;
+    executor.close().await.map_err(|e| e.failure().to_string().to_owned())?;
     replacement
         .close()
         .await
-        .map_err(|e| e.failure().to_java_string().to_owned())?;
+        .map_err(|e| e.failure().to_string().to_owned())?;
     Ok(())
 }

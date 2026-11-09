@@ -511,16 +511,16 @@ fn lost(cause: Failure) -> VendorError {
             marathon_apple::cmd::remote::ssh::sshj::error::OPEN_FAIL_EXCEPTION,
             cause.message.as_ref().map_or_else(|| "null".into(), String::clone),
         )
-        .java_to_string()
+        .to_string()
     } else if cause.kind == FailureKind::JobCancelled
         && cause.message == Some("LazyDeferredCoroutine was cancelled".into())
     {
         format!(
             "{}; job=LazyDeferredCoroutine{{Cancelled}}",
-            cause.to_java_string().to_owned()
+            cause.to_string().to_owned()
         )
     } else {
-        cause.to_java_string().to_owned()
+        cause.to_string().to_owned()
     };
     let mut detail = failure(FailureKind::DeviceLost, rendered);
     detail.cause = Some(Box::new(cause));
@@ -537,7 +537,7 @@ fn classify_run(run: RunError) -> VendorError {
     let error = run.into_vendor();
     match reason {
         Some(DeviceFailureReason::IncompatibleDevice) => {
-            let mut f = failure(FailureKind::IncompatibleDevice, error.failure().to_java_string());
+            let mut f = failure(FailureKind::IncompatibleDevice, error.failure().to_string());
             f.cause = Some(Box::new(error.failure().clone()));
             VendorError::IncompatibleDevice(f)
         }
@@ -955,10 +955,19 @@ mod tests {
             let mut chain = vec![];
             let mut current = Some(error.failure());
             while let Some(f) = current {
-                chain.push(json!({"class":f.kind.legacy_class().to_owned(),"message":f.message.clone()}));
+                chain.push(json!({"class":f.kind.identifier(),"message":f.message.clone()}));
                 current = f.cause.as_deref();
             }
-            assert_eq!(json!(chain), row["error"], "{case}");
+            let mut expected = row["error"].clone();
+            if reason == Some(DeviceFailureReason::IncompatibleDevice) {
+                // classify_run embeds the cause's rendering in this generated wrapper.
+                expected[0]["message"] =
+                    marathon_test_support::recorded_errors::rendered(expected[0]["message"].as_str().unwrap())
+                        .unwrap_or_else(|error| panic!("{error}"))
+                        .into();
+            }
+            marathon_test_support::recorded_errors::error_chain(&mut expected);
+            assert_eq!(json!(chain), expected, "{case}");
         }
     }
 }

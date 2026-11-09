@@ -207,8 +207,8 @@ pub fn configuration_failure(error: &ConfigurationError) -> Failure {
     }
 }
 
-/// `Throwable.printStackTrace` / logback's throwable converter without JVM frames (D12): `class: message` (`class`
-/// alone for a null message), the failure's own trace text verbatim (external tools' output), then each cause as
+/// Throwable output without JVM frames (D12): `description: message` (`description`
+/// alone for an absent message), the failure's own trace text verbatim (external tools' output), then each cause as
 /// `Caused by: ...`.
 pub fn render_throwable(failure: &Failure) -> String {
     let mut out = String::new();
@@ -217,7 +217,7 @@ pub fn render_throwable(failure: &Failure) -> String {
         if !out.is_empty() {
             out.push_str("Caused by: ");
         }
-        out.push_str(f.kind.legacy_class());
+        out.push_str(f.kind.description());
         if let Some(message) = &f.message {
             out.push_str(": ");
             out.push_str(&message.to_owned());

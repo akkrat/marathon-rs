@@ -94,13 +94,13 @@ async fn receiver_cancellation_retains_the_first_terminal_result() -> Result<(),
         channel.cancel();
         let after = channel.receive(&context).await;
         if let Some(error) = session.stop(support::duration(1000), &context).await {
-            return Err(error.to_java_string().to_owned());
+            return Err(error.to_string().to_owned());
         }
         session
             .join_producer()
             .await
-            .map_err(|e| e.failure().to_java_string().to_owned())?;
-        results.push(serde_json::json!({"failed":failed,"before":before.as_ref().err().map(|e|e.failure().to_java_string().to_owned()).unwrap_or_else(||"closed".into()),"after":after.as_ref().err().map(|e|e.failure().to_java_string().to_owned()).unwrap_or_else(||"closed".into()),"closed":session.closed()}));
+            .map_err(|e| e.failure().to_string().to_owned())?;
+        results.push(serde_json::json!({"failed":failed,"before":before.as_ref().err().map(|e|e.failure().to_string().to_owned()).unwrap_or_else(||"closed".into()),"after":after.as_ref().err().map(|e|e.failure().to_string().to_owned()).unwrap_or_else(||"closed".into()),"closed":session.closed()}));
         if failed {
             assert_eq!(before, Err(expected.clone()));
             assert_eq!(after, Err(expected));
@@ -114,7 +114,20 @@ async fn receiver_cancellation_retains_the_first_terminal_result() -> Result<(),
         .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
         .find(|r| r["case"] == "session-channel-cancel")
         .unwrap();
-    assert_eq!(serde_json::json!(results), row["results"]);
+    let mut expected = row["results"].clone();
+    for result in expected
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .filter(|r| r["failed"] == true)
+    {
+        for field in ["before", "after"] {
+            result[field] = marathon_test_support::recorded_errors::rendered(result[field].as_str().unwrap())
+                .unwrap()
+                .into();
+        }
+    }
+    assert_eq!(serde_json::json!(results), expected);
     Ok(())
 }
 

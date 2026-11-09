@@ -215,8 +215,8 @@ fn check_edge(row: &Value) {
                 plan.diagnostics.clone()
             } else if row["result"]["error"].is_string() {
                 assert_eq!(
-                    text(&row["result"], "error"),
-                    "java.nio.file.InvalidPathException",
+                    marathon_test_support::recorded_errors::kind(text(&row["result"], "error")),
+                    marathon_error::FailureKind::InvalidPath,
                     "{row}"
                 );
                 let mut messages = Vec::new();

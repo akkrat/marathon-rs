@@ -29,7 +29,7 @@ use marathon_config::{
 use std::path::PathBuf;
 use std::{fs, path::Path};
 
-const CONFIGURATION_EXCEPTION: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
+const CONFIGURATION_EXCEPTION: &str = "configuration rejected";
 
 /// `parse(…)` of the three Kotlin test classes: `header` then `body` in a
 /// temp Marathonfile, `marathonfileDir` = the fixture `ios` dir.
@@ -363,10 +363,7 @@ fn validation_errors_convert_with_their_class_at_both_stages() {
     for stage in [ValidationStage::Parse, ValidationStage::Logical] {
         let converted = validation_error_to_configuration_error(error.clone(), stage);
         assert_eq!(converted.stage, stage);
-        assert_eq!(
-            converted.kind.legacy_class().to_owned(),
-            "java.io.FileNotFoundException"
-        );
+        assert_eq!(converted.kind.description().to_owned(), "file not found");
         assert_eq!(load::message(&converted), "Private key not found at /k");
         assert!(converted.causes.is_empty() && converted.path.is_empty() && converted.span.is_none());
     }
@@ -441,7 +438,7 @@ fn null_marathondevices_is_the_providers_npe() {
     ))
     .unwrap_err();
     assert_eq!(ios.stage, ValidationStage::Provider);
-    assert_eq!(load::class(&ios), "java.lang.NullPointerException");
+    assert_eq!(load::class(&ios), "missing value");
     assert_eq!(
         load::message(&ios),
         "Cannot invoke \"com.malinskiy.marathon.apple.configuration.Marathondevices.getWorkers()\" because \"marathonfile\" is null"
@@ -451,7 +448,7 @@ fn null_marathondevices_is_the_providers_npe() {
         .devices_sync_for(DevicesProvider::Macos, b"null", &context)
         .unwrap_err();
     assert_eq!(macos.stage, ValidationStage::Provider);
-    assert_eq!(load::class(&macos), "java.lang.NullPointerException");
+    assert_eq!(load::class(&macos), "missing value");
     assert_eq!(
         load::message(&macos),
         "Cannot invoke \"com.malinskiy.marathon.apple.configuration.Marathondevices.getWorkers()\" because the return value of \"com.fasterxml.jackson.databind.ObjectMapper.readValue(String, com.fasterxml.jackson.core.type.TypeReference)\" is null"
@@ -527,8 +524,8 @@ fn stage_b_re_extracts_the_bundle() {
 /// and `r2-code-point-*`, recorded by ConfigDump.kt.
 #[test]
 fn yaml_syntax_errors_keep_the_wrapper_and_original_parser_cause() -> Result<(), Box<dyn std::error::Error>> {
-    const MARKED: &str = "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException";
-    const JACKSON: &str = "com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException";
+    const MARKED: &str = "YAML error";
+    const JACKSON: &str = "YAML decoding failure";
     let (_tmp, dir) = load::temp()?;
     let file = dir.join("Marathonfile");
     let context = load::context(&file, &dir, None);
@@ -537,43 +534,43 @@ fn yaml_syntax_errors_keep_the_wrapper_and_original_parser_cause() -> Result<(),
         (
             "name: t\noutputDir: out\nvendorConfiguration:\n\ttype: stub\n".to_string(),
             MARKED,
-            "org.yaml.snakeyaml.scanner.ScannerException",
+            "YAML scanning failure",
         ),
         (
             "name: t\noutputDir: out\nvendorConfiguration: [".to_string(),
             MARKED,
-            "org.yaml.snakeyaml.parser.ParserException",
+            "YAML parsing failure",
         ),
         (
             "name: t\noutputDir: out\nvendorConfiguration: [stub,".to_string(),
             MARKED,
-            "org.yaml.snakeyaml.parser.ParserException",
+            "YAML parsing failure",
         ),
         (
             "name: t\noutputDir: out\nvendorConfiguration: [stub".to_string(),
             MARKED,
-            "org.yaml.snakeyaml.parser.ParserException",
+            "YAML parsing failure",
         ),
         (
             "name: \x01t\noutputDir: out\nvendorConfiguration: {type: stub}\n".to_string(),
             JACKSON,
-            "org.yaml.snakeyaml.reader.ReaderException",
+            "YAML reading failure",
         ),
         (
             "name: t\noutputDir: out\nvendorConfiguration: {type: stub}\n# \x01".to_string(),
             JACKSON,
-            "org.yaml.snakeyaml.reader.ReaderException",
+            "YAML reading failure",
         ),
         (
             format!("name: \"{long}\"\noutputDir: out\nvendorConfiguration: {{type: stub}}\n"),
             JACKSON,
-            "org.yaml.snakeyaml.error.YAMLException",
+            "YAML failure",
         ),
         // The buffered unknown property's value is read before the creator reports it.
         (
             format!("name: t\noutputDir: out\nvendorConfiguration: {{type: stub}}\nx: \"{long}\""),
             JACKSON,
-            "org.yaml.snakeyaml.error.YAMLException",
+            "YAML failure",
         ),
     ] {
         let error = MarathonConfigurationLoader
@@ -581,8 +578,8 @@ fn yaml_syntax_errors_keep_the_wrapper_and_original_parser_cause() -> Result<(),
             .err()
             .ok_or("the malformed input must fail at parse")?;
         assert_eq!(error.stage, ValidationStage::Parse);
-        assert_eq!(error.kind.legacy_class().to_owned(), CONFIGURATION_EXCEPTION);
-        let causes: Vec<_> = error.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect();
+        assert_eq!(error.kind.description().to_owned(), CONFIGURATION_EXCEPTION);
+        let causes: Vec<_> = error.causes.iter().map(|c| c.kind.description().to_owned()).collect();
         assert_eq!(causes, [wrapper, original]);
     }
     Ok(())
@@ -617,7 +614,7 @@ fn regex_scalar_kinds_use_json_node_type_names() -> Result<(), Box<dyn std::erro
             .iter()
             .map(|c| {
                 (
-                    c.kind.legacy_class().to_owned(),
+                    c.kind.description().to_owned(),
                     c.message.as_ref().map(|m| m.to_owned()),
                 )
             })
@@ -625,11 +622,8 @@ fn regex_scalar_kinds_use_json_node_type_names() -> Result<(), Box<dyn std::erro
         assert_eq!(
             causes,
             [
-                (
-                    "com.fasterxml.jackson.databind.JsonMappingException".into(),
-                    Some(message.to_owned())
-                ),
-                ("java.lang.IllegalStateException".into(), Some(message)),
+                ("configuration mapping failure".into(), Some(message.to_owned())),
+                ("invalid state".into(), Some(message)),
             ],
             "{tail}"
         );
@@ -641,9 +635,9 @@ fn regex_scalar_kinds_use_json_node_type_names() -> Result<(), Box<dyn std::erro
 /// properties: later field errors and missing creator parameters are reported first.
 #[test]
 fn unknown_properties_wait_for_the_creator() -> Result<(), Box<dyn std::error::Error>> {
-    const MISSING: &str = "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException";
-    const MISMATCHED: &str = "com.fasterxml.jackson.databind.exc.MismatchedInputException";
-    const UNKNOWN: &str = "com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException";
+    const MISSING: &str = "missing required configuration parameter";
+    const MISMATCHED: &str = "configuration input type mismatch";
+    const UNKNOWN: &str = "unrecognized configuration property";
     let (_tmp, dir) = load::temp()?;
     let file = dir.join("Marathonfile");
     let context = load::context(&file, &dir, None);
@@ -671,7 +665,7 @@ fn unknown_properties_wait_for_the_creator() -> Result<(), Box<dyn std::error::E
             .parse_sync(input.as_bytes(), &context)
             .err()
             .ok_or("the input must fail at parse")?;
-        let causes: Vec<_> = error.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect();
+        let causes: Vec<_> = error.causes.iter().map(|c| c.kind.description().to_owned()).collect();
         assert_eq!(causes, [class], "{input}");
     }
     Ok(())
@@ -688,11 +682,11 @@ fn wrapper_array_without_a_body_keeps_the_missing_parameter_error() -> Result<()
         .err()
         .ok_or("the absent vendor must fail at parse")?;
     assert_eq!(error.stage, ValidationStage::Parse);
-    assert_eq!(error.kind.legacy_class().to_owned(), CONFIGURATION_EXCEPTION);
+    assert_eq!(error.kind.description().to_owned(), CONFIGURATION_EXCEPTION);
     assert_eq!(error.causes.len(), 1);
     assert_eq!(
-        error.causes[0].kind.legacy_class().to_owned(),
-        "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"
+        error.causes[0].kind.description().to_owned(),
+        "missing required configuration parameter"
     );
     Ok(())
 }

@@ -42,39 +42,75 @@ pub enum InfluxV1Kind {
 }
 
 impl InfluxV1Kind {
-    pub const fn legacy_class(&self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
-            Self::General => "org.influxdb.InfluxDBException",
-            Self::AuthorizationFailed => "org.influxdb.InfluxDBException$AuthorizationFailedException",
-            Self::CacheMaxMemorySizeExceeded => "org.influxdb.InfluxDBException$CacheMaxMemorySizeExceededException",
-            Self::DatabaseNotFound => "org.influxdb.InfluxDBException$DatabaseNotFoundException",
-            Self::FieldTypeConflict => "org.influxdb.InfluxDBException$FieldTypeConflictException",
-            Self::HintedHandOffQueueNotEmpty => "org.influxdb.InfluxDBException$HintedHandOffQueueNotEmptyException",
-            Self::PointsBeyondRetentionPolicy => "org.influxdb.InfluxDBException$PointsBeyondRetentionPolicyException",
-            Self::UnableToParse => "org.influxdb.InfluxDBException$UnableToParseException",
+            Self::General => "InfluxDB v1 failure",
+            Self::AuthorizationFailed => "InfluxDB v1 authorization failed",
+            Self::CacheMaxMemorySizeExceeded => "InfluxDB v1 cache memory limit exceeded",
+            Self::DatabaseNotFound => "InfluxDB v1 database not found",
+            Self::FieldTypeConflict => "InfluxDB v1 field type conflict",
+            Self::HintedHandOffQueueNotEmpty => "InfluxDB v1 pending handoff queue",
+            Self::PointsBeyondRetentionPolicy => "InfluxDB v1 points outside retention policy",
+            Self::UnableToParse => "InfluxDB v1 input parsing failure",
+        }
+    }
+
+    /// Stable machine identifier, independent of user-facing wording.
+    pub const fn identifier(&self) -> &'static str {
+        match self {
+            Self::General => "analytics.influx-v1.general",
+            Self::AuthorizationFailed => "analytics.influx-v1.authorization-failed",
+            Self::CacheMaxMemorySizeExceeded => "analytics.influx-v1.cache-max-memory-size-exceeded",
+            Self::DatabaseNotFound => "analytics.influx-v1.database-not-found",
+            Self::FieldTypeConflict => "analytics.influx-v1.field-type-conflict",
+            Self::HintedHandOffQueueNotEmpty => "analytics.influx-v1.hinted-hand-off-queue-not-empty",
+            Self::PointsBeyondRetentionPolicy => "analytics.influx-v1.points-beyond-retention-policy",
+            Self::UnableToParse => "analytics.influx-v1.unable-to-parse",
         }
     }
 }
 
 impl AnalyticsKind {
-    pub const fn legacy_class(&self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
-            Self::BadRequest => "com.influxdb.exceptions.BadRequestException",
-            Self::Forbidden => "com.influxdb.exceptions.ForbiddenException",
-            Self::InfluxV2 => "com.influxdb.exceptions.InfluxException",
-            Self::InternalServerError => "com.influxdb.exceptions.InternalServerErrorException",
-            Self::NotFound => "com.influxdb.exceptions.NotFoundException",
-            Self::ServiceUnavailable => "com.influxdb.exceptions.ServiceUnavailableException",
-            Self::Unauthorized => "com.influxdb.exceptions.UnauthorizedException",
-            Self::UnprocessableEntity => "com.influxdb.exceptions.UnprocessableEntityException",
-            Self::FluxCsvParser => "com.influxdb.query.exceptions.FluxCsvParserException",
-            Self::FluxQuery => "com.influxdb.query.exceptions.FluxQueryException",
-            Self::Graphite => "com.malinskiy.marathon.analytics.external.graphite.GraphiteException",
-            Self::InfluxV2Provider => "com.malinskiy.marathon.analytics.external.influx2.Influxdb2Exception",
-            Self::JsonEncoding => "com.squareup.moshi.JsonEncodingException",
-            Self::InfluxIo => "org.influxdb.InfluxDBIOException",
-            Self::InfluxMapping => "org.influxdb.InfluxDBMapperException",
-            Self::InfluxV1 { problem, .. } => problem.legacy_class(),
+            Self::BadRequest => "InfluxDB bad request",
+            Self::Forbidden => "InfluxDB access forbidden",
+            Self::InfluxV2 => "InfluxDB v2 failure",
+            Self::InternalServerError => "InfluxDB internal server failure",
+            Self::NotFound => "InfluxDB resource not found",
+            Self::ServiceUnavailable => "InfluxDB service unavailable",
+            Self::Unauthorized => "InfluxDB authentication required",
+            Self::UnprocessableEntity => "unprocessable InfluxDB request",
+            Self::FluxCsvParser => "Flux CSV parsing failure",
+            Self::FluxQuery => "Flux query failure",
+            Self::Graphite => "Graphite failure",
+            Self::InfluxV2Provider => "InfluxDB v2 provider failure",
+            Self::JsonEncoding => "JSON encoding failure",
+            Self::InfluxIo => "InfluxDB I/O error",
+            Self::InfluxMapping => "InfluxDB mapping failure",
+            Self::InfluxV1 { problem, .. } => problem.description(),
+        }
+    }
+
+    /// Stable machine identifier, independent of user-facing wording.
+    pub const fn identifier(&self) -> &'static str {
+        match self {
+            Self::BadRequest => "analytics.bad-request",
+            Self::Forbidden => "analytics.forbidden",
+            Self::InfluxV2 => "analytics.influx-v2",
+            Self::InternalServerError => "analytics.internal-server-error",
+            Self::NotFound => "analytics.not-found",
+            Self::ServiceUnavailable => "analytics.service-unavailable",
+            Self::Unauthorized => "analytics.unauthorized",
+            Self::UnprocessableEntity => "analytics.unprocessable-entity",
+            Self::FluxCsvParser => "analytics.flux-csv-parser",
+            Self::FluxQuery => "analytics.flux-query",
+            Self::Graphite => "analytics.graphite",
+            Self::InfluxV2Provider => "analytics.influx-v2-provider",
+            Self::JsonEncoding => "analytics.json-encoding",
+            Self::InfluxIo => "analytics.influx-io",
+            Self::InfluxMapping => "analytics.influx-mapping",
+            Self::InfluxV1 { problem, .. } => problem.identifier(),
         }
     }
 }
@@ -140,4 +176,16 @@ pub fn parse_v1_error_body(body: &str) -> (InfluxV1Kind, RetryDisposition) {
         }
     }
     (problem.unwrap_or(InfluxV1Kind::General), retry)
+}
+
+impl std::fmt::Display for AnalyticsKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.description())
+    }
+}
+
+impl std::fmt::Display for InfluxV1Kind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.description())
+    }
 }

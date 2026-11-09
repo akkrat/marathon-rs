@@ -14,14 +14,15 @@ use std::{
 use support::*;
 
 fn expected(case: &str) -> String {
-    include_str!("../../../fixtures/oracle/runtime/coroutines-1.8.1-review1.jsonl")
+    let value = include_str!("../../../fixtures/oracle/runtime/coroutines-1.8.1-review1.jsonl")
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .find(|row| row["case"] == case)
         .unwrap()["value"]
         .as_str()
         .unwrap()
-        .to_owned()
+        .to_owned();
+    marathon_test_support::recorded_errors::runtime_outcome(&value)
 }
 fn cancelled_state(job: &JobRef) -> String {
     format!(
@@ -169,8 +170,8 @@ fn cancelled_waiter(state: &'static str) {
                 VendorError::Other(f) | VendorError::Cancelled(Cancellation::Requested(f)) => f,
                 other => panic!("unexpected await error: {other:?}"),
             };
-            let class = failure.kind.legacy_class();
-            let simple = class.rsplit('.').next().unwrap();
+            let class = failure.kind.description();
+            let simple = class;
             let message = failure.message.unwrap();
             assert_eq!(
                 format!("{simple}:{message}"),

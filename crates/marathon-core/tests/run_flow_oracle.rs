@@ -214,8 +214,7 @@ fn outcome(outcome: &scenario::Outcome) -> Value {
     match &outcome.value {
         Some(Ok(v)) => value["value"] = (*v).into(),
         Some(Err(e)) => {
-            let class = e.failure().kind.legacy_class().to_owned();
-            value["exception"] = class.rsplit('.').next().unwrap().into();
+            value["exception"] = e.failure().kind.identifier().into();
             value["message"] = e.failure().message.as_ref().map(|m| m.to_owned()).into();
         }
         None => {}
@@ -267,7 +266,19 @@ fn check(name: &str) {
 }
 
 fn check_with(name: &str, d48: bool) {
-    let row = rows().into_iter().find(|r| r["scenario"] == name).unwrap();
+    let mut row = rows().into_iter().find(|r| r["scenario"] == name).unwrap();
+    if let Some(exception) = row["outcome"].get_mut("exception") {
+        *exception = marathon_test_support::recorded_errors::scenario_kind(exception.as_str().unwrap())
+            .identifier()
+            .into();
+    }
+    for entry in row["log"].as_array_mut().unwrap() {
+        if let Some(exception) = entry.get_mut("exception") {
+            *exception = marathon_test_support::recorded_errors::scenario_kind(exception.as_str().unwrap())
+                .identifier()
+                .into();
+        }
+    }
     let rust = if d48 {
         scenario::run_longer(&format!("{name}.json"), D48_WAIT, |_| {})
     } else {

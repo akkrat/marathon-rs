@@ -119,23 +119,49 @@ fn cli_matrix_matches_the_reference_build() {
         ];
         sandbox.sort_by_key(|s| std::cmp::Reverse(s.len()));
         let want = if row["rust"].is_null() { row } else { &row["rust"] };
-        let got = (
-            support::jackson_classes_only(&normalise(&out.stdout, &sandbox)),
-            support::jackson_classes_only(&normalise(&out.stderr, &sandbox)),
-            i64::from(out.exit),
+        let expected_stdout = want["stdout"].as_str().unwrap().replace(
+            "com.malinskiy.marathon.cli.args.VersionCommandCliConfiguration@<HASH>",
+            "VersionCommandCliConfiguration",
         );
-        let expected = (
-            support::jackson_classes_only(&want["stdout"].as_str().unwrap().replace(
-                "com.malinskiy.marathon.cli.args.VersionCommandCliConfiguration@<HASH>",
-                "VersionCommandCliConfiguration",
-            )),
-            support::jackson_classes_only(want["stderr"].as_str().unwrap()),
-            want["exit"].as_i64().unwrap(),
+        // These closed matrix rows record exactly one generated cause. Other messages stay opaque.
+        let generated_cause = matches!(
+            id,
+            "marathonfile-unreadable"
+                | "config-binding-error"
+                | "config-empty-file"
+                | "config-default-marathonfile-binding-error"
+                | "parse-binding-error"
+                | "config-dump-now-offset-hour-24"
         );
+        let (stdout, expected_stdout) =
+            support::cli_error_comparison(&normalise(&out.stdout, &sandbox), &expected_stdout, false);
+        let (stderr, expected_stderr) = support::cli_error_comparison(
+            &normalise(&out.stderr, &sandbox),
+            want["stderr"].as_str().unwrap(),
+            generated_cause,
+        );
+        let got = (stdout, stderr, i64::from(out.exit));
+        let expected = (expected_stdout, expected_stderr, want["exit"].as_i64().unwrap());
         if got != expected {
             failures.push(format!("{id} {:?}\n  got  {got:?}\n  want {expected:?}", row["argv"]));
         }
     }
     eprintln!("cli matrix: {}/{} rows pass", rows.len() - failures.len(), rows.len());
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn cli_error_comparison_keeps_external_class_names_in_message_lines() {
+    let message = "external java.io.IOException: remote\nCaused by: java.lang.IllegalStateException: remote\n";
+    let expected = format!("Exception in thread \"main\" java.io.IOException: {message}");
+    let actual = format!("Exception in thread \"main\" I/O error: {message}");
+    let (got, want) = support::cli_error_comparison(&actual, &expected, false);
+    assert_eq!(got, want);
+    let expected = format!(
+        "Exception in thread \"main\" java.lang.IllegalStateException: root\nCaused by: java.io.IOException: {message}"
+    );
+    let actual = format!("Exception in thread \"main\" invalid state: root\nCaused by: I/O error: {message}");
+    let (got, want) = support::cli_error_comparison(&actual, &expected, true);
+    assert_eq!(got, want);
+    assert_ne!(got.replace("java.io.IOException", "I/O error"), want);
 }

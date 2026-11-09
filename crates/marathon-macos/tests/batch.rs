@@ -162,8 +162,8 @@ async fn a_batch_level_failure_still_drops_the_device_once_its_session_has_close
         .ok_or("expected failure")?;
     assert!(matches!(error, VendorError::DeviceLost(_)));
     assert_eq!(
-        error.failure().cause.as_ref().unwrap().kind.legacy_class().to_owned(),
-        "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException"
+        error.failure().cause.as_ref().unwrap().kind.description().to_owned(),
+        "Apple device failure"
     );
     assert_eq!(
         *running.events.lock().unwrap(),
@@ -265,17 +265,22 @@ async fn dropping_a_disposal_waiter_does_not_abandon_the_shared_completion() -> 
     let mut current = Some(error.failure());
     while let Some(f) = current {
         let message = f.message.clone();
-        chain.push(serde_json::json!({"class":f.kind.legacy_class().to_owned(),"message":message}));
+        chain.push(serde_json::json!({"class":f.kind.identifier(),"message":message}));
         current = f.cause.as_deref();
     }
     let expected = oracle["error"].to_string().replace(
         "LazyDeferredCoroutine{Cancelled}@<identity>",
         "LazyDeferredCoroutine{Cancelled}",
     );
-    assert_eq!(
-        serde_json::json!(chain),
-        serde_json::from_str::<serde_json::Value>(&expected)?
-    );
+    let mut expected = serde_json::from_str::<serde_json::Value>(&expected)?;
+    // This disposal wrapper embeds the cancellation rendering, including its job suffix.
+    expected[0]["message"] = marathon_test_support::recorded_errors::rendered(
+        expected[0]["message"].as_str().ok_or("cancellation rendering")?,
+    )
+    .map_err(|error| format!("recorded cancellation: {error}"))?
+    .into();
+    marathon_test_support::recorded_errors::error_chain(&mut expected);
+    assert_eq!(serde_json::json!(chain), expected);
     v(d.join_pending().await)?;
     Ok(())
 }
@@ -450,10 +455,7 @@ async fn only_first_concurrent_disposer_logs_join_failure() -> R {
     assert_eq!(errors[0].level, jcompat::logging::Level::Debug);
     running.release.notify_one();
     let error = task.await?.err().ok_or("cancelled execution overflow")?;
-    assert_eq!(
-        error.failure().kind.legacy_class(),
-        "java.lang.ArithmeticException".to_owned()
-    );
+    assert_eq!(error.failure().kind.description(), "arithmetic failure".to_owned());
     v(d.join_pending().await)?;
     Ok(())
 }

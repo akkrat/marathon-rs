@@ -1299,8 +1299,8 @@ fn a_run_ends_on_a_parse_that_keeps_failing_short_d42() {
     let Some(Err(error)) = &observed.result else {
         panic!("{:?}", observed.result.as_ref().map(|r| r.is_ok()));
     };
-    let text = error.failure().to_java_string().to_owned();
-    assert!(text.contains("TestParsingException"), "{text}");
+    let text = error.failure().to_string().to_owned();
+    assert!(text.contains("test discovery failure"), "{text}");
     assert!(text.contains("Other, tests listed: 1 of 20"), "{text}");
     assert_eq!(parses(&observed), 9);
     assert!(observed.batches.is_empty(), "{:?}", observed.batches);

@@ -121,5 +121,5 @@ pub fn message(error: &ConfigurationError) -> String {
     error.message.to_owned().unwrap_or_default()
 }
 pub fn class(error: &ConfigurationError) -> String {
-    error.kind.legacy_class().to_owned()
+    error.kind.description().to_owned()
 }

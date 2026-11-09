@@ -1,4 +1,4 @@
-# Typed failures (WP 8.6a)
+# Typed failures (WP 8.6a history)
 
 Milestones 1–5 replace string classifications throughout the workspace. Rendered bytes remain unchanged;
 the narrower 8.6a brief applies even where PLAN §3.12 permits wording changes. No D-row or
@@ -226,13 +226,13 @@ row changes remain. External text, KotlinValue and YAML writing remain outside t
 can replace each domain's mapping independently, including the preserved Debug rendering.
 
 
-# Plain failure wording proposal (WP 8.6b, milestone 1)
+# Plain failure wording (WP 8.6b, D59)
 
-**Design stop: proposed, not implemented or approved.** The 8.6a sections above describe
-current behavior. This section proposes D59; no rendering, class mapping, config-dump
-schema or existing assertion has changed at this milestone.
+**Approved design, implemented in WP 8.6b.** The 8.6a sections above preserve the
+historical migration design. D59 now applies the following descriptions, `Display`
+rendering, stable config identifiers and typed recorded-input comparisons.
 
-## Proposed rendering contract
+## Rendering contract
 
 `Display` for each kind supplies the description below. `Display` for `Failure` prints
 `<description>: <message>` when the message is present (including an empty message), and
@@ -247,10 +247,12 @@ unchanged: it is outside the kind description, and the brief limits this change
 to class names and embedded failure rendering. Removing that envelope would be
 an additional wording decision, not part of the proposed D59 replacements.
 
-Every description is a lower-case noun phrase. Acronyms are lower-case as well. The
-common `Io` description is `i/o error`; `error` here describes the problem, rather than
+Descriptions start lower-case except for the normal spelling of acronyms and proper
+names. The common `Io` description is `I/O error`; `error` here describes the problem, rather than
 a Java `Error` suffix or catch hierarchy. Fatal descriptions preserve their fatal
 identity even though those kinds should arise only from recorded/injected failures.
+
+`ConfigKind::YamlMarked` uses **YAML error**; `Yaml` remains **YAML failure**.
 
 **Merges: none.** All 208 concrete recordable kinds have distinct descriptions.
 Domain wrappers delegate rather than introduce another description. Validation aliases
@@ -264,7 +266,7 @@ or rewritten to make it fit this table.
 
 ### Common and runner kinds
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
 | `FailureKind::Security` | security restriction |
 | `FailureKind::ReplayClock` | clock replay failure |
@@ -278,9 +280,9 @@ or rewritten to make it fit this table.
 | `FailureKind::Transfer` | file transfer failure |
 | `FailureKind::Eof` | unexpected end of input |
 | `FailureKind::FileNotFound` | file not found |
-| `FailureKind::Io` | i/o error |
-| `FailureKind::InterruptedIo` | interrupted i/o |
-| `FailureKind::UncheckedIo` | unchecked i/o error |
+| `FailureKind::Io` | I/O error |
+| `FailureKind::InterruptedIo` | interrupted I/O |
+| `FailureKind::UncheckedIo` | unchecked I/O error |
 | `FailureKind::Arithmetic` | arithmetic failure |
 | `FailureKind::ArrayIndexOutOfBounds` | array index out of bounds |
 | `FailureKind::ClassCast` | incompatible value type |
@@ -306,7 +308,7 @@ or rewritten to make it fit this table.
 | `FailureKind::FileAlreadyExists` | file already exists |
 | `FailureKind::FileSystem` | filesystem failure |
 | `FailureKind::InvalidPath` | invalid path |
-| `FailureKind::NoSuchFile` | missing filesystem entry |
+| `FailureKind::NoSuchFile` | no such file or directory |
 | `FailureKind::GeneralSecurity` | security operation failure |
 | `FailureKind::DateTime` | invalid date or time |
 | `FailureKind::DateTimeParse` | date or time parsing failure |
@@ -328,34 +330,34 @@ or rewritten to make it fit this table.
 
 ### ADB
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `AdbKind::PullFailed` | adb pull failure |
-| `AdbKind::PushFailed` | adb push failure |
-| `AdbKind::RequestRejected` | adb request rejected |
-| `AdbKind::RequestValidation` | invalid adb request |
-| `AdbKind::UnsupportedForwardingSpec` | unsupported adb forwarding specification |
-| `AdbKind::UnsupportedImageProtocol` | unsupported adb image protocol |
-| `AdbKind::UnsupportedSyncProtocol` | unsupported adb sync protocol |
-| `AdbKind::ConnectRefused` | adb connection refused |
-| `AdbKind::ConnectTimeout` | adb connection timed out |
-| `AdbKind::ClosedChannel` | adb channel closed |
-| `AdbKind::TransportClosed` | adb transport closed |
+| `AdbKind::PullFailed` | ADB pull failure |
+| `AdbKind::PushFailed` | ADB push failure |
+| `AdbKind::RequestRejected` | ADB request rejected |
+| `AdbKind::RequestValidation` | invalid ADB request |
+| `AdbKind::UnsupportedForwardingSpec` | unsupported ADB forwarding specification |
+| `AdbKind::UnsupportedImageProtocol` | unsupported ADB image protocol |
+| `AdbKind::UnsupportedSyncProtocol` | unsupported ADB sync protocol |
+| `AdbKind::ConnectRefused` | ADB connection refused |
+| `AdbKind::ConnectTimeout` | ADB connection timed out |
+| `AdbKind::ClosedChannel` | ADB channel closed |
+| `AdbKind::TransportClosed` | ADB transport closed |
 
 ### DEX
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `DexKind::Decode` | dex decoding failure |
+| `DexKind::Decode` | DEX decoding failure |
 
 ### Configuration
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
 | `ConfigKind::Rejected` | configuration rejected |
-| `ConfigKind::JsonParse` | json parsing failure |
+| `ConfigKind::JsonParse` | JSON parsing failure |
 | `ConfigKind::StreamConstraints` | input stream limit exceeded |
-| `ConfigKind::JsonEof` | unexpected end of json input |
+| `ConfigKind::JsonEof` | unexpected end of JSON input |
 | `ConfigKind::JsonMapping` | configuration mapping failure |
 | `ConfigKind::InvalidDefinition` | invalid configuration definition |
 | `ConfigKind::InvalidFormat` | invalid configuration value format |
@@ -363,102 +365,102 @@ or rewritten to make it fit this table.
 | `ConfigKind::MismatchedInput` | configuration input type mismatch |
 | `ConfigKind::UnrecognizedProperty` | unrecognized configuration property |
 | `ConfigKind::ValueInstantiation` | configuration value construction failure |
-| `ConfigKind::YamlParse` | yaml decoding failure |
-| `ConfigKind::YamlMarked` | yaml location failure |
+| `ConfigKind::YamlParse` | YAML decoding failure |
+| `ConfigKind::YamlMarked` | YAML error |
 | `ConfigKind::MissingParameter` | missing required configuration parameter |
-| `ConfigKind::Yaml` | yaml failure |
-| `ConfigKind::Parser` | yaml parsing failure |
-| `ConfigKind::Reader` | yaml reading failure |
-| `ConfigKind::Scanner` | yaml scanning failure |
+| `ConfigKind::Yaml` | YAML failure |
+| `ConfigKind::Parser` | YAML parsing failure |
+| `ConfigKind::Reader` | YAML reading failure |
+| `ConfigKind::Scanner` | YAML scanning failure |
 
 ### SSH
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `SshKind::KeyDecryptionFailed` | ssh key decryption failure |
-| `SshKind::Base64Decoding` | ssh base64 decoding failure |
-| `SshKind::Buffer` | ssh buffer failure |
-| `SshKind::CircularBuffer` | ssh circular buffer failure |
-| `SshKind::General` | ssh failure |
-| `SshKind::Connection` | ssh connection failure |
-| `SshKind::OpenChannel` | ssh channel opening failure |
-| `SshKind::Transport` | ssh transport failure |
-| `SshKind::Authentication` | ssh authentication failed |
-| `SshKind::Encryption` | ssh key encryption failure |
-| `SshKind::Pem` | ssh pem decoding failure |
-| `SshKind::Password` | ssh key password failure |
-| `SshKind::Pkcs` | ssh pkcs decoding failure |
+| `SshKind::KeyDecryptionFailed` | SSH key decryption failure |
+| `SshKind::Base64Decoding` | SSH base64 decoding failure |
+| `SshKind::Buffer` | SSH buffer failure |
+| `SshKind::CircularBuffer` | SSH circular buffer failure |
+| `SshKind::General` | SSH failure |
+| `SshKind::Connection` | SSH connection failure |
+| `SshKind::OpenChannel` | SSH channel opening failure |
+| `SshKind::Transport` | SSH transport failure |
+| `SshKind::Authentication` | SSH authentication failed |
+| `SshKind::Encryption` | SSH key encryption failure |
+| `SshKind::Pem` | SSH PEM decoding failure |
+| `SshKind::Password` | SSH key password failure |
+| `SshKind::Pkcs` | SSH PKCS decoding failure |
 
 ### Analytics
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `AnalyticsKind::BadRequest` | influxdb bad request |
-| `AnalyticsKind::Forbidden` | influxdb access forbidden |
-| `AnalyticsKind::InfluxV2` | influxdb v2 failure |
-| `AnalyticsKind::InternalServerError` | influxdb internal server failure |
-| `AnalyticsKind::NotFound` | influxdb resource not found |
-| `AnalyticsKind::ServiceUnavailable` | influxdb service unavailable |
-| `AnalyticsKind::Unauthorized` | influxdb authentication required |
-| `AnalyticsKind::UnprocessableEntity` | unprocessable influxdb request |
-| `AnalyticsKind::FluxCsvParser` | flux csv parsing failure |
-| `AnalyticsKind::FluxQuery` | flux query failure |
-| `AnalyticsKind::Graphite` | graphite failure |
-| `AnalyticsKind::InfluxV2Provider` | influxdb v2 provider failure |
-| `AnalyticsKind::JsonEncoding` | json encoding failure |
-| `AnalyticsKind::InfluxIo` | influxdb i/o error |
-| `AnalyticsKind::InfluxMapping` | influxdb mapping failure |
+| `AnalyticsKind::BadRequest` | InfluxDB bad request |
+| `AnalyticsKind::Forbidden` | InfluxDB access forbidden |
+| `AnalyticsKind::InfluxV2` | InfluxDB v2 failure |
+| `AnalyticsKind::InternalServerError` | InfluxDB internal server failure |
+| `AnalyticsKind::NotFound` | InfluxDB resource not found |
+| `AnalyticsKind::ServiceUnavailable` | InfluxDB service unavailable |
+| `AnalyticsKind::Unauthorized` | InfluxDB authentication required |
+| `AnalyticsKind::UnprocessableEntity` | unprocessable InfluxDB request |
+| `AnalyticsKind::FluxCsvParser` | Flux CSV parsing failure |
+| `AnalyticsKind::FluxQuery` | Flux query failure |
+| `AnalyticsKind::Graphite` | Graphite failure |
+| `AnalyticsKind::InfluxV2Provider` | InfluxDB v2 provider failure |
+| `AnalyticsKind::JsonEncoding` | JSON encoding failure |
+| `AnalyticsKind::InfluxIo` | InfluxDB I/O error |
+| `AnalyticsKind::InfluxMapping` | InfluxDB mapping failure |
 
 ### InfluxDB v1
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `InfluxV1Kind::General` | influxdb v1 failure |
-| `InfluxV1Kind::AuthorizationFailed` | influxdb v1 authorization failed |
-| `InfluxV1Kind::CacheMaxMemorySizeExceeded` | influxdb v1 cache memory limit exceeded |
-| `InfluxV1Kind::DatabaseNotFound` | influxdb v1 database not found |
-| `InfluxV1Kind::FieldTypeConflict` | influxdb v1 field type conflict |
-| `InfluxV1Kind::HintedHandOffQueueNotEmpty` | influxdb v1 pending handoff queue |
-| `InfluxV1Kind::PointsBeyondRetentionPolicy` | influxdb v1 points outside retention policy |
-| `InfluxV1Kind::UnableToParse` | influxdb v1 input parsing failure |
+| `InfluxV1Kind::General` | InfluxDB v1 failure |
+| `InfluxV1Kind::AuthorizationFailed` | InfluxDB v1 authorization failed |
+| `InfluxV1Kind::CacheMaxMemorySizeExceeded` | InfluxDB v1 cache memory limit exceeded |
+| `InfluxV1Kind::DatabaseNotFound` | InfluxDB v1 database not found |
+| `InfluxV1Kind::FieldTypeConflict` | InfluxDB v1 field type conflict |
+| `InfluxV1Kind::HintedHandOffQueueNotEmpty` | InfluxDB v1 pending handoff queue |
+| `InfluxV1Kind::PointsBeyondRetentionPolicy` | InfluxDB v1 points outside retention policy |
+| `InfluxV1Kind::UnableToParse` | InfluxDB v1 input parsing failure |
 
 ### Android
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `AndroidKind::TestAnnotationProducerNotFound` | android test annotation producer not found |
-| `AndroidKind::CommandRejected` | android command rejected |
-| `AndroidKind::DeviceNotSupported` | unsupported android device |
-| `AndroidKind::Install` | android installation failure |
+| `AndroidKind::TestAnnotationProducerNotFound` | Android test annotation producer not found |
+| `AndroidKind::CommandRejected` | Android command rejected |
+| `AndroidKind::DeviceNotSupported` | unsupported Android device |
+| `AndroidKind::Install` | Android installation failure |
 
 ### Apple
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `AppleKind::NotAdmitted` | apple device not admitted |
-| `AppleKind::NotBooted` | apple device not booted |
-| `AppleKind::TransferStalled` | apple file transfer stalled |
-| `AppleKind::SetupDropped` | apple device setup dropped |
-| `AppleKind::Boot` | apple device boot failure |
-| `AppleKind::Command` | apple command failure |
-| `AppleKind::DeviceFailure` | apple device failure |
+| `AppleKind::NotAdmitted` | Apple device not admitted |
+| `AppleKind::NotBooted` | Apple device not booted |
+| `AppleKind::TransferStalled` | Apple file transfer stalled |
+| `AppleKind::SetupDropped` | Apple device setup dropped |
+| `AppleKind::Boot` | Apple device boot failure |
+| `AppleKind::Command` | Apple command failure |
+| `AppleKind::DeviceFailure` | Apple device failure |
 
 ### Reports
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
-| `ReportKind::AllureResultsWrite` | allure results write failure |
-| `ReportKind::ImageIo` | image i/o error |
+| `ReportKind::AllureResultsWrite` | Allure results write failure |
+| `ReportKind::ImageIo` | image I/O error |
 | `ReportKind::ImageMetadata` | invalid image metadata |
-| `ReportKind::Transformer` | xml transformation failure |
-| `ReportKind::Sax` | xml parsing failure |
+| `ReportKind::Transformer` | XML transformation failure |
+| `ReportKind::Sax` | XML parsing failure |
 
 ### Fatal kinds
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
 | `FatalKind::WindowSystem` | fatal window system failure |
-| `FatalKind::Io` | fatal i/o error |
+| `FatalKind::Io` | fatal I/O error |
 | `FatalKind::Assertion` | fatal assertion failure |
 | `FatalKind::BootstrapMethod` | fatal bootstrap method failure |
 | `FatalKind::ClassCircularity` | fatal circular type dependency |
@@ -485,15 +487,15 @@ or rewritten to make it fit this table.
 | `FatalKind::CoderMalfunction` | fatal text codec malfunction |
 | `FatalKind::ServiceConfiguration` | fatal service configuration failure |
 | `FatalKind::Zip` | fatal archive failure |
-| `FatalKind::ParserFactory` | fatal xml parser factory failure |
-| `FatalKind::StreamFactory` | fatal xml stream factory failure |
-| `FatalKind::TransformerFactory` | fatal xml transformer factory failure |
+| `FatalKind::ParserFactory` | fatal XML parser factory failure |
+| `FatalKind::StreamFactory` | fatal XML stream factory failure |
+| `FatalKind::TransformerFactory` | fatal XML transformer factory failure |
 | `FatalKind::NotImplemented` | fatal unimplemented operation |
 | `FatalKind::ReflectionUnsupported` | fatal unsupported reflection |
 
 ### Injected and replay markers
 
-| Kind | Proposed description |
+| Kind | Approved description |
 | --- | --- |
 | `InjectedKind::ReplayStep` | injected replay step failure |
 | `InjectedKind::NotBootedProbe` | injected not booted probe failure |
@@ -549,8 +551,8 @@ or rewritten to make it fit this table.
 | `ValidationKind::Configuration` | configuration rejected (`ConfigKind::Rejected`) |
 | `ValidationKind::FileNotFound` | file not found (`FailureKind::FileNotFound`) |
 | `ValidationKind::Zip` | archive failure (`FailureKind::Zip`) |
-| `ValidationKind::Io` | i/o error (`FailureKind::Io`) |
-| `ValidationKind::NoSuchFile` | missing filesystem entry (`FailureKind::NoSuchFile`) |
+| `ValidationKind::Io` | I/O error (`FailureKind::Io`) |
+| `ValidationKind::NoSuchFile` | no such file or directory (`FailureKind::NoSuchFile`) |
 
 `RetryDisposition::{Retry, Never}` are policy metadata, not failures. SnakeYAML's
 `TokenErrorKind` stays independent: config's existing `binder::token_kind` projection
@@ -594,7 +596,7 @@ No extra Apple failure or config-error whole-CLI adapter is added at this stop:
 the Android case covers all four required reporters, and the existing config
 oracle/staging suites already cover parse/logical failures and ordered causes.
 
-## Oracle comparison proposal
+## Oracle comparisons
 
 Copied fixtures, recorded scenario tokens, tapes and historical JVM captures stay
 unchanged. Keep `marathon-test-support/src/recorded_errors.rs` as the single owner
@@ -654,7 +656,7 @@ native/JVM pairs keep their original text. Fresh native captures use native gold
 with the new Android failure case supplying the D59 result-file witness. Do not
 normalize class names away from native-golden comparison.
 
-## Config-dump proposal
+## Config-dump
 
 Replace only the top-level error classification key `class` with `kind`. Its value
 is an explicit stable lower-case identifier, independent of description wording:
@@ -700,7 +702,7 @@ necessary change makes corpus data differ, use only
 `MARATHON_BLESS_CONFIG=1 cargo test -p marathon-cli --test config_contract`, review
 and explain every difference. Never regenerate historical JVM config dumps.
 
-## Expected tests and golden changes after approval
+## Design-stop impact inventory
 
 No existing test assertion is weakened at this design stop. The only changed test
 file so far is `tools/differential/test_evidence.py`, adding
@@ -759,7 +761,7 @@ an exception rendering; adapt that path without changing valid progress lines.
 | `fixtures/contract/config/corpus.json` | No expected data change because rejection text is excluded; verify, do not bless needlessly. |
 | `fixtures/oracle/**`, `fixtures/differential/**`, copied fake/tape inputs | No edits or re-recording. Parse recorded expectations at their boundary instead. |
 
-After wording implementation, re-bless only with the documented tool and run
+The implementation re-blesses only with the documented tool and runs
 `tools/differential/run diff-golden --against e34dadc1`.
 Write `docs/wp/8.6b-golden-diff.md` with files, before/after values, counts and
 separate provenance changes. Anything beyond approved class-prefix/description
@@ -787,3 +789,33 @@ then; the Phase 8 external-text exclusion and exit codes stay in force.
 - Instrumentation EOF occurs over a real loopback stream. Keep the current
   bounded capture and full manifest comparison, and verify it again in the
   gate rather than relying only on the bless run.
+
+
+## Implementation and verification (WP 8.6b)
+
+The approved table includes the final case adjustments and uses `YAML error` for
+`YamlMarked`, distinct from `YAML failure`. `NoSuchFile` and its validation alias
+use `no such file or directory`. No kinds merge. Kind and failure `Display`
+implementations replace the legacy class renderers. Domain-specific SSH rendering
+retains its disconnect-reason and channel-opening structure; the clock-error
+fallback embeds the failure's `Display`, with a focused regression. Parser-error
+Display and fake-world sink diagnostics also use their projected failures rather
+than error Debug views.
+
+The whitelist owns the exact recorded full names and the separate closed short-token
+formats used by SSH, runtime and scenario oracles. Exhaustive recordable-kind coverage
+and literal tests of all 208 descriptions and stable identifiers guard the vocabulary.
+Oracle adapters target generated class fields, throwable chains, cause strings or
+explicit failure-outcome fields; they never rewrite arbitrary message substrings.
+Regression tests retain an external class name inside a message through both Rust
+and Python comparison paths, including an opaque continuation beginning with
+`Caused by:`. The logback oracle rebuilds headers from structured throwable fields; the CLI
+matrix declares its six cause-bearing rows and maps only the root and their
+one generated cause header, copying message continuations whole. Neither rewrites class
+names inside messages. The native generated-failure golden stays exact.
+
+The final file ledger is `docs/wp/8.6b-test-changes.md`; the six replacements across
+four result files and the separate provenance update are audited in
+`docs/wp/8.6b-golden-diff.md`. The design-stop impact inventory above is historical;
+the final ledger is authoritative. No copied fixture, historical recording, parity
+row, exit code or pinned progress/summary line changes.

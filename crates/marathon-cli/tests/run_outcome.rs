@@ -236,7 +236,7 @@ fn run_crash_logs_kotlin_unit_and_the_throwable() {
         r.stdout,
         format!(
             "{}12:34:56.789 [main] ERROR c.m.marathon.cli.ApplicationView - kotlin.Unit\n\
-             java.lang.IllegalStateException: boom\nCaused by: java.io.IOException: inner\n",
+             invalid state: boom\nCaused by: I/O error: inner\n",
             start()
         )
     );
@@ -251,7 +251,7 @@ fn run_crash_after_configure_logging_uses_the_runtime_layout() {
     assert_eq!(
         r.stdout,
         format!(
-            "{}E 12:34:56.789 [main] <c.malinskiy.marathon.cli.ApplicationView> kotlin.Unit\njava.lang.RuntimeException: late\n",
+            "{}E 12:34:56.789 [main] <c.malinskiy.marathon.cli.ApplicationView> kotlin.Unit\nruntime failure: late\n",
             start()
         )
     );
@@ -266,7 +266,7 @@ fn run_events_and_the_crash_log_share_the_console() {
         r.stdout,
         format!(
             "{}I 12:34:56.789 [main] <com.malinskiy.marathon.Marathon> from the run\n\
-             E 12:34:56.789 [main] <c.malinskiy.marathon.cli.ApplicationView> kotlin.Unit\njava.lang.RuntimeException: late\n",
+             E 12:34:56.789 [main] <c.malinskiy.marathon.cli.ApplicationView> kotlin.Unit\nruntime failure: late\n",
             start()
         )
     );
@@ -284,8 +284,8 @@ fn construction_failure_escapes_execute() {
     assert_eq!(r.stdout, start());
     assert_eq!(
         r.stderr,
-        "Exception in thread \"main\" org.koin.core.error.InstanceCreationException: Could not create instance\n\
-         Caused by: java.lang.IllegalArgumentException: bad\n"
+        "Exception in thread \"main\" dependency creation failure: Could not create instance\n\
+         Caused by: invalid argument: bad\n"
     );
     assert_eq!(r.exit, 1);
     assert_eq!(r.seen.len(), 1, "run is never called");
@@ -300,7 +300,7 @@ fn unsupported_runner_fails_construction_until_wp_3_10() {
     assert_eq!(stdout.text(), start());
     assert_eq!(
         stderr.text(),
-        "Exception in thread \"main\" java.lang.UnsupportedOperationException: Running tests is not supported by this build yet\n"
+        "Exception in thread \"main\" unsupported operation: Running tests is not supported by this build yet\n"
     );
     assert_eq!(exit, 1);
 }
@@ -311,7 +311,7 @@ fn stub_vendor_is_gated_before_construction() {
     assert_eq!(r.stdout, start());
     assert_eq!(
         r.stderr,
-        "Exception in thread \"main\" com.malinskiy.marathon.config.exceptions.ConfigurationException: No vendor config present in <DIR>/Marathonfile\n"
+        "Exception in thread \"main\" configuration rejected: No vendor config present in <DIR>/Marathonfile\n"
     );
     assert_eq!(r.exit, 1);
     assert!(r.seen.is_empty());
@@ -326,7 +326,7 @@ fn empty_vendor_fails_the_parse_before_the_gate() {
     );
     assert_eq!(
         r.stderr,
-        "Exception in thread \"main\" com.malinskiy.marathon.config.exceptions.ConfigurationException: No vendor configuration specified\n"
+        "Exception in thread \"main\" configuration rejected: No vendor configuration specified\n"
     );
     assert_eq!(r.exit, 1);
     assert!(r.seen.is_empty());
@@ -387,9 +387,8 @@ fn assert_refused(r: &Run, case: &str) {
     assert_eq!(r.exit, 1, "{case}: {}", r.stderr);
     assert!(r.seen.is_empty(), "{case}: nothing may start");
     assert!(
-        r.stderr.starts_with(
-            "Exception in thread \"main\" com.malinskiy.marathon.config.exceptions.ConfigurationException: uncompletedTestRetryQuota is unlimited"
-        ),
+        r.stderr
+            .starts_with("Exception in thread \"main\" configuration rejected: uncompletedTestRetryQuota is unlimited"),
         "{case}: {}",
         r.stderr
     );
@@ -558,7 +557,12 @@ fn throwable_rendering_matches_the_logback_row_without_frames() {
         .split_inclusive('\n')
         .filter(|l| !l.starts_with('\t'))
         .collect();
-    assert_eq!(render_throwable(&convert(&row["throwable"]).unwrap()), expected);
+    let (recorded, plain) = marathon_test_support::recorded_errors::throwable_strings(&row["throwable"]);
+    assert_eq!(
+        expected, recorded,
+        "structured fields preserve the recorded headers and messages"
+    );
+    assert_eq!(render_throwable(&convert(&row["throwable"]).unwrap()), plain);
 }
 
 #[test]
@@ -578,7 +582,7 @@ fn external_trace_text_and_null_messages_render_as_the_jvm_does() {
     assert_eq!(
         render_uncaught(&f),
         "Exception in thread \"main\" com.example.TestFailure\n\tat remote.Test(Test.kt:3)\n\
-         Caused by: java.lang.Error: x\n\tat worker.Frame(Frame.java:1)\n"
+         Caused by: fatal failure: x\n\tat worker.Frame(Frame.java:1)\n"
     );
 }
 
@@ -602,8 +606,8 @@ fn configuration_error_chain_renders_outermost_first() {
     let first_lines: Vec<&str> = rendered.lines().filter(|l| !l.starts_with(' ')).collect();
     assert_eq!(
         first_lines[0],
-        "Exception in thread \"main\" com.malinskiy.marathon.config.exceptions.ConfigurationException: Error parsing config file /w/bad.yaml"
+        "Exception in thread \"main\" configuration rejected: Error parsing config file /w/bad.yaml"
     );
-    assert!(first_lines[1].starts_with("Caused by: com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"));
+    assert!(first_lines[1].starts_with("Caused by: unrecognized configuration property"));
     assert_eq!(rendered.matches("Caused by: ").count(), error.causes.len());
 }

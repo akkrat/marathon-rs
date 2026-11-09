@@ -69,7 +69,7 @@ fn accepted(row: &mut Value) {
                         "logger": logger,
                         "level": "ERROR",
                         "message": HANDLER,
-                        "throwable": [{"class": "java.lang.IllegalStateException", "message": "log streaming crashed"}],
+                        "throwable": [{"class": "illegal-state", "message": "log streaming crashed"}],
                     },
                 }),
             );
@@ -97,6 +97,34 @@ fn device_actor_corpus_matches_the_actor() {
             .copied()
             .find(|name| expected["scenario"] == **name)
             .unwrap();
+        for entry in expected["trace"].as_array_mut().unwrap() {
+            if let Some(chain) = entry.pointer_mut("/log/throwable") {
+                marathon_test_support::recorded_errors::error_chain(chain);
+            }
+        }
+        for entry in expected["trace"].as_array_mut().unwrap() {
+            if let Some(reason) = entry.pointer_mut("/pool/reason")
+                && let Some(rest) = reason.as_str().unwrap().strip_prefix("Test batch failed execution:\n")
+            {
+                *reason = format!(
+                    "Test batch failed execution:\n{}",
+                    marathon_test_support::recorded_errors::rendered(rest).unwrap()
+                )
+                .into();
+            }
+            if let Some(message) = entry.pointer_mut("/log/message")
+                && let Some((prefix, rest)) = message
+                    .as_str()
+                    .unwrap()
+                    .split_once(". Reason: Test batch failed execution:\n")
+            {
+                *message = format!(
+                    "{prefix}. Reason: Test batch failed execution:\n{}",
+                    marathon_test_support::recorded_errors::rendered(rest).unwrap()
+                )
+                .into();
+            }
+        }
         accepted(&mut expected);
         let actual = run_scenario(name).row(name);
         if actual != expected {

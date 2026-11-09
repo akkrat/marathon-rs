@@ -183,10 +183,7 @@ fn should_return_proper_list_of_test_methods() {
             assert!(bundle.0.id().to_owned().ends_with("android_test_1.apk"));
             assert!(bundle == identifier.identify(&tests[0])?.unwrap());
             let error = identifier.identify(&test()).err().unwrap();
-            assert_eq!(
-                error.failure().kind.legacy_class(),
-                js("com.malinskiy.marathon.config.exceptions.ConfigurationException")
-            );
+            assert_eq!(error.failure().kind.description(), js("configuration rejected"));
             assert_eq!(
                 error.failure().message,
                 Some(js("Invalid test pkg.clazz#method: can't locate test bundle"))

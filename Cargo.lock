@@ -1371,6 +1371,7 @@ version = "0.0.0"
 dependencies = [
  "form_urlencoded",
  "marathon-error",
+ "marathon-test-support",
  "md5 0.7.0",
  "regex",
  "serde_json",
@@ -1481,6 +1482,7 @@ dependencies = [
  "lcms2",
  "marathon-adb",
  "marathon-error",
+ "marathon-test-support",
  "png",
  "regex",
  "serde",
@@ -1509,6 +1511,7 @@ dependencies = [
  "marathon-config",
  "marathon-core",
  "marathon-error",
+ "marathon-test-support",
  "percent-encoding",
  "rustls",
  "rustls-native-certs",
@@ -1599,6 +1602,7 @@ version = "0.0.0"
 dependencies = [
  "jcompat",
  "marathon-error",
+ "marathon-test-support",
  "serde_json",
  "sha2 0.10.9",
  "snakeyaml",
@@ -1635,6 +1639,7 @@ version = "0.0.0"
 dependencies = [
  "jcompat",
  "marathon-error",
+ "marathon-test-support",
  "serde_json",
  "tempfile",
  "zip",

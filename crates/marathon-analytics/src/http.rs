@@ -465,53 +465,35 @@ pub(crate) mod tests {
     #[test]
     fn v1_error_bodies_map_to_influxdb_java_subclasses() {
         for (message, class) in [
-            (
-                "database not found",
-                "org.influxdb.InfluxDBException$DatabaseNotFoundException",
-            ),
+            ("database not found", "InfluxDB v1 database not found"),
             (
                 "partial write: points beyond retention policy dropped=1",
-                "org.influxdb.InfluxDBException$PointsBeyondRetentionPolicyException",
+                "InfluxDB v1 points outside retention policy",
             ),
-            (
-                "field type conflict",
-                "org.influxdb.InfluxDBException$FieldTypeConflictException",
-            ),
-            (
-                "unable to parse 'x'",
-                "org.influxdb.InfluxDBException$UnableToParseException",
-            ),
-            (
-                "hinted handoff queue not empty",
-                "org.influxdb.InfluxDBException$HintedHandOffQueueNotEmptyException",
-            ),
+            ("field type conflict", "InfluxDB v1 field type conflict"),
+            ("unable to parse 'x'", "InfluxDB v1 input parsing failure"),
+            ("hinted handoff queue not empty", "InfluxDB v1 pending handoff queue"),
             (
                 "engine: cache-max-memory-size exceeded",
-                "org.influxdb.InfluxDBException$CacheMaxMemorySizeExceededException",
+                "InfluxDB v1 cache memory limit exceeded",
             ),
             (
                 "user is required to write to database \"db\"",
-                "org.influxdb.InfluxDBException$AuthorizationFailedException",
+                "InfluxDB v1 authorization failed",
             ),
             (
                 "user is not authorized to write to database \"db\"",
-                "org.influxdb.InfluxDBException$AuthorizationFailedException",
+                "InfluxDB v1 authorization failed",
             ),
-            (
-                "authorization failed",
-                "org.influxdb.InfluxDBException$AuthorizationFailedException",
-            ),
-            (
-                "username required",
-                "org.influxdb.InfluxDBException$AuthorizationFailedException",
-            ),
+            ("authorization failed", "InfluxDB v1 authorization failed"),
+            ("username required", "InfluxDB v1 authorization failed"),
             (
                 "database not found; field type conflict",
-                "org.influxdb.InfluxDBException$DatabaseNotFoundException",
+                "InfluxDB v1 database not found",
             ),
-            ("bad", "org.influxdb.InfluxDBException"),
+            ("bad", "InfluxDB v1 failure"),
         ] {
-            assert_eq!(v1_error_kind(message).legacy_class(), class, "{message}");
+            assert_eq!(v1_error_kind(message).description(), class, "{message}");
         }
     }
     #[test]

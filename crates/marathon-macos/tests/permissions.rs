@@ -26,7 +26,7 @@ fn error_chain(result: &VendorResult<()>) -> Value {
     let mut current = result.as_ref().err().map(|e| e.failure());
     while let Some(f) = current {
         rows.push(
-            json!({"class":f.kind.legacy_class().to_owned(),"message":f.message.as_ref().map(|s|normalize_epoch(&s.to_owned()))}),
+            json!({"class":f.kind.identifier(),"message":f.message.as_ref().map(|s|normalize_epoch(&s.to_owned()))}),
         );
         current = f.cause.as_deref();
     }
@@ -105,7 +105,9 @@ async fn permissions_match_jvm_command_bytes_order_and_failures() -> R {
             .await
             .map_err(|e| e.into_vendor());
         let row = rows().find(|r| r["case"] == mode).ok_or("oracle row")?;
-        assert_eq!(error_chain(&outcome), row["error"], "{mode}");
+        let mut expected = row["error"].clone();
+        marathon_test_support::recorded_errors::error_chain(&mut expected);
+        assert_eq!(error_chain(&outcome), expected, "{mode}");
         let requests=h.worker.requests.lock().unwrap().iter().map(|r| {assert!(r.workdir.is_none());json!({"argv":r.command.iter().map(|s|normalize_epoch(s)).collect::<Vec<_>>(),"timeout":r.timeout.to_string(),"idle":r.idle_timeout.to_string(),"env":r.env})}).collect::<Vec<_>>();
         assert_eq!(json!(requests), row["requests"], "{mode}");
         assert_eq!(d.info().model.to_owned(), row["facts"]["model"]);
@@ -136,10 +138,7 @@ async fn empty_grants_skip_sip_and_p4_rejects_malformed_clients() -> R {
             .await
             .err()
             .ok_or("P4 failure")?;
-        assert_eq!(
-            e.failure().kind.legacy_class(),
-            "java.lang.IllegalArgumentException".to_owned()
-        );
+        assert_eq!(e.failure().kind.description(), "invalid argument".to_owned());
     }
     assert!(
         !h.worker

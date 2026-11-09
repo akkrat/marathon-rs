@@ -319,7 +319,7 @@ impl ArtifactProcessor {
                     Some(error.failure()),
                 );
                 let mut reason = String::from("processing did not complete: ");
-                reason.push_str(&error.failure().to_java_string());
+                reason.push_str(&error.failure().to_string());
                 (work.payload.undelivered)(&reason).map_err(VendorError::Other)
             } else {
                 Ok(())

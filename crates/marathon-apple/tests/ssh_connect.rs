@@ -36,7 +36,7 @@ fn chain(failure: &SshFailure) -> Vec<(String, Option<String>, Option<&'static s
     let mut out = Vec::new();
     let mut current = Some(failure);
     while let Some(f) = current {
-        let simple = f.kind.legacy_class().rsplit(['.', '$']).next().unwrap().to_owned();
+        let simple = f.kind.identifier().to_owned();
         out.push((simple, f.message(), f.is_ssh().then(|| f.reason.name())));
         current = f.cause.as_deref();
     }
@@ -63,7 +63,9 @@ fn evidence_chain(value: &serde_json::Value) -> Vec<(String, Option<String>, Opt
                     .name()
             });
             (
-                e["class"].as_str().unwrap().into(),
+                marathon_test_support::recorded_errors::ssh_kind(e["class"].as_str().unwrap())
+                    .identifier()
+                    .into(),
                 e["message"].as_str().map(Into::into),
                 reason,
             )
@@ -115,11 +117,7 @@ async fn disconnect_before_kex_is_retried_four_times_with_the_wire_reason() {
         );
         assert_eq!(
             lines[1],
-            (
-                "Promise".into(),
-                Level::Error,
-                format!("<<kex done>> woke to: {}", error.java_to_string())
-            )
+            ("Promise".into(), Level::Error, format!("<<kex done>> woke to: {error}"))
         );
     }
 }
@@ -162,13 +160,9 @@ async fn disconnect_after_auth_makes_safe_execute_return_null_d36() {
     assert_eq!(
         chain(&error),
         [
+            ("ssh.connection".into(), Some("Not connected".into()), Some("UNKNOWN")),
             (
-                "ConnectionException".into(),
-                Some("Not connected".into()),
-                Some("UNKNOWN")
-            ),
-            (
-                "TransportException".into(),
+                "ssh.transport".into(),
                 Some("fixture disconnect 11".into()),
                 Some("BY_APPLICATION")
             ),
@@ -182,7 +176,10 @@ async fn disconnect_after_auth_makes_safe_execute_return_null_d36() {
     assert!(!executor.connected());
     // The JVM recording stays as the witness of what A17 was.
     let kotlin = evidence("after_auth-11.stdout");
-    assert_eq!(kotlin["value"][0]["class"], "IllegalStateException");
+    assert_eq!(
+        marathon_test_support::recorded_errors::ssh_kind(kotlin["value"][0]["class"].as_str().unwrap()),
+        marathon_error::FailureKind::IllegalState
+    );
     assert_eq!(kotlin["value"][0]["message"], "Not connected");
     assert_eq!(connections(&fake).await, 1);
 }
@@ -205,7 +202,7 @@ async fn closing_a_connection_the_server_already_dropped_keeps_it_a_lost_connect
     assert_eq!(
         chain(&error)[1],
         (
-            "TransportException".into(),
+            "ssh.transport".into(),
             Some("fixture disconnect 11".into()),
             Some("BY_APPLICATION")
         ),
@@ -327,12 +324,7 @@ async fn disconnect_during_exec_fails_execute_with_the_wire_reason() {
         };
         let expected = evidence(&format!("during_exec-{reason}.stdout"));
         let simple: Vec<_> = std::iter::successors(Some(&error), |f| f.cause.as_deref())
-            .map(|f| {
-                (
-                    f.kind.legacy_class().to_owned().rsplit('.').next().unwrap().to_owned(),
-                    f.message.as_ref().map(|m| m.to_owned()),
-                )
-            })
+            .map(|f| (f.kind.identifier().to_owned(), f.message.as_ref().map(|m| m.to_owned())))
             .collect();
         let kotlin: Vec<_> = evidence_chain(&expected["value"])
             .into_iter()
@@ -354,9 +346,7 @@ async fn disconnect_during_exec_fails_execute_with_the_wire_reason() {
             (
                 "Promise".into(),
                 Level::Error,
-                format!(
-                    "<<chan#0 / chanreq for exec>> woke to: net.schmizz.sshj.connection.ConnectionException: fixture disconnect {reason}"
-                )
+                format!("<<chan#0 / chanreq for exec>> woke to: SSH connection failure: fixture disconnect {reason}")
             )
         );
         // D36: the next command finds the transport gone, and safeExecute turns that into null too.
@@ -391,7 +381,7 @@ async fn no_common_kex_is_transport_unknown_after_four_attempts_and_not_transien
     assert!(error.is_no_common_algorithm());
     assert!(
         error
-            .java_to_string()
+            .to_string()
             .starts_with(&format!("{TRANSPORT_EXCEPTION}: Unable to reach a settlement of "))
     );
     assert!(!is_transient_connection_failure(&ConnectionError::Device(
@@ -456,7 +446,7 @@ async fn password_authentication_uses_sshj_method_sequence() {
     assert_eq!(
         chain(&error),
         [(
-            "UserAuthException".into(),
+            "ssh.authentication".into(),
             Some("Exhausted available authentication methods".into()),
             Some("UNKNOWN")
         )]
@@ -571,10 +561,10 @@ async fn public_key_authentication_and_key_file_failures() {
     assert_eq!(
         classes,
         [
-            "UserAuthException",
-            "UserAuthException",
-            "KeyDecryptionFailedException",
-            "EncryptionException"
+            "ssh.authentication",
+            "ssh.authentication",
+            "ssh.key-decryption-failed",
+            "ssh.encryption"
         ]
     );
     assert!(!error.is_instance(TRANSPORT_EXCEPTION));
@@ -595,7 +585,7 @@ async fn refused_connection_is_retried_and_rethrown() {
     // T12: java.net.ConnectException, a SocketException, after four attempts.
     assert_eq!(
         chain(&error),
-        [("ConnectException".into(), Some("Connection refused".into()), None)]
+        [("connect".into(), Some("Connection refused".into()), None)]
     );
     assert!(error.is_instance(SOCKET_EXCEPTION) && error.is_io());
     assert_eq!(
@@ -655,8 +645,11 @@ async fn unknown_host_key_is_rejected_four_times_like_sshj() {
                 .replace("<dir>", &fake.dir.path().display().to_string())
         };
         assert_eq!(
-            error.java_to_string(),
-            localise(oracle["error"][0]["toString"].as_str().unwrap())
+            error.to_string(),
+            marathon_test_support::recorded_errors::rendered(&localise(
+                oracle["error"][0]["toString"].as_str().unwrap()
+            ))
+            .unwrap()
         );
         assert_eq!(error.reason, DisconnectReason::HostKeyNotVerifiable);
         // Every default-visible line, in order: the WARN lines are hidden at the default ERROR level except
@@ -667,10 +660,20 @@ async fn unknown_host_key_is_rejected_four_times_like_sshj() {
             .iter()
             .filter(|line| line["level"] == "ERROR")
             .map(|line| {
-                (
-                    line["logger"].as_str().unwrap().to_owned(),
-                    localise(line["message"].as_str().unwrap()),
-                )
+                (line["logger"].as_str().unwrap().to_owned(), {
+                    let message = localise(line["message"].as_str().unwrap());
+                    if line["logger"] == "Promise" {
+                        let rest = message
+                            .strip_prefix("<<kex done>> woke to: ")
+                            .expect("recorded Promise failure");
+                        format!(
+                            "<<kex done>> woke to: {}",
+                            marathon_test_support::recorded_errors::rendered(rest).unwrap()
+                        )
+                    } else {
+                        message
+                    }
+                })
             })
             .collect();
         let actual: Vec<_> = ssh::lines(&events)

@@ -40,23 +40,22 @@ fn loader_and_validator_staging_matches_the_config_dump_goldens() {
         };
         let got = error.map(|e| {
             (
-                load::class(&e),
+                e.kind.clone(),
                 clean(load::message(&e)),
-                e.causes
-                    .iter()
-                    .map(|c| c.kind.legacy_class().to_owned())
-                    .collect::<Vec<_>>(),
+                e.causes.iter().map(|c| c.kind.clone()).collect::<Vec<_>>(),
             )
         });
         let want = golden["error"].as_object().map(|e| {
             (
-                e["class"].as_str().unwrap().to_owned(),
+                marathon_test_support::recorded_errors::kind(e["class"].as_str().unwrap()),
                 e["message"].as_str().unwrap_or_default().to_owned(),
                 e["causes"]
                     .as_array()
                     .unwrap()
                     .iter()
-                    .map(|c| c.as_str().unwrap().split(':').next().unwrap().to_owned())
+                    .map(|c| {
+                        marathon_test_support::recorded_errors::kind(c.as_str().unwrap().split(':').next().unwrap())
+                    })
                     .collect::<Vec<_>>(),
             )
         });

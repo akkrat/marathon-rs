@@ -35,7 +35,12 @@ fn known_hosts_matching_follows_the_sshj_oracle() {
             let error = OpenSshKnownHosts::parse(Path::new("known_hosts"), text, logging.clone())
                 .err()
                 .unwrap_or_else(|| panic!("{} parsed", row["case"]));
-            assert_eq!(error.kind.legacy_class(), class, "{}", row["case"]);
+            assert_eq!(
+                error.kind,
+                marathon_test_support::recorded_errors::kind(class),
+                "{}",
+                row["case"]
+            );
             checked += 1;
             continue;
         }
@@ -99,16 +104,13 @@ fn unparseable_lines_are_logged_like_sshj() {
             (
                 logger,
                 Debug,
-                "Bad line (net.schmizz.sshj.common.SSHException: Unrecognized format for hashed hostname): |1|abc ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGHFJiLi8foDtOdrjRFCdmC6Vvhl3w3sO7bjMUMnBxAR "
+                "Bad line (SSH failure: Unrecognized format for hashed hostname): |1|abc ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGHFJiLi8foDtOdrjRFCdmC6Vvhl3w3sO7bjMUMnBxAR "
             ),
             (logger, Warn, "Error decoding Base64 key bytes"),
         ]
     );
     let base64 = events[4].3.as_ref().unwrap();
-    assert_eq!(
-        base64.kind.legacy_class(),
-        "net.schmizz.sshj.common.Base64DecodingException".to_owned()
-    );
+    assert_eq!(base64.kind.description(), "SSH base64 decoding failure".to_owned());
     assert_eq!(
         base64.message,
         Some("Failed to decode base64: Illegal base64 character 21".into())

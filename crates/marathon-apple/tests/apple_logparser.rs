@@ -603,10 +603,11 @@ fn a_real_stream_with_hung_tests_reports_every_test_and_no_batch_failure_d45() -
 /// D45 is only about the allowance's text: a malformed result line still escapes as Kotlin's does.
 #[test]
 fn a_malformed_test_duration_escapes_as_a_typed_error() {
-    assert!(matches!(
-        parser("").process("Test Case '-[p.C m]' failed (1.2.3 seconds)."),
-        Err(ParseError::NumberFormat { .. })
-    ));
+    let error = parser("")
+        .process("Test Case '-[p.C m]' failed (1.2.3 seconds).")
+        .unwrap_err();
+    assert!(matches!(&error, ParseError::NumberFormat { .. }));
+    assert_eq!(error.to_string(), "invalid number: multiple points");
 }
 #[test]
 fn the_d45_allowance_hides_nothing_else_in_the_recordings() -> Result<(), Box<dyn std::error::Error>> {
@@ -620,7 +621,9 @@ fn the_d45_allowance_hides_nothing_else_in_the_recordings() -> Result<(), Box<dy
             continue;
         }
         for entry in row["rows"].as_array().unwrap() {
-            if entry["exception"][0] == "java.time.format.DateTimeParseException" {
+            if entry["exception"][0].as_str().is_some_and(|class| {
+                marathon_test_support::recorded_errors::kind(class) == marathon_error::FailureKind::DateTimeParse
+            }) {
                 assert!(entry["line"].as_str().unwrap().contains(D45_MARKER));
                 throws.push(row["case"].as_str().unwrap().to_owned());
             }
@@ -704,8 +707,12 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 Err(error) => {
                     let f = error.to_failure();
                     assert_eq!(
-                        serde_json::json!([f.kind.legacy_class().to_owned(), f.message.map(|s| s.to_owned())]),
-                        entry["exception"],
+                        serde_json::json!([f.kind.identifier(), f.message.map(|s| s.to_owned())]),
+                        serde_json::json!([
+                            marathon_test_support::recorded_errors::kind(entry["exception"][0].as_str().unwrap())
+                                .identifier(),
+                            entry["exception"][1]
+                        ]),
                         "{}: {text:?}",
                         row["case"]
                     );

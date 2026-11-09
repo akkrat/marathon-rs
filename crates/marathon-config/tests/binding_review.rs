@@ -255,10 +255,16 @@ fn review_round_one_matches_jvm() -> std::result::Result<(), Box<dyn std::error:
         let got = match got {
             Ok(value) => json!({"ok":value}),
             Err(error) => {
-                json!({"error": std::iter::once(error.kind.legacy_class()).chain(error.causes.iter().map(|c|c.kind.legacy_class())).map(str::to_owned).collect::<Vec<_>>()})
+                json!({"error": std::iter::once(error.kind.identifier()).chain(error.causes.iter().map(|c|c.kind.identifier())).map(str::to_owned).collect::<Vec<_>>()})
             }
         };
-        assert_eq!(got, row["result"], "{row}");
+        let mut expected = row["result"].clone();
+        if let Some(classes) = expected.get_mut("error").and_then(Json::as_array_mut) {
+            for class in classes {
+                *class = json!(marathon_test_support::recorded_errors::kind(class.as_str().unwrap()).identifier());
+            }
+        }
+        assert_eq!(got, expected, "{row}");
     }
     println!("review binding corpus: {rows}/{rows} plus maximum-depth subprocess");
     Ok(())

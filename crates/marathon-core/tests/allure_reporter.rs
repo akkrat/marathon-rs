@@ -12,6 +12,7 @@ use marathon_core::{
     reporters::allure::*,
 };
 use report_probe_support::*;
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 fn model_json(value: &AllureResult) -> String {
     checked(serde_json::to_string(value))
@@ -302,11 +303,37 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
             assert_eq!(stdout.0.lock().unwrap().len(), 1);
             continue;
         }
-        let headers: Vec<_> = row["stderrHeaders"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|h| h.as_str().unwrap().to_owned())
+        let recorded_headers = row["stderrHeaders"].as_array().unwrap();
+        fn header(headers: &[Value], index: usize) -> String {
+            use marathon_test_support::recorded_errors::{kind, rendered};
+            let line = headers[index].as_str().unwrap();
+            if line == "---------" {
+                return line.into();
+            }
+            let (label, rest) = line
+                .strip_prefix("Caused by: ")
+                .map_or(("", line), |r| ("Caused by: ", r));
+            let Some((class, message)) = rest.split_once(": ") else {
+                return format!("{label}{}", rendered(rest).unwrap());
+            };
+            if kind(class) == marathon_error::FailureKind::Report(marathon_error::ReportKind::Transformer)
+                && headers
+                    .get(index + 1)
+                    .and_then(Value::as_str)
+                    .and_then(|s| s.strip_prefix("Caused by: "))
+                    == Some(message)
+            {
+                let nested = header(headers, index + 1);
+                return format!(
+                    "{label}{}: {}",
+                    kind(class),
+                    nested.strip_prefix("Caused by: ").unwrap()
+                );
+            }
+            format!("{label}{}", rendered(rest).unwrap())
+        }
+        let headers: Vec<_> = (0..recorded_headers.len())
+            .map(|i| header(recorded_headers, i))
             .collect();
         let saved = jvm_stdout_after(&id) == ["Allure environment data saved."];
         if headers.is_empty() {
@@ -325,7 +352,7 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
             let mut failure = Some(&errors[0]);
             let mut depth = 0;
             while let Some(f) = failure {
-                let line = f.to_java_string().to_owned();
+                let line = f.to_string().to_owned();
                 let line = if depth == 0 { line } else { format!("Caused by: {line}") };
                 assert!(headers.contains(&line), "{id}: {line} not in {headers:?}");
                 failure = f.cause.as_deref();
@@ -402,7 +429,13 @@ fn real_registration_failure_does_not_stop_later_html() {
             let error = checked(rx.await).err().unwrap();
             match error {
                 marathon_core::error::OperationError::Failed(f) => {
-                    assert_eq!(f.to_java_string().to_owned(), oracle("allure-write-failure")["error"])
+                    assert_eq!(
+                        f.to_string().to_owned(),
+                        marathon_test_support::recorded_errors::rendered(
+                            oracle("allure-write-failure")["error"].as_str().unwrap()
+                        )
+                        .unwrap()
+                    )
                 }
                 _ => panic!("wrong error"),
             };

@@ -286,7 +286,7 @@ impl XcodebuildSession {
     }
 }
 pub(crate) fn device_lost(cause: Failure) -> VendorError {
-    let mut detail = failure(FailureKind::DeviceLost, cause.to_java_string());
+    let mut detail = failure(FailureKind::DeviceLost, cause.to_string());
     detail.cause = Some(Box::new(cause));
     VendorError::DeviceLost(detail)
 }

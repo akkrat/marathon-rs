@@ -150,10 +150,7 @@ async fn construction_does_no_io_and_partial_setup_disposal_keeps_lateinit_failu
     );
     assert!(h.worker.commands.lock().unwrap().is_empty());
     let error = d.simulator_state(&h.services.context).await.unwrap_err();
-    assert_eq!(
-        error.failure().kind.legacy_class().to_owned(),
-        "kotlin.UninitializedPropertyAccessException"
-    );
+    assert_eq!(error.failure().kind.description().to_owned(), "uninitialized property");
     assert_eq!(
         error.failure().message.as_ref().unwrap().to_owned(),
         "lateinit property devicePlistPath has not been initialized"
@@ -177,7 +174,10 @@ async fn construction_does_no_io_and_partial_setup_disposal_keeps_lateinit_failu
     let fields: Vec<_> = evidence.iter().filter(|r| r["kind"] == "partialField").collect();
     assert_eq!(fields.len(), 2);
     for row in fields {
-        assert_eq!(row["class"], "kotlin.UninitializedPropertyAccessException");
+        assert_eq!(
+            marathon_test_support::recorded_errors::kind(row["class"].as_str().unwrap()),
+            marathon_core::error::FailureKind::UninitializedProperty
+        );
     }
     let disposed = evidence.iter().find(|r| r["kind"] == "partialDisposal").unwrap();
     assert_eq!(disposed["commands"], 0);
@@ -209,11 +209,11 @@ async fn setup_on_a_lost_connection_fails_instead_of_describing_the_simulator_wi
     let error = d.setup(&h.services.context).await.unwrap_err();
     assert_eq!(
         (
-            error.failure().kind.legacy_class().to_owned(),
+            error.failure().kind.description().to_owned(),
             error.failure().message.as_ref().unwrap().to_owned()
         ),
         (
-            CONNECTION_EXCEPTION.legacy_class().to_owned(),
+            CONNECTION_EXCEPTION.description().to_owned(),
             "Not connected".to_owned()
         )
     );

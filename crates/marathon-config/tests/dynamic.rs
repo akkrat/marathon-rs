@@ -115,8 +115,8 @@ fn negative_and_oversized_lengths() {
     assert_eq!(
         err.failure_kind()
             .as_ref()
-            .map(marathon_error::FailureKind::legacy_class),
-        Some("java.lang.IllegalArgumentException")
+            .map(marathon_error::FailureKind::description),
+        Some("invalid argument")
     );
 
     let out = FrameDecoder::new().feed(&frame_with_length(MAX_FRAME_PAYLOAD + 1, b""), &ctx);
@@ -129,8 +129,8 @@ fn negative_and_oversized_lengths() {
     assert_eq!(
         err.failure_kind()
             .as_ref()
-            .map(marathon_error::FailureKind::legacy_class),
-        Some("java.lang.RuntimeException")
+            .map(marathon_error::FailureKind::description),
+        Some("runtime failure")
     );
 }
 
@@ -221,11 +221,10 @@ fn frame_eof_probe_matches_jvm() {
             }
             assert_eq!(outcomes.len(), expected_frames, "{id} frames");
             assert_eq!(
-                error
-                    .failure_kind()
-                    .as_ref()
-                    .map(marathon_error::FailureKind::legacy_class),
-                expected["class"].as_str(),
+                error.failure_kind().as_ref().cloned(),
+                expected["class"]
+                    .as_str()
+                    .map(marathon_test_support::recorded_errors::kind),
                 "{id} class"
             );
             assert_eq!(error.message(), expected["message"].as_str().unwrap(), "{id} message");

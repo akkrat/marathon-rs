@@ -9,14 +9,28 @@ pub enum AndroidKind {
 }
 
 impl AndroidKind {
-    pub const fn legacy_class(&self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
-            Self::TestAnnotationProducerNotFound => {
-                "com.malinskiy.marathon.android.adam.TestAnnotationProducerNotFoundException"
-            }
-            Self::CommandRejected => "com.malinskiy.marathon.android.exception.CommandRejectedException",
-            Self::DeviceNotSupported => "com.malinskiy.marathon.android.exception.DeviceNotSupportedException",
-            Self::Install => "com.malinskiy.marathon.android.exception.InstallException",
+            Self::TestAnnotationProducerNotFound => "Android test annotation producer not found",
+            Self::CommandRejected => "Android command rejected",
+            Self::DeviceNotSupported => "unsupported Android device",
+            Self::Install => "Android installation failure",
         }
+    }
+
+    /// Stable machine identifier, independent of user-facing wording.
+    pub const fn identifier(&self) -> &'static str {
+        match self {
+            Self::TestAnnotationProducerNotFound => "android.test-annotation-producer-not-found",
+            Self::CommandRejected => "android.command-rejected",
+            Self::DeviceNotSupported => "android.device-not-supported",
+            Self::Install => "android.install",
+        }
+    }
+}
+
+impl std::fmt::Display for AndroidKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.description())
     }
 }

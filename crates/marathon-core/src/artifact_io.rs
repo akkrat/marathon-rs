@@ -128,40 +128,28 @@ mod tests {
     use std::{io::ErrorKind, path::Path};
 
     #[test]
-    fn io_funnel_kinds_preserve_each_legacy_class_and_message() {
+    fn io_funnel_kinds_preserve_each_description_and_message() {
         for (source, kind, class) in [
             (
                 ErrorKind::NotFound,
                 FailureKind::NoSuchFile,
-                "java.nio.file.NoSuchFileException",
+                "no such file or directory",
             ),
-            (
-                ErrorKind::PermissionDenied,
-                FailureKind::AccessDenied,
-                "java.nio.file.AccessDeniedException",
-            ),
-            (
-                ErrorKind::NotADirectory,
-                FailureKind::FileSystem,
-                "java.nio.file.FileSystemException",
-            ),
+            (ErrorKind::PermissionDenied, FailureKind::AccessDenied, "access denied"),
+            (ErrorKind::NotADirectory, FailureKind::FileSystem, "filesystem failure"),
             (
                 ErrorKind::AlreadyExists,
                 FailureKind::FileAlreadyExists,
-                "java.nio.file.FileAlreadyExistsException",
+                "file already exists",
             ),
-            (
-                ErrorKind::InvalidInput,
-                FailureKind::InvalidPath,
-                "java.nio.file.InvalidPathException",
-            ),
-            (ErrorKind::Other, FailureKind::Io, "java.io.IOException"),
+            (ErrorKind::InvalidInput, FailureKind::InvalidPath, "invalid path"),
+            (ErrorKind::Other, FailureKind::Io, "I/O error"),
         ] {
             let error = io_error(std::io::Error::new(source, "reason"));
             let failure = error.failure();
             assert_eq!(failure.kind, kind);
-            assert_eq!(failure.kind.legacy_class(), class);
-            assert_eq!(failure.to_java_string(), format!("{class}: reason"));
+            assert_eq!(failure.kind.description(), class);
+            assert_eq!(failure.to_string(), format!("{class}: reason"));
             assert!(matches!(error, VendorError::Other(_)));
         }
     }
@@ -172,62 +160,59 @@ mod tests {
             (
                 ErrorKind::NotFound,
                 FailureKind::NoSuchFile,
-                "java.nio.file.NoSuchFileException",
+                "no such file or directory",
                 "output",
             ),
             (
                 ErrorKind::PermissionDenied,
                 FailureKind::AccessDenied,
-                "java.nio.file.AccessDeniedException",
+                "access denied",
                 "output",
             ),
             (
                 ErrorKind::AlreadyExists,
                 FailureKind::FileAlreadyExists,
-                "java.nio.file.FileAlreadyExistsException",
+                "file already exists",
                 "output",
             ),
             (
                 ErrorKind::Other,
                 FailureKind::FileSystem,
-                "java.nio.file.FileSystemException",
+                "filesystem failure",
                 "output: reason",
             ),
             (
                 ErrorKind::InvalidInput,
                 FailureKind::InvalidPath,
-                "java.nio.file.InvalidPathException",
+                "invalid path",
                 "reason (os error 7)",
             ),
         ] {
             let error = nio_error(std::io::Error::new(source, "reason (os error 7)"), Path::new("output"));
             let failure = error.failure();
             assert_eq!(failure.kind, kind);
-            assert_eq!(failure.to_java_string(), format!("{class}: {message}"));
+            assert_eq!(failure.to_string(), format!("{class}: {message}"));
         }
     }
 
     #[test]
-    fn file_open_and_clock_funnels_keep_their_distinct_legacy_names() {
+    fn file_open_and_clock_funnels_keep_their_distinct_descriptions() {
         let error = file_open_error(
             std::io::Error::new(ErrorKind::NotFound, "missing (os error 2)"),
             Path::new("output"),
         );
         assert_eq!(error.failure().kind, FailureKind::FileNotFound);
-        assert_eq!(
-            error.failure().to_java_string(),
-            "java.io.FileNotFoundException: output (missing)"
-        );
+        assert_eq!(error.failure().to_string(), "file not found: output (missing)");
 
         let error = clock_error(crate::time::ReplayError {
             label: "clock".into(),
             message: "exhausted".into(),
         });
         assert_eq!(error.failure().kind, FailureKind::ReplayClock);
-        assert_eq!(error.failure().to_java_string(), "ReplayError: clock: exhausted");
+        assert_eq!(error.failure().to_string(), "clock replay failure: clock: exhausted");
         assert_ne!(
-            FailureKind::ReplayClock.legacy_class(),
-            FailureKind::Replay.legacy_class()
+            FailureKind::ReplayClock.description(),
+            FailureKind::Replay.description()
         );
     }
 }

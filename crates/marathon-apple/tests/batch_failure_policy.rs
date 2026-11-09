@@ -136,10 +136,7 @@ fn output_timeouts_without_progress_count_as_batch_failures_d39() {
     assert!(p.on_batch_timed_out(timed_out(), false).is_none());
     assert!(p.on_batch_timed_out(timed_out(), false).is_none());
     let loss = p.on_batch_timed_out(timed_out(), false).unwrap();
-    assert_eq!(
-        loss.cause.kind.legacy_class().to_owned(),
-        "java.util.concurrent.TimeoutException"
-    );
+    assert_eq!(loss.cause.kind.description().to_owned(), "timed out");
 }
 #[test]
 fn an_output_timeout_with_progress_resets_the_failure_count_d39() {

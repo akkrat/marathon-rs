@@ -264,7 +264,7 @@ fn connected_without_tests_and_empty_helper_arithmetic_match_jvm() {
     );
     let error = index(empty().summary(), "title").err().unwrap();
     assert_eq!(
-        error.failure().to_java_string().to_owned(),
-        oracle("empty-average")["error"]
+        error.failure().to_string().to_owned(),
+        marathon_test_support::recorded_errors::rendered(oracle("empty-average")["error"].as_str().unwrap()).unwrap()
     );
 }

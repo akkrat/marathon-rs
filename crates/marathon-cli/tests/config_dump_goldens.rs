@@ -73,8 +73,8 @@ fn config_dump_matches_the_jvm_goldens() {
             got = got.replace(s.as_str(), "<FIXTURE_CONFIG>");
         }
         let got = got.replace("/System/Volumes/Data/", "/");
-        let got = support::jackson_classes_only(got.strip_suffix("\n}\n").unwrap_or(&got));
-        let want = support::jackson_classes_only(document_of(&text));
+        let (got, want) =
+            support::config_error_comparison(got.strip_suffix("\n}\n").unwrap_or(&got), document_of(&text));
         // D55: the sole supplementary/BMP ordering witness keeps native key order.
         let want = want.replace(
             "        \"😀\": \"U+1F600\",\n        \"ｚ\": \"fullwidth z, U+FF5A\"",

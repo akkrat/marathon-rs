@@ -323,7 +323,7 @@ fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {
     let mut message = String::from("Unable to parse test list using ");
     message.push_str(&device.serial_number());
     message.push_str(": ");
-    message.push_str(&failure.failure().to_java_string());
+    message.push_str(&failure.failure().to_string());
     self::failure(FailureKind::TestParsing, message)
 }
 impl RemoteTestParser for AmInstrumentTestParser {

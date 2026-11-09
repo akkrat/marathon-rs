@@ -478,7 +478,7 @@ fn producer_parser_failure_fails_the_run_and_keeps_the_device_d25() {
                 *e.values.lock().unwrap(),
                 vec![
                     "before:com.example.test",
-                    "failed:Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\"",
+                    "failed:Instrumentation failed: invalid number: For input string: \"many\"",
                     "after"
                 ]
             );
@@ -515,9 +515,7 @@ fn producer_handshake_rejection_fails_the_run_and_loses_the_device_d25() {
             let values = e.values.lock().unwrap().clone();
             assert_eq!(values.len(), 3, "{values:?}");
             assert!(
-                values[1].starts_with(
-                    "failed:Instrumentation failed: com.malinskiy.adam.exception.RequestRejectedException: "
-                ),
+                values[1].starts_with("failed:Instrumentation failed: ADB request rejected: "),
                 "{values:?}"
             );
             assert_eq!(values[2], "after");
@@ -603,7 +601,7 @@ fn producer_failure_leaves_the_tests_uncompleted_with_the_cause_d25() {
             assert_eq!(results.uncompleted.len(), 1);
             assert_eq!(
                 results.uncompleted[0].stacktrace.as_ref().unwrap().to_owned(),
-                "Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\""
+                "Instrumentation failed: invalid number: For input string: \"many\""
             );
             d.dispose().await?;
             checked(server.shutdown().await);
@@ -621,7 +619,7 @@ fn dropped(output: &str) -> Value {
     s
 }
 const STREAM_ENDED: &str =
-    "Instrumentation failed: java.io.EOFException: the instrumentation stream ended before a result";
+    "Instrumentation failed: unexpected end of input: the instrumentation stream ended before a result";
 /// D25: a dropped socket looks like a normal end, so this reached the listener as `Test run failed to complete` or
 /// `No test results` at best, and `TestRunEnded` at worst. It says what happened, and the device stays.
 #[test]
@@ -1121,7 +1119,7 @@ fn a_failed_instrumentation_does_not_stop_the_other_d28() {
                 assert_eq!(names(&results.uncompleted), [bad]);
                 assert_eq!(
                     results.uncompleted[0].stacktrace.as_ref().unwrap().to_owned(),
-                    "Instrumentation failed: java.lang.NumberFormatException: For input string: \"many\""
+                    "Instrumentation failed: invalid number: For input string: \"many\""
                 );
                 d.dispose().await?;
                 checked(server.shutdown().await);
@@ -1588,8 +1586,8 @@ fn exception_wrapper_includes_listener_creation_and_preserves_cause() {
                 .unwrap_err();
             assert!(matches!(error, VendorError::DeviceLost(_)));
             assert_eq!(
-                error.failure().cause.as_ref().unwrap().kind.legacy_class(),
-                js("com.malinskiy.adam.exception.RequestRejectedException")
+                error.failure().cause.as_ref().unwrap().kind.description(),
+                js("ADB request rejected")
             );
             assert!(deferred.completed().is_none());
             checked(server.shutdown().await);

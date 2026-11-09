@@ -355,10 +355,7 @@ fn name_split_uses_hash_then_last_dot() {
         let marathon_core::error::VendorError::TestParsing(failure) = err else {
             panic!("expected TestParsing")
         };
-        assert_eq!(
-            failure.kind.legacy_class().to_owned(),
-            "java.lang.IllegalStateException"
-        );
+        assert_eq!(failure.kind.description().to_owned(), "invalid state");
         assert_eq!(failure.message.unwrap().to_owned(), format!("Can't parse test {bad}"));
     }
 }

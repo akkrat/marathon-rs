@@ -84,11 +84,16 @@ fn kotlin_creator_oracle_and_regex_exception_chain() -> std::result::Result<(), 
         match got {
             Ok(v) => assert_eq!(json!({"ok":v}), row["result"], "{row}"),
             Err(e) => {
-                let classes: Vec<_> = std::iter::once(e.kind.legacy_class())
-                    .chain(e.causes.iter().map(|c| c.kind.legacy_class()))
-                    .map(str::to_owned)
+                let classes: Vec<_> = std::iter::once(e.kind.clone())
+                    .chain(e.causes.iter().map(|c| c.kind.clone()))
                     .collect();
-                assert_eq!(json!({"error":classes}), row["result"], "{row}");
+                let expected: Vec<_> = row["result"]["error"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|c| marathon_test_support::recorded_errors::kind(c.as_str().unwrap()))
+                    .collect();
+                assert_eq!(classes, expected, "{row}");
             }
         }
     }
@@ -112,8 +117,8 @@ fn defaults_nullability_duplicates_and_unknown_keys() {
         bind("<<: *a", |v| reference_schema(v, false))
             .unwrap_err()
             .kind
-            .legacy_class(),
-        binder::UNKNOWN_PROPERTY.legacy_class().to_owned()
+            .description(),
+        binder::UNKNOWN_PROPERTY.description().to_owned()
     );
     assert!(bind("unknown: [", |v| reference_schema(v, true)).is_err());
     assert_eq!(
@@ -179,10 +184,7 @@ fn first_document_and_substitution_failure_stages() {
         let Err(LoadError::Configuration(e)) = bind_bytes(bytes, &ctx, |v| reference_schema(v, false)) else {
             panic!("wrapped error");
         };
-        assert_eq!(
-            e.kind.legacy_class(),
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException".to_owned()
-        );
+        assert_eq!(e.kind.description(), "configuration rejected".to_owned());
         assert!(e.message.unwrap().to_owned().contains("/config/Marathonfile"));
         assert!(!e.causes.is_empty());
     }
@@ -416,8 +418,8 @@ fn read_tree_materialization_matches_jvm() -> std::result::Result<(), Box<dyn st
         match got {
             Ok(v) => assert_eq!(json!({"ok":v}), row["result"], "{row}"),
             Err(e) => assert_eq!(
-                e.kind.legacy_class().to_owned(),
-                row["result"]["error"][0].as_str().ok_or("error")?,
+                e.kind,
+                marathon_test_support::recorded_errors::kind(row["result"]["error"][0].as_str().ok_or("error")?),
                 "{row}"
             ),
         }

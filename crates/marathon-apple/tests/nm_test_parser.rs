@@ -199,8 +199,8 @@ async fn scan_case(mode: u8) -> TestResult {
         2 => {
             assert_eq!(started.load(Ordering::SeqCst), 6);
             assert_eq!(
-                result.unwrap_err().failure().kind.legacy_class(),
-                String::from("java.lang.IllegalStateException")
+                result.unwrap_err().failure().kind.description(),
+                String::from("invalid state")
             );
         }
         3 => {
@@ -303,10 +303,16 @@ async fn wrong_device_is_retried_three_times_with_the_jvm_logs() -> TestResult {
         .find(|r| r["case"] == "nm-wrong-device")
         .unwrap();
     assert_eq!(
-        error.failure().kind.legacy_class().to_owned(),
-        row["error"]["class"].as_str().unwrap()
+        error.failure().kind,
+        marathon_test_support::recorded_errors::kind(row["error"]["class"].as_str().unwrap())
     );
-    assert_eq!(serde_json::json!(*logs.lock().unwrap()), row["logs"]);
+    let mut expected_logs = row["logs"].clone();
+    for log in expected_logs.as_array_mut().unwrap() {
+        log["throwable"] = marathon_test_support::recorded_errors::rendered(log["throwable"].as_str().unwrap())
+            .unwrap()
+            .into();
+    }
+    assert_eq!(serde_json::json!(*logs.lock().unwrap()), expected_logs);
     Ok(())
 }
 #[tokio::test]

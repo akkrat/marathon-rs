@@ -127,12 +127,16 @@ pub fn canonical_configuration(configuration: &Configuration, process_dir: &std:
     Canonical { cwd: process_dir }.configuration(configuration)
 }
 
-/// `class: message` of a throwable's causes as the oracle's `errorJson` writes them (a null message reads `null`).
-pub fn error_json(class: &str, message: Option<&str>, causes: &[(String, Option<String>)]) -> DumpValue {
+/// D59 uses a stable kind identifier and plain cause descriptions; a null cause message still reads `null`.
+pub fn error_json(
+    kind: &marathon_error::FailureKind,
+    message: Option<&str>,
+    causes: &[(marathon_error::FailureKind, Option<String>)],
+) -> DumpValue {
     let causes = causes
         .iter()
-        .map(|(class, message)| {
-            let mut line = class.clone();
+        .map(|(kind, message)| {
+            let mut line = kind.to_string();
             line.push_str(": ");
             match message {
                 Some(m) => line.push_str(&m.clone()),
@@ -142,7 +146,7 @@ pub fn error_json(class: &str, message: Option<&str>, causes: &[(String, Option<
         })
         .collect();
     DumpValue::object(vec![
-        ("class", DumpValue::Str(class.to_string())),
+        ("kind", DumpValue::Str(kind.identifier().to_owned())),
         (
             "message",
             message.map_or(DumpValue::Null, |m| DumpValue::Str(m.to_string())),

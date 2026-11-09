@@ -146,7 +146,7 @@ async fn failure_after_the_test_run_keeps_the_run_failure_and_stops_reading_even
             .failure()
             .stack_trace()
             .to_owned()
-            .contains("Suppressed: java.lang.IllegalStateException: no result bundle")
+            .contains("Suppressed: invalid state: no result bundle")
     );
     Ok(())
 }
@@ -189,7 +189,7 @@ async fn closing_case(
         let expected = close_error.unwrap_or(FailureKind::Timeout);
         assert_eq!(not_closed.cause.as_ref().unwrap().kind, expected);
         if let Some(class) = output_error {
-            assert!(not_closed.stack_trace().to_owned().contains(class.legacy_class()));
+            assert!(not_closed.stack_trace().to_owned().contains(class.description()));
         }
         assert_eq!(calls.last().unwrap(), "run ended");
         assert!(!calls.contains(&"closed".to_owned()));
@@ -376,10 +376,7 @@ async fn after_run_error_replaces_failure_but_exception_named_error_is_suppresse
         } else {
             assert_eq!(result.reason, Some(DeviceFailureReason::Unknown));
             assert_eq!(result.suppressed.len(), 1);
-            assert_eq!(
-                result.suppressed[0].kind.legacy_class(),
-                class.legacy_class().to_owned()
-            );
+            assert_eq!(result.suppressed[0].kind.description(), class.description().to_owned());
         }
     }
     Ok(())

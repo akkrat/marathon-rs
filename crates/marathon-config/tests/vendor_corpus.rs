@@ -421,9 +421,9 @@ fn canonical(vendor: &VendorConfiguration) -> Json {
 }
 
 struct Failure {
-    class: String,
+    class: marathon_error::FailureKind,
     message: Option<String>,
-    cause_classes: Vec<String>,
+    cause_classes: Vec<marathon_error::FailureKind>,
     cause_messages: Vec<String>,
 }
 enum Outcome {
@@ -458,9 +458,9 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
         Ok(None) => VendorConfiguration::Empty,
         Err(LoadError::Configuration(e)) => {
             return Outcome::Err(Failure {
-                class: e.kind.legacy_class().to_owned(),
+                class: e.kind.clone(),
                 message: e.message.as_ref().map(|m| m.to_owned()),
-                cause_classes: e.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect(),
+                cause_classes: e.causes.iter().map(|c| c.kind.clone()).collect(),
                 cause_messages: e
                     .causes
                     .iter()
@@ -473,7 +473,7 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
     // The factory rejects Empty inside parse (ConfigurationFactory.kt:188).
     if matches!(vendor, VendorConfiguration::Empty) {
         return Outcome::Err(Failure {
-            class: CONFIGURATION_EXCEPTION_CLASS.legacy_class().to_owned(),
+            class: CONFIGURATION_EXCEPTION_CLASS,
             message: Some("No vendor configuration specified".to_owned()),
             cause_classes: Vec::new(),
             cause_messages: Vec::new(),
@@ -492,9 +492,9 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
     match processed {
         Ok(vendor) => Outcome::Ok(substitute_dir(canonical(&vendor), dir)),
         Err(e) => Outcome::Err(Failure {
-            class: e.kind.legacy_class().to_owned(),
+            class: e.kind.clone(),
             message: e.message.as_ref().map(|m| m.to_owned()),
-            cause_classes: e.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect(),
+            cause_classes: e.causes.iter().map(|c| c.kind.clone()).collect(),
             cause_messages: e
                 .causes
                 .iter()
@@ -633,7 +633,7 @@ fn vendor_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
             // The Rust side must still reject these rows, with the factory
             // wrapper class; the regex rows must name the D9 rule.
             match &outcome {
-                Outcome::Err(f) if f.class == CONFIGURATION_EXCEPTION_CLASS.legacy_class() => {
+                Outcome::Err(f) if f.class == CONFIGURATION_EXCEPTION_CLASS => {
                     if reason.starts_with("D9 regex")
                         && !f
                             .cause_messages
@@ -673,16 +673,20 @@ fn vendor_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
             match &outcome {
                 Outcome::Ok(_) => failures.push(format!("{id}: expected error {}, got ok", exp_err["class"])),
                 Outcome::Err(f) => {
-                    if f.class != exp_err["class"].as_str().unwrap_or_default() {
+                    if f.class != marathon_test_support::recorded_errors::kind(exp_err["class"].as_str().unwrap()) {
                         failures.push(format!("{id}: error class {} != {}", f.class, exp_err["class"]));
                     }
-                    let exp_causes: Vec<String> = exp_err["causes"]
+                    let exp_causes: Vec<_> = exp_err["causes"]
                         .as_array()
                         .map(|causes| {
                             causes
                                 .iter()
                                 .filter_map(|c| {
-                                    c.as_str().map(|text| text.split(':').next().unwrap_or(text).to_owned())
+                                    c.as_str().map(|text| {
+                                        marathon_test_support::recorded_errors::kind(
+                                            text.split(':').next().unwrap_or(text),
+                                        )
+                                    })
                                 })
                                 .collect()
                         })

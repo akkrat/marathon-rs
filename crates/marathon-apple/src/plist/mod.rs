@@ -371,9 +371,9 @@ mod worker_boundary_test {
                 .unwrap_err()
                 .failure()
                 .kind
-                .legacy_class()
+                .description()
                 .to_owned(),
-            "java.lang.IllegalArgumentException"
+            "invalid argument"
         );
     }
 }

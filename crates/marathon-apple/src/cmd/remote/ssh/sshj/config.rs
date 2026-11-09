@@ -102,7 +102,7 @@ impl SshLoggers {
         self.logging.log(
             &self.promise,
             Level::Error,
-            || format!("<<{promise}>> woke to: {}", error.java_to_string()),
+            || format!("<<{promise}>> woke to: {error}"),
             None,
         );
     }

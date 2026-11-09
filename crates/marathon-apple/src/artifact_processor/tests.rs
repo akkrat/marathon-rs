@@ -437,11 +437,7 @@ async fn timed_out_drain_cancels_admitted_work_and_later_admission_does_not_thro
     settle().await;
     let retained = h.p.close_and_join(10, 500, &h.context).await.unwrap();
     assert_eq!(retained.len(), 1);
-    assert!(
-        retained[0]
-            .to_owned()
-            .contains("kotlinx.coroutines.JobCancellationException: Job was cancelled")
-    );
+    assert!(retained[0].to_owned().contains("job cancelled: Job was cancelled"));
     assert_eq!(h.clock.now(), 10);
     h.barrier("device").await;
     assert!(!h.submit("device", "late", "device", empty()).await.unwrap());
@@ -1426,8 +1422,8 @@ async fn closed_submit_callback_escapes_and_source_reinsertion_matches_jvm() {
         .find(|r| r["kind"] == "closedCallback")
         .unwrap();
     assert_eq!(
-        error.failure().to_java_string().to_owned(),
-        fixture["failure"].as_str().unwrap()
+        error.failure().to_string().to_owned(),
+        marathon_test_support::recorded_errors::rendered(fixture["failure"].as_str().unwrap()).unwrap()
     );
 }
 

@@ -173,7 +173,7 @@ def normalize(value, root, path=()):
         return value
     return value
 
-def document(text):
+def document(text, native=False):
     d = loads(text)
     if not isinstance(d, dict) or set(d) != {'stage', 'error', 'config', 'fsEffects'}:
         raise ValueError('invalid dump fields')
@@ -187,9 +187,10 @@ def document(text):
         raise ValueError('malformed canonical config')
     if d['error'] is not None:
         e = d['error']
-        if set(e) != {'class', 'message', 'causes'} or not isinstance(e['causes'], list):
+        classification = 'kind' if native else 'class'
+        if set(e) != {classification, 'message', 'causes'} or not isinstance(e['causes'], list):
             raise ValueError('malformed error')
-        if (type(e['class']) is not str or (e['message'] is not None and type(e['message']) is not str)
+        if (type(e[classification]) is not str or (e['message'] is not None and type(e['message']) is not str)
             or not all(type(c) is str for c in e['causes'])):
             raise ValueError('malformed cause')
     if not isinstance(d['fsEffects'], list):
@@ -228,6 +229,54 @@ def diagnostic(s):
 def f29(value):
     classes = r'com\.malinskiy\.marathon\.config\.(?:strategy\.[A-Za-z]+StrategyConfiguration\$[A-Za-z]+|CIConfiguration\$[A-Za-z]+)'
     return re.sub(r'(?<![\w.$])(' + classes + r')@[0-9a-f]{1,8}(?![\w])', r'\1@<hash>', value)
+
+def recorded_error_kinds():
+    output = subprocess.run(['cargo', 'run', '--quiet', '--locked', '-p', 'marathon-test-support',
+                             '--example', 'recorded_error_kinds'], cwd=ROOT,
+                            capture_output=True, text=True, check=True, timeout=300)
+    return json.loads(output.stdout)
+
+
+def native_error(got, want, kinds):
+    if want is None:
+        return compare(got, want, ('error',))
+    expected = {'kind': kinds[want['class']]['kind'], 'message': want['message'], 'causes': []}
+    actual = copy.deepcopy(got)
+    if not isinstance(actual, dict) or list(actual) != ['kind', 'message', 'causes']:
+        return '$.error: native error fields/order differ'
+    if not isinstance(actual['causes'], list) or len(actual['causes']) != len(want['causes']):
+        return '$.error.causes: cause count differs'
+    for i, cause in enumerate(want['causes']):
+        name, separator, message = cause.partition(': ')
+        kind = kinds[name]  # An unknown recorded input is an error, never guessed.
+        prefix = kind['description'] + separator
+        expected['causes'].append(prefix + message)
+        if kind['diagnostic']:
+            if not isinstance(actual['causes'][i], str) or not actual['causes'][i].startswith(prefix):
+                return '$.error.causes: diagnostic kind differs'
+            actual['causes'][i] = kind['description']
+            expected['causes'][i] = kind['description']
+    return compare(actual, expected, ('error',))
+
+
+def native_error_self_test(kinds):
+    name = next(n for n, k in kinds.items() if k['kind'] == 'io')
+    external = 'external java.lang.IllegalStateException: remote'
+    want = {'class': name, 'message': external, 'causes': [name + ': ' + external]}
+    got = {'kind': 'io', 'message': external, 'causes': ['I/O error: ' + external]}
+    assert native_error(got, want, kinds) is None
+    for field, value in [('kind', 'illegal-state'), ('message', external.replace('java.lang.IllegalStateException', 'invalid state')),
+                         ('causes', []), ('causes', ['I/O error: external invalid state: remote'])]:
+        mutant = dict(got, **{field: value})
+        assert native_error(mutant, want, kinds)
+    unknown = dict(want, **{'class': 'java.lang.FutureException'})
+    try:
+        native_error(got, unknown, kinds)
+    except KeyError:
+        pass
+    else:
+        raise AssertionError('unknown class accepted')
+
 
 def compare(got, want, path=(), native_strings=False):
     label = '$' + ''.join('[' + str(p) + ']' if isinstance(p, int) else '.' + p for p in path)
@@ -286,7 +335,7 @@ def run_rust(case, dest, binary):
     file, env_file = setup(case, dest)
     command([binary, 'config-dump', file, '--env-file', env_file, '--now', NOW],
             dest / 'cwd', environment(dest), 20, dest / 'stdout.json', dest / 'stderr')
-    doc = document((dest / 'stdout.json').read_text())
+    doc = document((dest / 'stdout.json').read_text(), native=True)
     tree = normalize(snapshot(dest / 'config', case, dest), dest)
     write(dest / 'tree.json', tree)
     return normalize(doc, dest), loads(json.dumps(tree))
@@ -450,6 +499,8 @@ def release_profile_self_test():
         assert 'xctestrun' in document(evidence_text(macos, 'raw'))['config']['vendorConfiguration']['bundle']
 
 def replay(binary, run, selected=None):
+    kinds = recorded_error_kinds()
+    native_error_self_test(kinds)
     manifest, rows = cases()
     verify_evidence(manifest, rows, packed(), (CORPUS / 'outcomes.jsonl.gz').read_bytes())
     release = release_overlay(manifest, rows)
@@ -485,7 +536,10 @@ def replay(binary, run, selected=None):
                     if compare(parent[key], patch['jvm']):
                         raise ValueError('alternative no longer matches JVM row: ' + case['id'])
                     parent[key] = patch['rust']
-        difference = compare(got, want, native_strings=True) or compare(tree, loads(json.dumps(oracle['tree'])), ('filesystem',))
+        difference = native_error(got['error'], want['error'], kinds)
+        got_without_error, want_without_error = dict(got, error=None), dict(want, error=None)
+        difference = (difference or compare(got_without_error, want_without_error, native_strings=True)
+                      or compare(tree, loads(json.dumps(oracle['tree'])), ('filesystem',)))
         return case['id'], got['stage'], difference
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         for i, (id, stage, diff) in enumerate(pool.map(one, rows), 1):

@@ -179,7 +179,7 @@ impl Timer for FakeTimer {
     fn measure(&self, _block: &mut dyn FnMut()) -> ClockResult<i64> {
         Err(marathon_core::time::ReplayError {
             label: "FakeTimer.measure".into(),
-            message: FailureKind::UnsupportedOperation.legacy_class().into(),
+            message: FailureKind::UnsupportedOperation.description().into(),
         })
     }
 }

@@ -157,7 +157,7 @@ pub async fn suspend_for<C: ExitState + ?Sized>(
         if let Err(error) = clock.delay(backoff.next_millis(), cancellation.clone()).await {
             return Err(match error {
                 VendorError::Cancelled(reason) => ExitWaitError::Cancelled(reason),
-                other => ExitWaitError::Failed(SshFailure::new(IO_EXCEPTION, format!("{other:?}"))),
+                other => ExitWaitError::Failed(SshFailure::new(IO_EXCEPTION, other.failure().to_string())),
             });
         }
     }

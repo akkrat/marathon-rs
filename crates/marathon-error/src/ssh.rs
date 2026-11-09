@@ -20,21 +20,40 @@ pub enum SshKind {
 }
 
 impl SshKind {
-    pub const fn legacy_class(&self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
-            Self::KeyDecryptionFailed => "com.hierynomus.sshj.common.KeyDecryptionFailedException",
-            Self::Base64Decoding => "net.schmizz.sshj.common.Base64DecodingException",
-            Self::Buffer => "net.schmizz.sshj.common.Buffer$BufferException",
-            Self::CircularBuffer => "net.schmizz.sshj.common.CircularBuffer$CircularBufferException",
-            Self::General => "net.schmizz.sshj.common.SSHException",
-            Self::Connection => "net.schmizz.sshj.connection.ConnectionException",
-            Self::OpenChannel => "net.schmizz.sshj.connection.channel.OpenFailException",
-            Self::Transport => "net.schmizz.sshj.transport.TransportException",
-            Self::Authentication => "net.schmizz.sshj.userauth.UserAuthException",
-            Self::Encryption => "org.bouncycastle.openssl.EncryptionException",
-            Self::Pem => "org.bouncycastle.openssl.PEMException",
-            Self::Password => "org.bouncycastle.openssl.PasswordException",
-            Self::Pkcs => "org.bouncycastle.pkcs.PKCSException",
+            Self::KeyDecryptionFailed => "SSH key decryption failure",
+            Self::Base64Decoding => "SSH base64 decoding failure",
+            Self::Buffer => "SSH buffer failure",
+            Self::CircularBuffer => "SSH circular buffer failure",
+            Self::General => "SSH failure",
+            Self::Connection => "SSH connection failure",
+            Self::OpenChannel => "SSH channel opening failure",
+            Self::Transport => "SSH transport failure",
+            Self::Authentication => "SSH authentication failed",
+            Self::Encryption => "SSH key encryption failure",
+            Self::Pem => "SSH PEM decoding failure",
+            Self::Password => "SSH key password failure",
+            Self::Pkcs => "SSH PKCS decoding failure",
+        }
+    }
+
+    /// Stable machine identifier, independent of user-facing wording.
+    pub const fn identifier(&self) -> &'static str {
+        match self {
+            Self::KeyDecryptionFailed => "ssh.key-decryption-failed",
+            Self::Base64Decoding => "ssh.base64-decoding",
+            Self::Buffer => "ssh.buffer",
+            Self::CircularBuffer => "ssh.circular-buffer",
+            Self::General => "ssh.general",
+            Self::Connection => "ssh.connection",
+            Self::OpenChannel => "ssh.open-channel",
+            Self::Transport => "ssh.transport",
+            Self::Authentication => "ssh.authentication",
+            Self::Encryption => "ssh.encryption",
+            Self::Pem => "ssh.pem",
+            Self::Password => "ssh.password",
+            Self::Pkcs => "ssh.pkcs",
         }
     }
 }
@@ -84,6 +103,12 @@ impl FailureKind {
             current = kind.ssh_parent();
         }
         false
+    }
+}
+
+impl std::fmt::Display for SshKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.description())
     }
 }
 

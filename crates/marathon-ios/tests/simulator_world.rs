@@ -82,7 +82,7 @@ async fn setup_prepare_batch_and_dispose_share_the_in_process_apple_world() -> T
     assert!(
         prep.is_ok(),
         "{}; commands={:?}; logs={:?}",
-        prep.unwrap_err().failure().to_java_string().to_owned(),
+        prep.unwrap_err().failure().to_string().to_owned(),
         worker.commands.lock().unwrap(),
         h.logs.lock().unwrap()
     );

@@ -16,25 +16,22 @@ use std::{
 use support::*;
 
 fn expected(case: &str) -> String {
-    include_str!("../../../fixtures/oracle/runtime/coroutines-1.8.1-review2.jsonl")
+    let value = include_str!("../../../fixtures/oracle/runtime/coroutines-1.8.1-review2.jsonl")
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .find(|row| row["case"] == case)
         .unwrap()["value"]
         .as_str()
         .unwrap()
-        .to_owned()
+        .to_owned();
+    marathon_test_support::recorded_errors::runtime_outcome(&value)
 }
 fn error_result(error: VendorError) -> String {
     let failure = match error {
         VendorError::Other(failure) | VendorError::Cancelled(Cancellation::Requested(failure)) => failure,
         other => panic!("unexpected error: {other:?}"),
     };
-    format!(
-        "{}:{}",
-        failure.kind.legacy_class().rsplit('.').next().unwrap(),
-        failure.message.unwrap()
-    )
+    format!("{}:{}", failure.kind.description(), failure.message.unwrap())
 }
 fn suspended_deferred(state: &'static str, cancel_first: bool) {
     run(move |_, _| {

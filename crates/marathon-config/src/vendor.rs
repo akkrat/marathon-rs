@@ -73,9 +73,9 @@ impl ValidationError {
             message: message.into(),
         }
     }
-    /// The legacy rendering of the validation kind.
-    pub fn fqcn(&self) -> &'static str {
-        self.kind.legacy_class()
+    /// The plain description of the validation kind.
+    pub fn description(&self) -> String {
+        self.kind.description()
     }
 }
 impl fmt::Display for ValidationError {

@@ -126,24 +126,21 @@ fn validation_corpus_matches_jvm() {
         }
         if let Some(e) = &error {
             let expected = &row["error"];
-            let got = (
-                cleaner.java(e.kind.legacy_class()),
-                e.message.as_ref().map(|m| cleaner.java(m)),
-            );
+            let got = (e.kind.clone(), e.message.as_ref().map(|m| cleaner.java(m)));
             let want = (
-                expected["class"].as_str().unwrap().to_owned(),
+                marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap()),
                 expected["message"].as_str().map(str::to_owned),
             );
             if got != want {
                 failures.push(format!("{id}: error {got:?} vs {want:?}"));
             }
-            let want_causes: Vec<String> = expected["causes"]
+            let want_causes: Vec<_> = expected["causes"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|c| c.as_str().unwrap().split(':').next().unwrap().to_owned())
+                .map(|c| marathon_test_support::recorded_errors::kind(c.as_str().unwrap().split(':').next().unwrap()))
                 .collect();
-            let got_causes: Vec<String> = e.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect();
+            let got_causes: Vec<_> = e.causes.iter().map(|c| c.kind.clone()).collect();
             if got_causes != want_causes {
                 failures.push(format!("{id}: causes {got_causes:?} vs {want_causes:?}"));
             }

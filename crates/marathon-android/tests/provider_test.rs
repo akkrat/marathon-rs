@@ -716,7 +716,7 @@ fn a_kill_during_a_test_tells_the_listener_why_and_keeps_the_device_d25() {
             outcome?;
             assert_eq!(
                 *failures.0.lock().unwrap(),
-                ["Instrumentation failed: java.io.EOFException: the instrumentation stream ended before a result"]
+                ["Instrumentation failed: unexpected end of input: the instrumentation stream ended before a result"]
             );
             track_requests(&server, 2).await;
             logcat_streams(&[(&server, 2)]).await;

@@ -415,9 +415,9 @@ fn jansi_failures_preserve_partial_writes_and_recovery_state() {
         }
         output.extend(stream.write(row["input"].as_str().unwrap().as_bytes()));
         assert_eq!(output, row["output"].as_str().unwrap().as_bytes(), "{row}");
-        let failure = match row["error"].as_str() {
-            Some("java.lang.NumberFormatException") => Some(JansiFailure::NumberOverflow),
-            Some("java.lang.ClassCastException") => Some(JansiFailure::InvalidOption),
+        let failure = match row["error"].as_str().map(marathon_test_support::recorded_errors::kind) {
+            Some(marathon_error::FailureKind::NumberFormat) => Some(JansiFailure::NumberOverflow),
+            Some(marathon_error::FailureKind::ClassCast) => Some(JansiFailure::InvalidOption),
             None => None,
             _ => unreachable!(),
         };

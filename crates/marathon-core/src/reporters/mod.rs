@@ -90,10 +90,7 @@ mod tests {
         let path = std::path::Path::new("pool\0tail");
         for result in [mkdir(path), write(path, b"report")] {
             let error = result.expect_err("NUL must be rejected");
-            assert_eq!(
-                error.failure().kind.legacy_class(),
-                "java.nio.file.InvalidPathException"
-            );
+            assert_eq!(error.failure().kind.description(), "invalid path");
             assert_eq!(error.failure().message.as_deref(), Some("Nul character not allowed"));
         }
     }

@@ -310,10 +310,7 @@ mod tests {
             (io::ErrorKind::PermissionDenied, "Permission denied"),
         ] {
             let error = file_read_error(Path::new("/Marathondevices"), &io::Error::from(kind));
-            assert_eq!(
-                error.failure().kind.legacy_class(),
-                "java.io.FileNotFoundException".to_owned()
-            );
+            assert_eq!(error.failure().kind.description(), "file not found".to_owned());
             assert_eq!(error.failure().message, Some(format!("/Marathondevices ({reason})")));
         }
     }

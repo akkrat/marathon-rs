@@ -122,7 +122,10 @@ fn every_leaf_and_fragment_replay_the_jvm() -> OperationResult<()> {
                 let Err(OperationError::Failed(e)) = result else {
                     panic!("expected failure")
                 };
-                assert_eq!(e.kind.legacy_class().to_owned(), row[key]["error"]["class"]);
+                assert_eq!(
+                    e.kind,
+                    marathon_test_support::recorded_errors::kind(row[key]["error"]["class"].as_str().unwrap())
+                );
                 assert_eq!(
                     e.message.map(|s| s.to_owned()),
                     row[key]["error"]["message"].as_str().map(String::from)

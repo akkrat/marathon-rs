@@ -124,10 +124,7 @@ fn a_missing_vendor_factory_fails_construction() {
         Ok(_) => panic!("construction succeeded"),
         Err(e) => e,
     };
-    assert_eq!(
-        error.kind.legacy_class().to_owned(),
-        "java.lang.UnsupportedOperationException"
-    );
+    assert_eq!(error.kind.description().to_owned(), "unsupported operation");
     assert_eq!(
         error.message.unwrap().to_owned(),
         "The stub vendor is not supported by this build yet"

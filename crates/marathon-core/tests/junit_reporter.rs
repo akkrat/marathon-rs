@@ -109,7 +109,10 @@ fn junit_create_new_file_and_stream_open_keep_distinct_java_errors() {
                 }
             })
         }));
-        assert_eq!(failure.kind.legacy_class(), text(&expected["error"]["class"]));
+        assert_eq!(
+            failure.kind,
+            marathon_test_support::recorded_errors::kind(&text(&expected["error"]["class"]))
+        );
         assert_eq!(
             failure
                 .message

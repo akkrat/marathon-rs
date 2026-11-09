@@ -25,10 +25,14 @@ fn check_table(table: &str) {
         let actual = match lookup.replace(row["input"].as_str().unwrap()) {
             Ok(value) => json!({"ok": value}),
             Err(error) => {
-                json!({"error": {"class": marathon_error::FailureKind::IllegalState.legacy_class(), "message": error.to_string()}})
+                json!({"error": {"class": marathon_error::FailureKind::IllegalState.identifier(), "message": error.to_string()}})
             }
         };
-        assert_eq!(actual, row["result"], "row {}: {line}", count + 1);
+        let mut expected = row["result"].clone();
+        if let Some(class) = expected.pointer_mut("/error/class") {
+            *class = json!(marathon_test_support::recorded_errors::kind(class.as_str().unwrap()).identifier());
+        }
+        assert_eq!(actual, expected, "row {}: {line}", count + 1);
         count += 1;
     }
     assert_eq!(count, header["rows"].as_u64().unwrap());

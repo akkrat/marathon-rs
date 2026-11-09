@@ -212,8 +212,8 @@ impl SshFailure {
         }
         self.cause.as_ref().and_then(|cause| cause.message())
     }
-    /// `Throwable.toString()`, as sshj's `Promise` "woke to" log lines print it.
-    pub fn java_to_string(&self) -> String {
+    /// Promise log rendering retains SSH reason codes and the channel-opening message.
+    fn render(&self) -> String {
         let message = self.message();
         if self.kind == OPEN_FAIL_EXCEPTION {
             return format!(
@@ -237,10 +237,10 @@ impl SshFailure {
         }
         match message {
             Some(message) => format!("{}: {message}", self.kind),
-            None => self.kind.legacy_class().to_owned(),
+            None => self.kind.description().to_owned(),
         }
     }
-    /// The 4.1/0.6 boundary keeps class, `getMessage()` and the cause chain; logback prints a throwable the same way.
+    /// Keep the typed kind, effective message and cause chain at the vendor boundary.
     pub fn to_failure(&self) -> Failure {
         let mut projected = Failure {
             message: self.message(),
@@ -255,7 +255,7 @@ impl SshFailure {
 }
 impl std::fmt::Display for SshFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.java_to_string())
+        f.write_str(&self.render())
     }
 }
 impl std::error::Error for SshFailure {}

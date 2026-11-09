@@ -88,7 +88,7 @@ fn render_methods(methods: &[TestMethod]) -> Value {
 }
 
 fn render_error(err: &DexError) -> Value {
-    let mut object = serde_json::json!({"class": err.kind.legacy_class().to_owned()});
+    let mut object = serde_json::json!({"class": err.kind.identifier().to_owned()});
     if let Some(message) = &err.message {
         object["message"] = message.to_owned().into();
     }
@@ -117,13 +117,28 @@ fn check_row(row: &Value) {
             *value = change["after"].clone();
         }
     }
+    fn error_kind(value: &mut Value) {
+        if let Some(class) = value.get_mut("class") {
+            *class = marathon_test_support::recorded_errors::kind(class.as_str().unwrap())
+                .identifier()
+                .into();
+        }
+        if let Some(cause) = value.get_mut("cause") {
+            error_kind(cause);
+        }
+    }
+    for field in ["testsError", "instrumentationInfoError", "appPackageNameError"] {
+        if let Some(error) = row.get_mut(field) {
+            error_kind(error);
+        }
+    }
     let row = &row;
     let apk = row["apk"].as_str().unwrap();
     let path = apk_for(apk);
     // D26: the JVM parser rejects DEX 040, as this row keeps witnessing (N10). This mutant is `probe.apk` with only its
     // version bytes changed, so it now gives the tests of `probe.apk`. Exactly this row is treated this way.
     if apk == "probe-dex040.apk" {
-        assert_eq!(row["testsError"]["class"], "com.linkedin.dex.spec.DexException");
+        assert_eq!(row["testsError"]["class"], "dex.decode");
         let probe = marathon_dex::find_test_methods(&apk_for("probe.apk"), &custom_of(row)).unwrap();
         let mutant = marathon_dex::find_test_methods(&path, &custom_of(row)).unwrap();
         assert_eq!(render_methods(&mutant), render_methods(&probe));
@@ -140,10 +155,8 @@ fn check_row(row: &Value) {
             // error, DexException itself (DEX 040) included, must match
             // exactly.
             let expected = row["testsError"]["class"].as_str().unwrap();
-            let expected = if expected == "java.lang.StackOverflowError"
-                || expected.starts_with("java.lang.ArrayIndexOutOfBounds")
-            {
-                "com.linkedin.dex.spec.DexException"
+            let expected = if expected == "fatal.stack-overflow" || expected == "array-index-out-of-bounds" {
+                "dex.decode"
             } else {
                 expected
             };
@@ -237,7 +250,15 @@ fn missing_apk_errors_match_jvm() {
     let info_err = marathon_dex::parse_instrumentation_info(std::path::Path::new("no-such-file.apk")).unwrap_err();
     let pkg_err = marathon_dex::parse_app_package_name(std::path::Path::new("no-such-file.apk")).unwrap_err();
     std::env::set_current_dir(previous).unwrap();
-    assert_eq!(render_error(&tests_err), row["testsError"]);
-    assert_eq!(render_error(&info_err), row["instrumentationInfoError"]);
-    assert_eq!(render_error(&pkg_err), row["appPackageNameError"]);
+    assert_eq!(
+        tests_err.kind,
+        marathon_test_support::recorded_errors::kind(row["testsError"]["class"].as_str().unwrap())
+    );
+    let mut expected = row.clone();
+    for field in ["testsError", "instrumentationInfoError", "appPackageNameError"] {
+        marathon_test_support::recorded_errors::error_object(&mut expected[field]);
+    }
+    assert_eq!(render_error(&tests_err), expected["testsError"]);
+    assert_eq!(render_error(&info_err), expected["instrumentationInfoError"]);
+    assert_eq!(render_error(&pkg_err), expected["appPackageNameError"]);
 }

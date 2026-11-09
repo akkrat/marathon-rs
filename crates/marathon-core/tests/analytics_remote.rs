@@ -242,7 +242,10 @@ fn query_and_graphite_parser_jvm_rows() {
                         assert!(row["error"].is_null());
                     }
                     Err(marathon_core::error::OperationError::Failed(error)) => {
-                        assert_eq!(row["error"], error.kind.legacy_class().to_owned());
+                        assert_eq!(
+                            marathon_test_support::recorded_errors::kind(row["error"].as_str().unwrap()),
+                            error.kind
+                        );
                         assert_eq!(row["errorMessage"], error.message.unwrap().to_owned());
                     }
                     Err(error) => panic!("unexpected parser error: {error:?}"),
@@ -452,11 +455,15 @@ fn influx_server_errors_match_jvm_logged_causes_after_retries() {
                 .filter_map(|e| {
                     e.cause.as_ref().map(|cause| {
                         serde_json::json!({"logger": e.logger, "level": e.level.as_str(),
-                    "class": cause.kind.legacy_class().to_owned(), "message": cause.message.as_ref().unwrap().to_owned()})
+                    "class": cause.kind.identifier(), "message": cause.message.as_ref().unwrap().to_owned()})
                     })
                 })
                 .collect();
-            assert_eq!(causes, *row["causes"].as_array().unwrap());
+            let mut expected_causes = row["causes"].clone();
+            for cause in expected_causes.as_array_mut().unwrap() {
+                marathon_test_support::recorded_errors::error_object(cause);
+            }
+            assert_eq!(causes, *expected_causes.as_array().unwrap());
             let logs: Vec<_> = events
                 .iter()
                 .map(|e| {

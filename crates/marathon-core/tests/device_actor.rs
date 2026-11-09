@@ -369,7 +369,7 @@ fn a_failed_preparation_is_retried_until_it_succeeds() {
 #[test]
 fn every_vendor_outcome_maps_to_its_log_and_transition() {
     let unknown = "Error Unknown vendor exception caught. Considering this a recoverable error";
-    let ise_trace = "Unknown vendor exception caught:\njava.lang.IllegalStateException: boom\n";
+    let ise_trace = "Unknown vendor exception caught:\ninvalid state: boom\n";
     let returned = |reason: &str| format!("ReturnTestBatch(same batch=true, reason={reason})");
     let terminated = |log: &str| {
         (
@@ -406,7 +406,7 @@ fn every_vendor_outcome_maps_to_its_log_and_transition() {
             Some(batch_failure("boom")),
             completed(
                 Some("Warn Test batch failed execution"),
-                "Test batch failed execution:\ncom.malinskiy.marathon.exceptions.TestBatchExecutionException: boom\n",
+                "Test batch failed execution:\ntest batch execution failure: boom\n",
             ),
         ),
         (
@@ -473,7 +473,7 @@ fn every_vendor_outcome_maps_to_its_log_and_transition() {
     assert_eq!(
         outcome.describe()[1..],
         [
-            returned("Unknown vendor exception caught:\njava.lang.RuntimeException: boom\n"),
+            returned("Unknown vendor exception caught:\nruntime failure: boom\n"),
             "IsReady".to_owned()
         ]
     );

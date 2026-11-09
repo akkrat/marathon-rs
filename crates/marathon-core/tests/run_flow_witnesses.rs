@@ -397,7 +397,7 @@ fn rust_events(lines: &[Line], logger: &str) -> Vec<(String, String, Option<Stri
                 Some((
                     level_name(*level),
                     normalize(message),
-                    cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
+                    cause.as_ref().map(|c| c.kind.description().to_owned()),
                 ))
             }
             _ => None,
@@ -427,7 +427,9 @@ fn jvm_events(row: &Value, logger: &str) -> Vec<(String, String, Option<String>)
             (
                 e["level"].as_str().unwrap().to_owned(),
                 normalize(e["message"].as_str().unwrap()),
-                e["throwable"].as_str().map(str::to_owned),
+                e["throwable"]
+                    .as_str()
+                    .map(|class| marathon_test_support::recorded_errors::kind(class).to_string()),
             )
         })
         .collect()
@@ -475,7 +477,7 @@ fn d51_extra_records(case: &str) -> Vec<Record> {
         (
             "ERROR".to_owned(),
             format!("{step} failed during cleanup"),
-            Some("java.lang.IllegalStateException".to_owned()),
+            Some("invalid state".to_owned()),
         )
     };
     let filtered = (
@@ -535,8 +537,8 @@ fn check(case: &str, r: &Result) {
         (Some(Ok(value)), Some(expected)) => assert_eq!(Value::Bool(*value), *expected, "{case}: value"),
         (Some(Err(e)), None) => {
             assert_eq!(
-                e.failure().kind.legacy_class().to_owned(),
-                row["exception"],
+                e.failure().kind,
+                marathon_test_support::recorded_errors::kind(row["exception"].as_str().unwrap()),
                 "{case}: exception"
             );
             assert_eq!(
@@ -549,7 +551,7 @@ fn check(case: &str, r: &Result) {
             "{case}: {:?} vs {row}",
             actual
                 .as_ref()
-                .map(|v| v.as_ref().map_err(|e| e.failure().to_java_string().to_owned()))
+                .map(|v| v.as_ref().map_err(|e| e.failure().to_string().to_owned()))
         ),
     }
     let expected_trace: Vec<String> = row["trace"]
@@ -778,7 +780,10 @@ fn remote_parsing_retries_borrow_three_times() {
     let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
     let row = row("remote-retry");
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
-    assert_eq!(e.failure().kind.legacy_class().to_owned(), row["exception"]);
+    assert_eq!(
+        e.failure().kind,
+        marathon_test_support::recorded_errors::kind(row["exception"].as_str().unwrap())
+    );
     assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), row["message"]);
     let borrows = |t: &[String]| t.iter().filter(|c| *c == "borrow").count();
     assert_eq!(r.outcome.provider_calls.iter().filter(|c| **c == "borrow").count(), 3);
@@ -850,7 +855,10 @@ fn remote_parsing_timeout_is_no_devices() {
     let row = row("remote-timeout");
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
     assert!(matches!(e, VendorError::NoDevices(_)));
-    assert_eq!(e.failure().kind.legacy_class().to_owned(), row["exception"]);
+    assert_eq!(
+        e.failure().kind,
+        marathon_test_support::recorded_errors::kind(row["exception"].as_str().unwrap())
+    );
     assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), row["message"]);
     assert_eq!(r.outcome.completed_at, Some(50));
 }
@@ -867,10 +875,12 @@ fn missing_vendor_services_fail_construction_as_koin_does() {
         let failure = marathon_core::construction::missing_definition(class);
         let chain: Vec<Value> = std::iter::successors(Some(&failure), |f| f.cause.as_deref())
             .map(
-                |f| serde_json::json!({"class": f.kind.legacy_class().to_owned(), "message": f.message.as_ref().unwrap().to_owned()}),
+                |f| serde_json::json!({"class": f.kind.identifier(), "message": f.message.as_ref().unwrap().to_owned()}),
             )
             .collect();
-        assert_eq!(Value::Array(chain), row(case)["chain"], "{case}");
+        let mut expected = row(case)["chain"].clone();
+        marathon_test_support::recorded_errors::error_chain(&mut expected);
+        assert_eq!(Value::Array(chain), expected, "{case}");
     }
     // Through the factory: a vendor without a parser fails before the tracker is built.
     let mut factory = MarathonFactory::new();

@@ -215,7 +215,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
                 Outcome::NullDocument => exp["nullDocument"] == true,
                 Outcome::Err(e) => exp["error"]["class"]
                     .as_str()
-                    .is_some_and(|s| e.kind.legacy_class() == s),
+                    .is_some_and(|s| e.kind == marathon_test_support::recorded_errors::kind(s)),
             }
         };
         if !ok {
@@ -224,7 +224,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
                 format!(
                     "expected {exp} got {}",
                     match &got {
-                        Outcome::Err(e) => format!("error {} {:?}", e.kind.legacy_class().to_owned(), e.path),
+                        Outcome::Err(e) => format!("error {} {:?}", e.kind.description().to_owned(), e.path),
                         _ => format!("{got:?}"),
                     }
                 ),

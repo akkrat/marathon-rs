@@ -82,8 +82,8 @@ impl AdbError {
         }
     }
 
-    pub fn legacy_class(&self) -> String {
-        self.failure_kind().legacy_class().to_owned()
+    pub fn description(&self) -> String {
+        self.failure_kind().description().to_owned()
     }
     /// `getMessage()`.
     pub fn message(&self) -> Option<&str> {
@@ -139,11 +139,11 @@ impl AdbError {
 }
 
 impl fmt::Display for AdbError {
-    /// Java's `Throwable.toString()`: `<class>: <message>`, or the class alone without a message.
+    /// Plain description and optional message; absent and empty messages stay distinct.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.message() {
-            Some(message) => write!(f, "{}: {}", self.legacy_class(), message),
-            None => f.write_str(&self.legacy_class()),
+            Some(message) => write!(f, "{}: {}", self.description(), message),
+            None => f.write_str(&self.description()),
         }
     }
 }
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn classes_and_messages() {
         let e = AdbError::RequestRejected(String::new());
-        assert_eq!(e.to_string(), "com.malinskiy.adam.exception.RequestRejectedException: ");
+        assert_eq!(e.to_string(), "ADB request rejected: ");
         assert!(!e.is_connect_exception());
         let c = AdbError::Connect(ConnectError {
             timed_out: true,
@@ -172,10 +172,7 @@ mod tests {
                 cause: None
             }
         );
-        assert_eq!(
-            AdbError::ClosedChannel.to_string(),
-            "io.netty.channel.StacklessClosedChannelException"
-        );
+        assert_eq!(AdbError::ClosedChannel.to_string(), "ADB channel closed");
         assert_eq!(AdbError::ClosedChannel.to_failure().message, None);
     }
 }

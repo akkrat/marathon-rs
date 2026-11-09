@@ -453,7 +453,7 @@ async fn split_failures_abandon_in_order_and_rethrow_original() {
         let normalized = error.to_string().replace(&fixture().display().to_string(), "<apk>");
         assert_eq!(
             format!("{normalized}; cause=null"),
-            oracle(&format!("split-result:{failure}"))
+            marathon_test_support::recorded_errors::rendered(&oracle(&format!("split-result:{failure}"))).unwrap()
         );
         assert!(error.to_failure().cause.is_none());
         server.finish().await;

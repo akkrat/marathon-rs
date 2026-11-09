@@ -31,7 +31,7 @@ pub struct XcresultDecodeError {
 
 impl std::fmt::Display for XcresultDecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.failure.to_java_string().to_owned())
+        f.write_str(&self.failure.to_string().to_owned())
     }
 }
 impl std::error::Error for XcresultDecodeError {}

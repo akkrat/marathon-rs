@@ -425,8 +425,8 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
         let actual = error.failure();
         let expected = fixture(&format!("load-{name}"));
         assert_eq!(
-            actual.kind.legacy_class().to_owned(),
-            expected["class"].as_str().unwrap()
+            actual.kind,
+            marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap())
         );
         assert_eq!(
             actual
@@ -441,7 +441,10 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
         let mut expected = expected.get("cause");
         while let Some(next) = expected {
             let a = actual.unwrap();
-            assert_eq!(a.kind.legacy_class().to_owned(), next["class"].as_str().unwrap());
+            assert_eq!(
+                a.kind,
+                marathon_test_support::recorded_errors::kind(next["class"].as_str().unwrap())
+            );
             // U83: preserve the merged binder's diagnostics; its exception classes/stages match.
             assert!(a.message.is_some());
             if name == "mapping" {
@@ -475,10 +478,7 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
     })?;
     std::fs::create_dir(p.h.dir.path().join("Marathondevices"))?;
     let error = p.provider.initialize(p.h.services.context.clone()).await.unwrap_err();
-    assert_eq!(
-        error.failure().kind.legacy_class(),
-        "java.io.FileNotFoundException".to_owned()
-    );
+    assert_eq!(error.failure().kind.description(), "file not found".to_owned());
     p.finish().await
 }
 #[tokio::test]
@@ -905,8 +905,8 @@ async fn substitution_cycles_escape_the_static_mapping_wrapper() -> TestResult {
     let error = provider.initialize(p.h.services.context.clone()).await.unwrap_err();
     let expected = fixture("load-cycle");
     assert_eq!(
-        error.failure().kind.legacy_class().to_owned(),
-        expected["class"].as_str().unwrap()
+        error.failure().kind,
+        marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap())
     );
     assert_eq!(
         error.failure().message.as_ref().unwrap().to_owned(),
@@ -953,7 +953,10 @@ async fn lost_planning_warning_uses_kotlin_cause_descriptions_and_preserves_miss
     };
     assert_eq!(
         marathon_ios::device::simulator_provider::describe_failure(&no_message),
-        expected["withoutMessage"].as_str().unwrap()
+        match expected["withoutMessage"].as_str().unwrap() {
+            "IllegalStateException" => FailureKind::IllegalState.to_string(),
+            other => panic!("unsupported recorded planning failure {other}"),
+        }
     );
     p.finish().await
 }

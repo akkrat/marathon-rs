@@ -313,7 +313,7 @@ impl Harness {
             .setup
             .setup(&record, cycle, self.services.context.clone())
             .await
-            .map_err(|e| e.failure().to_java_string().to_owned())?;
+            .map_err(|e| e.failure().to_string().to_owned())?;
         Ok(built.handle)
     }
     pub fn factory(&self) -> Arc<SimulatorFactory<Arc<AppleSimulatorDevice>>> {
@@ -516,9 +516,7 @@ pub async fn run_with(
 }
 pub async fn prepared(h: &Harness) -> TestResult<(Arc<AppleSimulatorDevice>, Arc<BatchScript>)> {
     let d = h.device().await?;
-    h.prepare(&d)
-        .await
-        .map_err(|e| e.failure().to_java_string().to_owned())?;
+    h.prepare(&d).await.map_err(|e| e.failure().to_string().to_owned())?;
     let script = Arc::new(BatchScript::default());
     script.attach(&h.worker);
     Ok((d, script))

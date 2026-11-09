@@ -141,10 +141,7 @@ fn if_android_sdk_is_null_should_throw_exception_if_env_android_sdk_also_is_null
         panic!("expected Android")
     };
     let error = fill_android_sdk(&mut android, &ctx).unwrap_err();
-    assert_eq!(
-        error.kind.legacy_class().to_owned(),
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-    );
+    assert_eq!(error.kind.description().to_owned(), "configuration rejected");
     assert_eq!(
         error.message.as_ref().map(|m| m.to_owned()),
         Some("No android SDK path specified".to_owned())
@@ -268,10 +265,7 @@ fn ssh_with(count: i32) -> SshConfiguration {
 #[test]
 fn keep_alive_max_count_below_one_is_rejected() {
     let error = ssh_with(0).validate().unwrap_err();
-    assert_eq!(
-        error.fqcn(),
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-    );
+    assert_eq!(error.description(), "configuration rejected");
     assert_eq!(error.message, "ssh.keepAliveMaxCount should be at least 1, got 0");
 }
 
@@ -678,7 +672,7 @@ fn validate_messages_are_verbatim() {
         ..ssh_with(4)
     };
     let error = ssh.validate().unwrap_err();
-    assert_eq!(error.fqcn(), "java.io.FileNotFoundException");
+    assert_eq!(error.description(), "file not found");
     assert_eq!(error.kind, marathon_config::ValidationKind::FileNotFound);
     assert_eq!(error.message, "Private key not found at /nope/key");
 }
@@ -909,10 +903,7 @@ fn schema_level_validate_messages_for_worker_queue_threading_and_knownhosts() {
         panic!("expected iOS")
     };
     let error = ios.threading_configuration.validate().unwrap_err();
-    assert_eq!(
-        error.fqcn(),
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-    );
+    assert_eq!(error.description(), "configuration rejected");
     assert_eq!(
         error.message,
         "threadingConfiguration.provisioningConcurrency should be at least 1, got 0"
@@ -923,7 +914,7 @@ fn schema_level_validate_messages_for_worker_queue_threading_and_knownhosts() {
         ..ssh_with(4)
     };
     let error = ssh.validate().unwrap_err();
-    assert_eq!(error.fqcn(), "java.io.FileNotFoundException");
+    assert_eq!(error.description(), "file not found");
     assert_eq!(error.message, "knownhosts file not found at /nope/known_hosts");
 }
 

@@ -15,4 +15,5 @@ md5 = "0.7"
 regex = "=1.13.1"
 
 [dev-dependencies]
+marathon-test-support = { path = "../marathon-test-support" }
 serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }

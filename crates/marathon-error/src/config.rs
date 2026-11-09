@@ -23,26 +23,50 @@ pub enum ConfigKind {
 }
 
 impl ConfigKind {
-    pub const fn legacy_class(&self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
-            Self::Rejected => "com.malinskiy.marathon.config.exceptions.ConfigurationException",
-            Self::JsonParse => "com.fasterxml.jackson.core.JsonParseException",
-            Self::StreamConstraints => "com.fasterxml.jackson.core.exc.StreamConstraintsException",
-            Self::JsonEof => "com.fasterxml.jackson.core.io.JsonEOFException",
-            Self::JsonMapping => "com.fasterxml.jackson.databind.JsonMappingException",
-            Self::InvalidDefinition => "com.fasterxml.jackson.databind.exc.InvalidDefinitionException",
-            Self::InvalidFormat => "com.fasterxml.jackson.databind.exc.InvalidFormatException",
-            Self::InvalidTypeId => "com.fasterxml.jackson.databind.exc.InvalidTypeIdException",
-            Self::MismatchedInput => "com.fasterxml.jackson.databind.exc.MismatchedInputException",
-            Self::UnrecognizedProperty => "com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException",
-            Self::ValueInstantiation => "com.fasterxml.jackson.databind.exc.ValueInstantiationException",
-            Self::YamlParse => "com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException",
-            Self::YamlMarked => "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException",
-            Self::MissingParameter => "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException",
-            Self::Yaml => "org.yaml.snakeyaml.error.YAMLException",
-            Self::Parser => "org.yaml.snakeyaml.parser.ParserException",
-            Self::Reader => "org.yaml.snakeyaml.reader.ReaderException",
-            Self::Scanner => "org.yaml.snakeyaml.scanner.ScannerException",
+            Self::Rejected => "configuration rejected",
+            Self::JsonParse => "JSON parsing failure",
+            Self::StreamConstraints => "input stream limit exceeded",
+            Self::JsonEof => "unexpected end of JSON input",
+            Self::JsonMapping => "configuration mapping failure",
+            Self::InvalidDefinition => "invalid configuration definition",
+            Self::InvalidFormat => "invalid configuration value format",
+            Self::InvalidTypeId => "invalid configuration type identifier",
+            Self::MismatchedInput => "configuration input type mismatch",
+            Self::UnrecognizedProperty => "unrecognized configuration property",
+            Self::ValueInstantiation => "configuration value construction failure",
+            Self::YamlParse => "YAML decoding failure",
+            Self::YamlMarked => "YAML error",
+            Self::MissingParameter => "missing required configuration parameter",
+            Self::Yaml => "YAML failure",
+            Self::Parser => "YAML parsing failure",
+            Self::Reader => "YAML reading failure",
+            Self::Scanner => "YAML scanning failure",
+        }
+    }
+
+    /// Stable machine identifier, independent of user-facing wording.
+    pub const fn identifier(&self) -> &'static str {
+        match self {
+            Self::Rejected => "config.rejected",
+            Self::JsonParse => "config.json-parse",
+            Self::StreamConstraints => "config.stream-constraints",
+            Self::JsonEof => "config.json-eof",
+            Self::JsonMapping => "config.json-mapping",
+            Self::InvalidDefinition => "config.invalid-definition",
+            Self::InvalidFormat => "config.invalid-format",
+            Self::InvalidTypeId => "config.invalid-type-id",
+            Self::MismatchedInput => "config.mismatched-input",
+            Self::UnrecognizedProperty => "config.unrecognized-property",
+            Self::ValueInstantiation => "config.value-instantiation",
+            Self::YamlParse => "config.yaml-parse",
+            Self::YamlMarked => "config.yaml-marked",
+            Self::MissingParameter => "config.missing-parameter",
+            Self::Yaml => "config.yaml",
+            Self::Parser => "config.parser",
+            Self::Reader => "config.reader",
+            Self::Scanner => "config.scanner",
         }
     }
 }
@@ -86,14 +110,20 @@ impl ValidationKind {
             Self::NoSuchFile => crate::FailureKind::NoSuchFile,
         }
     }
-    pub const fn legacy_class(self) -> &'static str {
-        match self {
-            Self::Configuration => ConfigKind::Rejected.legacy_class(),
-            Self::FileNotFound => crate::FailureKind::FileNotFound.legacy_class(),
-            Self::Zip => crate::FailureKind::Zip.legacy_class(),
-            Self::Io => crate::FailureKind::Io.legacy_class(),
-            Self::NoSuchFile => crate::FailureKind::NoSuchFile.legacy_class(),
-        }
+    pub fn description(self) -> String {
+        self.to_string()
+    }
+}
+
+impl std::fmt::Display for ConfigKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.description())
+    }
+}
+
+impl std::fmt::Display for ValidationKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.failure_kind().fmt(f)
     }
 }
 
@@ -123,7 +153,7 @@ mod tests {
             ValidationKind::Io,
             ValidationKind::NoSuchFile,
         ] {
-            assert_eq!(kind.legacy_class(), kind.failure_kind().legacy_class());
+            assert_eq!(kind.description(), kind.failure_kind().description());
         }
     }
 }

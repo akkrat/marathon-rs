@@ -962,8 +962,8 @@ fn profiling_setup_errors_are_batch_failures() {
                     .unwrap_err()
                     .failure()
                     .kind
-                    .legacy_class(),
-                js("java.util.NoSuchElementException")
+                    .description(),
+                js("missing element")
             );
             finish(server, device).await;
             Ok(())

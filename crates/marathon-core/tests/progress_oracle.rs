@@ -98,8 +98,11 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                 assert_eq!(snapshot(h.reporter.state(&original).unwrap()), row["after"], "{line}");
                 assert_eq!(json!(action.map(|_| "Complete")), row["action"], "{line}");
                 assert_eq!(json!(error.is_none()), row["returned"], "{line}");
-                let error = error.map(|e| e.failure().to_java_string());
-                assert_eq!(json!(error), row["error"], "{line}");
+                let error = error.map(|e| e.failure().to_string());
+                let expected = row["error"]
+                    .as_str()
+                    .map(|value| marathon_test_support::recorded_errors::rendered(value).unwrap());
+                assert_eq!(json!(error), json!(expected), "{line}");
                 assert_eq!(
                     json!(h.reporter.progress().to_bits() as i32),
                     row["progressBits"],
@@ -176,21 +179,22 @@ fn empty_reduce_nan_and_rounding_match_the_jvm() {
         let value = f32::from_bits(case["bits"].as_i64().unwrap() as u32) * 100.0;
         let actual = jcompat::jnum::kotlin_round_to_int(value)
             .map(|n| n.to_string())
-            .unwrap_or_else(|| "java.lang.IllegalArgumentException: Cannot round NaN value.".into());
-        assert_eq!(actual, case["rounded"].as_str().unwrap());
+            .unwrap_or_else(|| "invalid argument: Cannot round NaN value.".into());
+        let expected = case["rounded"].as_str().unwrap();
+        let expected = if value.is_nan() {
+            marathon_test_support::recorded_errors::rendered(expected).unwrap()
+        } else {
+            expected.to_owned()
+        };
+        assert_eq!(actual, expected);
     }
     run(move |core| {
         Box::pin(async move {
             let h = Harness::new(&core, vec![], ExecutionMode::AnySuccess, false);
             assert!(h.reporter.progress().is_nan());
             assert_eq!(
-                h.reporter
-                    .aggregate_result()
-                    .unwrap_err()
-                    .failure()
-                    .to_java_string()
-                    .clone(),
-                row["emptyAggregate"].as_str().unwrap()
+                h.reporter.aggregate_result().unwrap_err().failure().to_string().clone(),
+                marathon_test_support::recorded_errors::rendered(row["emptyAggregate"].as_str().unwrap()).unwrap()
             );
             Ok(())
         })

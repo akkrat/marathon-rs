@@ -2,7 +2,7 @@
 
 `config-dump` prints what one Marathonfile does to the configuration stages of a run (PLAN.md §3.2, §6.3). The JVM tool
 (`tools/oracle/config-dump`, WP 0.2a) defines the format; the hidden Rust `marathon config-dump` must print the same document
-for the same input.
+for the same input, except for the Phase 8 deviations below.
 
 ```sh
 tools/oracle/config-dump <Marathonfile> [--env-file F] [--now <ISO instant>]
@@ -37,7 +37,7 @@ One JSON object, pretty-printed with two-space indentation and a final newline:
 ```json
 {
   "stage": "parse" | "logical" | "ok",
-  "error": null | {"class": "<exception class>", "message": "<message or null>", "causes": ["<class>: <message>", ...]},
+  "error": null | {"kind": "<stable kind identifier>", "message": "<message or null>", "causes": ["<description>: <message>", ...]},
   "config": null | <canonical configuration>,
   "fsEffects": [<effect>, ...]
 }
@@ -45,7 +45,7 @@ One JSON object, pretty-printed with two-space indentation and a final newline:
 
 - `stage` is the stage that rejected the Marathonfile, or `ok`.
 - `error` is the exception that stage threw, with its cause chain, outermost first. Messages are Kotlin's; the Rust side may
-  word them differently where PLAN.md §3.10 allows it, but the class and stage must match.
+  word them differently where PLAN.md §3.10 allows it, but the typed kind and stage must match (D59).
 - `config` is the canonical configuration when stage (a) succeeded, **also when stage (b) rejected it**, and `null` otherwise.
 - `fsEffects` lists what changed under the Marathonfile's directory between before stage (a) and after stage (b):
 
@@ -57,6 +57,27 @@ One JSON object, pretty-printed with two-space indentation and a final newline:
   sorted by `path`; `size`/`sha256` describe the file after the change (before it, for `deleted`); for a symlink `sha256`
   holds its target. Symlinks are not followed. A directory that is deleted and recreated with the same content (the bundle
   extraction does this) is no effect.
+
+## Error classifications (D59)
+
+Native dumps use `error.kind` instead of the JVM tool's `error.class`. Identifiers
+are explicit, stable and independent of descriptions: common kinds use kebab-case
+(`io`, `file-not-found`, `no-such-file`), and domain kinds add a prefix
+(`config.rejected`, `config.json-mapping`, `config.yaml-marked`). They do not expose
+Rust or Java type names. `crates/marathon-error/tests/wording.rs` pins every identifier
+and approved description.
+
+Cause strings retain their order and shape, with the kind's description replacing
+the class prefix. Their existing absent-message spelling stays `: null`; an empty
+message stays `: `. This differs from an ordinary failure's message-less `Display`.
+Messages, including external class names inside them, are opaque.
+
+Historical JVM dumps keep their original schema and bytes. Oracle adapters decode
+only generated error classifications through the whitelist in
+`marathon-test-support/src/recorded_errors.rs`, comparing kinds and the same messages
+and ordered causes as before. The Python differential driver obtains this vocabulary
+from a Rust test-support bridge; it has no duplicate Java-name table. The native
+configuration corpus omits error details and therefore needs no D59 golden change.
 
 ## Canonical configuration
 

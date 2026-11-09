@@ -386,9 +386,9 @@ fn compare_error(toks: &Tokens, expected_error: &serde_json::Value, id: &str) ->
                 message_marks(exp.get("message").and_then(|v| v.as_str()).unwrap_or(""))
             };
             let kind = marathon_config::binder::token_kind(got.kind);
-            let mut ok = kind.legacy_class() == class;
+            let mut ok = kind == marathon_test_support::recorded_errors::kind(class);
             if !ok {
-                println!("ERROR-DIFF {id}: class expected {class} got {}", kind.legacy_class());
+                println!("ERROR-DIFF {id}: class expected {class} got {}", kind.description());
             }
             for (role, actual) in [
                 ("context", got.context),

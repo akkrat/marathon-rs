@@ -60,28 +60,32 @@ async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult 
                     _ => None,
                 };
                 let detail = error.failure();
-                match detail.kind.legacy_class().to_owned().as_str() {
-                    "com.malinskiy.marathon.exceptions.DeviceSetupException" => {
+                match &detail.kind {
+                    marathon_error::FailureKind::DeviceSetup => {
                         assert!(matches!(error, FactoryError::Vendor(VendorError::DeviceSetup(_))))
                     }
-                    "com.malinskiy.marathon.exceptions.TransferException" => {
+                    marathon_error::FailureKind::Transfer => {
                         assert!(matches!(error, FactoryError::Vendor(VendorError::Transfer(_))))
                     }
-                    "com.malinskiy.marathon.exceptions.IncompatibleDeviceException" => assert!(matches!(
+                    marathon_error::FailureKind::IncompatibleDevice => assert!(matches!(
                         error,
                         FactoryError::Vendor(VendorError::IncompatibleDevice(_))
                     )),
-                    "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException" => {
+                    marathon_error::FailureKind::Apple(marathon_error::AppleKind::DeviceFailure) => {
                         assert!(matches!(error, FactoryError::DeviceFailure { .. }))
                     }
                     _ => (),
                 }
 
                 // Only host bundle paths are typed-normalized, never emitted XML or worker argv.
-                json!({"class":detail.kind.legacy_class().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
+                json!({"class":detail.kind.identifier().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
             }
         };
-        assert_eq!(error, row["error"], "{id}: error");
+        let mut expected_error = row["error"].clone();
+        if !expected_error.is_null() {
+            marathon_test_support::recorded_errors::error_object(&mut expected_error);
+        }
+        assert_eq!(error, expected_error, "{id}: error");
         assert_eq!(
             *device.recorder.events.lock().unwrap(),
             row["events"].as_array().unwrap().clone(),

@@ -79,7 +79,7 @@ pub fn ise(message: &str) -> Failure {
 pub fn device_lost(cause: Failure) -> VendorError {
     VendorError::DeviceLost(Failure {
         kind: FailureKind::DeviceLost,
-        message: Some(cause.to_java_string()),
+        message: Some(cause.to_string()),
         cause: Some(Box::new(cause)),
         stacktrace: None,
     })
@@ -731,7 +731,7 @@ pub fn throwable(cause: Option<&Failure>, batch: &BatchRef) -> Value {
     let mut current = cause;
     while let Some(failure) = current {
         chain.push(json!({
-            "class": failure.kind.legacy_class().to_owned(),
+            "class": failure.kind.identifier(),
             "message": failure.message.as_ref().map(|m| clean(m, batch)),
         }));
         current = failure.cause.as_deref();

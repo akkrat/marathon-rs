@@ -173,7 +173,7 @@ impl AndroidDevice {
             .await;
         match result {
             Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::PushFailed) => {
-                return Err(with_cause(transfer(e.failure().to_java_string()), e));
+                return Err(with_cause(transfer(e.failure().to_string()), e));
             }
             other => other?,
         }
@@ -483,7 +483,7 @@ impl AndroidDevice {
         match result {
             Ok(Some(())) => {}
             Ok(None) => return Err(install(format!("Timeout transferring {path}").as_str().to_owned())),
-            Err(e @ VendorError::Transfer(_)) => return Err(with_cause(install(e.failure().to_java_string()), e)),
+            Err(e @ VendorError::Transfer(_)) => return Err(with_cause(install(e.failure().to_string()), e)),
             Err(e) => return Err(e),
         }
         let r = timed(

@@ -17,10 +17,7 @@ async fn a_dead_system_app_drops_the_simulator_after_one_failed_batch() -> TestR
         assert!(matches!(r, Err(marathon_core::error::VendorError::DeviceLost(_))));
         let error = r.unwrap_err();
         let cause = error.failure().cause.as_ref().unwrap();
-        assert_eq!(
-            cause.kind.legacy_class().to_owned(),
-            "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException"
-        );
+        assert_eq!(cause.kind.description().to_owned(), "Apple device failure");
         // The core bridge retains the reason's matching pattern as the cause message.
         let pattern = cause.message.as_ref().unwrap().to_owned();
         assert_eq!(

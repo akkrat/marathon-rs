@@ -1,0 +1,308 @@
+crates/jcompat/src/logging.rs:263:                ("io.netty".into(), Level::Error),
+crates/jcompat/src/logging.rs:264:                ("io.vertx".into(), Level::Error),
+crates/jcompat/src/logging.rs:350:                "net.schmizz.sshj.transport.kex.Curve25519SHA256",
+crates/jcompat/src/logging.rs:351:                "net.schmizz.sshj.transport.random.BouncyCastleRandom",
+crates/jcompat/src/logging.rs:352:                "net.schmizz.sshj.DefaultConfig",
+crates/jcompat/src/logging.rs:353:                "net.schmizz.sshj.common.KeyType",
+crates/jcompat/src/logging.rs:354:                "net.schmizz.sshj.common.ECDSAVariationsAdapter",
+crates/marathon-adb/src/client/log.rs:18:pub const REQUEST_LOGGER: &str = "com.malinskiy.adam.request.Request";
+crates/marathon-adb/src/client/log.rs:20:pub const CLIENT_LOGGER: &str = "com.malinskiy.adam.AndroidDebugBridgeClient";
+crates/marathon-adb/src/client/mod.rs:302:                "com.malinskiy.adam.request.Request".to_string(),
+crates/marathon-adb/src/client/pkg/tests.rs:120:            text(&UninstallRemotePackageRequest::new("com.example", false)),
+crates/marathon-adb/src/client/pkg/tests.rs:127:            text(&UninstallRemotePackageRequest::new("com.example", true)),
+crates/marathon-adb/src/instrument_request.rs:17:pub const GRPC_PORT: &str = "com.malinskiy.adam.android.GRPC_PORT";
+crates/marathon-adb/src/instrument_request.rs:18:pub const GRPC_HOST: &str = "com.malinskiy.adam.android.GRPC_HOST";
+crates/marathon-adb/src/instrument_request.rs:19:pub const ADB_PORT: &str = "com.malinskiy.adam.android.ADB_PORT";
+crates/marathon-adb/src/instrument_request.rs:20:pub const ADB_HOST: &str = "com.malinskiy.adam.android.ADB_HOST";
+crates/marathon-adb/src/instrument_request.rs:21:pub const CONSOLE_PORT: &str = "com.malinskiy.adam.android.CONSOLE_PORT";
+crates/marathon-adb/src/instrument_request.rs:22:pub const CONSOLE_HOST: &str = "com.malinskiy.adam.android.CONSOLE_HOST";
+crates/marathon-adb/src/instrument_request.rs:23:pub const AUTH_TOKEN: &str = "com.malinskiy.adam.android.AUTH_TOKEN";
+crates/marathon-adb/src/instrument_request.rs:24:pub const ADB_SERIAL: &str = "com.malinskiy.adam.android.ADB_SERIAL";
+crates/marathon-adb/src/instrumentation.rs:1079:        let stack = "java.lang.AssertionError: expected:<1> but was:<2>\n\
+crates/marathon-adb/src/instrumentation.rs:1085:            class_name: "com.example.MainActivityTest".into(),
+crates/marathon-adb/src/instrumentation.rs:1089:            class_name: "com.example.MainActivityAllureTest".into(),
+crates/marathon-analytics/src/http.rs:205:                    "okhttp3.OkHttpClient",
+crates/marathon-analytics/src/http.rs:219:                    "okhttp3.OkHttpClient",
+crates/marathon-analytics/src/influx2.rs:42:            "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
+crates/marathon-analytics/src/influx2.rs:75:                "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
+crates/marathon-analytics/src/influx2.rs:104:                "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
+crates/marathon-analytics/src/influx2.rs:381:            "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Tracker",
+crates/marathon-android/src/artifact_listeners/adam_capture.rs:9:pub const METRIC: &str = "com.malinskiy.adam.junit4.android.screencapture.AdamScreenCaptureProcessor.v1";
+crates/marathon-android/src/device.rs:590:                            "com.malinskiy.marathon.android.adam.LogcatManager",
+crates/marathon-android/src/listener_factory.rs:208:                    "com.malinskiy.marathon.android.executor.listeners.TestResultsListener",
+crates/marathon-android/src/logcat.rs:293:                    "java.lang.AssertionError: expected:<1> but was:<2>".into()
+crates/marathon-android/src/models.rs:149:            "org.junit.Ignore",
+crates/marathon-android/src/remote_file_manager.rs:137:            self.device.log_named("com.malinskiy.marathon.android.RemoteFileManager",Level::Error,&format!("Remote filename length cannot exceed 255 characters and has been trimmed to {} and can create a conflict. This happened because the combination of test class name and test name is too long.",result.to_owned()),None);
+crates/marathon-android/src/remote_parser.rs:18:pub const TEST_ANNOTATION_PRODUCER: &str = "com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer";
+crates/marathon-android/src/remote_parser.rs:40:            let name = "com.malinskiy.marathon.android.adam.AmInstrumentTestParser";
+crates/marathon-android/src/services.rs:98:            runtime.logger("com.malinskiy.marathon.android.adam.AmInstrumentTestParser");
+crates/marathon-android/src/test_annotation_parser.rs:11:const METRIC_ANNOTATION_V2_KEY: &str = "com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v2";
+crates/marathon-android/src/test_annotation_parser.rs:12:const METRIC_ANNOTATION_V3_KEY: &str = "com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v3";
+crates/marathon-android/src/test_annotation_parser.rs:13:const METRIC_ANNOTATION_V4_KEY: &str = "com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer.v4";
+crates/marathon-android/src/test_annotation_parser.rs:228:                    "io.qameta.allure.kotlin.Description",
+crates/marathon-android/src/test_annotation_parser.rs:231:                property("io.qameta.allure.kotlin.TmsLink", &[("value", "TEST-666")]),
+crates/marathon-android/src/test_annotation_parser.rs:244:                "org.junit.Test",
+crates/marathon-android/src/test_annotation_parser.rs:258:                "org.junit.Test",
+crates/marathon-android/src/test_annotation_parser.rs:279:                    "org.junit.Test",
+crates/marathon-android/src/test_annotation_parser.rs:282:                property("io.qameta.allure.kotlin.Epic", &[("value", "General")]),
+crates/marathon-android/src/test_annotation_parser.rs:297:            vec![property("io.qameta.allure.kotlin.Epic", &[("value", "General")])]
+crates/marathon-android/src/test_annotation_parser.rs:305:                property("org.junit.Test", &[("timeout", "0")]),
+crates/marathon-android/src/test_annotation_parser.rs:306:                property("io.qameta.allure.kotlin.Epic", &[("value", "General")]),
+crates/marathon-android/src/test_annotation_parser.rs:337:        let annotation = format!("org.junit.Test({}L{parameter})", parameter.encode_utf16().count());
+crates/marathon-android/src/test_annotation_parser.rs:341:            vec![property("org.junit.Test", &[("value", "𝔘x")])]
+crates/marathon-android/src/test_annotation_parser.rs:351:            vec![property("io.qameta.allure.kotlin.Epic", &[("value", "General")])]
+crates/marathon-apple/src/apple_application_installer.rs:68:        let logger = logging.logger("com.malinskiy.marathon.apple.AppleApplicationInstaller");
+crates/marathon-apple/src/apple_application_installer.rs:90:        let logger = logging.logger("com.malinskiy.marathon.apple.AppleApplicationInstaller");
+crates/marathon-apple/src/apple_device_test_runner.rs:102:        let logger = logging.logger("com.malinskiy.marathon.apple.AppleDeviceTestRunner");
+crates/marathon-apple/src/artifact_processor/mod.rs:75:        let logger = logging.logger("com.malinskiy.marathon.apple.ArtifactProcessor");
+crates/marathon-apple/src/artifact_processor/tests.rs:1253:            && event["logger"] == "com.malinskiy.marathon.apple.ArtifactProcessor"
+crates/marathon-apple/src/bin/nm.rs:20:        let logger = tools.logger("com.malinskiy.marathon.apple.bin.nm.Nm");
+crates/marathon-apple/src/bin/xcrun/simctl/service/device.rs:22:            .logger("com.malinskiy.marathon.apple.bin.xcrun.simctl.service.DeviceService");
+crates/marathon-apple/src/bin/xcrun/simctl/service/io.rs:17:            .logger("com.malinskiy.marathon.apple.bin.xcrun.simctl.service.IoService");
+crates/marathon-apple/src/bin/xcrun/simctl/service/simulator.rs:18:            .logger("com.malinskiy.marathon.apple.bin.xcrun.simctl.service.SimulatorService");
+crates/marathon-apple/src/bin/xcrun/simctl/service/simulator.rs:136:            .filter(|line| line.contains("com.apple.springboard.services"))
+crates/marathon-apple/src/bin/xcrun/simctl/service/simulator.rs:138:                kt::substring_before(line, "com.apple.springboard.services")
+crates/marathon-apple/src/bin/xcrun/xcodebuild.rs:59:        let logger = tools.logger("com.malinskiy.marathon.apple.bin.xcrun.xcodebuild.Xcodebuild");
+crates/marathon-apple/src/bin/xcrun/xcresulttool.rs:51:        let logger = tools.logger("com.malinskiy.marathon.apple.bin.xcrun.xcresulttool.Xcresulttool");
+crates/marathon-apple/src/cmd/local/kotlin_process_command_executor.rs:76:            "com.malinskiy.marathon.apple.cmd.local.KotlinProcessCommandExecutor",
+crates/marathon-apple/src/cmd/remote/rsync/rsync_file_bridge.rs:91:        let logger = logging.logger("com.malinskiy.marathon.apple.cmd.remote.rsync.RsyncFileBridge");
+crates/marathon-apple/src/cmd/remote/ssh/sshj/client.rs:160:            .logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor");
+crates/marathon-apple/src/cmd/remote/ssh/sshj/executor.rs:46:            logger: logging.logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor"),
+crates/marathon-apple/src/cmd/remote/ssh/sshj/factory.rs:50:            logger: logging.logger("com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutorFactory"),
+crates/marathon-apple/src/cmd/remote/ssh/sshj/known_hosts.rs:64:        "net.schmizz.sshj.transport.verification.PromiscuousVerifier".into()
+crates/marathon-apple/src/cmd/remote/ssh/sshj/known_hosts.rs:247:                registry.slf4j_logger("net.schmizz.sshj.transport.verification.OpenSSHKnownHosts"),
+crates/marathon-apple/src/cmd/remote/ssh/sshj/known_hosts.rs:248:                registry.slf4j_logger("com.hierynomus.sshj.transport.verification.KnownHostMatchers"),
+crates/marathon-apple/src/cmd/shared_transfers.rs:37:        let logger = logging.logger("com.malinskiy.marathon.apple.cmd.SharedTransfers");
+crates/marathon-apple/src/cmd/test_support.rs:32:            logger: logging.logger("com.malinskiy.marathon.apple.cmd.FakeCommandExecutor", None),
+crates/marathon-apple/src/device/connection_factory.rs:184:        let logger = logging.logger("com.malinskiy.marathon.apple.device.ConnectionFactory");
+crates/marathon-apple/src/listener/artifact.rs:22:        let logger = logging.logger("com.malinskiy.marathon.apple.listener.ArtifactFinderListener");
+crates/marathon-apple/src/listener/result_bundle_run_listener.rs:63:        let logger = logging.logger("com.malinskiy.marathon.apple.listener.ResultBundleRunListener");
+crates/marathon-apple/src/listener/result_bundle_run_listener.rs:159:                let name = "com.malinskiy.marathon.io.FileManager";
+crates/marathon-apple/src/listener/results.rs:61:            .logger("com.malinskiy.marathon.apple.listener.TestResultsListener");
+crates/marathon-apple/src/model/apple_test_bundle.rs:149:        let logger = logging.logger("com.malinskiy.marathon.apple.model.AppleTestBundle");
+crates/marathon-apple/src/remote_file_manager.rs:31:        let logger = logging.logger("com.malinskiy.marathon.apple.RemoteFileManager");
+crates/marathon-apple/src/xcodebuild_session.rs:189:                let logger = this.logging.logger("com.malinskiy.marathon.apple.XcodebuildSession");
+crates/marathon-apple/src/xctestrun/test_root_factory.rs:347:                ("CFBundleIdentifier", format!("com.apple.test.{binary_name}")),
+crates/marathon-cli/src/application.rs:34:const LOGGER: &str = "com.malinskiy.marathon.cli.ApplicationView";
+crates/marathon-cli/src/application.rs:409:            output.log(Level::Error, "kotlin.Unit", &render_throwable(&e));
+crates/marathon-config/src/bind_vendor.rs:571:                        "com.malinskiy.marathon.config.vendor.android.RecorderType",
+crates/marathon-config/src/bind_vendor.rs:597:        "com.malinskiy.marathon.config.vendor.android.SerialStrategy",
+crates/marathon-config/src/bind_vendor.rs:1560:                        "com.malinskiy.marathon.config.vendor.apple.ios.RecorderType",
+crates/marathon-config/src/devices.rs:109:pub const FQCN_SIM_DEVICE_TYPE: &str = "com.apple.CoreSimulator.SimDeviceType";
+crates/marathon-config/src/devices.rs:110:pub const FQCN_SIM_RUNTIME: &str = "com.apple.CoreSimulator.SimRuntime";
+crates/marathon-config/src/loader.rs:91:                "Cannot invoke \"com.malinskiy.marathon.config.Configuration.getVendorConfiguration()\" because \"configuration\" is null"
+crates/marathon-config/src/loader.rs:120:                    "the return value of \"com.fasterxml.jackson.databind.ObjectMapper.readValue(String, com.fasterxml.jackson.core.type.TypeReference)\" is null"
+crates/marathon-config/src/loader.rs:127:                    "Cannot invoke \"com.malinskiy.marathon.apple.configuration.Marathondevices.getWorkers()\" because {because}"
+crates/marathon-core/src/construction.rs:361:        .ok_or_else(|| VendorError::Other(missing_definition("com.malinskiy.marathon.execution.TestParser")))?;
+crates/marathon-core/src/construction.rs:365:        .ok_or_else(|| VendorError::Other(missing_definition("com.malinskiy.marathon.log.MarathonLogConfigurator")))?;
+crates/marathon-core/src/construction.rs:375:            registry_logger(&registry, "com.malinskiy.marathon.report.bill.BillingReporter")?,
+crates/marathon-core/src/error.rs:182:        let mut failure = Failure::from_kind(kind.clone(), Some("java.io.IOException: remote".into()));
+crates/marathon-core/src/execution/parse_command.rs:18:pub const LOGGER: &str = "com.malinskiy.marathon.execution.command.parse.MarathonTestParseCommand";
+crates/marathon-core/src/execution/progress.rs:225:            "com.malinskiy.marathon.execution.progress.PoolProgressAccumulator",
+crates/marathon-core/src/execution/result.rs:260:                    logger: "com.malinskiy.marathon.execution.result.TestRunResultsAccumulator".to_owned(),
+crates/marathon-core/src/filter/allure.rs:54:const LOGGER: &str = "io.qameta.allure.testfilter.FileTestPlanSupplier";
+crates/marathon-core/src/filter/allure.rs:217:                .find(|p| p.name == "io.qameta.allure.AllureId" || p.name == "io.qameta.allure.kotlin.AllureId");
+crates/marathon-core/src/marathon.rs:33:pub const LOGGER: &str = "com.malinskiy.marathon.Marathon";
+crates/marathon-core/src/marathon.rs:1056:                    "kotlin.Unit".into(),
+crates/marathon-core/src/reporters/allure.rs:303:    for prefix in ["io.qameta.allure.", "io.qameta.allure.kotlin."] {
+crates/marathon-core/src/screenshot.rs:305:            logger: registry.logger("com.malinskiy.marathon.device.screenshot.ScreenCapturer", None),
+crates/marathon-dex/src/parser.rs:516:const JUNIT_TEST_ANNOTATION_NAME: &str = "org.junit.Test";
+crates/marathon-ios/src/apple_simulator_device/mod.rs:159:            .logger("com.malinskiy.marathon.apple.ios.AppleSimulatorDevice");
+crates/marathon-ios/src/apple_simulator_media_importer.rs:14:        let _ = logging.logger("com.malinskiy.marathon.apple.AppleApplicationInstaller");
+crates/marathon-ios/src/apple_simulator_media_importer.rs:15:        let logger = logging.logger("com.malinskiy.marathon.apple.ios.AppleSimulatorMediaImporter");
+crates/marathon-ios/src/device/device_tracker.rs:52:        let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.WorkerTracker");
+crates/marathon-ios/src/device/provisioning_plan.rs:37:        let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider");
+crates/marathon-ios/src/device/simulator_factory.rs:100:        .strip_prefix("com.apple.CoreSimulator.SimDeviceType.")
+crates/marathon-ios/src/device/simulator_provisioner.rs:196:        let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.SimulatorProvisioner");
+crates/marathon-ios/src/listener/device_log.rs:24:        let logger = c.logger("com.malinskiy.marathon.apple.ios.listener.log.DeviceLogListener");
+crates/marathon-ios/src/listener/video.rs:62:        let logger = c.logger("com.malinskiy.marathon.apple.ios.listener.video.ScreenRecordingListener");
+crates/marathon-macos/src/device.rs:123:        let logger = options.logging.logger("com.malinskiy.marathon.apple.macos.MacosDevice");
+crates/marathon-test-support/src/apple/fake_simulator_worker.rs:19:pub const IPHONE: &str = "com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro";
+crates/marathon-test-support/src/apple/fake_simulator_worker.rs:20:pub const IOS: &str = "com.apple.CoreSimulator.SimRuntime.iOS-18-6";
+crates/marathon-test-support/src/apple/fake_simulator_worker.rs:107:            logger: logging.logger("com.malinskiy.marathon.apple.ios.device.FakeSimulatorWorker", None),
+crates/marathon-test-support/src/recorded_errors.rs:11:    ("java.lang.SecurityException", FailureKind::Security),
+crates/marathon-test-support/src/recorded_errors.rs:14:        "com.malinskiy.marathon.exceptions.DeviceLostException",
+crates/marathon-test-support/src/recorded_errors.rs:18:        "com.malinskiy.marathon.exceptions.DeviceSetupException",
+crates/marathon-test-support/src/recorded_errors.rs:22:        "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
+crates/marathon-test-support/src/recorded_errors.rs:26:        "com.malinskiy.marathon.exceptions.NoDevicesException",
+crates/marathon-test-support/src/recorded_errors.rs:30:        "com.malinskiy.marathon.exceptions.NoTestCasesFoundException",
+crates/marathon-test-support/src/recorded_errors.rs:34:        "com.malinskiy.marathon.exceptions.TestBatchExecutionException",
+crates/marathon-test-support/src/recorded_errors.rs:38:        "com.malinskiy.marathon.exceptions.TestParsingException",
+crates/marathon-test-support/src/recorded_errors.rs:42:        "com.malinskiy.marathon.exceptions.TransferException",
+crates/marathon-test-support/src/recorded_errors.rs:45:    ("java.io.EOFException", FailureKind::Eof),
+crates/marathon-test-support/src/recorded_errors.rs:46:    ("java.io.FileNotFoundException", FailureKind::FileNotFound),
+crates/marathon-test-support/src/recorded_errors.rs:47:    ("java.io.IOException", FailureKind::Io),
+crates/marathon-test-support/src/recorded_errors.rs:48:    ("java.io.InterruptedIOException", FailureKind::InterruptedIo),
+crates/marathon-test-support/src/recorded_errors.rs:49:    ("java.io.UncheckedIOException", FailureKind::UncheckedIo),
+crates/marathon-test-support/src/recorded_errors.rs:50:    ("java.lang.ArithmeticException", FailureKind::Arithmetic),
+crates/marathon-test-support/src/recorded_errors.rs:52:        "java.lang.ArrayIndexOutOfBoundsException",
+crates/marathon-test-support/src/recorded_errors.rs:55:    ("java.lang.ClassCastException", FailureKind::ClassCast),
+crates/marathon-test-support/src/recorded_errors.rs:56:    ("java.lang.Exception", FailureKind::Generic),
+crates/marathon-test-support/src/recorded_errors.rs:57:    ("java.lang.IllegalArgumentException", FailureKind::IllegalArgument),
+crates/marathon-test-support/src/recorded_errors.rs:58:    ("java.lang.IllegalStateException", FailureKind::IllegalState),
+crates/marathon-test-support/src/recorded_errors.rs:59:    ("java.lang.IndexOutOfBoundsException", FailureKind::IndexOutOfBounds),
+crates/marathon-test-support/src/recorded_errors.rs:60:    ("java.lang.NegativeArraySizeException", FailureKind::NegativeArraySize),
+crates/marathon-test-support/src/recorded_errors.rs:61:    ("java.lang.NullPointerException", FailureKind::NullReference),
+crates/marathon-test-support/src/recorded_errors.rs:62:    ("java.lang.NumberFormatException", FailureKind::NumberFormat),
+crates/marathon-test-support/src/recorded_errors.rs:63:    ("java.lang.RuntimeException", FailureKind::Runtime),
+crates/marathon-test-support/src/recorded_errors.rs:65:        "java.lang.StringIndexOutOfBoundsException",
+crates/marathon-test-support/src/recorded_errors.rs:69:        "java.lang.UnsupportedOperationException",
+crates/marathon-test-support/src/recorded_errors.rs:72:    ("java.net.BindException", FailureKind::Bind),
+crates/marathon-test-support/src/recorded_errors.rs:73:    ("java.net.ConnectException", FailureKind::Connect),
+crates/marathon-test-support/src/recorded_errors.rs:74:    ("java.net.NoRouteToHostException", FailureKind::NoRouteToHost),
+crates/marathon-test-support/src/recorded_errors.rs:75:    ("java.net.PortUnreachableException", FailureKind::PortUnreachable),
+crates/marathon-test-support/src/recorded_errors.rs:76:    ("java.net.ProtocolException", FailureKind::Protocol),
+crates/marathon-test-support/src/recorded_errors.rs:77:    ("java.net.SocketException", FailureKind::Socket),
+crates/marathon-test-support/src/recorded_errors.rs:78:    ("java.net.SocketTimeoutException", FailureKind::SocketTimeout),
+crates/marathon-test-support/src/recorded_errors.rs:79:    ("java.net.UnknownHostException", FailureKind::UnknownHost),
+crates/marathon-test-support/src/recorded_errors.rs:80:    ("java.nio.file.AccessDeniedException", FailureKind::AccessDenied),
+crates/marathon-test-support/src/recorded_errors.rs:82:        "java.nio.file.FileAlreadyExistsException",
+crates/marathon-test-support/src/recorded_errors.rs:85:    ("java.nio.file.FileSystemException", FailureKind::FileSystem),
+crates/marathon-test-support/src/recorded_errors.rs:86:    ("java.nio.file.InvalidPathException", FailureKind::InvalidPath),
+crates/marathon-test-support/src/recorded_errors.rs:87:    ("java.nio.file.NoSuchFileException", FailureKind::NoSuchFile),
+crates/marathon-test-support/src/recorded_errors.rs:88:    ("java.security.GeneralSecurityException", FailureKind::GeneralSecurity),
+crates/marathon-test-support/src/recorded_errors.rs:89:    ("java.time.DateTimeException", FailureKind::DateTime),
+crates/marathon-test-support/src/recorded_errors.rs:90:    ("java.time.format.DateTimeParseException", FailureKind::DateTimeParse),
+crates/marathon-test-support/src/recorded_errors.rs:91:    ("java.util.NoSuchElementException", FailureKind::NoSuchElement),
+crates/marathon-test-support/src/recorded_errors.rs:92:    ("java.util.concurrent.CancellationException", FailureKind::Cancelled),
+crates/marathon-test-support/src/recorded_errors.rs:93:    ("java.util.concurrent.TimeoutException", FailureKind::Timeout),
+crates/marathon-test-support/src/recorded_errors.rs:94:    ("java.util.regex.PatternSyntaxException", FailureKind::PatternSyntax),
+crates/marathon-test-support/src/recorded_errors.rs:95:    ("java.util.zip.ZipException", FailureKind::Zip),
+crates/marathon-test-support/src/recorded_errors.rs:97:        "kotlin.UninitializedPropertyAccessException",
+crates/marathon-test-support/src/recorded_errors.rs:101:        "kotlin.io.FileAlreadyExistsException",
+crates/marathon-test-support/src/recorded_errors.rs:104:    ("kotlin.io.NoSuchFileException", FailureKind::CopySourceMissing),
+crates/marathon-test-support/src/recorded_errors.rs:105:    ("kotlinx.coroutines.JobCancellationException", FailureKind::JobCancelled),
+crates/marathon-test-support/src/recorded_errors.rs:107:        "kotlinx.coroutines.TimeoutCancellationException",
+crates/marathon-test-support/src/recorded_errors.rs:111:        "kotlinx.coroutines.channels.ClosedReceiveChannelException",
+crates/marathon-test-support/src/recorded_errors.rs:115:        "kotlinx.coroutines.channels.ClosedSendChannelException",
+crates/marathon-test-support/src/recorded_errors.rs:120:        "org.koin.core.error.InstanceCreationException",
+crates/marathon-test-support/src/recorded_errors.rs:124:        "org.koin.core.error.NoBeanDefFoundException",
+crates/marathon-test-support/src/recorded_errors.rs:128:        "com.malinskiy.adam.exception.PullFailedException",
+crates/marathon-test-support/src/recorded_errors.rs:132:        "com.malinskiy.adam.exception.PushFailedException",
+crates/marathon-test-support/src/recorded_errors.rs:136:        "com.malinskiy.adam.exception.RequestRejectedException",
+crates/marathon-test-support/src/recorded_errors.rs:140:        "com.malinskiy.adam.exception.RequestValidationException",
+crates/marathon-test-support/src/recorded_errors.rs:144:        "com.malinskiy.adam.exception.UnsupportedForwardingSpecException",
+crates/marathon-test-support/src/recorded_errors.rs:148:        "com.malinskiy.adam.exception.UnsupportedImageProtocolException",
+crates/marathon-test-support/src/recorded_errors.rs:152:        "com.malinskiy.adam.exception.UnsupportedSyncProtocolException",
+crates/marathon-test-support/src/recorded_errors.rs:156:        "io.netty.channel.AbstractChannel$AnnotatedConnectException",
+crates/marathon-test-support/src/recorded_errors.rs:160:        "io.netty.channel.ConnectTimeoutException",
+crates/marathon-test-support/src/recorded_errors.rs:164:        "io.netty.channel.StacklessClosedChannelException",
+crates/marathon-test-support/src/recorded_errors.rs:168:        "io.vertx.core.impl.NoStackTraceThrowable",
+crates/marathon-test-support/src/recorded_errors.rs:171:    ("com.linkedin.dex.spec.DexException", FailureKind::Dex(DexKind::Decode)),
+crates/marathon-test-support/src/recorded_errors.rs:173:        "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+crates/marathon-test-support/src/recorded_errors.rs:177:        "com.fasterxml.jackson.core.JsonParseException",
+crates/marathon-test-support/src/recorded_errors.rs:181:        "com.fasterxml.jackson.core.exc.StreamConstraintsException",
+crates/marathon-test-support/src/recorded_errors.rs:185:        "com.fasterxml.jackson.core.io.JsonEOFException",
+crates/marathon-test-support/src/recorded_errors.rs:189:        "com.fasterxml.jackson.databind.JsonMappingException",
+crates/marathon-test-support/src/recorded_errors.rs:193:        "com.fasterxml.jackson.databind.exc.InvalidDefinitionException",
+crates/marathon-test-support/src/recorded_errors.rs:197:        "com.fasterxml.jackson.databind.exc.InvalidFormatException",
+crates/marathon-test-support/src/recorded_errors.rs:201:        "com.fasterxml.jackson.databind.exc.InvalidTypeIdException",
+crates/marathon-test-support/src/recorded_errors.rs:205:        "com.fasterxml.jackson.databind.exc.MismatchedInputException",
+crates/marathon-test-support/src/recorded_errors.rs:209:        "com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException",
+crates/marathon-test-support/src/recorded_errors.rs:213:        "com.fasterxml.jackson.databind.exc.ValueInstantiationException",
+crates/marathon-test-support/src/recorded_errors.rs:217:        "com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException",
+crates/marathon-test-support/src/recorded_errors.rs:221:        "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException",
+crates/marathon-test-support/src/recorded_errors.rs:225:        "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException",
+crates/marathon-test-support/src/recorded_errors.rs:229:        "org.yaml.snakeyaml.error.YAMLException",
+crates/marathon-test-support/src/recorded_errors.rs:233:        "org.yaml.snakeyaml.parser.ParserException",
+crates/marathon-test-support/src/recorded_errors.rs:237:        "org.yaml.snakeyaml.reader.ReaderException",
+crates/marathon-test-support/src/recorded_errors.rs:241:        "org.yaml.snakeyaml.scanner.ScannerException",
+crates/marathon-test-support/src/recorded_errors.rs:245:        "com.hierynomus.sshj.common.KeyDecryptionFailedException",
+crates/marathon-test-support/src/recorded_errors.rs:249:        "net.schmizz.sshj.common.Base64DecodingException",
+crates/marathon-test-support/src/recorded_errors.rs:253:        "net.schmizz.sshj.common.Buffer$BufferException",
+crates/marathon-test-support/src/recorded_errors.rs:257:        "net.schmizz.sshj.common.CircularBuffer$CircularBufferException",
+crates/marathon-test-support/src/recorded_errors.rs:261:        "net.schmizz.sshj.common.SSHException",
+crates/marathon-test-support/src/recorded_errors.rs:265:        "net.schmizz.sshj.connection.ConnectionException",
+crates/marathon-test-support/src/recorded_errors.rs:269:        "net.schmizz.sshj.connection.channel.OpenFailException",
+crates/marathon-test-support/src/recorded_errors.rs:273:        "net.schmizz.sshj.transport.TransportException",
+crates/marathon-test-support/src/recorded_errors.rs:277:        "net.schmizz.sshj.userauth.UserAuthException",
+crates/marathon-test-support/src/recorded_errors.rs:281:        "org.bouncycastle.openssl.EncryptionException",
+crates/marathon-test-support/src/recorded_errors.rs:284:    ("org.bouncycastle.openssl.PEMException", FailureKind::Ssh(SshKind::Pem)),
+crates/marathon-test-support/src/recorded_errors.rs:286:        "org.bouncycastle.openssl.PasswordException",
+crates/marathon-test-support/src/recorded_errors.rs:289:    ("org.bouncycastle.pkcs.PKCSException", FailureKind::Ssh(SshKind::Pkcs)),
+crates/marathon-test-support/src/recorded_errors.rs:291:        "com.influxdb.exceptions.BadRequestException",
+crates/marathon-test-support/src/recorded_errors.rs:295:        "com.influxdb.exceptions.ForbiddenException",
+crates/marathon-test-support/src/recorded_errors.rs:299:        "com.influxdb.exceptions.InfluxException",
+crates/marathon-test-support/src/recorded_errors.rs:303:        "com.influxdb.exceptions.InternalServerErrorException",
+crates/marathon-test-support/src/recorded_errors.rs:307:        "com.influxdb.exceptions.NotFoundException",
+crates/marathon-test-support/src/recorded_errors.rs:311:        "com.influxdb.exceptions.ServiceUnavailableException",
+crates/marathon-test-support/src/recorded_errors.rs:315:        "com.influxdb.exceptions.UnauthorizedException",
+crates/marathon-test-support/src/recorded_errors.rs:319:        "com.influxdb.exceptions.UnprocessableEntityException",
+crates/marathon-test-support/src/recorded_errors.rs:323:        "com.influxdb.query.exceptions.FluxCsvParserException",
+crates/marathon-test-support/src/recorded_errors.rs:327:        "com.influxdb.query.exceptions.FluxQueryException",
+crates/marathon-test-support/src/recorded_errors.rs:331:        "com.malinskiy.marathon.analytics.external.graphite.GraphiteException",
+crates/marathon-test-support/src/recorded_errors.rs:335:        "com.malinskiy.marathon.analytics.external.influx2.Influxdb2Exception",
+crates/marathon-test-support/src/recorded_errors.rs:339:        "com.squareup.moshi.JsonEncodingException",
+crates/marathon-test-support/src/recorded_errors.rs:343:        "org.influxdb.InfluxDBIOException",
+crates/marathon-test-support/src/recorded_errors.rs:347:        "org.influxdb.InfluxDBMapperException",
+crates/marathon-test-support/src/recorded_errors.rs:351:        "org.influxdb.InfluxDBException",
+crates/marathon-test-support/src/recorded_errors.rs:358:        "org.influxdb.InfluxDBException$AuthorizationFailedException",
+crates/marathon-test-support/src/recorded_errors.rs:365:        "org.influxdb.InfluxDBException$CacheMaxMemorySizeExceededException",
+crates/marathon-test-support/src/recorded_errors.rs:372:        "org.influxdb.InfluxDBException$DatabaseNotFoundException",
+crates/marathon-test-support/src/recorded_errors.rs:379:        "org.influxdb.InfluxDBException$FieldTypeConflictException",
+crates/marathon-test-support/src/recorded_errors.rs:386:        "org.influxdb.InfluxDBException$HintedHandOffQueueNotEmptyException",
+crates/marathon-test-support/src/recorded_errors.rs:393:        "org.influxdb.InfluxDBException$PointsBeyondRetentionPolicyException",
+crates/marathon-test-support/src/recorded_errors.rs:400:        "org.influxdb.InfluxDBException$UnableToParseException",
+crates/marathon-test-support/src/recorded_errors.rs:407:        "com.malinskiy.marathon.android.adam.TestAnnotationProducerNotFoundException",
+crates/marathon-test-support/src/recorded_errors.rs:411:        "com.malinskiy.marathon.android.exception.CommandRejectedException",
+crates/marathon-test-support/src/recorded_errors.rs:415:        "com.malinskiy.marathon.android.exception.DeviceNotSupportedException",
+crates/marathon-test-support/src/recorded_errors.rs:419:        "com.malinskiy.marathon.android.exception.InstallException",
+crates/marathon-test-support/src/recorded_errors.rs:423:        "com.malinskiy.marathon.apple.ios.NotAdmitted",
+crates/marathon-test-support/src/recorded_errors.rs:427:        "com.malinskiy.marathon.apple.ios.NotBooted",
+crates/marathon-test-support/src/recorded_errors.rs:431:        "com.malinskiy.marathon.apple.cmd.remote.rsync.TransferStalled",
+crates/marathon-test-support/src/recorded_errors.rs:435:        "com.malinskiy.marathon.apple.ios.device.SetupDropped",
+crates/marathon-test-support/src/recorded_errors.rs:439:        "com.malinskiy.marathon.apple.ios.BootFailure",
+crates/marathon-test-support/src/recorded_errors.rs:443:        "com.malinskiy.marathon.apple.cmd.CommandException",
+crates/marathon-test-support/src/recorded_errors.rs:447:        "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException",
+crates/marathon-test-support/src/recorded_errors.rs:451:        "io.qameta.allure.AllureResultsWriteException",
+crates/marathon-test-support/src/recorded_errors.rs:454:    ("javax.imageio.IIOException", FailureKind::Report(ReportKind::ImageIo)),
+crates/marathon-test-support/src/recorded_errors.rs:456:        "javax.imageio.metadata.IIOInvalidTreeException",
+crates/marathon-test-support/src/recorded_errors.rs:460:        "javax.xml.transform.TransformerException",
+crates/marathon-test-support/src/recorded_errors.rs:463:    ("org.xml.sax.SAXException", FailureKind::Report(ReportKind::Sax)),
+crates/marathon-test-support/src/recorded_errors.rs:464:    ("java.awt.AWTError", FailureKind::Fatal(FatalKind::WindowSystem)),
+crates/marathon-test-support/src/recorded_errors.rs:465:    ("java.io.IOError", FailureKind::Fatal(FatalKind::Io)),
+crates/marathon-test-support/src/recorded_errors.rs:466:    ("java.lang.AssertionError", FailureKind::Fatal(FatalKind::Assertion)),
+crates/marathon-test-support/src/recorded_errors.rs:468:        "java.lang.BootstrapMethodError",
+crates/marathon-test-support/src/recorded_errors.rs:472:        "java.lang.ClassCircularityError",
+crates/marathon-test-support/src/recorded_errors.rs:475:    ("java.lang.ClassFormatError", FailureKind::Fatal(FatalKind::ClassFormat)),
+crates/marathon-test-support/src/recorded_errors.rs:476:    ("java.lang.Error", FailureKind::Fatal(FatalKind::General)),
+crates/marathon-test-support/src/recorded_errors.rs:478:        "java.lang.ExceptionInInitializerError",
+crates/marathon-test-support/src/recorded_errors.rs:482:        "java.lang.IllegalAccessError",
+crates/marathon-test-support/src/recorded_errors.rs:486:        "java.lang.IncompatibleClassChangeError",
+crates/marathon-test-support/src/recorded_errors.rs:490:        "java.lang.InstantiationError",
+crates/marathon-test-support/src/recorded_errors.rs:493:    ("java.lang.InternalError", FailureKind::Fatal(FatalKind::Internal)),
+crates/marathon-test-support/src/recorded_errors.rs:494:    ("java.lang.LinkageError", FailureKind::Fatal(FatalKind::Linkage)),
+crates/marathon-test-support/src/recorded_errors.rs:496:        "java.lang.NoClassDefFoundError",
+crates/marathon-test-support/src/recorded_errors.rs:499:    ("java.lang.NoSuchFieldError", FailureKind::Fatal(FatalKind::NoSuchField)),
+crates/marathon-test-support/src/recorded_errors.rs:501:        "java.lang.NoSuchMethodError",
+crates/marathon-test-support/src/recorded_errors.rs:504:    ("java.lang.OutOfMemoryError", FailureKind::Fatal(FatalKind::OutOfMemory)),
+crates/marathon-test-support/src/recorded_errors.rs:506:        "java.lang.StackOverflowError",
+crates/marathon-test-support/src/recorded_errors.rs:509:    ("java.lang.ThreadDeath", FailureKind::Fatal(FatalKind::ThreadDeath)),
+crates/marathon-test-support/src/recorded_errors.rs:510:    ("java.lang.UnknownError", FailureKind::Fatal(FatalKind::Unknown)),
+crates/marathon-test-support/src/recorded_errors.rs:512:        "java.lang.UnsatisfiedLinkError",
+crates/marathon-test-support/src/recorded_errors.rs:516:        "java.lang.UnsupportedClassVersionError",
+crates/marathon-test-support/src/recorded_errors.rs:519:    ("java.lang.VerifyError", FailureKind::Fatal(FatalKind::Verify)),
+crates/marathon-test-support/src/recorded_errors.rs:521:        "java.lang.VirtualMachineError",
+crates/marathon-test-support/src/recorded_errors.rs:525:        "java.lang.annotation.AnnotationFormatError",
+crates/marathon-test-support/src/recorded_errors.rs:529:        "java.nio.charset.CoderMalfunctionError",
+crates/marathon-test-support/src/recorded_errors.rs:533:        "java.util.ServiceConfigurationError",
+crates/marathon-test-support/src/recorded_errors.rs:536:    ("java.util.zip.ZipError", FailureKind::Fatal(FatalKind::Zip)),
+crates/marathon-test-support/src/recorded_errors.rs:538:        "javax.xml.parsers.FactoryConfigurationError",
+crates/marathon-test-support/src/recorded_errors.rs:542:        "javax.xml.stream.FactoryConfigurationError",
+crates/marathon-test-support/src/recorded_errors.rs:546:        "javax.xml.transform.TransformerFactoryConfigurationError",
+crates/marathon-test-support/src/recorded_errors.rs:550:        "kotlin.NotImplementedError",
+crates/marathon-test-support/src/recorded_errors.rs:554:        "kotlin.jvm.KotlinReflectionNotSupportedError",
+crates/marathon-test-support/src/recorded_errors.rs:655:            failure_kind("java.lang.SecurityException", None),
+crates/marathon-test-support/src/recorded_errors.rs:659:            failure_kind("java.lang.FutureException", None),
+crates/marathon-test-support/src/recorded_errors.rs:683:        for value in ["unknown", "java.lang.RuntimeException"] {
+crates/marathon-test-support/src/recorded_errors.rs:694:        let class = "org.influxdb.InfluxDBException$CacheMaxMemorySizeExceededException";
+crates/marathon-test-support/src/recorded_errors.rs:710:        let kind = failure_kind("org.influxdb.InfluxDBException$DatabaseNotFoundException", None).unwrap();
+crates/marathon-test-support/src/recorded_errors.rs:726:        let class = "com.malinskiy.marathon.apple.ios.device.SetupDropped";
+crates/marathon-test-support/src/recorded_errors.rs:731:        assert!(failure_kind("com.malinskiy.marathon.apple.ios.SetupDropped", None).is_err());
+crates/marathon-test-support/src/recorded_errors.rs:1102:            rendered("java.io.IOException: external java.lang.IllegalStateException: remote"),
+crates/marathon-test-support/src/recorded_errors.rs:1105:        assert_eq!(rendered("java.io.IOException"), Ok("I/O error".into()));
+crates/marathon-test-support/src/recorded_errors.rs:1106:        assert_eq!(rendered("java.io.IOException: "), Ok("I/O error: ".into()));
+crates/marathon-test-support/src/recorded_errors.rs:1108:        assert!(rendered("java.io.IOExceptionSuffix: remote").is_err());
+crates/marathon-test-support/src/recorded_errors.rs:1113:        let mut value = serde_json::json!({"class":"java.io.IOException", "message":message, "cause":null});
+crates/marathon-test-support/src/recorded_errors.rs:1126:        let value = serde_json::json!({"class":"java.io.IOException", "message":message, "cause":null});
+crates/marathon-test-support/src/recorded_errors.rs:1128:        assert_eq!(recorded, format!("java.io.IOException: {message}\n"));

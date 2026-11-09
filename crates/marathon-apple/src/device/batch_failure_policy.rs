@@ -17,7 +17,7 @@ impl BatchLoss {
         }
     }
     pub fn into_vendor(self) -> VendorError {
-        let mut detail = failure(FailureKind::DeviceLost, self.cause.to_java_string());
+        let mut detail = failure(FailureKind::DeviceLost, self.cause.to_string());
         detail.cause = Some(Box::new(self.cause));
         // Policy suppression belongs to DeviceLost itself, rather than its cause.
         let flattened = RunError {

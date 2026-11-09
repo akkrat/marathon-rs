@@ -88,10 +88,14 @@ fn replay(name: &str) -> TestResult {
             }
             Err(error) => {
                 let failure = error.failure();
-                json!({"error":{"class":failure.kind.legacy_class().to_owned(), "message":failure.message.as_ref().map(|m| m.to_owned())}})
+                json!({"error":{"class":failure.kind.identifier(), "message":failure.message.as_ref().map(|m| m.to_owned())}})
             }
         };
         let observed: Value = serde_json::from_str(&serde_json::to_string(&observed)?.replace(root_text, "<root>"))?;
+        let mut call = call.clone();
+        if let Some(error) = call.get_mut("error") {
+            marathon_test_support::recorded_errors::error_object(error);
+        }
         for key in ["infos", "staticLibraries", "error"] {
             assert_eq!(observed.get(key), call.get(key), "{name}: {key}");
         }

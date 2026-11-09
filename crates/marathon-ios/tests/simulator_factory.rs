@@ -175,7 +175,7 @@ async fn disposal_failure_is_suppressed_under_the_original_setup_failure() -> Te
             .output_failure()
             .stack_trace()
             .to_owned()
-            .contains("\tSuppressed: java.lang.IllegalStateException: dispose")
+            .contains("\tSuppressed: invalid state: dispose")
     );
     Ok(())
 }
@@ -304,7 +304,7 @@ fn bridge_error_conversion_preserves_typed_cancellation_and_suppressed_disposal(
             .failure()
             .stack_trace()
             .to_owned()
-            .contains("Suppressed: java.lang.IllegalStateException: dispose")
+            .contains("Suppressed: invalid state: dispose")
     );
 }
 

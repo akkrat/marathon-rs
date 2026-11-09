@@ -129,11 +129,8 @@ fn measured_apple_mapper_corpus() {
             let error = actual.expect_err(&id);
             assert_eq!(error.kind, DecodeErrorKind::JsonSyntax, "{id}");
             assert!(
-                error
-                    .failure
-                    .kind
-                    .legacy_class()
-                    .ends_with("StreamConstraintsException")
+                error.failure.kind
+                    == marathon_error::FailureKind::Config(marathon_error::ConfigKind::StreamConstraints)
             );
         } else {
             let error = actual.expect_err(&id);
@@ -196,11 +193,7 @@ fn nesting_beyond_jacksons_limit_is_an_error_not_a_stack_overflow() {
         let error = decode_legacy::<ResultMetrics>(&input).unwrap_err();
         assert_eq!(error.kind, DecodeErrorKind::JsonSyntax);
         assert!(
-            error
-                .failure
-                .kind
-                .legacy_class()
-                .ends_with("StreamConstraintsException")
+            error.failure.kind == marathon_error::FailureKind::Config(marathon_error::ConfigKind::StreamConstraints)
         );
     }
     assert!(decode_legacy::<ResultMetrics>(&format!("{{\"u\":{}}}", deep(999))).is_ok());

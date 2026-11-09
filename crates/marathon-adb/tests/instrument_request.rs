@@ -294,13 +294,15 @@ fn fallible_conversion_preserves_jvm_error_classes_and_warnings() {
                 ..Default::default()
             })
             .unwrap_err();
+        let expected = oracle(&format!("parser-error:{name}"));
         assert_eq!(
-            json!([
-                error.legacy_class(),
-                error.message(),
-                error.to_failure().cause.map(|c| c.kind.legacy_class().to_owned())
-            ]),
-            oracle(&format!("parser-error:{name}"))
+            error.failure_kind(),
+            marathon_test_support::recorded_errors::kind(expected[0].as_str().unwrap())
+        );
+        assert_eq!(json!(error.message()), expected[1]);
+        assert_eq!(
+            error.to_failure().cause.map(|c| c.kind),
+            expected[2].as_str().map(marathon_test_support::recorded_errors::kind)
         );
     }
     let mut request = TestRunnerRequest::new("test".into(), InstrumentOptions::default(), vec![]);

@@ -263,10 +263,7 @@ impl RecoveryHarness {
     }
     pub fn log(&self, s: &str) -> bool {
         self.h().logs.lock().unwrap().iter().any(|(_, _, message, cause)| {
-            message.contains(s)
-                || cause
-                    .as_ref()
-                    .is_some_and(|e| e.to_java_string().to_owned().contains(s))
+            message.contains(s) || cause.as_ref().is_some_and(|e| e.to_string().to_owned().contains(s))
         })
     }
     pub fn current(&self, id: &str) -> Simulator {

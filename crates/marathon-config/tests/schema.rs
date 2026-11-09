@@ -21,42 +21,42 @@ use serde_json::Value as Json;
 const REJECT_INSTEAD: &[(&str, &str, &str)] = &[
     (
         "Configuration-null-list-elem",
-        marathon_config::binder::MISMATCHED.legacy_class(),
+        marathon_config::binder::MISMATCHED.description(),
         "D9: null element in collection",
     ),
     (
         "FilteringConfiguration-allow-null-elem",
-        marathon_config::binder::MISMATCHED.legacy_class(),
+        marathon_config::binder::MISMATCHED.description(),
         "D9: null element in collection",
     ),
     (
         "TestFilterConfiguration-composition-null-elem",
-        marathon_config::binder::MISMATCHED.legacy_class(),
+        marathon_config::binder::MISMATCHED.description(),
         "D9: null element in collection",
     ),
     (
         "Pooling-combo-null-elem",
-        marathon_config::binder::MISMATCHED.legacy_class(),
+        marathon_config::binder::MISMATCHED.description(),
         "D9: null element in collection",
     ),
     (
         "AnalyticsConfiguration-graphite-port-arabic",
-        marathon_config::bind::CONFIGURATION_EXCEPTION.legacy_class(),
+        marathon_config::bind::CONFIGURATION_EXCEPTION.description(),
         "GraphiteConfigurationDeserializer: port should be a number, e.g. 2003",
     ),
     (
         "Sorting-exec-overflow",
-        marathon_config::binder::JSON_MAPPING.legacy_class(),
+        marathon_config::binder::JSON_MAPPING.description(),
         "D9: now + Duration overflows Instant",
     ),
     (
         "Batching-fixed-overflow",
-        marathon_config::binder::JSON_MAPPING.legacy_class(),
+        marathon_config::binder::JSON_MAPPING.description(),
         "D9: now + Duration overflows Instant",
     ),
     (
         "Flakiness-prob-overflow",
-        marathon_config::binder::JSON_MAPPING.legacy_class(),
+        marathon_config::binder::JSON_MAPPING.description(),
         "D9: now + Duration overflows Instant",
     ),
 ];
@@ -132,7 +132,7 @@ fn schema_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
                         panic!("{id}: approved simplification must reject at bind");
                     };
                     assert_eq!(e.stage, ValidationStage::Parse, "{id}");
-                    assert_eq!(e.kind.legacy_class().to_owned(), *class, "{id}");
+                    assert_eq!(e.kind.description().to_owned(), *class, "{id}");
                     assert_eq!(
                         e.message.as_ref().map(|m| m.to_owned()).as_deref(),
                         Some(*message),

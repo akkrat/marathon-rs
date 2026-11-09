@@ -400,9 +400,9 @@ async fn failed_local_finalization_keeps_the_remote_bundle_and_never_replaces_an
         assert_eq!(retained.len(), 1);
         let diagnostic = retained[0].to_owned();
         assert!(diagnostic.contains(if case == "missing pulled bundle" {
-            "NoSuchFileException"
+            "no such file or directory"
         } else {
-            "FileAlreadyExistsException"
+            "file already exists"
         }));
         let oracle = include_str!("../../../fixtures/oracle/artifact-queue/events.jsonl")
             .lines()
@@ -411,11 +411,17 @@ async fn failed_local_finalization_keeps_the_remote_bundle_and_never_replaces_an
                 row["scenario"]
                     == "failed local finalization keeps the remote bundle and never replaces an existing destination"
                     && row["message"].as_str().is_some_and(|message| {
-                        message.contains(if case == "missing pulled bundle" {
-                            "NoSuchFileException"
+                        let Some((_, rest)) = message.split_once(" was not delivered (") else {
+                            return false;
+                        };
+                        let (failure, _) = rest.split_once("); remote bundle kept").unwrap();
+                        let class = failure.split_once(": ").unwrap().0;
+                        let expected = if case == "missing pulled bundle" {
+                            marathon_error::FailureKind::NoSuchFile
                         } else {
-                            "FileAlreadyExistsException"
-                        })
+                            marathon_error::FailureKind::FileAlreadyExists
+                        };
+                        marathon_test_support::recorded_errors::kind(class) == expected
                     })
             })
             .unwrap();
@@ -424,6 +430,12 @@ async fn failed_local_finalization_keeps_the_remote_bundle_and_never_replaces_an
         let expected = expected
             .replace(id, "batch")
             .replace("<tmp>", &h.tmp.path().join("output").to_string_lossy());
+        let (prefix, rest) = expected.split_once(" was not delivered (").unwrap();
+        let (failure, suffix) = rest.split_once("); remote bundle kept").unwrap();
+        let expected = format!(
+            "{prefix} was not delivered ({}); remote bundle kept{suffix}",
+            marathon_test_support::recorded_errors::rendered(failure).unwrap()
+        );
         assert_eq!(diagnostic, expected);
         assert!(h.calls.lock().unwrap().is_empty());
         if case == "unrelated file" {

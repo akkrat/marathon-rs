@@ -51,7 +51,7 @@ pub(crate) fn means_device_loss(e: &VendorError) -> bool {
 }
 pub fn execution_error(e: VendorError) -> VendorError {
     if means_device_loss(&e) {
-        let mut f = failure(FailureKind::DeviceLost, e.failure().to_java_string());
+        let mut f = failure(FailureKind::DeviceLost, e.failure().to_string());
         f.cause = Some(Box::new(e.failure().clone()));
         VendorError::DeviceLost(f)
     } else {
@@ -137,7 +137,7 @@ mod kind_tests {
             let error = execution_error(VendorError::Other(original.clone()));
             assert!(matches!(error, VendorError::DeviceLost(_)));
             assert_eq!(error.failure().kind, FailureKind::DeviceLost);
-            assert_eq!(error.failure().message, Some(original.to_java_string()));
+            assert_eq!(error.failure().message, Some(original.to_string()));
             assert_eq!(error.failure().cause.as_deref(), Some(&original));
         }
         for kind in [

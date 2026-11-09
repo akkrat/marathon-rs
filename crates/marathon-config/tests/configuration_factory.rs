@@ -394,10 +394,7 @@ fn on_configuration_without_an_explicit_xctestrun_path_should_throw_an_exception
     // The pre-bundle iOS keys are unknown properties: a binding failure,
     // wrapped by the factory.
     let error = parse_sample("sample_5.yaml", None).unwrap_err();
-    assert_eq!(
-        load::class(&error),
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-    );
+    assert_eq!(load::class(&error), "configuration rejected");
 }
 
 #[test]
@@ -419,10 +416,7 @@ fn on_configuration_without_android_sdk_value_should_use_value_provided_by_envir
 #[test]
 fn on_configuration_without_android_sdk_value_should_throw_an_exception_when_android_home_is_not_set() {
     let error = parse_sample("sample_7.yaml", None).unwrap_err();
-    assert_eq!(
-        load::class(&error),
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-    );
+    assert_eq!(load::class(&error), "configuration rejected");
     assert_eq!(load::message(&error), "No android SDK path specified");
 }
 

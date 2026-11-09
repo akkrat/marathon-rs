@@ -271,10 +271,7 @@ fn shell_wrapper_semantics() {
                 .critical_execute_shell_command("hang", "rejected", context.clone())
                 .await
                 .unwrap_err();
-            assert_eq!(
-                err.failure().kind.legacy_class(),
-                js("com.malinskiy.marathon.android.exception.CommandRejectedException")
-            );
+            assert_eq!(err.failure().kind.description(), js("Android command rejected"));
             assert!(matches!(
                 marathon_android::execution_error(err),
                 VendorError::DeviceLost(_)
@@ -309,10 +306,7 @@ fn setup_failure_shapes() {
                 let device = device(&server, runtime);
                 let error = device.setup(context).await.unwrap_err();
                 if mode == 1 {
-                    assert_eq!(
-                        error.failure().kind.legacy_class(),
-                        js("java.lang.NumberFormatException")
-                    )
+                    assert_eq!(error.failure().kind.description(), js("invalid number"))
                 } else {
                     assert!(matches!(error, VendorError::DeviceSetup(_)))
                 }

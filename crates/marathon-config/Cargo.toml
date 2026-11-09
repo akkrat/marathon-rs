@@ -16,6 +16,7 @@ snakeyaml = { path = "../snakeyaml" }
 zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+marathon-test-support = { path = "../marathon-test-support" }
 serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
 zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
 sha2 = "=0.10.9"

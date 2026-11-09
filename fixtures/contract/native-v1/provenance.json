@@ -1,6 +1,6 @@
 {
   "driver_sha256": "9897880f22e957e8f928a70db929f23d90f5e404a3ddc19737a773c3cb72f7bd",
-  "native_sha": "4672a217ef5e50fc371b4caa1f4448c033efd81a",
+  "native_sha": "185166db98e756165bb53773efe25f338aa6212c",
   "platform": "macOS-27.2-arm64-arm-64bit",
   "python": "3.9.6",
   "source_sha": "c95b212882c7ba7b1ad91b7981916ed175f1530e"

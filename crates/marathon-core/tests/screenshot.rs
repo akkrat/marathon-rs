@@ -122,12 +122,9 @@ fn gif_metadata_zero_frames_and_invalid_delays_match_jvm() {
     }
     for delay in [-10, 655360] {
         let err = GifSequenceWriter::new(Vec::new(), delay, false).err().unwrap();
-        assert!(
-            oracle(&format!("gif-{delay}"))["error"]
-                .as_str()
-                .unwrap()
-                .starts_with(&err.failure().kind.legacy_class().to_owned())
-        );
+        let expected = oracle(&format!("gif-{delay}"));
+        let class = expected["error"].as_str().unwrap().split_once(": ").unwrap().0;
+        assert_eq!(err.failure().kind, marathon_test_support::recorded_errors::kind(class));
     }
 }
 #[test]
@@ -363,8 +360,8 @@ fn overflowing_delay_fails_after_creating_the_file() {
             let mut cap = capturer(&core, root, vec![], duration_of(i64::MAX, 0).unwrap());
             let error = cap.start(&test("overflow"), Signal::new()).await.err().unwrap();
             assert_eq!(
-                error.failure().to_java_string().to_owned(),
-                "java.lang.ArithmeticException: long overflow"
+                error.failure().to_string().to_owned(),
+                "arithmetic failure: long overflow"
             );
             Ok(())
         })

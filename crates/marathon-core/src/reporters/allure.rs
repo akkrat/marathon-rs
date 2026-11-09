@@ -111,7 +111,7 @@ impl AllureReporter {
                 Err(error) => {
                     let mut failure = failure(
                         FailureKind::Report(ReportKind::Transformer),
-                        &error.failure().to_java_string().to_owned(),
+                        &error.failure().to_string().to_owned(),
                     );
                     failure.cause = Some(Box::new(error.failure().clone()));
                     Some(failure)
@@ -141,7 +141,7 @@ impl AllureReporter {
 fn xml_failure(error: XmlTextError) -> Failure {
     let sax = error.sax_message();
     let cause = failure(FailureKind::Report(ReportKind::Sax), &sax);
-    let mut top = failure(FailureKind::Report(ReportKind::Transformer), &cause.to_java_string());
+    let mut top = failure(FailureKind::Report(ReportKind::Transformer), &cause.to_string());
     top.cause = Some(Box::new(cause));
     top
 }
@@ -382,10 +382,7 @@ mod tests {
             panic!("serialization must fail before opening a file");
         };
         let failure = error.failure();
-        assert_eq!(
-            failure.kind.legacy_class(),
-            "io.qameta.allure.AllureResultsWriteException"
-        );
+        assert_eq!(failure.kind.description(), "Allure results write failure");
         assert_eq!(failure.message.as_deref(), Some("Could not write Allure test result"));
         let Some(cause) = failure.cause.as_deref() else {
             panic!("the serialization error must remain the cause");

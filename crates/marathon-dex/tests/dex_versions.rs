@@ -84,10 +84,7 @@ fn put_i32(bytes: &mut [u8], offset: usize, value: i32) {
 }
 fn invalid(bytes: Vec<u8>, message: &str) {
     let error = DexFile::parse_all(bytes).map(|_| ()).unwrap_err();
-    assert_eq!(
-        error.kind.legacy_class().to_owned(),
-        "com.linkedin.dex.spec.DexException"
-    );
+    assert_eq!(error.kind.description().to_owned(), "DEX decoding failure");
     let text = error.message.unwrap().to_owned();
     assert!(text.contains(message), "{text}");
 }

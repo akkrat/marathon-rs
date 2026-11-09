@@ -290,7 +290,7 @@ impl AndroidDeviceTestRunner<'_> {
         context: &VendorContext,
     ) -> VendorResult<()> {
         let mut message = String::from("Instrumentation failed: ");
-        message.push_str(&failure.failure().to_java_string());
+        message.push_str(&failure.failure().to_string());
         self.device.log_named(
             "AndroidDeviceTestRunner",
             Level::Error,

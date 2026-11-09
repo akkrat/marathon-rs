@@ -740,8 +740,8 @@ mod plist_boundary_test {
             <super::Xctestrun as crate::plist::PropertyList>::from_path(&path).unwrap_err(),
         );
         assert_eq!(
-            missing.failure().kind.legacy_class().to_owned(),
-            "java.nio.file.NoSuchFileException"
+            missing.failure().kind.description().to_owned(),
+            "no such file or directory"
         );
         assert_eq!(
             missing.failure().message.as_ref().unwrap().to_owned(),

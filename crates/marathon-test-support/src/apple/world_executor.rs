@@ -160,7 +160,7 @@ impl Sink for WorldSink {
                 &self.stdout
             };
             buffer.append(&data);
-            buffer.flush().await.map_err(|e| anyhow::anyhow!("{e:?}"))
+            buffer.flush().await.map_err(|e| anyhow::anyhow!("{}", e.failure()))
         })
     }
     fn eof(&self) -> SinkFuture<'_> {
@@ -168,8 +168,14 @@ impl Sink for WorldSink {
     }
     fn finish(&self, status: u32, signal: Option<String>, _: bool, _: bool) -> SinkFuture<'_> {
         Box::pin(async move {
-            self.stdout.drain().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
-            self.stderr.drain().await.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            self.stdout
+                .drain()
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e.failure()))?;
+            self.stderr
+                .drain()
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e.failure()))?;
             // Match sshj: TERM is 128+15; every other signal has no exit code (D7).
             self.exit.complete(Ok(match signal.as_deref() {
                 None => Some(status as i32),

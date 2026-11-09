@@ -33,32 +33,96 @@ pub fn run(cwd: &Path, home: &Path, tmp: &Path, args: &[String], env: &[(String,
     }
 }
 
-/// PLAN §3.10: messages raised by Jackson may be worded differently; their classes and order may not. A cause
-/// `com.fasterxml.jackson.<Class>: <message>` keeps only its class, in a `Caused by:` line (dropping the message's
-/// continuation lines) or in a config-dump `causes` string.
-pub fn jackson_classes_only(text: &str) -> String {
-    let mut out = Vec::new();
-    let mut in_jackson_cause = false;
-    for line in text.split('\n') {
-        if let Some(rest) = line.strip_prefix("Caused by: com.fasterxml.jackson.") {
-            let class = rest.split(':').next().unwrap_or(rest);
-            out.push(format!("Caused by: com.fasterxml.jackson.{class}"));
-            in_jackson_cause = true;
-            continue;
-        }
-        if in_jackson_cause && !line.starts_with("Caused by: ") && !line.is_empty() {
-            continue;
-        }
-        in_jackson_cause = false;
-        let trimmed = line.trim_start();
-        if let Some(rest) = trimmed.strip_prefix("\"com.fasterxml.jackson.") {
-            let indent = &line[..line.len() - trimmed.len()];
-            let class = rest.split(':').next().unwrap_or(rest);
-            let comma = if line.ends_with(',') { "," } else { "" };
-            out.push(format!("{indent}\"com.fasterxml.jackson.{class}\"{comma}"));
-            continue;
-        }
-        out.push(line.to_owned());
+/// D59 changes only the generated error slot; all bytes outside it stay pinned.
+pub fn config_error_comparison(actual: &str, expected: &str) -> (String, String) {
+    use marathon_error::{ConfigKind, FailureKind};
+    use marathon_test_support::recorded_errors::{config_error, kind};
+    use serde_json::Value;
+    fn span(text: &str) -> std::ops::Range<usize> {
+        let start = text.find("  \"error\": ").expect("error field") + "  \"error\": ".len();
+        let end = start + text[start..].find(",\n  \"config\":").expect("config follows error");
+        start..end
     }
-    out.join("\n")
+    let a = span(actual);
+    let e = span(expected);
+    let mut got: Value = serde_json::from_str(&actual[a.clone()]).expect("native error JSON");
+    let mut want: Value = serde_json::from_str(&expected[e.clone()]).expect("recorded error JSON");
+    let recorded_causes = want["causes"].as_array().cloned().unwrap_or_default();
+    config_error(&mut want);
+    if !got.is_null() {
+        assert_eq!(
+            got.as_object().unwrap().keys().map(String::as_str).collect::<Vec<_>>(),
+            ["kind", "message", "causes"]
+        );
+        assert_eq!(got["causes"].as_array().unwrap().len(), recorded_causes.len());
+    }
+    for (i, cause) in recorded_causes.iter().enumerate() {
+        let (class, _) = cause.as_str().unwrap().split_once(": ").expect("recorded cause");
+        if let FailureKind::Config(k) = kind(class)
+            && k != ConfigKind::Rejected
+            && k.is_json()
+        {
+            let description = k.to_string();
+            assert!(
+                got["causes"][i]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&(description.clone() + ": "))
+            );
+            got["causes"][i] = description.clone().into();
+            want["causes"][i] = description.into();
+        }
+    }
+    assert_eq!(got, want, "generated error kind, message and ordered causes");
+    let mut actual = actual.to_owned();
+    let mut expected = expected.to_owned();
+    actual.replace_range(a, "<checked error>");
+    expected.replace_range(e, "<checked error>");
+    (actual, expected)
+}
+
+/// Only the CLI's generated envelope; the caller identifies recorded cause-bearing rows.
+pub fn cli_error_comparison(actual: &str, expected: &str, generated_cause: bool) -> (String, String) {
+    use marathon_error::FailureKind;
+    use marathon_test_support::recorded_errors::{kind, rendered};
+    if serde_json::from_str::<serde_json::Value>(expected).is_ok_and(|v| v.get("stage").is_some()) {
+        return config_error_comparison(actual, expected);
+    }
+    const ENVELOPE: &str = "Exception in thread \"main\" ";
+    let Some((prefix, trace)) = expected.split_once(ENVELOPE) else {
+        return (actual.into(), expected.into());
+    };
+    if !generated_cause {
+        return (
+            actual.into(),
+            format!(
+                "{prefix}{ENVELOPE}{}",
+                rendered(trace).unwrap_or_else(|e| panic!("{e}"))
+            ),
+        );
+    }
+    const CAUSE: &str = "\nCaused by: ";
+    let (root, cause) = trace.split_once(CAUSE).expect("recorded generated cause");
+    let class = cause
+        .split_once(": ")
+        .map_or(cause.trim_end_matches('\n'), |(class, _)| class);
+    let typed = kind(class);
+    let jackson = matches!(typed, FailureKind::Config(k) if k.is_json());
+    let cause = if jackson {
+        format!("{typed}\n")
+    } else {
+        rendered(cause).unwrap_or_else(|e| panic!("{e}"))
+    };
+    let expected = format!(
+        "{prefix}{ENVELOPE}{}{CAUSE}{cause}",
+        rendered(root).unwrap_or_else(|e| panic!("{e}")),
+    );
+    let actual = if jackson {
+        let (root, cause) = actual.split_once(CAUSE).expect("native generated cause");
+        let (description, _) = cause.split_once(": ").expect("native diagnostic message");
+        format!("{root}{CAUSE}{description}\n")
+    } else {
+        actual.into()
+    };
+    (actual, expected)
 }

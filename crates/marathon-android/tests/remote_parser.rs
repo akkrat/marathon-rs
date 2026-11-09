@@ -338,7 +338,7 @@ fn producer_failure_fails_the_parsing_attempt_d25() {
                 error.failure().message,
                 Some(
                     format!(
-                        "Unable to parse test list using {}: java.lang.NumberFormatException: For input string: \"many\"",
+                        "Unable to parse test list using {}: invalid number: For input string: \"many\"",
                         d.serial_number().to_owned()
                     )
                     .as_str()
@@ -437,7 +437,7 @@ fn a_stream_cut_off_on_every_attempt_fails_and_gives_no_list_d25() {
     assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
     let message = error.failure().message.as_ref().unwrap().to_owned();
     assert!(
-        message.ends_with(": java.io.EOFException: the instrumentation stream ended before a result"),
+        message.ends_with(": unexpected end of input: the instrumentation stream ended before a result"),
         "{message}"
     );
     assert_eq!(attempts, 3);
@@ -547,10 +547,7 @@ fn a_session_that_keeps_failing_ends_in_a_parsing_error_with_its_reason_d42() {
             };
             let error = parser.extract(reference, context).await.unwrap_err();
             assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
-            assert_eq!(
-                error.failure().kind.legacy_class(),
-                js("com.malinskiy.marathon.exceptions.TestParsingException")
-            );
+            assert_eq!(error.failure().kind.description(), js("test discovery failure"));
             let attempts = commands(&server)
                 .iter()
                 .filter(|s| s.starts_with("am instrument"))

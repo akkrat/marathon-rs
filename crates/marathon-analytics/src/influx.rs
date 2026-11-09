@@ -201,7 +201,7 @@ pub(crate) async fn request(
         .map_err(|error| match error {
             OperationError::Failed(cause) if cause.kind.wraps_as_analytics_io() => OperationError::Failed(Failure {
                 kind: FailureKind::Analytics(AnalyticsKind::InfluxIo),
-                message: Some(cause.to_java_string()),
+                message: Some(cause.to_string()),
                 cause: Some(Box::new(cause)),
                 stacktrace: None,
             }),
@@ -454,7 +454,7 @@ mod retry_tests {
         let cause = failure(FailureKind::Connect, phrase);
         let transport = Failure {
             kind: FailureKind::Analytics(AnalyticsKind::InfluxIo),
-            message: Some(cause.to_java_string()),
+            message: Some(cause.to_string()),
             cause: Some(Box::new(cause)),
             stacktrace: None,
         };

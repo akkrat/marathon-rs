@@ -913,7 +913,10 @@ fn reporter_error_does_not_stop_later_reporters_and_is_not_a_once_guard() {
             let OperationError::Failed(error) = error else {
                 panic!("expected ordinary failure")
             };
-            assert_eq!(json!(error.kind.legacy_class()), oracle("reporter-failure")["error"]);
+            assert_eq!(
+                error.kind,
+                marathon_test_support::recorded_errors::kind(oracle("reporter-failure")["error"].as_str().unwrap())
+            );
             assert_eq!(oracle("reporter-failure")["calls"], json!(["bad"]));
             assert_eq!(*calls.lock().unwrap(), ["bad", "never"]);
             assert!(close_generator(core.vendor().as_ref(), &generator).await.is_err());

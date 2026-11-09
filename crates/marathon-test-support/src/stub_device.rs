@@ -268,8 +268,7 @@ impl Device for StubDevice {
                 Ok(()) => self.call("executed", serde_json::json!({"batch": id})),
                 Err(VendorError::Cancelled(_)) => self.call("execute-cancelled", serde_json::json!({"batch": id})),
                 Err(e) => {
-                    let class = e.failure().kind.legacy_class();
-                    let simple = class.rsplit('.').next().unwrap_or_default().to_owned();
+                    let simple = e.failure().kind.identifier().to_owned();
                     self.call("execute-threw", serde_json::json!({"batch": id, "exception": simple}));
                 }
             }
@@ -436,7 +435,7 @@ impl StubDevice {
                 );
                 return Err(VendorError::DeviceLost(Failure {
                     kind: FailureKind::DeviceLost,
-                    message: Some(cause.to_java_string()),
+                    message: Some(cause.to_string()),
                     cause: Some(Box::new(cause)),
                     stacktrace: None,
                 }));

@@ -173,9 +173,7 @@ pub async fn device(
             bridge,
         )
         .await?;
-    h.prepare(&d)
-        .await
-        .map_err(|e| e.failure().to_java_string().to_owned())?;
+    h.prepare(&d).await.map_err(|e| e.failure().to_string().to_owned())?;
     let s = Arc::new(BatchScript::default());
     s.attach(&h.worker);
     s.output(passed(1));

@@ -5,28 +5,25 @@ use marathon_config::binding::ConfigurationError;
 pub use marathon_error::*;
 
 /// Preserve kind, nullable message and causal chain for classification/output.
-/// Formatting stack traces is a later WP, not Rust Debug or Display.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub kind: FailureKind,
     pub message: Option<String>,
     pub cause: Option<Box<Failure>>,
     pub stacktrace: Option<String>,
 }
-// SSH clock failures embed this Debug view in a rendered message; preserve its legacy fields.
-impl std::fmt::Debug for Failure {
+impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Failure")
-            .field("class", &self.kind.legacy_class())
-            .field("message", &self.message)
-            .field("cause", &self.cause)
-            .field("stacktrace", &self.stacktrace)
-            .finish()
+        self.kind.fmt(f)?;
+        if let Some(message) = &self.message {
+            write!(f, ": {message}")?;
+        }
+        Ok(())
     }
 }
 
 impl Failure {
-    /// Rendering obtains its class only from the kind's legacy mapping.
+    /// Preserve classification independently of its rendered description.
     pub fn from_kind(kind: FailureKind, message: Option<String>) -> Self {
         Self {
             kind,
@@ -36,15 +33,6 @@ impl Failure {
         }
     }
 
-    /// `Throwable.toString()`: the class, then `: message` when there is one.
-    pub fn to_java_string(&self) -> String {
-        let mut text = self.kind.legacy_class().to_owned();
-        if let Some(message) = &self.message {
-            text.push_str(": ");
-            text.push_str(&message.to_owned());
-        }
-        text
-    }
     /// `Throwable.stackTraceToString()` over the causal chain. JVM frames are not
     /// recorded (PLAN §3.10); `stacktrace` holds frame lines kept from the source.
     pub fn stack_trace(&self) -> String {
@@ -54,7 +42,7 @@ impl Failure {
             if !std::ptr::eq(failure, self) {
                 text.push_str("Caused by: ");
             }
-            text.push_str(&failure.to_java_string());
+            text.push_str(&failure.to_string());
             text.push('\n');
             if let Some(frames) = &failure.stacktrace {
                 text.push_str(&frames.clone());
@@ -168,21 +156,22 @@ mod tests {
         failure.stacktrace = Some("\tat source.frame(Source:1)".into());
         failure.cause = Some(Box::new(Failure::from_kind(FailureKind::Io, None)));
         assert_eq!(failure.kind, FailureKind::IllegalState);
-        assert_eq!(failure.to_java_string(), "java.lang.IllegalStateException: ");
+        assert_eq!(failure.to_string(), "invalid state: ");
         assert_eq!(
             failure.stack_trace(),
-            "java.lang.IllegalStateException: \n\tat source.frame(Source:1)\nCaused by: java.io.IOException\n"
+            "invalid state: \n\tat source.frame(Source:1)\nCaused by: I/O error\n"
         );
         assert_eq!(failure, failure.clone());
     }
 
     #[test]
-    fn debug_embedded_in_clock_failure_messages_keeps_legacy_fields_and_causes() {
+    fn debug_uses_typed_fields_and_display_uses_the_description() {
         let mut failure = Failure::from_kind(FailureKind::IllegalState, Some("outer".into()));
         failure.cause = Some(Box::new(Failure::from_kind(FailureKind::Io, None)));
+        assert_eq!(failure.to_string(), "invalid state: outer");
         assert_eq!(
             format!("{:?}", VendorError::Other(failure)),
-            r#"Other(Failure { class: "java.lang.IllegalStateException", message: Some("outer"), cause: Some(Failure { class: "java.io.IOException", message: None, cause: None, stacktrace: None }), stacktrace: None })"#
+            "Other(Failure { kind: IllegalState, message: Some(\"outer\"), cause: Some(Failure { kind: Io, message: None, cause: None, stacktrace: None }), stacktrace: None })"
         );
     }
 

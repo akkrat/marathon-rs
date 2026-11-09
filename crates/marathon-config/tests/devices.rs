@@ -192,8 +192,8 @@ fn marathondevices_fixtures_bind() {
             Err(LoadError::Configuration(error)) => {
                 assert_eq!(name, "empty.yaml", "{name} must bind: {error:?}");
                 assert_eq!(
-                    error.kind.legacy_class().to_owned(),
-                    "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"
+                    error.kind.description().to_owned(),
+                    "missing required configuration parameter"
                 );
             }
             Err(other) => panic!("{name}: {other:?}"),
@@ -251,8 +251,8 @@ fn provider_stage_and_error_distinctions() {
     };
     assert_eq!(error.stage, ValidationStage::Provider);
     assert_eq!(
-        error.kind.legacy_class().to_owned(),
-        "com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"
+        error.kind.description().to_owned(),
+        "unrecognized configuration property"
     );
     assert!(matches!(error.cause, BindingCause::Coercion(_)));
 
@@ -355,8 +355,8 @@ fn devices_corpus_matches_jvm() {
             Err(LoadError::Configuration(error)) => {
                 if D9_NULL_ELEMENTS.contains(&id) {
                     assert_eq!(
-                        error.kind.legacy_class().to_owned(),
-                        "com.fasterxml.jackson.databind.exc.MismatchedInputException",
+                        error.kind.description().to_owned(),
+                        "configuration input type mismatch",
                         "{id} (D9 null-element rejection)"
                     );
                     continue;
@@ -368,8 +368,8 @@ fn devices_corpus_matches_jvm() {
                     result["ok"]
                 );
                 assert_eq!(
-                    error.kind.legacy_class().to_owned(),
-                    expected["class"].as_str().unwrap(),
+                    error.kind,
+                    marathon_test_support::recorded_errors::kind(expected["class"].as_str().unwrap()),
                     "{id} class"
                 );
                 assert_eq!(error.stage, ValidationStage::Provider, "{id} stage");

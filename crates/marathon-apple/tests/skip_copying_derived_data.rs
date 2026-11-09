@@ -232,12 +232,16 @@ async fn run(id: &str) -> TestResult<Value> {
             ) {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::Cancelled(_))));
             }
-            json!({"class":detail.kind.legacy_class().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
+            json!({"class":detail.kind.identifier().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
         }
     };
     // Always join before comparing: even an assertion failure leaves no live fake worker.
     v(device.dispose().await)?;
-    assert_eq!(error, row["error"], "{id}: error");
+    let mut expected_error = row["error"].clone();
+    if !expected_error.is_null() {
+        marathon_test_support::recorded_errors::error_object(&mut expected_error);
+    }
+    assert_eq!(error, expected_error, "{id}: error");
     assert_eq!(
         json!(*device.recorder.events.lock().unwrap()),
         row["events"],
@@ -341,8 +345,8 @@ async fn installation_does_not_push_the_xctest_into_the_distributed_app_for_xcte
 async fn installation_fails_with_the_missing_xctest() -> TestResult {
     let row = run("missing-test").await?;
     assert_eq!(
-        row["error"]["class"],
-        "com.malinskiy.marathon.exceptions.DeviceSetupException"
+        marathon_test_support::recorded_errors::kind(row["error"]["class"].as_str().unwrap()),
+        marathon_error::FailureKind::DeviceSetup
     );
     assert!(row["pushes"].as_array().unwrap().is_empty());
     Ok(())
@@ -352,8 +356,8 @@ async fn installation_fails_with_the_missing_xctest() -> TestResult {
 async fn installation_fails_with_the_missing_test_runner_application() -> TestResult {
     let row = run("missing-runner-test").await?;
     assert_eq!(
-        row["error"]["class"],
-        "com.malinskiy.marathon.exceptions.DeviceSetupException"
+        marathon_test_support::recorded_errors::kind(row["error"]["class"].as_str().unwrap()),
+        marathon_error::FailureKind::DeviceSetup
     );
     assert!(row["pushes"].as_array().unwrap().is_empty());
     Ok(())
@@ -363,8 +367,8 @@ async fn installation_fails_with_the_missing_test_runner_application() -> TestRe
 async fn installation_fails_with_the_missing_test_runner_executable() -> TestResult {
     let row = run("missing-runner-binary").await?;
     assert_eq!(
-        row["error"]["class"],
-        "com.malinskiy.marathon.exceptions.DeviceSetupException"
+        marathon_test_support::recorded_errors::kind(row["error"]["class"].as_str().unwrap()),
+        marathon_error::FailureKind::DeviceSetup
     );
     assert!(row["pushes"].as_array().unwrap().is_empty());
     Ok(())
@@ -374,8 +378,8 @@ async fn installation_fails_with_the_missing_test_runner_executable() -> TestRes
 async fn installation_fails_with_the_missing_app_under_test() -> TestResult {
     let row = run("missing-app").await?;
     assert_eq!(
-        row["error"]["class"],
-        "com.malinskiy.marathon.exceptions.DeviceSetupException"
+        marathon_test_support::recorded_errors::kind(row["error"]["class"].as_str().unwrap()),
+        marathon_error::FailureKind::DeviceSetup
     );
     assert!(row["pushes"].as_array().unwrap().is_empty());
     Ok(())
@@ -385,8 +389,8 @@ async fn installation_fails_with_the_missing_app_under_test() -> TestResult {
 async fn installation_fails_with_the_xctest_missing_from_the_app_for_xctest() -> TestResult {
     let row = run("missing-hosted-test").await?;
     assert_eq!(
-        row["error"]["class"],
-        "com.malinskiy.marathon.exceptions.DeviceSetupException"
+        marathon_test_support::recorded_errors::kind(row["error"]["class"].as_str().unwrap()),
+        marathon_error::FailureKind::DeviceSetup
     );
     assert!(row["pushes"].as_array().unwrap().is_empty());
     Ok(())

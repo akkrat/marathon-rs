@@ -6,9 +6,22 @@ pub enum DexKind {
 }
 
 impl DexKind {
-    pub const fn legacy_class(&self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         match self {
-            Self::Decode => "com.linkedin.dex.spec.DexException",
+            Self::Decode => "DEX decoding failure",
         }
+    }
+
+    /// Stable machine identifier, independent of user-facing wording.
+    pub const fn identifier(&self) -> &'static str {
+        match self {
+            Self::Decode => "dex.decode",
+        }
+    }
+}
+
+impl std::fmt::Display for DexKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.description())
     }
 }

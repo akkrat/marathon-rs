@@ -323,15 +323,16 @@ impl OpenSshKnownHosts {
             Err(Unmatchable::Pattern(failure)) => return Err(failure),
             Err(Unmatchable::HashedFormat) => {
                 self.logging.log(
-                &self.logger,
-                Level::Debug,
-                || {
-                    format!(
-                        "Bad line (net.schmizz.sshj.common.SSHException: Unrecognized format for hashed hostname): {line} "
-                    )
-                },
-                None,
-            );
+                    &self.logger,
+                    Level::Debug,
+                    || {
+                        format!(
+                            "Bad line ({}: Unrecognized format for hashed hostname): {line} ",
+                            FailureKind::Ssh(SshKind::General)
+                        )
+                    },
+                    None,
+                );
                 return Ok(None);
             }
         };

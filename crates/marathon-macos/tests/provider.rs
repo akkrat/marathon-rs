@@ -40,24 +40,12 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> R {
 #[tokio::test]
 async fn file_boundaries_and_equal_transport_overwrite() -> R {
     for (input, class) in [
-        (None, "java.io.FileNotFoundException"),
-        (
-            Some("workers: null"),
-            "com.malinskiy.marathon.exceptions.NoDevicesException",
-        ),
-        (
-            Some("workers: ["),
-            "com.malinskiy.marathon.exceptions.NoDevicesException",
-        ),
-        (Some("null"), "java.lang.NullPointerException"),
-        (
-            Some("@"),
-            "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException",
-        ),
-        (
-            Some("workers: []"),
-            "com.malinskiy.marathon.exceptions.NoDevicesException",
-        ),
+        (None, "file not found"),
+        (Some("workers: null"), "no devices available"),
+        (Some("workers: ["), "no devices available"),
+        (Some("null"), "missing value"),
+        (Some("@"), "YAML error"),
+        (Some("workers: []"), "no devices available"),
     ] {
         let mut h = Harness::new("")?;
         Arc::make_mut(&mut h.options.vendor).devices_file = None;
@@ -66,7 +54,7 @@ async fn file_boundaries_and_equal_transport_overwrite() -> R {
         }
         let (p, _) = h.provider();
         let e = p.initialize(h.context.clone()).await.err().ok_or("expected error")?;
-        assert_eq!(e.failure().kind.legacy_class().to_owned(), class);
+        assert_eq!(e.failure().kind.description().to_owned(), class);
         v(p.terminate().await)?;
     }
     let mut h = Harness::new("")?;
@@ -219,10 +207,7 @@ async fn xctest_construction_fails_without_its_library_and_nm_never_looks_for_it
                 Err(error) => error,
             };
         let failure = error.failure();
-        assert_eq!(
-            failure.kind.legacy_class().to_owned(),
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException"
-        );
+        assert_eq!(failure.kind.description().to_owned(), "configuration rejected");
         let message = failure.message.as_ref().unwrap().to_owned();
         for part in [problem, "MARATHON_XCTEST_PARSER_DIR", "EULA", "nm test parser"] {
             assert!(message.contains(part), "{part} missing from {message}");
@@ -256,10 +241,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         .await
         .err()
         .ok_or("substitution failure")?;
-    assert_eq!(
-        error.failure().kind.legacy_class(),
-        "java.lang.IllegalStateException".to_owned()
-    );
+    assert_eq!(error.failure().kind.description(), "invalid state".to_owned());
     v(p.terminate().await)?;
     struct Failing {
         entered: tokio::sync::Notify,
@@ -337,7 +319,7 @@ async fn devices_read_error_chains_match_jvm_oracle() -> R {
         let mut current = Some(error.failure());
         while let Some(failure) = current {
             chain.push(serde_json::json!({
-                "class": failure.kind.legacy_class().to_owned(),
+                "class": failure.kind.identifier(),
                 "message": failure.message.as_ref().map(|m| m.to_owned().replace(
                     &h.root.path().to_string_lossy().to_string(), &format!("$ROOT/{mode}"))),
             }));
@@ -350,7 +332,9 @@ async fn devices_read_error_chains_match_jvm_oracle() -> R {
             .into_iter()
             .find(|row| row["case"] == mode)
             .ok_or("read oracle")?;
-        assert_eq!(serde_json::json!(chain), oracle["error"], "{mode}");
+        let mut expected = oracle["error"].clone();
+        marathon_test_support::recorded_errors::error_chain(&mut expected);
+        assert_eq!(serde_json::json!(chain), expected, "{mode}");
         assert_eq!(c.creates.load(Ordering::SeqCst), 0);
         v(p.terminate().await)?;
     }
@@ -382,11 +366,11 @@ async fn setup_on_a_connection_lost_before_the_last_probe_fails_instead_of_using
     let error = d.setup(&h.context).await.unwrap_err();
     assert_eq!(
         (
-            error.failure().kind.legacy_class().to_owned(),
+            error.failure().kind.description().to_owned(),
             error.failure().message.as_ref().unwrap().to_owned()
         ),
         (
-            CONNECTION_EXCEPTION.legacy_class().to_owned(),
+            CONNECTION_EXCEPTION.description().to_owned(),
             "Not connected".to_owned()
         )
     );

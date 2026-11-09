@@ -357,10 +357,7 @@ async fn wrong_state_type_after_failed_boot_warns_without_sending_shutdown() -> 
         assert_eq!(warnings.len(), 2);
         for (_, level, _, error) in warnings {
             assert_eq!(level, jcompat::logging::Level::Warn);
-            assert_eq!(
-                error.unwrap().kind.legacy_class().to_owned(),
-                "java.lang.ClassCastException"
-            );
+            assert_eq!(error.unwrap().kind.description().to_owned(), "incompatible value type");
         }
         h.finish(&[d]).await;
     }

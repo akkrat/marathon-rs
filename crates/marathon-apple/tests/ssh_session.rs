@@ -34,7 +34,7 @@ fn class_chain(failure: &Failure) -> Vec<(String, Option<String>)> {
     std::iter::successors(Some(failure), |f| f.cause.as_deref())
         .map(|f| {
             (
-                f.kind.legacy_class().to_owned(),
+                f.kind.description().to_owned(),
                 f.message.as_ref().map(|m| m.to_owned()),
             )
         })
@@ -134,7 +134,7 @@ async fn open_failure_is_a_connection_exception_and_safe_execute_returns_null() 
     assert_eq!(
         class_chain(&failure),
         [(
-            OPEN_FAIL_EXCEPTION.legacy_class().into(),
+            OPEN_FAIL_EXCEPTION.description().into(),
             Some("Resource shortage".into())
         )]
     );
@@ -187,16 +187,13 @@ async fn exec_rejection_is_request_failed_and_closes_the_channel_d29() {
     // T23: ConnectionException[UNKNOWN]("Request failed"); the connection stays usable.
     assert_eq!(
         class_chain(&failure),
-        [(
-            CONNECTION_EXCEPTION.legacy_class().into(),
-            Some("Request failed".into())
-        )]
+        [(CONNECTION_EXCEPTION.description().into(), Some("Request failed".into()))]
     );
     assert!(executor.connected());
     assert!(ssh::lines(&events).contains(&(
         "Promise".into(),
         Level::Error,
-        "<<chan#0 / chanreq for exec>> woke to: net.schmizz.sshj.connection.ConnectionException: Request failed".into()
+        "<<chan#0 / chanreq for exec>> woke to: SSH connection failure: Request failed".into()
     )));
     // D29 (A33): Kotlin never closes the rejected channel, so with MaxSessions 1 the next command could not open one
     // (the Kotlin "reject" transcript has no client_close). Here the slot is free, and the worker rejects it in turn.
@@ -210,10 +207,7 @@ async fn exec_rejection_is_request_failed_and_closes_the_channel_d29() {
         );
         assert_eq!(
             class_chain(&next),
-            [(
-                CONNECTION_EXCEPTION.legacy_class().into(),
-                Some("Request failed".into())
-            )]
+            [(CONNECTION_EXCEPTION.description().into(), Some("Request failed".into()))]
         );
     }
     assert_eq!(fake.events_at_least("client_close", 4).await.len(), 4);
@@ -252,10 +246,7 @@ async fn exec_rejection_by_a_peer_that_never_answers_close_is_still_request_fail
     // The bound on the CLOSE does not replace the rejection, and only the rejection's own line is logged.
     assert_eq!(
         class_chain(&failure),
-        [(
-            CONNECTION_EXCEPTION.legacy_class().into(),
-            Some("Request failed".into())
-        )]
+        [(CONNECTION_EXCEPTION.description().into(), Some("Request failed".into()))]
     );
     let woke: Vec<_> = ssh::lines(&events)
         .into_iter()
@@ -264,7 +255,7 @@ async fn exec_rejection_by_a_peer_that_never_answers_close_is_still_request_fail
         .collect();
     assert_eq!(
         woke,
-        ["<<chan#0 / chanreq for exec>> woke to: net.schmizz.sshj.connection.ConnectionException: Request failed"]
+        ["<<chan#0 / chanreq for exec>> woke to: SSH connection failure: Request failed"]
     );
     assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
     assert!(executor.connected());
@@ -288,11 +279,11 @@ fn assert_is_the_exec_timeout(failure: &Failure) {
         class_chain(failure),
         [
             (
-                CONNECTION_EXCEPTION.legacy_class().to_owned(),
+                CONNECTION_EXCEPTION.description().to_owned(),
                 Some("Timeout expired: 30000 MILLISECONDS".to_owned())
             ),
             (
-                TIMEOUT_EXCEPTION.legacy_class().to_owned(),
+                TIMEOUT_EXCEPTION.description().to_owned(),
                 Some("Timeout expired: 30000 MILLISECONDS".to_owned())
             ),
         ]
@@ -551,7 +542,7 @@ async fn a_caller_that_goes_away_after_its_refusal_came_leaves_no_text_behind_u1
     assert_eq!(
         class_chain(&refused),
         [(
-            OPEN_FAIL_EXCEPTION.legacy_class().into(),
+            OPEN_FAIL_EXCEPTION.description().into(),
             Some("Resource shortage".into())
         )]
     );
@@ -579,7 +570,7 @@ async fn a_refusal_dropped_unclaimed_does_not_give_its_text_to_one_read_after_it
     assert_eq!(
         class_chain(&other(refused.err().unwrap().into_vendor())),
         [(
-            OPEN_FAIL_EXCEPTION.legacy_class().into(),
+            OPEN_FAIL_EXCEPTION.description().into(),
             Some("Resource shortage".into())
         )]
     );
@@ -613,7 +604,7 @@ async fn a_late_refusal_does_not_give_its_text_to_the_next_failure_u157() {
     assert_eq!(
         class_chain(&refused),
         [(
-            OPEN_FAIL_EXCEPTION.legacy_class().into(),
+            OPEN_FAIL_EXCEPTION.description().into(),
             Some("Resource shortage".into())
         )]
     );
@@ -774,7 +765,7 @@ async fn bad_extended_data_type_kills_the_connection() {
     let other_session = start(&executor, &["sleep", "1000"], 600_000).await;
     let error = other(ssh::run(&executor, &["bad"], 5000).await.err().unwrap());
     let lost = vec![(
-        CONNECTION_EXCEPTION.legacy_class().to_owned(),
+        CONNECTION_EXCEPTION.description().to_owned(),
         Some("Bad extended data type = 42".to_owned()),
     )];
     assert_eq!(class_chain(&error), lost);
@@ -800,8 +791,8 @@ async fn transport_loss_fails_an_in_flight_await() {
     // R2-wonder-3: the readers end normally; the transport error arrives through the exit wait.
     let error = other(session.await_result(&context()).await.err().unwrap());
     let chain = class_chain(&error);
-    assert_eq!(chain[0].0, CONNECTION_EXCEPTION.legacy_class());
-    assert_eq!(chain[1].0, TRANSPORT_EXCEPTION.legacy_class());
+    assert_eq!(chain[0].0, CONNECTION_EXCEPTION.description());
+    assert_eq!(chain[1].0, TRANSPORT_EXCEPTION.description());
     assert!(!executor.connected());
     assert!(
         ssh::lines(&events)
@@ -907,11 +898,11 @@ async fn first_close_fails_after_term_kill_and_thirty_seconds_and_second_close_c
     // A14: ConnectionException wrapping TimeoutException (Kotlin evidence t15.stdout).
     let expected = vec![
         (
-            CONNECTION_EXCEPTION.legacy_class().to_owned(),
+            CONNECTION_EXCEPTION.description().to_owned(),
             Some("Timeout expired: 30000 MILLISECONDS".to_owned()),
         ),
         (
-            TIMEOUT_EXCEPTION.legacy_class().to_owned(),
+            TIMEOUT_EXCEPTION.description().to_owned(),
             Some("Timeout expired: 30000 MILLISECONDS".to_owned()),
         ),
     ];
@@ -1054,7 +1045,7 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
     assert_eq!(
         class_chain(&failure)[0],
         (
-            CONNECTION_EXCEPTION.legacy_class().into(),
+            CONNECTION_EXCEPTION.description().into(),
             Some("Timeout expired: 30000 MILLISECONDS".into())
         )
     );
@@ -1157,7 +1148,7 @@ async fn keep_alive_loss_fails_the_in_flight_await_while_output_flows() {
     let message = "Did not receive any keep-alive response for 2 seconds";
     assert_eq!(
         class_chain(&error),
-        [(CONNECTION_EXCEPTION.legacy_class().into(), Some(message.into()))]
+        [(CONNECTION_EXCEPTION.description().into(), Some(message.into()))]
     );
     assert!(!executor.connected());
     assert!(ssh::lines(&events).contains(&(
@@ -1189,7 +1180,7 @@ async fn the_connection_loss_a_transfer_waits_for_is_keep_alives_and_not_a_close
     assert_eq!(
         class_chain(&lost),
         [(
-            CONNECTION_EXCEPTION.legacy_class().into(),
+            CONNECTION_EXCEPTION.description().into(),
             Some("Did not receive any keep-alive response for 2 seconds".into())
         )]
     );
@@ -1443,11 +1434,11 @@ fn assert_closed_or_close_wait_expired(result: Result<(), VendorError>) {
             class_chain(&other(error)),
             [
                 (
-                    CONNECTION_EXCEPTION.legacy_class().into(),
+                    CONNECTION_EXCEPTION.description().into(),
                     Some("Timeout expired: 30000 MILLISECONDS".into())
                 ),
                 (
-                    TIMEOUT_EXCEPTION.legacy_class().into(),
+                    TIMEOUT_EXCEPTION.description().into(),
                     Some("Timeout expired: 30000 MILLISECONDS".into())
                 ),
             ]
@@ -1496,10 +1487,7 @@ async fn a_stuck_consumer_at_the_cap_is_ended_by_the_idle_timeout_d37() {
         .unwrap()
         .unwrap()
         .unwrap_err();
-    assert_eq!(
-        error.failure().kind.legacy_class().to_owned(),
-        "java.util.concurrent.TimeoutException"
-    );
+    assert_eq!(error.failure().kind.description().to_owned(), "timed out");
     assert!(executor.connected());
     executor.close().await.unwrap();
 }
@@ -1628,11 +1616,11 @@ async fn a_transport_that_dies_during_the_close_is_a_connection_failure_d36() {
         class_chain(&other(closed.unwrap_err())),
         [
             (
-                CONNECTION_EXCEPTION.legacy_class().into(),
+                CONNECTION_EXCEPTION.description().into(),
                 Some("fixture transport loss".into())
             ),
             (
-                TRANSPORT_EXCEPTION.legacy_class().into(),
+                TRANSPORT_EXCEPTION.description().into(),
                 Some("fixture transport loss".into())
             ),
         ]
@@ -1720,8 +1708,8 @@ async fn executor_close_disconnects_and_fails_live_channels() {
     assert_eq!(
         class_chain(&error),
         [
-            (CONNECTION_EXCEPTION.legacy_class().into(), Some("Disconnected".into())),
-            (TRANSPORT_EXCEPTION.legacy_class().into(), Some("Disconnected".into())),
+            (CONNECTION_EXCEPTION.description().into(), Some("Disconnected".into())),
+            (TRANSPORT_EXCEPTION.description().into(), Some("Disconnected".into())),
         ]
     );
     let error = other(

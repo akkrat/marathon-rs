@@ -221,7 +221,7 @@ async fn t14_tails_flood_close_and_idle_timeout() {
     let chain: Vec<_> = std::iter::successors(Some(&cancel), |f| f.cause.as_deref())
         .map(|f| {
             (
-                f.kind.legacy_class().to_owned(),
+                f.kind.description().to_owned(),
                 f.message.as_ref().map(|m| m.to_owned()),
             )
         })
@@ -229,14 +229,8 @@ async fn t14_tails_flood_close_and_idle_timeout() {
     assert_eq!(
         chain,
         [
-            (
-                "java.util.concurrent.CancellationException".to_owned(),
-                Some("Channel closed".to_owned())
-            ),
-            (
-                "java.util.concurrent.TimeoutException".to_owned(),
-                Some("idle timeout PT1S reached".to_owned())
-            ),
+            ("cancelled".to_owned(), Some("Channel closed".to_owned())),
+            ("timed out".to_owned(), Some("idle timeout PT1S reached".to_owned())),
         ]
     );
     println!("T14.info.flood_close_ms: {close_ms}");
@@ -639,10 +633,7 @@ async fn d37_at_the_cap_the_idle_timeout_ends_it_on_a_real_sshd() {
         .unwrap()
         .unwrap()
         .unwrap_err();
-    assert_eq!(
-        error.failure().kind.legacy_class().to_owned(),
-        "java.util.concurrent.TimeoutException"
-    );
+    assert_eq!(error.failure().kind.description().to_owned(), "timed out");
     session.close().await.unwrap();
     assert!(executor.connected());
     assert_eq!(

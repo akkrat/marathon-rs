@@ -3,12 +3,8 @@
 //! shapes marathon's ApkParser surfaces (vendor/vendor-android/src/main/
 //! kotlin/com/malinskiy/marathon/android/ApkParser.kt).
 //!
-//! One error shape (WP 6.4 decision P3): the JVM exception class and
-//! message are kept where marathon's own code forges them (DexException
-//! texts, checkNotNull messages, the RuntimeException wrap) and where they
-//! reach logs (FileNotFoundException); malformed-input crash taxonomy
-//! (BufferUnderflowException, ArrayIndexOutOfBoundsException,
-//! StackOverflowError, …) collapses to DexException with our wording.
+//! Message and cause shapes follow WP 6.4 P3; D59 renders typed kinds with plain descriptions.
+//! Malformed-input crash taxonomy collapses to a DEX decoding failure.
 
 use marathon_error::{DexKind, FailureKind};
 use std::{fmt, io, path::Path};
