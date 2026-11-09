@@ -13,8 +13,8 @@ use marathon_core::{
 };
 use report_probe_support::*;
 use std::sync::{Arc, Mutex};
-fn model_json(value: &AllureResult) -> serde_json::Value {
-    checked(serde_json::to_value(value))
+fn model_json(value: &AllureResult) -> String {
+    checked(serde_json::to_string(value))
 }
 #[test]
 fn all_statuses_attempts_defaults_and_package_collision_match_library() {
@@ -33,9 +33,10 @@ fn all_statuses_attempts_defaults_and_package_collision_match_library() {
                 .unwrap()
                 .replace("\\uD800", "�")
                 .into_bytes();
+            let expected: serde_json::Value = checked(serde_json::from_slice(&expected));
             assert_eq!(
                 model_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root)),
-                checked(serde_json::from_slice::<serde_json::Value>(&expected))
+                checked(serde_json::to_string(&expected))
             );
             continue;
         }
@@ -45,7 +46,7 @@ fn all_statuses_attempts_defaults_and_package_collision_match_library() {
         ))))));
         assert_eq!(
             model_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root)),
-            expected
+            checked(serde_json::to_string(&expected))
         );
     }
     assert_eq!(allure_history_id("Clazz", "test1"), oracle("history")["hash"]);
@@ -120,7 +121,7 @@ fn annotation_casts_duplicate_links_and_all_attachment_types_match_library() {
     let expected: serde_json::Value = checked(serde_json::from_slice(&checked(std::fs::read(fixture(
         "allure/00000000-0000-0000-0000-000000000008-result.json",
     )))));
-    assert_eq!(actual, expected);
+    assert_eq!(actual, checked(serde_json::to_string(&expected)));
 }
 #[test]
 fn environment_xml_preserves_entry_order_and_values() {
@@ -466,7 +467,8 @@ fn profiling_links_use_form_encoding_and_replace_every_placeholder() {
     let expected: serde_json::Value = checked(serde_json::from_slice(&checked(std::fs::read(fixture(
         "allure/android-result.json",
     )))));
-    assert_eq!(actual, expected);
+    assert_eq!(actual, checked(serde_json::to_string(&expected)));
+    let actual: serde_json::Value = checked(serde_json::from_str(&actual));
     // Negative witnesses through the same structural comparison: status and link URL.
     let mut changed_status = actual.clone();
     changed_status["status"] = "broken".into();

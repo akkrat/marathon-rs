@@ -10,11 +10,12 @@ use marathon_core::{
     reporters::html::*,
 };
 use report_probe_support::*;
-fn fixture_json(name: &str) -> serde_json::Value {
-    checked(serde_json::from_slice(&checked(std::fs::read(fixture(name)))))
+fn fixture_json(name: &str) -> String {
+    let value: serde_json::Value = checked(serde_json::from_slice(&checked(std::fs::read(fixture(name)))));
+    checked(serde_json::to_string(&value))
 }
-fn model_json(value: &impl serde::Serialize) -> serde_json::Value {
-    checked(serde_json::to_value(value))
+fn model_json(value: &impl serde::Serialize) -> String {
+    checked(serde_json::to_string(value))
 }
 fn without_date(s: String) -> String {
     let marker = "by Juno at ";

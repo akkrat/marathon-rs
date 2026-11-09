@@ -6,6 +6,7 @@ import hashlib
 import gzip
 import zlib
 import json
+from html.parser import HTMLParser
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -722,6 +723,30 @@ def normalized(directory, contract, native=False):
     return files
 
 
+def script_spans(text):
+    line_starts = [0, *(match.end() for match in re.finditer('\n', text))]
+    class Scripts(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.inside = False
+            self.spans = []
+        def handle_starttag(self, tag, attrs):
+            if tag == 'script':
+                self.inside = True
+        def handle_endtag(self, tag):
+            if tag == 'script':
+                self.inside = False
+        def handle_data(self, data):
+            if self.inside:
+                line, column = self.getpos()
+                start = line_starts[line - 1] + column
+                self.spans.append((start, start + len(data)))
+    parser = Scripts()
+    parser.feed(text)
+    parser.close()
+    return parser.spans
+
+
 def embedded_json(data, timeline=False):
     """Only assignment values are structured; every surrounding byte stays exact."""
     text = data.decode('utf-8')
@@ -730,12 +755,15 @@ def embedded_json(data, timeline=False):
         assignment += r'|^[ \t]*var dataset[ \t]*=[ \t]*'
     decoder = json.JSONDecoder()
     parts, end = [], 0
-    for match in re.finditer(assignment, text, re.MULTILINE):
-        require(match.start() >= end, 'overlapping embedded JSON assignments')
-        _, stop = decoder.raw_decode(text, match.end())
-        parts.extend([['text', text[end:match.end()]],
-                      ['json', structured_json(text[match.end():stop])]])
-        end = stop
+    for body_start, body_end in script_spans(text):
+        for match in re.finditer(assignment, text[body_start:body_end], re.MULTILINE):
+            start = body_start + match.end()
+            require(body_start + match.start() >= end, 'overlapping embedded JSON assignments')
+            _, stop = decoder.raw_decode(text, start)
+            require(stop <= body_end, 'embedded JSON crosses script boundary')
+            parts.extend([['text', text[end:start]],
+                          ['json', structured_json(text[start:stop])]])
+            end = stop
     parts.append(['text', text[end:]])
     return parts
 

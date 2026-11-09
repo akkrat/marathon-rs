@@ -179,14 +179,26 @@ class EvidenceTests(unittest.TestCase):
         e.compare_native_views(e.normalized(expected, self.contract, native=True),
                                e.normalized(actual, self.contract, native=True))
 
+    def test_native_html_json_lookalikes_outside_scripts_remain_exact(self):
+        name = 'reports/html/index.html'
+        for before in [b'window.test = {"n":1.0E10}\n',
+                       b'<script>\nvar dataset = {"n":1.0E10}\n</script>',
+                       b'<script>if (ready) window.test = {"n":1.0E10}</script>',
+                       b'<!-- <script>\nwindow.test = {"n":1.0E10}\n</script> -->',
+                       b"<div title='<script>\nwindow.test = {\"n\":1.0E10}\n</script>'>text</div>",
+                       b"<script title='>\nwindow.fake = {\"n\":1.0E10}\n'>\nwindow.test = {\"n\":0}\n</script>"]:
+            with self.subTest(before=before), self.assertRaises(e.Invalid):
+                e.compare_native_views(self.html_view(name, before),
+                                       self.html_view(name, before.replace(b'1.0E10', b'10000000000.0')))
+
     def test_native_html_multiple_assignments_and_invalid_json(self):
         name = 'reports/html/index.html'
-        before = b'window.test = {"text":"} ; window.fake = 0"};\nwindow.logs = [1,null]\n'
+        before = b'<script>\nwindow.test = {"text":"} ; window.fake = 0"};\nwindow.logs = [1,null]\n</script>'
         with self.assertRaises(e.Invalid):
             e.compare_native_views(self.html_view(name, before), self.html_view(name, before.replace(b'[1,null]', b'[2,null]')))
         for invalid in [b'{"n":NaN}', b'{"n":1,"n":1}', b'{broken']:
             with self.subTest(invalid=invalid), self.assertRaises((e.Invalid, ValueError)):
-                e.compare_native_views(self.html_view(name, before), self.html_view(name, b'window.test = ' + invalid))
+                e.compare_native_views(self.html_view(name, before), self.html_view(name, b'<script>\nwindow.test = ' + invalid + b'\n</script>'))
 
     def test_stale_yaml_helper_reports_build_command(self):
         target = self.root / 'target'
