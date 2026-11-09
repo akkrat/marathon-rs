@@ -1,23 +1,58 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/strategy/impl/sorting/ExecutionTimeSortingStrategy.kt
 //! and impl/sorting/{NoSorting,RandomOrder,SuccessRate}SortingStrategy.kt.
 //!
-//! The comparators feed `JavaPriorityQueue` only, whose comparison sequence is
-//! observable: the order in which a comparator extracts its two keys decides
-//! which metrics lookups and random draws happen first.
+//! D60 extracts keys on insertion, with a queue-lifetime history view and FIFO ties.
 
 use super::{MetricsKey, MetricsLookup};
 use crate::{model::Test, time::ReplayHooks};
-use jcompat::{JavaPriorityQueue, jnum::double_compare, jtime::Instant};
+use jcompat::jtime::Instant;
 use marathon_config::schema::SortingStrategyConfiguration;
 use std::{
-    cmp::Ordering,
+    cmp::{Ordering, Reverse},
     collections::HashMap,
     sync::{Arc, Mutex, TryLockError},
 };
 
-/// A pool queue's comparator. `Send`, so 3.7 may own the queue wherever it runs.
-pub type TestComparator = Box<dyn FnMut(&Test, &Test) -> Ordering + Send>;
-pub type TestQueue = JavaPriorityQueue<Test, TestComparator>;
+pub type TestKey = super::queue::KeyFunction<Test, SortKey>;
+pub type TestQueue = super::queue::OrderedQueue<Test, SortKey>;
+
+/// Canonical NaNs preserve Double.compare's all-NaN ties and placement above infinity.
+#[derive(Clone, Copy, Debug)]
+pub struct FloatKey(f64);
+impl FloatKey {
+    pub fn new(value: f64) -> Self {
+        Self(if value.is_nan() {
+            f64::from_bits(0x7ff8_0000_0000_0000)
+        } else {
+            value
+        })
+    }
+}
+impl PartialEq for FloatKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+impl Eq for FloatKey {}
+impl PartialOrd for FloatKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for FloatKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SortKey {
+    Duration(Reverse<FloatKey>),
+    Rate(FloatKey),
+    DescendingRate(Reverse<FloatKey>),
+    Random(i32),
+    Constant,
+}
 
 const RANDOM_KEY: &str = "core.RandomOrderSortingStrategy.key";
 
@@ -28,7 +63,7 @@ pub enum SortingStrategy {
     },
     NoSorting,
     /// The key cache belongs to the strategy instance and is never cleared, so
-    /// every comparator it hands out shares the keys already drawn.
+    /// every key function it hands out shares the keys already drawn.
     RandomOrder {
         cache: Arc<Mutex<HashMap<Test, i32>>>,
     },
@@ -54,7 +89,7 @@ impl SortingStrategy {
         }
     }
 
-    /// The history queries the comparator can make, for the prefetch.
+    /// The history queries key extraction can make, for the prefetch.
     pub fn metrics_keys(&self) -> Vec<MetricsKey> {
         match self {
             Self::ExecutionTime { percentile, time_limit } => vec![MetricsKey::ExecutionTime {
@@ -66,68 +101,43 @@ impl SortingStrategy {
         }
     }
 
-    pub fn process(&self, metrics: Arc<dyn MetricsLookup>, hooks: Arc<dyn ReplayHooks>) -> TestComparator {
-        // D34: the heap holds keys ordered by earlier answers, so a comparator's answers must
-        // never change. A refresh that lands later reaches the next comparator, not this one.
+    pub fn process(&self, metrics: Arc<dyn MetricsLookup>, hooks: Arc<dyn ReplayHooks>) -> TestKey {
+        // D34 pins backend history for the queue. Run-local observations remain live for new entries.
         let metrics = metrics.view().unwrap_or(metrics);
         match self {
             Self::ExecutionTime { percentile, time_limit } => {
                 let (percentile, limit) = (*percentile, *time_limit);
-                // Fresh per process call and keyed by Test equality: a queued test keeps
-                // the duration it had at its first comparison, even after observed
-                // durations change what the provider would return.
-                let mut expected = HashMap::<Test, f64>::new();
-                let mut key = move |test: &Test| {
-                    *expected
-                        .entry(test.clone())
-                        .or_insert_with(|| metrics.execution_time(test, percentile, limit))
-                };
-                // comparingDouble(..).reversed() is compare(b, a): b's key comes first.
-                Box::new(move |a, b| {
-                    let kb = key(b);
-                    let ka = key(a);
-                    double_compare(kb, ka)
+                Box::new(move |test| {
+                    SortKey::Duration(Reverse(FloatKey::new(metrics.execution_time(test, percentile, limit))))
                 })
             }
-            Self::NoSorting => Box::new(|_, _| Ordering::Equal),
+            Self::NoSorting => Box::new(|_| SortKey::Constant),
             Self::RandomOrder { cache } => {
                 let cache = cache.clone();
-                let key = move |test: &Test| {
-                    // Comparators for a strategy run serially on the owning core.
-                    // Enforce that invariant without a blocking lock on core.
+                Box::new(move |test| {
+                    // Strategy instances run serially on core; do not block the executor on a lock.
                     let mut cache = cache.try_lock().unwrap_or_else(|error| match error {
                         TryLockError::Poisoned(error) => error.into_inner(),
-                        TryLockError::WouldBlock => panic!("random-order comparators must run serially"),
+                        TryLockError::WouldBlock => panic!("random-order keys must run serially"),
                     });
-                    // A failed draw keys the test 0 (WP 3.2 decision 5); the hooks record
-                    // the failure and verify_consumed fails the replay.
-                    *cache
-                        .entry(test.clone())
-                        .or_insert_with(|| hooks.draw_int(RANDOM_KEY).unwrap_or(0))
-                };
-                // comparingInt draws the first argument's key first.
-                Box::new(move |a, b| {
-                    let ka = key(a);
-                    let kb = key(b);
-                    ka.cmp(&kb)
+                    // Failed draws retain WP 3.2's zero key; replay verification reports the failure.
+                    SortKey::Random(
+                        *cache
+                            .entry(test.clone())
+                            .or_insert_with(|| hooks.draw_int(RANDOM_KEY).unwrap_or(0)),
+                    )
                 })
             }
             Self::SuccessRate { time_limit, ascending } => {
-                let limit = *time_limit;
-                // Not memoised: every comparison asks the provider again.
-                if *ascending {
-                    Box::new(move |a, b| {
-                        let ka = metrics.success_rate(a, limit);
-                        let kb = metrics.success_rate(b, limit);
-                        double_compare(ka, kb)
-                    })
-                } else {
-                    Box::new(move |a, b| {
-                        let kb = metrics.success_rate(b, limit);
-                        let ka = metrics.success_rate(a, limit);
-                        double_compare(kb, ka)
-                    })
-                }
+                let (limit, ascending) = (*time_limit, *ascending);
+                Box::new(move |test| {
+                    let key = FloatKey::new(metrics.success_rate(test, limit));
+                    if ascending {
+                        SortKey::Rate(key)
+                    } else {
+                        SortKey::DescendingRate(Reverse(key))
+                    }
+                })
             }
         }
     }

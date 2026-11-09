@@ -154,7 +154,7 @@ impl Drop for RefreshEnd<'_> {
         }
     }
 }
-/// The history of one moment: what a comparator keeps for its queue's lifetime, and a batch
+/// The history of one moment: what a queue keeps for its lifetime, and a batch
 /// or a flakiness pass for its own (D34). What a test observed in this run stays live.
 struct PinnedMetrics {
     shared: Arc<Shared>,

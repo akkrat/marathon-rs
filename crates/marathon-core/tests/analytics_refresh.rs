@@ -14,16 +14,13 @@ use marathon_core::{
     },
     model::*,
     runtime::{CancellationSignal, ServiceFuture},
-    strategy::{BatchingStrategy, FlakinessStrategy, MetricsKey, MetricsLookup, SortingStrategy, TestQueue},
+    strategy::{BatchingStrategy, FlakinessStrategy, MetricsKey, MetricsLookup, SortKey, SortingStrategy, TestQueue},
     wiring::MetricsProvider,
 };
 use metrics_support::*;
-use std::{
-    cmp::Ordering,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
-    },
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
 };
 use strategy_support::*;
 use tokio::sync::Notify;
@@ -650,7 +647,7 @@ async fn land_refresh(h: &Harness) {
 fn drain(queue: &mut TestQueue) -> Vec<Test> {
     std::iter::from_fn(|| queue.poll()).collect()
 }
-/// The heap is built, and half drained, on history the refresh then replaces.
+/// The queue is built, and partly drained, on history the refresh then replaces.
 async fn a_queue_keeps_its_order_when_history_arrives(sorting: SortingStrategy, rates: bool, sorted: Vec<usize>) {
     let h = Harness::new();
     let tests = generate_tests(9);
@@ -659,21 +656,14 @@ async fn a_queue_keeps_its_order_when_history_arrives(sorting: SortingStrategy, 
     queue.add_all(tests.iter().cloned());
     let mut polled = vec![queue.poll().unwrap(), queue.poll().unwrap()];
     land_refresh(&h).await;
-    // A retry returning to the queue compares against keys the comparator already judged.
+    // A retry is inserted using the same history view, after surviving FIFO ties.
     queue.add_all([polled.remove(0)]);
     polled.extend(drain(&mut queue));
     let mut got = polled.clone();
     got.sort_by_key(|t| tests.iter().position(|x| x == t));
     assert_eq!(got, tests, "every test comes out once");
-    // Equal keys: a Java heap's order, the same as without any refresh.
-    let mut control = TestQueue::new(Box::new(|_: &Test, _: &Test| Ordering::Equal));
-    control.add_all(tests.iter().cloned());
-    let first = control.poll().unwrap();
-    let second = control.poll().unwrap();
-    control.add_all([first]);
-    let mut control_order = vec![second];
-    control_order.extend(drain(&mut control));
-    assert_eq!(polled, control_order);
+    let expected_fifo: Vec<_> = tests[1..].iter().chain(&tests[..1]).cloned().collect();
+    assert_eq!(polled, expected_fifo);
     // The next queue is built on the new history.
     let mut next = TestQueue::new(sorting.process(p.lookup(), hooks()));
     next.add_all(tests.iter().cloned());
@@ -698,19 +688,65 @@ fn a_success_rate_queue_keeps_its_order_and_the_next_queue_uses_new_history() {
     ));
 }
 #[test]
-fn a_descending_success_rate_comparator_never_changes_its_answers() {
+fn a_descending_success_rate_queue_pins_history_for_later_insertions() {
     run(async {
         let h = Harness::new();
         let tests = generate_tests(2);
         let p = recovered_history(&h, &tests, true).await;
-        let mut comparator = success_rate_sorting(false).process(p.lookup(), hooks());
-        assert_eq!(comparator(&tests[0], &tests[1]), Ordering::Equal);
+        let mut queue = TestQueue::new(success_rate_sorting(false).process(p.lookup(), hooks()));
+        queue.offer(tests[1].clone());
         land_refresh(&h).await;
-        assert_eq!(comparator(&tests[0], &tests[1]), Ordering::Equal);
-        let mut next = success_rate_sorting(false).process(p.lookup(), hooks());
-        assert_eq!(next(&tests[0], &tests[1]), Ordering::Less);
+        queue.offer(tests[0].clone());
+        assert_eq!(
+            drain(&mut queue),
+            [tests[1].clone(), tests[0].clone()],
+            "old view: FIFO ties even for a later insertion"
+        );
+        let mut next = TestQueue::new(success_rate_sorting(false).process(p.lookup(), hooks()));
+        next.add_all([tests[1].clone(), tests[0].clone()]);
+        assert_eq!(drain(&mut next), tests, "new view: descending rates");
     });
 }
+
+#[test]
+fn reinsertion_uses_new_observations_with_pinned_history_and_immutable_survivor_keys() {
+    run(async {
+        let h = Harness::new();
+        let tests = generate_tests(2);
+        let source = Arc::new(Source::default());
+        down_for_first_query(&source);
+        *source.times.lock().unwrap() = tests.iter().map(|t| time_row(t, 1000.0)).collect();
+        let p = h.provider(source, 300000, Some(1));
+        let sorting = execution_time_sorting();
+        p.prefetch(&sorting.metrics_keys()).await.unwrap();
+        let mut queue = TestQueue::new(sorting.process(p.lookup(), hooks()));
+        queue.add_all(tests.clone());
+        assert_eq!(queue.poll(), Some(tests[0].clone()));
+        p.observe_execution_times(&[metrics_support::result(&tests[0], TestStatus::Passed, 400000)])
+            .await
+            .unwrap();
+        land_refresh(&h).await;
+        assert_eq!(
+            p.lookup().execution_time(&tests[0], 80.0, limit()),
+            1000.0,
+            "live history recovered"
+        );
+        queue.offer(tests[0].clone());
+        assert_eq!(
+            drain(&mut queue),
+            tests,
+            "reinserted 400s precedes stored 300s; recovered 1s history is excluded"
+        );
+        let mut next = TestQueue::new(sorting.process(p.lookup(), hooks()));
+        next.add_all([tests[1].clone(), tests[0].clone()]);
+        assert_eq!(
+            drain(&mut next),
+            [tests[1].clone(), tests[0].clone()],
+            "next queue sees equal recovered 1s durations"
+        );
+    });
+}
+
 #[test]
 fn a_batch_composed_after_a_refresh_uses_the_new_history() {
     run(async {
@@ -724,7 +760,7 @@ fn a_batch_composed_after_a_refresh_uses_the_new_history() {
             time_limit: Some(limit()),
             last_mile_length: 0,
         });
-        let mut queue = TestQueue::new(Box::new(|_: &Test, _: &Test| Ordering::Equal));
+        let mut queue = TestQueue::new(Box::new(|_: &Test| SortKey::Constant));
         queue.add_all(tests.iter().cloned());
         let batch = |queue: &mut TestQueue, p: &Analytics| {
             batching
@@ -769,7 +805,7 @@ impl MetricsLookup for OnlyThroughItsView {
     }
 }
 #[test]
-fn a_batch_a_shard_and_a_comparator_each_read_one_view_of_the_history() {
+fn a_batch_a_shard_and_a_queue_each_read_one_view_of_the_history() {
     let lookup = Arc::new(OnlyThroughItsView {
         views: AtomicUsize::new(0),
         rate: 0.5,

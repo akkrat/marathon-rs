@@ -121,11 +121,16 @@ fn two_apks_in_mixed_order_fill_every_batch_but_each_apks_last() {
 }
 
 #[test]
-fn two_apks_in_listed_order_lose_at_most_the_batch_of_the_first_poll() {
-    for (count, size, expected) in [(200, 10, 21), (1000, 10, 101)] {
+fn two_apks_in_listed_order_fill_every_batch_d60() {
+    for (count, size, expected) in [(200, 10, 20), (1000, 10, 100)] {
         let batches = batches(Order::Listed, count, size);
         eprintln!("listed {count} tests size {size}: {} batches", batches.len());
         assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), count);
         assert_eq!(batches.len(), expected);
+        assert!(batches.iter().all(|batch| batch.len() == size as usize));
+        assert_eq!(
+            batches.concat(),
+            (0..count).map(|i| format!("m{i:04}")).collect::<Vec<_>>()
+        );
     }
 }

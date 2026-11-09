@@ -13,7 +13,7 @@ use marathon_core::{
     error::VendorResult,
     model::*,
     runtime::{Deferred, VendorFuture},
-    strategy::{MetricsLookup, RetryProgress, TestComparator},
+    strategy::{MetricsLookup, RetryProgress, TestKey},
     time::*,
     vendor::{BundleRef, Device, TestBundle, TestBundleIdentifier, VendorContext},
 };
@@ -95,7 +95,7 @@ pub fn limit() -> Instant {
 // ---- MetricsProviderStub.kt ----------------------------------------------------------------------------
 
 /// Map lookups with the Kotlin defaults 0.5 and 1500.0. The maps can change
-/// after a comparator was built, as the Kotlin test's mutable map does.
+/// after a queue was built, as the Kotlin test's mutable map does.
 pub struct MetricsProviderStub {
     pub success_rates: Mutex<HashMap<Test, f64>>,
     pub execution_times: Mutex<HashMap<Test, f64>>,
@@ -429,11 +429,10 @@ pub fn rows(table: &str, family: &str) -> Vec<Value> {
     rows
 }
 
-/// The probe wraps the Kotlin comparator the same way, so the trace holds
-/// every comparison with the lookups and draws it caused.
-pub fn recording(mut inner: TestComparator, trace: Trace) -> TestComparator {
-    Box::new(move |a, b| {
-        trace.push(json!(["compare", tj(a), tj(b)]));
-        inner(a, b)
+/// Records insertion-time key extraction independently of metrics calls and draws.
+pub fn recording(mut inner: TestKey, trace: Trace) -> TestKey {
+    Box::new(move |test| {
+        trace.push(json!(["key", tj(test)]));
+        inner(test)
     })
 }

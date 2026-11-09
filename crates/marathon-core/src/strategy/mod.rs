@@ -9,6 +9,7 @@
 pub mod batching;
 pub mod flakiness;
 pub mod pooling;
+pub mod queue;
 pub mod retry;
 pub mod sharding;
 pub mod sorting;
@@ -18,7 +19,7 @@ pub use flakiness::FlakinessStrategy;
 pub use pooling::PoolingStrategy;
 pub use retry::{FixedQuotaRetryStrategy, PoolTestFailureAccumulator, RetryProgress, RetryStrategy, RetryWatchdog};
 pub use sharding::ShardingStrategy;
-pub use sorting::{SortingStrategy, TestComparator, TestQueue};
+pub use sorting::{SortKey, SortingStrategy, TestKey, TestQueue};
 
 use crate::model::Test;
 use jcompat::jtime::Instant;

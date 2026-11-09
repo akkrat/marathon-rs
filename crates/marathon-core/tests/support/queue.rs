@@ -29,7 +29,7 @@ use marathon_core::{
     model::*,
     output::{ConsoleSink, OutputDriver},
     runtime::*,
-    strategy::{MetricsLookup, TestComparator},
+    strategy::{MetricsLookup, TestKey},
     time::*,
     vendor::{BundleRef, TestBundleIdentifier},
     wiring::{MetricsProvider, Tracker},
@@ -480,7 +480,7 @@ pub struct Setup {
     pub bundle_fails_on: Option<Test>,
     pub pool: String,
     /// Record each comparison as a `compare` event.
-    pub record_comparisons: bool,
+    pub record_keys: bool,
 }
 impl Setup {
     pub fn new(configuration: Configuration, tests: Vec<Test>) -> Self {
@@ -493,7 +493,7 @@ impl Setup {
             timer: vec![],
             bundle_fails_on: None,
             pool: "test".into(),
-            record_comparisons: false,
+            record_keys: false,
         }
     }
 }
@@ -566,13 +566,13 @@ impl Queue {
         let observed = snapshot.clone();
         let mut prepared = PreparedQueue::from_parts(&setup.configuration, metrics.clone(), metrics.clone())
             .with_observer(Rc::new(move |state| *observed.borrow_mut() = Some(state)));
-        if setup.record_comparisons {
-            let comparisons = trace.clone();
-            prepared = prepared.with_comparator(Box::new(move |mut inner: TestComparator| {
-                Box::new(move |a: &Test, b: &Test| {
-                    comparisons.push(json!(["compare", t(a), t(b)]));
-                    inner(a, b)
-                }) as TestComparator
+        if setup.record_keys {
+            let keys = trace.clone();
+            prepared = prepared.with_key(Box::new(move |mut inner: TestKey| {
+                Box::new(move |test: &Test| {
+                    keys.push(json!(["key", t(test)]));
+                    inner(test)
+                }) as TestKey
             }));
         }
         let pool = RecordingPool::new(core);

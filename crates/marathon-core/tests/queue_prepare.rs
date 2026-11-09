@@ -198,7 +198,7 @@ fn already_cancelled_prepare_rejects_even_an_empty_prefetch() {
     });
 }
 
-/// D34: the JavaPriorityQueue of a live pool keeps the history it was built on, and the next pool's takes the refresh.
+/// D34: a live pool queue keeps its initial history, and the next pool takes the refresh.
 #[test]
 fn a_queue_keeps_the_history_it_was_built_on_and_the_next_pools_queue_gets_the_refresh() {
     use marathon_core::runtime::CoreRuntime;
@@ -207,7 +207,6 @@ fn a_queue_keeps_the_history_it_was_built_on_and_the_next_pools_queue_gets_the_r
         execution::queue::PreparedQueue,
         execution::queue::{QueueHandle, QueueMessage, RequestBatch},
         model::{DevicePoolId, Test, TestShard},
-        strategy::TestQueue,
     };
     use std::rc::Rc;
     use support::*;
@@ -224,12 +223,11 @@ fn a_queue_keeps_the_history_it_was_built_on_and_the_next_pools_queue_gets_the_r
             let source = Arc::new(metrics_support::Source::default());
             let down = || Some(OperationError::Failed(failure(FailureKind::Runtime, "down")));
             *source.errors.lock().unwrap() = [down(), down(), down()].into();
-            // Ascending in insertion order. The heap drains equal keys as 0, 6, 5, 4, ..., so a comparator
-            // that took this history while the heap holds them would come out differently.
+            // Recovered ascending rates reverse FIFO, so adopting them in a live queue is observable.
             *source.rates.lock().unwrap() = tests
                 .iter()
                 .enumerate()
-                .map(|(i, t)| metrics_support::rate_row(t, 0.5 + i as f64 / 100.0))
+                .map(|(i, t)| metrics_support::rate_row(t, 0.9 - i as f64 / 100.0))
                 .collect();
             let analytics = Arc::new(h.provider(source.clone(), 1000, None));
             let spawn = |prepared: PreparedQueue| -> (QueueHandle, Rc<RecordingPool>) {
@@ -296,16 +294,13 @@ fn a_queue_keeps_the_history_it_was_built_on_and_the_next_pools_queue_gets_the_r
             .expect("the refresh never ended");
             assert_eq!(source.calls.lock().unwrap().len(), 4);
 
-            // All keys equal: the order the same heap gives without any history.
-            let mut control = TestQueue::new(Box::new(|_: &Test, _: &Test| std::cmp::Ordering::Equal));
-            control.add_all(tests.iter().cloned());
-            assert_eq!(
-                order(live).await,
-                std::iter::from_fn(|| control.poll()).collect::<Vec<_>>()
-            );
+            assert_eq!(order(live).await, tests, "old queue keeps FIFO default-rate ties");
 
             let prepared = QueueActor::prepare(vendor.as_ref(), analytics, &configuration, Signal::new()).await?;
-            assert_eq!(order(spawn(prepared)).await, tests);
+            assert_eq!(
+                order(spawn(prepared)).await,
+                tests.into_iter().rev().collect::<Vec<_>>()
+            );
             // The second pool's prepare took what the refresh had cached, without a query.
             assert_eq!(source.calls.lock().unwrap().len(), 4);
             Ok(())

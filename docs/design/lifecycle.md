@@ -211,15 +211,15 @@ Required order, with source evidence:
 | Sequential composite listener calls and closes; no failure isolation | `execution/listener/CompositeLineListener.kt:3–12` |
 | Attachment listeners run in registration order | `report/attachment/AttachmentProviderDelegate.kt:7–15` |
 
-`JavaPriorityQueue` belongs to jcompat/WP 1.1. Never substitute BinaryHeap,
-sorted Vec or stable sort: comparator invocation, heap traversal and bulk
-removal are observable (`queue/QueueActor.kt:46,207–216,282`). Rust hash-table
+The WP 1.1 reference-heap requirement is superseded by D60: test queues use
+`marathon_core::strategy::queue::OrderedQueue`, extracting keys once per insertion
+and iterating in priority order with FIFO ties. Rust hash-table
 iteration is not Java iteration. Preserve insertion order where Kotlin uses
 linked maps/sets; do not promise a total order for ConcurrentHashMap pools.
 
-The merged JavaPriorityQueue takes synchronous comparisons. WP 3.2 P2
+The ordered queue takes synchronous insertion-time keys (D60). WP 3.2 P2
 supersedes 0.6 D4 for queue construction: prefetch each pool's declared
-history keys off core before building its queue. Comparators read memory
+history keys off core before building its queue. Key functions read memory
 only, so queue operations stay on core; see model-contract.md.
 RemoveDevice compares identity too: Kotlin removes by serial alone
 (`DevicePoolActor.kt:283–290`, C27), and D40 fixes that stale-disconnect bug.
@@ -438,27 +438,28 @@ errors are caught only where the Kotlin implementation catches them:
   no-op successes, matching MetricsProvider.kt:14,19. Overrides preserve their
   own source behaviour.
 
-The queue comparator remains synchronous and infallible. WP 3.2 P2
+Queue key extraction remains synchronous and infallible (D60). WP 3.2 P2
 (2026-10-24) supersedes 0.6 D4 for queue construction: WP 3.7 prefetches each
 pool's declared history keys off core, using WP 3.4a's async MetricsProvider.
-Fetch failures are absorbed with Kotlin defaults. Comparators and batching
+Fetch failures are absorbed with Kotlin defaults. Key functions and batching
 then read the synchronous MetricsLookup view from memory; queue operations
-stay on core. Per-test warn-once logs remain lazy in source lookup order.
-History queries and TimingLog occur earlier, and a queue that never compares
-tests gains a query/timing line Kotlin skips (PLAN §3.11 D13, limited to the residual cases listed there).
+stay on core. Per-test warn-once logs follow insertion-time lookup order (D60).
+History queries and TimingLog occur earlier, and a queue that Kotlin never compares
+gains a query/timing line Kotlin skips (PLAN §3.11 D13, limited to the residual cases listed there).
 The prefetch goes through the run-wide memoising MetricsProvider, deduplicated by
 `MetricsKey` with single-flight across concurrent pool builds: one query and
 TimingLog line per key per run, as in Kotlin (whose coverage report at
 `Marathon.kt:180–181` already queries the ExecutionTime keys before any pool
 exists). See PLAN §3.11 D13 for the two residual cases. Outside queue
 construction, retain source first-touch timing. Do not turn a failed query
-into an arbitrary Ordering. Validate lookup order against the oracle; record
+into an arbitrary priority. Validate insertion-time lookup order under D60; record
 residual query/log differences in the owning WP findings.
 
 D34 (2026-11-06): a query that fails is refreshed by one task on the vendor runtime, never by a lookup, so core still
-reads memory only. A strategy reads through `MetricsLookup::view`, an immutable snapshot: a comparator's lasts as long as
-its queue, and a batch's or a flakiness pass's as long as that read. A refresh that lands later reaches only later
-snapshots, and `MetricsProvider::close` cancels and joins it before closing the source. See `docs/wp/x15-findings.md`.
+reads memory only. A strategy reads through `MetricsLookup::view`, a backend history snapshot: a queue's lasts as long as
+the queue, and a batch's or a flakiness pass's as long as that read. A refresh that lands later reaches only later
+snapshots. D60 stores each entry's key at insertion; run-local observed-duration fallback stays live for re-added entries,
+while existing keys remain unchanged. `MetricsProvider::close` cancels and joins it before closing the source. See `docs/wp/x15-findings.md`.
 
 Finish is guarded **before** the first close (`Marathon.kt:243–249`):
 analytics.close → provider.terminate → tracker.close (report generation) →
@@ -482,7 +483,7 @@ The exact formats and labels in `replay-tapes.md` and
 `ReplayHooks` supplies wall millis/Instant, monotonic nanos, signed i32 draws,
 stable-key selections, per-site IDs and identity suffix allocations. Timer
 uses the `core.di.Clock` wall clock. TestBatch IDs use `core.TestBatch.id`;
-random comparator keys use `core.RandomOrderSortingStrategy.key`. Identity
+random insertion keys use `core.RandomOrderSortingStrategy.key`. Identity
 allocations take a stable object identity token, preserving aliases without
 parsing literal strings (C19). No host-time/random fallback after exhaustion.
 

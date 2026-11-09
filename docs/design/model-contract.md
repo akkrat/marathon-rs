@@ -182,17 +182,20 @@ respectively.
   name to `Utf16FileRequest`; OutputFiles implementations plan via FileManager
   and materialize off core. `fragment_hash` owns shard hashing.
 
-`JavaPriorityQueue<T, C>` is the merged concrete heap, with a synchronous
-`FnMut(&T, &T) -> Ordering` comparator. Heap-array iteration, comparator order
-and bulk removal stay there. The freeze adds no queue/comparator traits or
-second heap. WP 3.2 P2 (2026-10-24) supersedes 0.6 D4 for queue construction:
-WP 3.7 prefetches each pool's declared history keys off core through WP 3.4a's
-frozen async MetricsProvider, absorbing fetch failures with Kotlin defaults.
-The synchronous MetricsLookup view then answers from memory, so comparator
-and queue operations stay on core. ExecutionTime memoises first-comparison
-keys per process call; SuccessRate remains unmemoised. Per-test warn-once
-logs stay lazy in lookup order; history queries/TimingLog move to queue
-construction, including for queues that never compare (PLAN §3.11 D13, limited to the residual cases listed there).
+D60 supersedes WP 1.1's reference heap and comparator contract with
+`OrderedQueue<Test, SortKey>` and a synchronous `FnMut(&Test) -> SortKey`.
+Each insertion extracts one key, ties are FIFO, and iteration is in priority
+order. Removal uses Test equality and removes every matching copy, independently
+of its priority or metadata. WP 3.2 P2 (2026-10-24) supersedes 0.6 D4 for queue
+construction: WP 3.7 prefetches each pool's declared history keys off core
+through WP 3.4a's async MetricsProvider, absorbing fetch failures with defaults.
+The synchronous MetricsLookup view answers from memory, so key extraction and
+queue operations stay on core. D34 pins backend history for the queue's lifetime;
+run-local observed-duration fallback remains live for newly inserted entries,
+while existing entries retain their stored keys. Per-test warn-once logs follow
+insertion-time lookup order. History queries/TimingLog move to queue construction,
+including for queues that Kotlin never compares (PLAN §3.11 D13, limited to the
+residual cases listed there).
 The prefetch goes through the run-wide memoising MetricsProvider, deduplicated by
 `MetricsKey` with single-flight across concurrent pool builds: one query and
 TimingLog line per key per run, as in Kotlin (whose coverage report at
@@ -200,7 +203,7 @@ TimingLog line per key per run, as in Kotlin (whose coverage report at
 exists). See PLAN §3.11 D13 for the two residual cases.
 
 Outside queue construction, retain the source first-touch boundary. The
-concrete queue has no async/fallible comparator API.
+concrete queue has no async/fallible key API.
 
 `marathon-config` depends only on jcompat. Configuration lists every top-level
 field with its signed Kotlin width. Named private section slots are deliberate:

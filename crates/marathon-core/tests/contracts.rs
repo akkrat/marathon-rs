@@ -1,11 +1,12 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/Vendor.kt
 //! and its consuming APIs. These public functions are type-checked, never run.
 
-use jcompat::{JavaPriorityQueue, JavaRegex};
+use jcompat::JavaRegex;
 use marathon_config::{
     Configuration,
     binding::{BindingContext, ConfigurationLoader, ConfigurationValidator},
 };
+use marathon_core::strategy::queue::OrderedQueue;
 use marathon_core::{
     error::{OperationError, OperationResult, VendorError, VendorResult},
     listener::*,
@@ -30,13 +31,9 @@ pub async fn configuration_family(
         let _stage_error = validator.validate(&config).await;
     }
 }
-// WP 1.1/1.4, 3.2–3.4: consume the merged heap and UTF-8 full matching.
-// Metrics I/O must be bridged off core before invoking a synchronous comparator.
-pub fn strategies_and_filters<C: FnMut(&Test, &Test) -> std::cmp::Ordering>(
-    queue: &mut JavaPriorityQueue<Test, C>,
-    regex: &JavaRegex,
-    input: &str,
-) -> Vec<Test> {
+// WP 1.1/1.4, 3.2–3.4: consume the ordered queue and UTF-8 full matching.
+// Metrics I/O must be bridged off core before invoking a synchronous key extraction.
+pub fn strategies_and_filters<K: Ord>(queue: &mut OrderedQueue<Test, K>, regex: &JavaRegex, input: &str) -> Vec<Test> {
     let copies = queue.iter().cloned().collect();
     if regex.matches(input) {
         let _next = queue.poll();

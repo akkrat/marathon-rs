@@ -1,8 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/queue/QueueActor.kt
 //!
 //! A line-by-line port, including the fork's retry placement and the Kotlin bugs
-//! listed in docs/known-kotlin-bugs.md (C5, C30, C45–C47). Every queue operation
-//! can call the comparator, so their order and count follow Kotlin exactly.
+//! listed in docs/known-kotlin-bugs.md (C5, C30, C45–C47), with D60's ordered queue.
 use crate::{
     analytics::Analytics,
     error::*,
@@ -28,7 +27,7 @@ use crate::{
     wiring::MetricsProvider,
 };
 use indexmap::IndexMap;
-use jcompat::{JavaPriorityQueue, logging::Level};
+use jcompat::logging::Level;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
 use std::{
@@ -89,7 +88,7 @@ impl QueueHandle {
     }
 }
 
-/// The queue state after a message, in backing-array and LinkedHashMap order.
+/// The queue state after a message, in priority/FIFO and LinkedHashMap order.
 #[cfg(feature = "test-support")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueSnapshot {
@@ -104,8 +103,7 @@ pub type QueueObserver = Rc<dyn Fn(QueueSnapshot)>;
 #[cfg(any(test, feature = "test-support"))]
 pub type BeforeExecute = Rc<dyn Fn(&DeviceInfo, &BatchRef)>;
 #[cfg(feature = "test-support")]
-pub type ComparatorWrapper =
-    Box<dyn FnOnce(crate::strategy::sorting::TestComparator) -> crate::strategy::sorting::TestComparator>;
+pub type KeyWrapper = Box<dyn FnOnce(crate::strategy::sorting::TestKey) -> crate::strategy::sorting::TestKey>;
 
 /// The strategies and the analytics view of a queue whose history keys are prefetched (D13).
 pub struct PreparedQueue {
@@ -114,7 +112,7 @@ pub struct PreparedQueue {
     lookup: Arc<dyn MetricsLookup>,
     metrics: Arc<dyn MetricsProvider>,
     #[cfg(feature = "test-support")]
-    wrapper: Option<ComparatorWrapper>,
+    wrapper: Option<KeyWrapper>,
     #[cfg(feature = "test-support")]
     observer: Option<QueueObserver>,
     #[cfg(any(test, feature = "test-support"))]
@@ -138,9 +136,9 @@ impl PreparedQueue {
             before_execute: None,
         }
     }
-    /// Wraps the sorting comparator, e.g. to record the comparisons.
+    /// Wraps the insertion key function, e.g. to record key extraction.
     #[cfg(feature = "test-support")]
-    pub fn with_comparator(mut self, wrapper: ComparatorWrapper) -> Self {
+    pub fn with_key(mut self, wrapper: KeyWrapper) -> Self {
         self.wrapper = Some(wrapper);
         self
     }
@@ -273,7 +271,7 @@ impl QueueActor {
         })
     }
 
-    /// The Kotlin constructor, on core: builds the queue (comparing its tests) and
+    /// The Kotlin constructor, on core: builds the queue (extracting its keys) and
     /// starts the actor. `parent` is the pool's supervisor job (DevicePoolActor.kt:63–74).
     ///
     /// `pool` must be the pool actor's own long-lived handle: the queue keeps it
@@ -295,12 +293,12 @@ impl QueueActor {
         // "QueueActor[$poolId]" with the data class toString.
         let logger = format!("QueueActor[DevicePoolId(name={})]", pool_id.name.to_owned());
         #[allow(unused_mut)]
-        let mut comparator = prepared.sorting.process(prepared.lookup.clone(), hooks.clone());
+        let mut key = prepared.sorting.process(prepared.lookup.clone(), hooks.clone());
         #[cfg(feature = "test-support")]
         if let Some(wrapper) = prepared.wrapper {
-            comparator = wrapper(comparator);
+            key = wrapper(key);
         }
-        let mut queue = JavaPriorityQueue::new(comparator);
+        let mut queue = TestQueue::new(key);
         queue.add_all(shard.tests.iter().chain(&shard.flaky_tests).cloned());
         let clock: Rc<dyn SchedulerClock> = core.clock();
         let handler = QueueActor {

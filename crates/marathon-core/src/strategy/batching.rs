@@ -2,19 +2,18 @@
 //! and impl/batching/{ClassName,Isolate}BatchingStrategy.kt, plus the `TestBatch`
 //! constructor's id default (test/TestBatch.kt:5).
 //!
-//! Every queue operation can call the comparator, so the operations, their order
-//! and their count follow Kotlin exactly, apart from D50 in `fixed_size`.
+//! Batching retains Kotlin's rules except D50; D60 supplies priority order with FIFO ties.
 
-use super::{MetricsKey, MetricsLookup};
+use super::{MetricsKey, MetricsLookup, queue::OrderedQueue};
 use crate::{
     error::VendorError,
     model::{Test, TestBatch},
     time::{ReplayError, ReplayHooks},
     vendor::{BundleRef, TestBundleIdentifier},
 };
-use jcompat::{JavaPriorityQueue, jtime::Instant};
+use jcompat::jtime::Instant;
 use marathon_config::schema::BatchingStrategyConfiguration;
-use std::{cmp::Ordering, collections::HashSet};
+use std::collections::HashSet;
 
 const BATCH_ID: &str = "core.TestBatch.id";
 /// D50: rejected polls a fixed-size batch may make per slot. Two fill a batch from two evenly mixed test APKs,
@@ -84,21 +83,21 @@ impl BatchingStrategy {
         }
     }
 
-    pub fn process<C>(
+    pub fn process<K>(
         &self,
-        queue: &mut JavaPriorityQueue<Test, C>,
+        queue: &mut OrderedQueue<Test, K>,
         metrics: &dyn MetricsLookup,
         identifier: Option<&dyn TestBundleIdentifier>,
         hooks: &dyn ReplayHooks,
     ) -> Result<TestBatch, BatchingError>
     where
-        C: FnMut(&Test, &Test) -> Ordering,
+        K: Ord,
     {
         if queue.is_empty() {
             return Err(BatchingError::EmptyQueue);
         }
         // D34: a refresh reaches the next batch, never half of this one. Batching only reads
-        // durations, so unlike a comparator it can take new history at every batch.
+        // durations, so unlike a queue it can take new history at every batch.
         let view = metrics.view();
         let metrics = view.as_deref().unwrap_or(metrics);
         let tests = match self {
@@ -117,7 +116,7 @@ impl BatchingStrategy {
             }
             Self::ClassName => {
                 let selector = queue.peek().map(|t| t.to_class_name('.'));
-                // toList() is backing-array order; the batch keeps it, duplicates included.
+                // D60: retain priority order, including every matching copy.
                 let group: Vec<Test> = queue
                     .iter()
                     .filter(|t| Some(t.to_class_name('.')) == selector)
@@ -135,8 +134,8 @@ impl BatchingStrategy {
     }
 }
 
-fn fixed_size<C>(
-    queue: &mut JavaPriorityQueue<Test, C>,
+fn fixed_size<K>(
+    queue: &mut OrderedQueue<Test, K>,
     size: i32,
     duration: Option<(i64, f64, Instant)>,
     last_mile_length: i32,
@@ -144,7 +143,7 @@ fn fixed_size<C>(
     identifier: Option<&dyn TestBundleIdentifier>,
 ) -> Result<Vec<Test>, BatchingError>
 where
-    C: FnMut(&Test, &Test) -> Ordering,
+    K: Ord,
 {
     // Last mile: below the threshold batching stops so the tail runs in parallel.
     if i64::try_from(queue.len()).unwrap_or(i64::MAX) < i64::from(last_mile_length) {

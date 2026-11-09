@@ -1,10 +1,8 @@
-//! Java and Kotlin semantics that marathon's observable behaviour depends on: `JavaPriorityQueue`,
-//! `JavaRegex`, Java/Kotlin number and string formatting, and similar helpers.
+//! Java and Kotlin semantics that marathon's observable behaviour depends on: `JavaRegex`,
+//! Java/Kotlin number and string formatting, and similar helpers.
 //!
 //! See PLAN.md §4.1 and §4.3.
 
-mod priority_queue;
-pub use priority_queue::JavaPriorityQueue;
 mod string_substitutor;
 pub use string_substitutor::{StringSubstitutor, SubstitutionError};
 pub mod file_manager;

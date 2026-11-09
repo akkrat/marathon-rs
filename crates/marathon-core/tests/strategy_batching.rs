@@ -2,21 +2,19 @@
 //! and impl/batching/{ClassName,Isolate}BatchingStrategyTest.kt, plus the replay of
 //! fixtures/oracle/strategies/batching.jsonl (tools/oracle/strategy-probes).
 //!
-//! The Kotlin tests batch from a LinkedList; WP 3.2 P3 ports them onto a
-//! JavaPriorityQueue with the no-sorting comparator, which keeps insertion
-//! order for what they check. The 4 "without history" tests are WP 3.4a's.
-//! `D50_ROWS` names the JVM rows that stay witnesses of C33.
+//! The Kotlin tests batch from a LinkedList; D60 uses an ordered queue with FIFO ties.
+//! The 4 "without history" tests are WP 3.4a's. Copied JVM rows remain C33 witnesses.
 
 use marathon_error::FailureKind;
 mod strategy_support;
 
-use jcompat::JavaPriorityQueue;
 use marathon_config::schema::{BatchingStrategyConfiguration as Cnf, SortingStrategyConfiguration};
+use marathon_core::strategy::queue::OrderedQueue;
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
     model::Test,
     strategy::{
-        BatchingError, BatchingStrategy, MetricsKey, MetricsLookup, SortingStrategy, TestComparator, TestQueue,
+        BatchingError, BatchingStrategy, MetricsKey, MetricsLookup, SortKey, SortingStrategy, TestKey, TestQueue,
     },
     vendor::{BundleRef, TestBundleIdentifier},
 };
@@ -34,17 +32,17 @@ fn fixed(size: i32) -> BatchingStrategy {
     })
 }
 fn no_sorting_queue(tests: Vec<Test>) -> TestQueue {
-    let comparator = SortingStrategy::from_config(&SortingStrategyConfiguration::NoSorting).process(
+    let key = SortingStrategy::from_config(&SortingStrategyConfiguration::NoSorting).process(
         Arc::new(MetricsProviderStub::default()),
         ScriptedHooks::with_draws([], None),
     );
-    let mut queue = TestQueue::new(comparator);
+    let mut queue = TestQueue::new(key);
     queue.add_all(tests);
     queue
 }
-fn process(
+fn process<K: Ord>(
     strategy: &BatchingStrategy,
-    queue: &mut TestQueue,
+    queue: &mut OrderedQueue<Test, K>,
     identifier: Option<&dyn TestBundleIdentifier>,
 ) -> Vec<Test> {
     let hooks = ScriptedHooks::with_draws([], None);
@@ -107,10 +105,8 @@ fn isolate_batching_strategy_test_should_return_batches_with_size_1() {
 
 // ---- rule pins -----------------------------------------------------------------------------------------
 
-/// Polls in name order. An all-equal comparator would not poll in insertion order.
-fn by_name(tests: Vec<Test>) -> JavaPriorityQueue<Test, fn(&Test, &Test) -> std::cmp::Ordering> {
-    let mut queue =
-        JavaPriorityQueue::new((|a: &Test, b: &Test| a.pkg.cmp(&b.pkg)) as fn(&Test, &Test) -> std::cmp::Ordering);
+fn by_name(tests: Vec<Test>) -> OrderedQueue<Test, String> {
+    let mut queue = OrderedQueue::new(Box::new(|test: &Test| test.pkg.clone()));
     queue.add_all(tests);
     queue
 }
@@ -279,34 +275,21 @@ fn rejected_tests_keep_every_tests_place_under_a_strict_order() {
 #[test]
 fn rejected_tests_leave_tests_never_polled_in_their_order_under_ties() {
     let t = generate_tests(12);
-    // Under ties a poll takes the root and moves the array's last test there, so after t0 the polls come from
-    // the end: four of bundle "b", rejected, then t7 and t6 of bundle "a".
     let (a, b) = (bundle("a"), bundle("b"));
     let mut identifier = StubTestBundleIdentifier::default();
     for (i, test) in t.iter().enumerate() {
-        identifier.put(test, if i < 8 { a.clone() } else { b.clone() });
+        identifier.put(test, if (1..5).contains(&i) { b.clone() } else { a.clone() });
     }
     let mut queue = no_sorting_queue(t.clone());
     assert_eq!(
         process(&fixed(3), &mut queue, Some(&identifier)),
-        vec![t[0].clone(), t[7].clone(), t[6].clone()],
+        vec![t[0].clone(), t[5].clone(), t[6].clone()]
     );
-    let array: Vec<Test> = queue.iter().cloned().collect();
-    // The rejected tests go to the end, in the order they were polled. Each poll moved the array's
-    // last test to the root, which is the only move: t1 to t5 stay as they were.
+    let expected: Vec<_> = t[7..].iter().chain(&t[1..5]).cloned().collect();
     assert_eq!(
-        array,
-        vec![
-            t[5].clone(),
-            t[1].clone(),
-            t[2].clone(),
-            t[3].clone(),
-            t[4].clone(),
-            t[11].clone(),
-            t[10].clone(),
-            t[9].clone(),
-            t[8].clone(),
-        ]
+        queue.iter().cloned().collect::<Vec<_>>(),
+        expected,
+        "untouched entries precede rejects, which retain their poll order"
     );
 }
 
@@ -370,16 +353,14 @@ fn batch_id_is_allocated_after_the_last_queue_operation() {
     let t = generate_tests(3);
     let trace = Trace::default();
     let hooks = ScriptedHooks::with_draws([], Some(trace.clone()));
-    let comparator = recording(Box::new(|_, _| std::cmp::Ordering::Equal), trace.clone());
-    let mut queue = TestQueue::new(comparator);
+    let key = recording(Box::new(|_| SortKey::Constant), trace.clone());
+    let mut queue = TestQueue::new(key);
     queue.add_all(vec![t[0].clone(), t[0].clone(), t[1].clone()]);
     trace.drain();
     let batch = fixed(3).process(&mut queue, &MetricsProviderStub::default(), None, hooks.as_ref());
     assert_eq!(batch.map(|b| b.id.to_owned()), Ok("batch-1".to_owned()));
     let events = trace.drain();
-    // The re-add of the unbatchable copy compares, then the id is drawn.
-    assert_eq!(events.last(), Some(&json!(["allocateId"])));
-    assert!(events.len() > 1);
+    assert_eq!(events, [json!(["key", tj(&t[0])]), json!(["allocateId"])]);
 }
 
 struct FailingIdentifier;
@@ -447,11 +428,10 @@ fn batching_strategy(spec: &Value) -> BatchingStrategy {
     }
 }
 
-/// C33's rule as Kotlin has it, which the JVM rows of D50_ROWS recorded: every poll takes a slot and adds its
-/// duration. It lives only here, to show that this rule alone separates those rows from D50.
-fn kotlin_fixed_size(
+/// C33's old batching rule on the native queue isolates the accepted-slot change in D50.
+fn kotlin_fixed_size<K: Ord>(
     spec: &Value,
-    queue: &mut TestQueue,
+    queue: &mut OrderedQueue<Test, K>,
     metrics: &dyn MetricsLookup,
     identifier: Option<&dyn TestBundleIdentifier>,
 ) -> (Vec<Test>, usize) {
@@ -489,101 +469,6 @@ fn kotlin_fixed_size(
     (result, rejected)
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Rule {
-    D50,
-    Kotlin,
-}
-
-/// Replays one row with `rule`: Ok with the polls rejected, or the first difference from the recording.
-fn replay_row(row: &Value, rule: Rule) -> Result<usize, String> {
-    let case = row["case"].as_str().unwrap_or_default();
-    let trace = Trace::default();
-    let metrics = Arc::new(RecordingMetrics::from_json(&row["metrics"], trace.clone()));
-    let sorting = match row["sorting"].as_str() {
-        Some("NoSorting") => SortingStrategyConfiguration::NoSorting,
-        _ => SortingStrategyConfiguration::ExecutionTime {
-            percentile: 90.0,
-            time_limit: limit(),
-        },
-    };
-    let hooks = ScriptedHooks::with_draws([], None);
-    let lookup: Arc<dyn MetricsLookup> = metrics.clone();
-    let comparator: TestComparator = SortingStrategy::from_config(&sorting).process(lookup, hooks.clone());
-    let mut queue = TestQueue::new(recording(comparator, trace.clone()));
-    let identifier = row["bundles"].as_array().map(|entries| {
-        // One bundle object per id: bundle equality is identity.
-        let mut by_id: HashMap<String, BundleRef> = HashMap::new();
-        StubTestBundleIdentifier {
-            bundles: entries
-                .iter()
-                .map(|e| {
-                    let shared = e[1]
-                        .as_str()
-                        .map(|id| by_id.entry(id.to_owned()).or_insert_with(|| bundle(id)).clone());
-                    (test_of(&e[0]), shared)
-                })
-                .collect(),
-            trace: Some(trace.clone()),
-        }
-    });
-    queue.add_all(tests_of(&row["queue"]));
-    let compare = |what: &str, actual: Value, expected: &Value| {
-        if actual == *expected {
-            Ok(())
-        } else {
-            Err(format!("{case}: {what}\n  rust {actual}\n  jvm  {expected}"))
-        }
-    };
-    compare("setup", Value::Array(trace.drain()), &row["setup"])?;
-    let strategy = batching_strategy(&row["strategy"]);
-    let batches = row["batches"].as_array().cloned().unwrap_or_default();
-    let mut rejected = 0;
-    for (i, expected) in batches.iter().enumerate() {
-        let identifier = identifier.as_ref().map(|i| i as &dyn TestBundleIdentifier);
-        let tests = match rule {
-            Rule::D50 => match strategy.process(&mut queue, metrics.as_ref(), identifier, hooks.as_ref()) {
-                Ok(batch) => batch.tests,
-                Err(e) => return Err(format!("{case}, batch {i}: {e:?}")),
-            },
-            Rule::Kotlin => {
-                let (tests, count) = kotlin_fixed_size(&row["strategy"], &mut queue, metrics.as_ref(), identifier);
-                rejected += count;
-                tests
-            }
-        };
-        compare(&format!("batch {i} tests"), tsj(&tests), &expected["tests"])?;
-        let array = queue.iter().cloned().collect::<Vec<_>>();
-        compare(&format!("batch {i} array"), tsj(&array), &expected["array"])?;
-        compare(
-            &format!("batch {i} trace"),
-            Value::Array(trace.drain()),
-            &expected["trace"],
-        )?;
-    }
-    // The probe stops at an empty queue or at its call count.
-    if !(queue.is_empty() || !batches.is_empty()) {
-        return Err(format!("{case}: no batches"));
-    }
-    Ok(rejected)
-}
-
-/// D50's allowance: the JVM rows in which a rejected poll took a slot. Each stays a witness of C33 through
-/// `kotlin_fixed_size`; every other row must match D50's code exactly.
-const D50_ROWS: [&str; 7] = [
-    "fixed size 4 with flaky copies [NoSorting]",
-    "fixed size 5 with mixed and null bundles [NoSorting]",
-    "fixed size 5 with duration and bundles [NoSorting]",
-    "fixed size 4 with flaky copies [ExecutionTime]",
-    "fixed size 5 with mixed and null bundles [ExecutionTime]",
-    "fixed size 5 with duration 7000 and flaky copies [ExecutionTime]",
-    "fixed size 5 with duration and bundles [ExecutionTime]",
-];
-
-fn is_d50_row(case: &str) -> bool {
-    D50_ROWS.contains(&case)
-}
-
 fn oracle_rows() -> Vec<Value> {
     rows(
         include_str!("../../../fixtures/oracle/strategies/batching.jsonl"),
@@ -592,59 +477,156 @@ fn oracle_rows() -> Vec<Value> {
 }
 
 #[test]
-fn batching_oracle_table_replays() {
-    let mut replayed = 0;
-    for row in oracle_rows() {
-        if is_d50_row(row["case"].as_str().unwrap_or_default()) {
-            continue;
-        }
-        replayed += 1;
-        if let Err(difference) = replay_row(&row, Rule::D50) {
-            panic!("{difference}");
-        }
-    }
-    assert!(replayed > 0);
-}
-
-#[test]
-fn the_d50_allowance_covers_only_rows_where_a_rejected_poll_took_a_slot() {
-    let mut allowed = 0;
-    for row in oracle_rows() {
-        let case = row["case"].as_str().unwrap_or_default();
-        if is_d50_row(case) {
-            allowed += 1;
-            // The recording is C33's rule, byte for byte, and D50's code differs from it.
-            match replay_row(&row, Rule::Kotlin) {
-                Ok(rejected) => assert!(rejected > 0, "{case}: nothing rejected, so no allowance is due"),
-                Err(difference) => panic!("{difference}"),
+fn batching_recorded_inputs_follow_native_order_d60() {
+    // Each number indexes the input's distinct tests in first-occurrence order.
+    // Each pair pins a batch and its priority-ordered remainder, with duplicates retained.
+    let expected = json!([
+        // fixed size 3 over 8 [NoSorting]
+        [[[0, 1, 2], [3, 4, 5, 6, 7]], [[3, 4, 5], [6, 7]], [[6, 7], []]],
+        // fixed size 4 with flaky copies [NoSorting]
+        [[[0, 1, 2, 3], [0, 1, 0]], [[0, 1], [0]], [[0], []]],
+        // fixed size 5 with mixed and null bundles [NoSorting]
+        [[[0, 1, 4, 7], [2, 3, 5, 6]], [[2, 3, 6], [5]], [[5], []]],
+        // fixed size 5 with leading null bundles [NoSorting]
+        [[[0, 1, 2], [3, 4]], [[3, 4], []]],
+        // fixed size 4 with last mile 5 [NoSorting]
+        [
+            [[0, 1, 2, 3], [4, 5, 6, 7]],
+            [[4], [5, 6, 7]],
+            [[5], [6, 7]],
+            [[6], [7]],
+            [[7], []]
+        ],
+        // fixed size 5 with duration 7000 [NoSorting]
+        [
+            [[0, 1, 2], [3, 4, 5, 6, 7]],
+            [[3], [4, 5, 6, 7]],
+            [[4, 5, 6], [7]],
+            [[7], []]
+        ],
+        // fixed size 5 with duration 7000 and flaky copies [NoSorting]
+        [[[0, 1, 2], [1, 0, 3, 0]], [[1, 0, 3], [0]], [[0], []]],
+        // fixed size 5 with duration and bundles [NoSorting]
+        [[[0, 1, 4, 7], [2, 3, 5, 6]], [[2, 3], [5, 6]], [[5, 6], []]],
+        // fixed size 5 with duration but no time limit [NoSorting]
+        [[[0, 1, 2, 3, 4], [5, 6, 7]], [[5, 6, 7], []]],
+        // fixed size 0 [NoSorting]
+        [[[], [0, 1, 2]]],
+        // class name [NoSorting]
+        [
+            [[0, 2, 5], [1, 3, 4, 1, 6, 7]],
+            [[1, 4, 1], [3, 6, 7]],
+            [[3], [6, 7]],
+            [[6, 7], []]
+        ],
+        // isolate [NoSorting]
+        [[[0], [1, 0, 2, 1, 0, 3]], [[1], [0, 2, 1, 0, 3]], [[0], [2, 1, 0, 3]]],
+        // fixed size 3 over 8 [ExecutionTime]
+        [[[3, 7, 6], [1, 5, 2, 0, 4]], [[1, 5, 2], [0, 4]], [[0, 4], []]],
+        // fixed size 4 with flaky copies [ExecutionTime]
+        [[[3, 1, 2, 0], [1, 0, 0]], [[1, 0], [0]], [[0], []]],
+        // fixed size 5 with mixed and null bundles [ExecutionTime]
+        [[[3, 6], [7, 1, 5, 2, 0, 4]], [[7, 1, 4], [5, 2, 0]], [[5, 2, 0], []]],
+        // fixed size 5 with leading null bundles [ExecutionTime]
+        [[[3, 1, 2], [0, 4]], [[0, 4], []]],
+        // fixed size 4 with last mile 5 [ExecutionTime]
+        [
+            [[3, 7, 6, 1], [5, 2, 0, 4]],
+            [[5], [2, 0, 4]],
+            [[2], [0, 4]],
+            [[0], [4]],
+            [[4], []]
+        ],
+        // fixed size 5 with duration 7000 [ExecutionTime]
+        [
+            [[3], [7, 6, 1, 5, 2, 0, 4]],
+            [[7], [6, 1, 5, 2, 0, 4]],
+            [[6, 1], [5, 2, 0, 4]],
+            [[5, 2, 0, 4], []]
+        ],
+        // fixed size 5 with duration 7000 and flaky copies [ExecutionTime]
+        [[[3], [1, 1, 2, 0, 0, 0]], [[1, 2, 0], [1, 0, 0]], [[1, 0], [0]]],
+        // fixed size 5 with duration and bundles [ExecutionTime]
+        [
+            [[3], [7, 6, 1, 5, 2, 0, 4]],
+            [[7], [6, 1, 5, 2, 0, 4]],
+            [[6], [1, 5, 2, 0, 4]]
+        ],
+        // fixed size 5 with duration but no time limit [ExecutionTime]
+        [[[3, 7, 6, 1, 5], [2, 0, 4]], [[2, 0, 4], []]],
+        // fixed size 0 [ExecutionTime]
+        [[[], [1, 2, 0]]],
+        // class name [ExecutionTime]
+        [
+            [[3], [6, 1, 2, 1, 5, 0, 4, 7]],
+            [[6, 7], [1, 2, 1, 5, 0, 4]],
+            [[1, 1, 4], [2, 5, 0]],
+            [[2, 5, 0], []]
+        ],
+        // isolate [ExecutionTime]
+        [[[3], [1, 1, 2, 0, 0, 0]], [[1], [1, 2, 0, 0, 0]], [[1], [2, 0, 0, 0]]],
+    ]);
+    let rows = oracle_rows();
+    assert_eq!(rows.len(), expected.as_array().unwrap().len());
+    for (row, expected) in rows.iter().zip(expected.as_array().unwrap()) {
+        let metrics = Arc::new(RecordingMetrics::from_json(&row["metrics"], Trace::default()));
+        let sorting = if row["sorting"] == "NoSorting" {
+            SortingStrategyConfiguration::NoSorting
+        } else {
+            SortingStrategyConfiguration::ExecutionTime {
+                percentile: 90.0,
+                time_limit: limit(),
             }
-            assert!(replay_row(&row, Rule::D50).is_err(), "{case}: no longer differs");
+        };
+        let hooks = ScriptedHooks::with_draws([], None);
+        let mut queue = TestQueue::new(SortingStrategy::from_config(&sorting).process(metrics.clone(), hooks.clone()));
+        let input = tests_of(&row["queue"]);
+        let mut distinct = Vec::new();
+        for test in &input {
+            if !distinct.contains(test) {
+                distinct.push(test.clone());
+            }
+        }
+        queue.add_all(input);
+        let identifier = row["bundles"].as_array().map(|entries| {
+            let mut by_id: HashMap<String, BundleRef> = HashMap::new();
+            StubTestBundleIdentifier {
+                bundles: entries
+                    .iter()
+                    .map(|e| {
+                        (
+                            test_of(&e[0]),
+                            e[1].as_str()
+                                .map(|id| by_id.entry(id.to_owned()).or_insert_with(|| bundle(id)).clone()),
+                        )
+                    })
+                    .collect(),
+                trace: None,
+            }
+        });
+        for (index, pair) in expected.as_array().unwrap().iter().enumerate() {
+            let batch = batching_strategy(&row["strategy"])
+                .process(
+                    &mut queue,
+                    metrics.as_ref(),
+                    identifier.as_ref().map(|i| i as &dyn TestBundleIdentifier),
+                    hooks.as_ref(),
+                )
+                .unwrap();
+            let indices = |tests: Vec<Test>| -> Vec<usize> {
+                tests
+                    .iter()
+                    .map(|test| distinct.iter().position(|t| t == test).unwrap())
+                    .collect()
+            };
+            assert_eq!(
+                json!([indices(batch.tests), indices(queue.iter().cloned().collect())]),
+                *pair,
+                "{}, batch {index}",
+                row["case"]
+            );
         }
     }
-    assert_eq!(allowed, D50_ROWS.len());
-    // Rejections that end no batch early need no allowance: the queue ran out first.
-    let rows = oracle_rows();
-    let leading = rows
-        .iter()
-        .find(|r| r["case"] == "fixed size 5 with leading null bundles [NoSorting]");
-    let leading = leading.cloned().unwrap_or_default();
-    assert_eq!(replay_row(&leading, Rule::Kotlin), Ok(3));
-    assert_eq!(replay_row(&leading, Rule::D50), Ok(0));
-}
-
-#[test]
-fn the_d50_allowance_hides_no_other_change() {
-    let rows = oracle_rows();
-    let row_named = |case: &str| rows.iter().find(|r| r["case"] == case).cloned().unwrap_or_default();
-    // A difference in a row outside the allowance is reported.
-    let mut outside = row_named("fixed size 3 over 8 [ExecutionTime]");
-    outside["batches"][0]["trace"][0] = json!(["compare", "tampered"]);
-    assert!(replay_row(&outside, Rule::D50).is_err());
-    // A row inside it still answers to the recording, through Kotlin's rule.
-    let mut inside = row_named("fixed size 4 with flaky copies [ExecutionTime]");
-    assert!(replay_row(&inside, Rule::Kotlin).is_ok());
-    inside["batches"][0]["array"][0] = json!(["tampered", "tampered", "tampered"]);
-    assert!(replay_row(&inside, Rule::Kotlin).is_err());
 }
 
 #[test]
@@ -671,8 +653,7 @@ fn flaky_copies_cost_fewer_batches_than_under_c33() {
     let t: Vec<Test> = (0..100).map(|i| generate_test(&format!("p{i:03}"), "c", "m")).collect();
     let copies = || -> Vec<Test> { t.iter().flat_map(|test| [test.clone(), test.clone()]).collect() };
     let queue_of = |tests| {
-        let comparator: TestComparator = Box::new(|a: &Test, b: &Test| a.pkg.cmp(&b.pkg));
-        let mut queue = TestQueue::new(comparator);
+        let mut queue = OrderedQueue::new(Box::new(|test: &Test| test.pkg.clone()));
         queue.add_all(tests);
         queue
     };
@@ -692,7 +673,7 @@ fn flaky_copies_cost_fewer_batches_than_under_c33() {
     assert_eq!((kotlin_batches, rust_batches), (30, 20));
 }
 
-/// With nothing rejected, D50's code performs Kotlin's operations: batches, array and every comparison.
+/// With nothing rejected, D50 retains the old batching rule on priority/FIFO order.
 #[test]
 fn batches_with_nothing_rejected_match_kotlins_rule_operation_by_operation() {
     let mut state = 0x2545_f491u64;
@@ -708,8 +689,8 @@ fn batches_with_nothing_rejected_match_kotlins_rule_operation_by_operation() {
         let ranks: HashMap<Test, u64> = tests.iter().map(|t| (t.clone(), next(8))).collect();
         let build = |trace: &Trace| {
             let ranks = ranks.clone();
-            let comparator: TestComparator = Box::new(move |a, b| ranks[a].cmp(&ranks[b]));
-            let mut queue = TestQueue::new(recording(comparator, trace.clone()));
+            let key: TestKey = Box::new(move |test| SortKey::Random(ranks[test] as i32));
+            let mut queue = TestQueue::new(recording(key, trace.clone()));
             queue.add_all(tests.clone());
             queue
         };
