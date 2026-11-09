@@ -703,6 +703,7 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.5 | Remove JVM identity strings from outputs (docs/wp/8.5.md) | L | 8.4 |
 | 8.6a | Typed error kinds instead of Java class strings (docs/wp/8.6a.md) | H | 8.5 |
 | 8.6b | Plain error wording instead of Java class names (docs/wp/8.6b.md) | M | 8.6a |
+| 8.7 | An ordered test queue instead of the Java PriorityQueue port (docs/wp/8.7.md) | M | 8.6b |
 
 Later candidates:
 
@@ -710,7 +711,6 @@ Later candidates:
 - Serde YAML writer instead of the Jackson YAML emulation.
 - `tracing` instead of logback emulation.
 - Plain async reads instead of Apple polling readers.
-- `BTreeMap` with a sequence tie-breaker instead of `JavaPriorityQueue`.
 - `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
 - `Display`/serde instead of Kotlin `toString` rendering.
 - Tokio `JoinSet`/`CancellationToken` instead of coroutine emulation.
