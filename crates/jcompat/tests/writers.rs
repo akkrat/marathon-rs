@@ -1,4 +1,4 @@
-use jcompat::writers::{GsonWriter, JacksonYamlWriter, JavaNumber, KotlinValue, WriterValue};
+use jcompat::writers::{JacksonYamlWriter, JavaNumber, KotlinValue, WriterValue};
 use serde_json::Value;
 fn units(v: &Value) -> String {
     String::from_utf16_lossy(
@@ -41,28 +41,12 @@ fn check_writer_rows(table: &str) -> Result<(), Box<dyn std::error::Error>> {
     for line in table.lines().skip(1) {
         let row: Value = serde_json::from_str(line)?;
         let value = input(&row["input"]);
-        // Same pinned JVM writers, with only the input units normalized for D55.
+        // Same pinned YAML writer, with only the input units normalized for D55.
         let native = include_str!("../../../fixtures/oracle/jcompat/writer_native_strings.jsonl")
             .lines()
             .map(serde_json::from_str::<Value>)
             .collect::<Result<Vec<_>, _>>()?;
         let row = native.iter().find(|r| r["id"] == row["id"]).unwrap_or(&row);
-        for pretty in [false, true] {
-            let expected = &row[if pretty { "pretty" } else { "gson" }];
-            let actual = GsonWriter { pretty }.write(&value);
-            if expected.get("ok").is_some() {
-                let actual = actual?;
-                assert_eq!(actual.as_bytes().to_vec(), bytes(&expected["bytes"]));
-                assert_eq!(actual, units(&expected["ok"]), "{} pretty={pretty}", row["id"]);
-            } else {
-                assert_eq!(
-                    actual.unwrap_err().to_string(),
-                    expected["error"].as_str().unwrap(),
-                    "{}",
-                    row["id"]
-                );
-            }
-        }
         assert!(
             row["yaml"].get("ok").is_some(),
             "unhandled JVM YAML error: {}",
@@ -141,24 +125,14 @@ fn existing_report_and_yaml_oracles() -> Result<(), Box<dyn std::error::Error>> 
         .skip(1)
     {
         let row: Value = serde_json::from_str(line)?;
-        let value = input(&row["input"]);
-        let actual = if row["writer"] == "gson" {
-            GsonWriter::default().write(&value)
-        } else {
-            Ok(JacksonYamlWriter.write(&value))
-        };
-        let actual = actual.map(|s| s.replace("\\u003cCWD\\u003e", "<CWD>"));
-        if row["expected"].get("ok").is_some() {
-            assert_eq!(actual?, units(&row["expected"]["ok"]), "{}", row["id"]);
-        } else {
-            assert_eq!(
-                actual.unwrap_err().to_string(),
-                row["expected"]["error"].as_str().unwrap()
-            );
+        if row["writer"] != "yaml" {
+            continue;
         }
+        let actual = JacksonYamlWriter.write(&input(&row["input"]));
+        assert_eq!(actual, units(&row["expected"]["ok"]), "{}", row["id"]);
         count += 1;
     }
-    assert_eq!(count, 24);
+    assert_eq!(count, 9);
     Ok(())
 }
 

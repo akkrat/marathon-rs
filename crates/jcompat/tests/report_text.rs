@@ -3,7 +3,6 @@ use jcompat::{
     file_manager::{child_file, relative_file},
     jnum::kotlin_round_to_long,
     report_text::*,
-    writers::WriterValue,
 };
 use std::path::PathBuf;
 #[test]
@@ -27,29 +26,6 @@ fn jvm_paths_hash_xml_and_rounding() {
     assert_eq!(kotlin_round_to_long(f64::NAN), None);
     assert_eq!(kotlin_round_to_long(f64::INFINITY), Some(i64::MAX));
     assert_eq!(form_encode("/a #😀").to_owned(), "%2Fa+%23%F0%9F%98%80");
-}
-#[test]
-fn jackson_keeps_nulls_arrays_and_utf16_escapes() {
-    let actual = jackson_json(&WriterValue::Object(vec![
-        ("x".into(), WriterValue::Null),
-        ("empty".into(), WriterValue::Array(vec![])),
-        (
-            "utf16".into(),
-            WriterValue::String(String::from_utf16_lossy(&[0xd800, 0xd83d, 0xde00])),
-        ),
-    ]));
-    assert_eq!(
-        actual.as_bytes().to_vec(),
-        r#"{"x":null,"empty":[],"utf16":"�\uD83D\uDE00"}"#.as_bytes()
-    );
-    // Jackson's byte[] default: padded standard base64 without line feeds.
-    for (bytes, encoded) in [
-        (&b""[..], "\"\""),
-        (b"\xff", "\"/w==\""),
-        (b"\x01\x02\x03\x04", "\"AQIDBA==\""),
-    ] {
-        assert_eq!(jackson_json(&WriterValue::Binary(bytes.to_vec())).to_owned(), encoded);
-    }
 }
 #[test]
 fn instant_epoch_millis_overflow_and_negative_boundary() {

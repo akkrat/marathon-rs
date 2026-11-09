@@ -10,7 +10,6 @@ use crate::{
 };
 use WriterValue as V;
 use jcompat::{
-    file_manager::absolute_file_path,
     jnum,
     writers::{JavaNumber, KotlinValue, WriterValue},
 };
@@ -30,48 +29,6 @@ pub fn status(status: TestStatus) -> &'static str {
         TestStatus::Incomplete => "INCOMPLETE",
         TestStatus::AssumptionFailure => "ASSUMPTION_FAILURE",
     }
-}
-pub fn device(device: &DeviceInfo) -> V {
-    object([
-        (
-            "operatingSystem",
-            object([("version", V::String(device.operating_system.version.clone()))]),
-        ),
-        ("serialNumber", V::String(device.serial_number.clone())),
-        ("model", V::String(device.model.clone())),
-        ("manufacturer", V::String(device.manufacturer.clone())),
-        (
-            "networkState",
-            match device.network_state {
-                NetworkState::Connected => "CONNECTED",
-                NetworkState::Disconnected => "DISCONNECTED",
-            }
-            .into(),
-        ),
-        (
-            "deviceFeatures",
-            V::Array(
-                device
-                    .device_features
-                    .iter()
-                    .map(|f| {
-                        match f {
-                            DeviceFeature::Video => "VIDEO",
-                            DeviceFeature::Screenshot => "SCREENSHOT",
-                        }
-                        .into()
-                    })
-                    .collect(),
-            ),
-        ),
-        ("healthy", V::Bool(device.healthy)),
-    ])
-}
-pub fn pool(pool: &DevicePoolId) -> V {
-    object([("name", V::String(pool.name.clone()))])
-}
-pub fn test(test: &Test) -> V {
-    test_with(test, false)
 }
 fn test_with(test: &Test, jackson: bool) -> V {
     object([
@@ -168,51 +125,6 @@ fn decoded(value: &DecodedWrapper) -> V {
         DecodedArrayValue(v) => return object([("values", V::Array(v.iter().map(decoded).collect()))]),
     };
     object([("value", value)])
-}
-pub fn attachment(attachment: &Attachment, cwd: &std::path::Path) -> V {
-    object([
-        (
-            "file",
-            V::String(
-                absolute_file_path(&attachment.file.to_string_lossy(), &cwd.to_string_lossy())
-                    .to_string_lossy()
-                    .into_owned(),
-            ),
-        ),
-        (
-            "type",
-            match attachment.kind {
-                AttachmentType::ScreenshotGif => "SCREENSHOT_GIF",
-                AttachmentType::ScreenshotJpeg => "SCREENSHOT_JPEG",
-                AttachmentType::ScreenshotPng => "SCREENSHOT_PNG",
-                AttachmentType::ScreenshotWebp => "SCREENSHOT_WEBP",
-                AttachmentType::Video => "VIDEO",
-                AttachmentType::Log => "LOG",
-                AttachmentType::Profiling => "PROFILING",
-            }
-            .into(),
-        ),
-        ("name", attachment.name.clone().map_or(V::Null, V::String)),
-    ])
-}
-pub fn test_result(result: &TestResult, cwd: &std::path::Path) -> V {
-    object([
-        ("test", test(&result.test)),
-        ("device", device(&result.device)),
-        ("testBatchId", V::String(result.test_batch_id.clone())),
-        ("status", status(result.status).into()),
-        ("startTime", result.start_time.into()),
-        ("endTime", result.end_time.into()),
-        ("stacktrace", result.stacktrace.clone().map_or(V::Null, V::String)),
-        (
-            "attachments",
-            V::Array(result.attachments.iter().map(|a| attachment(a, cwd)).collect()),
-        ),
-        (
-            "isTimeInfoAvailable",
-            V::Bool(result.start_time != 0 && result.end_time != 0),
-        ),
-    ])
 }
 pub fn parse_results(tests: &[Test], flaky_tests: &[Test]) -> String {
     let mut fields = vec![("tests", V::Array(tests.iter().map(|t| test_with(t, true)).collect()))];

@@ -698,12 +698,13 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.1 | Native contract and goldens | M | – |
 | 8.2 | Replace `JavaString` with `String` (docs/wp/8.2.md) | M | – |
 | 8.3 | Replace JavaPath with PathBuf; drop jcompat utf8 and net (docs/wp/8.3.md) | M | 8.2 |
+| 8.4 | Write JSON with serde instead of the Gson emulation (docs/wp/8.4.md) | M | 8.3 |
 
 Later candidates:
 
 - `jnum` and `jtime` (numbers and time; their parsers are the input syntax and stay)
 - Typed errors in `Failure` instead of Java class strings.
-- Serde writers instead of Gson/Jackson emulation.
+- Serde YAML writer instead of the Jackson YAML emulation.
 - `tracing` instead of logback emulation.
 - Plain async reads instead of Apple polling readers.
 - `BTreeMap` with a sequence tie-breaker instead of `JavaPriorityQueue`.

@@ -2,7 +2,7 @@
 //! and execution/command/parse/MarathonTestParseCommand.kt (Java leaf semantics).
 use jcompat::{
     jtime::{instant_duration_millis, instant_of, instant_to_epoch_milli},
-    writers::{GsonWriter, JacksonYamlWriter, WriterValue},
+    writers::{JacksonYamlWriter, WriterValue},
 };
 use serde_json::Value;
 #[test]
@@ -29,10 +29,6 @@ fn jackson_binary_scalars_match_the_command_mapper() {
             bytes("yaml"),
             "YAML size {size}, list {}",
             r["list"]
-        );
-        assert_eq!(
-            GsonWriter::default().write(&value).unwrap().as_bytes().to_vec(),
-            bytes("gson")
         );
     }
 }

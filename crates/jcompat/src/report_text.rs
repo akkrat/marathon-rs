@@ -1,7 +1,5 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/html/HtmlSummaryReporter.kt
-//! and report/allure/AllureReporter.kt (Commons Text and Jackson string boundaries).
-
-use crate::writers::WriterValue;
+//! and report/allure/AllureReporter.kt (Commons Text and Allure XML boundaries).
 
 /// Commons Text 1.12 escapeXml11, including removal of invalid XML code points.
 pub fn escape_xml11(text: &str) -> String {
@@ -32,89 +30,6 @@ pub fn form_encode(text: &str) -> String {
 
 pub fn replace(text: &str, pattern: &str, replacement: &str) -> String {
     text.replace(pattern, replacement)
-}
-
-/// Restricted Allure/Jackson model writer (P2). Callers decide NON_NULL/NON_EMPTY
-/// inclusion; objects such as an empty profiling Link must remain present.
-pub fn jackson_json(value: &WriterValue) -> String {
-    fn string(s: &str, out: &mut String) {
-        const HEX: &[u8] = b"0123456789ABCDEF";
-        out.push('"');
-        for u in s.encode_utf16() {
-            match u {
-                34 => out.push_str("\\\""),
-                92 => out.push_str("\\\\"),
-                8 => out.push_str("\\b"),
-                9 => out.push_str("\\t"),
-                10 => out.push_str("\\n"),
-                12 => out.push_str("\\f"),
-                13 => out.push_str("\\r"),
-                0..=31 | 0xd800..=0xdfff => {
-                    out.push_str("\\u");
-                    out.extend([
-                        HEX[(u >> 12) as usize] as char,
-                        HEX[((u >> 8) & 15) as usize] as char,
-                        HEX[((u >> 4) & 15) as usize] as char,
-                        HEX[(u & 15) as usize] as char,
-                    ]);
-                }
-                _ => out.push(char::from_u32(u32::from(u)).unwrap()),
-            }
-        }
-        out.push('"');
-    }
-    fn write(v: &WriterValue, out: &mut String) {
-        match v {
-            WriterValue::Null => out.push_str("null"),
-            WriterValue::Bool(v) => out.push_str(if *v { "true" } else { "false" }),
-            WriterValue::Number(v) => out.push_str(v.as_str()),
-            WriterValue::String(v) => string(v, out),
-            // Jackson's default variant, MIME_NO_LINEFEEDS; Allure models carry no byte arrays.
-            WriterValue::Binary(v) => {
-                const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-                out.push('"');
-                for chunk in v.chunks(3) {
-                    let n = chunk
-                        .iter()
-                        .enumerate()
-                        .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
-                    for i in 0..4 {
-                        out.push(if i <= chunk.len() {
-                            char::from(ALPHABET[(n >> (18 - 6 * i) & 63) as usize])
-                        } else {
-                            '='
-                        });
-                    }
-                }
-                out.push('"');
-            }
-            WriterValue::Array(v) => {
-                out.push('[');
-                for (i, v) in v.iter().enumerate() {
-                    if i > 0 {
-                        out.push(',')
-                    }
-                    write(v, out)
-                }
-                out.push(']');
-            }
-            WriterValue::Object(v) => {
-                out.push('{');
-                for (i, (k, v)) in v.iter().enumerate() {
-                    if i > 0 {
-                        out.push(',')
-                    }
-                    string(k, out);
-                    out.push(':');
-                    write(v, out)
-                }
-                out.push('}');
-            }
-        }
-    }
-    let mut out = String::default();
-    write(value, &mut out);
-    out
 }
 
 /// ResultsUtils.generateMethodSignatureHash updates MD5 with class bytes then method bytes (no separators).

@@ -2,13 +2,11 @@
 //! core/src/main/kotlin/com/malinskiy/marathon/json/FileSerializer.kt and
 //! core/src/main/kotlin/com/malinskiy/marathon/execution/command/parse/MarathonTestParseCommand.kt.
 //!
-//! Callers project models into declaration-order values. Numeric spellings come
-//! from jcompat's Java formatters, never serde_json's floating-point formatter.
+//! Callers project YAML models into declaration-order values; numeric spellings
+//! come from jcompat's Java formatters.
 
-mod gson;
 mod kotlin;
 mod yaml;
-pub use gson::{GsonError, GsonWriter};
 pub use kotlin::KotlinValue;
 pub use yaml::JacksonYamlWriter;
 

@@ -174,15 +174,16 @@ pub async fn output_contract(
     files.create_file(target).await
 }
 
-// WP 1.5/3.9: model projections use the merged value trees and writers.
+// WP 1.5/3.9: typed JSON and YAML projections share the report models.
 // MetaValue is discovery data (boxed types/identity), not another writer tree.
 pub fn writer_contract(
-    json: &jcompat::writers::WriterValue,
+    json: &impl serde::Serialize,
+    yaml: &jcompat::writers::WriterValue,
     raw: &jcompat::writers::KotlinValue,
-) -> Result<[String; 3], jcompat::writers::GsonError> {
+) -> Result<[String; 3], serde_json::Error> {
     Ok([
-        jcompat::writers::GsonWriter::default().write(json)?,
-        jcompat::writers::JacksonYamlWriter.write(json),
+        serde_json::to_string(json)?,
+        jcompat::writers::JacksonYamlWriter.write(yaml),
         raw.render(),
     ])
 }

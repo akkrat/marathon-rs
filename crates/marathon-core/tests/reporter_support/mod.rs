@@ -528,9 +528,11 @@ pub fn compare_scenario(id: &str) {
     for (name, expected) in files {
         let expected = without_delegate(bytes(expected));
         if name.ends_with(".json") {
+            let actual: Value = checked(serde_json::from_slice(&actual[name]));
+            let expected: Value = checked(serde_json::from_slice(&expected));
             assert_eq!(
-                checked(serde_json::from_slice::<Value>(&actual[name])),
-                checked(serde_json::from_slice::<Value>(&expected)),
+                checked(serde_json::to_string(&actual)),
+                checked(serde_json::to_string(&expected)),
                 "{id}: {name}"
             );
         } else {
