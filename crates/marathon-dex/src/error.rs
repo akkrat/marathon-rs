@@ -45,16 +45,16 @@ impl DexError {
         }
     }
 
-    pub fn with_class(class: FailureKind, message: Option<String>) -> Self {
+    pub fn with_kind(kind: FailureKind, message: Option<String>) -> Self {
         Self {
-            kind: class,
+            kind,
             message,
             cause: None,
         }
     }
 
     pub fn eof() -> Self {
-        Self::with_class(FailureKind::Eof, None)
+        Self::with_kind(FailureKind::Eof, None)
     }
 
     /// ApkParser's `catch (e: IOException)` wrap; the wording (including
@@ -134,3 +134,29 @@ impl fmt::Display for DexError {
 impl std::error::Error for DexError {}
 
 pub type DexResult<T> = Result<T, DexError>;
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+    #[test]
+    fn apk_io_catch_keeps_its_five_kind_whitelist() {
+        for kind in [
+            FailureKind::Io,
+            FailureKind::Zip,
+            FailureKind::Eof,
+            FailureKind::FileNotFound,
+            FailureKind::NoSuchFile,
+        ] {
+            assert!(DexError::with_kind(kind, None).is_io());
+        }
+        for kind in [
+            FailureKind::AccessDenied,
+            FailureKind::FileSystem,
+            FailureKind::UncheckedIO,
+            FailureKind::Runtime,
+            FailureKind::Dex(DexKind::Decode),
+        ] {
+            assert!(!DexError::with_kind(kind, None).is_io());
+        }
+    }
+}

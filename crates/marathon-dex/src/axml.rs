@@ -118,7 +118,7 @@ impl Reader<'_> {
 
 fn alloc_count(count: i32) -> DexResult<usize> {
     if count < 0 {
-        return Err(DexError::with_class(
+        return Err(DexError::with_kind(
             FailureKind::NegativeArraySize,
             Some(count.to_string().as_str().into()),
         ));
@@ -127,12 +127,12 @@ fn alloc_count(count: i32) -> DexResult<usize> {
 }
 
 fn out_of_bounds() -> DexError {
-    DexError::with_class(FailureKind::ArrayIndexOutOfBounds, None)
+    DexError::with_kind(FailureKind::ArrayIndexOutOfBounds, None)
 }
 
 /// ByteBuffer.wrap(array, offset, length) range check.
 fn range_out_of_bounds() -> DexError {
-    DexError::with_class(FailureKind::IndexOutOfBounds, None)
+    DexError::with_kind(FailureKind::IndexOutOfBounds, None)
 }
 
 /// StringBlock: the raw pool bytes plus offsets, decoded on demand.
@@ -412,13 +412,13 @@ impl<'a> AxmlParser<'a> {
 
     fn attribute(&self, index: i32) -> DexResult<TagAttribute> {
         let Some(attrs) = &self.tag_attributes else {
-            return Err(DexError::with_class(
+            return Err(DexError::with_kind(
                 FailureKind::IndexOutOfBounds,
                 Some("Attributes are not available.".into()),
             ));
         };
         if index < 0 || index as usize >= attrs.len() {
-            return Err(DexError::with_class(
+            return Err(DexError::with_kind(
                 FailureKind::IndexOutOfBounds,
                 Some(format!("Invalid attribute index ({index}).").as_str().into()),
             ));

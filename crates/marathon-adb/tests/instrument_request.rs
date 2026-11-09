@@ -296,9 +296,9 @@ fn fallible_conversion_preserves_jvm_error_classes_and_warnings() {
             .unwrap_err();
         assert_eq!(
             json!([
-                error.java_class(),
+                error.legacy_class(),
                 error.message(),
-                error.to_throwable().cause.map(|c| c.kind.legacy_class().to_owned())
+                error.to_failure().cause.map(|c| c.kind.legacy_class().to_owned())
             ]),
             oracle(&format!("parser-error:{name}"))
         );

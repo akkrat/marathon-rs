@@ -455,7 +455,7 @@ async fn split_failures_abandon_in_order_and_rethrow_original() {
             format!("{normalized}; cause=null"),
             oracle(&format!("split-result:{failure}"))
         );
-        assert!(error.to_throwable().cause.is_none());
+        assert!(error.to_failure().cause.is_none());
         server.finish().await;
     }
 }

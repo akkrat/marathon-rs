@@ -594,3 +594,40 @@ impl AndroidBatchExecutor for AndroidRunnerExecutor {
         })
     }
 }
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+    #[test]
+    fn runner_io_retries_keep_the_explicit_set_and_exclude_cancellation() {
+        for kind in [
+            FailureKind::Io,
+            FailureKind::FileNotFound,
+            FailureKind::Eof,
+            FailureKind::InterruptedIO,
+            FailureKind::Socket,
+            FailureKind::SocketTimeout,
+            FailureKind::NoSuchFile,
+            FailureKind::AccessDenied,
+            FailureKind::FileAlreadyExists,
+            FailureKind::FileSystem,
+            FailureKind::Adb(AdbKind::ConnectTimeout),
+            FailureKind::Connect,
+            FailureKind::Adb(AdbKind::ConnectRefused),
+            FailureKind::Adb(AdbKind::ClosedChannel),
+        ] {
+            assert!(is_io_exception(&VendorError::Other(failure(kind.clone(), "test"))));
+            assert!(!is_io_exception(&VendorError::Cancelled(Cancellation::Requested(
+                failure(kind, "test")
+            ))));
+        }
+        for kind in [
+            FailureKind::Zip,
+            FailureKind::UncheckedIO,
+            FailureKind::Timeout,
+            FailureKind::Runtime,
+        ] {
+            assert!(!is_io_exception(&VendorError::Other(failure(kind, "test"))));
+        }
+    }
+}

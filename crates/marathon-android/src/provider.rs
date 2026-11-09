@@ -117,7 +117,7 @@ impl AdamDeviceProvider {
             let registered = registry.clone();
             let logging = AdamLogging::new(registry, move |name, level, text, error| {
                 let logger = lock(&registered).slf4j_logger(name);
-                let f = error.map(|e| throwable(e.to_throwable()));
+                let f = error.map(|e| throwable(e.to_failure()));
                 sink(&logger, level, text.as_str(), f.as_ref())
             });
             let client = AndroidDebugBridgeClient::new(ip, port, self.inner.factory.clone(), Some(logging))
@@ -1035,6 +1035,28 @@ pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: Vendor
             let _ = child.kill().await;
             let _ = child.wait().await;
             return Err(e);
+        }
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+    #[test]
+    fn connect_retry_membership_is_the_exact_existing_set() {
+        for kind in [
+            FailureKind::Adb(AdbKind::ConnectRefused),
+            FailureKind::Adb(AdbKind::ConnectTimeout),
+            FailureKind::Connect,
+        ] {
+            assert!(is_connect(&VendorError::Other(failure(kind, "test"))));
+        }
+        for kind in [
+            FailureKind::Socket,
+            FailureKind::Io,
+            FailureKind::Adb(AdbKind::RequestRejected),
+        ] {
+            assert!(!is_connect(&VendorError::Other(failure(kind, "test"))));
         }
     }
 }

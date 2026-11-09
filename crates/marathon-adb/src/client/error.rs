@@ -7,7 +7,7 @@ use marathon_error::{AdbKind, FailureKind};
 use std::fmt;
 
 /// What a request or stream fails with. Each variant stands for the Java class it is named after; see
-/// [`AdbError::to_throwable`].
+/// [`AdbError::to_failure`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AdbError {
     PullFailed(String),
@@ -48,17 +48,17 @@ pub struct ConnectError {
     pub message: String,
 }
 
-/// The `Failure`-shaped view of an [`AdbError`]: the Java class, message and cause that the Kotlin
+/// The `Failure`-shaped view of an [`AdbError`]: the kind, message and cause that the Kotlin
 /// exception would carry. 6.5 turns it into the core's `Failure` without this crate depending on core.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct JavaThrowable {
+pub struct AdbFailure {
     pub kind: FailureKind,
     pub message: Option<String>,
-    pub cause: Option<Box<JavaThrowable>>,
+    pub cause: Option<Box<AdbFailure>>,
 }
 
 impl AdbError {
-    /// The fully qualified Java class Kotlin would throw.
+    /// Shared kinds preserve the catch distinctions without depending on core.
     pub fn failure_kind(&self) -> FailureKind {
         match self {
             AdbError::Connect(ConnectError { timed_out: false, .. }) => FailureKind::Adb(AdbKind::ConnectRefused),
@@ -82,20 +82,8 @@ impl AdbError {
         }
     }
 
-    pub fn java_class(&self) -> &'static str {
-        match self.failure_kind() {
-            FailureKind::Adb(kind) => kind.legacy_class(),
-            kind => match kind {
-                FailureKind::IllegalState => FailureKind::IllegalState.legacy_class(),
-                FailureKind::IndexOutOfBounds => FailureKind::IndexOutOfBounds.legacy_class(),
-                FailureKind::Io => FailureKind::Io.legacy_class(),
-                FailureKind::StringIndexOutOfBounds => FailureKind::StringIndexOutOfBounds.legacy_class(),
-                FailureKind::NumberFormat => FailureKind::NumberFormat.legacy_class(),
-                FailureKind::Runtime => FailureKind::Runtime.legacy_class(),
-                FailureKind::UnsupportedOperation => FailureKind::UnsupportedOperation.legacy_class(),
-                _ => unreachable!("ADB failure kind is constructed above"),
-            },
-        }
+    pub fn legacy_class(&self) -> String {
+        self.failure_kind().legacy_class().to_owned()
     }
     /// `getMessage()`.
     pub fn message(&self) -> Option<&str> {
@@ -133,16 +121,16 @@ impl AdbError {
     /// A refusal keeps the `ConnectException` netty annotates (`AbstractChannel.java:1172-1174`
     /// `initCause`); its message is the JDK's, the same on macOS and Linux (JVM probe
     /// `connect-refused-cause`). The other errors have no cause.
-    pub fn to_throwable(&self) -> JavaThrowable {
+    pub fn to_failure(&self) -> AdbFailure {
         let cause = match self {
-            AdbError::Connect(ConnectError { timed_out: false, .. }) => Some(Box::new(JavaThrowable {
+            AdbError::Connect(ConnectError { timed_out: false, .. }) => Some(Box::new(AdbFailure {
                 kind: FailureKind::Connect,
                 message: Some("Connection refused".into()),
                 cause: None,
             })),
             _ => None,
         };
-        JavaThrowable {
+        AdbFailure {
             kind: self.failure_kind(),
             message: self.message().map(str::to_string),
             cause,
@@ -154,8 +142,8 @@ impl fmt::Display for AdbError {
     /// Java's `Throwable.toString()`: `<class>: <message>`, or the class alone without a message.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.message() {
-            Some(message) => write!(f, "{}: {}", self.java_class(), message),
-            None => f.write_str(self.java_class()),
+            Some(message) => write!(f, "{}: {}", self.legacy_class(), message),
+            None => f.write_str(&self.legacy_class()),
         }
     }
 }
@@ -177,8 +165,8 @@ mod tests {
         });
         assert!(c.is_connect_exception());
         assert_eq!(
-            c.to_throwable(),
-            JavaThrowable {
+            c.to_failure(),
+            AdbFailure {
                 kind: FailureKind::Adb(AdbKind::ConnectTimeout),
                 message: Some("x".into()),
                 cause: None
@@ -188,6 +176,43 @@ mod tests {
             AdbError::ClosedChannel.to_string(),
             "io.netty.channel.StacklessClosedChannelException"
         );
-        assert_eq!(AdbError::ClosedChannel.to_throwable().message, None);
+        assert_eq!(AdbError::ClosedChannel.to_failure().message, None);
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+    #[test]
+    fn typed_adb_failures_keep_refusal_causes_and_throwable_distinctions() {
+        let refused = AdbError::Connect(ConnectError {
+            timed_out: false,
+            message: "refused".into(),
+        });
+        let detail = refused.to_failure();
+        assert_eq!(detail.kind, FailureKind::Adb(AdbKind::ConnectRefused));
+        assert_eq!(detail.cause.as_deref().map(|c| &c.kind), Some(&FailureKind::Connect));
+        assert_eq!(
+            detail.cause.as_deref().and_then(|c| c.message.as_deref()),
+            Some("Connection refused")
+        );
+        let timeout = AdbError::Connect(ConnectError {
+            timed_out: true,
+            message: "timeout".into(),
+        });
+        assert_eq!(timeout.to_failure().kind, FailureKind::Adb(AdbKind::ConnectTimeout));
+        assert!(timeout.to_failure().cause.is_none());
+        assert!(refused.is_connect_exception() && timeout.is_connect_exception());
+        assert!(!AdbError::VertxClosed.is_exception());
+        assert_eq!(
+            AdbError::VertxClosed.to_failure().kind,
+            FailureKind::Adb(AdbKind::TransportClosed)
+        );
+        assert!(AdbError::ClosedChannel.is_exception());
+        assert_eq!(
+            AdbError::ClosedChannel.to_failure().kind,
+            FailureKind::Adb(AdbKind::ClosedChannel)
+        );
+        assert_eq!(AdbError::ClosedChannel.to_failure().message, None);
     }
 }

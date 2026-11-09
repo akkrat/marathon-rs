@@ -19,7 +19,7 @@ use super::misc::GetAdbServerVersionRequest;
 use super::shell::{v1, v2};
 use super::stub::{self, StubSession};
 use super::transport::{DEFAULT_CONNECT_TIMEOUT_MS, SocketFactory};
-use super::{AdbError, AndroidDebugBridgeClient, AsyncCompatShellCommandRequest, JavaThrowable, Request};
+use super::{AdbError, AdbFailure, AndroidDebugBridgeClient, AsyncCompatShellCommandRequest, Request};
 
 fn kotlin() -> HashMap<String, String> {
     include_str!("../../../../fixtures/oracle/adb-client-probes.jsonl")
@@ -42,10 +42,10 @@ fn kotlin() -> HashMap<String, String> {
 
 /// The probe's `"${javaClass.name}: ${message}"`, which prints a missing message as `null`.
 fn describe(e: &AdbError) -> String {
-    describe_throwable(&e.to_throwable())
+    describe_throwable(&e.to_failure())
 }
 
-fn describe_throwable(t: &JavaThrowable) -> String {
+fn describe_throwable(t: &AdbFailure) -> String {
     format!("{}: {}", t.kind, t.message.as_deref().unwrap_or("null"))
 }
 
@@ -281,11 +281,11 @@ async fn connect_refused() {
     let (class, message) = refused.split_once(": ").unwrap();
     let (cause_class, cause_message) = kotlin["connect-refused-cause"].split_once(": ").unwrap().to_owned();
     assert_eq!(
-        error.to_throwable(),
-        JavaThrowable {
+        error.to_failure(),
+        AdbFailure {
             kind: error.failure_kind(),
             message: Some(message.to_string()),
-            cause: Some(Box::new(JavaThrowable {
+            cause: Some(Box::new(AdbFailure {
                 kind: FailureKind::Connect,
                 message: Some(cause_message.to_string()),
                 cause: None,
@@ -293,8 +293,8 @@ async fn connect_refused() {
         }
     );
     assert_eq!(
-        (error.java_class(), cause_class),
-        (class, FailureKind::Connect.legacy_class())
+        (error.legacy_class(), cause_class),
+        (class.to_owned(), FailureKind::Connect.legacy_class())
     );
     let named = AndroidDebugBridgeClient::new([127, 0, 0, 1].into(), port, factory, None).with_host_name("localhost");
     assert_eq!(named.host_name(), Some("localhost"));

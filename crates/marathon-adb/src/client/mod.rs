@@ -40,7 +40,7 @@ pub(crate) mod stub;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-pub use error::{AdbError, ConnectError, JavaThrowable};
+pub use error::{AdbError, AdbFailure, ConnectError};
 pub use feature::Feature;
 pub use log::AdamLogging;
 pub use request::{AsyncChannelRequest, ComplexRequest, Request};

@@ -2,7 +2,7 @@
 //! and adam/AdamAndroidDevice.kt (timeout and exception boundaries).
 
 use jcompat::jtime::Duration;
-use marathon_adb::client::{AdbError, JavaThrowable};
+use marathon_adb::client::{AdbError, AdbFailure};
 use marathon_core::{error::*, runtime::*, vendor::VendorContext};
 use marathon_error::{AdbKind, AndroidKind, FailureKind};
 use std::{
@@ -13,13 +13,8 @@ use std::{
 pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
-pub(crate) fn failure(class: FailureKind, message: impl Into<String>) -> Failure {
-    Failure {
-        kind: class,
-        message: Some(message.into()),
-        cause: None,
-        stacktrace: None,
-    }
+pub(crate) fn failure(kind: FailureKind, message: impl Into<String>) -> Failure {
+    Failure::from_kind(kind, Some(message.into()))
 }
 pub(crate) fn other(class: FailureKind, message: impl Into<String>) -> VendorError {
     VendorError::Other(failure(class, message))
@@ -36,7 +31,7 @@ pub(crate) fn install(message: impl Into<String>) -> VendorError {
 pub(crate) fn io(e: std::io::Error) -> VendorError {
     other(FailureKind::Io, e.to_string().as_str().to_owned())
 }
-pub(crate) fn throwable(t: JavaThrowable) -> Failure {
+pub(crate) fn throwable(t: AdbFailure) -> Failure {
     Failure {
         kind: t.kind,
         message: t.message.map(|s| s.as_str().to_owned()),
@@ -45,12 +40,14 @@ pub(crate) fn throwable(t: JavaThrowable) -> Failure {
     }
 }
 pub fn adb_error(e: AdbError) -> VendorError {
-    VendorError::Other(throwable(e.to_throwable()))
+    VendorError::Other(throwable(e.to_failure()))
 }
 /// What `execution_error` turns into a lost device: the adb server refused the device or the connection went.
 pub(crate) fn means_device_loss(e: &VendorError) -> bool {
-    let class = &e.failure().kind;
-    *class == FailureKind::Adb(AdbKind::RequestRejected) || *class == FailureKind::Android(AndroidKind::CommandRejected)
+    matches!(
+        e.failure().kind,
+        FailureKind::Adb(AdbKind::RequestRejected) | FailureKind::Android(AndroidKind::CommandRejected)
+    )
 }
 pub fn execution_error(e: VendorError) -> VendorError {
     if means_device_loss(&e) {
@@ -125,4 +122,34 @@ pub(crate) fn dex_error(e: marathon_dex::DexError) -> VendorError {
 }
 pub(crate) fn trim(s: &str) -> String {
     s.trim_matches(jcompat::jstring::is_whitespace).to_owned()
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+    #[test]
+    fn only_the_two_rejection_kinds_are_promoted_to_device_loss() {
+        for kind in [
+            FailureKind::Adb(AdbKind::RequestRejected),
+            FailureKind::Android(AndroidKind::CommandRejected),
+        ] {
+            let original = failure(kind, "rejected");
+            let error = execution_error(VendorError::Other(original.clone()));
+            assert!(matches!(error, VendorError::DeviceLost(_)));
+            assert_eq!(error.failure().kind, FailureKind::DeviceLost);
+            assert_eq!(error.failure().message, Some(original.to_java_string()));
+            assert_eq!(error.failure().cause.as_deref(), Some(&original));
+        }
+        for kind in [
+            FailureKind::Adb(AdbKind::ConnectRefused),
+            FailureKind::Adb(AdbKind::ConnectTimeout),
+            FailureKind::Io,
+            FailureKind::Android(AndroidKind::Install),
+        ] {
+            let error = VendorError::Other(failure(kind, "other"));
+            assert_eq!(execution_error(error.clone()), error);
+        }
+        let cancelled = VendorError::Cancelled(Cancellation::Requested(failure(FailureKind::Cancelled, "cancelled")));
+        assert_eq!(execution_error(cancelled.clone()), cancelled);
+    }
 }
