@@ -25,4 +25,6 @@ assignments inside script elements in `reports/html/**/*.html`, including
 `reports/html/timeline/index.html`, using the same ordered-data rules as JSON
 files. Numeric spellings and string escapes may differ; changed values, key or
 array order, null/omission, and every byte outside the JSON values still differ.
+Only top-level assignments outside JavaScript comments, quoted strings and
+template literals (including interpolations) qualify; nested code stays text.
 Stored golden views and historical JVM comparisons remain unchanged.

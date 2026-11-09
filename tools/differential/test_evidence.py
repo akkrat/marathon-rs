@@ -191,6 +191,56 @@ class EvidenceTests(unittest.TestCase):
                 e.compare_native_views(self.html_view(name, before),
                                        self.html_view(name, before.replace(b'1.0E10', b'10000000000.0')))
 
+    def reject_js_number_spelling_change(self, body):
+        for name, fake in [('reports/html/index.html', b'window.fake'),
+                           ('reports/html/timeline/index.html', b'var dataset')]:
+            before = (b'<script>\n' + body.replace(b'window.fake', fake)
+                      + b'window.test = {"n":2.0};\n</script>')
+            with self.subTest(name=name, body=body), self.assertRaises(e.Invalid):
+                e.compare_native_views(self.html_view(name, before),
+                                       self.html_view(name, before.replace(b'1.0', b'1e0')))
+
+    def test_native_html_js_block_comments_remain_byte_exact(self):
+        self.reject_js_number_spelling_change(b'/*\nwindow.fake = {"n":1.0}\n*/\n')
+
+    def test_native_html_js_line_comments_remain_byte_exact(self):
+        self.reject_js_number_spelling_change(b'// window.fake = {"n":1.0}; quotes: \'"` /*\n')
+
+    def test_native_html_js_string_literals_remain_byte_exact(self):
+        for quote in [b"'", b'"']:
+            payload = b'window.fake = {"n":1.0}'
+            if quote == b'"':
+                payload = payload.replace(b'"', br'\"')
+            self.reject_js_number_spelling_change(b'const literal = ' + quote + b'\\\n'
+                                                 + payload + b'\\\n' + quote + b';\n')
+
+    def test_native_html_js_template_literals_remain_byte_exact(self):
+        for body in [b'const literal = `\nwindow.fake = {"n":1.0}\n`;\n',
+                     b'const literal = `${ "`" + `nested\nwindow.fake = {"n":1.0}\n` }\n`;\n',
+                     b'const literal = `${ (() => {\nwindow.fake = {"n":1.0}\nreturn `nested`; })() }`;\n']:
+            self.reject_js_number_spelling_change(body)
+
+    def test_native_html_nested_js_assignments_remain_byte_exact(self):
+        for opening, closing in [(b'function render() {', b'}'), (b'const values = [', b'];'), (b'(', b');')]:
+            self.reject_js_number_spelling_change(opening + b'\nwindow.fake = {"n":1.0}\n' + closing + b'\n')
+
+    def test_native_html_js_contexts_resume_at_top_level(self):
+        prefixes = [b'// quotes: \'"` /*\n',
+                    b'/* quotes: \'"` //\n*/\n',
+                    b"const literal = 'escaped \\' /* `';\n",
+                    b'const literal = "escaped \\" // `";\n',
+                    b'const literal = `${ "`" + `nested` }`;\n',
+                    b'function render() { return [("quoted")]; }\n']
+        name = 'reports/html/index.html'
+        for prefix in prefixes:
+            before = b'<script>\n' + prefix + b'window.test = {"n":1.0E10};\nwindow.pool = {"n":3};\n</script>'
+            after = before.replace(b'1.0E10', b'10000000000.0')
+            with self.subTest(prefix=prefix):
+                e.compare_native_views(self.html_view(name, before), self.html_view(name, after))
+                with self.assertRaises(e.Invalid):
+                    e.compare_native_views(self.html_view(name, before),
+                                           self.html_view(name, after.replace(b'{"n":3}', b'{"n":4}')))
+
     def test_native_html_multiple_assignments_and_invalid_json(self):
         name = 'reports/html/index.html'
         before = b'<script>\nwindow.test = {"text":"} ; window.fake = 0"};\nwindow.logs = [1,null]\n</script>'

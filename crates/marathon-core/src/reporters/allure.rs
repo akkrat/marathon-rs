@@ -93,8 +93,7 @@ impl AllureReporter {
                     .map_err(|e| allure_error("Could not create Allure results directory", nio_error(e, &output)))?;
                 let mut name = uuid;
                 name.push_str("-result.json");
-                write(&child_file(&output, &name), json(&model)?.as_bytes())
-                    .map_err(|e| allure_error("Could not write Allure test result", e))
+                write_result(&child_file(&output, &name), &model)
             })
             .await?;
         }
@@ -158,6 +157,11 @@ impl Reporter for AllureReporter {
                 .map_err(operation_error)
         })
     }
+}
+fn write_result(path: &std::path::Path, model: &impl serde::Serialize) -> VendorResult<()> {
+    json(model)
+        .and_then(|text| write(path, text.as_bytes()))
+        .map_err(|e| allure_error("Could not write Allure test result", e))
 }
 fn allure_error(message: &str, error: VendorError) -> VendorError {
     let mut f = failure("io.qameta.allure.AllureResultsWriteException", message);
@@ -362,4 +366,30 @@ pub fn environment_xml(params: &[(String, String)]) -> Result<String, XmlTextErr
     }
     out.push_str("</environment>");
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialization_failure_is_wrapped_as_allure_results_write_exception() {
+        struct Unserializable;
+        impl serde::Serialize for Unserializable {
+            fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("serialization rejected"))
+            }
+        }
+        let Err(error) = write_result(std::path::Path::new("\0"), &Unserializable) else {
+            panic!("serialization must fail before opening a file");
+        };
+        let failure = error.failure();
+        assert_eq!(failure.class, "io.qameta.allure.AllureResultsWriteException");
+        assert_eq!(failure.message.as_deref(), Some("Could not write Allure test result"));
+        let Some(cause) = failure.cause.as_deref() else {
+            panic!("the serialization error must remain the cause");
+        };
+        assert_eq!(cause.class, "java.lang.IllegalArgumentException");
+        assert_eq!(cause.message.as_deref(), Some("serialization rejected"));
+    }
 }

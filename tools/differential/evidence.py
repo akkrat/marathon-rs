@@ -747,20 +747,70 @@ def script_spans(text):
     return parser.spans
 
 
+def js_json_spans(text, assignment):
+    """Comments, literals and nested code remain opaque to data comparison."""
+    decoder = json.JSONDecoder()
+    frames = [('code', [])]
+    spans, index = [], 0
+    closing = {'(': ')', '[': ']', '{': '}'}
+    while index < len(text):
+        kind, delimiters = frames[-1]
+        char = text[index]
+        if kind == '//':
+            if char in '\r\n\u2028\u2029':
+                frames.pop()
+                continue
+        elif kind == '/*':
+            if text.startswith('*/', index):
+                frames.pop()
+                index += 2
+                continue
+        elif kind in ("'", '"', '`'):
+            if char == '\\':
+                index += 2
+                continue
+            if char == kind:
+                frames.pop()
+            elif kind == '`' and text.startswith('${', index):
+                frames.append(('code', ['}']))
+                index += 2
+                continue
+        else:
+            if len(frames) == 1 and not delimiters and (index == 0 or text[index - 1] == '\n'):
+                match = assignment.match(text, index)
+                if match:
+                    _, stop = decoder.raw_decode(text, match.end())
+                    spans.append((match.end(), stop))
+                    index = stop
+                    continue
+            if text.startswith(('//', '/*'), index):
+                frames.append((text[index:index + 2], []))
+                index += 2
+                continue
+            if char in ("'", '"', '`'):
+                frames.append((char, []))
+            elif char in closing:
+                delimiters.append(closing[char])
+            elif char in ')]}':
+                if not delimiters or delimiters.pop() != char:
+                    return spans
+                if not delimiters and len(frames) > 1:
+                    frames.pop()
+        index += 1
+    return spans
+
+
 def embedded_json(data, timeline=False):
     """Only assignment values are structured; every surrounding byte stays exact."""
     text = data.decode('utf-8')
     assignment = r'^[ \t]*window\.[A-Za-z_$][A-Za-z0-9_$]*[ \t]*=[ \t]*'
     if timeline:
         assignment += r'|^[ \t]*var dataset[ \t]*=[ \t]*'
-    decoder = json.JSONDecoder()
+    assignment = re.compile(assignment, re.MULTILINE)
     parts, end = [], 0
     for body_start, body_end in script_spans(text):
-        for match in re.finditer(assignment, text[body_start:body_end], re.MULTILINE):
-            start = body_start + match.end()
-            require(body_start + match.start() >= end, 'overlapping embedded JSON assignments')
-            _, stop = decoder.raw_decode(text, start)
-            require(stop <= body_end, 'embedded JSON crosses script boundary')
+        for start, stop in js_json_spans(text[body_start:body_end], assignment):
+            start, stop = body_start + start, body_start + stop
             parts.extend([['text', text[end:start]],
                           ['json', structured_json(text[start:stop])]])
             end = stop
