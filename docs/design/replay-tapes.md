@@ -1,5 +1,7 @@
 # Replay tapes and event scripts (version 1)
 
+> WP 8.5 / D58: native rendering no longer allocates object or metadata identity suffixes. The identity tape format below is historical; checked-in oracle tapes remain unchanged.
+
 WP 0.2b defines the inputs shared with the future Rust seams (WP 3.1). These are oracle inputs, not Marathonfile extensions.
 No goldens are produced here. The reference is commit `e47352f2`.
 

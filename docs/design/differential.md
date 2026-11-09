@@ -168,10 +168,11 @@ bijective by identity type and shared across paths and references. Product JSON 
 results compare as parsed data with key and array order, null/omission, statuses,
 messages and metadata preserved. Numeric spellings and JSON escapes are not significant. D3 removes only the
 root/nested DeviceInfo delegate; similarly named user metadata is preserved.
-Literal UUID-shaped text is never globally replaced. Taped clocks/batch/Allure
-and DEX identity values remain exact. D12/F29 configuration-object identities
-validate the JVM tape value and native class-name hash before substituting the
-same typed object role. Temporary source/receive file roles come from declared
+Literal UUID-shaped text is never globally replaced. Taped clocks/batch/Allure values remain exact. D58 supersedes F29 identity
+rendering: native metadata retains array elements and decoded nulls. Historical
+JVM/native comparisons still validate JVM configuration-object tape values and
+substitute the same typed object role. Native-golden comparisons preserve every
+configuration value, including any identity suffix accidentally reintroduced. Temporary source/receive file roles come from declared
 rsync operands; transferred/consumed bytes remain exact.
 
 JSON, XML and YAML result files compare as parsed data. XML indentation-only

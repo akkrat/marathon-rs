@@ -102,10 +102,11 @@ wrapper's Kotlin toString, then performs substringAfter("(value=") followed
 by substringBefore(")"). Missing delimiters leave the input unchanged. The
 first occurrence wins; this is not structured extraction or recursive matching
 (C28). `DecodedWrapper::kotlin_value` supplies this rendering through the merged
-Kotlin writer. The caller supplies DecodedNull's identity suffix from the replay
-identity service, reusing one stable singleton token per run; the suffix is
-never stored as annotation data. Every null occurrence, including in nested
-arrays, uses that token. Character scalars retain UTF-16 units and numbers use Java formatting.
+Kotlin writer. D58 supersedes identity rendering: `DecodedNull` is `null`,
+including inside wrapper arrays, and `MetaArray` renders as `[elements]` using
+the same rendering for each element as outside an array. Outer annotation arrays
+still match per element after the existing delimiter extraction; unboxed null
+still does not match. Character scalars retain UTF-16 units and numbers use Java formatting.
 
 The pinned `com.linkedin.dextestparser:parser:2.3.4` JAR (SHA-1
 `9279e0742f97d099cd0b07df66ca1045479ff156`) was inspected with `javap -p -c`
@@ -119,7 +120,7 @@ class has only static Companion. Gson excludes those static fields.
 |---|---|---|---|
 | DecodedInt(7) | `DecodedInt(value=7)` | `7` | `{"value":7}` |
 | DecodedString("a)b") | `DecodedString(value=a)b)` | `a` | `{"value":"a)b"}` |
-| DecodedNull | `com.linkedin.dex.parser.DecodedValue$DecodedNull@<hex>` | Entire identity string | `{}` |
+| DecodedNull | `null` (D58) | `null` | `{}` |
 | DecodedArrayValue([Int(7), Int(8)]) | `DecodedArrayValue(values=[DecodedInt(value=7), DecodedInt(value=8)])` | `7` | `{"values":[{"value":7},{"value":8}]}` |
 | DecodedArrayValue([]) | `DecodedArrayValue(values=[])` | `DecodedArrayValue(values=[]` | `{"values":[]}` |
 
