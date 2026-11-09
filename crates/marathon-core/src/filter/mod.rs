@@ -7,6 +7,7 @@
 //! dropping its future detaches blocking work. No caller cancellation is inferred
 //! for Kotlin's synchronous loops; injected service cancellations remain typed.
 
+use marathon_error::FailureKind;
 pub mod allure;
 mod annotation;
 pub use annotation::{AnnotationRenderer, array_element_value};
@@ -122,12 +123,9 @@ impl TestFilter {
                 VendorError::Cancelled(c) => OperationError::Cancelled(c),
                 other => OperationError::Failed(other.failure().clone()),
             })?;
-            receive.await.map_err(|_| {
-                failure(
-                    "java.lang.IllegalStateException",
-                    "filter task finished without a result",
-                )
-            })?
+            receive
+                .await
+                .map_err(|_| failure(FailureKind::IllegalState, "filter task finished without a result"))?
         })
     }
 
@@ -161,7 +159,7 @@ impl TestFilter {
                 select(tests, negate, |test| {
                     let hash = fragment_hash::signed_md5(&test.to_test_name('.', '#'));
                     let actual = fragment_hash::fragment_index_for_hash(hash, *count)
-                        .ok_or_else(|| failure("java.lang.ArithmeticException", "BigInteger divide by zero"))?;
+                        .ok_or_else(|| failure(FailureKind::Arithmetic, "BigInteger divide by zero"))?;
                     Ok(actual == i64::from(*index))
                 })
             }
@@ -239,9 +237,9 @@ fn composition(tests: &[Test], filters: &[TestFilter], op: CompositionOperation)
     }
 }
 
-pub(super) fn failure(class: &str, message: &str) -> Failure {
+pub(super) fn failure(class: FailureKind, message: &str) -> Failure {
     Failure {
-        class: class.into(),
+        kind: class,
         message: Some(message.into()),
         cause: None,
         stacktrace: None,

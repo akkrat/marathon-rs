@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/raw/RawJsonReporter.kt
 //! and report/{device,bill,test,stdout}/ concrete reporters.
+use marathon_error::{FailureKind, InjectedKind};
 mod event_support;
 mod reporter_support;
 use reporter_support::*;
@@ -141,10 +142,10 @@ fn concrete_reporter_failure_keeps_partial_writes_and_only_cancellation_stops_la
             Box::pin(async move {
                 let mut output = files(core.vendor(), path, 0);
                 let failure = Failure {
-                    class: "java.io.IOException".into(),
+                    kind: FailureKind::Io,
                     message: Some("second file".into()),
                     cause: Some(Box::new(marathon_core::executor::shared::failure(
-                        "java.net.SocketException",
+                        FailureKind::Socket,
                         "cause retained",
                     ))),
                     stacktrace: None,
@@ -241,7 +242,7 @@ fn stdout_awaits_async_sink_off_core_without_using_the_blocking_pool() {
                 tokio::time::sleep(std::time::Duration::from_millis(1)).await;
                 assert!(matches!(&records[..], [OutputRecord::Raw(_)]));
                 Err(VendorError::Other(marathon_core::executor::shared::failure(
-                    "SinkFailure",
+                    FailureKind::Injected(InjectedKind::SinkFailure),
                     "after suspension",
                 )))
             })
@@ -266,7 +267,7 @@ fn stdout_awaits_async_sink_off_core_without_using_the_blocking_pool() {
             let Err(OperationError::Failed(error)) = reporter.generate(&report).await else {
                 panic!("sink failure was lost");
             };
-            assert_eq!(error.class, String::from("SinkFailure"));
+            assert_eq!(error.kind.legacy_class(), String::from("SinkFailure"));
             assert_eq!(error.message, Some("after suspension".into()));
             assert_eq!(io.spawns.load(Ordering::SeqCst), 1);
             assert_eq!(io.blocking.load(Ordering::SeqCst), 0);

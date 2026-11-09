@@ -16,6 +16,7 @@ use marathon_core::{
     error::{LeavePoolReason, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorClock, VendorFuture, VendorRuntime},
 };
+use marathon_error::{AppleKind, FailureKind};
 use std::{
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
@@ -35,7 +36,7 @@ use tokio::{
 /// it is booting simulators, and failing a healthy transfer costs more than noticing a dead one later.
 pub const TRANSFER_IO_TIMEOUT_SECONDS: i64 = 300;
 /// The class of the failure a stalled send carries out of the bridge (U163).
-pub const TRANSFER_STALLED: &str = "com.malinskiy.marathon.apple.cmd.remote.rsync.TransferStalled";
+pub const TRANSFER_STALLED: FailureKind = FailureKind::Apple(AppleKind::TransferStalled);
 /// D31: rsync 3's exit status for an expired `--timeout`, `RERR_TIMEOUT`. It also ends `--stop-after` and `--stop-at` with it,
 /// after `STOPPED_AT_LIMIT`. openrsync's status after its report depends on how ssh ends, so there only the report says it.
 const RSYNC_TIMEOUT_STATUS: i32 = 30;
@@ -130,7 +131,7 @@ impl RsyncFileBridge {
         });
         task.join().await?;
         rx.await
-            .map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))?
+            .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?
     }
     /// Joins work retained after an awaiter was dropped. No process cleanup is hidden in Drop.
     pub async fn join_pending(&self) -> VendorResult<()> {
@@ -198,7 +199,7 @@ fn initialize_binaries() -> VendorResult<()> {
     ] {
         if !Path::new(&path).exists() {
             return Err(VendorError::Other(failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 format!(
                     "{name} not installed? Was looking for '{path}'. You can use environment variable {variable} to point to the binary."
                 ),
@@ -220,7 +221,7 @@ impl Inner {
     fn arguments(&self, source: String, destination: String) -> VendorResult<Vec<String>> {
         let auth = self.auth.as_ref().ok_or_else(|| {
             VendorError::Other(failure(
-                "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+                FailureKind::Config(marathon_error::ConfigKind::Rejected),
                 "rsync bridge needs ssh auth",
             ))
         })?;
@@ -374,7 +375,7 @@ impl Inner {
         out_joined?;
         err_joined?;
         let dropped = |e: tokio::sync::oneshot::error::RecvError| {
-            VendorError::Other(failure("java.lang.IllegalStateException", e.to_string()))
+            VendorError::Other(failure(FailureKind::IllegalState, e.to_string()))
         };
         use std::os::unix::process::ExitStatusExt;
         let status = status.code().unwrap_or_else(|| 128 + status.signal().unwrap_or(0));

@@ -10,6 +10,7 @@ use crate::{
     runtime::{ServiceFuture, VendorRuntime},
 };
 use jcompat::logging::{Logger, MarathonLogging};
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -94,10 +95,7 @@ impl TimelineSummaryProvider {
             finish.to_epoch_millis(),
         ) {
             (Some(start), Some(finish)) => Ok((start, finish)),
-            _ => Err(VendorError::Other(failure(
-                "java.lang.ArithmeticException",
-                "long overflow",
-            ))),
+            _ => Err(VendorError::Other(failure(FailureKind::Arithmetic, "long overflow"))),
         };
         let preparing = report
             .device_preparing_events()

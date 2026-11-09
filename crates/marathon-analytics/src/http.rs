@@ -8,6 +8,7 @@ use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
 use jcompat::logging::Level;
 use marathon_core::{analytics::MetricsContext, error::*, executor::shared::failure};
+use marathon_error::{AnalyticsKind, FailureKind, InfluxV1Kind, RetryDisposition};
 use std::{
     sync::{Arc, OnceLock},
     time::Duration,
@@ -19,7 +20,7 @@ pub(crate) fn text(value: &str) -> OperationResult<String> {
     Ok(value.to_owned())
 }
 pub(crate) fn json_body(value: &impl serde::Serialize) -> OperationResult<String> {
-    serde_json::to_string(value).map_err(|e| failure("java.lang.IllegalArgumentException", &e.to_string()).into())
+    serde_json::to_string(value).map_err(|e| failure(FailureKind::IllegalArgument, &e.to_string()).into())
 }
 pub(crate) fn vendor(error: OperationError) -> VendorError {
     match error {
@@ -42,7 +43,7 @@ pub(crate) fn register(context: &MetricsContext, name: &str) -> OperationResult<
     context
         .registry
         .lock()
-        .map_err(|_| failure("java.lang.IllegalStateException", "Poisoned logging registry"))?
+        .map_err(|_| failure(FailureKind::IllegalState, "Poisoned logging registry"))?
         .logger(name, None);
     Ok(())
 }
@@ -71,12 +72,12 @@ impl Http {
             || raw.chars().any(|c| c.is_control() || c == '\\')
         {
             return Err(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "Analytics URL must be an absolute HTTP(S) URL without controls or backslashes",
             )
             .into());
         }
-        let mut base = Url::parse(&raw).map_err(|e| failure("java.lang.IllegalArgumentException", &e.to_string()))?;
+        let mut base = Url::parse(&raw).map_err(|e| failure(FailureKind::IllegalArgument, &e.to_string()))?;
         if base.host_str().is_none()
             || !base.username().is_empty()
             || base.password().is_some()
@@ -84,7 +85,7 @@ impl Http {
             || base.fragment().is_some()
         {
             return Err(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "Analytics URL cannot contain credentials, query or fragment",
             )
             .into());
@@ -125,7 +126,7 @@ impl Http {
         let mut url = self
             .base
             .join(path)
-            .map_err(|e| failure("java.lang.IllegalArgumentException", &e.to_string()))?;
+            .map_err(|e| failure(FailureKind::IllegalArgument, &e.to_string()))?;
         let mut method = method.to_owned();
         let mut body = body;
         let origin = self.base.origin();
@@ -138,7 +139,7 @@ impl Http {
                 let uri = url
                     .as_str()
                     .parse::<hyper::Uri>()
-                    .map_err(|e| failure("java.lang.IllegalArgumentException", &e.to_string()))?;
+                    .map_err(|e| failure(FailureKind::IllegalArgument, &e.to_string()))?;
                 let mut connector = self.connector.clone();
                 let stream = connector
                     .call(uri.clone())
@@ -166,7 +167,7 @@ impl Http {
                 }
                 let request = builder
                     .body(Full::new(Bytes::from(body.clone())))
-                    .map_err(|e| failure("java.lang.IllegalArgumentException", &e.to_string()))?;
+                    .map_err(|e| failure(FailureKind::IllegalArgument, &e.to_string()))?;
                 let exchange = async {
                     let response = sender.send_request(request).await.map_err(|e| network_error(&e))?;
                     let status = response.status().as_u16();
@@ -237,7 +238,7 @@ impl Http {
             {
                 url = url
                     .join(location)
-                    .map_err(|e| failure("java.lang.IllegalArgumentException", &e.to_string()))?;
+                    .map_err(|e| failure(FailureKind::IllegalArgument, &e.to_string()))?;
                 if !matches!(url.scheme(), "http" | "https") {
                     return Ok(response);
                 }
@@ -250,10 +251,10 @@ impl Http {
             }
             return Ok(response);
         }
-        Err(failure("java.net.ProtocolException", "Too many follow-up requests: 21").into())
+        Err(failure(FailureKind::Protocol, "Too many follow-up requests: 21").into())
     }
 }
-pub(crate) fn json(body: &str, class: &str) -> OperationResult<serde_json::Value> {
+pub(crate) fn json(body: &str, class: FailureKind) -> OperationResult<serde_json::Value> {
     serde_json::from_str(&jcompat::jackson::normalize_json_strings(body))
         .map_err(|e| failure(class, &e.to_string()).into())
 }
@@ -268,17 +269,17 @@ pub(crate) fn checked(reply: Reply, v2: bool) -> OperationResult<String> {
         .unwrap_or(&reply.body);
     let class = if v2 {
         match reply.status {
-            400 => "com.influxdb.exceptions.BadRequestException",
-            401 => "com.influxdb.exceptions.UnauthorizedException",
-            403 => "com.influxdb.exceptions.ForbiddenException",
-            404 => "com.influxdb.exceptions.NotFoundException",
-            422 => "com.influxdb.exceptions.UnprocessableEntityException",
-            500 => "com.influxdb.exceptions.InternalServerErrorException",
-            503 => "com.influxdb.exceptions.ServiceUnavailableException",
-            _ => "com.influxdb.exceptions.InfluxException",
+            400 => FailureKind::Analytics(AnalyticsKind::BadRequest),
+            401 => FailureKind::Analytics(AnalyticsKind::Unauthorized),
+            403 => FailureKind::Analytics(AnalyticsKind::Forbidden),
+            404 => FailureKind::Analytics(AnalyticsKind::NotFound),
+            422 => FailureKind::Analytics(AnalyticsKind::UnprocessableEntity),
+            500 => FailureKind::Analytics(AnalyticsKind::InternalServerError),
+            503 => FailureKind::Analytics(AnalyticsKind::ServiceUnavailable),
+            _ => FailureKind::Analytics(AnalyticsKind::InfluxV2),
         }
     } else {
-        v1_error_class(message)
+        v1_error_kind(message)
     };
     let message = if v2 {
         format!("HTTP status code: {}; Message: {message}", reply.status)
@@ -287,57 +288,73 @@ pub(crate) fn checked(reply: Reply, v2: bool) -> OperationResult<String> {
     };
     Err(failure(class, &message).into())
 }
-/// influxdb-java InfluxDBException.buildExceptionFromErrorMessage, first match wins.
-pub(crate) fn v1_error_class(message: &str) -> &'static str {
-    const CLASSES: [(&str, &str); 10] = [
+/// Parse the server's error protocol once; the category and retry rule have different precedence.
+pub(crate) fn v1_error_kind(message: &str) -> FailureKind {
+    const PHRASES: [(&str, InfluxV1Kind, RetryDisposition); 10] = [
         (
             "database not found",
-            "org.influxdb.InfluxDBException$DatabaseNotFoundException",
+            InfluxV1Kind::DatabaseNotFound,
+            RetryDisposition::Never,
         ),
         (
             "points beyond retention policy",
-            "org.influxdb.InfluxDBException$PointsBeyondRetentionPolicyException",
+            InfluxV1Kind::PointsBeyondRetentionPolicy,
+            RetryDisposition::Never,
         ),
         (
             "field type conflict",
-            "org.influxdb.InfluxDBException$FieldTypeConflictException",
+            InfluxV1Kind::FieldTypeConflict,
+            RetryDisposition::Never,
         ),
-        (
-            "unable to parse",
-            "org.influxdb.InfluxDBException$UnableToParseException",
-        ),
+        ("unable to parse", InfluxV1Kind::UnableToParse, RetryDisposition::Never),
         (
             "hinted handoff queue not empty",
-            "org.influxdb.InfluxDBException$HintedHandOffQueueNotEmptyException",
+            InfluxV1Kind::HintedHandOffQueueNotEmpty,
+            RetryDisposition::Never,
         ),
         (
             "cache-max-memory-size exceeded",
-            "org.influxdb.InfluxDBException$CacheMaxMemorySizeExceededException",
+            InfluxV1Kind::CacheMaxMemorySizeExceeded,
+            RetryDisposition::Retry,
         ),
         (
             "user is required to write to database",
-            "org.influxdb.InfluxDBException$AuthorizationFailedException",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
         ),
         (
             "user is not authorized to write to database",
-            "org.influxdb.InfluxDBException$AuthorizationFailedException",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
         ),
         (
             "authorization failed",
-            "org.influxdb.InfluxDBException$AuthorizationFailedException",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
         ),
         (
             "username required",
-            "org.influxdb.InfluxDBException$AuthorizationFailedException",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
         ),
     ];
-    CLASSES
-        .iter()
-        .find(|(text, _)| message.contains(text))
-        .map_or("org.influxdb.InfluxDBException", |(_, class)| class)
+    let mut problem = None;
+    let mut retry = RetryDisposition::Retry;
+    for (phrase, category, disposition) in PHRASES {
+        if message.contains(phrase) {
+            problem.get_or_insert(category);
+            if disposition == RetryDisposition::Never {
+                retry = disposition;
+            }
+        }
+    }
+    FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+        problem: problem.unwrap_or(InfluxV1Kind::General),
+        retry,
+    })
 }
 pub(crate) fn closed() -> OperationError {
-    failure("java.lang.IllegalStateException", "Client is closed").into()
+    failure(FailureKind::IllegalState, "Client is closed").into()
 }
 pub(crate) type SharedHttp = Arc<Http>;
 
@@ -360,20 +377,20 @@ fn tls_config() -> OperationResult<rustls::ClientConfig> {
     Ok(
         rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
-            .map_err(|e| failure("java.security.GeneralSecurityException", &e.to_string()))?
+            .map_err(|e| failure(FailureKind::GeneralSecurity, &e.to_string()))?
             .with_root_certificates(roots())
             .with_no_client_auth(),
     )
 }
 pub(crate) fn network_error(error: &(dyn std::error::Error + 'static)) -> Failure {
     let mut source = Some(error);
-    let mut class = "java.io.IOException";
+    let mut class = FailureKind::Io;
     while let Some(current) = source {
         if let Some(io) = current.downcast_ref::<std::io::Error>() {
             class = match io.kind() {
-                std::io::ErrorKind::ConnectionRefused => "java.net.ConnectException",
-                std::io::ErrorKind::TimedOut => "java.net.SocketTimeoutException",
-                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe => "java.net.SocketException",
+                std::io::ErrorKind::ConnectionRefused => FailureKind::Connect,
+                std::io::ErrorKind::TimedOut => FailureKind::SocketTimeout,
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe => FailureKind::Socket,
                 _ => class,
             };
         }
@@ -486,7 +503,9 @@ pub(crate) mod tests {
             };
             let result = http.request("POST", "slow", Some("text/plain"), None, body).await;
             done.notify_one();
-            assert!(matches!(result,Err(OperationError::Failed(f)) if f.class=="java.net.SocketTimeoutException"));
+            assert!(
+                matches!(result,Err(OperationError::Failed(f)) if f.kind.legacy_class()=="java.net.SocketTimeoutException")
+            );
         };
         let (_, server) = futures_util::future::join(request, server).await;
         server?;
@@ -552,9 +571,124 @@ pub(crate) mod tests {
             ),
             ("bad", "org.influxdb.InfluxDBException"),
         ] {
-            assert_eq!(v1_error_class(message), class, "{message}");
+            assert_eq!(v1_error_kind(message).legacy_class(), class, "{message}");
         }
     }
+    #[test]
+    fn server_error_protocol_records_category_and_retry_independently() {
+        let phrases = [
+            (
+                "database not found",
+                InfluxV1Kind::DatabaseNotFound,
+                RetryDisposition::Never,
+            ),
+            (
+                "points beyond retention policy",
+                InfluxV1Kind::PointsBeyondRetentionPolicy,
+                RetryDisposition::Never,
+            ),
+            (
+                "field type conflict",
+                InfluxV1Kind::FieldTypeConflict,
+                RetryDisposition::Never,
+            ),
+            ("unable to parse", InfluxV1Kind::UnableToParse, RetryDisposition::Never),
+            (
+                "hinted handoff queue not empty",
+                InfluxV1Kind::HintedHandOffQueueNotEmpty,
+                RetryDisposition::Never,
+            ),
+            (
+                "cache-max-memory-size exceeded",
+                InfluxV1Kind::CacheMaxMemorySizeExceeded,
+                RetryDisposition::Retry,
+            ),
+            (
+                "user is required to write to database",
+                InfluxV1Kind::AuthorizationFailed,
+                RetryDisposition::Never,
+            ),
+            (
+                "user is not authorized to write to database",
+                InfluxV1Kind::AuthorizationFailed,
+                RetryDisposition::Never,
+            ),
+            (
+                "authorization failed",
+                InfluxV1Kind::AuthorizationFailed,
+                RetryDisposition::Never,
+            ),
+            (
+                "username required",
+                InfluxV1Kind::AuthorizationFailed,
+                RetryDisposition::Never,
+            ),
+        ];
+        for (body, problem, retry) in phrases {
+            let error = checked(
+                Reply {
+                    status: 400,
+                    body: body.into(),
+                    location: None,
+                    retry_after: None,
+                },
+                false,
+            )
+            .unwrap_err();
+            assert!(
+                matches!(error, OperationError::Failed(ref failure) if failure.kind == FailureKind::Analytics(AnalyticsKind::InfluxV1 { problem, retry }) && failure.message.as_deref() == Some(body))
+            );
+        }
+        for pair in phrases.windows(2) {
+            for body in [
+                format!("{}; {}", pair[0].0, pair[1].0),
+                format!("{}; {}", pair[1].0, pair[0].0),
+            ] {
+                let retry = if pair.iter().any(|p| p.2 == RetryDisposition::Never) {
+                    RetryDisposition::Never
+                } else {
+                    RetryDisposition::Retry
+                };
+                assert_eq!(
+                    v1_error_kind(&body),
+                    FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+                        problem: pair[0].1,
+                        retry
+                    })
+                );
+            }
+        }
+        assert_eq!(
+            v1_error_kind("generic server failure"),
+            FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+                problem: InfluxV1Kind::General,
+                retry: RetryDisposition::Retry
+            })
+        );
+        assert_eq!(
+            v1_error_kind("cache-max-memory-size exceeded; username required"),
+            FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+                problem: InfluxV1Kind::CacheMaxMemorySizeExceeded,
+                retry: RetryDisposition::Never
+            })
+        );
+    }
+
+    #[test]
+    fn transport_classification_uses_typed_sources_with_unrelated_messages() {
+        for (source, kind) in [
+            (std::io::ErrorKind::ConnectionRefused, FailureKind::Connect),
+            (std::io::ErrorKind::ConnectionReset, FailureKind::Socket),
+            (std::io::ErrorKind::BrokenPipe, FailureKind::Socket),
+            (std::io::ErrorKind::TimedOut, FailureKind::SocketTimeout),
+            (std::io::ErrorKind::Other, FailureKind::Io),
+        ] {
+            let error = network_error(&std::io::Error::new(source, "unrelated message"));
+            assert_eq!(error.kind, kind);
+            assert_eq!(error.message.as_deref(), Some("unrelated message"));
+        }
+    }
+
     #[tokio::test]
     async fn read_and_write_have_independent_idle_timeouts() {
         let result = tokio::time::timeout(Duration::from_secs(60), async {

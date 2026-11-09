@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
 //! (D34: a failed history query is not final; Kotlin caches it for the whole run).
+use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
 use jcompat::{jtime::Instant, logging::Level};
@@ -30,7 +31,7 @@ use tokio::sync::Notify;
 const SCHEDULE: [i64; 8] = [5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000];
 
 fn down() -> OperationError {
-    failure("java.lang.RuntimeException", "unreadable").into()
+    failure(FailureKind::Runtime, "unreadable").into()
 }
 /// A first query's three attempts all fail, and then the backend answers.
 fn down_for_first_query(source: &Source) {
@@ -252,7 +253,7 @@ fn close_ends_a_pending_refresh_without_waiting_and_nothing_queries_after_it() {
         // Close errors still reach the caller, and no permit is ever released.
         assert_eq!(
             p.close().await,
-            Err(OperationError::Failed(failure("java.io.IOException", "close")))
+            Err(OperationError::Failed(failure(FailureKind::Io, "close")))
         );
         assert_eq!(h.running.load(AtomicOrdering::SeqCst), 0);
         h.clock.release_refreshes(8);

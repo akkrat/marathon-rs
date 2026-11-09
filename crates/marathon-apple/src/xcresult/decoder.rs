@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/xcrun/xcresulttool/AppleJsonTypeAdapterFactory.kt
 
+use marathon_error::{ConfigKind, FailureKind};
 use std::collections::BTreeMap;
 
 use jcompat::jackson::{self, JavaDate, Scalar, ScalarError};
@@ -41,9 +42,9 @@ impl From<XcresultDecodeError> for Failure {
     }
 }
 
-fn failure(class: &str, message: &str) -> Failure {
+fn failure(class: FailureKind, message: &str) -> Failure {
     Failure {
-        class: String::from(class),
+        kind: class,
         message: Some(String::from(message)),
         cause: None,
         stacktrace: None,
@@ -63,7 +64,7 @@ impl Path {
         path.0.push(DecodePathSegment::Index(index));
         path
     }
-    fn error(&self, class: &str, message: &str) -> XcresultDecodeError {
+    fn error(&self, class: FailureKind, message: &str) -> XcresultDecodeError {
         XcresultDecodeError {
             kind: DecodeErrorKind::Mapping,
             path: self.0.clone(),
@@ -72,7 +73,7 @@ impl Path {
     }
     fn shape(&self) -> XcresultDecodeError {
         self.error(
-            "com.fasterxml.jackson.databind.exc.MismatchedInputException",
+            FailureKind::Config(ConfigKind::MismatchedInput),
             "Unexpected xcresult JSON value shape",
         )
     }
@@ -80,7 +81,7 @@ impl Path {
         match error {
             ScalarError::Shape => self.shape(),
             ScalarError::Invalid => self.error(
-                "com.fasterxml.jackson.databind.exc.InvalidFormatException",
+                FailureKind::Config(ConfigKind::InvalidFormat),
                 "Invalid xcresult scalar value",
             ),
         }
@@ -95,9 +96,9 @@ fn syntax(error: serde_json::Error) -> XcresultDecodeError {
         path: vec![],
         failure: failure(
             if error.is_eof() {
-                "com.fasterxml.jackson.core.io.JsonEOFException"
+                FailureKind::Config(ConfigKind::JsonEOF)
             } else {
-                "com.fasterxml.jackson.core.JsonParseException"
+                FailureKind::Config(ConfigKind::JsonParse)
             },
             &error.to_string(),
         ),
@@ -109,7 +110,7 @@ fn nesting_error(depth: usize) -> XcresultDecodeError {
         kind: DecodeErrorKind::JsonSyntax,
         path: vec![],
         failure: failure(
-            "com.fasterxml.jackson.core.exc.StreamConstraintsException",
+            FailureKind::Config(ConfigKind::StreamConstraints),
             &format!(
                 "Document nesting depth ({depth}) exceeds the maximum allowed ({MAX_NESTING_DEPTH}, from `StreamReadConstraints.getMaxNestingDepth()`)"
             ),
@@ -271,7 +272,7 @@ impl<'a> Fields<'a> {
     pub(super) fn required<T: Decode>(&self, name: &str) -> Result<T, XcresultDecodeError> {
         self.optional(name)?.ok_or_else(|| {
             self.path.field(name).error(
-                "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException",
+                FailureKind::Config(ConfigKind::MissingKotlinParameter),
                 "Missing or null required xcresult constructor parameter",
             )
         })
@@ -315,7 +316,7 @@ fn decode_list<T: Decode>(node: &JsonNode, path: &Path) -> Result<Vec<Option<T>>
 fn wrapped<'a>(node: &'a JsonNode, path: &Path) -> Result<&'a JsonNode, XcresultDecodeError> {
     node.get("_value").ok_or_else(|| {
         path.error(
-            "com.fasterxml.jackson.databind.JsonMappingException",
+            FailureKind::Config(ConfigKind::JsonMapping),
             "Missing xcresult scalar _value wrapper (WP 4.6 P1)",
         )
     })

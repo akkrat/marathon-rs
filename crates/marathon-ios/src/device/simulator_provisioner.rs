@@ -24,6 +24,7 @@ use marathon_core::{
     runtime::{CancellationSignal, VendorFuture},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -35,9 +36,10 @@ pub trait ProvisioningConnections: Send + Sync {
     fn connect(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, (Option<Executor>, Bridge)>;
     fn connect_worker(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, Executor> {
         Box::pin(async move {
-            self.connect(transport, caller).await?.0.ok_or_else(|| {
-                VendorError::Other(failure("java.lang.IllegalStateException", "missing executor")).into()
-            })
+            self.connect(transport, caller)
+                .await?
+                .0
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "missing executor")).into())
         })
     }
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()>;
@@ -186,7 +188,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
     ) -> ProvisioningResult<Self> {
         if concurrency <= 0 {
             return Err(VendorError::Other(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 format!("concurrency should be positive, got {concurrency}"),
             ))
             .into());
@@ -289,7 +291,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     active(&caller)?;
                     let _permit = tokio::select! { biased;
                         reason = caller.cancellation.cancelled() => return Err(VendorError::Cancelled(reason).into()),
-                        permit = semaphore.acquire() => permit.map_err(|e| VendorError::Other(marathon_apple::cmd::failure("java.lang.IllegalStateException", e.to_string())))?,
+                        permit = semaphore.acquire() => permit.map_err(|e| VendorError::Other(marathon_apple::cmd::failure(FailureKind::IllegalState, e.to_string())))?,
                     };
                     active(&caller)?;
                     match &failure {
@@ -299,7 +301,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                         },
                         FailedSetup::Created { profile, .. } => match bin {
                             Some(bin) => self.create(profile, &transport, &bin, cycle, &caller).await,
-                            None => Err(VendorError::Other(marathon_apple::cmd::failure("java.lang.IllegalStateException", "profile provisioning requires binary environment")).into()),
+                            None => Err(VendorError::Other(marathon_apple::cmd::failure(FailureKind::IllegalState, "profile provisioning requires binary environment")).into()),
                         },
                     }
                 }.await;

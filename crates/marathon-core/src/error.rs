@@ -2,14 +2,13 @@
 //! and the other exceptions in that package; DeviceActor.kt supplies catch order.
 
 use marathon_config::binding::ConfigurationError;
-pub use marathon_error::FailureKind;
+pub use marathon_error::*;
 
 /// Preserve class, nullable message and causal chain for classification/output.
 /// Formatting stack traces is a later WP, not Rust Debug or Display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
-    /// Temporary compatibility field; WP 8.6a milestone 2 replaces it with `kind: FailureKind`.
-    pub class: String,
+    pub kind: FailureKind,
     pub message: Option<String>,
     pub cause: Option<Box<Failure>>,
     pub stacktrace: Option<String>,
@@ -18,7 +17,7 @@ impl Failure {
     /// Typed producers get their rendered class only from the legacy mapping.
     pub fn from_kind(kind: FailureKind, message: Option<String>) -> Self {
         Self {
-            class: kind.legacy_class().to_owned(),
+            kind,
             message,
             cause: None,
             stacktrace: None,
@@ -27,7 +26,7 @@ impl Failure {
 
     /// `Throwable.toString()`: the class, then `: message` when there is one.
     pub fn to_java_string(&self) -> String {
-        let mut text = self.class.clone();
+        let mut text = self.kind.legacy_class().to_owned();
         if let Some(message) = &self.message {
             text.push_str(": ");
             text.push_str(&message.to_owned());
@@ -156,7 +155,7 @@ mod tests {
         let mut failure = Failure::from_kind(FailureKind::IllegalState, Some(String::new()));
         failure.stacktrace = Some("\tat source.frame(Source:1)".into());
         failure.cause = Some(Box::new(Failure::from_kind(FailureKind::Io, None)));
-        assert_eq!(failure.class, FailureKind::IllegalState.legacy_class());
+        assert_eq!(failure.kind.legacy_class(), FailureKind::IllegalState.legacy_class());
         assert_eq!(failure.to_java_string(), "java.lang.IllegalStateException: ");
         assert_eq!(
             failure.stack_trace(),
@@ -171,7 +170,7 @@ mod tests {
         let kind = FailureKind::External("runner.CustomFailure".into());
         let mut failure = Failure::from_kind(kind.clone(), Some("java.io.IOException: remote".into()));
         failure.stacktrace = Some("external.Frame\n".into());
-        assert_eq!(failure.class, kind.legacy_class());
+        assert_eq!(failure.kind.legacy_class(), kind.legacy_class());
         assert_eq!(
             failure.stack_trace(),
             "runner.CustomFailure: java.io.IOException: remote\nexternal.Frame\n"

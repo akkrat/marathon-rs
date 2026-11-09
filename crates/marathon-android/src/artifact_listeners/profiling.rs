@@ -5,6 +5,7 @@ use jcompat::{StringSubstitutor, logging::Level};
 use marathon_adb::testrunner::TestEvent;
 use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;
+use marathon_error::FailureKind;
 pub struct ProfilingRunListener {
     pub artifacts: ArtifactContext,
     config: Mutex<(Option<String>, Option<String>)>,
@@ -83,7 +84,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         message.push_str(" (");
                         message.push_str(reason.split(" (os error ").next().unwrap_or(&reason));
                         message.push(')');
-                        other("java.io.FileNotFoundException", message)
+                        other(FailureKind::FileNotFound, message)
                     };
                     let mut file = std::fs::File::open(&p).map_err(open_error)?;
                     if file.metadata().map_err(io)?.is_dir() {
@@ -123,7 +124,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         .batch
                         .tests
                         .first()
-                        .ok_or_else(|| other("java.util.NoSuchElementException", "List is empty."))?;
+                        .ok_or_else(|| other(FailureKind::NoSuchElement, "List is empty."))?;
                     let bundle = self.artifacts.device.runtime().identifier.android_bundle(test)?;
                     let info = blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
                         bundle.instrumentation_info()
@@ -151,7 +152,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                             _ => None,
                         })
                         .replace(&config)
-                        .map_err(|e| other(e.java_class(), e.message.as_str().to_owned()))?;
+                        .map_err(|e| other(FailureKind::Arithmetic, e.message.as_str().to_owned()))?;
                         self.log(Level::Debug, &format!("Rendered config:\n{rendered}"));
                         lock(&self.config).1 = Some(rendered);
                     }

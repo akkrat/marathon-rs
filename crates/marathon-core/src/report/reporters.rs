@@ -16,6 +16,7 @@ use jcompat::{
     jtime::{instant_duration_millis, instant_to_epoch_milli},
     logging::{Level, Logger},
 };
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::{collections::BTreeMap, io::Write};
 
@@ -50,10 +51,10 @@ impl ReporterFiles {
 }
 fn json(value: impl serde::Serialize) -> OperationResult<String> {
     serde_json::to_string(&value)
-        .map_err(|e| crate::executor::shared::failure("java.lang.IllegalArgumentException", &e.to_string()).into())
+        .map_err(|e| crate::executor::shared::failure(FailureKind::IllegalArgument, &e.to_string()).into())
 }
 fn arithmetic(value: Option<i64>) -> OperationResult<i64> {
-    value.ok_or_else(|| crate::executor::shared::failure("java.lang.ArithmeticException", "long overflow").into())
+    value.ok_or_else(|| crate::executor::shared::failure(FailureKind::Arithmetic, "long overflow").into())
 }
 
 pub struct DeviceInfoJsonReporter {

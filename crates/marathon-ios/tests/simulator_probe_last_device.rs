@@ -4,6 +4,7 @@
 //! default that sets the timeline divided by [`SCALE`]: `bootWait` 180 s, the 10 s pause between boot attempts, the 1 s
 //! poll, the 30 s recovery pause step and `deviceInitializationTimeoutMillis` 180 s. The figures in
 //! docs/wp/x42-findings.md are these timelines multiplied back.
+use marathon_error::FailureKind;
 #[path = "../../marathon-core/tests/support/pool.rs"]
 mod pool_support;
 mod provider_support;
@@ -135,7 +136,7 @@ fn probe_never_succeeds_on_the_only_simulator(from: From) -> TestResult<Timeline
         // Three silent batches in a row lose the simulator (D39, U165): the loss that starts the re-setup.
         lines: vec!["Test Case '-[Suite test1]' started.".into()],
         failure: Some(marathon_apple::cmd::failure(
-            "java.util.concurrent.TimeoutException",
+            FailureKind::Timeout,
             "idle timeout reached",
         )),
         ..Default::default()

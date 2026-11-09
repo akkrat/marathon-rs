@@ -17,6 +17,7 @@ use marathon_core::{
     runtime::{CancellationSignal, VendorClock, VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use russh::Sig;
 use std::sync::{
     Arc, Mutex,
@@ -149,7 +150,7 @@ pub async fn suspend_for<C: ExitState + ?Sized>(
                     if error
                         .cause
                         .as_ref()
-                        .is_some_and(|cause| cause.class == super::error::TIMEOUT_EXCEPTION) => {}
+                        .is_some_and(|cause| cause.kind == super::error::TIMEOUT_EXCEPTION) => {}
                 Err(error) => return Err(ExitWaitError::Failed(error)),
             }
         }
@@ -279,7 +280,7 @@ async fn exit_code(
                 Some(Ok(code)) => Ok(code),
                 Some(Err(error)) => Err(error.into_vendor()),
                 None => Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     "no exit wait result",
                 ))),
             },
@@ -354,14 +355,12 @@ impl CommandExecutor for SshCommandExecutor {
             }));
             let pending = rx
                 .await
-                .map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))??;
+                .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))??;
             let session = pending
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .take()
-                .ok_or_else(|| {
-                    VendorError::Other(failure("java.lang.IllegalStateException", "session already delivered"))
-                })?;
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "session already delivered")))?;
             let _ = accepted.send(());
             Ok(session)
         })

@@ -385,9 +385,12 @@ fn compare_error(toks: &Tokens, expected_error: &serde_json::Value, id: &str) ->
             } else {
                 message_marks(exp.get("message").and_then(|v| v.as_str()).unwrap_or(""))
             };
-            let mut ok = got.class == class;
+            let mut ok = got.kind.legacy_class() == class;
             if !ok {
-                println!("ERROR-DIFF {id}: class expected {class} got {}", got.class);
+                println!(
+                    "ERROR-DIFF {id}: class expected {class} got {}",
+                    got.kind.legacy_class()
+                );
             }
             for (role, actual) in [
                 ("context", got.context),
@@ -508,7 +511,7 @@ mod tests {
             tokens: vec![],
             error: Some(TokenError {
                 stage: "token",
-                class: "C",
+                kind: snakeyaml::tokens::TokenErrorKind::Fixture,
                 message: String::new(),
                 context: mark(3),
                 problem: mark(7),

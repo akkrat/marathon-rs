@@ -4,6 +4,7 @@
 use crate::{error::*, runtime::*};
 use crossbeam_queue::SegQueue;
 use futures_util::task::AtomicWaker;
+use marathon_error::FailureKind;
 use std::{
     future::{Future, poll_fn},
     sync::{
@@ -14,19 +15,19 @@ use std::{
 };
 use tokio::sync::Notify;
 
-pub fn failure(class: &str, message: &str) -> Failure {
+pub fn failure(class: FailureKind, message: &str) -> Failure {
     Failure {
-        class: class.into(),
+        kind: class,
         message: Some(message.into()),
         cause: None,
         stacktrace: None,
     }
 }
 pub fn requested(message: &str) -> Cancellation {
-    Cancellation::Requested(failure("java.util.concurrent.CancellationException", message))
+    Cancellation::Requested(failure(FailureKind::Cancelled, message))
 }
 pub(crate) fn replay_failure(message: &str) -> Failure {
-    failure("marathon.ReplayError", message)
+    failure(FailureKind::Replay, message)
 }
 #[derive(Default)]
 pub struct Signal {

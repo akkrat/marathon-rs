@@ -18,6 +18,7 @@ use jcompat::{
     report_text::{XmlTextError, allure_history_id, form_encode, replace, xml_text},
 };
 use marathon_config::{Configuration, VendorConfiguration};
+use marathon_error::{FailureKind, ReportKind};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -109,7 +110,7 @@ impl AllureReporter {
             let error = match write(&child(&this.output, "environment.xml"), &bytes) {
                 Err(error) => {
                     let mut failure = failure(
-                        "javax.xml.transform.TransformerException",
+                        FailureKind::Report(ReportKind::Transformer),
                         &error.failure().to_java_string().to_owned(),
                     );
                     failure.cause = Some(Box::new(error.failure().clone()));
@@ -139,9 +140,9 @@ impl AllureReporter {
 /// TransformerException(SAXException) as thrown by the identity transform.
 fn xml_failure(error: XmlTextError) -> Failure {
     let sax = error.sax_message();
-    let cause = failure("org.xml.sax.SAXException", &sax);
+    let cause = failure(FailureKind::Report(ReportKind::SAX), &sax);
     let mut top = failure(
-        "javax.xml.transform.TransformerException",
+        FailureKind::Report(ReportKind::Transformer),
         &format!("org.xml.sax.SAXException: {sax}"),
     );
     top.cause = Some(Box::new(cause));
@@ -164,7 +165,7 @@ fn write_result(path: &std::path::Path, model: &impl serde::Serialize) -> Vendor
         .map_err(|e| allure_error("Could not write Allure test result", e))
 }
 fn allure_error(message: &str, error: VendorError) -> VendorError {
-    let mut f = failure("io.qameta.allure.AllureResultsWriteException", message);
+    let mut f = failure(FailureKind::Report(ReportKind::AllureResultsWrite), message);
     f.cause = Some(Box::new(error.failure().clone()));
     VendorError::Other(f)
 }
@@ -384,12 +385,15 @@ mod tests {
             panic!("serialization must fail before opening a file");
         };
         let failure = error.failure();
-        assert_eq!(failure.class, "io.qameta.allure.AllureResultsWriteException");
+        assert_eq!(
+            failure.kind.legacy_class(),
+            "io.qameta.allure.AllureResultsWriteException"
+        );
         assert_eq!(failure.message.as_deref(), Some("Could not write Allure test result"));
         let Some(cause) = failure.cause.as_deref() else {
             panic!("the serialization error must remain the cause");
         };
-        assert_eq!(cause.class, "java.lang.IllegalArgumentException");
+        assert_eq!(cause.kind.legacy_class(), "java.lang.IllegalArgumentException");
         assert_eq!(cause.message.as_deref(), Some("serialization rejected"));
     }
 }

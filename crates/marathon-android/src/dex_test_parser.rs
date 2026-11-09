@@ -14,6 +14,7 @@ use marathon_core::{
     vendor::{LocalTestParser, VendorContext},
 };
 use marathon_dex::{DecodedValue, DexError, TestAnnotation, TestMethod};
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::{
     collections::HashMap,
@@ -114,7 +115,7 @@ impl<B: Send + Sync + 'static> LocalTestParser for DexTestParser<B> {
             let tests = output.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
             tests.ok_or_else(|| {
                 VendorError::Other(Failure {
-                    class: "java.lang.IllegalStateException".into(),
+                    kind: FailureKind::IllegalState,
                     message: Some("test parsing finished without a result".into()),
                     cause: None,
                     stacktrace: None,
@@ -127,7 +128,7 @@ impl<B: Send + Sync + 'static> LocalTestParser for DexTestParser<B> {
 fn failure_from(err: DexError) -> VendorError {
     fn to_failure(err: DexError) -> Failure {
         Failure {
-            class: err.jvm_class,
+            kind: err.kind,
             message: err.message,
             cause: err.cause.map(|cause| Box::new(to_failure(*cause))),
             stacktrace: None,

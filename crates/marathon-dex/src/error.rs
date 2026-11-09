@@ -10,11 +10,12 @@
 //! (BufferUnderflowException, ArrayIndexOutOfBoundsException,
 //! StackOverflowError, …) collapses to DexException with our wording.
 
+use marathon_error::{DexKind, FailureKind};
 use std::{fmt, io, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DexError {
-    pub jvm_class: String,
+    pub kind: FailureKind,
     pub message: Option<String>,
     pub cause: Option<Box<DexError>>,
 }
@@ -22,7 +23,7 @@ pub struct DexError {
 impl DexError {
     pub fn dex_exception(message: impl Into<String>) -> Self {
         Self {
-            jvm_class: "com.linkedin.dex.spec.DexException".into(),
+            kind: FailureKind::Dex(DexKind::Decode),
             message: Some(message.into()),
             cause: None,
         }
@@ -30,7 +31,7 @@ impl DexError {
 
     pub fn illegal_state(message: impl Into<String>) -> Self {
         Self {
-            jvm_class: "java.lang.IllegalStateException".into(),
+            kind: FailureKind::IllegalState,
             message: Some(message.into()),
             cause: None,
         }
@@ -38,29 +39,29 @@ impl DexError {
 
     pub fn null_pointer(message: impl Into<String>) -> Self {
         Self {
-            jvm_class: "java.lang.NullPointerException".into(),
+            kind: FailureKind::NullReference,
             message: Some(message.into()),
             cause: None,
         }
     }
 
-    pub fn with_class(class: &str, message: Option<String>) -> Self {
+    pub fn with_class(class: FailureKind, message: Option<String>) -> Self {
         Self {
-            jvm_class: class.into(),
+            kind: class,
             message,
             cause: None,
         }
     }
 
     pub fn eof() -> Self {
-        Self::with_class("java.io.EOFException", None)
+        Self::with_class(FailureKind::Eof, None)
     }
 
     /// ApkParser's `catch (e: IOException)` wrap; the wording (including
     /// "test app" in parseAppPackageName) is marathon's and reaches logs.
     pub fn unable_to_parse_manifest(cause: DexError) -> Self {
         Self {
-            jvm_class: "java.lang.RuntimeException".into(),
+            kind: FailureKind::Runtime,
             message: Some("Unable to parse test app AndroidManifest.xml.".into()),
             cause: Some(Box::new(cause)),
         }
@@ -69,23 +70,17 @@ impl DexError {
     /// IOException-shaped failure (the only kind ApkParser catches/wraps).
     pub fn io(message: impl Into<String>) -> Self {
         Self {
-            jvm_class: "java.io.IOException".into(),
+            kind: FailureKind::Io,
             message: Some(message.into()),
             cause: None,
         }
     }
 
     pub fn is_io(&self) -> bool {
-        let class: String = "java.io.IOException".into();
-        let zip: String = "java.util.zip.ZipException".into();
-        let eof: String = "java.io.EOFException".into();
-        let fnf: String = "java.io.FileNotFoundException".into();
-        let nsf: String = "java.nio.file.NoSuchFileException".into();
-        self.jvm_class == class
-            || self.jvm_class == zip
-            || self.jvm_class == eof
-            || self.jvm_class == fnf
-            || self.jvm_class == nsf
+        matches!(
+            self.kind,
+            FailureKind::Io | FailureKind::Zip | FailureKind::Eof | FailureKind::FileNotFound | FailureKind::NoSuchFile
+        )
     }
 
     /// Opening a file with java.io semantics: a missing file is
@@ -95,10 +90,10 @@ impl DexError {
         let shown = path.to_string_lossy();
         if err.kind() == io::ErrorKind::NotFound {
             return Self {
-                jvm_class: "java.io.FileNotFoundException".into(),
+                kind: FailureKind::FileNotFound,
                 message: Some(format!("{shown} (No such file or directory)").as_str().into()),
                 cause: Some(Box::new(Self {
-                    jvm_class: "java.nio.file.NoSuchFileException".into(),
+                    kind: FailureKind::NoSuchFile,
                     message: Some(shown.as_ref().into()),
                     cause: None,
                 })),
@@ -109,7 +104,7 @@ impl DexError {
 
     pub fn zip_exception(message: impl Into<String>) -> Self {
         Self {
-            jvm_class: "java.util.zip.ZipException".into(),
+            kind: FailureKind::Zip,
             message: Some(message.into()),
             cause: None,
         }
@@ -125,7 +120,7 @@ impl DexError {
 
 impl fmt::Display for DexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.jvm_class.to_owned())?;
+        write!(f, "{}", self.kind.to_owned())?;
         if let Some(message) = &self.message {
             write!(f, ": {}", message.to_owned())?;
         }

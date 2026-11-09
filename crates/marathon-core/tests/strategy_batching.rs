@@ -7,6 +7,7 @@
 //! order for what they check. The 4 "without history" tests are WP 3.4a's.
 //! `D50_ROWS` names the JVM rows that stay witnesses of C33.
 
+use marathon_error::FailureKind;
 mod strategy_support;
 
 use jcompat::JavaPriorityQueue;
@@ -385,7 +386,7 @@ struct FailingIdentifier;
 impl TestBundleIdentifier for FailingIdentifier {
     fn identify(&self, _test: &Test) -> VendorResult<Option<BundleRef>> {
         Err(VendorError::Other(Failure {
-            class: "java.lang.IllegalStateException".into(),
+            kind: FailureKind::IllegalState,
             message: None,
             cause: None,
             stacktrace: None,

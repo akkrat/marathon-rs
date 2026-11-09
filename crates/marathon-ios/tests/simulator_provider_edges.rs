@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt
 //! Supplemental lifecycle, source, registration, and live-plan witnesses.
+use marathon_error::FailureKind;
 mod provider_support;
 mod simulator_support;
 mod support;
@@ -423,7 +424,10 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
         let error = p.provider.initialize(p.h.services.context.clone()).await.unwrap_err();
         let actual = error.failure();
         let expected = fixture(&format!("load-{name}"));
-        assert_eq!(actual.class.to_owned(), expected["class"].as_str().unwrap());
+        assert_eq!(
+            actual.kind.legacy_class().to_owned(),
+            expected["class"].as_str().unwrap()
+        );
         assert_eq!(
             actual
                 .message
@@ -437,7 +441,7 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
         let mut expected = expected.get("cause");
         while let Some(next) = expected {
             let a = actual.unwrap();
-            assert_eq!(a.class.to_owned(), next["class"].as_str().unwrap());
+            assert_eq!(a.kind.legacy_class().to_owned(), next["class"].as_str().unwrap());
             // U83: preserve the merged binder's diagnostics; its exception classes/stages match.
             assert!(a.message.is_some());
             if name == "mapping" {
@@ -471,7 +475,10 @@ async fn static_loading_matches_jvm_error_stages_and_static_existence_wins_over_
     })?;
     std::fs::create_dir(p.h.dir.path().join("Marathondevices"))?;
     let error = p.provider.initialize(p.h.services.context.clone()).await.unwrap_err();
-    assert_eq!(error.failure().class, "java.io.FileNotFoundException".to_owned());
+    assert_eq!(
+        error.failure().kind.legacy_class(),
+        "java.io.FileNotFoundException".to_owned()
+    );
     p.finish().await
 }
 #[tokio::test]
@@ -765,7 +772,7 @@ async fn an_asynchronous_notification_racing_channel_close_fails_without_failing
         p.h.logs.lock().unwrap().iter().any(|(_, _, _, error)| {
             error
                 .as_ref()
-                .is_some_and(|e| e.class == "kotlinx.coroutines.channels.ClosedSendChannelException")
+                .is_some_and(|e| e.kind.legacy_class() == "kotlinx.coroutines.channels.ClosedSendChannelException")
         })
     })
     .await;
@@ -897,7 +904,10 @@ async fn substitution_cycles_escape_the_static_mapping_wrapper() -> TestResult {
     std::fs::write(p.h.dir.path().join("Marathondevices"), b"workers: ${PROVIDER_CYCLE}\n")?;
     let error = provider.initialize(p.h.services.context.clone()).await.unwrap_err();
     let expected = fixture("load-cycle");
-    assert_eq!(error.failure().class.to_owned(), expected["class"].as_str().unwrap());
+    assert_eq!(
+        error.failure().kind.legacy_class().to_owned(),
+        expected["class"].as_str().unwrap()
+    );
     assert_eq!(
         error.failure().message.as_ref().unwrap().to_owned(),
         expected["message"].as_str().unwrap()
@@ -919,9 +929,9 @@ async fn lost_planning_warning_uses_kotlin_cause_descriptions_and_preserves_miss
         if let Some(worker) = connected.upgrade() {
             worker.connected.store(false, Ordering::SeqCst);
         }
-        let mut error = marathon_apple::cmd::failure("java.lang.IllegalStateException", "plan failed");
+        let mut error = marathon_apple::cmd::failure(FailureKind::IllegalState, "plan failed");
         error.cause = Some(Box::new(marathon_apple::cmd::failure(
-            "java.lang.IllegalArgumentException",
+            FailureKind::IllegalArgument,
             "root",
         )));
         Box::pin(async move { Err(marathon_core::error::VendorError::Other(error)) })
@@ -936,7 +946,7 @@ async fn lost_planning_warning_uses_kotlin_cause_descriptions_and_preserves_miss
     let missing = p.recovery.missing.lock().unwrap().clone();
     assert_eq!(missing, vec![targets(&["a"])]);
     let no_message = marathon_core::error::Failure {
-        class: "java.lang.IllegalStateException".into(),
+        kind: FailureKind::IllegalState,
         message: None,
         cause: None,
         stacktrace: None,

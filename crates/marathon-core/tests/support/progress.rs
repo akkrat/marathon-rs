@@ -14,6 +14,7 @@ use marathon_core::{
     strategy::retry::RetryProgress,
     wiring::Tracker,
 };
+use marathon_error::FailureKind;
 use std::{
     rc::Rc,
     sync::{
@@ -111,10 +112,7 @@ impl Tracker for Capture {
                 )));
             }
             if self.fail.load(Ordering::SeqCst) {
-                Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
-                    "tracker failed",
-                )))
+                Err(VendorError::Other(failure(FailureKind::IllegalState, "tracker failed")))
             } else {
                 Ok(())
             }

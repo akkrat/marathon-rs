@@ -41,6 +41,7 @@ use marathon_core::{
     vendor::{Device, DeviceRef, TestBundleIdentifier, VendorContext},
     wiring::{MetricsProvider, Tracker},
 };
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::{
     cell::RefCell,
@@ -123,12 +124,12 @@ pub fn sorted(mut values: Vec<String>) -> Vec<String> {
 }
 
 pub fn ise(message: &str) -> Failure {
-    failure("java.lang.IllegalStateException", message)
+    failure(FailureKind::IllegalState, message)
 }
 /// `DeviceLostException(cause)`: Throwable(cause) takes `cause.toString()` as its message.
 pub fn device_lost(cause: Failure) -> VendorError {
     VendorError::DeviceLost(Failure {
-        class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
+        kind: FailureKind::DeviceLost,
         message: Some(cause.to_java_string()),
         cause: Some(Box::new(cause)),
         stacktrace: None,
@@ -136,10 +137,7 @@ pub fn device_lost(cause: Failure) -> VendorError {
 }
 /// `Job.cancel()` without a cause.
 pub fn job_was_cancelled() -> Cancellation {
-    Cancellation::Requested(failure(
-        "kotlinx.coroutines.JobCancellationException",
-        "Job was cancelled",
-    ))
+    Cancellation::Requested(failure(FailureKind::JobCancelled, "Job was cancelled"))
 }
 
 // ---- Send signals the devices wait on --------------------------------------------------

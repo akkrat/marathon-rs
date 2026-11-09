@@ -128,7 +128,13 @@ fn measured_apple_mapper_corpus() {
             // Rust rejects while parsing, before binding, so there is no Jackson reference chain.
             let error = actual.expect_err(&id);
             assert_eq!(error.kind, DecodeErrorKind::JsonSyntax, "{id}");
-            assert!(error.failure.class.clone().ends_with("StreamConstraintsException"));
+            assert!(
+                error
+                    .failure
+                    .kind
+                    .legacy_class()
+                    .ends_with("StreamConstraintsException")
+            );
         } else {
             let error = actual.expect_err(&id);
             let expected: Vec<String> = serde_json::from_str(row["path"].get()).unwrap();
@@ -177,7 +183,7 @@ fn decode_failures_are_structured_and_resource_free() {
         ]
     );
     let failure: marathon_core::error::Failure = error.into();
-    assert!(failure.class.ends_with("InvalidFormatException"));
+    assert!(failure.kind.legacy_class().ends_with("InvalidFormatException"));
 }
 
 #[test]
@@ -186,7 +192,13 @@ fn nesting_beyond_jacksons_limit_is_an_error_not_a_stack_overflow() {
     for input in [deep(1001), deep(5000), "{\"u\":".repeat(5000) + "1" + &"}".repeat(5000)] {
         let error = decode_legacy::<ResultMetrics>(&input).unwrap_err();
         assert_eq!(error.kind, DecodeErrorKind::JsonSyntax);
-        assert!(error.failure.class.clone().ends_with("StreamConstraintsException"));
+        assert!(
+            error
+                .failure
+                .kind
+                .legacy_class()
+                .ends_with("StreamConstraintsException")
+        );
     }
     assert!(decode_legacy::<ResultMetrics>(&format!("{{\"u\":{}}}", deep(999))).is_ok());
 }

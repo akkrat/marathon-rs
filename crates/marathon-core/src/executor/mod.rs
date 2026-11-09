@@ -1,6 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt
 //! and actor/Actor.kt (coroutine execution and explicit Job context).
 
+use marathon_error::FailureKind;
 mod actor;
 pub mod bridge;
 mod clock;
@@ -62,7 +63,7 @@ impl CoreExecutor {
     ) -> OperationResult<T> {
         if tokio::runtime::Handle::try_current().is_ok() {
             return Err(failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "CoreExecutor::run must be called outside an executor",
             )
             .into());
@@ -76,7 +77,7 @@ impl CoreExecutor {
             .enable_time()
             .thread_name("marathon-vendor")
             .build()
-            .map_err(|e| failure("java.io.IOException", &e.to_string()))?;
+            .map_err(|e| failure(FailureKind::Io, &e.to_string()))?;
         let handle = vendor.handle().clone();
         let (finished, settled) = std::sync::mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
@@ -86,7 +87,7 @@ impl CoreExecutor {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_time()
                     .build()
-                    .map_err(|e| failure("java.io.IOException", &e.to_string()))?;
+                    .map_err(|e| failure(FailureKind::Io, &e.to_string()))?;
                 let local = tokio::task::LocalSet::new();
                 let tracker = Arc::new(Tracker::default());
                 let clock = Rc::new(RuntimeClock::new(virtual_time));
@@ -112,7 +113,7 @@ impl CoreExecutor {
                     }
                 }))
             })
-            .map_err(|e| failure("java.io.IOException", &e.to_string()))?;
+            .map_err(|e| failure(FailureKind::Io, &e.to_string()))?;
         if let Some(limit) = watchdog
             && let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = settled.recv_timeout(limit)
         {
@@ -270,7 +271,7 @@ fn panic_failure(payload: Box<dyn std::any::Any + Send>) -> Failure {
         .copied()
         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
         .unwrap_or("Rust task panicked");
-    failure("java.lang.RuntimeException", message)
+    failure(FailureKind::Runtime, message)
 }
 struct IoTask {
     signal: Arc<Signal>,

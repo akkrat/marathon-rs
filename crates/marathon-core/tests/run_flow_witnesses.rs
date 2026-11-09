@@ -22,6 +22,7 @@ use marathon_core::{
     runtime::*,
     vendor::{LocalTestParser, LogConfigurator, TestParser, VendorContext},
 };
+use marathon_error::FailureKind;
 use marathon_test_support::{
     console::Line,
     factory::{FakeTimer, MarathonFactory},
@@ -54,7 +55,7 @@ fn push(trace: &Trace, name: &str, fail: &Option<String>) -> VendorResult<()> {
     trace.lock().unwrap().push(name.to_owned());
     if fail.as_deref() == Some(name) {
         return Err(VendorError::Other(failure(
-            "java.lang.IllegalStateException",
+            FailureKind::IllegalState,
             &format!("{name} failed"),
         )));
     }
@@ -115,7 +116,7 @@ impl marathon_core::vendor::RemoteTestParser for FailsOn {
         Box::pin(async move {
             if fails {
                 return Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     &format!("parse failed on {serial}"),
                 )));
             }
@@ -333,7 +334,7 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
                 Some(true) => *built.provider.borrow_delay_millis.lock().unwrap() = i64::MAX,
                 Some(false) => {
                     *built.provider.borrow_error.lock().unwrap() = Some(VendorError::Other(failure(
-                        "java.lang.IllegalStateException",
+                        FailureKind::IllegalState,
                         "no device to borrow",
                     )))
                 }
@@ -396,7 +397,7 @@ fn rust_events(lines: &[Line], logger: &str) -> Vec<(String, String, Option<Stri
                 Some((
                     level_name(*level),
                     normalize(message),
-                    cause.as_ref().map(|c| c.class.to_owned()),
+                    cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
                 ))
             }
             _ => None,
@@ -533,7 +534,11 @@ fn check(case: &str, r: &Result) {
     match (&r.outcome.value, row.get("value")) {
         (Some(Ok(value)), Some(expected)) => assert_eq!(Value::Bool(*value), *expected, "{case}: value"),
         (Some(Err(e)), None) => {
-            assert_eq!(e.failure().class.to_owned(), row["exception"], "{case}: exception");
+            assert_eq!(
+                e.failure().kind.legacy_class().to_owned(),
+                row["exception"],
+                "{case}: exception"
+            );
             assert_eq!(
                 e.failure().message.as_ref().map(|m| m.to_owned()),
                 row["message"].as_str().map(str::to_owned),
@@ -773,7 +778,7 @@ fn remote_parsing_retries_borrow_three_times() {
     let r = run(o, Entry::RunAsync, ExecutionCommand::Run);
     let row = row("remote-retry");
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
-    assert_eq!(e.failure().class.to_owned(), row["exception"]);
+    assert_eq!(e.failure().kind.legacy_class().to_owned(), row["exception"]);
     assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), row["message"]);
     let borrows = |t: &[String]| t.iter().filter(|c| *c == "borrow").count();
     assert_eq!(r.outcome.provider_calls.iter().filter(|c| **c == "borrow").count(), 3);
@@ -845,7 +850,7 @@ fn remote_parsing_timeout_is_no_devices() {
     let row = row("remote-timeout");
     let e = r.outcome.value.as_ref().unwrap().as_ref().unwrap_err();
     assert!(matches!(e, VendorError::NoDevices(_)));
-    assert_eq!(e.failure().class.to_owned(), row["exception"]);
+    assert_eq!(e.failure().kind.legacy_class().to_owned(), row["exception"]);
     assert_eq!(e.failure().message.as_ref().unwrap().to_owned(), row["message"]);
     assert_eq!(r.outcome.completed_at, Some(50));
 }
@@ -862,7 +867,7 @@ fn missing_vendor_services_fail_construction_as_koin_does() {
         let failure = marathon_core::construction::missing_definition(class);
         let chain: Vec<Value> = std::iter::successors(Some(&failure), |f| f.cause.as_deref())
             .map(
-                |f| serde_json::json!({"class": f.class.to_owned(), "message": f.message.as_ref().unwrap().to_owned()}),
+                |f| serde_json::json!({"class": f.kind.legacy_class().to_owned(), "message": f.message.as_ref().unwrap().to_owned()}),
             )
             .collect();
         assert_eq!(Value::Array(chain), row(case)["chain"], "{case}");

@@ -9,6 +9,7 @@ use jcompat::{
     formatting::{DatePattern, format_date},
     jnum,
 };
+use marathon_error::FailureKind;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -50,7 +51,7 @@ impl Reporter for JUnitReporter {
                             let text = e.to_string();
                             let reason = text.split(" (os error ").next().unwrap_or(&text);
                             return Err(crate::error::VendorError::Other(crate::executor::shared::failure(
-                                "java.io.IOException",
+                                FailureKind::Io,
                                 reason,
                             )));
                         }

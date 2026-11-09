@@ -24,6 +24,7 @@ use marathon_core::{
     runtime::{EventChannel, VendorFuture},
     vendor::{Device, DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
 };
+use marathon_error::{ConfigKind, FailureKind};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -108,12 +109,12 @@ impl AppleMacosProvider {
             };
             {
                 let mut detail = failure(
-                    "java.io.FileNotFoundException",
+                    FailureKind::FileNotFound,
                     format!("{} ({suffix})", path.to_string_lossy().into_owned()),
                 );
                 let class = match e.kind() {
-                    std::io::ErrorKind::NotFound => Some("java.nio.file.NoSuchFileException"),
-                    std::io::ErrorKind::PermissionDenied => Some("java.nio.file.AccessDeniedException"),
+                    std::io::ErrorKind::NotFound => Some(FailureKind::NoSuchFile),
+                    std::io::ErrorKind::PermissionDenied => Some(FailureKind::AccessDenied),
                     _ => None,
                 };
                 detail.cause = class.map(|class| Box::new(failure(class, path.to_string_lossy())));
@@ -133,12 +134,12 @@ impl AppleMacosProvider {
         let devices = MarathonConfigurationLoader
             .devices_sync_for(DevicesProvider::Macos, &bytes, &context)
             .map_err(|e| {
-                let mapping = e.class.to_owned().starts_with("com.fasterxml.jackson.databind.")
-                    || e.class == "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException";
+                let mapping = matches!(e.kind, FailureKind::Config(kind) if kind.is_mapping())
+                    || e.kind == FailureKind::Config(ConfigKind::MissingKotlinParameter);
                 let cause = configuration_failure(&e);
                 if mapping {
                     let mut f = failure(
-                        "com.malinskiy.marathon.exceptions.NoDevicesException",
+                        FailureKind::NoDevices,
                         format!(
                             "Invalid Marathondevices file {} format",
                             absolute.to_string_lossy().into_owned()
@@ -152,7 +153,7 @@ impl AppleMacosProvider {
             })?;
         if devices.workers.is_empty() {
             return Err(VendorError::NoDevices(failure(
-                "com.malinskiy.marathon.exceptions.NoDevicesException",
+                FailureKind::NoDevices,
                 format!("No workers found in the {}", absolute.to_string_lossy().into_owned()),
             )));
         }
@@ -216,12 +217,10 @@ impl AppleMacosProvider {
         let channel = self.channel.clone();
         self.tasks.spawn(&*self.options.dependencies.io, async move {
             channel.try_send(event).map_err(|e| {
-                VendorError::Other(e.cause.unwrap_or_else(|| {
-                    failure(
-                        "kotlinx.coroutines.channels.ClosedSendChannelException",
-                        "Channel was closed",
-                    )
-                }))
+                VendorError::Other(
+                    e.cause
+                        .unwrap_or_else(|| failure(FailureKind::ChannelSendClosed, "Channel was closed")),
+                )
             })
         });
         Ok(())
@@ -330,7 +329,7 @@ impl DeviceProvider for AppleMacosProvider {
                         .choose_key("macos.AppleMacosProvider.borrow", &keys)
                         .map_err(crate::clock_error)?;
                     let device = devices.iter().find(|d| d.info().serial_number == key).ok_or_else(|| {
-                        VendorError::Other(failure("marathon.ReplayError", "Unknown macOS device selection"))
+                        VendorError::Other(failure(FailureKind::Replay, "Unknown macOS device selection"))
                     })?;
                     return Ok((DeviceRef(device.clone()), key));
                 }
@@ -349,7 +348,7 @@ impl DeviceProvider for AppleMacosProvider {
                 }
                 .await;
                 if let Err(error) = outcome
-                    && jcompat::throwable::is_error_class(&error.failure().class.to_owned())
+                    && error.failure().kind.is_fatal()
                 {
                     return Err(error);
                 }
@@ -372,14 +371,14 @@ impl DeviceProvider for AppleMacosProvider {
 fn configuration_failure(error: &ConfigurationError) -> Failure {
     let cause = error.causes.iter().rev().fold(None, |cause, c| {
         Some(Box::new(Failure {
-            class: c.class.clone(),
+            kind: c.kind.clone(),
             message: c.message.to_owned(),
             cause,
             stacktrace: None,
         }))
     });
     Failure {
-        class: error.class.clone(),
+        kind: error.kind.clone(),
         message: error.message.to_owned(),
         cause,
         stacktrace: None,

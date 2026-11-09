@@ -13,6 +13,7 @@ use marathon_core::{
     vendor::DeviceEvent,
     wiring::RunDependencies,
 };
+use marathon_error::FailureKind;
 use marathon_test_support::{
     factory::MarathonFactory,
     scenario,
@@ -217,7 +218,7 @@ impl ConsoleSink for FailsOnce {
             }
             self.failure_written.notify_one();
             Err(VendorError::Other(failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "injected output failure",
             )))
         })

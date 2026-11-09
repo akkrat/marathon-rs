@@ -17,6 +17,7 @@ use marathon_config::{
     loader::{LogicalConfigurationValidator, MarathonConfigurationLoader},
 };
 use marathon_core::error::Failure;
+use marathon_error::FailureKind;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::{collections::BTreeMap, fs, path::Path};
@@ -91,13 +92,13 @@ fn parse_failure(error: &InstantParseError) -> Failure {
         .rev()
         .fold(None, |cause, (class, message)| {
             Some(Failure {
-                class: (*class).into(),
+                kind: class.clone(),
                 message: Some(message.to_owned()),
                 cause: cause.map(Box::new),
                 stacktrace: None,
             })
         })
-        .unwrap_or_else(|| failure("java.time.format.DateTimeParseException", ""))
+        .unwrap_or_else(|| failure(FailureKind::DateTimeParse, ""))
 }
 
 /// `readEnvFile`: `KEY=VALUE` lines; blank lines and `#` lines are skipped; the value follows the first `=`.
@@ -120,7 +121,7 @@ fn read_env_file(path: &str) -> Result<Vec<(String, String)>, Failure> {
             }
             _ => {
                 return Err(failure(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     &format!("not a KEY=VALUE line in {path}: {line}"),
                 ));
             }
@@ -172,10 +173,10 @@ fn failure_json(f: &Failure) -> DumpValue {
     let mut causes = Vec::new();
     let mut cause = f.cause.as_deref();
     while let Some(c) = cause {
-        causes.push((c.class.clone(), c.message.to_owned()));
+        causes.push((c.kind.legacy_class().to_owned(), c.message.to_owned()));
         cause = c.cause.as_deref();
     }
-    error_json(&f.class, f.message.as_deref(), &causes)
+    error_json(f.kind.legacy_class(), f.message.as_deref(), &causes)
 }
 
 /// `parseAndValidate`: stage (a) with both tracking flags true, then the logical validator.
@@ -189,7 +190,7 @@ fn parse_and_validate(
     let parsed = (|| {
         if !fs::metadata(absolute).is_ok_and(|m| m.is_file()) {
             return Err(failure(
-                "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+                FailureKind::Config(marathon_error::ConfigKind::Rejected),
                 &format!("No config {absolute} present"),
             ));
         }
@@ -218,7 +219,7 @@ fn parse_and_validate(
 }
 
 fn io_failure(e: &std::io::Error) -> Failure {
-    failure("java.io.UncheckedIOException", &e.to_string())
+    failure(FailureKind::UncheckedIO, &e.to_string())
 }
 
 #[derive(Clone, PartialEq, Eq)]

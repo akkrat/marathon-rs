@@ -2,6 +2,7 @@
 //! what adam 0.5.8 did (`fixtures/oracle/adb-client-probes.jsonl`). The two cases where 6.1 deviates on
 //! purpose (D11, P5) check the recorded Kotlin value and the Rust one side by side.
 
+use marathon_error::FailureKind;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -45,7 +46,7 @@ fn describe(e: &AdbError) -> String {
 }
 
 fn describe_throwable(t: &JavaThrowable) -> String {
-    format!("{}: {}", t.class, t.message.as_deref().unwrap_or("null"))
+    format!("{}: {}", t.kind, t.message.as_deref().unwrap_or("null"))
 }
 
 /// The probe's `withTimeoutOrNull` rows.
@@ -282,16 +283,19 @@ async fn connect_refused() {
     assert_eq!(
         error.to_throwable(),
         JavaThrowable {
-            class: error.java_class(),
+            kind: error.failure_kind(),
             message: Some(message.to_string()),
             cause: Some(Box::new(JavaThrowable {
-                class: "java.net.ConnectException",
+                kind: FailureKind::Connect,
                 message: Some(cause_message.to_string()),
                 cause: None,
             })),
         }
     );
-    assert_eq!((error.java_class(), cause_class), (class, "java.net.ConnectException"));
+    assert_eq!(
+        (error.java_class(), cause_class),
+        (class, FailureKind::Connect.legacy_class())
+    );
     let named = AndroidDebugBridgeClient::new([127, 0, 0, 1].into(), port, factory, None).with_host_name("localhost");
     assert_eq!(named.host_name(), Some("localhost"));
     let error = named.execute(GetAdbServerVersionRequest, None).await.unwrap_err();

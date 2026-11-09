@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XcodebuildSession.kt (state-machine probe replay).
+use marathon_error::FailureKind;
 mod support;
 use jcompat::logging::MarathonLogging;
 use marathon_apple::{
@@ -82,7 +83,7 @@ async fn receiver_cancellation_retains_the_first_terminal_result() -> Result<(),
                 exit_code: Some(0),
             },
         );
-        let expected = VendorError::Other(failure("java.io.IOException", "output failed"));
+        let expected = VendorError::Other(failure(FailureKind::Io, "output failed"));
         let error = expected.clone();
         let channel = session.produce(
             context.clone(),
@@ -132,7 +133,7 @@ async fn reader_cancellation_preserves_a_published_terminal_failure() -> Result<
         },
     );
     let mut context = support::context();
-    let expected = VendorError::Other(failure("java.io.IOException", "boom"));
+    let expected = VendorError::Other(failure(FailureKind::Io, "boom"));
     let error = expected.clone();
     let channel = session.produce(
         context.clone(),

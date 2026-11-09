@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunnerTest.kt
+use marathon_error::{FailureKind, FatalKind, InjectedKind};
 #[path = "support/parser.rs"]
 mod parser_support;
 #[path = "support/runner_device.rs"]
@@ -83,7 +84,7 @@ impl AppleTestRunListener for Listener {
             self.calls.lock().unwrap().push(format!("{}:afterTestRun", self.name));
             if self.after {
                 return Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     "no result bundle",
                 )));
             }
@@ -152,17 +153,17 @@ async fn failure_after_the_test_run_keeps_the_run_failure_and_stops_reading_even
 async fn closing_case(
     failure: bool,
     timeout: bool,
-    close_error: Option<&str>,
-    output_error: Option<&str>,
+    close_error: Option<FailureKind>,
+    output_error: Option<FailureKind>,
 ) -> TestResult {
-    let error = |class: &str| VendorError::Other(failure_fn(class));
+    let error = |class: FailureKind| VendorError::Other(failure_fn(class));
     let (device, runner) = setup(Plan {
         events: vec![
             vec![TestEvent::TestRunStartedEvent],
             vec![if failure { failed() } else { TestEvent::TestRunEnded }],
         ],
-        closing_failure: close_error.map(error),
-        output_failure: output_error.map(error),
+        closing_failure: close_error.clone().map(error),
+        output_failure: output_error.clone().map(error),
         wait_close: close_error.is_none(),
         ..Default::default()
     });
@@ -185,10 +186,13 @@ async fn closing_case(
         assert!(matches!(result.error, VendorError::DeviceLost(_)));
         let flattened = result.into_vendor();
         let not_closed = flattened.failure().cause.as_ref().unwrap();
-        let expected = close_error.unwrap_or("java.util.concurrent.TimeoutException");
-        assert_eq!(not_closed.cause.as_ref().unwrap().class, String::from(expected));
+        let expected = close_error.unwrap_or(FailureKind::Timeout);
+        assert_eq!(
+            not_closed.cause.as_ref().unwrap().kind.legacy_class(),
+            expected.legacy_class().to_owned()
+        );
         if let Some(class) = output_error {
-            assert!(not_closed.stack_trace().to_owned().contains(class));
+            assert!(not_closed.stack_trace().to_owned().contains(class.legacy_class()));
         }
         assert_eq!(calls.last().unwrap(), "run ended");
         assert!(!calls.contains(&"closed".to_owned()));
@@ -203,7 +207,7 @@ async fn closing_case(
     }
     Ok(())
 }
-fn failure_fn(class: &str) -> marathon_core::error::Failure {
+fn failure_fn(class: FailureKind) -> marathon_core::error::Failure {
     failure(class, "channel close not confirmed")
 }
 #[tokio::test]
@@ -220,19 +224,19 @@ async fn device_whose_xcodebuild_session_has_not_closed_in_time_is_lost() -> Tes
 }
 #[tokio::test]
 async fn device_whose_xcodebuild_session_failed_to_close_is_lost() -> TestResult {
-    closing_case(true, false, Some("java.io.IOException"), None).await
+    closing_case(true, false, Some(FailureKind::Io), None).await
 }
 #[tokio::test]
 async fn device_whose_xcodebuild_session_failed_to_close_with_an_error_is_lost() -> TestResult {
-    closing_case(true, false, Some("java.lang.AssertionError"), None).await
+    closing_case(true, false, Some(FailureKind::Fatal(FatalKind::Assertion)), None).await
 }
 #[tokio::test]
 async fn failed_output_reaches_the_run_before_its_xcodebuild_session_is_closed() -> TestResult {
-    closing_case(false, true, None, Some("java.util.concurrent.TimeoutException")).await
+    closing_case(false, true, None, Some(FailureKind::Timeout)).await
 }
 #[tokio::test]
 async fn output_failing_with_an_error_reaches_the_run_before_its_xcodebuild_session_is_closed() -> TestResult {
-    closing_case(false, true, None, Some("java.lang.AssertionError")).await
+    closing_case(false, true, None, Some(FailureKind::Fatal(FatalKind::Assertion))).await
 }
 #[tokio::test]
 async fn cancelled_run_waits_for_its_xcodebuild_session_and_stays_cancelled_when_it_does_not_close_in_time()
@@ -352,30 +356,36 @@ async fn execute_builds_the_request_and_logs_remote_path_and_tests() -> TestResu
 
 #[tokio::test]
 async fn after_run_error_replaces_failure_but_exception_named_error_is_suppressed() -> TestResult {
-    struct After(&'static str);
+    struct After(FailureKind);
     impl AppleTestRunListener for After {
         fn after_test_run(&self) -> VendorFuture<'_, ()> {
-            Box::pin(async move { Err(VendorError::Other(failure(self.0, "after failed"))) })
+            Box::pin(async move { Err(VendorError::Other(failure(self.0.clone(), "after failed"))) })
         }
     }
     for (class, is_error) in [
-        ("java.lang.AssertionError", true),
-        ("java.lang.ThreadDeath", true),
-        ("probe.ExceptionNamedError", false),
+        (FailureKind::Fatal(FatalKind::Assertion), true),
+        (FailureKind::Fatal(FatalKind::ThreadDeath), true),
+        (FailureKind::Injected(InjectedKind::ProbeExceptionNamedError), false),
     ] {
         let (device, runner) = setup(Plan {
             events: vec![vec![failed()]],
             ..Default::default()
         });
-        let result = execute(&runner, &After(class)).await.unwrap_err();
+        let result = execute(&runner, &After(class.clone())).await.unwrap_err();
         v(device.dispose().await)?;
         if is_error {
-            assert_eq!(result.error.failure().class, String::from(class));
+            assert_eq!(
+                result.error.failure().kind.legacy_class(),
+                class.legacy_class().to_owned()
+            );
             assert!(result.suppressed.is_empty());
         } else {
             assert_eq!(result.reason, Some(DeviceFailureReason::Unknown));
             assert_eq!(result.suppressed.len(), 1);
-            assert_eq!(result.suppressed[0].class, String::from(class));
+            assert_eq!(
+                result.suppressed[0].kind.legacy_class(),
+                class.legacy_class().to_owned()
+            );
         }
     }
     Ok(())

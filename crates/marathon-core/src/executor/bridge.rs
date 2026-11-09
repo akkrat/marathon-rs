@@ -4,6 +4,7 @@ use crate::{
     error::*,
     runtime::{CancellationSignal, VendorFuture, VendorRuntime},
 };
+use marathon_error::FailureKind;
 use std::{
     future::Future,
     pin::Pin,
@@ -59,7 +60,7 @@ pub async fn call_vendor<T: Send + 'static>(
     let value = cell.lock().ok().and_then(|mut slot| slot.take());
     value.ok_or_else(|| {
         VendorError::Other(super::shared::failure(
-            "java.lang.IllegalStateException",
+            FailureKind::IllegalState,
             "vendor call finished without a result",
         ))
     })

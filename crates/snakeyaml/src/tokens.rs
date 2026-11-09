@@ -43,26 +43,50 @@ pub struct Token {
     pub tag: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenErrorKind {
+    Fixture,
+    MarkedYaml,
+    YamlParse,
+    JsonParse,
+    StreamConstraints,
+    JsonEof,
+    MismatchedInput,
+}
+impl TokenErrorKind {
+    pub fn legacy_class(self) -> &'static str {
+        match self {
+            Self::Fixture => "C",
+            Self::MarkedYaml => "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException",
+            Self::YamlParse => "com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException",
+            Self::JsonParse => "com.fasterxml.jackson.core.JsonParseException",
+            Self::StreamConstraints => "com.fasterxml.jackson.core.exc.StreamConstraintsException",
+            Self::JsonEof => "com.fasterxml.jackson.core.io.JsonEOFException",
+            Self::MismatchedInput => "com.fasterxml.jackson.databind.exc.MismatchedInputException",
+        }
+    }
+}
+
 /// An error `nextToken` throws.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TokenError {
     pub stage: &'static str,
     pub context: Option<Mark>,
     /// The Jackson exception class, for comparison with the oracle.
-    pub class: &'static str,
+    pub kind: TokenErrorKind,
     pub message: String,
     pub problem: Option<Mark>,
     pub location: Option<Mark>,
 }
 
-pub const MARKED_YAML_EXCEPTION: &str = "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException";
-pub const JACKSON_YAML_PARSE_EXCEPTION: &str = "com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException";
+pub const MARKED_YAML_EXCEPTION: TokenErrorKind = TokenErrorKind::MarkedYaml;
+pub const JACKSON_YAML_PARSE_EXCEPTION: TokenErrorKind = TokenErrorKind::YamlParse;
 
 impl From<&YamlError> for TokenError {
     fn from(e: &YamlError) -> Self {
         TokenError {
             stage: e.stage,
-            class: match e.kind {
+            kind: match e.kind {
                 YamlErrorKind::Syntax => MARKED_YAML_EXCEPTION,
                 YamlErrorKind::Depth => crate::resolve::STREAM_CONSTRAINTS_EXCEPTION,
                 YamlErrorKind::NumberFormat => crate::resolve::JSON_PARSE_EXCEPTION,
@@ -89,7 +113,7 @@ pub fn check_key(key: &Node) -> Result<&str, KeyProblem> {
         _ => Err(KeyProblem::NotScalar(Box::new(TokenError {
             stage: "token",
             context: None,
-            class: crate::resolve::JSON_PARSE_EXCEPTION,
+            kind: crate::resolve::JSON_PARSE_EXCEPTION,
             message: "expected a field name (a scalar), found an alias or a collection".to_owned(),
             problem: None,
             location: Some(key_location(key)),
@@ -113,7 +137,7 @@ pub fn check_depth(depth: usize) -> Result<(), Box<TokenError>> {
         return Err(Box::new(TokenError {
             stage: "token",
             context: None,
-            class: crate::resolve::STREAM_CONSTRAINTS_EXCEPTION,
+            kind: crate::resolve::STREAM_CONSTRAINTS_EXCEPTION,
             message: format!("nesting depth {depth} exceeds the maximum of {MAX_DEPTH}"),
             problem: None,
             location: None,
@@ -163,7 +187,7 @@ fn walk<'a>(
         error.map(TokenError::from).unwrap_or_else(|| TokenError {
             stage: "token",
             context: None,
-            class: MARKED_YAML_EXCEPTION,
+            kind: MARKED_YAML_EXCEPTION,
             message: "stream ended early".into(),
             problem: None,
             location: None,
@@ -203,7 +227,7 @@ fn walk<'a>(
                                 out.error = Some(TokenError {
                                     stage: "token",
                                     context: None,
-                                    class,
+                                    kind: class,
                                     message,
                                     problem: None,
                                     location: Some(n.span.end),

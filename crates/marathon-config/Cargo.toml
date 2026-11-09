@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+marathon-error = { path = "../marathon-error" }
 jcompat = { path = "../jcompat" }
 snakeyaml = { path = "../snakeyaml" }
 # PLAN §4.2: only what java.util.zip.ZipFile reads (stored + deflated).

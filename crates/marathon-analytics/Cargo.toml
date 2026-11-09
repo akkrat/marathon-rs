@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+marathon-error = { path = "../marathon-error" }
 form_urlencoded = "=1.2.2"
 percent-encoding = "=2.3.2"
 jcompat = { path = "../jcompat" }

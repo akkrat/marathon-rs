@@ -8,6 +8,7 @@ use crate::{
 use marathon_apple::cmd::{cancelled, failure};
 use marathon_config::vendor::LifecycleAction;
 use marathon_core::{error::LeavePoolReason, executor::shared::Signal};
+use marathon_error::{AppleKind, FailureKind};
 
 #[derive(Clone)]
 pub(super) enum PrepareError {
@@ -54,14 +55,14 @@ impl AppleSimulatorDevice {
                             .map_err(|error| match error {
                                 PrepareError::Vendor(error) => error,
                                 PrepareError::Boot(message) => {
-                                    VendorError::Other(failure("com.malinskiy.marathon.apple.ios.BootFailure", message))
+                                    VendorError::Other(failure(FailureKind::Apple(AppleKind::Boot), message))
                                 }
                             })
                     }),
                 )
                 .await
                 .map_err(|error| {
-                    if error.failure().class == "com.malinskiy.marathon.apple.ios.BootFailure" {
+                    if error.failure().kind == FailureKind::Apple(AppleKind::Boot) {
                         PrepareError::Boot(error.failure().message.to_owned().unwrap_or_default())
                     } else {
                         PrepareError::Vendor(error)
@@ -74,7 +75,7 @@ impl AppleSimulatorDevice {
             Ok(outcome) => (*outcome).clone(),
             Err(error) => {
                 signal.cancel(marathon_core::error::Cancellation::Requested(failure(
-                    "kotlinx.coroutines.JobCancellationException",
+                    FailureKind::JobCancelled,
                     "DeferredCoroutine was cancelled",
                 )));
                 return Err(error);
@@ -100,7 +101,7 @@ impl AppleSimulatorDevice {
                 return Err(VendorError::LeavePool {
                     reason: LeavePoolReason::NotBooted,
                     detail: failure(
-                        "com.malinskiy.marathon.apple.ios.NotBooted",
+                        FailureKind::Apple(AppleKind::NotBooted),
                         format!(
                             "Simulator {} on worker {} is taken out of its pool: {reason}",
                             self.udid,
@@ -116,7 +117,7 @@ impl AppleSimulatorDevice {
             return Err(VendorError::LeavePool {
                 reason: LeavePoolReason::NotAdmitted,
                 detail: failure(
-                    "com.malinskiy.marathon.apple.ios.NotAdmitted",
+                    FailureKind::Apple(AppleKind::NotAdmitted),
                     format!("{} is not admitted to the run: {reason}", self.serial),
                 ),
             });
@@ -193,18 +194,19 @@ impl AppleSimulatorDevice {
         Ok(())
     }
     async fn load_bundle(&self) -> VendorResult<AppleTestBundle> {
-        let bundle = self.services.vendor.bundle.as_ref().ok_or_else(|| {
-            VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
-        })?;
+        let bundle = self
+            .services
+            .vendor
+            .bundle
+            .as_ref()
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "No test bundle provided")))?;
         AppleTestBundle::new(
             bundle.app.clone(),
             bundle.test_app.clone(),
             bundle
                 .xctest
                 .as_ref()
-                .ok_or_else(|| {
-                    VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
-                })?
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "No test bundle provided")))?
                 .clone(),
             self.sdk,
             self.services.runtime.clone(),

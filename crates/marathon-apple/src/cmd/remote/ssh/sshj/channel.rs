@@ -646,7 +646,7 @@ mod tests {
         channel.receive(Stream::Stdout, &packet);
         assert_eq!(channel.available(Stream::Stdout), fit * packet.len(), "not buffered");
         let death = shared.death().unwrap();
-        assert!(is_instance(death.class, CIRCULAR_BUFFER_EXCEPTION));
+        assert!(is_instance(&death.kind, CIRCULAR_BUFFER_EXCEPTION));
         assert_eq!(death.message().as_deref(), Some("Attempted overflow"));
     }
 }

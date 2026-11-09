@@ -272,7 +272,7 @@ fn shell_wrapper_semantics() {
                 .await
                 .unwrap_err();
             assert_eq!(
-                err.failure().class,
+                err.failure().kind.legacy_class(),
                 js("com.malinskiy.marathon.android.exception.CommandRejectedException")
             );
             assert!(matches!(
@@ -309,7 +309,10 @@ fn setup_failure_shapes() {
                 let device = device(&server, runtime);
                 let error = device.setup(context).await.unwrap_err();
                 if mode == 1 {
-                    assert_eq!(error.failure().class, js("java.lang.NumberFormatException"))
+                    assert_eq!(
+                        error.failure().kind.legacy_class(),
+                        js("java.lang.NumberFormatException")
+                    )
                 } else {
                     assert!(matches!(error, VendorError::DeviceSetup(_)))
                 }

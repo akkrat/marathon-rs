@@ -60,7 +60,7 @@ async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult 
                     _ => None,
                 };
                 let detail = error.failure();
-                match detail.class.to_owned().as_str() {
+                match detail.kind.legacy_class().to_owned().as_str() {
                     "com.malinskiy.marathon.exceptions.DeviceSetupException" => {
                         assert!(matches!(error, FactoryError::Vendor(VendorError::DeviceSetup(_))))
                     }
@@ -78,7 +78,7 @@ async fn factory_bytes_transcripts_errors_and_cleanup_match_jvm() -> TestResult 
                 }
 
                 // Only host bundle paths are typed-normalized, never emitted XML or worker argv.
-                json!({"class":detail.class.to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
+                json!({"class":detail.kind.legacy_class().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
             }
         };
         assert_eq!(error, row["error"], "{id}: error");

@@ -3,6 +3,7 @@ use super::influx::Value;
 use super::*;
 use crate::{error::OperationResult, executor::shared::failure};
 use jcompat::jnum::double_to_string;
+use marathon_error::FailureKind;
 use std::{collections::BTreeMap, sync::Arc};
 
 pub type Record = BTreeMap<String, Value>;
@@ -42,11 +43,7 @@ pub fn map_records(records: Vec<Record>) -> OperationResult<Vec<(String, f64)>> 
             (None | Some(Value::Null), _) | (_, None | Some(Value::Null)) => {}
             (Some(Value::Text(name)), Some(Value::Number(value))) => values.push((name.clone(), *value)),
             _ => {
-                return Err(failure(
-                    "java.lang.ClassCastException",
-                    "Expected testname and numeric measurement",
-                )
-                .into());
+                return Err(failure(FailureKind::ClassCast, "Expected testname and numeric measurement").into());
             }
         }
     }

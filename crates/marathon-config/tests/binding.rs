@@ -1,5 +1,6 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt
 //! Test-only schemas exercise the binding API without taking WP 2.2's schema ownership.
+
 use jcompat::JavaRegex;
 use marathon_config::{
     binder::{self, Binder, Field, Result, Value},
@@ -83,9 +84,9 @@ fn kotlin_creator_oracle_and_regex_exception_chain() -> std::result::Result<(), 
         match got {
             Ok(v) => assert_eq!(json!({"ok":v}), row["result"], "{row}"),
             Err(e) => {
-                let classes: Vec<_> = std::iter::once(&e.class)
-                    .chain(e.causes.iter().map(|c| &c.class))
-                    .map(String::clone)
+                let classes: Vec<_> = std::iter::once(e.kind.legacy_class())
+                    .chain(e.causes.iter().map(|c| c.kind.legacy_class()))
+                    .map(str::to_owned)
                     .collect();
                 assert_eq!(json!({"error":classes}), row["result"], "{row}");
             }
@@ -104,12 +105,15 @@ fn defaults_nullability_duplicates_and_unknown_keys() {
         Some("x".into())
     );
     let e = bind("k: x\nk: null", |v| reference_schema(v, false)).unwrap_err();
-    assert_eq!(e.class, binder::MISSING_KOTLIN.to_owned());
+    assert_eq!(e.kind.legacy_class(), binder::MISSING_KOTLIN.legacy_class().to_owned());
     assert!(matches!(&e.path[..], [PathPart::Key(k)] if k == &"k".to_owned()));
     assert_eq!(e.span.unwrap().start.line, 2);
     assert_eq!(
-        bind("<<: *a", |v| reference_schema(v, false)).unwrap_err().class,
-        binder::UNKNOWN_PROPERTY.to_owned()
+        bind("<<: *a", |v| reference_schema(v, false))
+            .unwrap_err()
+            .kind
+            .legacy_class(),
+        binder::UNKNOWN_PROPERTY.legacy_class().to_owned()
     );
     assert!(bind("unknown: [", |v| reference_schema(v, true)).is_err());
     assert_eq!(
@@ -150,7 +154,7 @@ fn nested_paths_and_stream_causes_survive() {
     })
     .unwrap_err();
     assert!(matches!(e.cause, BindingCause::Stream(_)));
-    assert_eq!(e.class, binder::JSON_MAPPING.to_owned());
+    assert_eq!(e.kind.legacy_class(), binder::JSON_MAPPING.legacy_class().to_owned());
     assert_eq!(e.causes.len(), 2);
     let e = bind("k: {a:\tb}", |v| {
         let mut object = v.object()?;
@@ -158,7 +162,7 @@ fn nested_paths_and_stream_causes_survive() {
         child.map(|v| v.string())
     })
     .unwrap_err();
-    assert_eq!(e.class, binder::JSON_MAPPING.to_owned());
+    assert_eq!(e.kind.legacy_class(), binder::JSON_MAPPING.legacy_class().to_owned());
     assert_eq!(e.causes.len(), 2);
 }
 #[test]
@@ -176,7 +180,7 @@ fn first_document_and_substitution_failure_stages() {
             panic!("wrapped error");
         };
         assert_eq!(
-            e.class,
+            e.kind.legacy_class(),
             "com.malinskiy.marathon.config.exceptions.ConfigurationException".to_owned()
         );
         assert!(e.message.unwrap().to_owned().contains("/config/Marathonfile"));
@@ -340,10 +344,13 @@ fn filtering_section_late_type_and_singleton() {
     assert!(matches!(&got.allowlist[0],Some(Filter::Method {regex:Some(r),enabled:false}) if r.pattern()=="test.*"));
     assert!(matches!(&got.allowlist[1], Some(Filter::Allure)));
     assert_eq!(
-        bind("{type: mystery}", filter).unwrap_err().class,
-        binder::INVALID_TYPE.to_owned()
+        bind("{type: mystery}", filter).unwrap_err().kind.legacy_class(),
+        binder::INVALID_TYPE.legacy_class().to_owned()
     );
-    assert_eq!(bind("{}", filter).unwrap_err().class, binder::INVALID_TYPE.to_owned());
+    assert_eq!(
+        bind("{}", filter).unwrap_err().kind.legacy_class(),
+        binder::INVALID_TYPE.legacy_class().to_owned()
+    );
 }
 #[test]
 fn builder_and_enum_creator_use_shared_primitives() {
@@ -415,7 +422,7 @@ fn read_tree_materialization_matches_jvm() -> std::result::Result<(), Box<dyn st
         match got {
             Ok(v) => assert_eq!(json!({"ok":v}), row["result"], "{row}"),
             Err(e) => assert_eq!(
-                e.class.to_owned(),
+                e.kind.legacy_class().to_owned(),
                 row["result"]["error"][0].as_str().ok_or("error")?,
                 "{row}"
             ),

@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/executor/listeners/
 //! CompositeTestRunListenerTest.kt, LogListenerTest.kt and TestResultsListenerTest.kt.
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_adb::testrunner::{MetricMap, TestEvent as E, TestIdentifier};
 use marathon_android::{device::AndroidDevice, listeners::*, services::AndroidRuntime};
@@ -405,7 +406,7 @@ impl AndroidTestRunListener for Recording {
             self.events.lock().unwrap().push(event.clone());
             if self.fail {
                 Err(VendorError::Other(Failure {
-                    class: "Callback".into(),
+                    kind: FailureKind::Injected(InjectedKind::Callback),
                     message: None,
                     cause: None,
                     stacktrace: None,

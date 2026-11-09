@@ -20,6 +20,7 @@ use marathon_core::{
     model::ExecutionCommand,
     runtime::Deferred,
 };
+use marathon_error::FailureKind;
 use std::{
     io::Write,
     path::PathBuf,
@@ -42,7 +43,7 @@ pub fn missing_vendors() -> VendorFactories {
         Box::new(move |_| {
             Box::pin(async move {
                 Err(VendorError::Other(failure(
-                    "java.lang.UnsupportedOperationException",
+                    FailureKind::UnsupportedOperation,
                     &format!("The {vendor} vendor is not supported by this build yet"),
                 )))
             })
@@ -191,7 +192,7 @@ impl ProductionRunner {
                     })
                 })
             })
-            .map_err(|e| failure("java.lang.IllegalStateException", &e.to_string()))?;
+            .map_err(|e| failure(FailureKind::IllegalState, &e.to_string()))?;
         let mut run = Run {
             command,
             thread: Some(thread),
@@ -204,10 +205,7 @@ impl ProductionRunner {
             }
             Err(_) => Err(match run.join() {
                 Err(OperationError::Failed(f)) => f,
-                _ => failure(
-                    "java.lang.IllegalStateException",
-                    "the run thread stopped during construction",
-                ),
+                _ => failure(FailureKind::IllegalState, "the run thread stopped during construction"),
             }),
         }
     }
@@ -218,7 +216,7 @@ impl Run {
         match self.thread.take() {
             Some(thread) => thread
                 .join()
-                .unwrap_or_else(|_| Err(failure("java.lang.IllegalStateException", "the run thread panicked").into())),
+                .unwrap_or_else(|_| Err(failure(FailureKind::IllegalState, "the run thread panicked").into())),
             None => Ok(None),
         }
     }
@@ -229,10 +227,7 @@ impl MarathonRun for Run {
         self.command.complete(Ok(command));
         match self.join() {
             Ok(Some(value)) => Ok(value),
-            Ok(None) => Err(failure(
-                "java.lang.IllegalStateException",
-                "the run ended without a result",
-            )),
+            Ok(None) => Err(failure(FailureKind::IllegalState, "the run ended without a result")),
             Err(OperationError::Failed(f)) => Err(f),
             Err(OperationError::Cancelled(reason)) => Err(reason.failure().clone()),
         }

@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/rsync/RsyncFileBridge.kt
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_apple::cmd::{
     FileBridge,
@@ -456,7 +457,9 @@ async fn process_failure_child() {
             "java.io.IOException"
         };
         for result in [send, receive] {
-            assert!(matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.class==class));
+            assert!(
+                matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.kind.legacy_class()==class)
+            );
         }
     }
     b.join_pending().await.unwrap();
@@ -472,7 +475,7 @@ impl marathon_core::runtime::VendorClock for FailingDelay {
     ) -> marathon_core::runtime::VendorFuture<'_, ()> {
         Box::pin(async {
             Err(marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "clock failed",
             )))
         })
@@ -1467,7 +1470,10 @@ async fn stalled_send_runs() {
                 ),
                 "{error:?}"
             );
-            assert_eq!(error.failure().class, String::from(TRANSFER_STALLED));
+            assert_eq!(
+                error.failure().kind.legacy_class(),
+                TRANSFER_STALLED.legacy_class().to_owned()
+            );
         }
         assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stalled\n");
         // A send that starts later waited behind nothing, so it tries: the worker may have come back.
@@ -2110,7 +2116,7 @@ async fn a_transfer_stopped_before_it_starts_returns_its_stop_d54() {
             .await,
         Err(VendorError::Cancelled(reason))
     );
-    let loss = marathon_apple::cmd::failure("lost", "gone");
+    let loss = marathon_apple::cmd::failure(FailureKind::Injected(InjectedKind::Lost), "gone");
     let lost =
         TransferStop::new(marathon_core::executor::shared::Signal::new()).or_lost(std::future::ready(loss.clone()));
     assert_eq!(

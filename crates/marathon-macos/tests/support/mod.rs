@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/macos/src/test/kotlin/com/malinskiy/marathon/apple/macos/MacosTestRootTest.kt (bundle builders and recording bridge).
 #![allow(dead_code)]
+use marathon_error::{FailureKind, InjectedKind};
 pub mod runtime;
 use jcompat::{
     file_manager::FileManager,
@@ -140,13 +141,15 @@ impl FileBridge for RecordingBridge {
                 self.stalled_sends.fetch_add(1, Ordering::SeqCst);
                 return Err(VendorError::LeavePool {
                     reason: marathon_core::error::LeavePoolReason::TransferStalled,
-                    detail: marathon_apple::cmd::failure("TransferStalled", "no progress"),
+                    detail: marathon_apple::cmd::failure(
+                        FailureKind::Injected(InjectedKind::TransferStalled),
+                        "no progress",
+                    ),
                 });
             }
             let bytes = if src.is_file() {
-                std::fs::read(src).map_err(|e| {
-                    VendorError::Other(marathon_apple::cmd::failure("java.io.IOException", e.to_string()))
-                })?
+                std::fs::read(src)
+                    .map_err(|e| VendorError::Other(marathon_apple::cmd::failure(FailureKind::Io, e.to_string())))?
             } else {
                 vec![]
             };
@@ -162,7 +165,7 @@ impl FileBridge for RecordingBridge {
                 self.pull_release.notified().await;
             }
             std::fs::create_dir_all(dst.join(src.rsplit('/').next().unwrap_or(src)))
-                .map_err(|e| VendorError::Other(marathon_apple::cmd::failure("java.io.IOException", e.to_string())))?;
+                .map_err(|e| VendorError::Other(marathon_apple::cmd::failure(FailureKind::Io, e.to_string())))?;
             Ok(true)
         })
     }

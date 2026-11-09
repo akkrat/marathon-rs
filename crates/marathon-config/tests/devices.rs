@@ -192,7 +192,7 @@ fn marathondevices_fixtures_bind() {
             Err(LoadError::Configuration(error)) => {
                 assert_eq!(name, "empty.yaml", "{name} must bind: {error:?}");
                 assert_eq!(
-                    error.class.to_owned(),
+                    error.kind.legacy_class().to_owned(),
                     "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException"
                 );
             }
@@ -251,7 +251,7 @@ fn provider_stage_and_error_distinctions() {
     };
     assert_eq!(error.stage, ValidationStage::Provider);
     assert_eq!(
-        error.class.to_owned(),
+        error.kind.legacy_class().to_owned(),
         "com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException"
     );
     assert!(matches!(error.cause, BindingCause::Coercion(_)));
@@ -355,7 +355,7 @@ fn devices_corpus_matches_jvm() {
             Err(LoadError::Configuration(error)) => {
                 if D9_NULL_ELEMENTS.contains(&id) {
                     assert_eq!(
-                        error.class.to_owned(),
+                        error.kind.legacy_class().to_owned(),
                         "com.fasterxml.jackson.databind.exc.MismatchedInputException",
                         "{id} (D9 null-element rejection)"
                     );
@@ -368,7 +368,7 @@ fn devices_corpus_matches_jvm() {
                     result["ok"]
                 );
                 assert_eq!(
-                    error.class.to_owned(),
+                    error.kind.legacy_class().to_owned(),
                     expected["class"].as_str().unwrap(),
                     "{id} class"
                 );

@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/ArtifactProcessor.kt
 
+use marathon_error::FailureKind;
 mod core;
 use crate::cmd::{remote::ssh::sshj::config::SshLogging, retained_tasks::RetainedTasks};
 pub use core::AdmissionStats;
@@ -110,7 +111,7 @@ impl ArtifactProcessor {
     fn now(&self, label: &'static str) -> VendorResult<i64> {
         self.monotonic
             .nanos(label)
-            .map_err(|e| VendorError::Other(failure("marathon.ReplayError", &e.message.to_owned())))
+            .map_err(|e| VendorError::Other(failure(FailureKind::Replay, &e.message.to_owned())))
     }
     fn log(&self, level: Level, message: String, throwable: Option<&Failure>) {
         if self.logging.enabled(&self.logger, level) {
@@ -280,7 +281,7 @@ impl ArtifactProcessor {
                 let permit = tokio::select! {
                     biased;
                     reason = signal.cancelled() => return Err(VendorError::Cancelled(reason)),
-                    permit = self.transfers.acquire() => permit.map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", &e.to_string())))?,
+                    permit = self.transfers.acquire() => permit.map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, &e.to_string())))?,
                 };
                 let wait = self.now("apple.ArtifactProcessor.clock")?.wrapping_sub(work.enqueued_at) / 1_000_000;
                 self.log(Level::Debug, format!("Artifact queue wait for {}, batch {}: {wait} ms", work.owner.to_owned(), work.payload.batch.to_owned()).as_str().into(), None);
@@ -469,13 +470,13 @@ impl ArtifactProcessor {
             );
         }
         self.supervisor.cancel(Cancellation::Requested(failure(
-            "kotlinx.coroutines.JobCancellationException",
+            FailureKind::JobCancelled,
             "Job was cancelled",
         )));
         let tasks = self.retained.snapshot();
         for task in &tasks {
             task.cancel(Cancellation::Requested(failure(
-                "kotlinx.coroutines.JobCancellationException",
+                FailureKind::JobCancelled,
                 "Job was cancelled",
             )));
         }

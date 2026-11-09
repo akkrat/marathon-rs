@@ -122,7 +122,7 @@ fn every_leaf_and_fragment_replay_the_jvm() -> OperationResult<()> {
                 let Err(OperationError::Failed(e)) = result else {
                     panic!("expected failure")
                 };
-                assert_eq!(e.class.to_owned(), row[key]["error"]["class"]);
+                assert_eq!(e.kind.legacy_class().to_owned(), row[key]["error"]["class"]);
                 assert_eq!(
                     e.message.map(|s| s.to_owned()),
                     row[key]["error"]["message"].as_str().map(String::from)
@@ -291,7 +291,7 @@ fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResu
                 &row["values"]
             };
             assert_eq!(
-                &json!(parse_values(&bytes).iter().map(String::clone).collect::<Vec<_>>()),
+                &json!(parse_values(&bytes).iter().map(|s| s.to_owned()).collect::<Vec<_>>()),
                 expected
             );
         }
@@ -305,7 +305,13 @@ fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResu
     let reader = marathon_core::filter::values::FileValuesReader { logger: logs.clone() };
     let path = tmp.path(row["invalidPath"].as_str().expect("path"));
     assert_eq!(
-        json!(reader.read_values(&path)?.iter().map(String::clone).collect::<Vec<_>>()),
+        json!(
+            reader
+                .read_values(&path)?
+                .iter()
+                .map(|s| s.to_owned())
+                .collect::<Vec<_>>()
+        ),
         row["values"]
     );
     let records = logs.0.lock().expect("logs");
@@ -373,7 +379,7 @@ fn lazy_files_do_not_read_on_disabled_empty_or_explicit_values_and_retry_errors(
     let Err(OperationError::Failed(error)) = error else {
         panic!("expected read failure")
     };
-    assert_eq!(error.class, String::from("java.io.FileNotFoundException"));
+    assert_eq!(error.kind.legacy_class(), String::from("java.io.FileNotFoundException"));
     remove_dir(tmp.0.join("values"))?;
     tmp.write("values", "pkg.clazz")?;
     assert_eq!(apply(f.clone(), t.clone(), false)?, t);

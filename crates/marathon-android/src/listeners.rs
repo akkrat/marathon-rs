@@ -15,6 +15,7 @@ use marathon_core::{
     vendor::DeviceRef,
 };
 use marathon_dex::apk_parser::InstrumentationInfo;
+use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 
 /// Event values retain adam's order; run-start uses the runner's fixed AdamTestRun name.
@@ -242,7 +243,7 @@ impl AccumulatingResultTestRunListener {
         for record in logs {
             (self.logs)(record);
         }
-        result.map_err(|e| other("ReplayError", e.message))
+        result.map_err(|e| other(FailureKind::ReplayClock, e.message))
     }
 }
 impl AndroidTestRunListener for AccumulatingResultTestRunListener {

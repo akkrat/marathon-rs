@@ -11,7 +11,6 @@ use crate::{
 use jcompat::{
     jtime::Duration,
     logging::{Level, Logger},
-    throwable::is_error_class,
     writers::KotlinValue,
 };
 use marathon_config::Configuration;
@@ -21,6 +20,7 @@ use marathon_core::{
     runtime::VendorRuntime,
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::sync::Arc;
 
 /// Suppressed throwables remain Apple-local. Flatten only at the core/log boundary.
@@ -189,7 +189,7 @@ impl AppleDeviceTestRunner {
         }
         // Explicit finally: cancellation never drops either artifact collection or stop.
         if let Err(after) = listener.after_test_run().await {
-            if is_error_class(&after.failure().class.to_owned()) {
+            if after.failure().kind.is_fatal() {
                 // Kotlin catches Exception here; an Error replaces propagation without changing runFailure.
                 result = Err(after.into());
             } else if let Some(error) = &mut run_failure {
@@ -215,7 +215,7 @@ impl AppleDeviceTestRunner {
         if let Some(close) = session.stop(self.session_close_timeout, context).await {
             let serial = self.device.info().serial_number.to_owned();
             let mut detail = failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 format!("xcodebuild session on {serial} has not been closed"),
             );
             detail.cause = Some(Box::new(close));
@@ -240,7 +240,7 @@ impl AppleDeviceTestRunner {
             }
         } else if self.logging.enabled(&self.logger, Level::Debug) {
             let clock_error = |e: marathon_core::time::ReplayError| {
-                RunError::from(VendorError::Other(failure("ReplayError", &e.message)))
+                RunError::from(VendorError::Other(failure(FailureKind::ReplayClock, &e.message)))
             };
             let elapsed = context
                 .hooks

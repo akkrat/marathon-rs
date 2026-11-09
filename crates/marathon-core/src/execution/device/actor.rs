@@ -19,6 +19,7 @@ use crate::{
 use futures_util::future::Either;
 use jcompat::logging::Level;
 use marathon_config::Configuration;
+use marathon_error::FailureKind;
 use std::{
     cell::{Cell, RefCell},
     future::Future,
@@ -250,7 +251,7 @@ impl AsJava for String {
 /// Kotlin's `CancellationException(message)`, which completes a result cell.
 fn cancellation(message: String) -> Cancellation {
     Cancellation::Requested(Failure {
-        class: "java.util.concurrent.CancellationException".into(),
+        kind: FailureKind::Cancelled,
         message: Some(message),
         cause: None,
         stacktrace: None,
@@ -259,10 +260,7 @@ fn cancellation(message: String) -> Cancellation {
 
 /// `Deferred.cancel()` on the initialize/execute `async` jobs (S2).
 fn async_job_cancelled() -> Cancellation {
-    Cancellation::Requested(failure(
-        "kotlinx.coroutines.JobCancellationException",
-        "DeferredCoroutine was cancelled",
-    ))
+    Cancellation::Requested(failure(FailureKind::JobCancelled, "DeferredCoroutine was cancelled"))
 }
 
 impl Shared {
@@ -507,7 +505,7 @@ impl Shared {
             Either::Left(reason) => return Err(VendorError::Cancelled(reason)),
             Either::Right(Err(error)) => {
                 return Err(VendorError::Other(Failure {
-                    class: "marathon.ReplayError".into(),
+                    kind: FailureKind::Replay,
                     message: Some(error.message),
                     cause: None,
                     stacktrace: None,

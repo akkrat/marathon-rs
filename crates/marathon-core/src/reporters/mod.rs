@@ -1,6 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/Reporter.kt
 //! and report/{html/HtmlSummaryReporter,timeline/TimelineReporter,allure/AllureReporter}.kt.
 
+use marathon_error::FailureKind;
 pub mod allure;
 pub mod html;
 pub mod timeline;
@@ -14,7 +15,7 @@ fn json<T: serde::Serialize + ?Sized>(value: &T) -> VendorResult<String> {
     serde_json::to_string(value).map_err(json_error)
 }
 fn json_error(error: serde_json::Error) -> VendorError {
-    VendorError::Other(failure("java.lang.IllegalArgumentException", &error.to_string()))
+    VendorError::Other(failure(FailureKind::IllegalArgument, &error.to_string()))
 }
 
 #[derive(Default)]
@@ -44,8 +45,7 @@ fn html_json<T: serde::Serialize + ?Sized>(value: &T) -> VendorResult<String> {
     let mut bytes = Vec::new();
     let mut serializer = serde_json::Serializer::with_formatter(&mut bytes, HtmlSafeFormatter);
     value.serialize(&mut serializer).map_err(json_error)?;
-    String::from_utf8(bytes)
-        .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.to_string())))
+    String::from_utf8(bytes).map_err(|e| VendorError::Other(failure(FailureKind::IllegalArgument, &e.to_string())))
 }
 
 fn child(dir: &std::path::Path, name: &str) -> PathBuf {
@@ -90,7 +90,10 @@ mod tests {
         let path = std::path::Path::new("pool\0tail");
         for result in [mkdir(path), write(path, b"report")] {
             let error = result.expect_err("NUL must be rejected");
-            assert_eq!(error.failure().class, "java.nio.file.InvalidPathException");
+            assert_eq!(
+                error.failure().kind.legacy_class(),
+                "java.nio.file.InvalidPathException"
+            );
             assert_eq!(error.failure().message.as_deref(), Some("Nul character not allowed"));
         }
     }

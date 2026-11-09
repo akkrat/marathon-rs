@@ -242,7 +242,7 @@ fn query_and_graphite_parser_jvm_rows() {
                         assert!(row["error"].is_null());
                     }
                     Err(marathon_core::error::OperationError::Failed(error)) => {
-                        assert_eq!(row["error"], error.class.to_owned());
+                        assert_eq!(row["error"], error.kind.legacy_class().to_owned());
                         assert_eq!(row["errorMessage"], error.message.unwrap().to_owned());
                     }
                     Err(error) => panic!("unexpected parser error: {error:?}"),
@@ -452,7 +452,7 @@ fn influx_server_errors_match_jvm_logged_causes_after_retries() {
                 .filter_map(|e| {
                     e.cause.as_ref().map(|cause| {
                         serde_json::json!({"logger": e.logger, "level": e.level.as_str(),
-                    "class": cause.class.to_owned(), "message": cause.message.as_ref().unwrap().to_owned()})
+                    "class": cause.kind.legacy_class().to_owned(), "message": cause.message.as_ref().unwrap().to_owned()})
                     })
                 })
                 .collect();

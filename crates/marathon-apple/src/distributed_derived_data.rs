@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/DistributedDerivedData.kt
 
 use crate::apple_device::AppleDevice;
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 
 use marathon_core::{
@@ -47,7 +48,7 @@ pub(crate) async fn remote_test_bundle(
     let base = PathBuf::from(runner.to_string_lossy().into_owned());
     let relative = crate::cmd::blocking(runtime, move || {
         let cwd = std::env::current_dir()
-            .map_err(|e| VendorError::Other(crate::cmd::failure("java.io.IOException", e.to_string())))?;
+            .map_err(|e| VendorError::Other(crate::cmd::failure(FailureKind::Io, e.to_string())))?;
         Ok(relative_file(
             &local,
             &base,

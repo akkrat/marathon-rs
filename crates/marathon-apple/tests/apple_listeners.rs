@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/listener/{CompositeTestRunListenerTest,TestResultsListenerTest}.kt
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use jcompat::logging::{Logger, MarathonLogging};
 use marathon_apple::{
@@ -769,7 +770,12 @@ async fn composite_stops_on_first_error_and_adapter_synthesizes_only_terminal_ca
     struct Fail;
     impl AppleTestRunListener for Fail {
         fn after_test_run(&self) -> VendorFuture<'_, ()> {
-            Box::pin(async { Err(VendorError::Other(marathon_apple::cmd::failure("test.Error", "stop"))) })
+            Box::pin(async {
+                Err(VendorError::Other(marathon_apple::cmd::failure(
+                    FailureKind::Injected(InjectedKind::TestError),
+                    "stop",
+                )))
+            })
         }
     }
     let next = Arc::new(Called(AtomicBool::new(false)));

@@ -37,9 +37,10 @@ use jcompat::{
     JavaRegex,
     jtime::{Duration, Instant, duration_of},
 };
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 
-pub const CONFIGURATION_EXCEPTION: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
+pub const CONFIGURATION_EXCEPTION: FailureKind = FailureKind::Config(marathon_error::ConfigKind::Rejected);
 
 fn config_error(value: &Value<'_>, message: impl Into<String>) -> Box<ConfigurationError> {
     let mut error = value.error(CONFIGURATION_EXCEPTION, message.into());
@@ -228,14 +229,14 @@ fn bind_defaults_lenient_child(value: Value<'_>) -> Result<Defaults> {
 fn instant_or_null(value: &Value<'_>) -> Result<Option<Instant>> {
     match value.instant() {
         Ok(v) => Ok(v),
-        Err(e) if e.class == INVALID_FORMAT => Ok(None),
+        Err(e) if e.kind == INVALID_FORMAT => Ok(None),
         Err(e) => Err(e),
     }
 }
 fn duration_or_null(value: &Value<'_>) -> Result<Option<Duration>> {
     match value.duration() {
         Ok(v) => Ok(v),
-        Err(e) if e.class == INVALID_FORMAT => Ok(None),
+        Err(e) if e.kind == INVALID_FORMAT => Ok(None),
         Err(e) => Err(e),
     }
 }

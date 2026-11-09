@@ -281,10 +281,10 @@ pub fn outcome_matches(got: &Outcome, expected: &Json) -> Result<(), String> {
         (Outcome::NullDocument, _, _, Some(n)) if n == &Json::Bool(true) => Ok(()),
         (Outcome::Err(e), _, Some(error), _) => {
             let class = error["class"].as_str().unwrap_or("?");
-            if e.class != class {
-                return Err(format!("error class {class} != {}", e.class.to_owned()));
+            if e.kind.legacy_class() != class {
+                return Err(format!("error class {class} != {}", e.kind.legacy_class().to_owned()));
             }
-            if class == CONFIGURATION_EXCEPTION {
+            if class == CONFIGURATION_EXCEPTION.legacy_class() {
                 let message = e.message.as_ref().map(|m| m.to_owned());
                 if message.as_deref() != error["message"].as_str() {
                     return Err(format!("custom message {:?} != {:?}", error["message"], message));
@@ -295,6 +295,10 @@ pub fn outcome_matches(got: &Outcome, expected: &Json) -> Result<(), String> {
         (Outcome::Ok(v), Some(ok), _, _) => Err(format!("ok value differs: expected {ok} got {v}")),
         (Outcome::Ok(v), _, _, _) => Err(format!("expected error, got ok {v}")),
         (Outcome::NullDocument, _, _, _) => Err("expected a value, got a null document".into()),
-        (Outcome::Err(e), _, _, _) => Err(format!("expected ok, got error {} {:?}", e.class.to_owned(), e.message)),
+        (Outcome::Err(e), _, _, _) => Err(format!(
+            "expected ok, got error {} {:?}",
+            e.kind.legacy_class().to_owned(),
+            e.message
+        )),
     }
 }

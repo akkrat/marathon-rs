@@ -548,7 +548,7 @@ fn a_session_that_keeps_failing_ends_in_a_parsing_error_with_its_reason_d42() {
             let error = parser.extract(reference, context).await.unwrap_err();
             assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
             assert_eq!(
-                error.failure().class,
+                error.failure().kind.legacy_class(),
                 js("com.malinskiy.marathon.exceptions.TestParsingException")
             );
             let attempts = commands(&server)

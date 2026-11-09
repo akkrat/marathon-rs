@@ -221,7 +221,7 @@ fn inverted_api21_check_rejects_plain_apk() {
                 .await
                 .unwrap_err();
             assert_eq!(
-                err.failure().class,
+                err.failure().kind.legacy_class(),
                 js("com.malinskiy.marathon.android.exception.DeviceNotSupportedException")
             );
             assert_eq!(
@@ -329,7 +329,7 @@ fn md5_poll_is_bounded_by_the_push_timeout_d23() {
                 .unwrap_err();
             assert!(matches!(err, VendorError::Transfer(_)), "{err:?}");
             assert_eq!(
-                err.failure().class,
+                err.failure().kind.legacy_class(),
                 js("com.malinskiy.marathon.exceptions.TransferException")
             );
             assert_eq!(

@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
 
+use marathon_error::FailureKind;
 mod boot;
 mod execution;
 mod listeners;
@@ -230,7 +231,7 @@ impl AppleSimulatorDevice {
     fn this(&self) -> VendorResult<Arc<Self>> {
         self.me.upgrade().ok_or_else(|| {
             VendorError::Other(marathon_apple::cmd::failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "Device allocation has been released",
             ))
         })

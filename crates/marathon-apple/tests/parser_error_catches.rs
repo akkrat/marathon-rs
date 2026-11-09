@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/NmTestParser.kt
 //! and XCTestParser.kt (Exception-only retry logging).
+use marathon_error::{FailureKind, FatalKind, InjectedKind};
 #[path = "support/parser.rs"]
 mod parser_support;
 mod support;
@@ -26,9 +27,9 @@ use test_root_device::{Fake, TestResult, prepare, v};
 async fn both_parsers_retry_errors_without_logging_and_log_exceptions_named_error() -> TestResult {
     for xctest in [false, true] {
         for (class, is_error) in [
-            ("java.lang.AssertionError", true),
-            ("java.lang.ThreadDeath", true),
-            ("probe.ExceptionNamedError", false),
+            (FailureKind::Fatal(FatalKind::Assertion), true),
+            (FailureKind::Fatal(FatalKind::ThreadDeath), true),
+            (FailureKind::Injected(InjectedKind::ProbeExceptionNamedError), false),
         ] {
             let tmp = tempfile::tempdir()?;
             let input = parser_support::input(false, true);
@@ -37,9 +38,11 @@ async fn both_parsers_retry_errors_without_logging_and_log_exceptions_named_erro
             let attempts = Arc::new(AtomicUsize::new(0));
             let count = attempts.clone();
             let old = device.recorder.worker.before.lock().unwrap().clone();
+            let failure_kind = class.clone();
             *device.recorder.worker.before.lock().unwrap() = Arc::new(move |command| {
                 let old = old.clone();
                 let count = count.clone();
+                let class = failure_kind.clone();
                 Box::pin(async move {
                     if command[0] == "test" {
                         count.fetch_add(1, Ordering::SeqCst);
@@ -86,7 +89,7 @@ async fn both_parsers_retry_errors_without_logging_and_log_exceptions_named_erro
             };
             let error = parser.extract(id, support::context()).await.unwrap_err();
             v(device.dispose().await)?;
-            assert_eq!(error.failure().class.to_owned(), class);
+            assert_eq!(error.failure().kind.legacy_class().to_owned(), class.legacy_class());
             assert_eq!(attempts.load(Ordering::SeqCst), 3);
             let logs = logs.lock().unwrap();
             assert_eq!(logs.len(), if is_error { 0 } else { 3 });

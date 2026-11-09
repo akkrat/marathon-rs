@@ -8,6 +8,7 @@ use marathon_config::{
     pipeline::{LoadError, bind_devices_bytes},
     vendor::DeviceProvider as Source,
 };
+use marathon_error::FailureKind;
 use std::{
     future::Future,
     io,
@@ -37,26 +38,26 @@ fn config_failure(error: ConfigurationError) -> marathon_core::error::Failure {
     let mut cause = None;
     for e in error.causes.into_iter().rev() {
         cause = Some(Box::new(marathon_core::error::Failure {
-            class: e.class,
+            kind: e.kind,
             message: e.message,
             cause,
             stacktrace: None,
         }));
     }
     marathon_core::error::Failure {
-        class: error.class,
+        kind: error.kind,
         message: error.message,
         cause,
         stacktrace: None,
     }
 }
 fn mapping(error: &ConfigurationError) -> bool {
-    error.class.to_owned().starts_with("com.fasterxml.jackson.databind.")
+    matches!(error.kind, FailureKind::Config(kind) if kind.is_mapping())
 }
 fn load_error(error: LoadError, wrapper: &str) -> VendorError {
     match error {
         LoadError::Configuration(error) if mapping(&error) => {
-            let mut detail = failure("com.malinskiy.marathon.exceptions.NoDevicesException", wrapper);
+            let mut detail = failure(FailureKind::NoDevices, wrapper);
             detail.cause = Some(Box::new(config_failure(*error)));
             VendorError::NoDevices(detail)
         }
@@ -73,10 +74,7 @@ fn file_read_error(file: &Path, error: &io::Error) -> VendorError {
         io::ErrorKind::IsADirectory => "Is a directory".to_owned(),
         _ => error.to_string(),
     };
-    other(
-        "java.io.FileNotFoundException",
-        format!("{} ({reason})", file.display()),
-    )
+    other(FailureKind::FileNotFound, format!("{} ({reason})", file.display()))
 }
 pub(super) async fn load(provider: &AppleSimulatorProvider) -> VendorResult<Option<MarathonDevices>> {
     let binding = provider.services.binding.clone();
@@ -104,7 +102,7 @@ pub(super) async fn load(provider: &AppleSimulatorProvider) -> VendorResult<Opti
             .map_err(|e| load_error(e, &format!("Invalid Marathondevices file {} format", file.display())))?;
         if devices.workers.is_empty() {
             return Err(VendorError::NoDevices(failure(
-                "com.malinskiy.marathon.exceptions.NoDevicesException",
+                FailureKind::NoDevices,
                 format!("No workers found in the {}", file.display()),
             )));
         }
@@ -136,7 +134,7 @@ impl AppleSimulatorProvider {
         }
         let Source::Dynamic { host, port } = &self.services.vendor.device_provider else {
             return Err(other(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "Missing dynamic provider configuration",
             ));
         };
@@ -176,10 +174,7 @@ impl AppleSimulatorProvider {
         let port = match u16::try_from(port) {
             Ok(port) => port,
             Err(_) => {
-                self.source_error(other(
-                    "java.lang.IllegalArgumentException",
-                    format!("port out of range:{port}"),
-                ));
+                self.source_error(other(FailureKind::IllegalArgument, format!("port out of range:{port}")));
                 return Ok(());
             }
         };
@@ -197,7 +192,7 @@ impl AppleSimulatorProvider {
                     continue;
                 }
                 Err(error) => {
-                    self.source_error(other("java.io.IOException", error.to_string()));
+                    self.source_error(other(FailureKind::Io, error.to_string()));
                     return Ok(());
                 }
             };
@@ -244,12 +239,15 @@ impl AppleSimulatorProvider {
             while read < header.len() {
                 let n = cancelled(caller, socket.read(&mut header[read..]))
                     .await?
-                    .map_err(|e| other("java.io.IOException", e.to_string()))?;
+                    .map_err(|e| other(FailureKind::Io, e.to_string()))?;
                 if n == 0 {
                     let _ = decoder.feed(&header[..read], &self.services.binding);
-                    return Err(frame_error(decoder.finish().and_then(Result::err).ok_or_else(
-                        || other("java.lang.IllegalStateException", "Missing EOF failure"),
-                    )?));
+                    return Err(frame_error(
+                        decoder
+                            .finish()
+                            .and_then(Result::err)
+                            .ok_or_else(|| other(FailureKind::IllegalState, "Missing EOF failure"))?,
+                    ));
                 }
                 read += n;
             }
@@ -259,12 +257,15 @@ impl AppleSimulatorProvider {
                 while read < header.len() {
                     let n = cancelled(caller, socket.read(&mut header[read..]))
                         .await?
-                        .map_err(|e| other("java.io.IOException", e.to_string()))?;
+                        .map_err(|e| other(FailureKind::Io, e.to_string()))?;
                     if n == 0 {
                         let _ = decoder.feed(&header[..read], &self.services.binding);
-                        return Err(frame_error(decoder.finish().and_then(Result::err).ok_or_else(
-                            || other("java.lang.IllegalStateException", "Missing EOF failure"),
-                        )?));
+                        return Err(frame_error(
+                            decoder
+                                .finish()
+                                .and_then(Result::err)
+                                .ok_or_else(|| other(FailureKind::IllegalState, "Missing EOF failure"))?,
+                        ));
                     }
                     read += n;
                 }
@@ -274,25 +275,17 @@ impl AppleSimulatorProvider {
                 FrameDecoder::new()
                     .feed(&header, &binding)
                     .pop()
-                    .ok_or_else(|| other("java.lang.IllegalStateException", "Incomplete frame"))?
+                    .ok_or_else(|| other(FailureKind::IllegalState, "Incomplete frame"))?
                     .map_err(frame_error)
             })
             .await?;
             let (accepted, received) = oneshot::channel();
             cancelled(caller, tx.send(Snapshot { devices, accepted }))
                 .await?
-                .map_err(|_| {
-                    other(
-                        "kotlinx.coroutines.channels.ClosedSendChannelException",
-                        "Channel was closed",
-                    )
-                })?;
-            cancelled(caller, received).await?.map_err(|_| {
-                other(
-                    "kotlinx.coroutines.channels.ClosedSendChannelException",
-                    "Channel was closed",
-                )
-            })?;
+                .map_err(|_| other(FailureKind::ChannelSendClosed, "Channel was closed"))?;
+            cancelled(caller, received)
+                .await?
+                .map_err(|_| other(FailureKind::ChannelSendClosed, "Channel was closed"))?;
         }
     }
 }
@@ -301,10 +294,7 @@ fn frame_error(error: FrameError) -> VendorError {
         FrameError::Binding(error) => {
             load_error(LoadError::Configuration(error), "Invalid Marathondevices update format")
         }
-        error => other(
-            error.java_class().unwrap_or("java.lang.RuntimeException"),
-            error.message(),
-        ),
+        error => other(error.failure_kind().unwrap_or(FailureKind::Runtime), error.message()),
     }
 }
 
@@ -320,7 +310,10 @@ mod tests {
             (io::ErrorKind::PermissionDenied, "Permission denied"),
         ] {
             let error = file_read_error(Path::new("/Marathondevices"), &io::Error::from(kind));
-            assert_eq!(error.failure().class, "java.io.FileNotFoundException".to_owned());
+            assert_eq!(
+                error.failure().kind.legacy_class(),
+                "java.io.FileNotFoundException".to_owned()
+            );
             assert_eq!(error.failure().message, Some(format!("/Marathondevices ({reason})")));
         }
     }

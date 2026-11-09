@@ -10,6 +10,7 @@ use crate::{
     model::{MetaValue, Test},
 };
 use jcompat::logging::Level;
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -99,10 +100,10 @@ pub fn decode_plan(bytes: &[u8]) -> Result<TestPlan, crate::error::Failure> {
     // serde_json keeps the last duplicate key where Jackson's type dispatch can
     // see the first, so a duplicate `version` could silently flip V1 to
     // Unknown. Duplicate keys at any depth are malformed under P2 instead.
-    serde_json::from_slice::<UniqueKeys>(bytes).map_err(|e| failure("java.io.IOException", &e.to_string()))?;
+    serde_json::from_slice::<UniqueKeys>(bytes).map_err(|e| failure(FailureKind::Io, &e.to_string()))?;
     let value: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|e| failure("java.io.IOException", &e.to_string()))?;
-    let invalid = || failure("java.io.IOException", "invalid Allure test plan");
+        serde_json::from_slice(bytes).map_err(|e| failure(FailureKind::Io, &e.to_string()))?;
+    let invalid = || failure(FailureKind::Io, "invalid Allure test plan");
     let object = value.as_object().ok_or_else(invalid)?;
     let version = object.get("version");
     if !matches!(version, Some(serde_json::Value::String(v)) if v == "1.0") {
@@ -198,7 +199,7 @@ impl AllureFilter {
             let mut cache = self
                 .cache
                 .lock()
-                .map_err(|_| failure("java.lang.IllegalStateException", "Allure cache poisoned"))?;
+                .map_err(|_| failure(FailureKind::IllegalState, "Allure cache poisoned"))?;
             if cache.is_none() {
                 *cache = Some(self.supplier.supply()?);
             }

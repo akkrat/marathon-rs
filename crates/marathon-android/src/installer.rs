@@ -2,6 +2,7 @@
 use crate::{device::AndroidDevice, models::AndroidTestBundle, services::AndroidRuntime, support::*};
 use jcompat::logging::Level;
 use marathon_core::{error::*, vendor::VendorContext};
+use marathon_error::{AndroidKind, FailureKind};
 use std::path::PathBuf;
 use std::sync::Arc;
 pub struct AndroidAppInstaller {
@@ -40,7 +41,7 @@ impl AndroidAppInstaller {
             // N25: the source rejects plain APKs, not split APKs, below API 21.
             if bundle.files.split_apks.is_empty() && device.api_level() < 21 {
                 return Err(other(
-                    "com.malinskiy.marathon.android.exception.DeviceNotSupportedException",
+                    FailureKind::Android(AndroidKind::DeviceNotSupported),
                     "Device api level should be more then 20",
                 ));
             }
@@ -197,7 +198,7 @@ impl AndroidAppInstaller {
             }
             .await;
             let result = result.map_err(|e| {
-                if e.failure().class == "com.malinskiy.marathon.android.exception.InstallException" {
+                if e.failure().kind == FailureKind::Android(AndroidKind::Install) {
                     self.log(
                         Level::Error,
                         &format!(
@@ -209,7 +210,7 @@ impl AndroidAppInstaller {
                         Some(e.failure()),
                     );
                     let mut f = failure(
-                        "com.malinskiy.marathon.exceptions.DeviceSetupException",
+                        FailureKind::DeviceSetup,
                         format!(
                             "Error while installing {} on {}",
                             package.to_owned(),

@@ -112,7 +112,12 @@ fn negative_and_oversized_lengths() {
         Err(e) => e,
         Ok(_) => unreachable!(),
     };
-    assert_eq!(err.java_class(), Some("java.lang.IllegalArgumentException"));
+    assert_eq!(
+        err.failure_kind()
+            .as_ref()
+            .map(marathon_error::FailureKind::legacy_class),
+        Some("java.lang.IllegalArgumentException")
+    );
 
     let out = FrameDecoder::new().feed(&frame_with_length(MAX_FRAME_PAYLOAD + 1, b""), &ctx);
     assert!(matches!(out[0], Err(FrameError::TooLong { .. })));
@@ -121,7 +126,12 @@ fn negative_and_oversized_lengths() {
         Ok(_) => unreachable!(),
     };
     assert_eq!(err.message(), "Device provider update too long: maximum is 2^20 bytes");
-    assert_eq!(err.java_class(), Some("java.lang.RuntimeException"));
+    assert_eq!(
+        err.failure_kind()
+            .as_ref()
+            .map(marathon_error::FailureKind::legacy_class),
+        Some("java.lang.RuntimeException")
+    );
 }
 
 #[test]
@@ -210,7 +220,14 @@ fn frame_eof_probe_matches_jvm() {
                 continue;
             }
             assert_eq!(outcomes.len(), expected_frames, "{id} frames");
-            assert_eq!(error.java_class(), expected["class"].as_str(), "{id} class");
+            assert_eq!(
+                error
+                    .failure_kind()
+                    .as_ref()
+                    .map(marathon_error::FailureKind::legacy_class),
+                expected["class"].as_str(),
+                "{id} class"
+            );
             assert_eq!(error.message(), expected["message"].as_str().unwrap(), "{id} message");
         }
         checked += 1;

@@ -11,6 +11,7 @@ use jcompat::{
     jtime::Duration,
     logging::{Level, Logger, MarathonLogging},
 };
+use marathon_error::{FailureKind, ReportKind};
 use std::{
     io::Write,
     sync::{
@@ -91,7 +92,7 @@ impl<W: Write> GifSequenceWriter<W> {
         let delay = delay_millis / 10;
         let delay = u16::try_from(delay).map_err(|_| {
             VendorError::Other(failure(
-                "javax.imageio.metadata.IIOInvalidTreeException",
+                FailureKind::Report(ReportKind::ImageMetadata),
                 "Bad value for GraphicControlExtension attribute delayTime!",
             ))
         })?;
@@ -109,15 +110,16 @@ impl<W: Write> GifSequenceWriter<W> {
             (Ok(w), Ok(h)) if w > 0 && h > 0 => (w, h),
             _ => {
                 return Err(VendorError::Other(failure(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     "Invalid GIF dimensions",
                 )));
             }
         };
         if self.encoder.is_none() {
-            let stream = self.stream.take().ok_or_else(|| {
-                VendorError::Other(failure("java.lang.IllegalStateException", "GIF already finished"))
-            })?;
+            let stream = self
+                .stream
+                .take()
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "GIF already finished")))?;
             self.encoder = Some(
                 gif::Encoder::new(
                     ExplicitStream {
@@ -130,7 +132,7 @@ impl<W: Write> GifSequenceWriter<W> {
                 )
                 .map_err(|error| match error {
                     gif::EncodingError::Io(error) => {
-                        let mut f = failure("javax.imageio.IIOException", "I/O error writing header!");
+                        let mut f = failure(FailureKind::Report(ReportKind::ImageIo), "I/O error writing header!");
                         f.cause = Some(Box::new(io_error(error).failure().clone()));
                         VendorError::Other(f)
                     }
@@ -141,7 +143,7 @@ impl<W: Write> GifSequenceWriter<W> {
         let encoder = self
             .encoder
             .as_mut()
-            .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalStateException", "GIF already finished")))?;
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "GIF already finished")))?;
         // The JDK emits the application extension on every image. Its malformed
         // CommentExtensions attribute produces no comment (C63).
         encoder
@@ -190,9 +192,10 @@ impl<W: Write> GifSequenceWriter<W> {
         if let Some(encoder) = self.encoder.take() {
             encoder.into_inner().map(|stream| stream.inner).map_err(io_error)
         } else {
-            let mut stream = self.stream.take().ok_or_else(|| {
-                VendorError::Other(failure("java.lang.IllegalStateException", "GIF already finished"))
-            })?;
+            let mut stream = self
+                .stream
+                .take()
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "GIF already finished")))?;
             stream.write_all(&[0x3b]).map_err(io_error)?;
             Ok(stream)
         }
@@ -201,7 +204,7 @@ impl<W: Write> GifSequenceWriter<W> {
 fn gif_error(error: gif::EncodingError) -> VendorError {
     match error {
         gif::EncodingError::Io(error) => io_error(error),
-        other => VendorError::Other(failure("javax.imageio.IIOException", &other.to_string())),
+        other => VendorError::Other(failure(FailureKind::Report(ReportKind::ImageIo), &other.to_string())),
     }
 }
 
@@ -228,7 +231,7 @@ impl FrameTransform {
         };
         if width < 0 || height < 0 {
             return Err(VendorError::Other(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "targetWidth and targetHeight must be >= 0",
             )));
         }
@@ -245,7 +248,7 @@ impl FrameTransform {
         };
         if tw <= 0 || th <= 0 {
             return Err(VendorError::Other(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "Width and height must be > 0",
             )));
         }
@@ -360,9 +363,9 @@ impl ScreenCapturer {
                             .write(true)
                             .open(&path)
                             .map_err(|e| file_open_error(e, &path))?;
-                        let delay = delay.ok_or_else(|| {
-                            VendorError::Other(failure("java.lang.ArithmeticException", "long overflow"))
-                        })? as i32;
+                        let delay = delay
+                            .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?
+                            as i32;
                         Ok((GifSequenceWriter::new(stream, delay, true)?, delay))
                     })
                     .await?;
@@ -379,19 +382,17 @@ impl ScreenCapturer {
                                 .millis("core.ScreenCapturer.capture")
                                 .map_err(clock_error)?;
                             let frame = match source.screenshot(settings.timeout, cancellation.clone()).await {
-                                Err(VendorError::Other(ref f))
-                                    if f.class == "java.util.concurrent.TimeoutException" =>
-                                {
+                                Err(VendorError::Other(ref f)) if f.kind == FailureKind::Timeout => {
                                     (services.log)(&logger, Level::Error, "Timeout. Exiting", Some(f));
                                     None
                                 }
-                                Err(VendorError::Other(ref f)) if f.class == "java.io.IOException" => None,
+                                Err(VendorError::Other(ref f)) if f.kind == FailureKind::Io => None,
                                 other => other?,
                             };
                             if let Some(frame) = frame {
                                 let transform = transform.clone();
                                 let mut owned = writer.take().ok_or_else(|| {
-                                    VendorError::Other(failure("java.lang.IllegalStateException", "Missing GIF writer"))
+                                    VendorError::Other(failure(FailureKind::IllegalState, "Missing GIF writer"))
                                 })?;
                                 // Return the writer even on a frame failure so finally can finish it.
                                 let (next, result) = blocking(services.io.as_ref(), move || {

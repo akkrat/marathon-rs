@@ -9,6 +9,7 @@ use marathon_core::{
     model::Test,
     time::{ReplayError, Timer},
 };
+use marathon_error::FailureKind;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,14 +21,14 @@ impl ParseError {
     pub fn to_failure(&self) -> marathon_core::error::Failure {
         let (class, message) = match self {
             Self::NumberFormat { input } => (
-                "java.lang.NumberFormatException",
+                FailureKind::NumberFormat,
                 if input.bytes().filter(|b| *b == b'.').count() > 1 {
                     "multiple points".into()
                 } else {
                     format!("For input string: \"{input}\"")
                 },
             ),
-            Self::Clock(error) => ("ReplayError", error.message.to_owned()),
+            Self::Clock(error) => (FailureKind::ReplayClock, error.message.to_owned()),
         };
         crate::cmd::failure(class, message)
     }

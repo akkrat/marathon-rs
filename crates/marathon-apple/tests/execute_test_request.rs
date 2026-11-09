@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt (executeTestRequest).
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
@@ -60,7 +61,10 @@ impl CommandExecutor for Executor {
     fn execute(&self, _: CommandRequest, _: VendorContext) -> VendorFuture<'_, CommandSession> {
         Box::pin(async move {
             self.command.lock().unwrap().take().ok_or_else(|| {
-                marathon_core::error::VendorError::Other(marathon_apple::cmd::failure("TestFailure", "missing command"))
+                marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
+                    FailureKind::Injected(InjectedKind::TestFailure),
+                    "missing command",
+                ))
             })
         })
     }

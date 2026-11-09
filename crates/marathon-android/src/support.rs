@@ -4,6 +4,7 @@
 use jcompat::jtime::Duration;
 use marathon_adb::client::{AdbError, JavaThrowable};
 use marathon_core::{error::*, runtime::*, vendor::VendorContext};
+use marathon_error::{AdbKind, AndroidKind, FailureKind};
 use std::{
     future::Future,
     sync::{Arc, Mutex},
@@ -12,35 +13,32 @@ use std::{
 pub(crate) fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
-pub(crate) fn failure(class: &str, message: impl Into<String>) -> Failure {
+pub(crate) fn failure(class: FailureKind, message: impl Into<String>) -> Failure {
     Failure {
-        class: class.into(),
+        kind: class,
         message: Some(message.into()),
         cause: None,
         stacktrace: None,
     }
 }
-pub(crate) fn other(class: &str, message: impl Into<String>) -> VendorError {
+pub(crate) fn other(class: FailureKind, message: impl Into<String>) -> VendorError {
     VendorError::Other(failure(class, message))
 }
 pub(crate) fn setup(message: impl Into<String>) -> VendorError {
-    VendorError::DeviceSetup(failure(
-        "com.malinskiy.marathon.exceptions.DeviceSetupException",
-        message,
-    ))
+    VendorError::DeviceSetup(failure(FailureKind::DeviceSetup, message))
 }
 pub(crate) fn transfer(message: impl Into<String>) -> VendorError {
-    VendorError::Transfer(failure("com.malinskiy.marathon.exceptions.TransferException", message))
+    VendorError::Transfer(failure(FailureKind::Transfer, message))
 }
 pub(crate) fn install(message: impl Into<String>) -> VendorError {
-    other("com.malinskiy.marathon.android.exception.InstallException", message)
+    other(FailureKind::Android(AndroidKind::Install), message)
 }
 pub(crate) fn io(e: std::io::Error) -> VendorError {
-    other("java.io.IOException", e.to_string().as_str().to_owned())
+    other(FailureKind::Io, e.to_string().as_str().to_owned())
 }
 pub(crate) fn throwable(t: JavaThrowable) -> Failure {
     Failure {
-        class: t.class.into(),
+        kind: t.kind,
         message: t.message.map(|s| s.as_str().to_owned()),
         cause: t.cause.map(|c| Box::new(throwable(*c))),
         stacktrace: None,
@@ -51,16 +49,12 @@ pub fn adb_error(e: AdbError) -> VendorError {
 }
 /// What `execution_error` turns into a lost device: the adb server refused the device or the connection went.
 pub(crate) fn means_device_loss(e: &VendorError) -> bool {
-    let class = &e.failure().class;
-    *class == "com.malinskiy.adam.exception.RequestRejectedException"
-        || *class == "com.malinskiy.marathon.android.exception.CommandRejectedException"
+    let class = &e.failure().kind;
+    *class == FailureKind::Adb(AdbKind::RequestRejected) || *class == FailureKind::Android(AndroidKind::CommandRejected)
 }
 pub fn execution_error(e: VendorError) -> VendorError {
     if means_device_loss(&e) {
-        let mut f = failure(
-            "com.malinskiy.marathon.exceptions.DeviceLostException",
-            e.failure().to_java_string(),
-        );
+        let mut f = failure(FailureKind::DeviceLost, e.failure().to_java_string());
         f.cause = Some(Box::new(e.failure().clone()));
         VendorError::DeviceLost(f)
     } else {
@@ -69,7 +63,7 @@ pub fn execution_error(e: VendorError) -> VendorError {
 }
 pub(crate) fn millis(d: Duration) -> VendorResult<i64> {
     d.to_millis()
-        .ok_or_else(|| other("java.lang.ArithmeticException", "long overflow"))
+        .ok_or_else(|| other(FailureKind::Arithmetic, "long overflow"))
 }
 pub(crate) async fn cancellable<T>(
     signal: Arc<dyn CancellationSignal>,
@@ -115,17 +109,13 @@ pub(crate) async fn blocking<T: Send + 'static>(
         }))
         .join()
         .await?;
-    rx.await.map_err(|_| {
-        other(
-            "java.lang.IllegalStateException",
-            "blocking task finished without a result",
-        )
-    })?
+    rx.await
+        .map_err(|_| other(FailureKind::IllegalState, "blocking task finished without a result"))?
 }
 pub(crate) fn dex_error(e: marathon_dex::DexError) -> VendorError {
     fn convert(e: marathon_dex::DexError) -> Failure {
         Failure {
-            class: e.jvm_class,
+            kind: e.kind,
             message: e.message,
             cause: e.cause.map(|c| Box::new(convert(*c))),
             stacktrace: None,

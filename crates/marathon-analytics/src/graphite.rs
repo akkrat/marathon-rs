@@ -17,6 +17,7 @@ use marathon_core::{
     report::TestEvent,
     runtime::*,
 };
+use marathon_error::{AnalyticsKind, FailureKind};
 use std::{sync::Arc, time::Duration};
 use tokio::{
     io::AsyncWriteExt,
@@ -62,11 +63,7 @@ pub struct SocketSender {
     pub limits: CarbonLimits,
 }
 fn graphite_error(message: String) -> OperationError {
-    failure(
-        "com.malinskiy.marathon.analytics.external.graphite.GraphiteException",
-        &message,
-    )
-    .into()
+    failure(FailureKind::Analytics(AnalyticsKind::Graphite), &message).into()
 }
 impl DataSender for SocketSender {
     fn send_data<'a>(
@@ -208,8 +205,7 @@ impl QueryableGraphiteClient {
 impl GraphiteQuery for QueryableGraphiteClient {
     fn query<'a>(&'a self, target: &'a str, limit: Instant) -> ServiceFuture<'a, Vec<String>> {
         Box::pin(async move {
-            let from =
-                format_graphite(limit).ok_or_else(|| failure("java.lang.ArithmeticException", "long overflow"))?;
+            let from = format_graphite(limit).ok_or_else(|| failure(FailureKind::Arithmetic, "long overflow"))?;
             let path = format!("render?target={}&format=raw&from={from}", form_encode(target));
             let http = self.http.as_ref().map_err(Clone::clone)?;
             let reply = http.request("GET", &path, None, None, String::new()).await?;

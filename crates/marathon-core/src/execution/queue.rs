@@ -30,6 +30,7 @@ use crate::{
 use indexmap::IndexMap;
 use jcompat::{JavaPriorityQueue, logging::Level};
 use marathon_config::Configuration;
+use marathon_error::FailureKind;
 use std::{
     collections::HashMap,
     rc::{Rc, Weak},
@@ -207,9 +208,9 @@ fn vendor_error(error: VendorError) -> OperationError {
 fn batching_error(error: BatchingError) -> OperationError {
     match error {
         BatchingError::Bundle(error) => vendor_error(error),
-        BatchingError::Replay(error) => failure("marathon.ReplayError", &error.message.to_owned()).into(),
+        BatchingError::Replay(error) => failure(FailureKind::Replay, &error.message.to_owned()).into(),
         // QueueActor never batches an empty queue.
-        BatchingError::EmptyQueue => failure("java.util.NoSuchElementException", "empty queue").into(),
+        BatchingError::EmptyQueue => failure(FailureKind::NoSuchElement, "empty queue").into(),
     }
 }
 fn text(parts: &[&dyn Fn(&mut String)]) -> String {
@@ -473,7 +474,7 @@ impl QueueActor {
             let current_time_millis = self
                 .timer
                 .current_time_millis()
-                .map_err(|error| failure("marathon.ReplayError", &error.message.to_owned()))?;
+                .map_err(|error| failure(FailureKind::Replay, &error.message.to_owned()))?;
             results.push(TestResult {
                 test: test.clone(),
                 device: device.clone(),

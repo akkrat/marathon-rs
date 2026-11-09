@@ -5,6 +5,7 @@
 //! replay the same peers through the production wrappers with shortened limits.
 use crate::{http::tests::context, http::*, influx, influx2};
 use marathon_core::error::*;
+use marathon_error::{FailureKind, InjectedKind};
 use std::{
     sync::{
         Arc,
@@ -101,9 +102,9 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
     let Err(OperationError::Failed(error)) = result else {
         panic!("{scenario}: fault accepted")
     };
-    assert_eq!(error.class.to_owned(), expected["class"], "{scenario}");
+    assert_eq!(error.kind.legacy_class().to_owned(), expected["class"], "{scenario}");
     assert_eq!(
-        error.cause.as_ref().map(|c| c.class.to_owned()),
+        error.cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
         expected["cause"].as_str().map(str::to_owned),
         "{scenario}"
     );
@@ -117,7 +118,7 @@ async fn fault(backend: &str, mode: &'static str) -> OperationResult<()> {
     Ok(())
 }
 fn failure_of(message: &str) -> Failure {
-    marathon_core::executor::shared::failure("test.Peer", message)
+    marathon_core::executor::shared::failure(FailureKind::Injected(InjectedKind::TestPeer), message)
 }
 
 #[tokio::test]
@@ -159,9 +160,9 @@ async fn refused_v2_query_wraps_connect_exception() {
     else {
         panic!("refused query accepted")
     };
-    assert_eq!(error.class.to_owned(), expected["class"]);
+    assert_eq!(error.kind.legacy_class().to_owned(), expected["class"]);
     assert_eq!(
-        error.cause.as_ref().map(|c| c.class.to_owned()),
+        error.cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
         expected["cause"].as_str().map(str::to_owned)
     );
 }

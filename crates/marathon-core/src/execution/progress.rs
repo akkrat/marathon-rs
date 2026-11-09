@@ -15,6 +15,7 @@ use crate::{
 };
 use jcompat::{formatting::format_percent, logging::Level};
 use marathon_config::schema::{ExecutionMode, ExecutionStrategyConfiguration};
+use marathon_error::FailureKind;
 use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -253,7 +254,7 @@ impl PoolProgressAccumulator {
     pub fn aggregate_result(&self) -> VendorResult<bool> {
         if self.tests.is_empty() {
             return Err(VendorError::Other(failure(
-                "java.lang.UnsupportedOperationException",
+                FailureKind::UnsupportedOperation,
                 "Empty collection can't be reduced.",
             )));
         }
@@ -282,9 +283,8 @@ impl PoolProgressAccumulator {
         Ok(result)
     }
     fn line(&self, device: &DeviceInfo, test: &Test, status: &str) -> VendorResult<String> {
-        let percent = jcompat::jnum::kotlin_round_to_int(self.progress() * 100.0).ok_or_else(|| {
-            VendorError::Other(failure("java.lang.IllegalArgumentException", "Cannot round NaN value."))
-        })?;
+        let percent = jcompat::jnum::kotlin_round_to_int(self.progress() * 100.0)
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "Cannot round NaN value.")))?;
         let mut line = format_percent(percent);
         line.push_str(" | [");
         line.push_str(&self.pool.name.clone());

@@ -20,6 +20,7 @@ use marathon_core::{
     runtime::VendorRuntime,
     vendor::TestBundle,
 };
+use marathon_error::FailureKind;
 use std::{
     io,
     path::{Path, PathBuf},
@@ -75,7 +76,7 @@ fn io_failure(path: &Path, error: &io::Error) -> VendorError {
         _ => error.to_string(),
     };
     VendorError::Other(failure(
-        "java.io.FileNotFoundException",
+        FailureKind::FileNotFound,
         format!("{} ({reason})", path.display()),
     ))
 }
@@ -174,7 +175,7 @@ impl AppleTestBundle {
                 .map_err(|e| plist_failure(Path::new(""), e))?;
             let test_bundle_id = BUNDLE_NAME
                 .replace(&bundle_name, "_")
-                .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", e.to_string())))?;
+                .map_err(|e| VendorError::Other(failure(FailureKind::IllegalArgument, e.to_string())))?;
             Ok((
                 String::from(id.as_str()),
                 application_bundle_info,
@@ -357,7 +358,7 @@ mod plist_boundary_test {
                 message: "read denied".into(),
             },
         );
-        assert_eq!(error.failure().class.to_owned(), "java.io.IOException");
+        assert_eq!(error.failure().kind.legacy_class().to_owned(), "java.io.IOException");
         assert_eq!(error.failure().message.as_ref().unwrap().to_owned(), "read denied");
     }
 }

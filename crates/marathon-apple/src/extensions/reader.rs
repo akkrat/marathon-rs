@@ -7,6 +7,7 @@ use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::{
     pin::Pin,
     sync::{
@@ -21,7 +22,7 @@ pub fn current_time_millis(context: &VendorContext) -> VendorResult<i64> {
     context
         .hooks
         .millis("apple.Reader.currentTimeMillis")
-        .map_err(|e| VendorError::Other(failure("ReplayError", e.message)))
+        .map_err(|e| VendorError::Other(failure(FailureKind::ReplayClock, e.message)))
 }
 
 /// Polls an async stream once per backoff tick. A pending read never delays the
@@ -63,10 +64,7 @@ where
             }
             let elapsed = current_time_millis(&context)?.wrapping_sub(last_output.load(Ordering::SeqCst));
             if elapsed.wrapping_sub(backoff.max_millis) > millis(idle_timeout)? {
-                let cause = failure(
-                    "java.util.concurrent.TimeoutException",
-                    format!("idle timeout {idle_timeout} reached"),
-                );
+                let cause = failure(FailureKind::Timeout, format!("idle timeout {idle_timeout} reached"));
                 output.close(Some(cause.clone()));
                 return Err(VendorError::Other(cause));
             }

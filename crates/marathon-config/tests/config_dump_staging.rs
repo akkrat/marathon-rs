@@ -42,7 +42,10 @@ fn loader_and_validator_staging_matches_the_config_dump_goldens() {
             (
                 load::class(&e),
                 clean(load::message(&e)),
-                e.causes.iter().map(|c| c.class.to_owned()).collect::<Vec<_>>(),
+                e.causes
+                    .iter()
+                    .map(|c| c.kind.legacy_class().to_owned())
+                    .collect::<Vec<_>>(),
             )
         });
         let want = golden["error"].as_object().map(|e| {

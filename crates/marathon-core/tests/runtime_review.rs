@@ -169,7 +169,7 @@ fn cancelled_waiter(state: &'static str) {
                 VendorError::Other(f) | VendorError::Cancelled(Cancellation::Requested(f)) => f,
                 other => panic!("unexpected await error: {other:?}"),
             };
-            let class = failure.class;
+            let class = failure.kind.legacy_class();
             let simple = class.rsplit('.').next().unwrap();
             let message = failure.message.unwrap();
             assert_eq!(

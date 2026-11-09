@@ -14,6 +14,7 @@ use marathon_core::{
     runtime::*,
     vendor::{Device, DeviceRef, VendorContext},
 };
+use marathon_error::FailureKind;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, Weak},
@@ -149,13 +150,13 @@ impl StubDevice {
             let statuses = match &cursor.execution_results {
                 None => {
                     return Err(VendorError::Other(failure(
-                        "kotlin.UninitializedPropertyAccessException",
+                        FailureKind::UninitializedProperty,
                         "lateinit property executionResults has not been initialized",
                     )));
                 }
-                Some(results) => results.get(test).ok_or_else(|| {
+                Some(results) => results.get(test).ok_or({
                     VendorError::Other(Failure {
-                        class: "java.lang.NullPointerException".into(),
+                        kind: FailureKind::NullReference,
                         message: None,
                         cause: None,
                         stacktrace: None,
@@ -164,7 +165,7 @@ impl StubDevice {
             };
             let status = *statuses.get(i).ok_or_else(|| {
                 VendorError::Other(failure(
-                    "java.lang.ArrayIndexOutOfBoundsException",
+                    FailureKind::ArrayIndexOutOfBounds,
                     &format!("Index {i} out of bounds for length {}", statuses.len()),
                 ))
             })?;
@@ -261,7 +262,7 @@ impl Device for StubDevice {
                 Ok(()) => self.call("executed", serde_json::json!({"batch": id})),
                 Err(VendorError::Cancelled(_)) => self.call("execute-cancelled", serde_json::json!({"batch": id})),
                 Err(e) => {
-                    let class = e.failure().class.to_owned();
+                    let class = e.failure().kind.legacy_class();
                     let simple = class.rsplit('.').next().unwrap_or_default().to_owned();
                     self.call("execute-threw", serde_json::json!({"batch": id, "exception": simple}));
                 }
@@ -320,7 +321,7 @@ impl StubDevice {
         if event["event"] == "prepare-failed" {
             self.call("prepare-failed", serde_json::json!({}));
             let message = event["message"].as_str().unwrap_or("prepare failed");
-            return Err(VendorError::Other(failure("java.lang.RuntimeException", message)));
+            return Err(VendorError::Other(failure(FailureKind::Runtime, message)));
         }
         Ok(())
     }
@@ -346,22 +347,21 @@ impl StubDevice {
             }
             let message = event["message"].as_str().unwrap_or("scripted failure");
             return Err(match event["exception"].as_str().unwrap_or_default() {
-                "TestBatchExecutionException" => VendorError::BatchExecution(failure(
-                    "com.malinskiy.marathon.exceptions.TestBatchExecutionException",
-                    message,
-                )),
+                "TestBatchExecutionException" => {
+                    VendorError::BatchExecution(failure(FailureKind::BatchExecution, message))
+                }
                 "DeviceLostException" => {
-                    let cause = failure("java.lang.RuntimeException", message);
+                    let cause = failure(FailureKind::Runtime, message);
                     VendorError::DeviceLost(Failure {
-                        class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
+                        kind: FailureKind::DeviceLost,
                         message: Some(cause.to_java_string()),
                         cause: Some(Box::new(cause)),
                         stacktrace: None,
                     })
                 }
-                "RuntimeException" => VendorError::Other(failure("java.lang.RuntimeException", message)),
+                "RuntimeException" => VendorError::Other(failure(FailureKind::Runtime, message)),
                 kind => VendorError::Other(failure(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     &format!("batch-failed: exception {kind} is not supported"),
                 )),
             });
@@ -427,18 +427,18 @@ impl StubDevice {
             }
             if self.options.crash_with_test_batch_exception {
                 return Err(VendorError::BatchExecution(failure(
-                    "com.malinskiy.marathon.exceptions.TestBatchExecutionException",
+                    FailureKind::BatchExecution,
                     "user requested the device to crash via crashWithTestBatchException parameter",
                 )));
             }
             if self.options.crash_with_device_lost_exception {
                 // DeviceLostException(cause): Throwable(cause) takes the cause's toString as its message.
                 let cause = failure(
-                    "java.lang.RuntimeException",
+                    FailureKind::Runtime,
                     "user requested the device to crash via crashWithDeviceLostException parameter",
                 );
                 return Err(VendorError::DeviceLost(Failure {
-                    class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
+                    kind: FailureKind::DeviceLost,
                     message: Some(cause.to_java_string()),
                     cause: Some(Box::new(cause)),
                     stacktrace: None,

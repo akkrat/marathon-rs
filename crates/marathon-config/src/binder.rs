@@ -1,6 +1,7 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt
 //! and serialization/yaml/SerializeModule.kt. Synchronous binding runs off the core executor.
 
+use marathon_error::{ConfigKind, FailureKind};
 use std::cell::RefCell;
 use std::path::PathBuf;
 
@@ -18,12 +19,12 @@ use snakeyaml::{
     tokens::{self, Tok, Token},
 };
 
-pub const MISMATCHED: &str = "com.fasterxml.jackson.databind.exc.MismatchedInputException";
-pub const INVALID_FORMAT: &str = "com.fasterxml.jackson.databind.exc.InvalidFormatException";
-pub const JSON_MAPPING: &str = "com.fasterxml.jackson.databind.JsonMappingException";
-pub const MISSING_KOTLIN: &str = "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException";
-pub const UNKNOWN_PROPERTY: &str = "com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException";
-pub const INVALID_TYPE: &str = "com.fasterxml.jackson.databind.exc.InvalidTypeIdException";
+pub const MISMATCHED: FailureKind = FailureKind::Config(ConfigKind::MismatchedInput);
+pub const INVALID_FORMAT: FailureKind = FailureKind::Config(ConfigKind::InvalidFormat);
+pub const JSON_MAPPING: FailureKind = FailureKind::Config(ConfigKind::JsonMapping);
+pub const MISSING_KOTLIN: FailureKind = FailureKind::Config(ConfigKind::MissingKotlinParameter);
+pub const UNKNOWN_PROPERTY: FailureKind = FailureKind::Config(ConfigKind::UnrecognizedProperty);
+pub const INVALID_TYPE: FailureKind = FailureKind::Config(ConfigKind::InvalidTypeId);
 pub type Result<T> = std::result::Result<T, Box<ConfigurationError>>;
 
 /// Schema functions receive a view; they can call any other schema function on a child.
@@ -80,11 +81,11 @@ impl<'a> Binder<'a> {
         &self,
         path: Vec<PathPart>,
         span: Option<snakeyaml::node::Span>,
-        wrap: Option<&str>,
+        wrap: Option<FailureKind>,
     ) -> Box<ConfigurationError> {
         let token = self.error.map(tokens::TokenError::from).unwrap_or(tokens::TokenError {
             stage: "binding",
-            class: MISMATCHED,
+            kind: tokens::TokenErrorKind::MismatchedInput,
             message: "no content to bind".into(),
             context: None,
             problem: None,
@@ -112,16 +113,28 @@ impl<'a> Binder<'a> {
         }
     }
 }
+fn token_kind(kind: tokens::TokenErrorKind) -> FailureKind {
+    match kind {
+        tokens::TokenErrorKind::Fixture => FailureKind::Injected(marathon_error::InjectedKind::ParserFixture),
+        tokens::TokenErrorKind::MarkedYaml => FailureKind::Config(ConfigKind::MarkedYAML),
+        tokens::TokenErrorKind::YamlParse => FailureKind::Config(ConfigKind::JacksonYAMLParse),
+        tokens::TokenErrorKind::JsonParse => FailureKind::Config(ConfigKind::JsonParse),
+        tokens::TokenErrorKind::StreamConstraints => FailureKind::Config(ConfigKind::StreamConstraints),
+        tokens::TokenErrorKind::JsonEof => FailureKind::Config(ConfigKind::JsonEOF),
+        tokens::TokenErrorKind::MismatchedInput => MISMATCHED,
+    }
+}
 fn token_error(
     e: tokens::TokenError,
     path: Vec<PathPart>,
     span: Option<snakeyaml::node::Span>,
-    wrap: Option<&str>,
+    wrap: Option<FailureKind>,
 ) -> Box<ConfigurationError> {
     let mut causes: Vec<ConfigurationCause> = wrap
-        .filter(|c| *c != e.class)
+        .clone()
+        .filter(|c| *c != token_kind(e.kind))
         .map(|_| ConfigurationCause {
-            class: e.class.into(),
+            kind: token_kind(e.kind),
             message: Some(e.message.to_owned()),
         })
         .into_iter()
@@ -130,29 +143,29 @@ fn token_error(
     // wrapper and its cause are distinct even when their diagnostics coincide.
     // JacksonYAMLParseException likewise wraps the reader's ReaderException or
     // the scanner's plain YAMLException (code point limit).
-    let original = match (e.class, e.stage) {
-        (tokens::MARKED_YAML_EXCEPTION, "scanner") => Some("org.yaml.snakeyaml.scanner.ScannerException"),
-        (tokens::MARKED_YAML_EXCEPTION, _) => Some("org.yaml.snakeyaml.parser.ParserException"),
-        (tokens::JACKSON_YAML_PARSE_EXCEPTION, "reader") => Some("org.yaml.snakeyaml.reader.ReaderException"),
-        (tokens::JACKSON_YAML_PARSE_EXCEPTION, _) => Some("org.yaml.snakeyaml.error.YAMLException"),
+    let original = match (e.kind, e.stage) {
+        (tokens::MARKED_YAML_EXCEPTION, "scanner") => Some(FailureKind::Config(ConfigKind::Scanner)),
+        (tokens::MARKED_YAML_EXCEPTION, _) => Some(FailureKind::Config(ConfigKind::Parser)),
+        (tokens::JACKSON_YAML_PARSE_EXCEPTION, "reader") => Some(FailureKind::Config(ConfigKind::Reader)),
+        (tokens::JACKSON_YAML_PARSE_EXCEPTION, _) => Some(FailureKind::Config(ConfigKind::YAML)),
         _ => None,
     };
     if let Some(class) = original {
         causes.push(ConfigurationCause {
-            class: class.into(),
+            kind: class,
             message: Some(e.message.to_owned()),
         });
     }
     Box::new(ConfigurationError {
         stage: ValidationStage::Parse,
-        class: wrap.unwrap_or(e.class).into(),
+        kind: wrap.unwrap_or_else(|| token_kind(e.kind)),
         message: Some(e.message.to_owned()),
         causes,
         path,
         span,
         cause: BindingCause::Stream(TokenError {
             stage: e.stage.into(),
-            class: e.class.into(),
+            kind: token_kind(e.kind),
             message: e.message,
             context_mark: e.context,
             problem_mark: e.problem,
@@ -162,15 +175,15 @@ fn token_error(
 }
 
 fn wrap_stream(mut error: Box<ConfigurationError>) -> Box<ConfigurationError> {
-    if matches!(error.cause, BindingCause::Stream(_)) && error.class != JSON_MAPPING {
+    if matches!(error.cause, BindingCause::Stream(_)) && error.kind != JSON_MAPPING {
         error.causes.insert(
             0,
             ConfigurationCause {
-                class: error.class.clone(),
+                kind: error.kind.clone(),
                 message: error.message.to_owned(),
             },
         );
-        error.class = JSON_MAPPING.into();
+        error.kind = JSON_MAPPING;
     }
     error
 }
@@ -189,11 +202,11 @@ impl<'a> Value<'a> {
     pub fn context(&self) -> &'a BindingContext {
         self.binder.context
     }
-    pub fn error(&self, class: &str, message: impl Into<String>) -> Box<ConfigurationError> {
+    pub fn error(&self, class: FailureKind, message: impl Into<String>) -> Box<ConfigurationError> {
         let message = message.into();
         Box::new(ConfigurationError {
             stage: ValidationStage::Parse,
-            class: class.into(),
+            kind: class,
             message: Some(message.to_owned()),
             causes: Vec::new(),
             path: self.path.clone(),
@@ -347,7 +360,7 @@ impl<'a> Value<'a> {
     pub fn required<T>(&self, value: Option<T>) -> Result<T> {
         value.ok_or_else(|| self.error(MISSING_KOTLIN, "non-null parameter is null"))
     }
-    fn scalar<T>(&self, bind: impl FnOnce(&Token) -> std::result::Result<T, &'static str>) -> Result<T> {
+    fn scalar<T>(&self, bind: impl FnOnce(&Token) -> std::result::Result<T, FailureKind>) -> Result<T> {
         bind(&self.token()?).map_err(|class| self.error(class, "cannot coerce scalar to field type"))
     }
     pub fn int(&self) -> Result<i32> {
@@ -469,11 +482,11 @@ impl<'a> Value<'a> {
                 let text = s.to_owned();
                 creator(&text).ok_or_else(|| {
                     let mut error = self.error(
-                        "com.fasterxml.jackson.databind.exc.ValueInstantiationException",
+                        FailureKind::Config(ConfigKind::ValueInstantiation),
                         "enum creator rejected value",
                     );
                     error.causes.push(ConfigurationCause {
-                        class: "java.lang.IllegalArgumentException".into(),
+                        kind: FailureKind::IllegalArgument,
                         message: if enum_class.is_empty() {
                             error.message.to_owned()
                         } else {
@@ -490,7 +503,7 @@ impl<'a> Value<'a> {
             Ok(())
         } else {
             Err(self.error(
-                "com.fasterxml.jackson.databind.exc.InvalidDefinitionException",
+                FailureKind::Config(ConfigKind::InvalidDefinition),
                 "JavaTimeModule is not registered in this profile",
             ))
         }
@@ -530,7 +543,7 @@ impl<'a> Value<'a> {
             .transpose()
     }
     fn time_error_cause(&self, mut error: Box<ConfigurationError>, instant: bool) -> Box<ConfigurationError> {
-        if error.class == INVALID_FORMAT
+        if error.kind == INVALID_FORMAT
             && let Ok(Token {
                 tok: Tok::Str(text), ..
             }) = self.token()
@@ -543,13 +556,13 @@ impl<'a> Value<'a> {
                     .unwrap_or_default()
             } else {
                 vec![(
-                    "java.time.format.DateTimeParseException",
+                    FailureKind::DateTimeParse,
                     String::from("Text cannot be parsed to a Duration"),
                 )]
             };
             for (class, message) in causes {
                 error.causes.push(ConfigurationCause {
-                    class: class.into(),
+                    kind: class,
                     message: Some(message),
                 });
             }
@@ -570,18 +583,14 @@ impl<'a> Value<'a> {
             // directly; Jackson wraps constructor properties at nested paths.
             let top = matches!(self.path.as_slice(), [PathPart::Key(key)] if key == &"outputDir".to_owned());
             let mut error = self.error(
-                if top {
-                    "java.lang.NullPointerException"
-                } else {
-                    JSON_MAPPING
-                },
+                if top { FailureKind::NullReference } else { JSON_MAPPING },
                 "expected path text",
             );
             if top {
                 error.message = None;
             } else {
                 error.causes.push(ConfigurationCause {
-                    class: "java.lang.NullPointerException".into(),
+                    kind: FailureKind::NullReference,
                     message: None,
                 });
             }
@@ -639,7 +648,7 @@ impl<'a> Value<'a> {
                 ),
             );
             error.causes.push(ConfigurationCause {
-                class: "java.lang.NullPointerException".into(),
+                kind: FailureKind::NullReference,
                 message: error.message.to_owned(),
             });
             return Err(error);
@@ -659,12 +668,12 @@ impl<'a> Value<'a> {
                 format!("Expected a string or an object to deserialize a Regex, but type was {kind}"),
             );
             let class = if matches!(self.node.kind, NodeKind::Map { .. }) {
-                "java.lang.NullPointerException"
+                FailureKind::NullReference
             } else {
-                "java.lang.IllegalStateException"
+                FailureKind::IllegalState
             };
             error.causes.push(ConfigurationCause {
-                class: class.into(),
+                kind: class,
                 message: error.message.to_owned(),
             });
             return Err(error);
@@ -680,9 +689,9 @@ impl<'a> Value<'a> {
             .collect::<Vec<_>>()
             .join(".");
         JavaRegex::compile(&pattern, &field).map(Some).map_err(|e| {
-            let mut error = self.error("com.fasterxml.jackson.databind.JsonMappingException", e.to_string());
+            let mut error = self.error(FailureKind::Config(ConfigKind::JsonMapping), e.to_string());
             error.causes.push(ConfigurationCause {
-                class: "java.util.regex.PatternSyntaxException".into(),
+                kind: FailureKind::PatternSyntax,
                 message: error.message.to_owned(),
             });
             error

@@ -255,7 +255,7 @@ fn review_round_one_matches_jvm() -> std::result::Result<(), Box<dyn std::error:
         let got = match got {
             Ok(value) => json!({"ok":value}),
             Err(error) => {
-                json!({"error": std::iter::once(&error.class).chain(error.causes.iter().map(|c|&c.class)).map(String::clone).collect::<Vec<_>>()})
+                json!({"error": std::iter::once(error.kind.legacy_class()).chain(error.causes.iter().map(|c|c.kind.legacy_class())).map(str::to_owned).collect::<Vec<_>>()})
             }
         };
         assert_eq!(got, row["result"], "{row}");

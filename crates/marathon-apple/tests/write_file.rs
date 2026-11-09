@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/cmd/WriteFileTest.kt
+use marathon_error::FailureKind;
 mod support;
 use jcompat::logging::Logger;
 use marathon_apple::cmd::{
@@ -37,12 +38,7 @@ impl CommandExecutor for Recording {
     fn execute(&self, mut request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession> {
         self.commands.lock().unwrap().push(request.clone());
         if self.fail {
-            return Box::pin(async {
-                Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
-                    "Not connected",
-                )))
-            });
+            return Box::pin(async { Err(VendorError::Other(failure(FailureKind::IllegalState, "Not connected"))) });
         }
         if self.shell {
             let profile = self

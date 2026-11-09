@@ -8,6 +8,7 @@ use marathon_core::{
         CancellationSignal, VendorClock, VendorFuture, VendorRuntime, VendorTask, VendorTaskBody, VendorTimeoutBody,
     },
 };
+use marathon_error::{FailureKind, InjectedKind};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicU64, Ordering},
@@ -30,9 +31,9 @@ impl VendorTask for Task {
                 if let Some(result) = rx.borrow().clone() {
                     return result;
                 }
-                rx.changed()
-                    .await
-                    .map_err(|e| VendorError::Other(failure("TestTask", e.to_string())))?;
+                rx.changed().await.map_err(|e| {
+                    VendorError::Other(failure(FailureKind::Injected(InjectedKind::TestTask), e.to_string()))
+                })?;
             }
         })
     }
@@ -101,7 +102,10 @@ impl VendorClock for Clock {
             let child = Arc::new(SessionScope::default());
             let expired = Cancellation::Timeout {
                 scope,
-                detail: failure("TimeoutCancellationException", "timeout"),
+                detail: failure(
+                    FailureKind::Injected(InjectedKind::TimeoutCancellationException),
+                    "timeout",
+                ),
             };
             if millis <= 0 {
                 return Err(VendorError::Cancelled(expired));

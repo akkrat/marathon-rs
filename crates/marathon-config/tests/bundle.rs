@@ -288,7 +288,7 @@ fn when_xctest_is_not_specified_should_throw_an_exception_if_such_file_is_not_av
     let tmp = tempfile::tempdir().unwrap();
     let error = parse_ios(tmp.path(), "").unwrap_err();
     assert_eq!(
-        error.class.to_owned(),
+        error.kind.legacy_class().to_owned(),
         "com.malinskiy.marathon.config.exceptions.ConfigurationException"
     );
 }

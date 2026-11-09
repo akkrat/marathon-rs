@@ -21,6 +21,7 @@ use marathon_apple::{
 };
 use marathon_config::{VendorConfiguration, binding::BindingContext, vendor::AppleTestParserConfiguration};
 use marathon_core::vendor::{TestParser, VendorServices};
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -129,7 +130,7 @@ pub async fn construct_with_parser_libraries(
     };
     let VendorConfiguration::Ios(config) = &dependencies.configuration.vendor_configuration else {
         return Err(VendorError::Other(failure(
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+            FailureKind::Config(marathon_error::ConfigKind::Rejected),
             "Expected iOS vendor configuration",
         )));
     };
@@ -159,7 +160,7 @@ pub async fn construct_with_parser_libraries(
             });
         }),
     );
-    let cwd = std::env::current_dir().map_err(|e| VendorError::Other(failure("java.io.IOException", e.to_string())))?;
+    let cwd = std::env::current_dir().map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;
     let cwd = PathBuf::from(cwd.to_string_lossy().into_owned());
     let context = VendorContext {
         cancellation: Signal::new(),
@@ -182,7 +183,7 @@ pub async fn construct_with_parser_libraries(
         dependencies.hooks.clone(),
         logging.clone(),
     )
-    .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.0)))?;
+    .map_err(|e| VendorError::Other(failure(FailureKind::IllegalArgument, &e.0)))?;
     let track = Track::new(dependencies.io.clone(), dependencies.hooks.clone());
     track.add(dependencies.tracker.clone());
     let files = Arc::new(FileManager::new(

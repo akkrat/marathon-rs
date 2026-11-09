@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDeviceBatchTest.kt
+use marathon_error::FailureKind;
 mod simulator_support;
 mod support;
 use marathon_apple::{
@@ -54,7 +55,7 @@ async fn an_unclassified_error_is_not_counted_as_a_batch_without_progress() -> T
     let boot = h.boot.clone();
     *h.worker.before.lock().unwrap() = Arc::new(move |command| {
         if command.get(2).is_some_and(|s| s == "privacy") {
-            return Box::pin(async { Err(VendorError::Other(failure("java.io.IOException", "probe"))) });
+            return Box::pin(async { Err(VendorError::Other(failure(FailureKind::Io, "probe"))) });
         }
         let reply = boot.answer(&command);
         Box::pin(async move { Ok(reply) })
@@ -122,12 +123,15 @@ async fn batches_stopped_by_the_idle_timeout_before_any_test_finished_take_the_s
     let (d, s) = prepared(&h).await?;
     *s.plan.lock().unwrap() = OutputPlan {
         lines: vec!["Test Case '-[Suite test1]' started.".into()],
-        failure: Some(failure("java.util.concurrent.TimeoutException", "idle timeout reached")),
+        failure: Some(failure(FailureKind::Timeout, "idle timeout reached")),
         ..Default::default()
     };
     for _ in 0..2 {
         let e = run(&h, &d).await.0.unwrap_err();
-        assert_eq!(e.failure().class.to_owned(), "java.util.concurrent.TimeoutException");
+        assert_eq!(
+            e.failure().kind.legacy_class().to_owned(),
+            "java.util.concurrent.TimeoutException"
+        );
         assert!(!d.lost());
     }
     let e = run(&h, &d).await.0.unwrap_err();
@@ -149,12 +153,15 @@ async fn silent_batches_take_the_simulator_out_with_the_default_settings_d39() -
     let (d, s) = prepared(&h).await?;
     *s.plan.lock().unwrap() = OutputPlan {
         lines: vec!["Test Case '-[Suite test1]' started.".into()],
-        failure: Some(failure("java.util.concurrent.TimeoutException", "idle timeout reached")),
+        failure: Some(failure(FailureKind::Timeout, "idle timeout reached")),
         ..Default::default()
     };
     for _ in 0..2 {
         let e = run(&h, &d).await.0.unwrap_err();
-        assert_eq!(e.failure().class.to_owned(), "java.util.concurrent.TimeoutException");
+        assert_eq!(
+            e.failure().kind.legacy_class().to_owned(),
+            "java.util.concurrent.TimeoutException"
+        );
         assert!(!d.lost());
     }
     let e = run(&h, &d).await.0.unwrap_err();
@@ -173,12 +180,15 @@ async fn silent_batches_with_progress_keep_the_simulator_d39() -> TestResult {
     lines.push("Test Case '-[Suite test2]' started.".into());
     *s.plan.lock().unwrap() = OutputPlan {
         lines,
-        failure: Some(failure("java.util.concurrent.TimeoutException", "idle timeout reached")),
+        failure: Some(failure(FailureKind::Timeout, "idle timeout reached")),
         ..Default::default()
     };
     for _ in 0..10 {
         let e = run(&h, &d).await.0.unwrap_err();
-        assert_eq!(e.failure().class.to_owned(), "java.util.concurrent.TimeoutException");
+        assert_eq!(
+            e.failure().kind.legacy_class().to_owned(),
+            "java.util.concurrent.TimeoutException"
+        );
         assert!(!d.lost());
     }
     h.finish(&[d]).await;

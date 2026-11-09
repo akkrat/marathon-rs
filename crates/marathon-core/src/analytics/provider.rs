@@ -14,6 +14,7 @@ use crossbeam_skiplist::SkipMap;
 use futures_util::future::Either;
 use jcompat::jnum::double_to_string;
 use marathon_config::Defaults;
+use marathon_error::FailureKind;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{
@@ -215,7 +216,7 @@ impl Shared {
             .context
             .monotonic
             .nanos(label)
-            .map_err(|e| failure("marathon.ReplayError", &e.message.to_owned()))?;
+            .map_err(|e| failure(FailureKind::Replay, &e.message.to_owned()))?;
         let fetched = with_retry_send(
             attempts,
             retry_delay_millis,
@@ -253,7 +254,7 @@ impl Shared {
             .context
             .monotonic
             .nanos(label)
-            .map_err(|e| failure("marathon.ReplayError", &e.message.to_owned()))?
+            .map_err(|e| failure(FailureKind::Replay, &e.message.to_owned()))?
             .wrapping_sub(started)
             / 1_000_000;
         let outcome = fetched
@@ -436,7 +437,7 @@ impl Shared {
         self.defaults
             .duration
             .to_millis()
-            .ok_or_else(|| failure("java.lang.ArithmeticException", "long overflow").into())
+            .ok_or_else(|| failure(FailureKind::Arithmetic, "long overflow").into())
     }
     fn execution_time_value(
         &self,

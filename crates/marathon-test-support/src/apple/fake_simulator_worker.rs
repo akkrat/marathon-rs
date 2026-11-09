@@ -6,6 +6,7 @@ use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
+use marathon_error::{FailureKind, SshKind};
 use serde_json::json;
 use std::{
     collections::BTreeMap,
@@ -38,16 +39,16 @@ pub fn invalid(udid: &str) -> CommandResult {
     }
 }
 pub fn connection_exception(message: &str) -> Failure {
-    failure("net.schmizz.sshj.connection.ConnectionException", message)
+    failure(FailureKind::Ssh(SshKind::Connection), message)
 }
 pub fn transport_exception(message: &str) -> Failure {
-    failure("net.schmizz.sshj.transport.TransportException", message)
+    failure(FailureKind::Ssh(SshKind::Transport), message)
 }
 pub fn io_exception(message: &str) -> Failure {
-    failure("java.io.IOException", message)
+    failure(FailureKind::Io, message)
 }
 pub fn cancellation_exception(message: &str) -> Failure {
-    failure("java.util.concurrent.CancellationException", message)
+    failure(FailureKind::Cancelled, message)
 }
 
 pub struct Simulator {
@@ -214,7 +215,7 @@ impl FakeSimulatorWorker {
             }
             ["xcrun", "simctl", "getenv" | "create" | "delete", ..] => {
                 return Err(VendorError::Other(failure(
-                    "java.lang.IndexOutOfBoundsException",
+                    FailureKind::IndexOutOfBounds,
                     "malformed fake command",
                 )));
             }

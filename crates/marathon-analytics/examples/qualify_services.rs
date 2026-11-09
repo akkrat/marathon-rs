@@ -1,6 +1,7 @@
 //! Port of core/src/integrationTest/kotlin/com/malinskiy/marathon/analytics/metrics/remote/BaseMetricsProviderIntegrationTest.kt
 //! and influx/InfluxDbProviderIntegrationTest.kt, influx2/InfluxDb2ProviderIntegrationTest.kt.
 //! Explicit Phase 7 qualification; never run by the default test gate.
+use marathon_error::{FailureKind, InjectedKind};
 #[path = "../tests/support/cases.rs"]
 mod cases;
 #[path = "../tests/support/mod.rs"]
@@ -74,9 +75,12 @@ async fn build(
             )
         }
         _ => {
-            let port = env_var("MRS_GRAPHITE_PORT")
-                .parse()
-                .map_err(|_| failure("qualification.Config", "Invalid carbon port"))?;
+            let port = env_var("MRS_GRAPHITE_PORT").parse().map_err(|_| {
+                failure(
+                    FailureKind::Injected(InjectedKind::QualificationConfig),
+                    "Invalid carbon port",
+                )
+            })?;
             (
                 Arc::new(GraphiteDataSource {
                     client: Arc::new(QueryableGraphiteClient::with_endpoint(

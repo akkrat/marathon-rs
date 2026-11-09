@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubTestBundle.kt
 //! and vendor/vendor-test/src/main/kotlin/com/malinskiy/marathon/test/StubTestBundleIdentifier.kt.
 use crate::lock;
+use marathon_error::FailureKind;
 
 use marathon_core::{
     error::*,
@@ -47,7 +48,7 @@ impl TestBundleIdentifier for StubTestBundleIdentifier {
                 message.push_str(": can't locate test bundle");
                 Err(VendorError::Other(Failure {
                     message: Some(message),
-                    ..failure("com.malinskiy.marathon.config.exceptions.ConfigurationException", "")
+                    ..failure(FailureKind::Config(marathon_error::ConfigKind::Rejected), "")
                 }))
             }
         }

@@ -9,6 +9,7 @@ use marathon_config::{
     vendor::{AndroidConfiguration, AndroidTestParserConfiguration, FileSyncConfiguration},
 };
 use marathon_core::{ServiceLog, error::*, runtime::*, vendor::*, wiring::VendorDependencies};
+use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 
 pub struct AndroidRuntime {
@@ -26,10 +27,7 @@ impl AndroidRuntime {
         executor: Arc<dyn AndroidBatchExecutor>,
     ) -> VendorResult<Arc<Self>> {
         let VendorConfiguration::Android(config) = &dependencies.configuration.vendor_configuration else {
-            return Err(other(
-                "java.lang.IllegalArgumentException",
-                "Android configuration required",
-            ));
+            return Err(other(FailureKind::IllegalArgument, "Android configuration required"));
         };
         let configuration = config.clone();
         let cwd = blocking(dependencies.io.as_ref(), || {

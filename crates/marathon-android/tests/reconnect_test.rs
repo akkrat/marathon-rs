@@ -9,6 +9,7 @@
 //! the run has reached the state the event needs (devices set up, the dropped one hung in prepare, earlier
 //! provider events received by the scheduler). A test
 //! takes four virtual seconds on a device (`VirtualDuration`), where the fake in the CLI runs wait four real ones.
+use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
 
 use jcompat::logging::MarathonLogging;
@@ -102,7 +103,7 @@ impl AndroidBatchExecutor for VirtualDuration {
             self.clock.delay(TEST_MILLIS, context.cancellation.clone()).await?;
             if self.lost_requests.fetch_sub(1, Ordering::SeqCst) > 0 {
                 return Err(marathon_android::execution_error(VendorError::Other(Failure {
-                    class: "com.malinskiy.adam.exception.RequestRejectedException".into(),
+                    kind: FailureKind::Adb(AdbKind::RequestRejected),
                     message: Some("".into()),
                     cause: None,
                     stacktrace: None,
@@ -477,7 +478,7 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                         })
                     }),
                 );
-                let step = |label: &'static str, e: marathon_core::time::ReplayError| {
+                let step = |label: FailureKind, e: marathon_core::time::ReplayError| {
                     OperationError::Failed(marathon_core::executor::shared::failure(label, &e.message.to_owned()))
                 };
                 let healthy_started = || {
@@ -494,7 +495,7 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                 while value.borrow().is_none() && now < LIMIT_MILLIS {
                     if std::time::Instant::now() > deadline {
                         return Err(OperationError::Failed(marathon_core::executor::shared::failure(
-                            "RunTimeout",
+                            FailureKind::Injected(InjectedKind::RunTimeout),
                             &format!("no result after {RUN_TIMEOUT:?} real time, {now} virtual ms"),
                         )));
                     }
@@ -574,7 +575,10 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                     if barrier.is_some() || (next_event < events.len() && events[next_event].at_ms <= now) {
                         let since = *held_since.get_or_insert_with(std::time::Instant::now);
                         if since.elapsed() < HOLD {
-                            replay.advance_to(now).await.map_err(|e| step("replay", e))?;
+                            replay
+                                .advance_to(now)
+                                .await
+                                .map_err(|e| step(FailureKind::Injected(InjectedKind::ReplayStep), e))?;
                             tokio::time::sleep(SETTLE).await;
                             continue;
                         }
@@ -582,7 +586,10 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                         held_since = None;
                     }
                     now += STEP_MILLIS;
-                    replay.advance_to(now).await.map_err(|e| step("replay", e))?;
+                    replay
+                        .advance_to(now)
+                        .await
+                        .map_err(|e| step(FailureKind::Injected(InjectedKind::ReplayStep), e))?;
                     tokio::time::sleep(SETTLE).await;
                 }
                 let finished = value.borrow().is_some();

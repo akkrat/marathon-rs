@@ -31,6 +31,7 @@ use marathon_core::{
     runtime::{VendorClock, VendorRuntime},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::{
     collections::HashMap,
     future::Future,
@@ -72,7 +73,7 @@ impl From<SshFailure> for ConnectionError {
 }
 fn configuration(message: impl AsRef<str>) -> ConnectionError {
     ConnectionError::Vendor(VendorError::Other(failure(
-        "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+        FailureKind::Config(marathon_error::ConfigKind::Rejected),
         message,
     )))
 }

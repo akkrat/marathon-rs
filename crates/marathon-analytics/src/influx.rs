@@ -14,6 +14,7 @@ use marathon_core::{
     report::TestEvent,
     runtime::*,
 };
+use marathon_error::{AnalyticsKind, FailureKind, RetryDisposition};
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
@@ -67,13 +68,13 @@ impl InfluxClient {
             .results
             .first()
             .and_then(|s| s.series.first())
-            .ok_or_else(|| failure("java.lang.NullPointerException", "Missing database series"))?;
+            .ok_or_else(|| failure(FailureKind::NullReference, "Missing database series"))?;
         let exists = rows.values.iter().any(|row| matches!(row.first(), Some(Value::Text(name)) if name.to_owned().trim_matches(|c| c <= '\u{20}') == database));
         if !exists {
             // influxdb-java Preconditions, in createDatabase/createRetentionPolicy order.
             let empty = |name: &str| {
                 failure(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     &format!("Expecting a non-empty string for {name}"),
                 )
             };
@@ -94,7 +95,7 @@ impl InfluxClient {
             for (value, name) in [(&duration, "retentionDuration"), (&shard, "shardDuration")] {
                 if !value.is_empty() && !valid_duration(value) {
                     return Err(failure(
-                        "java.lang.IllegalArgumentException",
+                        FailureKind::IllegalArgument,
                         &format!("Invalid InfluxDB duration: {value} for {name}"),
                     )
                     .into());
@@ -102,7 +103,7 @@ impl InfluxClient {
             }
             if rp.replication_factor <= 0 {
                 return Err(failure(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     "Expecting a positive number for replicationFactor",
                 )
                 .into());
@@ -198,17 +199,12 @@ pub(crate) async fn request(
         .request(method, path, content_type, None, body)
         .await
         .map_err(|error| match error {
-            OperationError::Failed(cause)
-                if cause.class.to_owned().starts_with("java.io.")
-                    || cause.class.to_owned().starts_with("java.net.") =>
-            {
-                OperationError::Failed(Failure {
-                    class: "org.influxdb.InfluxDBIOException".into(),
-                    message: Some(cause.to_java_string()),
-                    cause: Some(Box::new(cause)),
-                    stacktrace: None,
-                })
-            }
+            OperationError::Failed(cause) if cause.kind.is_transport() => OperationError::Failed(Failure {
+                kind: FailureKind::Analytics(AnalyticsKind::InfluxIo),
+                message: Some(cause.to_java_string()),
+                cause: Some(Box::new(cause)),
+                stacktrace: None,
+            }),
             other => other,
         })?;
     checked(reply, false)
@@ -244,7 +240,7 @@ impl InfluxQuery for InfluxClient {
     }
 }
 pub fn decode(body: &str) -> OperationResult<QueryResult> {
-    let value = json(body, "com.squareup.moshi.JsonEncodingException")?;
+    let value = json(body, FailureKind::Analytics(AnalyticsKind::JsonEncoding))?;
     fn string(v: &serde_json::Value) -> Option<String> {
         v.as_str().map(Into::into)
     }
@@ -310,20 +306,13 @@ impl BatchWriter {
         let OperationError::Failed(failure) = error else {
             return false;
         };
-        let message = failure.message.to_owned().unwrap_or_default();
-        ![
-            "database not found",
-            "points beyond retention policy",
-            "field type conflict",
-            "unable to parse",
-            "hinted handoff queue not empty",
-            "user is required to write to database",
-            "user is not authorized to write to database",
-            "authorization failed",
-            "username required",
-        ]
-        .iter()
-        .any(|s| message.contains(s))
+        !matches!(
+            failure.kind,
+            FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+                retry: RetryDisposition::Never,
+                ..
+            })
+        )
     }
     fn buffer(&mut self, points: Vec<String>) {
         if let Some(last) = self
@@ -450,4 +439,41 @@ fn valid_duration(value: &str) -> bool {
         at += 1;
     }
     !bytes.is_empty()
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn retries_use_the_recorded_server_disposition_and_keep_transport_failures_retryable() {
+        for (body, expected) in [
+            ("database not found", false),
+            ("points beyond retention policy", false),
+            ("field type conflict", false),
+            ("unable to parse", false),
+            ("hinted handoff queue not empty", false),
+            ("user is required to write to database", false),
+            ("user is not authorized to write to database", false),
+            ("authorization failed", false),
+            ("username required", false),
+            ("cache-max-memory-size exceeded", true),
+            ("cache-max-memory-size exceeded; username required", false),
+            ("generic", true),
+        ] {
+            let error = failure(v1_error_kind(body), body).into();
+            assert_eq!(BatchWriter::retryable(&error), expected, "{body}");
+        }
+        for kind in [
+            std::io::ErrorKind::ConnectionRefused,
+            std::io::ErrorKind::ConnectionReset,
+            std::io::ErrorKind::BrokenPipe,
+            std::io::ErrorKind::TimedOut,
+        ] {
+            let error = network_error(&std::io::Error::new(kind, "different wording")).into();
+            assert!(BatchWriter::retryable(&error));
+        }
+        assert!(!BatchWriter::retryable(&OperationError::Cancelled(requested(
+            "cancelled"
+        ))));
+    }
 }

@@ -2,6 +2,7 @@
 //! not the test runtime. The other executor tests run under `#[tokio::test]`, whose runtime has every driver
 //! enabled, so they cannot notice a vendor runtime that lacks one (WP 4.2 review round 1, R1-sol-1: sockets,
 //! child pipes and SIGCHLD all need the I/O driver).
+use marathon_error::{FailureKind, FatalKind};
 mod support;
 use marathon_apple::cmd::{
     CommandExecutor, CommandRequest, local::KotlinProcessCommandExecutor, remote::ssh::sshj::SshjCommandExecutorFactory,
@@ -14,7 +15,7 @@ use std::rc::Rc;
 use support::{duration, ssh};
 
 fn assertion(step: &str, error: impl std::fmt::Debug) -> Failure {
-    failure("java.lang.AssertionError", &format!("{step}: {error:?}"))
+    failure(FailureKind::Fatal(FatalKind::Assertion), &format!("{step}: {error:?}"))
 }
 /// Runs `echo hello` and returns its stdout and exit code.
 async fn echo(core: &Rc<CoreExecutor>, executor: &dyn CommandExecutor) -> Result<(Vec<String>, Option<i32>), Failure> {

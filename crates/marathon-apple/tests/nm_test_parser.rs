@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/StartupPhasesTest.kt and SkipCopyingDerivedDataTest.kt (symbol parsing rows).
+use marathon_error::{FailureKind, SshKind};
 #[path = "support/parser.rs"]
 mod parser_support;
 mod support;
@@ -167,7 +168,7 @@ async fn scan_case(mode: u8) -> TestResult {
                     sessions.fetch_sub(1, Ordering::SeqCst);
                     barrier.notify_one();
                     return Err(VendorError::Other(failure(
-                        "net.schmizz.sshj.connection.channel.OpenFailException",
+                        FailureKind::Ssh(SshKind::OpenChannel),
                         "no more sessions",
                     )));
                 }
@@ -177,10 +178,7 @@ async fn scan_case(mode: u8) -> TestResult {
                 sessions.fetch_sub(1, Ordering::SeqCst);
             }
             if mode == 2 && !swift {
-                return Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
-                    "Not connected",
-                )));
+                return Err(VendorError::Other(failure(FailureKind::IllegalState, "Not connected")));
             }
             let mut result = symbols(swift);
             if mode == 3 && swift {
@@ -201,7 +199,7 @@ async fn scan_case(mode: u8) -> TestResult {
         2 => {
             assert_eq!(started.load(Ordering::SeqCst), 6);
             assert_eq!(
-                result.unwrap_err().failure().class,
+                result.unwrap_err().failure().kind.legacy_class(),
                 String::from("java.lang.IllegalStateException")
             );
         }
@@ -305,7 +303,7 @@ async fn wrong_device_is_retried_three_times_with_the_jvm_logs() -> TestResult {
         .find(|r| r["case"] == "nm-wrong-device")
         .unwrap();
     assert_eq!(
-        error.failure().class.to_owned(),
+        error.failure().kind.legacy_class().to_owned(),
         row["error"]["class"].as_str().unwrap()
     );
     assert_eq!(serde_json::json!(*logs.lock().unwrap()), row["logs"]);

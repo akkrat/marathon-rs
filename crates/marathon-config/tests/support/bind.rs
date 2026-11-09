@@ -201,7 +201,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
                 "error-class" => matches!(got, Outcome::Err(_)) && exp.get("error").is_some(),
                 "last-list" => matches!(got, Outcome::Ok(ref v) if v == &serde_json::json!(["x"])),
                 "last-null" => {
-                    matches!(got, Outcome::Err(ref e) if e.class == marathon_config::binder::MISSING_KOTLIN)
+                    matches!(got, Outcome::Err(ref e) if e.kind.legacy_class() == marathon_config::binder::MISSING_KOTLIN.legacy_class())
                 }
                 "last-string" => matches!(got, Outcome::Ok(ref v) if v == "x"),
                 "syntax-before-null" => {
@@ -213,7 +213,9 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
             match &got {
                 Outcome::Ok(v) => exp.get("ok") == Some(v),
                 Outcome::NullDocument => exp["nullDocument"] == true,
-                Outcome::Err(e) => exp["error"]["class"].as_str().is_some_and(|s| e.class == s),
+                Outcome::Err(e) => exp["error"]["class"]
+                    .as_str()
+                    .is_some_and(|s| e.kind.legacy_class() == s),
             }
         };
         if !ok {
@@ -222,7 +224,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
                 format!(
                     "expected {exp} got {}",
                     match &got {
-                        Outcome::Err(e) => format!("error {} {:?}", e.class.to_owned(), e.path),
+                        Outcome::Err(e) => format!("error {} {:?}", e.kind.legacy_class().to_owned(), e.path),
                         _ => format!("{got:?}"),
                     }
                 ),

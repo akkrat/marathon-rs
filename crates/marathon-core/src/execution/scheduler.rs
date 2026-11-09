@@ -26,6 +26,7 @@ use futures_util::future::Either;
 use indexmap::IndexMap;
 use jcompat::logging::Level;
 use marathon_config::Configuration;
+use marathon_error::FailureKind;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 const LOGGER: &str = "Scheduler";
@@ -134,10 +135,7 @@ impl Scheduler {
                     .join_in(context.job.clone())
                     .await
                     .map_err(VendorError::Cancelled)?;
-                return Err(VendorError::NoDevices(failure(
-                    "com.malinskiy.marathon.exceptions.NoDevicesException",
-                    "",
-                )));
+                return Err(VendorError::NoDevices(failure(FailureKind::NoDevices, "")));
             }
             Err(error) => return Err(operation_to_vendor(error)),
         }
@@ -160,10 +158,7 @@ impl Scheduler {
 
 /// `Job.cancel()` without a cause.
 fn job_was_cancelled() -> Cancellation {
-    Cancellation::Requested(failure(
-        "kotlinx.coroutines.JobCancellationException",
-        "Job was cancelled",
-    ))
+    Cancellation::Requested(failure(FailureKind::JobCancelled, "Job was cancelled"))
 }
 
 fn text(parts: &[&dyn Fn(&mut String)]) -> String {
@@ -364,7 +359,7 @@ mod tests {
         for failed in [false, true] {
             let channel = SharedChannel::<DeviceEvent>::new();
             let signal = Signal::new();
-            let cause = failure("java.lang.IllegalStateException", "provider failed");
+            let cause = failure(FailureKind::IllegalState, "provider failed");
             channel.close(failed.then(|| cause.clone()));
             signal.cancel(requested("receiver cancelled"));
             let result = receive_device_event(channel.as_ref(), signal).now_or_never();

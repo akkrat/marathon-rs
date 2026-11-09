@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/plist/PropertyList.kt
 
+use marathon_error::FailureKind;
 pub mod bundle;
 pub mod delegates;
 mod native_strings;
@@ -334,11 +335,11 @@ pub(crate) fn plist_failure(path: &Path, error: PlistError) -> marathon_core::er
     use marathon_core::error::VendorError;
     match error {
         PlistError::Io { is_not_found: true, .. } => {
-            VendorError::Other(failure("java.nio.file.NoSuchFileException", path.display().to_string()))
+            VendorError::Other(failure(FailureKind::NoSuchFile, path.display().to_string()))
         }
-        PlistError::WrongType { .. } => VendorError::Other(failure("java.lang.ClassCastException", error.to_string())),
-        PlistError::Io { message, .. } => VendorError::Other(failure("java.io.IOException", message)),
-        other => VendorError::Other(failure("java.lang.IllegalArgumentException", other.to_string())),
+        PlistError::WrongType { .. } => VendorError::Other(failure(FailureKind::ClassCast, error.to_string())),
+        PlistError::Io { message, .. } => VendorError::Other(failure(FailureKind::Io, message)),
+        other => VendorError::Other(failure(FailureKind::IllegalArgument, other.to_string())),
     }
 }
 
@@ -358,7 +359,7 @@ mod worker_boundary_test {
                 message: "read denied".into(),
             },
         );
-        assert_eq!(error.failure().class.to_owned(), "java.io.IOException");
+        assert_eq!(error.failure().kind.legacy_class().to_owned(), "java.io.IOException");
         assert_eq!(error.failure().message.as_ref().unwrap().to_owned(), "read denied");
         let bytes = b"<plist><dict><key>state</key><integer>1</integer></dict></plist>";
         assert_eq!(
@@ -369,7 +370,8 @@ mod worker_boundary_test {
             super::worker_descriptor(b"garbage")
                 .unwrap_err()
                 .failure()
-                .class
+                .kind
+                .legacy_class()
                 .to_owned(),
             "java.lang.IllegalArgumentException"
         );

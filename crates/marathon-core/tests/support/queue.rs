@@ -34,6 +34,7 @@ use marathon_core::{
     vendor::{BundleRef, TestBundleIdentifier},
     wiring::{MetricsProvider, Tracker},
 };
+use marathon_error::FailureKind;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::{
@@ -298,10 +299,7 @@ impl Tracker for Sink {
                 final_result
             ]));
             if self.track_fails.load(Ordering::SeqCst) {
-                return Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
-                    "tracker failed",
-                )));
+                return Err(VendorError::Other(failure(FailureKind::IllegalState, "tracker failed")));
             }
             Ok(())
         })
@@ -423,7 +421,7 @@ impl TestBundleIdentifier for FailingIdentifier {
         self.trace.push(json!(["identify", t(test)]));
         if *test == self.failing {
             let message = format!("no bundle for {}", test.method.to_owned());
-            return Err(VendorError::Other(failure("java.lang.IllegalStateException", &message)));
+            return Err(VendorError::Other(failure(FailureKind::IllegalState, &message)));
         }
         Ok(None)
     }

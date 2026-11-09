@@ -12,6 +12,7 @@ use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::collections::BTreeMap;
 
 pub const COLLECT_TEST_DIAGNOSTICS: &str = "-collect-test-diagnostics";
@@ -129,7 +130,7 @@ impl Xcodebuild {
             .stdout;
         let first = output
             .first()
-            .ok_or_else(|| VendorError::Other(failure("java.util.NoSuchElementException", "List is empty.")))?;
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::NoSuchElement, "List is empty.")))?;
         // split(" ") always has a last element.
         let version = first.rsplit(' ').next().unwrap_or_default();
         XcodeVersion::from(version)

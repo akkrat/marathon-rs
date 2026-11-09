@@ -29,6 +29,7 @@ use marathon_core::{
     screenshot::{RgbaFrame, Rotation, Screenshottable},
     vendor::{Device, VendorContext},
 };
+use marathon_error::FailureKind;
 use marathon_test_support::apple::fake_simulator_worker::FakeSimulatorWorker;
 use serde_json::{Value, json};
 use std::{
@@ -76,7 +77,7 @@ pub(crate) fn input() -> Value {
     rows().next().unwrap()["input"].clone()
 }
 pub(crate) fn io_vendor(error: io::Error) -> VendorError {
-    VendorError::Other(failure("java.io.IOException", error.to_string()))
+    VendorError::Other(failure(FailureKind::Io, error.to_string()))
 }
 
 pub(crate) struct Recorder {
@@ -156,7 +157,7 @@ impl Fake {
             Box::pin(async move {
                 let mode = s(&spec, "mode", "");
                 if command[0] == "test" && mode == "exists-throw" {
-                    return Err(VendorError::Other(failure("java.io.IOException", "exists io")));
+                    return Err(VendorError::Other(failure(FailureKind::Io, "exists io")));
                 }
                 if command[0] == "sh" && mode == "write-cancel" {
                     return Err(VendorError::Cancelled(cancelled("write cancelled")));
@@ -411,7 +412,7 @@ impl AppleDevice for Fake {
             }
             match s(&self.input, "mode", "") {
                 "push-false" => Ok(false),
-                "push-throw" => Err(VendorError::Other(failure("java.io.IOException", "push io"))),
+                "push-throw" => Err(VendorError::Other(failure(FailureKind::Io, "push io"))),
                 "push-cancel" => Err(VendorError::Cancelled(cancelled("push cancelled"))),
                 "delete-fail" => {
                     tokio::fs::remove_file(src).await.map_err(io_vendor)?;
@@ -440,7 +441,7 @@ impl AppleDevice for Fake {
                 match mode {
                     "retry-success" => Ok(count > 2),
                     "retry-fail" | "delay-cancel" => Ok(false),
-                    "retry-throw" => Err(VendorError::Other(failure("java.io.IOException", "transfer io"))),
+                    "retry-throw" => Err(VendorError::Other(failure(FailureKind::Io, "transfer io"))),
                     "retry-cancel" => Err(VendorError::Cancelled(cancelled("transfer cancelled"))),
                     "extras-false" => Ok(!src.file_name().unwrap().to_str().unwrap().starts_with("first")
                         && !src.file_name().unwrap().to_str().unwrap().starts_with("second")),

@@ -7,6 +7,7 @@ use marathon_core::{
     runtime::{CancellationSignal, VendorFuture, VendorRuntime, VendorTask},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
@@ -39,7 +40,7 @@ impl ExitCode {
             }
             rx.changed()
                 .await
-                .map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))?;
+                .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?;
         }
     }
 }
@@ -136,7 +137,7 @@ impl BaseCommand {
                         }
                         Ok(None) => return Ok(lines),
                         Err(VendorError::Other(cause)) if wrap_failure => {
-                            let mut detail = failure("java.util.concurrent.CancellationException", "Channel closed");
+                            let mut detail = failure(FailureKind::Cancelled, "Channel closed");
                             detail.cause = Some(Box::new(cause));
                             return Err(VendorError::Cancelled(Cancellation::Requested(detail)));
                         }
@@ -156,7 +157,7 @@ impl BaseCommand {
     }
     async fn collected(rx: tokio::sync::oneshot::Receiver<VendorResult<Vec<String>>>) -> VendorResult<Vec<String>> {
         rx.await
-            .map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))?
+            .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?
     }
     pub async fn await_result(&self, context: &VendorContext) -> VendorResult<CommandResult> {
         // The collectors belong to the detached session, not its awaiter. In

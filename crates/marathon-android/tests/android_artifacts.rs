@@ -1,5 +1,7 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/executor/listeners/filesync/FileSyncTestRunListenerTest.kt,
 //! screenshot/ScreenCapturerTestRunListenerTest.kt and video/ScreenRecorderTestRunListenerTest.kt.
+
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_adb::{
     server::FakeAdbServer,
@@ -929,7 +931,7 @@ fn profiling_setup_errors_are_batch_failures() {
             let device = device(&server, runtime);
             let listener = ProfilingRunListener::new(artifacts(&device));
             let error = listener.before_test_run_in(None, context.clone()).await.unwrap_err();
-            assert_eq!(error.failure().class, js("java.io.FileNotFoundException"));
+            assert_eq!(error.failure().kind.legacy_class(), js("java.io.FileNotFoundException"));
             assert_eq!(
                 error.failure().message,
                 Some(js("/nonexistent/config.pbtxt (No such file or directory)"))
@@ -959,7 +961,8 @@ fn profiling_setup_errors_are_batch_failures() {
                     .await
                     .unwrap_err()
                     .failure()
-                    .class,
+                    .kind
+                    .legacy_class(),
                 js("java.util.NoSuchElementException")
             );
             finish(server, device).await;
@@ -1275,7 +1278,7 @@ impl AndroidTestRunListener for FailingCleanup {
         Box::pin(async {
             Err(marathon_core::error::VendorError::Other(
                 marathon_core::error::Failure {
-                    class: js("ExecutionError"),
+                    kind: FailureKind::Injected(InjectedKind::ExecutionError),
                     message: Some(js("execution failure")),
                     cause: None,
                     stacktrace: None,
@@ -1287,7 +1290,7 @@ impl AndroidTestRunListener for FailingCleanup {
         Box::pin(async {
             Err(marathon_core::error::VendorError::Other(
                 marathon_core::error::Failure {
-                    class: js("CleanupError"),
+                    kind: FailureKind::Injected(InjectedKind::CleanupError),
                     message: Some(js("cleanup failure")),
                     cause: None,
                     stacktrace: None,

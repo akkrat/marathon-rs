@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AndroidDeviceTestRunner.kt
 //! (derived runner/argument/cleanup integration corpus; this class has no Kotlin tests).
+use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
 use jcompat::logging::Level;
 use marathon_adb::testrunner::TestEvent as E;
@@ -145,7 +146,7 @@ impl AndroidTestRunListener for Events {
                 }
                 if self.fail_event {
                     return Err(VendorError::Other(Failure {
-                        class: "Callback".into(),
+                        kind: FailureKind::Injected(InjectedKind::Callback),
                         message: Some("callback".into()),
                         cause: None,
                         stacktrace: None,
@@ -160,7 +161,7 @@ impl AndroidTestRunListener for Events {
             self.values.lock().unwrap().push("after".into());
             if self.fail_after {
                 Err(VendorError::Other(Failure {
-                    class: "After".into(),
+                    kind: FailureKind::Injected(InjectedKind::After),
                     message: Some("after".into()),
                     cause: None,
                     stacktrace: None,
@@ -1551,7 +1552,7 @@ impl AndroidListenerFactory for RejectFactory {
         _: &BatchRef,
     ) -> VendorResult<InstalledListener> {
         Err(VendorError::Other(Failure {
-            class: "com.malinskiy.adam.exception.RequestRejectedException".into(),
+            kind: FailureKind::Adb(AdbKind::RequestRejected),
             message: Some("rejected".into()),
             cause: None,
             stacktrace: None,
@@ -1587,7 +1588,7 @@ fn exception_wrapper_includes_listener_creation_and_preserves_cause() {
                 .unwrap_err();
             assert!(matches!(error, VendorError::DeviceLost(_)));
             assert_eq!(
-                error.failure().cause.as_ref().unwrap().class,
+                error.failure().cause.as_ref().unwrap().kind.legacy_class(),
                 js("com.malinskiy.adam.exception.RequestRejectedException")
             );
             assert!(deferred.completed().is_none());

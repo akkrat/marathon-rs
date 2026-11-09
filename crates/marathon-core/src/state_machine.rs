@@ -1,4 +1,5 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/actor/StateMachine.kt
+use marathon_error::FailureKind;
 /*
  * Copyright (c) 2018, Match Group, LLC
  * All rights reserved.
@@ -109,7 +110,7 @@ impl<S: Clone, E: Clone, A> StateMachine<S, E, A> {
         self.definitions
             .iter()
             .position(|d| (d.matcher)(state))
-            .ok_or_else(|| failure("java.lang.IllegalStateException", "Required value was null.").into())
+            .ok_or_else(|| failure(FailureKind::IllegalState, "Required value was null.").into())
     }
     /// Enum matchers replace reified Kotlin subtype dispatch (approved P2).
     /// No await, and &mut self makes listener reentrancy explicitly unavailable.

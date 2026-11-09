@@ -21,6 +21,7 @@ use marathon_core::{
     screenshot::{RgbaFrame, Rotation, Screenshottable},
     vendor::{Device, VendorContext},
 };
+use marathon_error::FailureKind;
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -224,5 +225,5 @@ impl AppleDevice for RunnerDevice {
     }
 }
 pub fn io(message: &str) -> VendorError {
-    VendorError::Other(failure("java.io.IOException", message))
+    VendorError::Other(failure(FailureKind::Io, message))
 }

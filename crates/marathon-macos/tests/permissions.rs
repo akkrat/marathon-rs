@@ -26,7 +26,7 @@ fn error_chain(result: &VendorResult<()>) -> Value {
     let mut current = result.as_ref().err().map(|e| e.failure());
     while let Some(f) = current {
         rows.push(
-            json!({"class":f.class.to_owned(),"message":f.message.as_ref().map(|s|normalize_epoch(&s.to_owned()))}),
+            json!({"class":f.kind.legacy_class().to_owned(),"message":f.message.as_ref().map(|s|normalize_epoch(&s.to_owned()))}),
         );
         current = f.cause.as_deref();
     }
@@ -136,7 +136,10 @@ async fn empty_grants_skip_sip_and_p4_rejects_malformed_clients() -> R {
             .await
             .err()
             .ok_or("P4 failure")?;
-        assert_eq!(e.failure().class, "java.lang.IllegalArgumentException".to_owned());
+        assert_eq!(
+            e.failure().kind.legacy_class(),
+            "java.lang.IllegalArgumentException".to_owned()
+        );
     }
     assert!(
         !h.worker
@@ -156,7 +159,7 @@ async fn direct_unsupported_operations_fail_with_the_kotlin_error() -> R {
     let h = Harness::new("")?;
     let d = h.device();
     let expected = |f: &Failure| {
-        assert_eq!(f.class, "kotlin.NotImplementedError".to_owned());
+        assert_eq!(f.kind.legacy_class(), "kotlin.NotImplementedError".to_owned());
         assert_eq!(
             f.message,
             Some("An operation is not implemented: Not yet implemented".into())

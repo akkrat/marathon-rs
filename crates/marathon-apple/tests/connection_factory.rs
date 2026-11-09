@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/device/ConnectionFactoryTest.kt
+use marathon_error::FailureKind;
 mod support;
 use jcompat::{JavaRegex, logging::Logger};
 use marathon_apple::{
@@ -126,12 +127,7 @@ impl CommandExecutor for Fake {
         self.alive.load(Ordering::SeqCst)
     }
     fn execute(&self, _: CommandRequest, _: VendorContext) -> VendorFuture<'_, CommandSession> {
-        Box::pin(async {
-            Err(VendorError::Other(failure(
-                "java.lang.UnsupportedOperationException",
-                "unused",
-            )))
-        })
+        Box::pin(async { Err(VendorError::Other(failure(FailureKind::UnsupportedOperation, "unused"))) })
     }
     fn close(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
@@ -455,11 +451,7 @@ async fn callers_waiting_for_a_failed_shared_connection_get_none_and_a_later_req
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn callers_waiting_for_a_failed_shared_connection_get_its_failure_from_connect_worker() {
-    failed_shared(
-        SshFailure::new("java.net.NoRouteToHostException", "No route to host"),
-        false,
-    )
-    .await;
+    failed_shared(SshFailure::new(FailureKind::NoRouteToHost, "No route to host"), false).await;
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_unexpected_connect_error_reaches_every_caller_of_the_shared_connection_and_releases_the_permit() {
@@ -469,7 +461,7 @@ async fn an_unexpected_connect_error_reaches_every_caller_of_the_shared_connecti
 async fn connect_worker_reports_why_a_worker_can_t_be_connected_and_only_network_failures_are_transient() {
     for shared in [false, true] {
         for (error, transient) in [
-            (SshFailure::new("java.net.NoRouteToHostException", "No route"), true),
+            (SshFailure::new(FailureKind::NoRouteToHost, "No route"), true),
             (SshFailure::new(CONNECT_EXCEPTION, "refused"), true),
             (SshFailure::new(SOCKET_EXCEPTION, "reset"), true),
             (SshFailure::new(SOCKET_TIMEOUT_EXCEPTION, "timeout"), true),
@@ -634,7 +626,7 @@ async fn pending_cleanup_joins_later_closes_before_returning_the_first_error() {
     let first = get(&f, "first").await;
     let second = get(&f, "second").await;
     done(&f).await;
-    let error = VendorError::Other(failure("java.io.IOException", "close failed"));
+    let error = VendorError::Other(failure(FailureKind::Io, "close failed"));
     *c.fake(&first).close_error.lock().unwrap() = Some(error.clone());
     assert_eq!(f.dispose(first).await, Err(error.clone()));
 
@@ -835,7 +827,7 @@ async fn reachability_uses_echo_and_rejects_approved_numeric_edges() {
         panic!("unresolvable host must be a device failure");
     };
     let cause = error.cause.expect("UnknownHostException cause");
-    assert_eq!(cause.class, "java.net.UnknownHostException");
+    assert_eq!(cause.kind.legacy_class(), "java.net.UnknownHostException");
     // getaddrinfo's text is platform-specific; only the JDK's "<host>: " prefix is pinned.
     assert!(cause.message().unwrap().starts_with("no-such-host.invalid: "));
 }

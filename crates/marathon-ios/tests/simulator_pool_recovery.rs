@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt
 //! Provider-to-Scheduler witness for the last-device termination barrier and retained closed pool.
+use marathon_error::FailureKind;
 #[path = "../../marathon-core/tests/support/pool.rs"]
 mod pool_support;
 mod provider_support;
@@ -501,7 +502,7 @@ fn silent_batches_on_one_simulator(pause: i64, wait_millis: i64) -> TestResult<(
             *silent.plan.lock().unwrap() = OutputPlan {
                 lines: vec!["Test Case '-[Suite test1]' started.".into()],
                 failure: Some(marathon_apple::cmd::failure(
-                    "java.util.concurrent.TimeoutException",
+                    FailureKind::Timeout,
                     "idle timeout reached",
                 )),
                 ..Default::default()

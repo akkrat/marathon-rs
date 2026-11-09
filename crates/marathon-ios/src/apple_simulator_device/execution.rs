@@ -11,6 +11,7 @@ use marathon_apple::{
 };
 use marathon_config::vendor::GrantLifecycle;
 use marathon_core::executor::shared::Signal;
+use marathon_error::FailureKind;
 
 pub(super) struct BatchJob {
     signal: Arc<Signal>,
@@ -62,7 +63,7 @@ impl AppleSimulatorDevice {
         };
         if rejected {
             return Err(BatchLoss::new(failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 format!("Device {} has been disposed", self.serial),
             ))
             .into_vendor());
@@ -143,7 +144,7 @@ impl AppleSimulatorDevice {
         let outcome = async {
             let bundle = self.state().bundle.clone().ok_or_else(|| {
                 VendorError::Other(failure(
-                    "kotlin.UninitializedPropertyAccessException",
+                    FailureKind::UninitializedProperty,
                     "lateinit property testBundle has not been initialized",
                 ))
             })?;
@@ -199,7 +200,7 @@ impl AppleSimulatorDevice {
             self.retire();
             return Err(error.into_vendor());
         }
-        if error.error.failure().class == "java.util.concurrent.TimeoutException" {
+        if error.error.failure().kind == FailureKind::Timeout {
             let error = error.into_vendor();
             let loss = self
                 .state()
@@ -218,10 +219,10 @@ impl AppleSimulatorDevice {
             }
             return Err(error.into_vendor());
         }
-        let class = error.error.failure().class.to_owned();
+        let class = error.error.failure().kind.to_owned();
         if [CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, ILLEGAL_STATE_EXCEPTION]
             .iter()
-            .any(|base| is_instance(&class, base))
+            .any(|base| is_instance(&class, base.clone()))
         {
             self.mark_lost();
             return Err(BatchLoss::new(error.into_vendor().failure().clone()).into_vendor());
@@ -245,7 +246,7 @@ impl AppleSimulatorDevice {
             }
             if results.is_none() {
                 return Err(VendorError::BatchExecution(failure(
-                    "com.malinskiy.marathon.exceptions.TestBatchExecutionException",
+                    FailureKind::BatchExecution,
                     error
                         .error
                         .failure()
@@ -269,7 +270,7 @@ impl AppleSimulatorDevice {
     }
     async fn join_cancelled(&self, job: &Arc<BatchJob>, context: &VendorContext) -> VendorResult<()> {
         job.signal.cancel(marathon_core::error::Cancellation::Requested(failure(
-            "kotlinx.coroutines.JobCancellationException",
+            FailureKind::JobCancelled,
             "LazyDeferredCoroutine was cancelled",
         )));
         let done = job.done.clone();

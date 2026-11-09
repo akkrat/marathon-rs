@@ -80,7 +80,7 @@ fn one_healthy_device_and_invalid_marathon_config_should_fail() {
     assert!(outcome.completed);
     match outcome.value {
         Some(Err(e)) => assert_eq!(
-            e.failure().class.to_owned(),
+            e.failure().kind.legacy_class().to_owned(),
             "com.malinskiy.marathon.config.exceptions.ConfigurationException"
         ),
         other => panic!("expected ConfigurationException, got {:?}", other.map(|v| v.is_ok())),

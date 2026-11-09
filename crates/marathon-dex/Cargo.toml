@@ -9,6 +9,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+marathon-error = { path = "../marathon-error" }
 jcompat = { path = "../jcompat" }
 zip = { version = "=2.6.1", default-features = false, features = ["deflate"] }
 

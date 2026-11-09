@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/listener/video/ScreenRecordingListener.kt
+use marathon_error::FailureKind;
 mod listener_support;
 mod simulator_support;
 mod support;
@@ -490,7 +491,7 @@ async fn live_recorder_and_failed_stop_keep_pidfile_and_warn() -> TestResult {
                         3 => return Ok(None),
                         _ => {
                             return Err(VendorError::Other(marathon_core::error::Failure {
-                                class: "java.io.IOException".into(),
+                                kind: FailureKind::Io,
                                 message: Some("probe failed".into()),
                                 cause: None,
                                 stacktrace: None,

@@ -3,6 +3,7 @@
 use crate::{simulator_support, support};
 use marathon_apple::cmd::{FileBridge, SessionScope, failure};
 use marathon_core::{error::*, model::*, runtime::*};
+use marathon_error::{FailureKind, InjectedKind};
 use marathon_ios::{apple_simulator_device::*, listener::ListenerContext};
 use std::path::Path;
 use std::sync::Arc;
@@ -74,12 +75,16 @@ impl FileBridge for Bridge {
             self.pulls.lock().unwrap().push(src.into());
             match self.mode.load(std::sync::atomic::Ordering::SeqCst) {
                 1 => return Ok(false),
-                2 => return Err(VendorError::Transfer(failure("TransferException", "transfer"))),
-                3 => return Err(VendorError::Other(failure("java.lang.IllegalStateException", "other"))),
+                2 => {
+                    return Err(VendorError::Transfer(failure(
+                        FailureKind::Injected(InjectedKind::TransferException),
+                        "transfer",
+                    )));
+                }
+                3 => return Err(VendorError::Other(failure(FailureKind::IllegalState, "other"))),
                 _ => (),
             }
-            std::fs::write(dst, b"media")
-                .map_err(|e| VendorError::Other(failure("java.io.IOException", e.to_string())))?;
+            std::fs::write(dst, b"media").map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;
             Ok(true)
         })
     }

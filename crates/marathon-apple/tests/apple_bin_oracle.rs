@@ -3,6 +3,7 @@
 //! tools/oracle/apple-bin-probes ran against the frozen Kotlin wrappers, replayed here. Each case compares the
 //! argv, timeouts, env and workdir of every request (before executor quoting), the return value or error, and
 //! the log events. The few approved differences (P1, P2, D38) are listed in `deviation`.
+use marathon_error::{FailureKind, SshKind};
 mod support;
 use jcompat::{
     jtime::Duration,
@@ -48,7 +49,7 @@ struct Answer {
     stdout: Vec<String>,
     stderr: Vec<String>,
     exit: Option<i32>,
-    throws: Option<&'static str>,
+    throws: Option<FailureKind>,
 }
 fn answer(stdout: &[&str], stderr: &[&str], exit: Option<i32>) -> Answer {
     Answer {
@@ -61,7 +62,7 @@ fn answer(stdout: &[&str], stderr: &[&str], exit: Option<i32>) -> Answer {
 fn ok() -> Answer {
     answer(&[" out1 ", "out2"], &["err"], Some(0))
 }
-fn throws(class: &'static str) -> Answer {
+fn throws(class: FailureKind) -> Answer {
     Answer {
         throws: Some(class),
         ..answer(&[], &[], Some(0))
@@ -72,8 +73,8 @@ fn variant(name: &str) -> Answer {
         "ok" => ok(),
         "fail" => answer(&["o"], &["e"], Some(3)),
         "null" | "nul" => answer(&["o"], &["e"], None),
-        "conn" => throws("net.schmizz.sshj.connection.ConnectionException"),
-        "other" => throws("java.lang.IllegalStateException"),
+        "conn" => throws(FailureKind::Ssh(SshKind::Connection)),
+        "other" => throws(FailureKind::IllegalState),
         other => panic!("variant {other}"),
     }
 }
@@ -148,7 +149,7 @@ fn logging(logs: &Logs) -> SshLogging {
             move |logger: &Logger, level: Level, message: String, cause: Option<Failure>| {
                 logs.lock().unwrap().push(json!({
                 "level": level.as_str(), "logger": logger.name(), "message": message,
-                "throwable": cause.map(|f| format!("{}: {}", f.class.to_owned(), f.message.map(|m| m.to_owned()).unwrap_or_default())),
+                "throwable": cause.map(|f| format!("{}: {}", f.kind.legacy_class().to_owned(), f.message.map(|m| m.to_owned()).unwrap_or_default())),
             }));
             },
         ),
@@ -176,7 +177,7 @@ fn timeouts() -> marathon_config::vendor::AppleTimeoutConfiguration {
 
 fn describe(failure: &Failure) -> Value {
     json!({
-        "class": failure.class.to_owned(),
+        "class": failure.kind.legacy_class().to_owned(),
         "message": failure.message.as_ref().map(|m| m.to_owned()),
         "cause": failure.cause.as_deref().map(describe),
     })

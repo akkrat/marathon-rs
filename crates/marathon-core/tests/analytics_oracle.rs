@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
 //! (replay of the real-class JVM probes in tools/oracle/metrics-probes).
+use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
 use jcompat::{
@@ -37,14 +38,8 @@ fn provider_sequences_match_jvm_bits_calls_and_ordered_logs() {
             let t = generate_tests(7);
             if mode == "retry" {
                 *source.errors.lock().unwrap() = vec![
-                    Some(OperationError::Failed(failure(
-                        "java.lang.RuntimeException",
-                        "unreadable",
-                    ))),
-                    Some(OperationError::Failed(failure(
-                        "java.lang.RuntimeException",
-                        "unreadable",
-                    ))),
+                    Some(OperationError::Failed(failure(FailureKind::Runtime, "unreadable"))),
+                    Some(OperationError::Failed(failure(FailureKind::Runtime, "unreadable"))),
                 ]
                 .into();
             }

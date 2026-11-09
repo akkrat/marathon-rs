@@ -22,6 +22,7 @@ use crate::{
 };
 use jcompat::logging::Level;
 use marathon_config::{TestFilterConfiguration, binding::ConfigurationError, loader::LogicalConfigurationValidator};
+use marathon_error::FailureKind;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -32,8 +33,8 @@ use std::{
 pub const LOGGER: &str = "com.malinskiy.marathon.Marathon";
 /// `TimingLog.LOGGER_NAME`.
 pub const TIMINGS: &str = "Timings";
-const NO_DEVICES: &str = "com.malinskiy.marathon.exceptions.NoDevicesException";
-const NO_TESTS: &str = "com.malinskiy.marathon.exceptions.NoTestCasesFoundException";
+const NO_DEVICES: FailureKind = FailureKind::NoDevices;
+const NO_TESTS: FailureKind = FailureKind::NoTests;
 
 /// D52: what a cancelled run gets before it exits, whatever is still running. A CI's grace between SIGTERM and SIGKILL is
 /// often 10 to 30 s. Reports come first, so a shorter grace costs cleanup and not results, and this stays under the
@@ -289,14 +290,14 @@ pub struct Marathon {
 pub fn configuration_failure(error: &ConfigurationError) -> Failure {
     let cause = error.causes.iter().rev().fold(None, |inner, c| {
         Some(Box::new(Failure {
-            class: c.class.clone(),
+            kind: c.kind.clone(),
             message: c.message.to_owned(),
             cause: inner,
             stacktrace: None,
         }))
     });
     Failure {
-        class: error.class.clone(),
+        kind: error.kind.clone(),
         message: error.message.to_owned(),
         cause,
         stacktrace: None,
@@ -396,9 +397,7 @@ impl Marathon {
         blocking(self.services.core.vendor().as_ref(), move || {
             registry
                 .lock()
-                .map_err(|_| {
-                    VendorError::Other(failure("java.lang.IllegalStateException", "Poisoned logging registry"))
-                })?
+                .map_err(|_| VendorError::Other(failure(FailureKind::IllegalState, "Poisoned logging registry")))?
                 .debug = debug;
             Ok(())
         })
@@ -413,9 +412,7 @@ impl Marathon {
         blocking(self.services.core.vendor().as_ref(), move || {
             registry
                 .lock()
-                .map_err(|_| {
-                    VendorError::Other(failure("java.lang.IllegalStateException", "Poisoned logging registry"))
-                })?
+                .map_err(|_| VendorError::Other(failure(FailureKind::IllegalState, "Poisoned logging registry")))?
                 .timings();
             Ok(())
         })

@@ -4,6 +4,7 @@
 //! replay driver delivering connect/disconnect events into that queue at scripted times
 //! (`ControlledReplay::event`), so no task is launched from the synchronous `subscribe`.
 use crate::lock;
+use marathon_error::FailureKind;
 
 use marathon_core::{
     error::*,
@@ -81,7 +82,7 @@ impl DeviceProvider for StubDeviceProvider {
             }
             device.ok_or_else(|| {
                 VendorError::Other(marathon_core::executor::shared::failure(
-                    "kotlin.UninitializedPropertyAccessException",
+                    FailureKind::UninitializedProperty,
                     "lateinit property borrowingDevice has not been initialized",
                 ))
             })

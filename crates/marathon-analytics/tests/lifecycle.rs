@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx/InfluxDbProvider.kt
 //! and external backend client lifecycle (JVM probes and deterministic schedules).
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_analytics::{BackendClients, influx::*, influx2::*};
 use marathon_core::{analytics::*, error::*, executor::shared::failure, model::TestStatus, runtime::*};
@@ -14,10 +15,13 @@ impl VendorClock for Clock {
         Box::pin(async move {
             assert_eq!(millis, 1000);
             let (tx, rx) = oneshot::channel();
-            self.ticks
-                .send(tx)
-                .map_err(|_| VendorError::Other(failure("test.Clock", "tick receiver closed")))?;
-            tokio::select! {biased;reason=cancel.cancelled()=>Err(VendorError::Cancelled(reason)),value=rx=>value.map_err(|_|VendorError::Other(failure("test.Clock","tick dropped")))}
+            self.ticks.send(tx).map_err(|_| {
+                VendorError::Other(failure(
+                    FailureKind::Injected(InjectedKind::TestClock),
+                    "tick receiver closed",
+                ))
+            })?;
+            tokio::select! {biased;reason=cancel.cancelled()=>Err(VendorError::Cancelled(reason)),value=rx=>value.map_err(|_|VendorError::Other(failure(FailureKind::Injected(InjectedKind::TestClock),"tick dropped")))}
         })
     }
     fn with_timeout<'a>(
@@ -53,7 +57,7 @@ fn timer_flush_and_close_join_the_owned_worker() {
             let tick = ticks
                 .recv()
                 .await
-                .ok_or_else(|| failure("test.Clock", "missing timer"))?;
+                .ok_or_else(|| failure(FailureKind::Injected(InjectedKind::TestClock), "missing timer"))?;
             InfluxTracker {
                 client: client.clone(),
                 read_only: false,
@@ -63,10 +67,12 @@ fn timer_flush_and_close_join_the_owned_worker() {
             assert_eq!(*seen.lock().unwrap(), 3);
             assert!(tick.send(()).is_ok());
             peer.wait_requests(4).await;
-            let next = ticks
-                .recv()
-                .await
-                .ok_or_else(|| failure("test.Clock", "missing rescheduled timer"))?;
+            let next = ticks.recv().await.ok_or_else(|| {
+                failure(
+                    FailureKind::Injected(InjectedKind::TestClock),
+                    "missing rescheduled timer",
+                )
+            })?;
             client.shutdown().await?;
             assert!(next.send(()).is_err());
             assert_eq!(*seen.lock().unwrap(), 4);
@@ -85,7 +91,7 @@ fn threshold_flushes_1000_points_without_a_timer_tick() {
             let tick = ticks
                 .recv()
                 .await
-                .ok_or_else(|| failure("test.Clock", "missing timer"))?;
+                .ok_or_else(|| failure(FailureKind::Injected(InjectedKind::TestClock), "missing timer"))?;
             let tracker = InfluxTracker {
                 client: client.clone(),
                 read_only: false,
@@ -145,7 +151,7 @@ fn separate_history_and_tracking_clients_run_setup_twice() {
                 .create(BackendRequest::Influx { url: peer.url.clone() })
                 .await?
                 .map_err(OperationError::Failed)?
-                .ok_or_else(|| failure("test.Factory", "missing tracker"))?;
+                .ok_or_else(|| failure(FailureKind::Injected(InjectedKind::TestFactory), "missing tracker"))?;
             assert_eq!(*requests.lock().unwrap(), 2);
             history.close().await?;
             tracker.close().await?;
@@ -182,11 +188,9 @@ fn close_is_awaited_during_an_in_flight_query() {
                     };
                     if index == 2 {
                         let _ = entered.take().unwrap().send(());
-                        released
-                            .take()
-                            .unwrap()
-                            .await
-                            .map_err(|_| failure("test.Barrier", "release dropped"))?;
+                        released.take().unwrap().await.map_err(|_| {
+                            failure(FailureKind::Injected(InjectedKind::TestBarrier), "release dropped")
+                        })?;
                     }
                     io(socket
                         .write_all(
@@ -208,14 +212,18 @@ fn close_is_awaited_during_an_in_flight_query() {
             });
             started
                 .await
-                .map_err(|_| failure("test.Barrier", "query did not start"))?;
+                .map_err(|_| failure(FailureKind::Injected(InjectedKind::TestBarrier), "query did not start"))?;
             let close = client.shutdown();
             tokio::pin!(close);
             assert!(futures_util::poll!(&mut close).is_pending());
             let _ = release.send(());
-            query.await.map_err(|e| failure("test.Query", &e.to_string()))??;
+            query
+                .await
+                .map_err(|e| failure(FailureKind::Injected(InjectedKind::TestQuery), &e.to_string()))??;
             close.await?;
-            server.await.map_err(|e| failure("test.Peer", &e.to_string()))??;
+            server
+                .await
+                .map_err(|e| failure(FailureKind::Injected(InjectedKind::TestPeer), &e.to_string()))??;
             Ok(())
         })
     });

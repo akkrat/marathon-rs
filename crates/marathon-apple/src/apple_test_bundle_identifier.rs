@@ -5,6 +5,7 @@ use marathon_core::{
     model::Test,
     vendor::{BundleRef, TestBundleIdentifier},
 };
+use marathon_error::FailureKind;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -23,7 +24,7 @@ impl AppleTestBundleIdentifier {
             .cloned()
             .ok_or_else(|| {
                 VendorError::Other(failure(
-                    "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+                    FailureKind::Config(marathon_error::ConfigKind::Rejected),
                     format!(
                         "Invalid test {}: can't locate test bundle",
                         test.to_test_name('.', '#').to_owned()

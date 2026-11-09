@@ -4,12 +4,13 @@
 //! `toMillis` throws ArithmeticException on overflow before any scope starts.
 use crate::{error::*, runtime::*};
 use jcompat::jtime::Duration;
+use marathon_error::FailureKind;
 use std::sync::Arc;
 
 fn millis(timeout: &Duration) -> Result<i64, Failure> {
     timeout
         .to_millis()
-        .ok_or_else(|| super::shared::failure("java.lang.ArithmeticException", "long overflow"))
+        .ok_or_else(|| super::shared::failure(FailureKind::Arithmetic, "long overflow"))
 }
 
 pub async fn with_timeout<'a>(

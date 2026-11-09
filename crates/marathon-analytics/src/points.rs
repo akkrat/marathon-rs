@@ -7,10 +7,10 @@ use jcompat::{
     jtime::{influx_epoch_millis, instant_to_epoch_milli},
 };
 use marathon_core::{error::OperationResult, executor::shared::failure, model::TestStatus, report::TestEvent};
+use marathon_error::FailureKind;
 
 pub(crate) fn millis(event: &TestEvent) -> OperationResult<i64> {
-    instant_to_epoch_milli(event.instant)
-        .ok_or_else(|| failure("java.lang.ArithmeticException", "long overflow").into())
+    instant_to_epoch_milli(event.instant).ok_or_else(|| failure(FailureKind::Arithmetic, "long overflow").into())
 }
 fn escape(value: &str, v2: bool) -> String {
     let mut out = String::new();

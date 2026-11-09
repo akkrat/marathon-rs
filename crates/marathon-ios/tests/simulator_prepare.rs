@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/StartupPhasesTest.kt
+use marathon_error::{FailureKind, InjectedKind};
 mod simulator_support;
 mod support;
 use marathon_apple::cmd::{CommandResult, cancelled};
@@ -356,7 +357,10 @@ async fn wrong_state_type_after_failed_boot_warns_without_sending_shutdown() -> 
         assert_eq!(warnings.len(), 2);
         for (_, level, _, error) in warnings {
             assert_eq!(level, jcompat::logging::Level::Warn);
-            assert_eq!(error.unwrap().class.to_owned(), "java.lang.ClassCastException");
+            assert_eq!(
+                error.unwrap().kind.legacy_class().to_owned(),
+                "java.lang.ClassCastException"
+            );
         }
         h.finish(&[d]).await;
     }
@@ -372,7 +376,10 @@ async fn a_connection_lost_during_prepare_is_not_a_failed_boot_d36() -> TestResu
     *h.worker.before.lock().unwrap() = Arc::new(|_| Box::pin(async { Ok(None) }));
     let e = h.prepare(&d).await.unwrap_err();
     assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
-    assert_eq!(e.failure().class.to_owned(), CONNECTION_EXCEPTION);
+    assert_eq!(
+        e.failure().kind.legacy_class().to_owned(),
+        CONNECTION_EXCEPTION.legacy_class()
+    );
     assert_eq!(h.boot.boots.load(Ordering::SeqCst), 0);
     assert!(
         !h.logs
@@ -414,7 +421,10 @@ async fn a_null_readiness_probe_on_a_lost_connection_is_not_a_failed_boot_d36_d3
     });
     let e = h.prepare(&d).await.unwrap_err();
     assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
-    assert_eq!(e.failure().class.to_owned(), CONNECTION_EXCEPTION);
+    assert_eq!(
+        e.failure().kind.legacy_class().to_owned(),
+        CONNECTION_EXCEPTION.legacy_class()
+    );
     assert!(
         !h.logs
             .lock()
@@ -470,7 +480,7 @@ async fn a_stalled_send_is_not_retried_and_takes_the_simulator_out_of_the_run_u1
     let (error, sends, retired) = prepare_with_failing_sends(|| {
         Err(VendorError::LeavePool {
             reason: LeavePoolReason::TransferStalled,
-            detail: marathon_apple::cmd::failure("TransferStalled", "no progress"),
+            detail: marathon_apple::cmd::failure(FailureKind::Injected(InjectedKind::TransferStalled), "no progress"),
         })
     })
     .await?;
@@ -498,13 +508,9 @@ async fn a_send_that_fails_any_other_way_keeps_the_installers_three_attempts_u16
 }
 #[tokio::test(start_paused = true)]
 async fn a_send_that_errs_any_other_way_keeps_the_installers_three_attempts_u163() -> TestResult {
-    let (error, sends, retired) = prepare_with_failing_sends(|| {
-        Err(VendorError::Other(marathon_apple::cmd::failure(
-            "java.io.IOException",
-            "x",
-        )))
-    })
-    .await?;
+    let (error, sends, retired) =
+        prepare_with_failing_sends(|| Err(VendorError::Other(marathon_apple::cmd::failure(FailureKind::Io, "x"))))
+            .await?;
     assert!(matches!(error, VendorError::Other(_)), "{error:?}");
     assert_eq!(sends, 3);
     assert!(!retired);
@@ -597,7 +603,10 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
     let VendorError::Other(failure) = error else {
         panic!("{error:?}");
     };
-    assert_eq!(failure.class.to_owned(), CONNECTION_EXCEPTION);
+    assert_eq!(
+        failure.kind.legacy_class().to_owned(),
+        CONNECTION_EXCEPTION.legacy_class()
+    );
     assert_eq!(
         failure.message.map(|m| m.to_owned()),
         Some("Lost the connection to local during a transfer".into())

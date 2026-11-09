@@ -17,6 +17,7 @@ use marathon_config::{
     loader::{MarathonConfigurationLoader, validate_uncompleted_retries_bounded},
 };
 use marathon_core::{error::Failure, model::ExecutionCommand};
+use marathon_error::FailureKind;
 use std::{
     fs,
     io::{self, Write},
@@ -62,7 +63,7 @@ impl CliRunner for UnsupportedRunner {
         _: Arc<Console>,
     ) -> Result<Box<dyn MarathonRun>, Failure> {
         Err(failure(
-            "java.lang.UnsupportedOperationException",
+            FailureKind::UnsupportedOperation,
             "Running tests is not supported by this build yet",
         ))
     }
@@ -184,9 +185,9 @@ impl CliOutput {
     }
 }
 
-pub(crate) fn failure(class: &str, message: &str) -> Failure {
+pub(crate) fn failure(class: FailureKind, message: &str) -> Failure {
     Failure {
-        class: class.into(),
+        kind: class,
         message: Some(message.into()),
         cause: None,
         stacktrace: None,
@@ -197,14 +198,14 @@ pub(crate) fn failure(class: &str, message: &str) -> Failure {
 pub fn configuration_failure(error: &ConfigurationError) -> Failure {
     let cause = error.causes.iter().rev().fold(None, |inner, c| {
         Some(Box::new(Failure {
-            class: c.class.clone(),
+            kind: c.kind.clone(),
             message: c.message.to_owned(),
             cause: inner,
             stacktrace: None,
         }))
     });
     Failure {
-        class: error.class.clone(),
+        kind: error.kind.clone(),
         message: error.message.to_owned(),
         cause,
         stacktrace: None,
@@ -221,7 +222,7 @@ pub fn render_throwable(failure: &Failure) -> String {
         if !out.is_empty() {
             out.push_str("Caused by: ");
         }
-        out.push_str(&f.class.to_owned());
+        out.push_str(f.kind.legacy_class());
         if let Some(message) = &f.message {
             out.push_str(": ");
             out.push_str(&message.to_owned());
@@ -240,7 +241,7 @@ pub fn render_throwable(failure: &Failure) -> String {
 }
 
 /// An error before `main` reaches the command line: printed as uncaught, exit 1.
-pub fn failure_exit(class: &str, message: &str) -> std::process::ExitCode {
+pub fn failure_exit(class: FailureKind, message: &str) -> std::process::ExitCode {
     let _ = io::stderr().write_all(render_uncaught(&failure(class, message)).as_bytes());
     std::process::ExitCode::from(1)
 }
@@ -280,18 +281,18 @@ pub(crate) fn os_error_text(error: &io::Error) -> String {
 /// wording); a permission error keeps the NIO `AccessDeniedException` it wraps.
 pub(crate) fn read_failure(given: &std::path::Path, error: &io::Error) -> Failure {
     let mut f = failure(
-        "java.io.FileNotFoundException",
+        FailureKind::FileNotFound,
         &format!("{} ({})", lossy(given), os_error_text(error)),
     );
     if error.kind() == io::ErrorKind::PermissionDenied {
-        f.cause = Some(Box::new(failure("java.nio.file.AccessDeniedException", &lossy(given))));
+        f.cause = Some(Box::new(failure(FailureKind::AccessDenied, &lossy(given))));
     }
     f
 }
 
 /// The Marathonfile's `canonicalFile.parentFile`.
 pub(crate) fn canonical_parent(absolute: &str) -> Result<PathBuf, Failure> {
-    let canonical = fs::canonicalize(absolute).map_err(|e| failure("java.io.IOException", &os_error_text(&e)))?;
+    let canonical = fs::canonicalize(absolute).map_err(|e| failure(FailureKind::Io, &os_error_text(&e)))?;
     let parent = canonical
         .parent()
         .map(|p| p.to_string_lossy().into_owned())
@@ -367,7 +368,7 @@ fn run(
         let message = format!("No config {absolute} present");
         output.log(Level::Error, &message, "");
         return Err(failure(
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+            FailureKind::Config(marathon_error::ConfigKind::Rejected),
             &message,
         ));
     }
@@ -394,7 +395,7 @@ fn run(
         VendorConfiguration::Stub | VendorConfiguration::Empty
     ) {
         return Err(failure(
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+            FailureKind::Config(marathon_error::ConfigKind::Rejected),
             &format!("No vendor config present in {absolute}"),
         ));
     }

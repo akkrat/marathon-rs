@@ -1,4 +1,5 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/Scheduler.kt (JVM characterization).
+use marathon_error::FailureKind;
 #[path = "support/pool.rs"]
 mod support;
 use marathon_config::{Configuration, schema::PoolingStrategyConfiguration};
@@ -127,7 +128,7 @@ impl Run {
             Some((at, Ok(v))) => (json!(at), json!(v)),
             Some((at, Err(e))) => (
                 json!(at),
-                json!({"exception":e.failure().class.to_owned(),"message":e.failure().message.as_ref().map(|m|m.to_owned())}),
+                json!({"exception":e.failure().kind.legacy_class().to_owned(),"message":e.failure().message.as_ref().map(|m|m.to_owned())}),
             ),
             None => (Value::Null, Value::Null),
         };
@@ -385,10 +386,7 @@ fn external_timeout_preserves_caller_reason_and_cancels_detached_job() {
             h.run_current().await;
             let reason = Cancellation::Timeout {
                 scope: 77,
-                detail: marathon_core::executor::shared::failure(
-                    "kotlinx.coroutines.TimeoutCancellationException",
-                    "outer timeout",
-                ),
+                detail: marathon_core::executor::shared::failure(FailureKind::TimeoutCancelled, "outer timeout"),
             };
             run.parent.cancel(reason.clone());
             h.run_current().await;

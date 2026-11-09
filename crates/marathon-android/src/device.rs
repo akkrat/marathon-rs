@@ -28,6 +28,7 @@ use marathon_core::{
     screenshot::Rotation,
     vendor::*,
 };
+use marathon_error::{AdbKind, AndroidKind, FailureKind};
 use std::{
     collections::HashMap,
     sync::{
@@ -77,7 +78,7 @@ impl AndroidBatchExecutor for PendingBatchExecutor {
     ) -> VendorFuture<'a, ()> {
         Box::pin(async {
             Err(other(
-                "java.lang.UnsupportedOperationException",
+                FailureKind::UnsupportedOperation,
                 "Android batch execution is supplied by WP 6.6a",
             ))
         })
@@ -364,7 +365,7 @@ impl AndroidDevice {
                     let sdk = sdk.to_owned();
                     let api = jcompat::jnum::parse_int(&sdk).ok_or_else(|| {
                         other(
-                            "java.lang.NumberFormatException",
+                            FailureKind::NumberFormat,
                             format!("For input string: \"{sdk}\"").as_str(),
                         )
                     })?;
@@ -510,7 +511,7 @@ impl AndroidDevice {
         message: &str,
     ) -> VendorResult<Option<ShellCommandResult>> {
         match result {
-            Err(e) if e.failure().class != "io.vertx.core.impl.NoStackTraceThrowable" => {
+            Err(e) if e.failure().kind != FailureKind::Adb(AdbKind::TransportClosed) => {
                 self.log(Level::Error, message, Some(e.failure()));
                 Ok(None)
             }
@@ -531,12 +532,7 @@ impl AndroidDevice {
             })
         })
         .await?
-        .ok_or_else(|| {
-            other(
-                "com.malinskiy.marathon.android.exception.CommandRejectedException",
-                error_message,
-            )
-        })
+        .ok_or_else(|| other(FailureKind::Android(AndroidKind::CommandRejected), error_message))
     }
     pub async fn clear_package(&self, package: &str, context: VendorContext) -> VendorResult<ShellCommandResult> {
         self.critical_execute_shell_command(
@@ -866,7 +862,7 @@ impl Device for AndroidDevice {
                     let start = context
                         .hooks
                         .instant("core.Track.trackDevicePreparing")
-                        .map_err(|e| other("ReplayError", e.message))?;
+                        .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
                     let mut dependencies = device.runtime().dependencies.clone();
                     dependencies.configuration = configuration;
                     let installation = AndroidRuntime::new(dependencies, device.runtime().executor.clone()).await?;
@@ -887,7 +883,7 @@ impl Device for AndroidDevice {
                     let end = context
                         .hooks
                         .instant("core.Track.trackDevicePreparing")
-                        .map_err(|e| other("ReplayError", e.message))?;
+                        .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
                     device
                         .runtime()
                         .dependencies

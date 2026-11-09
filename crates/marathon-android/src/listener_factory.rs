@@ -10,6 +10,7 @@ use marathon_core::{
     runtime::*,
     vendor::Device,
 };
+use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 
 pub struct InstalledListener {
@@ -103,7 +104,7 @@ impl AndroidListenerFactory for ArtifactFactory {
 }
 fn missing(name: &str) -> VendorError {
     other(
-        "java.lang.UnsupportedOperationException",
+        FailureKind::UnsupportedOperation,
         format!("Android {name} listener is not installed").as_str(),
     )
 }
@@ -187,7 +188,7 @@ pub fn create(
     let attachments = TestResultsListener::collector(&providers)?;
     let log_runtime = runtime.clone();
     let accumulator = TestRunResultsAccumulator::new(deps.timer.clone(), Arc::new(marathon_core::logging::host_millis))
-        .map_err(|e| other("ReplayError", e.message))?;
+        .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
     let results = TestResultsListener {
         accumulator: AccumulatingResultTestRunListener {
             result: Mutex::new(accumulator),

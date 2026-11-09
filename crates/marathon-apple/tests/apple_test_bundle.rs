@@ -243,7 +243,7 @@ fn prepare(root: &Path, name: &str) -> Case {
 
 fn describe(failure: &Failure) -> Value {
     // Causes are not compared: Kotlin's carry JDK-internal NIO exceptions.
-    json!({"class": failure.class.to_owned(), "message": failure.message.as_ref().map(|m| m.to_owned())})
+    json!({"class": failure.kind.legacy_class().to_owned(), "message": failure.message.as_ref().map(|m| m.to_owned())})
 }
 fn fail(error: VendorError) -> Value {
     match error {

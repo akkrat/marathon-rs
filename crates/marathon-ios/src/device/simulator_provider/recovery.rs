@@ -10,6 +10,7 @@ use marathon_apple::device::{
     connection_failures::is_transient_connection_failure,
 };
 use marathon_core::runtime::CancellationSignal;
+use marathon_error::FailureKind;
 use tokio::sync::Semaphore;
 
 mod setup_retry;
@@ -93,12 +94,10 @@ impl SimulatorRecovery {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn provider(&self) -> VendorResult<Arc<AppleSimulatorProvider>> {
-        self.state().provider.upgrade().ok_or_else(|| {
-            other(
-                "java.lang.IllegalStateException",
-                "Provider allocation has been released",
-            )
-        })
+        self.state()
+            .provider
+            .upgrade()
+            .ok_or_else(|| other(FailureKind::IllegalState, "Provider allocation has been released"))
     }
     pub fn late_join_cutoff(&self) -> VendorResult<Option<String>> {
         if let Some(reason) = self.state().closed.clone() {
@@ -285,12 +284,10 @@ impl SimulatorRecovery {
             state.pending.insert(transport.clone(), pending.clone());
             pending
         };
-        let this = self.me.upgrade().ok_or_else(|| {
-            other(
-                "java.lang.IllegalStateException",
-                "Recovery allocation has been released",
-            )
-        })?;
+        let this = self
+            .me
+            .upgrade()
+            .ok_or_else(|| other(FailureKind::IllegalState, "Recovery allocation has been released"))?;
         let caller = VendorContext {
             cancellation: self.retry_cancel.clone(),
             ..provider.services.context.clone()
@@ -391,7 +388,7 @@ impl SimulatorRecovery {
             let acquired = async {
                 let _permit = tokio::select! { biased;
                     reason = caller.cancellation.cancelled() => return Err(VendorError::Cancelled(reason).into()),
-                    permit = self.permits.acquire() => permit.map_err(|e| other("java.lang.IllegalStateException", e.to_string()))?,
+                    permit = self.permits.acquire() => permit.map_err(|e| other(FailureKind::IllegalState, e.to_string()))?,
                 };
                 provider.services.connections.connect_worker(transport.clone(), caller.clone()).await
             }.await;
@@ -520,7 +517,7 @@ impl SimulatorRecovery {
                 result?;
             }
             let timeout = jcompat::jtime::duration_of(70, 0)
-                .ok_or_else(|| other("java.lang.IllegalArgumentException", "Invalid session timeout"))?;
+                .ok_or_else(|| other(FailureKind::IllegalArgument, "Invalid session timeout"))?;
             let sessions = join_all(lost.iter().map(|d| d.await_session_closed(timeout, &caller))).await;
             for (device, result) in lost.iter().zip(sessions) {
                 if !result? {
@@ -695,12 +692,10 @@ impl SimulatorRecovery {
         readded: bool,
         caller: &VendorContext,
     ) -> VendorResult<()> {
-        let this = self.me.upgrade().ok_or_else(|| {
-            other(
-                "java.lang.IllegalStateException",
-                "Recovery allocation has been released",
-            )
-        })?;
+        let this = self
+            .me
+            .upgrade()
+            .ok_or_else(|| other(FailureKind::IllegalState, "Recovery allocation has been released"))?;
         let provider = provider.this()?;
         let transport = transport.clone();
         let caller = caller.clone();
@@ -774,7 +769,7 @@ fn not_current(state: &State, id: &str, device: &Simulator) -> bool {
 fn duration_millis(duration: jcompat::jtime::Duration) -> VendorResult<i64> {
     duration
         .to_millis()
-        .ok_or_else(|| other("java.lang.ArithmeticException", "long overflow"))
+        .ok_or_else(|| other(FailureKind::Arithmetic, "long overflow"))
 }
 /// What a late setup on a connected worker leaves its retry to do.
 enum Late {
@@ -783,11 +778,7 @@ enum Late {
     Stop,
 }
 fn missing_failure(count: usize) -> ProvisioningError {
-    other(
-        "java.lang.IllegalStateException",
-        format!("{count} devices could not connect"),
-    )
-    .into()
+    other(FailureKind::IllegalState, format!("{count} devices could not connect")).into()
 }
 impl ProviderRecovery for SimulatorRecovery {
     fn attach(&self, provider: Weak<AppleSimulatorProvider>) {
@@ -922,12 +913,9 @@ impl ProviderRecovery for SimulatorRecovery {
             let id = id.to_owned();
             let serial = device.serial().to_owned();
             device.set_admission(Some(Arc::new(move || {
-                let this = this.upgrade().ok_or_else(|| {
-                    other(
-                        "java.lang.IllegalStateException",
-                        "Recovery allocation has been released",
-                    )
-                })?;
+                let this = this
+                    .upgrade()
+                    .ok_or_else(|| other(FailureKind::IllegalState, "Recovery allocation has been released"))?;
                 let reason = this.late_join_cutoff()?;
                 if let Some(reason) = &reason {
                     let provider = this.provider()?;
@@ -1016,12 +1004,10 @@ impl ProviderRecovery for SimulatorRecovery {
                     .map(|d| (d.transport().clone(), vec![d], None, true)),
             );
             for (transport, lost, loss, readded) in groups {
-                let this = self.me.upgrade().ok_or_else(|| {
-                    other(
-                        "java.lang.IllegalStateException",
-                        "Recovery allocation has been released",
-                    )
-                })?;
+                let this = self
+                    .me
+                    .upgrade()
+                    .ok_or_else(|| other(FailureKind::IllegalState, "Recovery allocation has been released"))?;
                 let provider = provider.clone();
                 let caller = VendorContext {
                     cancellation: Arc::new(LinkedSignal {
@@ -1082,9 +1068,9 @@ mod tests {
 
     #[test]
     fn retry_preserves_original_error_when_release_fails() {
-        let release_error = other("java.io.IOException", "release failed");
+        let release_error = other(FailureKind::Io, "release failed");
         for original in [
-            other("java.io.IOException", "setup failed"),
+            other(FailureKind::Io, "setup failed"),
             VendorError::Cancelled(requested("Provider terminated")),
         ] {
             let mut logged = None;
@@ -1098,7 +1084,7 @@ mod tests {
 
     #[test]
     fn retry_propagates_release_error_after_success() {
-        let error = other("java.io.IOException", "release failed");
+        let error = other(FailureKind::Io, "release failed");
         assert_eq!(
             finish_retry_attempt(Ok(true), Err(error.clone()), |_| panic!("unexpected log")),
             Err(error)

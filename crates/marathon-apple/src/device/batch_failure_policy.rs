@@ -2,6 +2,7 @@
 
 use crate::{apple_device_test_runner::RunError, cmd::failure, logparser::parser::DeviceFailureReason};
 use marathon_core::error::{Failure, VendorError};
+use marathon_error::FailureKind;
 
 #[derive(Clone, Debug)]
 pub struct BatchLoss {
@@ -16,10 +17,7 @@ impl BatchLoss {
         }
     }
     pub fn into_vendor(self) -> VendorError {
-        let mut detail = failure(
-            "com.malinskiy.marathon.exceptions.DeviceLostException",
-            self.cause.to_java_string(),
-        );
+        let mut detail = failure(FailureKind::DeviceLost, self.cause.to_java_string());
         detail.cause = Some(Box::new(self.cause));
         // Policy suppression belongs to DeviceLost itself, rather than its cause.
         let flattened = RunError {
@@ -98,7 +96,7 @@ impl BatchFailurePolicy {
         (self.max_batches_without_progress > 0 && self.batches_without_progress >= self.max_batches_without_progress)
             .then(|| {
                 BatchLoss::new(failure(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     format!(
                         "No test has passed or failed in {} batches in a row",
                         self.batches_without_progress

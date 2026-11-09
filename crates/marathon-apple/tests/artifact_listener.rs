@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListenerTest.kt
+use marathon_error::FailureKind;
 mod support;
 use jcompat::{
     file_manager::FileManager,
@@ -38,7 +39,7 @@ use std::{
 };
 type Pull = Arc<dyn Fn(String, PathBuf, VendorContext) -> VendorFuture<'static, bool> + Send + Sync>;
 fn io(e: std::io::Error) -> VendorError {
-    VendorError::Other(failure("java.io.IOException", &e.to_string()))
+    VendorError::Other(failure(FailureKind::Io, &e.to_string()))
 }
 struct Commands {
     calls: Arc<Mutex<Vec<Vec<String>>>>,
@@ -61,7 +62,7 @@ impl WorkerCommands for Commands {
                 Ok(Some(CommandResult {
                     stdout: String::from_utf8_lossy(&output.stdout)
                         .lines()
-                        .map(str::to_owned)
+                        .map(|s| s.to_owned())
                         .collect(),
                     stderr: vec![],
                     exit_code: output.status.code(),
@@ -341,7 +342,7 @@ async fn failed_pulls_keep_remote_bundles_and_are_reported_at_finalization_witho
                         let copy = dst.join(src.rsplit('/').next().unwrap());
                         std::fs::create_dir_all(copy).map_err(io)?;
                         if throws {
-                            Err(VendorError::Other(failure("java.io.IOException", "transport closed")))
+                            Err(VendorError::Other(failure(FailureKind::Io, "transport closed")))
                         } else {
                             Ok(false)
                         }
@@ -528,7 +529,7 @@ async fn same_run_device_cleanup_keeps_an_undelivered_bundle_until_a_later_run()
     let keep =
         h.p.kept_sources("udid@worker")
             .iter()
-            .map(String::clone)
+            .map(|s| s.to_owned())
             .collect::<Vec<_>>();
     h.device.manager.remove_remote_directory(&keep, &h.context).await?;
     assert_eq!(

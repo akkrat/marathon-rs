@@ -9,6 +9,7 @@ use marathon_core::{
     model::TestStatus,
     runtime::*,
 };
+use marathon_error::{FailureKind, InjectedKind};
 use serde_json::Value;
 use std::sync::{
     Arc, Mutex,
@@ -220,7 +221,7 @@ pub fn run_scenario(name: &'static str) -> Outcome {
                         Err(VendorError::LeavePool {
                             reason: LeavePoolReason::NotBooted,
                             detail: marathon_core::executor::shared::failure(
-                                "oracle.DeviceActorProbe$NotBootedProbeException",
+                                FailureKind::Injected(InjectedKind::OracleDeviceActorProbeNotBootedProbeException),
                                 "not booted",
                             ),
                         })
@@ -339,7 +340,7 @@ pub fn run_scenario(name: &'static str) -> Outcome {
 
 fn no_message_ise() -> Failure {
     Failure {
-        class: "java.lang.IllegalStateException".into(),
+        kind: FailureKind::IllegalState,
         message: None,
         cause: None,
         stacktrace: None,

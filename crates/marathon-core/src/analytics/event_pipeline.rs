@@ -15,6 +15,7 @@ use jcompat::{
     jtime::Instant,
     logging::{Level, Logger},
 };
+use marathon_error::FailureKind;
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
@@ -201,7 +202,7 @@ impl Default for BackendLimits {
 const LOGGED_KINDS: usize = 8;
 #[derive(Default)]
 struct GuardState {
-    kinds: HashSet<(String, Option<String>)>,
+    kinds: HashSet<(FailureKind, Option<String>)>,
     skip_until: Option<tokio::time::Instant>,
     announced_skip: bool,
     failed: u64,
@@ -239,7 +240,9 @@ impl BackendGuard {
                 state.skip_until = Some(tokio::time::Instant::now() + self.limits.cool_off);
             }
             let first_of_kind = state.kinds.len() < LOGGED_KINDS
-                && state.kinds.insert((failure.class.clone(), failure.message.to_owned()));
+                && state
+                    .kinds
+                    .insert((failure.kind.dedup_key(), failure.message.to_owned()));
             let announce = slow && !std::mem::replace(&mut state.announced_skip, true);
             (first_of_kind, announce)
         };
@@ -278,7 +281,7 @@ impl TrackerInternal for BackendGuard {
                         self.limits.send.as_millis()
                     );
                     self.failed(
-                        &crate::executor::shared::failure("java.util.concurrent.TimeoutException", &text),
+                        &crate::executor::shared::failure(FailureKind::Timeout, &text),
                         true,
                         counted,
                     );
@@ -681,5 +684,65 @@ impl TrackerFactory {
         )
         .await
         .map_err(operation_error)
+    }
+}
+
+#[cfg(test)]
+mod kind_tests {
+    use super::*;
+    use marathon_error::{AnalyticsKind, InfluxV1Kind, RetryDisposition};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Unused;
+    impl TrackerInternalAdapter for Unused {}
+
+    #[test]
+    fn backend_deduplication_keeps_class_and_message_equivalence() {
+        let logged = Arc::new(AtomicUsize::new(0));
+        let count = logged.clone();
+        let log: ServiceLog = Arc::new(move |_, _, _, _| {
+            count.fetch_add(1, Ordering::Relaxed);
+        });
+        let guard = BackendGuard::new(
+            Arc::new(Unused),
+            log,
+            jcompat::logging::MarathonLogging::default().logger("BackendGuardTest", None),
+            BackendLimits::default(),
+        );
+        let failure = |problem, retry, message: &str| {
+            Failure::from_kind(
+                FailureKind::Analytics(AnalyticsKind::InfluxV1 { problem, retry }),
+                Some(message.into()),
+            )
+        };
+        guard.failed(
+            &failure(
+                InfluxV1Kind::CacheMaxMemorySizeExceeded,
+                RetryDisposition::Retry,
+                "same",
+            ),
+            false,
+            true,
+        );
+        guard.failed(
+            &failure(
+                InfluxV1Kind::CacheMaxMemorySizeExceeded,
+                RetryDisposition::Never,
+                "same",
+            ),
+            false,
+            true,
+        );
+        assert_eq!(logged.load(Ordering::Relaxed), 1);
+        guard.failed(
+            &failure(InfluxV1Kind::AuthorizationFailed, RetryDisposition::Never, "same"),
+            false,
+            true,
+        );
+        guard.failed(
+            &failure(InfluxV1Kind::AuthorizationFailed, RetryDisposition::Never, "different"),
+            false,
+            true,
+        );
+        assert_eq!(logged.load(Ordering::Relaxed), 3);
     }
 }

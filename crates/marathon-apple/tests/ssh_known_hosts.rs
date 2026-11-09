@@ -35,7 +35,7 @@ fn known_hosts_matching_follows_the_sshj_oracle() {
             let error = OpenSshKnownHosts::parse(Path::new("known_hosts"), text, logging.clone())
                 .err()
                 .unwrap_or_else(|| panic!("{} parsed", row["case"]));
-            assert_eq!(error.class, class, "{}", row["case"]);
+            assert_eq!(error.kind.legacy_class(), class, "{}", row["case"]);
             checked += 1;
             continue;
         }
@@ -106,7 +106,7 @@ fn unparseable_lines_are_logged_like_sshj() {
     );
     let base64 = events[4].3.as_ref().unwrap();
     assert_eq!(
-        base64.class,
+        base64.kind.legacy_class(),
         "net.schmizz.sshj.common.Base64DecodingException".to_owned()
     );
     assert_eq!(
@@ -134,14 +134,22 @@ fn rejected_wildcard_regex_names_the_pattern_and_the_known_hosts_line() {
         let error = OpenSshKnownHosts::parse(Path::new("known_hosts"), &text, logging.clone())
             .err()
             .unwrap_or_else(|| panic!("{entry} parsed"));
-        assert_eq!(error.class, PATTERN_SYNTAX_EXCEPTION, "{entry}");
+        assert_eq!(
+            error.kind.legacy_class(),
+            PATTERN_SYNTAX_EXCEPTION.legacy_class(),
+            "{entry}"
+        );
         let message = error.message().unwrap();
         assert_eq!(message, expected(Path::new("known_hosts")), "{entry}");
         assert!(message.contains("known_hosts line 3"), "{entry}: {message}");
         assert!(message.contains(compiled), "{entry}: {message}");
         std::fs::write(&path, &text).unwrap();
         let error = OpenSshKnownHosts::load(&path, logging.clone()).err().unwrap();
-        assert_eq!(error.class, PATTERN_SYNTAX_EXCEPTION, "{entry}");
+        assert_eq!(
+            error.kind.legacy_class(),
+            PATTERN_SYNTAX_EXCEPTION.legacy_class(),
+            "{entry}"
+        );
         assert_eq!(error.message().unwrap(), expected(&path), "{entry}");
     }
 }

@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/AccumulatingTestResultListener.kt
 use super::AppleTestRunListener;
 use crate::logparser::parser::DeviceFailureReason;
+use marathon_error::FailureKind;
 
 use marathon_core::{
     error::{VendorError, VendorResult},
@@ -33,7 +34,7 @@ impl AccumulatingTestResultListener {
         for record in a.take_logs() {
             self.logs.push(record);
         }
-        result.map_err(|e| VendorError::Other(crate::cmd::failure("ReplayError", &e.message)))
+        result.map_err(|e| VendorError::Other(crate::cmd::failure(FailureKind::ReplayClock, &e.message)))
     }
 }
 impl AppleTestRunListener for AccumulatingTestResultListener {

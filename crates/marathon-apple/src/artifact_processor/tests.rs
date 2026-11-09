@@ -5,6 +5,7 @@ use super::core::{Admission, AdmissionCore};
 use super::*;
 use crate::test_support as support;
 use marathon_core::executor::shared::requested;
+use marathon_error::{FailureKind, FatalKind};
 use std::{
     future::{Future, poll_fn},
     pin::Pin,
@@ -371,7 +372,7 @@ async fn device_barrier_protects_all_its_bundles_until_cleanup_completes_and_fai
         Arc::new(|_| {
             Box::pin(async {
                 Err(VendorError::Other(failure(
-                    "java.lang.AssertionError",
+                    FailureKind::Fatal(FatalKind::Assertion),
                     "transfer failed",
                 )))
             })
@@ -474,7 +475,7 @@ async fn every_undelivered_bundle_is_returned_and_logged_as_an_error_at_finaliza
         Arc::new(|_| {
             Box::pin(async {
                 Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     "transport closed",
                 )))
             })
@@ -575,7 +576,7 @@ async fn failing_report_callbacks_do_not_stop_shutdown_and_waiting_submitters_ar
         "mac".into(),
         Some(Arc::new(move |r| {
             e.lock().unwrap().push(r.to_owned());
-            Err(failure("java.lang.IllegalStateException", "report failed"))
+            Err(failure(FailureKind::IllegalState, "report failed"))
         })),
         empty(),
         h.context.clone(),
@@ -588,7 +589,7 @@ async fn failing_report_callbacks_do_not_stop_shutdown_and_waiting_submitters_ar
     h.p.protect(
         "sim".into(),
         "/remote/failing".into(),
-        Arc::new(|_| Err(failure("java.lang.IllegalStateException", "sweep failed"))),
+        Arc::new(|_| Err(failure(FailureKind::IllegalState, "sweep failed"))),
     )
     .unwrap();
     let close = h.close();
@@ -674,9 +675,7 @@ async fn shutdown_waits_a_bounded_time_for_work_that_ignores_cancellation_and_re
         "failing@studio".into(),
         "failing".into(),
         "studio".into(),
-        Some(Arc::new(|_| {
-            Err(failure("java.lang.IllegalStateException", "report failed"))
-        })),
+        Some(Arc::new(|_| Err(failure(FailureKind::IllegalState, "report failed")))),
         gated(gate.clone(), false),
         h.context.clone(),
     )
@@ -697,10 +696,7 @@ async fn shutdown_waits_a_bounded_time_for_work_that_ignores_cancellation_and_re
     for owner in ["stuck@mac", "queued@mac", "aware@mini", "failing@studio"] {
         h.barrier(owner).await;
     }
-    gate.complete(Err(VendorError::Other(failure(
-        "java.io.IOException",
-        "transport closed",
-    ))));
+    gate.complete(Err(VendorError::Other(failure(FailureKind::Io, "transport closed"))));
     settle().await;
     assert_eq!(h.close().await, retained);
     assert_eq!(
@@ -1417,7 +1413,7 @@ async fn closed_submit_callback_escapes_and_source_reinsertion_matches_jvm() {
             "closed".into(),
             "owner".into(),
             Some(Arc::new(|_| {
-                Err(failure("java.lang.IllegalStateException", "callback escaped"))
+                Err(failure(FailureKind::IllegalState, "callback escaped"))
             })),
             empty(),
             h.context.clone(),

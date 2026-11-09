@@ -5,6 +5,7 @@ use marathon_core::{
     executor::{CoreExecutor, test_support::ControlledReplay},
     runtime::*,
 };
+use marathon_error::FailureKind;
 use std::rc::Rc;
 pub fn run(
     body: impl FnOnce(Rc<CoreExecutor>, Rc<ControlledReplay>) -> LocalFuture<'static, OperationResult<()>> + Send + 'static,
@@ -16,7 +17,7 @@ pub fn cancelled(message: &str) -> Cancellation {
     marathon_core::executor::shared::requested(message)
 }
 pub fn failed(message: &str) -> Failure {
-    marathon_core::executor::shared::failure("java.lang.IllegalStateException", message)
+    marathon_core::executor::shared::failure(FailureKind::IllegalState, message)
 }
 pub fn replay<T>(result: marathon_core::time::ClockResult<T>) -> T {
     result.unwrap_or_else(|e| panic!("replay failure: {e:?}"))

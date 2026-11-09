@@ -7,6 +7,7 @@ use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::DeviceRef,
 };
+use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 
 type Entry = (DeviceRef, Arc<dyn AppleDevice>);
@@ -41,7 +42,7 @@ impl AppleDeviceRegistry {
             .map(|(_, apple)| apple.clone())
             .ok_or_else(|| {
                 VendorError::Other(failure(
-                    "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+                    FailureKind::Config(marathon_error::ConfigKind::Rejected),
                     "Unexpected device type for remote test parsing",
                 ))
             })

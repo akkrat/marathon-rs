@@ -24,6 +24,7 @@ use crate::{
     pipeline::{LoadError, bind_devices_bytes},
 };
 use jcompat::SubstitutionError;
+use marathon_error::FailureKind;
 
 /// The largest accepted payload: Kotlin reallocates only up to `2^20`.
 pub const MAX_FRAME_PAYLOAD: i32 = 1 << 20;
@@ -71,15 +72,15 @@ impl FrameError {
     /// The JVM exception class Kotlin surfaces, for log/report parity.
     /// `None` for binding failures, whose class is the carried
     /// `ConfigurationError`'s own (a `String`, not a `&'static str`).
-    pub fn java_class(&self) -> Option<&'static str> {
+    pub fn failure_kind(&self) -> Option<FailureKind> {
         match self {
-            Self::TooLong { .. } => Some("java.lang.RuntimeException"),
-            Self::NegativeLength { .. } => Some("java.lang.IllegalArgumentException"),
-            Self::Truncated { .. } => Some("kotlinx.coroutines.channels.ClosedReceiveChannelException"),
-            Self::Substitution(_) => Some("java.lang.IllegalStateException"),
+            Self::TooLong { .. } => Some(FailureKind::Runtime),
+            Self::NegativeLength { .. } => Some(FailureKind::IllegalArgument),
+            Self::Truncated { .. } => Some(FailureKind::ChannelReceiveClosed),
+            Self::Substitution(_) => Some(FailureKind::IllegalState),
             Self::Binding(_) => None,
-            Self::NullDocument => Some("java.lang.NullPointerException"),
-            Self::Worker(_) => Some("java.io.IOException"),
+            Self::NullDocument => Some(FailureKind::NullReference),
+            Self::Worker(_) => Some(FailureKind::Io),
         }
     }
 

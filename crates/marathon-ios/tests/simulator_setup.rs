@@ -151,7 +151,7 @@ async fn construction_does_no_io_and_partial_setup_disposal_keeps_lateinit_failu
     assert!(h.worker.commands.lock().unwrap().is_empty());
     let error = d.simulator_state(&h.services.context).await.unwrap_err();
     assert_eq!(
-        error.failure().class.to_owned(),
+        error.failure().kind.legacy_class().to_owned(),
         "kotlin.UninitializedPropertyAccessException"
     );
     assert_eq!(
@@ -209,10 +209,13 @@ async fn setup_on_a_lost_connection_fails_instead_of_describing_the_simulator_wi
     let error = d.setup(&h.services.context).await.unwrap_err();
     assert_eq!(
         (
-            error.failure().class.to_owned(),
+            error.failure().kind.legacy_class().to_owned(),
             error.failure().message.as_ref().unwrap().to_owned()
         ),
-        (CONNECTION_EXCEPTION.to_owned(), "Not connected".to_owned())
+        (
+            CONNECTION_EXCEPTION.legacy_class().to_owned(),
+            "Not connected".to_owned()
+        )
     );
     h.worker.connected.store(true, Ordering::SeqCst);
     h.finish(std::slice::from_ref(&d)).await;

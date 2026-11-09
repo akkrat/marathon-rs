@@ -30,6 +30,7 @@ use marathon_core::{
     time::*,
     vendor::{Device, DeviceRef, VendorContext},
 };
+use marathon_error::FailureKind;
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use std::{
@@ -72,22 +73,19 @@ pub fn configuration() -> Arc<Configuration> {
 }
 
 pub fn ise(message: &str) -> Failure {
-    failure("java.lang.IllegalStateException", message)
+    failure(FailureKind::IllegalState, message)
 }
 /// `DeviceLostException(cause)`: Throwable(cause) takes `cause.toString()` as its message.
 pub fn device_lost(cause: Failure) -> VendorError {
     VendorError::DeviceLost(Failure {
-        class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
+        kind: FailureKind::DeviceLost,
         message: Some(cause.to_java_string()),
         cause: Some(Box::new(cause)),
         stacktrace: None,
     })
 }
 pub fn batch_failure(message: &str) -> VendorError {
-    VendorError::BatchExecution(failure(
-        "com.malinskiy.marathon.exceptions.TestBatchExecutionException",
-        message,
-    ))
+    VendorError::BatchExecution(failure(FailureKind::BatchExecution, message))
 }
 /// `CancellationException(message)` thrown by a vendor.
 pub fn vendor_cancellation(message: &str) -> VendorError {
@@ -95,17 +93,11 @@ pub fn vendor_cancellation(message: &str) -> VendorError {
 }
 /// `Job.cancel()` / `CompletableDeferred.cancel()` without a cause.
 pub fn job_was_cancelled() -> Cancellation {
-    Cancellation::Requested(failure(
-        "kotlinx.coroutines.JobCancellationException",
-        "Job was cancelled",
-    ))
+    Cancellation::Requested(failure(FailureKind::JobCancelled, "Job was cancelled"))
 }
 /// `Deferred.cancel()` on an `async` job.
 pub fn deferred_coroutine_cancelled() -> Cancellation {
-    Cancellation::Requested(failure(
-        "kotlinx.coroutines.JobCancellationException",
-        "DeferredCoroutine was cancelled",
-    ))
+    Cancellation::Requested(failure(FailureKind::JobCancelled, "DeferredCoroutine was cancelled"))
 }
 
 pub fn passed(device: &DeviceRef, batch: &BatchRef) -> TestBatchResults {
@@ -251,7 +243,7 @@ impl ScriptedDevice {
         }
         if self.stub.crash_with_device_lost_exception {
             return Err(device_lost(failure(
-                "java.lang.RuntimeException",
+                FailureKind::Runtime,
                 "user requested the device to crash via crashWithDeviceLostException parameter",
             )));
         }
@@ -272,7 +264,7 @@ impl ScriptedDevice {
             // `executionResults[it]!![i]`
             let Some(status) = statuses.and_then(|s| s.get(index)).copied() else {
                 return Err(VendorError::Other(failure(
-                    "java.lang.NullPointerException",
+                    FailureKind::NullReference,
                     "executionResults",
                 )));
             };
@@ -463,10 +455,7 @@ impl Actor<DevicePoolMessage> for RecordingPool {
                     );
                     Err(SendError {
                         message,
-                        cause: Some(failure(
-                            "kotlinx.coroutines.channels.ClosedSendChannelException",
-                            "Channel was closed",
-                        )),
+                        cause: Some(failure(FailureKind::ChannelSendClosed, "Channel was closed")),
                     })
                 }
             }
@@ -742,7 +731,7 @@ pub fn throwable(cause: Option<&Failure>, batch: &BatchRef) -> Value {
     let mut current = cause;
     while let Some(failure) = current {
         chain.push(json!({
-            "class": failure.class.to_owned(),
+            "class": failure.kind.legacy_class().to_owned(),
             "message": failure.message.as_ref().map(|m| clean(m, batch)),
         }));
         current = failure.cause.as_deref();

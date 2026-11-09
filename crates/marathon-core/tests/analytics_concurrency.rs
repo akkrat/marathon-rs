@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
 //! (D13 prefetch, P4 cancellation and P5 nonblocking lookups).
+use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
 use jcompat::jtime::Instant;
@@ -189,7 +190,7 @@ fn failed_queries_answer_defaults_until_a_refresh_close_errors_propagate_and_dup
         assert_eq!(*h.clock.delays.lock().unwrap(), vec![50, 50, 50, 50]);
         assert_eq!(
             p.close().await,
-            Err(OperationError::Failed(failure("java.io.IOException", "close")))
+            Err(OperationError::Failed(failure(FailureKind::Io, "close")))
         );
     });
 }

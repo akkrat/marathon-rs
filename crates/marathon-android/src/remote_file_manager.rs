@@ -3,6 +3,7 @@ use crate::{device::AndroidDevice, support::*};
 use jcompat::{file_manager::escape, logging::Level};
 use marathon_adb::client::sync::directory::bash_escape;
 use marathon_core::{error::VendorResult, model::Test, vendor::VendorContext};
+use marathon_error::{AndroidKind, FailureKind};
 pub const MAX_FILENAME: usize = 255;
 pub const TMP_PATH: &str = "/data/local/tmp";
 pub const TRACE_ROOT: &str = "/data/misc/perfetto-traces";
@@ -47,7 +48,7 @@ impl RemoteFileManager<'_> {
             .await?;
         if result.exit_code != 0 {
             return Err(other(
-                "com.malinskiy.marathon.android.exception.CommandRejectedException",
+                FailureKind::Android(AndroidKind::CommandRejected),
                 format!(
                     "{message}: exit code {}: {}",
                     result.exit_code,
@@ -118,7 +119,7 @@ impl RemoteFileManager<'_> {
         suffix.push_str(extension);
         let count = MAX_FILENAME.checked_sub(suffix.encode_utf16().count()).ok_or_else(|| {
             other(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 format!(
                     "Requested character count {} is less than zero.",
                     MAX_FILENAME as i64 - suffix.encode_utf16().count() as i64

@@ -13,6 +13,7 @@ use marathon_apple::{
 };
 use marathon_config::devices::{AppleTarget, Transport};
 use marathon_core::{runtime::*, time::*, vendor::*};
+use marathon_error::{FailureKind, SshKind};
 use marathon_ios::device::{
     simulator_provider::{recovery::*, *},
     simulator_provisioner::ProvisioningConnections,
@@ -286,7 +287,7 @@ pub fn unreachable() -> ConnectionError {
 }
 pub fn auth() -> ConnectionError {
     ConnectionError::Vendor(marathon_core::error::VendorError::Other(failure(
-        "net.schmizz.sshj.userauth.UserAuthException",
+        FailureKind::Ssh(SshKind::Authentication),
         "Exhausted available authentication methods",
     )))
 }

@@ -13,6 +13,7 @@ use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::{future::Future, sync::Arc};
 use tokio::sync::oneshot;
 
@@ -53,7 +54,7 @@ impl DetachedConnections {
         tokio::select! { biased;
             reason = caller.cancellation.cancelled() => Err(VendorError::Cancelled(reason).into()),
             result = rx => {
-                let (result, ack) = result.map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))?;
+                let (result, ack) = result.map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?;
                 // A result can become ready in the same turn as cancellation. Do not acknowledge it then.
                 if let Some(reason) = caller.cancellation.reason() { return Err(VendorError::Cancelled(reason).into()); }
                 let _ = ack.send(());

@@ -4,6 +4,7 @@ use crate::listeners::{AndroidTestRunListener, to_test};
 use jcompat::logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 pub const METRIC: &str = "com.malinskiy.adam.junit4.android.screencapture.AdamScreenCaptureProcessor.v1";
 pub struct AdamScreenCaptureTestRunListener {
@@ -43,7 +44,7 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                         let uuid = context
                             .hooks
                             .allocate_id("android.AdamScreenCaptureTestRunListener.testEnded")
-                            .map_err(|e| other("ReplayError", e.message))?;
+                            .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
                         let file = self.artifacts.file(kind, Some(&test), Some(uuid), None).await?;
                         let local = file.clone();
                         let local = blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {

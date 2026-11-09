@@ -3,6 +3,7 @@
 use super::*;
 use crate::simulator::State as SimulatorState;
 use marathon_apple::{cmd::failure, plist::PlistValue};
+use marathon_error::{AppleKind, FailureKind};
 
 impl AppleSimulatorDevice {
     pub async fn simulator_state(&self, context: &VendorContext) -> VendorResult<SimulatorState> {
@@ -113,14 +114,14 @@ impl AppleSimulatorDevice {
             .seconds()
             .checked_mul(1_000_000_000)
             .and_then(|n| n.checked_add(wait.nanos()))
-            .ok_or_else(|| VendorError::Other(failure("java.lang.ArithmeticException", "long overflow")))?;
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?;
         let deadline = started.saturating_add(nanos);
         match self.simulator_state(context).await? {
             SimulatorState::Booted => return Ok(None),
             SimulatorState::Creating | SimulatorState::Booting => {}
             SimulatorState::Shutdown => {
                 if let Err(error) = self.bin.xcrun.simctl.simulator.boot(&self.udid, &[], context).await {
-                    if error.failure().class != "com.malinskiy.marathon.apple.cmd.CommandException" {
+                    if error.failure().kind != FailureKind::Apple(AppleKind::Command) {
                         return Err(error);
                     }
                     let now = self.simulator_state(context).await?;
@@ -173,14 +174,14 @@ impl AppleSimulatorDevice {
                 .shutdown
                 .seconds()
                 .checked_add(timeouts.shell.seconds())
-                .ok_or_else(|| VendorError::Other(failure("java.lang.ArithmeticException", "long overflow")))?,
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?,
             timeouts.shutdown.nanos() + timeouts.shell.nanos(),
         )
-        .ok_or_else(|| VendorError::Other(failure("java.lang.ArithmeticException", "long overflow")))?;
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?;
         let outcome = async {
             let millis = budget
                 .to_millis()
-                .ok_or_else(|| VendorError::Other(failure("java.lang.ArithmeticException", "long overflow")))?;
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?;
             context
                 .clock
                 .with_timeout_or_null(

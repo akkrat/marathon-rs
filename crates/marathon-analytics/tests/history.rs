@@ -1,5 +1,6 @@
 //! Port of core/src/integrationTest/kotlin/com/malinskiy/marathon/analytics/metrics/remote/BaseMetricsProviderIntegrationTest.kt
 //! and influx/InfluxDbProviderIntegrationTest.kt, influx2/InfluxDb2ProviderIntegrationTest.kt.
+use marathon_error::{FailureKind, InjectedKind};
 #[path = "support/cases.rs"]
 mod cases;
 mod support;
@@ -89,7 +90,9 @@ async fn case(env: Env, name: &str) -> OperationResult<()> {
                 for event in events() {
                     tracker.track_test(&event).await?;
                 }
-                carbon.await.map_err(|e| failure("test.Carbon", &e.to_string()))??;
+                carbon
+                    .await
+                    .map_err(|e| failure(FailureKind::Injected(InjectedKind::TestCarbon), &e.to_string()))??;
                 Arc::new(GraphiteDataSource {
                     client: Arc::new(QueryableGraphiteClient::with_endpoint(
                         &peer.url.clone(),

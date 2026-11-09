@@ -14,6 +14,7 @@ use marathon_core::{
     runtime::*,
     time::*,
 };
+use marathon_error::{FailureKind, InjectedKind};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -26,7 +27,7 @@ use tokio::{
 };
 
 pub fn io<T>(value: std::io::Result<T>) -> OperationResult<T> {
-    value.map_err(|e| failure("java.io.IOException", &e.to_string()).into())
+    value.map_err(|e| failure(FailureKind::Io, &e.to_string()).into())
 }
 pub struct Mono;
 impl MonotonicClock for Mono {
@@ -66,7 +67,10 @@ pub fn run(body: impl FnOnce(Env) -> ServiceFuture<'static, ()> + Send + 'static
                         Ok(Ok(())) => Ok(()),
                         Ok(Err(OperationError::Failed(f))) => Err(VendorError::Other(f)),
                         Ok(Err(OperationError::Cancelled(c))) => Err(VendorError::Cancelled(c)),
-                        Err(_) => Err(VendorError::Other(failure("test.Watchdog", "analytics test stalled"))),
+                        Err(_) => Err(VendorError::Other(failure(
+                            FailureKind::Injected(InjectedKind::TestWatchdog),
+                            "analytics test stalled",
+                        ))),
                     }
                 })
             })
@@ -235,7 +239,9 @@ impl Peer {
                 let header_end = loop {
                     let count = io(socket.read(&mut buffer).await)?;
                     if count == 0 {
-                        return Err(failure("test.Peer", "EOF before HTTP headers").into());
+                        return Err(
+                            failure(FailureKind::Injected(InjectedKind::TestPeer), "EOF before HTTP headers").into(),
+                        );
                     }
                     bytes.extend_from_slice(&buffer[..count]);
                     if let Some(index) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
@@ -262,7 +268,9 @@ impl Peer {
                 while bytes.len() < header_end + length {
                     let count = io(socket.read(&mut buffer).await)?;
                     if count == 0 {
-                        return Err(failure("test.Peer", "EOF before HTTP body").into());
+                        return Err(
+                            failure(FailureKind::Injected(InjectedKind::TestPeer), "EOF before HTTP body").into(),
+                        );
                     }
                     bytes.extend_from_slice(&buffer[..count]);
                 }
@@ -313,7 +321,9 @@ impl Peer {
     }
     pub async fn shutdown(self) -> OperationResult<Vec<Request>> {
         let _ = self.stop.send(());
-        self.task.await.map_err(|e| failure("test.Peer", &e.to_string()))??;
+        self.task
+            .await
+            .map_err(|e| failure(FailureKind::Injected(InjectedKind::TestPeer), &e.to_string()))??;
         Ok(self.requests.lock().unwrap().clone())
     }
 }

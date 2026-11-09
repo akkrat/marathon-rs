@@ -6,6 +6,7 @@ use jcompat::logging::{Level, Logger};
 use marathon_apple::cmd::{failure, remote::ssh::sshj::config::SshLogging};
 use marathon_config::devices::{AppleTarget, MarathonDevices, Transport};
 use marathon_core::error::VendorError;
+use marathon_error::FailureKind;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrackingUpdate {
@@ -75,7 +76,7 @@ impl WorkerTracker {
                 .or_else(|| self.devices.get(&id).map(DeviceState::target));
             if previous.is_some_and(|previous| !same_kind(previous, target)) {
                 return Err(VendorError::Other(failure(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     format!("Conflicting target kinds for tracking key {}", id.to_owned()),
                 ))
                 .into());

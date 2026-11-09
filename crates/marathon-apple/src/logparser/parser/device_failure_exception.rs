@@ -3,6 +3,7 @@
 use crate::cmd::{failure, remote::ssh::sshj::SshFailure};
 use jcompat::JavaRegex;
 use marathon_core::error::Failure;
+use marathon_error::{AppleKind, FailureKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeviceFailureReason {
@@ -50,10 +51,7 @@ impl DeviceFailureException {
         Self::new(reason, Some(regex.to_string()), None)
     }
     pub fn to_failure(&self) -> Failure {
-        let mut result = failure(
-            "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException",
-            &self.message,
-        );
+        let mut result = failure(FailureKind::Apple(AppleKind::DeviceFailure), &self.message);
         result.cause = self.cause.as_ref().map(|cause| Box::new(cause.to_failure()));
         result
     }

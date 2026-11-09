@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt (lines 609–676 and 1089–1123)
+use marathon_error::FailureKind;
 pub mod data_container_clear;
 pub mod device_log;
 pub mod screenshot;
@@ -42,7 +43,7 @@ impl ListenerContext {
             .services()
             .wall
             .millis(label)
-            .map_err(|e| VendorError::Other(marathon_apple::cmd::failure("ReplayError", &e.message)))
+            .map_err(|e| VendorError::Other(marathon_apple::cmd::failure(FailureKind::ReplayClock, &e.message)))
     }
     async fn file(&self, kind: FileType, test: Option<&Test>) -> VendorResult<PathBuf> {
         self.device
@@ -89,12 +90,8 @@ pub(crate) async fn blocking<T: Send + 'static>(
         Ok(())
     }));
     task.join().await?;
-    rx.await.map_err(|e| {
-        VendorError::Other(marathon_apple::cmd::failure(
-            "java.lang.IllegalStateException",
-            e.to_string(),
-        ))
-    })?
+    rx.await
+        .map_err(|e| VendorError::Other(marathon_apple::cmd::failure(FailureKind::IllegalState, e.to_string())))?
 }
 
 #[derive(Default)]

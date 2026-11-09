@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/SimulatorFactoryTest.kt
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_apple::{
     cmd::{CommandExecutor, cancelled, shared_transfers::SharedTransfers},
@@ -289,7 +290,7 @@ async fn post_setup_timing_failure_still_disposes_the_device() -> TestResult {
 fn bridge_error_conversion_preserves_typed_cancellation_and_suppressed_disposal() {
     let reason = marathon_core::error::Cancellation::Timeout {
         scope: 42,
-        detail: marathon_apple::cmd::failure("kotlinx.coroutines.TimeoutCancellationException", "setup timeout"),
+        detail: marathon_apple::cmd::failure(FailureKind::TimeoutCancelled, "setup timeout"),
     };
     let mut error: ProvisioningError = VendorError::Cancelled(reason).into();
     error.suppressed.push(support::error("dispose").into());
@@ -311,7 +312,7 @@ fn bridge_error_conversion_preserves_typed_cancellation_and_suppressed_disposal(
 fn leave_pool_keeps_its_classification_and_supplies_sibling_cancellation() {
     let error: ProvisioningError = VendorError::LeavePool {
         reason: marathon_core::error::LeavePoolReason::NotAdmitted,
-        detail: marathon_apple::cmd::failure("NotAdmitted", "not admitted"),
+        detail: marathon_apple::cmd::failure(FailureKind::Injected(InjectedKind::NotAdmitted), "not admitted"),
     }
     .into();
     assert!(error.is_cancelled());

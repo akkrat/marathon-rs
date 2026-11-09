@@ -216,7 +216,7 @@ async fn connection_flag_and_blocking_hook_are_independent_of_execution() -> any
             "java.util.concurrent.CancellationException",
         ),
     ] {
-        assert_eq!(f.class.to_owned(), class);
+        assert_eq!(f.kind.legacy_class().to_owned(), class);
     }
     Ok(())
 }

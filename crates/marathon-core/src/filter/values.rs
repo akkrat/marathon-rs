@@ -3,6 +3,7 @@
 use super::failure;
 use crate::error::{Failure, OperationResult};
 use jcompat::{file_manager::absolute_file_path, jstring, logging::Level};
+use marathon_error::FailureKind;
 use std::{io, sync::Arc};
 
 /// Called only on the vendor blocking pool. A run can forward these records to
@@ -80,9 +81,9 @@ pub(super) fn io_failure(path: &std::path::Path, error: &io::Error) -> Failure {
         error.kind(),
         io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied | io::ErrorKind::IsADirectory
     ) {
-        "java.io.FileNotFoundException"
+        FailureKind::FileNotFound
     } else {
-        "java.io.IOException"
+        FailureKind::Io
     };
     let reason = match error.kind() {
         io::ErrorKind::NotFound => "No such file or directory",
@@ -95,7 +96,7 @@ pub(super) fn io_failure(path: &std::path::Path, error: &io::Error) -> Failure {
     message.push_str(reason);
     message.push(')');
     Failure {
-        class: class.into(),
+        kind: class,
         message: Some(message),
         cause: None,
         stacktrace: None,

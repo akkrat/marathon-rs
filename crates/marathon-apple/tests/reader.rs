@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/extensions/ReaderTest.kt
+use marathon_error::FailureKind;
 mod support;
 use marathon_apple::{
     cmd::{SessionScope, cancelled, channel::LineChannel, failure},
@@ -161,7 +162,7 @@ async fn idle_output_is_closed_with_an_idle_timeout() {
     assert_eq!(
         collect(&reader.output).await,
         Err(VendorError::Other(failure(
-            "java.util.concurrent.TimeoutException",
+            FailureKind::Timeout,
             "idle timeout PT0.2S reached"
         )))
     );
@@ -192,7 +193,7 @@ async fn small_writes_of_unbuffered_output_hold_off_the_idle_limit_and_keep_line
     assert_eq!(
         collect(&reader.output).await,
         Err(VendorError::Other(failure(
-            "java.util.concurrent.TimeoutException",
+            FailureKind::Timeout,
             "idle timeout PT0.2S reached"
         )))
     );
@@ -208,21 +209,19 @@ async fn idle_timeout_discards_tail_and_await_retains_cancellation_control_flow(
     assert_eq!(
         reader.output.receive().await,
         Err(VendorError::Other(failure(
-            "java.util.concurrent.TimeoutException",
+            FailureKind::Timeout,
             "idle timeout PT0.2S reached",
         )))
     );
     reader.stop().await;
     let base = fake();
-    base.stdout.close(Some(failure(
-        "java.util.concurrent.TimeoutException",
-        "idle timeout PT0.2S reached",
-    )));
+    base.stdout
+        .close(Some(failure(FailureKind::Timeout, "idle timeout PT0.2S reached")));
     match base.await_result(&ctx).await {
         Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(detail))) => {
             assert_eq!(detail.message, Some("Channel closed".into()));
             assert_eq!(
-                detail.cause.unwrap().class,
+                detail.cause.unwrap().kind.legacy_class(),
                 "java.util.concurrent.TimeoutException".to_owned()
             );
         }
@@ -253,7 +252,7 @@ async fn pipe_eof_keeps_polling_until_idle_timeout_while_can_read_is_true() {
     assert_eq!(
         output.receive().await,
         Err(VendorError::Other(failure(
-            "java.util.concurrent.TimeoutException",
+            FailureKind::Timeout,
             "idle timeout PT0.02S reached",
         )))
     );
@@ -267,11 +266,11 @@ async fn cancel_discards_queued_lines_but_keeps_the_first_close_cause() {
     use marathon_core::error::VendorError;
     let closed = LineChannel::new(4);
     closed.send("queued".into()).await.unwrap();
-    closed.close(Some(failure("java.io.IOException", "first")));
+    closed.close(Some(failure(FailureKind::Io, "first")));
     closed.cancel(cancelled("later"));
     assert_eq!(
         closed.receive().await,
-        Err(VendorError::Other(failure("java.io.IOException", "first")))
+        Err(VendorError::Other(failure(FailureKind::Io, "first")))
     );
     let cancelled_twice = LineChannel::new(4);
     cancelled_twice.cancel(cancelled("first"));

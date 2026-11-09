@@ -20,13 +20,14 @@ use marathon_core::{
     runtime::VendorRuntime,
     vendor::VendorContext,
 };
+use marathon_error::{AppleKind, FailureKind, FatalKind};
 use std::path::PathBuf;
 use std::{path::Path, sync::Arc};
 
-const INCOMPATIBLE: &str = "com.malinskiy.marathon.exceptions.IncompatibleDeviceException";
-const SETUP: &str = "com.malinskiy.marathon.exceptions.DeviceSetupException";
-const TRANSFER: &str = "com.malinskiy.marathon.exceptions.TransferException";
-const DEVICE_FAILURE: &str = "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException";
+const INCOMPATIBLE: FailureKind = FailureKind::IncompatibleDevice;
+const SETUP: FailureKind = FailureKind::DeviceSetup;
+const TRANSFER: FailureKind = FailureKind::Transfer;
+const DEVICE_FAILURE: FailureKind = FailureKind::Apple(AppleKind::DeviceFailure);
 const DYLD: [&str; 3] = ["DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES"];
 
 /// Installer/simulator callers inspect DeviceFailure's reason before crossing the core bridge.
@@ -60,9 +61,9 @@ impl FactoryError {
 impl From<VendorError> for FactoryError {
     fn from(error: VendorError) -> Self {
         let error = match error {
-            VendorError::Other(detail) if detail.class == SETUP => VendorError::DeviceSetup(detail),
-            VendorError::Other(detail) if detail.class == INCOMPATIBLE => VendorError::IncompatibleDevice(detail),
-            VendorError::Other(detail) if detail.class == TRANSFER => VendorError::Transfer(detail),
+            VendorError::Other(detail) if detail.kind == SETUP => VendorError::DeviceSetup(detail),
+            VendorError::Other(detail) if detail.kind == INCOMPATIBLE => VendorError::IncompatibleDevice(detail),
+            VendorError::Other(detail) if detail.kind == TRANSFER => VendorError::Transfer(detail),
             other => other,
         };
         Self::Vendor(error)
@@ -83,11 +84,11 @@ fn setup(message: String) -> VendorError {
     VendorError::DeviceSetup(detail)
 }
 fn io_error(error: std::io::Error) -> VendorError {
-    VendorError::Other(failure("java.io.IOException", error.to_string()))
+    VendorError::Other(failure(FailureKind::Io, error.to_string()))
 }
 fn path_text(path: &Path) -> VendorResult<&str> {
     path.to_str()
-        .ok_or_else(|| VendorError::Other(failure("java.nio.file.InvalidPathException", "path is not valid UTF-8")))
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::InvalidPath, "path is not valid UTF-8")))
 }
 fn name(path: &Path) -> VendorResult<&str> {
     Ok(path_text(path)?.rsplit('/').next().unwrap_or(""))
@@ -196,7 +197,7 @@ impl<'a> TestRootFactory<'a> {
     }
     fn todo(message: Option<&str>) -> FactoryError {
         VendorError::Other(failure(
-            "kotlin.NotImplementedError",
+            FailureKind::Fatal(FatalKind::NotImplemented),
             message.map_or("An operation is not implemented.".into(), |m| {
                 format!("An operation is not implemented: {m}")
             }),
@@ -613,7 +614,7 @@ async fn stage_file<T, F: std::future::Future<Output = VendorResult<T>>>(
         // Files.createTempFile rejects separators; tempfile's builder otherwise permits them.
         if prefix.contains('/') {
             return Err(VendorError::Other(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "Invalid prefix or suffix",
             )));
         }
@@ -665,7 +666,8 @@ async fn staging_writer_failure_cleans_up_and_preserves_the_error() {
             .all(|p| p["kind"] != "generated")
     );
     let expected = VendorError::Other(failure(
-        row["error"]["class"].as_str().unwrap(),
+        marathon_test_support::recorded_errors::failure_kind(row["error"]["class"].as_str().unwrap())
+            .unwrap_or_else(|e| panic!("{e}")),
         row["error"]["message"].as_str().unwrap(),
     ));
     let write_error = expected.clone();
@@ -726,7 +728,7 @@ mod plist_boundary_test {
             is_not_found: false,
             message: "read denied".into(),
         });
-        assert_eq!(error.failure().class.to_owned(), "java.io.IOException");
+        assert_eq!(error.failure().kind.legacy_class().to_owned(), "java.io.IOException");
         assert_eq!(error.failure().message.as_ref().unwrap().to_owned(), "read denied");
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("missing.xctestrun");
@@ -734,7 +736,10 @@ mod plist_boundary_test {
             &path,
             <super::Xctestrun as crate::plist::PropertyList>::from_path(&path).unwrap_err(),
         );
-        assert_eq!(missing.failure().class.to_owned(), "java.nio.file.NoSuchFileException");
+        assert_eq!(
+            missing.failure().kind.legacy_class().to_owned(),
+            "java.nio.file.NoSuchFileException"
+        );
         assert_eq!(
             missing.failure().message.as_ref().unwrap().to_owned(),
             path.display().to_string()

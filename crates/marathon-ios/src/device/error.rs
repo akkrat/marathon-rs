@@ -6,6 +6,7 @@ use marathon_core::{
     error::{Failure, VendorError},
     time::ReplayError,
 };
+use marathon_error::{AppleKind, FailureKind};
 use std::{future::Future, pin::Pin};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,7 +44,7 @@ impl ProvisioningError {
         match &self.original {
             SetupError::Connection(error) => error.as_ref().clone().into_vendor().failure().clone(),
             SetupError::Dropped(SetupDropped(message)) => Failure {
-                class: "com.malinskiy.marathon.apple.ios.device.SetupDropped".into(),
+                kind: FailureKind::Apple(AppleKind::SetupDropped),
                 message: Some(message.to_owned()),
                 cause: None,
                 stacktrace: None,
@@ -123,7 +124,7 @@ impl From<SetupDropped> for ProvisioningError {
     }
 }
 pub fn clock_error(error: ReplayError) -> VendorError {
-    VendorError::Other(failure("ReplayError", &error.message))
+    VendorError::Other(failure(FailureKind::ReplayClock, &error.message))
 }
 impl std::fmt::Display for ProvisioningError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

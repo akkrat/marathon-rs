@@ -32,7 +32,7 @@ fn error_result(error: VendorError) -> String {
     };
     format!(
         "{}:{}",
-        failure.class.rsplit('.').next().unwrap(),
+        failure.kind.legacy_class().rsplit('.').next().unwrap(),
         failure.message.unwrap()
     )
 }

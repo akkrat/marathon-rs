@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/RemoteFileManager.kt
 //! Supplemental rule tests: this source has no Kotlin test rows.
+use marathon_error::FailureKind;
 mod support;
 use jcompat::logging::{Level, Logger, MarathonLogging};
 use marathon_apple::{
@@ -33,7 +34,7 @@ impl WorkerCommands for Scripted {
         Box::pin(async move {
             match self.mode.as_str() {
                 "null" => Ok(None),
-                "io" => Err(VendorError::Other(failure("java.io.IOException", "probe io"))),
+                "io" => Err(VendorError::Other(failure(FailureKind::Io, "probe io"))),
                 "cancel" => Err(VendorError::Cancelled(cancelled("probe cancel"))),
                 mode => Ok(Some(CommandResult {
                     stdout: vec![" stdout ".into()],
@@ -67,7 +68,7 @@ fn setup(storage: &str, mode: &str) -> (RemoteFileManager, Arc<Scripted>, Logs) 
     let logging = SshLogging::new(
         Arc::new(Mutex::new(MarathonLogging::default())),
         Arc::new(move |logger: &Logger, level, message, cause| {
-            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.class.to_owned())}));
+            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.kind.legacy_class().to_owned())}));
         }),
     );
     (
@@ -198,7 +199,7 @@ async fn every_command_result_and_log_matches_jvm_including_swallowed_cancellati
         let result = invoke(&fm, string(&row["operation"]), &support::context()).await;
         let (result, thrown) = match result {
             Ok(value) => (value, Value::Null),
-            Err(error) => (Value::Null, json!(error.failure().class.to_owned())),
+            Err(error) => (Value::Null, json!(error.failure().kind.legacy_class().to_owned())),
         };
         assert_eq!(result, row["result"], "{row}");
         assert_eq!(thrown, row["thrown"], "{row}");

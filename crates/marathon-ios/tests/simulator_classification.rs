@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
+use marathon_error::{FailureKind, InjectedKind};
 mod simulator_support;
 mod support;
 use marathon_apple::cmd::{
@@ -24,7 +25,7 @@ async fn transport_and_illegal_state_failures_lose_the_device_but_other_io_error
         TRANSPORT_EXCEPTION,
         OPEN_FAIL_EXCEPTION,
         ILLEGAL_STATE_EXCEPTION,
-        "java.io.IOException",
+        FailureKind::Io,
     ] {
         let h = Harness::new(|v| {
             v.permissions.lifecycle = GrantLifecycle::BeforeEachBatch;
@@ -32,23 +33,28 @@ async fn transport_and_illegal_state_failures_lose_the_device_but_other_io_error
         })?;
         let (d, _) = prepared(&h).await?;
         let boot = h.boot.clone();
+        let expected = class.clone();
         *h.worker.before.lock().unwrap() = Arc::new(move |command| {
             if command.get(2).is_some_and(|s| s == "privacy") {
-                return Box::pin(async move { Err(VendorError::Other(failure(class, "probe"))) });
+                let class = class.clone();
+                return Box::pin(async move { Err(VendorError::Other(failure(class.clone(), "probe"))) });
             }
             let reply = boot.answer(&command);
             Box::pin(async move { Ok(reply) })
         });
         let (r, results) = run(&h, &d).await;
         let e = r.unwrap_err();
-        assert_eq!(d.lost(), class != "java.io.IOException");
+        assert_eq!(d.lost(), expected != FailureKind::Io);
         assert!(!d.retired());
         assert!(results.is_none());
-        if class != "java.io.IOException" {
+        if expected != FailureKind::Io {
             assert!(matches!(e, VendorError::DeviceLost(_)));
-            assert_eq!(e.failure().cause.as_ref().unwrap().class.to_owned(), class);
+            assert_eq!(
+                e.failure().cause.as_ref().unwrap().kind.legacy_class().to_owned(),
+                expected.legacy_class()
+            );
         } else {
-            assert_eq!(e.failure().class.to_owned(), class);
+            assert_eq!(e.failure().kind.legacy_class().to_owned(), expected.legacy_class());
         }
         h.finish(&[d]).await;
     }
@@ -60,9 +66,10 @@ async fn kept_batch_failure_without_completed_results_returns_batch_execution() 
     let (d, s) = prepared(&h).await?;
     s.output(vec!["Test runner exited".into()]);
     let boot = h.boot.clone();
+
     *h.worker.before.lock().unwrap() = Arc::new(move |command| {
         if command.get(1).is_some_and(|s| s == "xcresulttool") {
-            return Box::pin(async { Err(VendorError::Other(failure("java.io.IOException", "cannot enrich"))) });
+            return Box::pin(async { Err(VendorError::Other(failure(FailureKind::Io, "cannot enrich"))) });
         }
         let reply = boot.answer(&command);
         Box::pin(async move { Ok(reply) })
@@ -80,7 +87,10 @@ async fn exceptionally_completed_result_is_no_progress_even_when_the_runner_pass
     let (d, s) = prepared(&h).await?;
     s.output(passed(1));
     let result = SharedDeferred::new();
-    result.complete(Err(VendorError::Other(failure("probe", "results already failed"))));
+    result.complete(Err(VendorError::Other(failure(
+        FailureKind::Injected(InjectedKind::Probe),
+        "results already failed",
+    ))));
     let r = d
         .execute(
             h.services.configuration.clone(),

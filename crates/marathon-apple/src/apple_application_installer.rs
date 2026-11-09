@@ -15,6 +15,7 @@ use marathon_core::{
     runtime::VendorRuntime,
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc};
 
 /// The hook owner captures its concrete device; no core device downcast is needed.
@@ -55,10 +56,10 @@ pub struct AppleApplicationInstaller<'a> {
     code_coverage: bool,
 }
 fn illegal(message: &str) -> FactoryError {
-    VendorError::Other(failure("java.lang.IllegalArgumentException", message)).into()
+    VendorError::Other(failure(FailureKind::IllegalArgument, message)).into()
 }
 fn setup(message: String) -> VendorError {
-    let mut detail = failure("com.malinskiy.marathon.exceptions.DeviceSetupException", "");
+    let mut detail = failure(FailureKind::DeviceSetup, "");
     detail.message = Some(message);
     VendorError::DeviceSetup(detail)
 }

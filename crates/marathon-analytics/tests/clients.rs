@@ -1,5 +1,6 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/analytics/external/graphite/BasicGraphiteClientTest.kt
 //! and external backend provider/tracker behavior probes.
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_analytics::{graphite::*, influx::*, influx2::*};
 use marathon_core::{
@@ -290,7 +291,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
             let client = Influx2Client::connect(&v2(&peer.url), false, context).await?;
             let tracker = Arc::new(Influx2Tracker::new(client.clone(), false)?);
             let class = |result: OperationResult<()>| match result {
-                Err(OperationError::Failed(f)) => f.class.to_owned(),
+                Err(OperationError::Failed(f)) => f.kind.legacy_class().to_owned(),
                 other => panic!("{other:?}"),
             };
             assert_eq!(
@@ -336,7 +337,7 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
     let errors = logs.iter().filter(|r| r.logger == "guard").collect::<Vec<_>>();
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(
-        errors[0].cause.as_ref().unwrap().class.to_owned(),
+        errors[0].cause.as_ref().unwrap().kind.legacy_class().to_owned(),
         "com.influxdb.exceptions.BadRequestException"
     );
 }
@@ -613,7 +614,7 @@ fn http_error_and_malformed_response_classes_match_the_jvm() {
                 let Err(OperationError::Failed(error)) = client.query("bad").await else {
                     panic!("invalid response accepted")
                 };
-                assert_eq!(error.class.to_owned(), observed["class"]);
+                assert_eq!(error.kind.legacy_class().to_owned(), observed["class"]);
                 client.shutdown().await?;
                 peer.shutdown().await?;
             }
@@ -622,7 +623,10 @@ fn http_error_and_malformed_response_classes_match_the_jvm() {
             else {
                 panic!("invalid setup accepted")
             };
-            assert_eq!(error.class.to_owned(), "com.influxdb.exceptions.InfluxException");
+            assert_eq!(
+                error.kind.legacy_class().to_owned(),
+                "com.influxdb.exceptions.InfluxException"
+            );
             peer.shutdown().await?;
             Ok(())
         })
@@ -660,10 +664,14 @@ fn carbon_reset_errors_propagate_and_typed_cancellation_interrupts_send() {
                     timestamp: 0,
                 })
                 .await;
-            peer.await
-                .map_err(|e| marathon_core::executor::shared::failure("test.Carbon", &e.to_string()))??;
+            peer.await.map_err(|e| {
+                marathon_core::executor::shared::failure(
+                    FailureKind::Injected(InjectedKind::TestCarbon),
+                    &e.to_string(),
+                )
+            })??;
             assert!(
-                matches!(result,Err(OperationError::Failed(f)) if f.class.to_owned().ends_with("GraphiteException") && f.message.as_ref().is_some_and(|m|m.to_owned().starts_with("Error while writing data to graphite: ")))
+                matches!(result,Err(OperationError::Failed(f)) if f.kind.legacy_class().to_owned().ends_with("GraphiteException") && f.message.as_ref().is_some_and(|m|m.to_owned().starts_with("Error while writing data to graphite: ")))
             );
             signal.cancel(requested("stop"));
             assert!(matches!(
@@ -769,7 +777,7 @@ fn a_stalled_carbon_write_times_out() {
                 failure.message.unwrap().to_owned(),
                 "Error while writing data to graphite: write timed out after 100 ms"
             );
-            assert!(failure.class.to_owned().ends_with("GraphiteException"));
+            assert!(failure.kind.legacy_class().to_owned().ends_with("GraphiteException"));
             Ok(())
         })
     });
@@ -782,11 +790,9 @@ fn a_carbon_that_never_accepts_times_out_on_connect() {
     run(|_| {
         Box::pin(async {
             let socket = io(tokio::net::TcpSocket::new_v4())?;
-            io(socket.bind(
-                "127.0.0.1:0"
-                    .parse()
-                    .map_err(|_| marathon_core::executor::shared::failure("test.Carbon", "address"))?,
-            ))?;
+            io(socket.bind("127.0.0.1:0".parse().map_err(|_| {
+                marathon_core::executor::shared::failure(FailureKind::Injected(InjectedKind::TestCarbon), "address")
+            })?))?;
             let address = io(socket.local_addr())?;
             let listener = io(socket.listen(1))?;
             let mut held = Vec::new();
@@ -821,7 +827,12 @@ fn a_carbon_that_never_accepts_times_out_on_connect() {
                 sender.send_data("127.0.0.1", address.port(), "m 1 0\n".into(), Signal::new()),
             )
             .await
-            .map_err(|_| marathon_core::executor::shared::failure("test.Carbon", "the connect limit did not apply"))?;
+            .map_err(|_| {
+                marathon_core::executor::shared::failure(
+                    FailureKind::Injected(InjectedKind::TestCarbon),
+                    "the connect limit did not apply",
+                )
+            })?;
             drop((listener, held));
             let Err(OperationError::Failed(failure)) = result else {
                 panic!("{result:?}")
@@ -885,7 +896,12 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
     let lines = logs
         .iter()
         .filter(|r| r.logger == "guard")
-        .map(|r| (r.message.to_owned(), r.cause.as_ref().map(|c| c.class.to_owned())))
+        .map(|r| {
+            (
+                r.message.to_owned(),
+                r.cause.as_ref().map(|c| c.kind.legacy_class().to_owned()),
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(lines.len(), 2, "{lines:?}");
     assert_eq!(
@@ -930,7 +946,7 @@ fn invalid_carbon_port_fails_at_the_write_boundary() {
                     assert!(result.is_ok());
                 } else {
                     assert!(
-                        matches!(result,Err(marathon_core::error::VendorError::Other(f)) if f.class=="java.lang.IllegalArgumentException")
+                        matches!(result,Err(marathon_core::error::VendorError::Other(f)) if f.kind.legacy_class()=="java.lang.IllegalArgumentException")
                     );
                 }
                 tracker.close().await?;
@@ -1029,7 +1045,7 @@ fn v1_query_errors_keep_influxdb_exception_subclasses() {
                     panic!("{scenario}: error accepted")
                 };
                 let expected = &observations(scenario)[0];
-                assert_eq!(error.class.to_owned(), expected["class"], "{scenario}");
+                assert_eq!(error.kind.legacy_class().to_owned(), expected["class"], "{scenario}");
                 assert_eq!(
                     error.message.map(|m| m.to_owned()).as_deref(),
                     expected["message"].as_str()
@@ -1054,13 +1070,13 @@ fn v2_invalid_numeric_cells_raise_influx_exception_caused_by_number_format() {
                     panic!("{scenario}: invalid cell accepted")
                 };
                 let expected = &observations(scenario)[0];
-                assert_eq!(error.class.to_owned(), expected["class"], "{scenario}");
+                assert_eq!(error.kind.legacy_class().to_owned(), expected["class"], "{scenario}");
                 assert_eq!(
                     error.message.map(|m| m.to_owned()).as_deref(),
                     expected["message"].as_str()
                 );
                 assert_eq!(
-                    error.cause.map(|c| c.class.to_owned()).as_deref(),
+                    error.cause.map(|c| c.kind.legacy_class().to_owned()).as_deref(),
                     expected["cause"].as_str()
                 );
                 client.shutdown().await?;
@@ -1116,7 +1132,10 @@ fn setup_validation_messages_and_order_match_the_jars() {
                 else {
                     panic!("{message}: invalid setup accepted")
                 };
-                assert_eq!(error.class.to_owned(), "java.lang.IllegalArgumentException");
+                assert_eq!(
+                    error.kind.legacy_class().to_owned(),
+                    "java.lang.IllegalArgumentException"
+                );
                 assert_eq!(error.message.map(|m| m.to_owned()).as_deref(), Some(message));
             }
             let mut config = v2(&peer.url);
@@ -1145,7 +1164,7 @@ fn invalid_graphite_hosts_fail_per_query_and_fall_back_to_defaults() {
                 let limit = jcompat::jtime::instant_of(0, 0).unwrap();
                 assert!(matches!(
                     client.query("target", limit).await,
-                    Err(OperationError::Failed(f)) if f.class == "java.lang.IllegalArgumentException"
+                    Err(OperationError::Failed(f)) if f.kind.legacy_class() == "java.lang.IllegalArgumentException"
                 ));
                 let config = AnalyticsConfiguration::Graphite(marathon_config::GraphiteConfiguration {
                     host: host.into(),
@@ -1189,7 +1208,7 @@ fn refused_carbon_connection_raises_graphite_exception() {
             else {
                 panic!("refused carbon send accepted")
             };
-            assert_eq!(error.class.to_owned(), expected["class"]);
+            assert_eq!(error.kind.legacy_class().to_owned(), expected["class"]);
             // P2: the native socket wording follows the prefix.
             assert!(
                 error

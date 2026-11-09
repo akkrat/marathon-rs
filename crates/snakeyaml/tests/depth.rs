@@ -27,7 +27,7 @@ fn depth_child() {
         let tokens = snakeyaml::tokens::tokens(&stream);
         assert_eq!(tokens.tokens.len(), 1000);
         assert_eq!(
-            tokens.error.unwrap().class,
+            tokens.error.unwrap().kind,
             snakeyaml::resolve::STREAM_CONSTRAINTS_EXCEPTION
         );
     }

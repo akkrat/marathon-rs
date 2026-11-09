@@ -8,6 +8,7 @@ use jcompat::{
     file_manager::{FileManager, PathPlan},
     logging::{Level, Logger},
 };
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::{
     collections::HashMap,
@@ -304,7 +305,7 @@ impl LogListener {
     fn retained(&self) -> VendorResult<Arc<Self>> {
         self.identity.upgrade().ok_or_else(|| {
             VendorError::Other(crate::executor::shared::failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "log listener identity expired",
             ))
         })

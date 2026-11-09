@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/Retry.kt
 use crate::{error::*, runtime::JobRef, time::SchedulerClock};
+use marathon_error::FailureKind;
 use std::future::Future;
 pub async fn with_retry<T, F, Fut>(
     attempts: i32,
@@ -13,7 +14,7 @@ where
     Fut: Future<Output = OperationResult<T>>,
 {
     if attempts <= 0 {
-        return Err(super::shared::failure("java.lang.IllegalArgumentException", "attempts must be positive").into());
+        return Err(super::shared::failure(FailureKind::IllegalArgument, "attempts must be positive").into());
     }
     for attempt in 1..=attempts {
         match body().await {
@@ -40,7 +41,7 @@ where
     Fut: Future<Output = OperationResult<T>> + Send,
 {
     if attempts <= 0 {
-        return Err(super::shared::failure("java.lang.IllegalArgumentException", "attempts must be positive").into());
+        return Err(super::shared::failure(FailureKind::IllegalArgument, "attempts must be positive").into());
     }
     for attempt in 1..=attempts {
         if let Some(reason) = cancellation.reason() {

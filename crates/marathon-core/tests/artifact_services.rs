@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/listener/LogListener.kt
 //! and report/logs/LogWriter.kt, report/attachment/, device/file/FileTransferExtensions.kt.
+use marathon_error::FailureKind;
 mod event_support;
 
 use event_support::*;
@@ -61,7 +62,7 @@ fn assert_worker() {
     assert_ne!(std::thread::current().name(), Some("marathon-core"));
 }
 fn failure() -> Failure {
-    marathon_core::executor::shared::failure("java.io.IOException", "save failed")
+    marathon_core::executor::shared::failure(FailureKind::Io, "save failed")
 }
 fn target() -> LogTarget {
     LogTarget {
@@ -897,7 +898,7 @@ fn native_directory_failure_retains_jvm_class_and_message() {
                 panic!("ordinary I/O failure")
             };
             let expected = oracle("log-reset-failure");
-            assert_eq!(json!(error.class), expected["error"]);
+            assert_eq!(json!(error.kind.legacy_class()), expected["error"]);
             let message = error.message.unwrap();
             assert_eq!(
                 json!(message.replace(retained.0.to_str().unwrap(), "<tmp>")),
@@ -925,6 +926,6 @@ fn log_writer_rejects_nul_filename_before_opening() {
             }
         })
     }));
-    assert_eq!(failure.class, "java.nio.file.InvalidPathException");
+    assert_eq!(failure.kind.legacy_class(), "java.nio.file.InvalidPathException");
     assert_eq!(failure.message.as_deref(), Some("Nul character not allowed"));
 }

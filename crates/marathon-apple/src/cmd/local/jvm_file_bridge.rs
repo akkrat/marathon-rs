@@ -5,6 +5,7 @@ use marathon_core::{
     error::{VendorError, VendorResult},
     runtime::{VendorFuture, VendorRuntime},
 };
+use marathon_error::FailureKind;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -22,14 +23,14 @@ impl JvmFileBridge {
 fn copy_recursively(src: &Path, dst: &Path, overwrite: bool) -> VendorResult<bool> {
     if !src.exists() {
         return Err(VendorError::Other(failure(
-            "kotlin.io.NoSuchFileException",
+            FailureKind::CopySourceMissing,
             src.to_string_lossy(),
         )));
     }
     if dst.exists() && !(src.is_dir() && dst.is_dir()) {
         if !overwrite {
             return Err(VendorError::Other(failure(
-                "kotlin.io.FileAlreadyExistsException",
+                FailureKind::CopyDestinationExists,
                 dst.to_string_lossy(),
             )));
         }
@@ -51,7 +52,7 @@ fn copy_recursively(src: &Path, dst: &Path, overwrite: bool) -> VendorResult<boo
         }
         // Kotlin copyTo uses streams: source permission bits are not copied.
         let open_error =
-            |error: std::io::Error| VendorError::Other(failure("java.io.FileNotFoundException", error.to_string()));
+            |error: std::io::Error| VendorError::Other(failure(FailureKind::FileNotFound, error.to_string()));
         let mut input = std::fs::File::open(src).map_err(open_error)?;
         let mut output = std::fs::File::create(dst).map_err(open_error)?;
         std::io::copy(&mut input, &mut output).map_err(io_error)?;

@@ -17,6 +17,7 @@ use marathon_core::{
     runtime::{Deferred, VendorFuture},
     vendor::{DeviceEvent, DeviceProvider, VendorContext},
 };
+use marathon_error::FailureKind;
 use marathon_ios::device::{
     error::ProvisioningError, simulator_provider::*, simulator_provisioner::ProvisioningConnections,
     timing::ProvisioningTiming,
@@ -76,7 +77,7 @@ impl ProviderRecovery for Recovery {
         Box::pin(async {
             if self.fail_termination.load(Ordering::SeqCst) {
                 return Err(marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     "recovery termination failed",
                 )));
             }

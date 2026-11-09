@@ -27,6 +27,7 @@ use marathon_core::{
     time::{ClockResult, Timer},
     vendor::{LocalTestParser, LogConfigurator, TestParser, VendorContext, VendorServices},
 };
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::{
     rc::Rc,
@@ -126,7 +127,7 @@ impl LogConfigurator for MockLogConfigurator {
 /// Disabled analytics never reaches its clients.
 pub struct NoMetricsSetup;
 fn unused<T>() -> ServiceFuture<'static, T> {
-    Box::pin(async { Err(failure("java.lang.IllegalStateException", "analytics is disabled in tests").into()) })
+    Box::pin(async { Err(failure(FailureKind::IllegalState, "analytics is disabled in tests").into()) })
 }
 impl MetricsSetup for NoMetricsSetup {
     fn influx<'a>(&'a self, _: &'a InfluxDbConfiguration, _: bool) -> ServiceFuture<'a, Arc<dyn InfluxQuery>> {
@@ -178,7 +179,7 @@ impl Timer for FakeTimer {
     fn measure(&self, _block: &mut dyn FnMut()) -> ClockResult<i64> {
         Err(marathon_core::time::ReplayError {
             label: "FakeTimer.measure".into(),
-            message: "java.lang.UnsupportedOperationException".into(),
+            message: FailureKind::UnsupportedOperation.legacy_class().into(),
         })
     }
 }

@@ -10,6 +10,7 @@ use marathon_core::{
     runtime::{CancellationSignal, VendorRuntime, VendorTask},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::{
     collections::VecDeque,
     future::Future,
@@ -138,7 +139,7 @@ impl XcodebuildSession {
             .close_failure
             .clone();
         let mut detail = failure(
-            "java.lang.IllegalStateException",
+            FailureKind::IllegalState,
             format!("Previous xcodebuild session on {serial} has not been closed"),
         );
         detail.cause = cause.map(Box::new);
@@ -261,7 +262,7 @@ impl XcodebuildSession {
                 .close_failure
                 .clone(),
             Ok(false) => Some(failure(
-                "java.util.concurrent.TimeoutException",
+                FailureKind::Timeout,
                 format!("xcodebuild session has not closed within {timeout}"),
             )),
             Err(error) => Some(error.failure().clone()),
@@ -285,10 +286,7 @@ impl XcodebuildSession {
     }
 }
 pub(crate) fn device_lost(cause: Failure) -> VendorError {
-    let mut detail = failure(
-        "com.malinskiy.marathon.exceptions.DeviceLostException",
-        cause.to_java_string(),
-    );
+    let mut detail = failure(FailureKind::DeviceLost, cause.to_java_string());
     detail.cause = Some(Box::new(cause));
     VendorError::DeviceLost(detail)
 }

@@ -18,7 +18,7 @@ async fn a_dead_system_app_drops_the_simulator_after_one_failed_batch() -> TestR
         let error = r.unwrap_err();
         let cause = error.failure().cause.as_ref().unwrap();
         assert_eq!(
-            cause.class.to_owned(),
+            cause.kind.legacy_class().to_owned(),
             "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException"
         );
         // The core bridge retains the reason's matching pattern as the cause message.

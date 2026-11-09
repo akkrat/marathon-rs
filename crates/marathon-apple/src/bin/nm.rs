@@ -7,6 +7,7 @@ use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
 };
+use marathon_error::{AppleKind, FailureKind};
 
 pub const MAX_XARGS: i32 = 131072;
 
@@ -23,7 +24,7 @@ impl Nm {
     pub async fn list(&self, path: &str, prefilter: &[String], context: &VendorContext) -> VendorResult<Vec<String>> {
         if prefilter.iter().any(|filter| filter.contains('\'')) {
             return Err(VendorError::Other(failure(
-                "java.lang.RuntimeException",
+                FailureKind::Runtime,
                 "nm list prefilter should not contain symbol \"'\"",
             )));
         }
@@ -67,7 +68,7 @@ impl Nm {
                 "did not finish"
             };
             return Err(VendorError::Other(failure(
-                "com.malinskiy.marathon.apple.cmd.CommandException",
+                FailureKind::Apple(AppleKind::Command),
                 format!("Symbols of {path} could not be listed: the command {how}"),
             )));
         }

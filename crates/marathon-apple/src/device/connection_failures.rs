@@ -37,7 +37,7 @@ pub fn is_transient_connection_failure(error: &ConnectionError) -> bool {
                 TIMEOUT_EXCEPTION,
             ]
             .iter()
-            .any(|class| cause.is_instance(class))
+            .any(|class| cause.is_instance(class.clone()))
         {
             return true;
         }

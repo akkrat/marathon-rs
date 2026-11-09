@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt (in-process world lifecycle).
+use marathon_error::FailureKind;
 mod support;
 
 use fake_worker::{
@@ -40,7 +41,7 @@ impl FileBridge for DirectoryBridge {
                 .map(|_| true)
                 .map_err(|e| {
                     marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
-                        "java.io.IOException",
+                        FailureKind::Io,
                         e.to_string(),
                     ))
                 })

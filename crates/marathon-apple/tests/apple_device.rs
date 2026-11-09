@@ -198,7 +198,7 @@ fn registry_uses_object_identity_and_removes_disposed_devices() {
     registry.remove(&first_id);
     let error = registry.lookup(&first_id).err().unwrap();
     assert_eq!(
-        error.failure().class,
+        error.failure().kind.legacy_class(),
         "com.malinskiy.marathon.config.exceptions.ConfigurationException".to_owned()
     );
     assert_eq!(

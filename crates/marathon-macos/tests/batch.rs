@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/macos/src/test/kotlin/com/malinskiy/marathon/apple/macos/MacosDeviceBatchTest.kt
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_apple::{apple_device::AppleDevice, cmd::cancelled};
 use marathon_core::{error::VendorError, executor::shared::Signal, vendor::Device};
@@ -161,7 +162,7 @@ async fn a_batch_level_failure_still_drops_the_device_once_its_session_has_close
         .ok_or("expected failure")?;
     assert!(matches!(error, VendorError::DeviceLost(_)));
     assert_eq!(
-        error.failure().cause.as_ref().unwrap().class.to_owned(),
+        error.failure().cause.as_ref().unwrap().kind.legacy_class().to_owned(),
         "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException"
     );
     assert_eq!(
@@ -264,7 +265,7 @@ async fn dropping_a_disposal_waiter_does_not_abandon_the_shared_completion() -> 
     let mut current = Some(error.failure());
     while let Some(f) = current {
         let message = f.message.clone();
-        chain.push(serde_json::json!({"class":f.class.to_owned(),"message":message}));
+        chain.push(serde_json::json!({"class":f.kind.legacy_class().to_owned(),"message":message}));
         current = f.cause.as_deref();
     }
     let expected = oracle["error"].to_string().replace(
@@ -396,7 +397,12 @@ async fn blocking_session_close_does_not_block_the_single_device_thread() -> R {
                             assert!(*released, "blocked close watchdog");
                         })
                         .await
-                        .map_err(|e| VendorError::Other(marathon_apple::cmd::failure("TestTask", e.to_string())))?;
+                        .map_err(|e| {
+                            VendorError::Other(marathon_apple::cmd::failure(
+                                FailureKind::Injected(InjectedKind::TestTask),
+                                e.to_string(),
+                            ))
+                        })?;
                         Ok(())
                     })
                 }),
@@ -444,7 +450,10 @@ async fn only_first_concurrent_disposer_logs_join_failure() -> R {
     assert_eq!(errors[0].level, jcompat::logging::Level::Debug);
     running.release.notify_one();
     let error = task.await?.err().ok_or("cancelled execution overflow")?;
-    assert_eq!(error.failure().class, "java.lang.ArithmeticException".to_owned());
+    assert_eq!(
+        error.failure().kind.legacy_class(),
+        "java.lang.ArithmeticException".to_owned()
+    );
     v(d.join_pending().await)?;
     Ok(())
 }
@@ -502,7 +511,10 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
     let VendorError::Other(failure) = error else {
         panic!("{error:?}");
     };
-    assert_eq!(failure.class.to_owned(), CONNECTION_EXCEPTION);
+    assert_eq!(
+        failure.kind.legacy_class().to_owned(),
+        CONNECTION_EXCEPTION.legacy_class()
+    );
     assert_eq!(
         failure.message.map(|m| m.to_owned()),
         Some("Lost the connection to local during a transfer".into())

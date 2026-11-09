@@ -11,6 +11,7 @@ use marathon_config::{
     },
     loader::{LogicalConfigurationValidator, MarathonConfigurationLoader},
 };
+use marathon_error::FailureKind;
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -93,7 +94,7 @@ pub fn parse(file: &Path, context: &BindingContext) -> Result<Configuration, Box
     let bytes = fs::read(file).map_err(|e| {
         Box::new(ConfigurationError {
             stage: marathon_config::binding::ValidationStage::Parse,
-            class: "java.io.IOException".into(),
+            kind: FailureKind::Io,
             message: Some(e.to_string()),
             causes: Vec::new(),
             path: Vec::new(),
@@ -120,5 +121,5 @@ pub fn message(error: &ConfigurationError) -> String {
     error.message.to_owned().unwrap_or_default()
 }
 pub fn class(error: &ConfigurationError) -> String {
-    error.class.to_owned()
+    error.kind.legacy_class().to_owned()
 }

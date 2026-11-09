@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/SkipCopyingDerivedDataTest.kt (installation rows).
+use marathon_error::FailureKind;
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
@@ -116,7 +117,7 @@ impl AfterInstall for Hook<'_> {
                 .unwrap()
                 .push(json!({"hook":bundle.app_id()}));
             if s(&self.0.input, "mode", "") == "hook-fail" {
-                return Err(VendorError::Other(failure("java.io.IOException", "hook io")).into());
+                return Err(VendorError::Other(failure(FailureKind::Io, "hook io")).into());
             }
             Ok(())
         })
@@ -195,7 +196,7 @@ async fn run(id: &str) -> TestResult<Value> {
             &bundle,
             &support::Runtime,
             |message| {
-                let mut detail = failure("com.malinskiy.marathon.exceptions.TestParsingException", "");
+                let mut detail = failure(FailureKind::TestParsing, "");
                 detail.message = Some(message);
                 VendorError::Other(detail)
             },
@@ -219,13 +220,13 @@ async fn run(id: &str) -> TestResult<Value> {
                 _ => None,
             };
             let detail = error.failure();
-            if detail.class.to_owned().ends_with("DeviceSetupException") {
+            if detail.kind.legacy_class().to_owned().ends_with("DeviceSetupException") {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::DeviceSetup(_))));
             }
-            if detail.class.to_owned().ends_with("CancellationException") {
+            if detail.kind.legacy_class().to_owned().ends_with("CancellationException") {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::Cancelled(_))));
             }
-            json!({"class":detail.class.to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
+            json!({"class":detail.kind.legacy_class().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
         }
     };
     // Always join before comparing: even an assertion failure leaves no live fake worker.

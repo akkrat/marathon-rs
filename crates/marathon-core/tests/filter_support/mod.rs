@@ -1,6 +1,7 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/TestGenerator.kt
 //! and execution/filter test helpers.
 #![allow(dead_code)]
+use marathon_error::FailureKind;
 #[path = "../strategy_support/mod.rs"]
 mod strategy_support;
 
@@ -30,7 +31,7 @@ pub fn generate_tests(n: usize) -> Vec<Test> {
 
 pub fn fail(message: &str) -> Failure {
     Failure {
-        class: "java.io.IOException".into(),
+        kind: FailureKind::Io,
         message: Some(message.into()),
         cause: None,
         stacktrace: None,

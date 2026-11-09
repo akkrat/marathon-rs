@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/RemoteFileManager.kt
+use marathon_error::FailureKind;
 mod support;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use jcompat::logging::{Logger, MarathonLogging};
@@ -102,7 +103,7 @@ impl CommandExecutor for RecordingLocal {
     }
 }
 fn io(error: std::io::Error) -> VendorError {
-    VendorError::Other(failure("java.io.IOException", error.to_string()))
+    VendorError::Other(failure(FailureKind::Io, error.to_string()))
 }
 #[tokio::test]
 async fn local_argv_keeps_glob_and_trailing_slash_and_uses_shell_timeouts() -> VendorResult<()> {

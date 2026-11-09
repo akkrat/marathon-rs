@@ -3,6 +3,7 @@
 //! marathon branches on (`AdamDeviceProvider.kt:75,85`, `AdamAndroidDevice.kt:480-481`).
 //! adam portions: Copyright (C) 2019-2021 Anton Malinskiy; Apache-2.0.
 
+use marathon_error::{AdbKind, FailureKind};
 use std::fmt;
 
 /// What a request or stream fails with. Each variant stands for the Java class it is named after; see
@@ -51,38 +52,51 @@ pub struct ConnectError {
 /// exception would carry. 6.5 turns it into the core's `Failure` without this crate depending on core.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JavaThrowable {
-    pub class: &'static str,
+    pub kind: FailureKind,
     pub message: Option<String>,
     pub cause: Option<Box<JavaThrowable>>,
 }
 
 impl AdbError {
     /// The fully qualified Java class Kotlin would throw.
-    pub fn java_class(&self) -> &'static str {
+    pub fn failure_kind(&self) -> FailureKind {
         match self {
-            AdbError::Connect(ConnectError { timed_out: false, .. }) => {
-                "io.netty.channel.AbstractChannel$AnnotatedConnectException"
-            }
-            AdbError::Connect(ConnectError { timed_out: true, .. }) => "io.netty.channel.ConnectTimeoutException",
-            AdbError::RequestRejected(_) => "com.malinskiy.adam.exception.RequestRejectedException",
-            AdbError::RequestValidation(_) => "com.malinskiy.adam.exception.RequestValidationException",
-            AdbError::IllegalState(_) => "java.lang.IllegalStateException",
-            AdbError::VertxClosed => "io.vertx.core.impl.NoStackTraceThrowable",
-            AdbError::ClosedChannel => "io.netty.channel.StacklessClosedChannelException",
-            AdbError::MalformedResponse(_) => "java.lang.IndexOutOfBoundsException",
-            AdbError::Io(_) => "java.io.IOException",
-            AdbError::PullFailed(_) => "com.malinskiy.adam.exception.PullFailedException",
-            AdbError::PushFailed(_) => "com.malinskiy.adam.exception.PushFailedException",
-            AdbError::UnsupportedSyncProtocol(_) => "com.malinskiy.adam.exception.UnsupportedSyncProtocolException",
-            AdbError::UnsupportedImageProtocol(_) => "com.malinskiy.adam.exception.UnsupportedImageProtocolException",
-            AdbError::UnsupportedForwardingSpec(_) => "com.malinskiy.adam.exception.UnsupportedForwardingSpecException",
-            AdbError::StringIndexOutOfBounds(_) => "java.lang.StringIndexOutOfBoundsException",
-            AdbError::NumberFormat(_) => "java.lang.NumberFormatException",
-            AdbError::Runtime(_) => "java.lang.RuntimeException",
-            AdbError::UnsupportedOperation(_) => "java.lang.UnsupportedOperationException",
+            AdbError::Connect(ConnectError { timed_out: false, .. }) => FailureKind::Adb(AdbKind::ConnectRefused),
+            AdbError::Connect(ConnectError { timed_out: true, .. }) => FailureKind::Adb(AdbKind::ConnectTimeout),
+            AdbError::RequestRejected(_) => FailureKind::Adb(AdbKind::RequestRejected),
+            AdbError::RequestValidation(_) => FailureKind::Adb(AdbKind::RequestValidation),
+            AdbError::IllegalState(_) => FailureKind::IllegalState,
+            AdbError::VertxClosed => FailureKind::Adb(AdbKind::TransportClosed),
+            AdbError::ClosedChannel => FailureKind::Adb(AdbKind::ClosedChannel),
+            AdbError::MalformedResponse(_) => FailureKind::IndexOutOfBounds,
+            AdbError::Io(_) => FailureKind::Io,
+            AdbError::PullFailed(_) => FailureKind::Adb(AdbKind::PullFailed),
+            AdbError::PushFailed(_) => FailureKind::Adb(AdbKind::PushFailed),
+            AdbError::UnsupportedSyncProtocol(_) => FailureKind::Adb(AdbKind::UnsupportedSyncProtocol),
+            AdbError::UnsupportedImageProtocol(_) => FailureKind::Adb(AdbKind::UnsupportedImageProtocol),
+            AdbError::UnsupportedForwardingSpec(_) => FailureKind::Adb(AdbKind::UnsupportedForwardingSpec),
+            AdbError::StringIndexOutOfBounds(_) => FailureKind::StringIndexOutOfBounds,
+            AdbError::NumberFormat(_) => FailureKind::NumberFormat,
+            AdbError::Runtime(_) => FailureKind::Runtime,
+            AdbError::UnsupportedOperation(_) => FailureKind::UnsupportedOperation,
         }
     }
 
+    pub fn java_class(&self) -> &'static str {
+        match self.failure_kind() {
+            FailureKind::Adb(kind) => kind.legacy_class(),
+            kind => match kind {
+                FailureKind::IllegalState => FailureKind::IllegalState.legacy_class(),
+                FailureKind::IndexOutOfBounds => FailureKind::IndexOutOfBounds.legacy_class(),
+                FailureKind::Io => FailureKind::Io.legacy_class(),
+                FailureKind::StringIndexOutOfBounds => FailureKind::StringIndexOutOfBounds.legacy_class(),
+                FailureKind::NumberFormat => FailureKind::NumberFormat.legacy_class(),
+                FailureKind::Runtime => FailureKind::Runtime.legacy_class(),
+                FailureKind::UnsupportedOperation => FailureKind::UnsupportedOperation.legacy_class(),
+                _ => unreachable!("ADB failure kind is constructed above"),
+            },
+        }
+    }
     /// `getMessage()`.
     pub fn message(&self) -> Option<&str> {
         match self {
@@ -122,14 +136,14 @@ impl AdbError {
     pub fn to_throwable(&self) -> JavaThrowable {
         let cause = match self {
             AdbError::Connect(ConnectError { timed_out: false, .. }) => Some(Box::new(JavaThrowable {
-                class: "java.net.ConnectException",
+                kind: FailureKind::Connect,
                 message: Some("Connection refused".into()),
                 cause: None,
             })),
             _ => None,
         };
         JavaThrowable {
-            class: self.java_class(),
+            kind: self.failure_kind(),
             message: self.message().map(str::to_string),
             cause,
         }
@@ -165,7 +179,7 @@ mod tests {
         assert_eq!(
             c.to_throwable(),
             JavaThrowable {
-                class: "io.netty.channel.ConnectTimeoutException",
+                kind: FailureKind::Adb(AdbKind::ConnectTimeout),
                 message: Some("x".into()),
                 cause: None
             }

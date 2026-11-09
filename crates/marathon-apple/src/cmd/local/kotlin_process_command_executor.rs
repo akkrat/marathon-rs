@@ -13,6 +13,7 @@ use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use nix::{
     sys::signal::{Signal, kill},
     unistd::Pid,
@@ -133,7 +134,7 @@ async fn execute(
         let command = request.command.iter().map(|arg| strip_quotes(arg)).collect::<Vec<_>>();
         let (program, args) = command
             .split_first()
-            .ok_or_else(|| VendorError::Other(failure("java.lang.IndexOutOfBoundsException", "empty command")))?;
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::IndexOutOfBounds, "empty command")))?;
         let program = program_with_parent_path(program, request.workdir.as_deref(), request.env.contains_key("PATH"))?;
         let mut builder = Command::new(program);
         builder
@@ -150,11 +151,11 @@ async fn execute(
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalStateException", "missing stdout pipe")))?;
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "missing stdout pipe")))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalStateException", "missing stderr pipe")))?;
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "missing stderr pipe")))?;
     let base = BaseCommand::new(capacity, runtime.clone());
     let actual_exit = ExitCode::default();
     let alive = Arc::new(AtomicBool::new(true));
@@ -347,14 +348,12 @@ impl CommandExecutor for KotlinProcessCommandExecutor {
             }));
             let pending = rx
                 .await
-                .map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))??;
+                .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))??;
             let session = pending
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .take()
-                .ok_or_else(|| {
-                    VendorError::Other(failure("java.lang.IllegalStateException", "session already delivered"))
-                })?;
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "session already delivered")))?;
             // No suspension between taking ownership and returning it to the caller.
             let _ = accepted.send(());
             Ok(session)

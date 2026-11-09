@@ -3,6 +3,7 @@
 
 use crate::{error::*, runtime::*};
 use jcompat::logging::{Level, Logger};
+use marathon_error::FailureKind;
 use std::sync::Arc;
 
 /// The run's output task supplies the existing registry/console sink (3.10).
@@ -158,8 +159,8 @@ mod tests {
         ] {
             let error = io_error(std::io::Error::new(source, "reason"));
             let failure = error.failure();
-            assert_eq!(failure.class, kind.legacy_class());
-            assert_eq!(failure.class, class);
+            assert_eq!(failure.kind.legacy_class(), kind.legacy_class());
+            assert_eq!(failure.kind.legacy_class(), class);
             assert_eq!(failure.to_java_string(), format!("{class}: reason"));
             assert!(matches!(error, VendorError::Other(_)));
         }
@@ -201,7 +202,7 @@ mod tests {
         ] {
             let error = nio_error(std::io::Error::new(source, "reason (os error 7)"), Path::new("output"));
             let failure = error.failure();
-            assert_eq!(failure.class, kind.legacy_class());
+            assert_eq!(failure.kind.legacy_class(), kind.legacy_class());
             assert_eq!(failure.to_java_string(), format!("{class}: {message}"));
         }
     }
@@ -212,7 +213,10 @@ mod tests {
             std::io::Error::new(ErrorKind::NotFound, "missing (os error 2)"),
             Path::new("output"),
         );
-        assert_eq!(error.failure().class, FailureKind::FileNotFound.legacy_class());
+        assert_eq!(
+            error.failure().kind.legacy_class(),
+            FailureKind::FileNotFound.legacy_class()
+        );
         assert_eq!(
             error.failure().to_java_string(),
             "java.io.FileNotFoundException: output (missing)"
@@ -222,7 +226,10 @@ mod tests {
             label: "clock".into(),
             message: "exhausted".into(),
         });
-        assert_eq!(error.failure().class, FailureKind::ReplayClock.legacy_class());
+        assert_eq!(
+            error.failure().kind.legacy_class(),
+            FailureKind::ReplayClock.legacy_class()
+        );
         assert_eq!(error.failure().to_java_string(), "ReplayError: clock: exhausted");
         assert_ne!(
             FailureKind::ReplayClock.legacy_class(),

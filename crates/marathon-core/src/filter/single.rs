@@ -6,6 +6,7 @@ use super::{failure, select, values::FilterValuesReader};
 use crate::{error::OperationResult, model::Test};
 use jcompat::JavaRegex;
 use marathon_config::schema::{RegexValuesFileFilter, TestPackageFilter};
+use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 
 type Values = Option<Arc<[String]>>;
@@ -56,7 +57,7 @@ impl SingleValueFilter {
         let mut cache = self
             .cache
             .lock()
-            .map_err(|_| failure("java.lang.IllegalStateException", "filter values cache poisoned"))?;
+            .map_err(|_| failure(FailureKind::IllegalState, "filter values cache poisoned"))?;
         if let Some(values) = &*cache {
             return Ok(values.clone());
         }

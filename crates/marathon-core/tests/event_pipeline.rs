@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/internal/sub/ExecutionReport.kt
 //! and ExecutionReportGenerator.kt, analytics/internal/pub/Track.kt, analytics/TrackerFactory.kt.
+use marathon_error::{FailureKind, InjectedKind};
 mod event_support;
 use event_support::*;
 use jcompat::{jtime::instant_of, logging::MarathonLogging};
@@ -26,7 +27,7 @@ fn oracle(id: &str) -> Value {
         .unwrap()
 }
 fn fail() -> Failure {
-    marathon_core::executor::shared::failure("java.lang.IllegalStateException", "failed")
+    marathon_core::executor::shared::failure(FailureKind::IllegalState, "failed")
 }
 fn assert_worker() {
     assert_ne!(std::thread::current().name(), Some("marathon-core"));
@@ -571,7 +572,7 @@ fn track_duplicates_failure_snapshot_and_typed_cancellation() {
             });
             track.add(a.clone());
             track.add(a);
-            let f = marathon_core::executor::shared::failure("java.lang.IllegalArgumentException", "track");
+            let f = marathon_core::executor::shared::failure(FailureKind::IllegalArgument, "track");
             track.add(Arc::new(Fanout {
                 calls: calls.clone(),
                 name: "bad",
@@ -912,7 +913,7 @@ fn reporter_error_does_not_stop_later_reporters_and_is_not_a_once_guard() {
             let OperationError::Failed(error) = error else {
                 panic!("expected ordinary failure")
             };
-            assert_eq!(json!(error.class), oracle("reporter-failure")["error"]);
+            assert_eq!(json!(error.kind.legacy_class()), oracle("reporter-failure")["error"]);
             assert_eq!(oracle("reporter-failure")["calls"], json!(["bad"]));
             assert_eq!(*calls.lock().unwrap(), ["bad", "never"]);
             assert!(close_generator(core.vendor().as_ref(), &generator).await.is_err());
@@ -941,7 +942,11 @@ fn a_later_failed_reporter_is_logged_and_the_first_failure_is_returned() {
                 fn generate<'a>(&'a self, _: &'a ExecutionReport) -> ServiceFuture<'a, ()> {
                     Box::pin(async move {
                         self.1.lock().unwrap().push(self.0.into());
-                        Err(marathon_core::executor::shared::failure("test.Close", self.0).into())
+                        Err(marathon_core::executor::shared::failure(
+                            FailureKind::Injected(InjectedKind::TestClose),
+                            self.0,
+                        )
+                        .into())
                     })
                 }
             }
@@ -1002,7 +1007,7 @@ impl TrackerInternalAdapter for Scripted {
             match next {
                 Next::Pass => Ok(()),
                 Next::Fail(text) => Err(VendorError::Other(marathon_core::executor::shared::failure(
-                    "test.Backend",
+                    FailureKind::Injected(InjectedKind::TestBackend),
                     text,
                 ))),
                 Next::Cancel => Err(VendorError::Cancelled(marathon_core::executor::shared::requested(
@@ -1016,7 +1021,10 @@ impl TrackerInternalAdapter for Scripted {
         Box::pin(async move {
             *self.closes.lock().unwrap() += 1;
             if self.close_fails {
-                Err(marathon_core::executor::shared::failure("test.Backend", "close").into())
+                Err(
+                    marathon_core::executor::shared::failure(FailureKind::Injected(InjectedKind::TestBackend), "close")
+                        .into(),
+                )
             } else {
                 Ok(())
             }

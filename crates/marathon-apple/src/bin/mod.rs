@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/bin/AppleBinaryEnvironment.kt
 
+use marathon_error::FailureKind;
 pub mod chmod;
 pub mod codesign;
 pub mod csrutil;
@@ -31,7 +32,7 @@ use marathon_core::{
 };
 use std::{collections::BTreeMap, sync::Arc};
 
-pub const DEVICE_SETUP_EXCEPTION: &str = "com.malinskiy.marathon.exceptions.DeviceSetupException";
+pub const DEVICE_SETUP_EXCEPTION: FailureKind = FailureKind::DeviceSetup;
 
 pub(crate) fn device_setup(message: impl AsRef<str>) -> VendorError {
     VendorError::Other(failure(DEVICE_SETUP_EXCEPTION, message))

@@ -17,17 +17,18 @@ use jcompat::{
     jtime::Duration,
     regex_patterns::{DEFAULT_TEST_CLASS_PATTERN, default_test_class_matches},
 };
+use marathon_error::FailureKind;
 use std::{
     fmt,
     hash::{Hash, Hasher},
     path::PathBuf,
 };
 
-pub const CONFIGURATION_EXCEPTION_CLASS: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
-pub const FILE_NOT_FOUND_EXCEPTION_CLASS: &str = "java.io.FileNotFoundException";
-pub const ZIP_EXCEPTION_CLASS: &str = "java.util.zip.ZipException";
-pub const IO_EXCEPTION_CLASS: &str = "java.io.IOException";
-pub const NO_SUCH_FILE_EXCEPTION_CLASS: &str = "java.nio.file.NoSuchFileException";
+pub const CONFIGURATION_EXCEPTION_CLASS: FailureKind = FailureKind::Config(marathon_error::ConfigKind::Rejected);
+pub const FILE_NOT_FOUND_EXCEPTION_CLASS: FailureKind = FailureKind::FileNotFound;
+pub const ZIP_EXCEPTION_CLASS: FailureKind = FailureKind::Zip;
+pub const IO_EXCEPTION_CLASS: FailureKind = FailureKind::Io;
+pub const NO_SUCH_FILE_EXCEPTION_CLASS: FailureKind = FailureKind::NoSuchFile;
 
 /// Which Kotlin exception a `validate()` failure throws. The class is kept
 /// because `SshConfiguration.validate()` throws `FileNotFoundException`,
@@ -45,7 +46,7 @@ pub enum ExceptionClass {
 }
 impl ExceptionClass {
     /// The fully qualified Kotlin/JVM class name.
-    pub fn fqcn(self) -> &'static str {
+    pub fn failure_kind(self) -> FailureKind {
         match self {
             Self::Configuration => CONFIGURATION_EXCEPTION_CLASS,
             Self::FileNotFound => FILE_NOT_FOUND_EXCEPTION_CLASS,
@@ -54,38 +55,47 @@ impl ExceptionClass {
             Self::NoSuchFile => NO_SUCH_FILE_EXCEPTION_CLASS,
         }
     }
+    pub fn fqcn(self) -> &'static str {
+        match self {
+            Self::Configuration => CONFIGURATION_EXCEPTION_CLASS.legacy_class(),
+            Self::FileNotFound => FILE_NOT_FOUND_EXCEPTION_CLASS.legacy_class(),
+            Self::Zip => ZIP_EXCEPTION_CLASS.legacy_class(),
+            Self::Io => IO_EXCEPTION_CLASS.legacy_class(),
+            Self::NoSuchFile => NO_SUCH_FILE_EXCEPTION_CLASS.legacy_class(),
+        }
+    }
 }
 
 /// A Kotlin `validate()` failure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidationError {
-    pub class: ExceptionClass,
+    pub kind: ExceptionClass,
     pub message: String,
 }
 impl ValidationError {
     pub fn configuration(message: impl Into<String>) -> Self {
         Self {
-            class: ExceptionClass::Configuration,
+            kind: ExceptionClass::Configuration,
             message: message.into(),
         }
     }
     pub fn file_not_found(message: impl Into<String>) -> Self {
         Self {
-            class: ExceptionClass::FileNotFound,
+            kind: ExceptionClass::FileNotFound,
             message: message.into(),
         }
     }
     /// A `java.util.zip.ZipException` from bundle extraction (WP 2.3b).
     pub fn zip(message: impl Into<String>) -> Self {
         Self {
-            class: ExceptionClass::Zip,
+            kind: ExceptionClass::Zip,
             message: message.into(),
         }
     }
     /// A plain `java.io.IOException` from bundle extraction (WP 2.3b).
     pub fn io(message: impl Into<String>) -> Self {
         Self {
-            class: ExceptionClass::Io,
+            kind: ExceptionClass::Io,
             message: message.into(),
         }
     }
@@ -93,13 +103,13 @@ impl ValidationError {
     /// archive (WP 2.3b).
     pub fn no_such_file(message: impl Into<String>) -> Self {
         Self {
-            class: ExceptionClass::NoSuchFile,
+            kind: ExceptionClass::NoSuchFile,
             message: message.into(),
         }
     }
     /// The fully qualified Kotlin/JVM class name of [`Self::class`].
     pub fn fqcn(&self) -> &'static str {
-        self.class.fqcn()
+        self.kind.fqcn()
     }
 }
 impl fmt::Display for ValidationError {
@@ -1336,11 +1346,11 @@ pub fn read_environment(environment: &[(String, String)]) -> EnvironmentConfigur
 // `bundle.validate()`, WP 2.3b) first, then media files, devices, SSH and
 // xcresult, and only then copies everything into the configuration.
 
-fn parse_stage_error(class: &str, message: impl Into<String>) -> Box<ConfigurationError> {
+fn parse_stage_error(class: FailureKind, message: impl Into<String>) -> Box<ConfigurationError> {
     let message = message.into();
     Box::new(ConfigurationError {
         stage: ValidationStage::Parse,
-        class: class.into(),
+        kind: class,
         message: Some(message.to_owned()),
         causes: Vec::new(),
         path: Vec::new(),
@@ -1377,11 +1387,11 @@ fn resolve(parent: &std::path::Path, child: &std::path::Path) -> PathBuf {
 fn resolve_against(dir: &std::path::Path, path: &std::path::Path) -> Result<PathBuf, Box<ConfigurationError>> {
     let resolved = resolve(dir, path);
     let resolved_buf: PathBuf = resolved;
-    let canonical = crate::paths::canonical_file(&resolved_buf)
-        .map_err(|e| parse_stage_error("java.io.IOException", e.to_string()))?;
+    let canonical =
+        crate::paths::canonical_file(&resolved_buf).map_err(|e| parse_stage_error(FailureKind::Io, e.to_string()))?;
     let text = canonical
         .to_str()
-        .ok_or_else(|| parse_stage_error("java.io.IOException", "canonical path must be UTF-8"))?;
+        .ok_or_else(|| parse_stage_error(FailureKind::Io, "canonical path must be UTF-8"))?;
     Ok(PathBuf::from(text))
 }
 

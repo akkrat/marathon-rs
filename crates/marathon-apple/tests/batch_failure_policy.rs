@@ -3,6 +3,7 @@ use marathon_apple::{
     device::batch_failure_policy::BatchFailurePolicy,
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
+use marathon_error::FailureKind;
 fn fail(policy: &mut BatchFailurePolicy, passed: bool, progress: bool) -> bool {
     policy
         .on_batch_failed(
@@ -127,7 +128,7 @@ fn progress_limit_precedes_passed_reset_and_preserves_suppression() {
     assert!(trace.find("Suppressed:").unwrap() < trace.find("Caused by:").unwrap());
 }
 fn timed_out() -> marathon_core::error::Failure {
-    marathon_apple::cmd::failure("java.util.concurrent.TimeoutException", "idle timeout reached")
+    marathon_apple::cmd::failure(FailureKind::Timeout, "idle timeout reached")
 }
 #[test]
 fn output_timeouts_without_progress_count_as_batch_failures_d39() {
@@ -135,7 +136,10 @@ fn output_timeouts_without_progress_count_as_batch_failures_d39() {
     assert!(p.on_batch_timed_out(timed_out(), false).is_none());
     assert!(p.on_batch_timed_out(timed_out(), false).is_none());
     let loss = p.on_batch_timed_out(timed_out(), false).unwrap();
-    assert_eq!(loss.cause.class.to_owned(), "java.util.concurrent.TimeoutException");
+    assert_eq!(
+        loss.cause.kind.legacy_class().to_owned(),
+        "java.util.concurrent.TimeoutException"
+    );
 }
 #[test]
 fn an_output_timeout_with_progress_resets_the_failure_count_d39() {

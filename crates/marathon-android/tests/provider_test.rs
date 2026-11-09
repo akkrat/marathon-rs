@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt
 //! and DeviceStateTracker.kt (fake-server behavior witnesses); adam AdbBinaryIntegrationTest.kt.
+use marathon_error::FailureKind;
 mod support;
 use marathon_adb::client::device::{Device as AdbDevice, DeviceState as S};
 use marathon_android::{
@@ -758,7 +759,7 @@ fn device_loss_counts_only_while_the_server_is_there_d22() {
                 self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 self.0.notified().await;
                 Err(VendorError::DeviceLost(Failure {
-                    class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
+                    kind: FailureKind::DeviceLost,
                     message: Some(js("lost")),
                     cause: None,
                     stacktrace: None,

@@ -10,6 +10,7 @@ use crate::{
 };
 use marathon_config::CONFIGURATION_EXCEPTION_CLASS;
 use marathon_core::error::{VendorError, VendorResult};
+use marathon_error::FailureKind;
 use std::{
     collections::{HashMap, HashSet},
     path::{Component, Path, PathBuf},
@@ -72,7 +73,7 @@ fn absolute(path: &Path) -> VendorResult<PathBuf> {
         path.to_owned()
     } else {
         std::env::current_dir()
-            .map_err(|e| VendorError::Other(failure("java.io.IOException", e.to_string())))?
+            .map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?
             .join(path)
     };
     Ok(path)

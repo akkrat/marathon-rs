@@ -97,7 +97,7 @@
     }
   },
   "factory_entry_sha256": "4b0026f45239386b1a4ed59e5730320a7f0f45e1148b280f7387d850a20efad7",
-  "factory_slots_sha256": "175b21a86df6df39f3020d15256534ccf470addce157bf5ac3830b3b7f40ba89",
+  "factory_slots_sha256": "54a56790b0984e85f67d4cd8a95d4d0cfaffa6f950be68089d695019fb1ac8cd",
   "evidence_inventory": {
     "fixtures/differential/verification/manifest.json": "55a6086b2b36e3343d584d4891e058b17fda09f52de5ab9ac02544f05324c981",
     "fixtures/differential/vendor-verification-c95b2128/manifest.json": "2f40cf4e6cc700a4bab4134c921b6db3b52385da63612bb077a67cf6db3d7507",

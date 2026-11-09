@@ -12,6 +12,7 @@ use crate::{
     xcresult::{ActionTestPlanRunSummaries, ActionsInvocationRecord},
 };
 use jcompat::logging::{Level, Logger};
+use marathon_error::FailureKind;
 
 use marathon_core::{
     artifacts::AttachmentCollector,
@@ -49,8 +50,9 @@ pub struct TestResultsListener {
 }
 impl TestResultsListener {
     pub fn new(config: TestResultsListenerConfig) -> VendorResult<Self> {
-        let result = TestRunResultsAccumulator::new(config.timer.clone(), config.wall.clone())
-            .map_err(|e| marathon_core::error::VendorError::Other(crate::cmd::failure("ReplayError", &e.message)))?;
+        let result = TestRunResultsAccumulator::new(config.timer.clone(), config.wall.clone()).map_err(|e| {
+            marathon_core::error::VendorError::Other(crate::cmd::failure(FailureKind::ReplayClock, &e.message))
+        })?;
         let accumulator =
             AccumulatingTestResultListener::new(config.batch.tests.len() as i32, result, config.logs.clone());
         let attachments = AttachmentCollector::new(&config.attachment_providers)?;
@@ -299,7 +301,5 @@ impl AppleTestRunListener for TestResultsListener {
 }
 
 fn nonnull<T>(value: Option<T>) -> VendorResult<T> {
-    value.ok_or_else(|| {
-        marathon_core::error::VendorError::Other(crate::cmd::failure("java.lang.NullPointerException", ""))
-    })
+    value.ok_or_else(|| marathon_core::error::VendorError::Other(crate::cmd::failure(FailureKind::NullReference, "")))
 }

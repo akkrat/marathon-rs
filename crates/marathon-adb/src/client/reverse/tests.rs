@@ -2,6 +2,7 @@
 //! Copyright (C) 2019 Anton Malinskiy; Apache-2.0.
 use super::*;
 use crate::client::stub;
+use marathon_error::FailureKind;
 fn request(mode: PortForwardingMode) -> ReversePortForwardRequest {
     ReversePortForwardRequest {
         local: RemotePortSpec::Tcp(80),
@@ -142,7 +143,7 @@ fn invalid_numeric_specs_are_number_format_exceptions() {
             RemotePortSpec::parse(&format!("jdwp:{value}")).map(|_| ()),
         ] {
             let error = result.unwrap_err();
-            assert_eq!(error.java_class(), "java.lang.NumberFormatException");
+            assert_eq!(error.failure_kind(), FailureKind::NumberFormat);
             assert_eq!(error.message(), Some(format!("For input string: \"{value}\"").as_str()));
         }
     }

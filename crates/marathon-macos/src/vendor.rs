@@ -25,6 +25,7 @@ use marathon_core::{
     vendor::{TestParser, VendorServices},
     wiring::VendorDependencies,
 };
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -56,7 +57,7 @@ pub async fn construct_with_parser_libraries(
 ) -> VendorResult<VendorServices> {
     let VendorConfiguration::Macos(config) = &dependencies.configuration.vendor_configuration else {
         return Err(VendorError::Other(failure(
-            "com.malinskiy.marathon.config.exceptions.ConfigurationException",
+            FailureKind::Config(marathon_error::ConfigKind::Rejected),
             "Expected macOS vendor configuration",
         )));
     };

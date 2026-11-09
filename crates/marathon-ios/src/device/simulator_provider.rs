@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt
 //! Simulator registration, recovery, retry and late admission.
 
+use marathon_error::FailureKind;
 mod formatting;
 pub mod recovery;
 mod source;
@@ -249,12 +250,8 @@ impl AppleSimulatorProvider {
             Arc::new(move |id, device| {
                 let provider = weak.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
                 Box::pin(async move {
-                    let provider = provider.ok_or_else(|| {
-                        other(
-                            "java.lang.IllegalStateException",
-                            "Provider allocation has been released",
-                        )
-                    })?;
+                    let provider = provider
+                        .ok_or_else(|| other(FailureKind::IllegalState, "Provider allocation has been released"))?;
                     provider.register(id, device).await
                 })
             }),
@@ -287,12 +284,9 @@ impl AppleSimulatorProvider {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn this(&self) -> VendorResult<Arc<Self>> {
-        self.me.upgrade().ok_or_else(|| {
-            other(
-                "java.lang.IllegalStateException",
-                "Provider allocation has been released",
-            )
-        })
+        self.me
+            .upgrade()
+            .ok_or_else(|| other(FailureKind::IllegalState, "Provider allocation has been released"))
     }
     fn log(&self, level: Level, message: impl FnOnce() -> String, error: Option<marathon_core::error::Failure>) {
         if self.services.logging.enabled(&self.logger, level) {
@@ -350,12 +344,9 @@ impl AppleSimulatorProvider {
             let Some(Err(e)) = outbox.send_oldest(|event| channel.try_send(event)) else {
                 return Ok(());
             };
-            let detail = e.cause.unwrap_or_else(|| {
-                failure(
-                    "kotlinx.coroutines.channels.ClosedSendChannelException",
-                    "Channel was closed",
-                )
-            });
+            let detail = e
+                .cause
+                .unwrap_or_else(|| failure(FailureKind::ChannelSendClosed, "Channel was closed"));
             // A root launch reports a failed send independently of its registering caller.
             if logging.enabled(&logger, Level::Error) {
                 (logging.sink)(&logger, Level::Error, String::new(), Some(detail.clone()));
@@ -373,7 +364,7 @@ impl AppleSimulatorProvider {
             let old_serial = previous.as_ref().map(|d| d.handle.serial().to_owned());
             if previous.is_some() && (out || state.exhausted.contains(&id)) {
                 return Err(other(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     format!(
                         "Simulator {} is out of the run, its new setup is dropped",
                         old_serial.as_deref().unwrap_or(&serial)
@@ -384,7 +375,7 @@ impl AppleSimulatorProvider {
             if state.removed.contains(&id) {
                 state.skipped_removed.insert(id);
                 return Err(other(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     format!("Simulator {serial} has left the devices file, its new setup is dropped"),
                 )
                 .into());
@@ -473,7 +464,7 @@ impl AppleSimulatorProvider {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .take()
-            .ok_or_else(|| other("java.lang.IllegalStateException", "Concurrent tracker update"))?;
+            .ok_or_else(|| other(FailureKind::IllegalState, "Concurrent tracker update"))?;
         let updates = tracker.update(&snapshot);
         *self.tracker.lock().unwrap_or_else(|e| e.into_inner()) = Some(tracker);
         let updates = updates?;
@@ -1118,7 +1109,7 @@ impl AppleSimulatorProvider {
             let mut state = self.state();
             if state.initialized || state.termination.is_some() {
                 return Err(other(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     "AppleSimulatorProvider is already initialized or terminated",
                 ));
             }
@@ -1245,7 +1236,7 @@ impl DeviceProvider for AppleSimulatorProvider {
                         return devices
                             .get(&key)
                             .map(|d| (d.device.clone(), key.clone()))
-                            .ok_or_else(|| other("ReplayError", "Borrow selection is not a device key"));
+                            .ok_or_else(|| other(FailureKind::ReplayClock, "Borrow selection is not a device key"));
                     }
                     caller.clock.delay(200, caller.cancellation.clone()).await?;
                 }
@@ -1294,7 +1285,7 @@ pub fn apple_id(udid: &str, transport: &Transport) -> String {
     id.push_str(&transport.id());
     id.to_owned()
 }
-fn other(class: &str, message: impl AsRef<str>) -> VendorError {
+fn other(class: FailureKind, message: impl AsRef<str>) -> VendorError {
     VendorError::Other(failure(class, message.as_ref()))
 }
 
@@ -1321,7 +1312,7 @@ pub fn describe_failure(error: &marathon_core::error::Failure) -> String {
         .map(|e| {
             e.message
                 .to_owned()
-                .unwrap_or_else(|| e.class.to_owned().rsplit(['.', '$']).next().unwrap_or("").to_owned())
+                .unwrap_or_else(|| e.kind.legacy_class().rsplit(['.', '$']).next().unwrap_or("").to_owned())
         })
         .collect::<Vec<_>>()
         .join(": ")
@@ -1377,7 +1368,7 @@ mod tests {
     async fn a82_throwing_disposal_skips_the_device_connection_release() {
         let released = std::sync::atomic::AtomicUsize::new(0);
         dispose_then_release(
-            async { Err(other("java.lang.IllegalStateException", "dispose failed")) },
+            async { Err(other(FailureKind::IllegalState, "dispose failed")) },
             async {
                 released.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 Ok(())

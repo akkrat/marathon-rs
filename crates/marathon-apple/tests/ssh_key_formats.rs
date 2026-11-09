@@ -23,7 +23,7 @@ fn oracle() -> Vec<serde_json::Value> {
 }
 fn chain(failure: &SshFailure) -> Vec<(String, Option<String>)> {
     std::iter::successors(Some(failure), |f| f.cause.as_deref())
-        .map(|f| (f.class.to_owned(), f.message()))
+        .map(|f| (f.kind.legacy_class().to_owned(), f.message()))
         .collect()
 }
 

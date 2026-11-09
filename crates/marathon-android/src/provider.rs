@@ -19,6 +19,7 @@ use marathon_core::{
     runtime::*,
     vendor::*,
 };
+use marathon_error::{AdbKind, FailureKind};
 use std::{
     collections::HashMap,
     net::IpAddr,
@@ -93,7 +94,7 @@ impl AdamDeviceProvider {
             let host = endpoint.host.to_owned();
             let port = u16::try_from(endpoint.port).map_err(|_| {
                 other(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     format!("port out of range:{}", endpoint.port).as_str(),
                 )
             })?;
@@ -106,7 +107,7 @@ impl AdamDeviceProvider {
                             .map_err(io)?
                             .next()
                             .map(|s| s.ip())
-                            .ok_or_else(|| other("java.net.UnknownHostException", host.as_str().to_owned()))
+                            .ok_or_else(|| other(FailureKind::UnknownHost, host.as_str().to_owned()))
                     })
                     .await?
                 }
@@ -278,7 +279,7 @@ impl AdamDeviceProvider {
                             let start = context
                                 .hooks
                                 .instant("core.Track.trackProviderDevicePreparing")
-                                .map_err(|e| other("ReplayError", e.message))?;
+                                .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
                             let reference = device.reference();
                             let connected_reference = reference.clone();
                             let ready = Arc::new(AtomicBool::new(false));
@@ -299,7 +300,7 @@ impl AdamDeviceProvider {
                                             barriers
                                                 .enter("android.AdamDeviceProvider.connected", &key)
                                                 .await
-                                                .map_err(|e| other("marathon.ReplayError", e.message))
+                                                .map_err(|e| other(FailureKind::Replay, e.message))
                                         })
                                         .await?;
                                         let result = async {
@@ -310,18 +311,13 @@ impl AdamDeviceProvider {
                                                 })
                                                 .await?;
                                             channel.try_send(DeviceEvent::Connected(connected_reference)).map_err(
-                                                |_| {
-                                                    other(
-                                                        "kotlinx.coroutines.channels.ClosedSendChannelException",
-                                                        "Channel was closed",
-                                                    )
-                                                },
+                                                |_| other(FailureKind::ChannelSendClosed, "Channel was closed"),
                                             )?;
                                             completed.store(true, Ordering::Release);
                                             Ok(())
                                         }
                                         .await;
-                                        permit.finish().map_err(|e| other("marathon.ReplayError", e.message))?;
+                                        permit.finish().map_err(|e| other(FailureKind::Replay, e.message))?;
                                         if let Err(e) = &result
                                             && !matches!(e, VendorError::Cancelled(_))
                                         {
@@ -348,7 +344,7 @@ impl AdamDeviceProvider {
                             let finish = context
                                 .hooks
                                 .instant("core.Track.trackProviderDevicePreparing")
-                                .map_err(|e| other("ReplayError", e.message))?;
+                                .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
                             self.inner
                                 .runtime
                                 .dependencies
@@ -378,12 +374,7 @@ impl AdamDeviceProvider {
                                 self.inner
                                     .channel
                                     .try_send(DeviceEvent::Disconnected(reference))
-                                    .map_err(|_| {
-                                        other(
-                                            "kotlinx.coroutines.channels.ClosedSendChannelException",
-                                            "Channel was closed",
-                                        )
-                                    })?;
+                                    .map_err(|_| other(FailureKind::ChannelSendClosed, "Channel was closed"))?;
                                 device.dispose().await?;
                             }
                         }
@@ -826,7 +817,7 @@ impl DeviceProvider for AdamDeviceProvider {
                     let selected = context
                         .hooks
                         .choose_key("android.AdamDeviceProvider.borrow", &keys)
-                        .map_err(|e| other("ReplayError", e.message))?;
+                        .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
                     if let Some((_, identity, device)) = available.into_iter().find(|(s, _, _)| selected == s.as_str())
                     {
                         return Ok((device, identity));
@@ -984,15 +975,15 @@ async fn handled(tx: &TrackedSender, signal: Arc<dyn CancellationSignal>) -> Ven
 }
 fn is_connect(e: &VendorError) -> bool {
     [
-        "io.netty.channel.AbstractChannel$AnnotatedConnectException",
-        "io.netty.channel.ConnectTimeoutException",
-        "java.net.ConnectException",
+        FailureKind::Adb(AdbKind::ConnectRefused),
+        FailureKind::Adb(AdbKind::ConnectTimeout),
+        FailureKind::Connect,
     ]
     .iter()
-    .any(|c| e.failure().class == (*c))
+    .any(|c| e.failure().kind == (*c))
 }
 fn no_devices(message: &str) -> VendorError {
-    VendorError::NoDevices(failure("com.malinskiy.marathon.exceptions.NoDevicesException", message))
+    VendorError::NoDevices(failure(FailureKind::NoDevices, message))
 }
 fn server_name(client: &AndroidDebugBridgeClient) -> String {
     format!(

@@ -26,6 +26,7 @@ use crate::{
         fill_android_sdk, post_process_ios_with_bundle_validation, post_process_macos_with_bundle_validation,
     },
 };
+use marathon_error::FailureKind;
 
 /// The one `ValidationError` → `ConfigurationError` conversion (WP 2.4
 /// deliverable 2): FQCN class, verbatim message, no wrapper, empty
@@ -34,7 +35,7 @@ pub fn validation_error_to_configuration_error(error: ValidationError, stage: Va
     let message: String = error.message.to_owned();
     ConfigurationError {
         stage,
-        class: error.fqcn().into(),
+        kind: error.kind.failure_kind(),
         message: Some(message.to_owned()),
         causes: Vec::new(),
         path: Vec::new(),
@@ -44,10 +45,10 @@ pub fn validation_error_to_configuration_error(error: ValidationError, stage: Va
 }
 
 /// A plain stage error with no node context (P4).
-fn stage_error(stage: ValidationStage, class: &str, message: Option<String>) -> Box<ConfigurationError> {
+fn stage_error(stage: ValidationStage, class: FailureKind, message: Option<String>) -> Box<ConfigurationError> {
     Box::new(ConfigurationError {
         stage,
-        class: class.into(),
+        kind: class,
         message: message.to_owned(),
         causes: Vec::new(),
         path: Vec::new(),
@@ -77,7 +78,7 @@ pub fn load_error_to_configuration_error(error: LoadError) -> Box<ConfigurationE
     match error {
         LoadError::Configuration(error) => error,
         LoadError::Substitution(error) => {
-            stage_error(ValidationStage::Parse, error.java_class(), Some(error.message.to_owned()))
+            stage_error(ValidationStage::Parse, FailureKind::IllegalState, Some(error.message.to_owned()))
         }
         // Kotlin dereferences the null configuration outside the
         // `JsonProcessingException` catch (`ConfigurationFactory.kt:58`), so
@@ -85,7 +86,7 @@ pub fn load_error_to_configuration_error(error: LoadError) -> Box<ConfigurationE
         // the JDK's helpful message (JVM witness `a-null-document`).
         LoadError::NullDocument => stage_error(
             ValidationStage::Parse,
-            "java.lang.NullPointerException",
+            FailureKind::NullReference,
             Some(
                 "Cannot invoke \"com.malinskiy.marathon.config.Configuration.getVendorConfiguration()\" because \"configuration\" is null"
                     .to_owned(),
@@ -95,7 +96,7 @@ pub fn load_error_to_configuration_error(error: LoadError) -> Box<ConfigurationE
         // so no binding took place (docs/wp/2.4-findings.md).
         LoadError::Worker(error) => stage_error(
             ValidationStage::Parse,
-            "java.lang.IllegalStateException",
+            FailureKind::IllegalState,
             Some(error.to_string()),
         ),
     }
@@ -121,7 +122,7 @@ pub fn devices_load_error_to_configuration_error(
             };
             stage_error(
                 ValidationStage::Provider,
-                "java.lang.NullPointerException",
+                FailureKind::NullReference,
                 Some(format!(
                     "Cannot invoke \"com.malinskiy.marathon.apple.configuration.Marathondevices.getWorkers()\" because {because}"
                 )),

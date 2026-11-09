@@ -2,6 +2,7 @@
 //! and analytics/external/AnalyticsFactory.kt.
 use super::*;
 use marathon_config::{AnalyticsConfiguration, Configuration, InfluxDb2Configuration, InfluxDbConfiguration};
+use marathon_error::FailureKind;
 use remote::{
     graphite::{GraphiteDataSource, GraphiteQuery},
     influx::{InfluxDBDataSource, InfluxQuery},
@@ -40,7 +41,7 @@ impl MetricsProviderFactory {
         };
         if defaults.is_some_and(|d| d.duration.to_millis().is_none()) {
             return Err(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "analyticsConfiguration.defaults.duration exceeds the millisecond range of a Java Long",
             )
             .into());

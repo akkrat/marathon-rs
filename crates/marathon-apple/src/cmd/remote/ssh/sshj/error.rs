@@ -7,32 +7,33 @@
 
 use crate::cmd::failure;
 use marathon_core::error::{Failure, VendorError};
+use marathon_error::{FailureKind, SshKind};
 
-pub const IO_EXCEPTION: &str = "java.io.IOException";
-pub const SSH_EXCEPTION: &str = "net.schmizz.sshj.common.SSHException";
-pub const CONNECTION_EXCEPTION: &str = "net.schmizz.sshj.connection.ConnectionException";
-pub const CIRCULAR_BUFFER_EXCEPTION: &str = "net.schmizz.sshj.common.CircularBuffer$CircularBufferException";
-pub const OPEN_FAIL_EXCEPTION: &str = "net.schmizz.sshj.connection.channel.OpenFailException";
-pub const TRANSPORT_EXCEPTION: &str = "net.schmizz.sshj.transport.TransportException";
-pub const USER_AUTH_EXCEPTION: &str = "net.schmizz.sshj.userauth.UserAuthException";
-pub const KEY_DECRYPTION_FAILED_EXCEPTION: &str = "com.hierynomus.sshj.common.KeyDecryptionFailedException";
-pub const PEM_EXCEPTION: &str = "org.bouncycastle.openssl.PEMException";
-pub const ENCRYPTION_EXCEPTION: &str = "org.bouncycastle.openssl.EncryptionException";
-pub const PASSWORD_EXCEPTION: &str = "org.bouncycastle.openssl.PasswordException";
-pub const PKCS_EXCEPTION: &str = "org.bouncycastle.pkcs.PKCSException";
-pub const ILLEGAL_ARGUMENT_EXCEPTION: &str = "java.lang.IllegalArgumentException";
-pub const TIMEOUT_EXCEPTION: &str = "java.util.concurrent.TimeoutException";
-pub const ILLEGAL_STATE_EXCEPTION: &str = "java.lang.IllegalStateException";
-pub const CONNECT_EXCEPTION: &str = "java.net.ConnectException";
-pub const SOCKET_EXCEPTION: &str = "java.net.SocketException";
-pub const SOCKET_TIMEOUT_EXCEPTION: &str = "java.net.SocketTimeoutException";
-pub const UNKNOWN_HOST_EXCEPTION: &str = "java.net.UnknownHostException";
-pub const FILE_NOT_FOUND_EXCEPTION: &str = "java.io.FileNotFoundException";
-pub const PATTERN_SYNTAX_EXCEPTION: &str = "java.util.regex.PatternSyntaxException";
+pub const IO_EXCEPTION: FailureKind = FailureKind::Io;
+pub const SSH_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::General);
+pub const CONNECTION_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::Connection);
+pub const CIRCULAR_BUFFER_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::CircularBuffer);
+pub const OPEN_FAIL_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::OpenChannel);
+pub const TRANSPORT_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::Transport);
+pub const USER_AUTH_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::Authentication);
+pub const KEY_DECRYPTION_FAILED_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::KeyDecryptionFailed);
+pub const PEM_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::PEM);
+pub const ENCRYPTION_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::Encryption);
+pub const PASSWORD_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::Password);
+pub const PKCS_EXCEPTION: FailureKind = FailureKind::Ssh(SshKind::PKCS);
+pub const ILLEGAL_ARGUMENT_EXCEPTION: FailureKind = FailureKind::IllegalArgument;
+pub const TIMEOUT_EXCEPTION: FailureKind = FailureKind::Timeout;
+pub const ILLEGAL_STATE_EXCEPTION: FailureKind = FailureKind::IllegalState;
+pub const CONNECT_EXCEPTION: FailureKind = FailureKind::Connect;
+pub const SOCKET_EXCEPTION: FailureKind = FailureKind::Socket;
+pub const SOCKET_TIMEOUT_EXCEPTION: FailureKind = FailureKind::SocketTimeout;
+pub const UNKNOWN_HOST_EXCEPTION: FailureKind = FailureKind::UnknownHost;
+pub const FILE_NOT_FOUND_EXCEPTION: FailureKind = FailureKind::FileNotFound;
+pub const PATTERN_SYNTAX_EXCEPTION: FailureKind = FailureKind::PatternSyntax;
 const NOT_CONNECTED: &str = "Not connected";
 
 /// Direct superclasses of every class this module creates.
-const SUPERCLASS: &[(&str, &str)] = &[
+const SUPERCLASS: &[(FailureKind, FailureKind)] = &[
     (OPEN_FAIL_EXCEPTION, CONNECTION_EXCEPTION),
     (CONNECTION_EXCEPTION, SSH_EXCEPTION),
     (CIRCULAR_BUFFER_EXCEPTION, SSH_EXCEPTION),
@@ -43,32 +44,32 @@ const SUPERCLASS: &[(&str, &str)] = &[
     (ENCRYPTION_EXCEPTION, PEM_EXCEPTION),
     (PASSWORD_EXCEPTION, PEM_EXCEPTION),
     (PEM_EXCEPTION, IO_EXCEPTION),
-    (PKCS_EXCEPTION, "java.lang.Exception"),
+    (PKCS_EXCEPTION, FailureKind::Generic),
     (PATTERN_SYNTAX_EXCEPTION, ILLEGAL_ARGUMENT_EXCEPTION),
-    (ILLEGAL_ARGUMENT_EXCEPTION, "java.lang.RuntimeException"),
+    (ILLEGAL_ARGUMENT_EXCEPTION, FailureKind::Runtime),
     (CONNECT_EXCEPTION, SOCKET_EXCEPTION),
-    ("java.net.NoRouteToHostException", SOCKET_EXCEPTION),
-    ("java.net.BindException", SOCKET_EXCEPTION),
-    ("java.net.PortUnreachableException", SOCKET_EXCEPTION),
+    (FailureKind::NoRouteToHost, SOCKET_EXCEPTION),
+    (FailureKind::Bind, SOCKET_EXCEPTION),
+    (FailureKind::PortUnreachable, SOCKET_EXCEPTION),
     (SOCKET_EXCEPTION, IO_EXCEPTION),
-    (SOCKET_TIMEOUT_EXCEPTION, "java.io.InterruptedIOException"),
-    ("java.io.InterruptedIOException", IO_EXCEPTION),
+    (SOCKET_TIMEOUT_EXCEPTION, FailureKind::InterruptedIO),
+    (FailureKind::InterruptedIO, IO_EXCEPTION),
     (UNKNOWN_HOST_EXCEPTION, IO_EXCEPTION),
     (FILE_NOT_FOUND_EXCEPTION, IO_EXCEPTION),
-    (IO_EXCEPTION, "java.lang.Exception"),
-    (TIMEOUT_EXCEPTION, "java.lang.Exception"),
-    (ILLEGAL_STATE_EXCEPTION, "java.lang.RuntimeException"),
-    ("java.lang.RuntimeException", "java.lang.Exception"),
+    (IO_EXCEPTION, FailureKind::Generic),
+    (TIMEOUT_EXCEPTION, FailureKind::Generic),
+    (ILLEGAL_STATE_EXCEPTION, FailureKind::Runtime),
+    (FailureKind::Runtime, FailureKind::Generic),
 ];
 
 /// `class instanceof of`, over the classes this executor produces.
-pub fn is_instance(class: &str, of: &str) -> bool {
+pub fn is_instance(class: &FailureKind, of: FailureKind) -> bool {
     let mut current = class;
     loop {
-        if current == of {
+        if *current == of {
             return true;
         }
-        match SUPERCLASS.iter().find(|(sub, _)| *sub == current) {
+        match SUPERCLASS.iter().find(|(sub, _)| sub == current) {
             Some((_, parent)) => current = parent,
             None => return false,
         }
@@ -148,7 +149,7 @@ impl DisconnectReason {
 /// to the constructor, cause and suppressed failures (`closeOnFailure`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SshFailure {
-    pub class: &'static str,
+    pub kind: FailureKind,
     pub reason: DisconnectReason,
     message: Option<String>,
     pub cause: Option<Box<SshFailure>>,
@@ -156,9 +157,9 @@ pub struct SshFailure {
     no_common_algorithm: bool,
 }
 impl SshFailure {
-    pub fn new(class: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(class: FailureKind, message: impl Into<String>) -> Self {
         Self {
-            class,
+            kind: class,
             reason: DisconnectReason::Unknown,
             message: Some(message.into()),
             cause: None,
@@ -175,9 +176,9 @@ impl SshFailure {
         self
     }
     /// `new <SSHException subclass>(cause)`: no message of its own, UNKNOWN reason.
-    pub fn wrapping(class: &'static str, cause: SshFailure) -> Self {
+    pub fn wrapping(class: FailureKind, cause: SshFailure) -> Self {
         Self {
-            class,
+            kind: class,
             reason: DisconnectReason::Unknown,
             message: None,
             cause: Some(Box::new(cause)),
@@ -209,7 +210,7 @@ impl SshFailure {
     }
     /// `ConnectionException.chainer.chain(t)`.
     pub fn chain_connection(cause: &SshFailure) -> Self {
-        if is_instance(cause.class, CONNECTION_EXCEPTION) {
+        if is_instance(&cause.kind, CONNECTION_EXCEPTION) {
             cause.clone()
         } else {
             Self::wrapping(CONNECTION_EXCEPTION, cause.clone())
@@ -217,14 +218,14 @@ impl SshFailure {
     }
     /// `UserAuthException.chainer.chain(t)`.
     pub fn chain_user_auth(cause: &SshFailure) -> Self {
-        if is_instance(cause.class, USER_AUTH_EXCEPTION) {
+        if is_instance(&cause.kind, USER_AUTH_EXCEPTION) {
             cause.clone()
         } else {
             Self::wrapping(USER_AUTH_EXCEPTION, cause.clone())
         }
     }
     /// sshj's `Event.await(timeout)` expiry, chained by the event's chainer.
-    pub fn timeout_expired(class: &'static str, timeout: &str) -> Self {
+    pub fn timeout_expired(class: FailureKind, timeout: &str) -> Self {
         Self::wrapping(
             class,
             Self::new(TIMEOUT_EXCEPTION, format!("Timeout expired: {timeout}")),
@@ -235,17 +236,17 @@ impl SshFailure {
         Self::new(ILLEGAL_STATE_EXCEPTION, NOT_CONNECTED)
     }
     pub fn is_ssh(&self) -> bool {
-        is_instance(self.class, SSH_EXCEPTION)
+        is_instance(&self.kind, SSH_EXCEPTION)
     }
     pub fn is_io(&self) -> bool {
-        is_instance(self.class, IO_EXCEPTION)
+        is_instance(&self.kind, IO_EXCEPTION)
     }
-    pub fn is_instance(&self, of: &str) -> bool {
-        is_instance(self.class, of)
+    pub fn is_instance(&self, of: FailureKind) -> bool {
+        is_instance(&self.kind, of)
     }
     /// `Throwable.getMessage()`; SSHException falls back to its cause's message.
     pub fn message(&self) -> Option<String> {
-        if self.message.is_some() || !self.is_ssh() || self.class == OPEN_FAIL_EXCEPTION {
+        if self.message.is_some() || !self.is_ssh() || self.kind == OPEN_FAIL_EXCEPTION {
             return self.message.to_owned();
         }
         self.cause.as_ref().and_then(|cause| cause.message())
@@ -253,7 +254,7 @@ impl SshFailure {
     /// `Throwable.toString()`, as sshj's `Promise` "woke to" log lines print it.
     pub fn java_to_string(&self) -> String {
         let message = self.message();
-        if self.class == OPEN_FAIL_EXCEPTION {
+        if self.kind == OPEN_FAIL_EXCEPTION {
             return format!(
                 "Opening `session` channel failed: {}",
                 message.unwrap_or_else(|| "null".into())
@@ -271,18 +272,18 @@ impl SshFailure {
             } else {
                 ": "
             };
-            return format!("{}{separator}{code}{message}", self.class);
+            return format!("{}{separator}{code}{message}", self.kind);
         }
         match message {
-            Some(message) => format!("{}: {message}", self.class),
-            None => self.class.to_owned(),
+            Some(message) => format!("{}: {message}", self.kind),
+            None => self.kind.legacy_class().to_owned(),
         }
     }
     /// The 4.1/0.6 boundary keeps class, `getMessage()` and the cause chain; logback prints a throwable the same way.
     pub fn to_failure(&self) -> Failure {
         let mut projected = Failure {
             message: self.message(),
-            ..failure(self.class, "")
+            ..failure(self.kind.clone(), "")
         };
         projected.cause = self.cause.as_ref().map(|cause| Box::new(cause.to_failure()));
         projected
@@ -299,7 +300,7 @@ impl std::fmt::Display for SshFailure {
 impl std::error::Error for SshFailure {}
 
 /// A JDK socket/file failure: the OS message without Rust's " (os error N)" suffix.
-pub fn io_failure(class: &'static str, error: &std::io::Error) -> SshFailure {
+pub fn io_failure(class: FailureKind, error: &std::io::Error) -> SshFailure {
     let text = error.to_string();
     let message = match text.rfind(" (os error ") {
         Some(index) if text.ends_with(')') => text[..index].to_owned(),

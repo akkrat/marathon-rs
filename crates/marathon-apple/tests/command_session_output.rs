@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/cmd/CommandSessionOutputTest.kt
+use marathon_error::FailureKind;
 mod support;
 use marathon_apple::cmd::{SessionScope, cancelled, consume_output, failure};
 use marathon_core::error::VendorError;
@@ -70,7 +71,7 @@ async fn waits_for_exit_code_after_streams_are_closed() {
 async fn stream_failure_cancels_other_consumer_and_is_rethrown() {
     watchdog(async {
         let session = fake();
-        let cause = failure("java.util.concurrent.TimeoutException", "idle timeout");
+        let cause = failure(FailureKind::Timeout, "idle timeout");
         session.stdout.close(Some(cause.clone()));
         assert_eq!(
             bounded(
@@ -89,7 +90,7 @@ async fn callback_failure_cancels_other_consumer_and_is_rethrown() {
     watchdog(async {
         let session = fake();
         session.stderr.send("boom".into()).await.unwrap();
-        let error = VendorError::Other(failure("java.lang.IllegalStateException", "boom"));
+        let error = VendorError::Other(failure(FailureKind::IllegalState, "boom"));
         assert_eq!(
             bounded(
                 5,
@@ -97,7 +98,7 @@ async fn callback_failure_cancels_other_consumer_and_is_rethrown() {
                     &session,
                     &context(),
                     |_| async { Ok(()) },
-                    |line| async move { Err(VendorError::Other(failure("java.lang.IllegalStateException", line))) }
+                    |line| async move { Err(VendorError::Other(failure(FailureKind::IllegalState, line))) }
                 )
             )
             .await,
@@ -261,10 +262,9 @@ async fn drain_collectors_discard_output_after_drain_has_returned() {
             session.stdout.send(format!("stdout {i}")).await.unwrap();
             session.stderr.send(format!("stderr {i}")).await.unwrap();
         }
-        session.stdout.close(Some(failure(
-            "java.util.concurrent.TimeoutException",
-            "later idle timeout",
-        )));
+        session
+            .stdout
+            .close(Some(failure(FailureKind::Timeout, "later idle timeout")));
         session.stderr.close(None);
         session.close().await.unwrap();
     })

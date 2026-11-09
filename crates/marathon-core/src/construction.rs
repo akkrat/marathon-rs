@@ -41,6 +41,7 @@ use jcompat::{
     logging::{Level, Logger, MarathonLogging},
 };
 use marathon_config::{AnalyticsConfiguration, Configuration};
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::{
     rc::Rc,
@@ -154,10 +155,10 @@ pub fn missing_definition(class: &str) -> Failure {
     message.push_str(class);
     message.push_str("'. Check your Modules configuration and add missing type and/or qualifier!");
     Failure {
-        class: "org.koin.core.error.InstanceCreationException".into(),
+        kind: FailureKind::DependencyCreation,
         message: Some("Could not create instance for '[Singleton:'com.malinskiy.marathon.Marathon']'".into()),
         cause: Some(Box::new(Failure {
-            class: "org.koin.core.error.NoBeanDefFoundException".into(),
+            kind: FailureKind::MissingDefinition,
             message: Some(message),
             cause: None,
             stacktrace: None,
@@ -192,7 +193,7 @@ impl FilterLogger for RecordLog {
 fn registry_logger(logging: &Mutex<MarathonLogging>, name: &str) -> VendorResult<Logger> {
     Ok(logging
         .lock()
-        .map_err(|_| VendorError::Other(failure("java.lang.IllegalStateException", "Poisoned logging registry")))?
+        .map_err(|_| VendorError::Other(failure(FailureKind::IllegalState, "Poisoned logging registry")))?
         .logger(name, None))
 }
 
@@ -296,10 +297,7 @@ fn os_relay(
     _: Arc<dyn Fn(i32) + Send + Sync>,
     _: SignalHooks,
 ) -> Result<Rc<SignalRelay>, Failure> {
-    Err(failure(
-        "java.lang.UnsupportedOperationException",
-        "signals need a Unix host",
-    ))
+    Err(failure(FailureKind::UnsupportedOperation, "signals need a Unix host"))
 }
 
 async fn build(

@@ -109,7 +109,7 @@ fn junit_create_new_file_and_stream_open_keep_distinct_java_errors() {
                 }
             })
         }));
-        assert_eq!(failure.class, text(&expected["error"]["class"]));
+        assert_eq!(failure.kind.legacy_class(), text(&expected["error"]["class"]));
         assert_eq!(
             failure
                 .message
@@ -154,7 +154,7 @@ fn junit_rejects_nul_pool_before_creating_directories() {
             }
         })
     }));
-    assert_eq!(failure.class, "java.nio.file.InvalidPathException");
+    assert_eq!(failure.kind.legacy_class(), "java.nio.file.InvalidPathException");
     assert_eq!(failure.message.as_deref(), Some("Nul character not allowed"));
     assert!(!output.exists());
 }

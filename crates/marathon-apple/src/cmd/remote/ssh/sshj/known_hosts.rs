@@ -20,6 +20,7 @@ use jcompat::{
     JavaRegex,
     logging::{Level, Logger},
 };
+use marathon_error::{FailureKind, SshKind};
 use russh::keys::PublicKey;
 use std::path::{Path, PathBuf};
 
@@ -37,10 +38,10 @@ fn base64_failure(error: &base64::DecodeError) -> SshFailure {
         other => other.to_string(),
     };
     SshFailure::new(
-        "net.schmizz.sshj.common.Base64DecodingException",
+        FailureKind::Ssh(SshKind::Base64Decoding),
         format!("Failed to decode base64: {detail}"),
     )
-    .caused_by(SshFailure::new("java.lang.IllegalArgumentException", detail))
+    .caused_by(SshFailure::new(FailureKind::IllegalArgument, detail))
 }
 
 pub trait HostKeyVerifier: Send + Sync {
@@ -305,7 +306,7 @@ impl OpenSshKnownHosts {
             result => {
                 let cause = match result {
                     Err(error) => base64_failure(&error),
-                    Ok(_) => SshFailure::new("net.schmizz.sshj.common.Buffer$BufferException", "Bad item length"),
+                    Ok(_) => SshFailure::new(FailureKind::Ssh(SshKind::Buffer), "Bad item length"),
                 };
                 self.logging.log(
                     &self.logger,

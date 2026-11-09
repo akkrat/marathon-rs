@@ -458,9 +458,9 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
         Ok(None) => VendorConfiguration::Empty,
         Err(LoadError::Configuration(e)) => {
             return Outcome::Err(Failure {
-                class: e.class.to_owned(),
+                class: e.kind.legacy_class().to_owned(),
                 message: e.message.as_ref().map(|m| m.to_owned()),
-                cause_classes: e.causes.iter().map(|c| c.class.to_owned()).collect(),
+                cause_classes: e.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect(),
                 cause_messages: e
                     .causes
                     .iter()
@@ -473,7 +473,7 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
     // The factory rejects Empty inside parse (ConfigurationFactory.kt:188).
     if matches!(vendor, VendorConfiguration::Empty) {
         return Outcome::Err(Failure {
-            class: CONFIGURATION_EXCEPTION_CLASS.to_owned(),
+            class: CONFIGURATION_EXCEPTION_CLASS.legacy_class().to_owned(),
             message: Some("No vendor configuration specified".to_owned()),
             cause_classes: Vec::new(),
             cause_messages: Vec::new(),
@@ -492,9 +492,9 @@ fn run_row(input: &str, dir: &str, context: &BindingContext) -> Outcome {
     match processed {
         Ok(vendor) => Outcome::Ok(substitute_dir(canonical(&vendor), dir)),
         Err(e) => Outcome::Err(Failure {
-            class: e.class.to_owned(),
+            class: e.kind.legacy_class().to_owned(),
             message: e.message.as_ref().map(|m| m.to_owned()),
-            cause_classes: e.causes.iter().map(|c| c.class.to_owned()).collect(),
+            cause_classes: e.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect(),
             cause_messages: e
                 .causes
                 .iter()
@@ -633,7 +633,7 @@ fn vendor_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
             // The Rust side must still reject these rows, with the factory
             // wrapper class; the regex rows must name the D9 rule.
             match &outcome {
-                Outcome::Err(f) if f.class == CONFIGURATION_EXCEPTION_CLASS => {
+                Outcome::Err(f) if f.class == CONFIGURATION_EXCEPTION_CLASS.legacy_class() => {
                     if reason.starts_with("D9 regex")
                         && !f
                             .cause_messages

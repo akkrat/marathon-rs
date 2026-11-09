@@ -264,7 +264,7 @@ async fn physical_sdk_extract_names_the_unsupported_platform_and_attempts_three_
     v(device.dispose().await)?;
     assert!(matches!(error, VendorError::TestParsing(_)), "{error:?}");
     assert_eq!(
-        error.failure().class.to_owned(),
+        error.failure().kind.legacy_class().to_owned(),
         "com.malinskiy.marathon.exceptions.TestParsingException"
     );
     assert_eq!(

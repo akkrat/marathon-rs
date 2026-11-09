@@ -14,6 +14,7 @@ use crate::{
     lock,
     stub_device::{Recorder, StubDevice, StubDeviceOptions},
 };
+use marathon_error::FailureKind;
 
 use marathon_config::schema::*;
 use marathon_core::{
@@ -283,7 +284,7 @@ pub fn drive(mut factory: MarathonFactory, script: Script, prepare: Option<Prepa
                 }),
             );
             let replay_error = |e: marathon_core::time::ReplayError| {
-                OperationError::Failed(failure("ReplayError", &e.message.to_owned()))
+                OperationError::Failed(failure(FailureKind::ReplayClock, &e.message.to_owned()))
             };
             for (at, event, serial, spec) in events {
                 let mut entry = serde_json::json!({"event": event});

@@ -7,12 +7,10 @@ use marathon_apple::{
     plist::worker_descriptor,
 };
 use marathon_core::model::DeviceFeature;
+use marathon_error::FailureKind;
 
 pub(super) fn setup_error(message: impl AsRef<str>) -> VendorError {
-    VendorError::DeviceSetup(failure(
-        "com.malinskiy.marathon.exceptions.DeviceSetupException",
-        message,
-    ))
+    VendorError::DeviceSetup(failure(FailureKind::DeviceSetup, message))
 }
 pub(super) fn env_value(env: &[(String, String)], key: &str) -> Option<String> {
     env.iter().find(|(k, _)| *k == key).map(|(_, v)| v.to_owned())
@@ -258,7 +256,7 @@ impl AppleSimulatorDevice {
 
 pub(super) fn uninitialized(field: &str) -> VendorError {
     VendorError::Other(failure(
-        "kotlin.UninitializedPropertyAccessException",
+        FailureKind::UninitializedProperty,
         format!("lateinit property {field} has not been initialized"),
     ))
 }

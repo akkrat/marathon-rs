@@ -176,7 +176,7 @@ fn missing_test_application_fails_extract() {
     let Err(marathon_core::error::VendorError::TestParsing(failure)) = extracted else {
         panic!("expected TestParsing failure");
     };
-    assert_eq!(failure.class.to_owned(), "java.io.FileNotFoundException");
+    assert_eq!(failure.kind.legacy_class().to_owned(), "java.io.FileNotFoundException");
     assert!(registered.is_empty());
 }
 
@@ -355,7 +355,10 @@ fn name_split_uses_hash_then_last_dot() {
         let marathon_core::error::VendorError::TestParsing(failure) = err else {
             panic!("expected TestParsing")
         };
-        assert_eq!(failure.class.to_owned(), "java.lang.IllegalStateException");
+        assert_eq!(
+            failure.kind.legacy_class().to_owned(),
+            "java.lang.IllegalStateException"
+        );
         assert_eq!(failure.message.unwrap().to_owned(), format!("Can't parse test {bad}"));
     }
 }

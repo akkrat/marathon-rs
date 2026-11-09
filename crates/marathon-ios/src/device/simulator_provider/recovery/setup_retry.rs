@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::device::device_tracker::target_id;
+use marathon_error::FailureKind;
 
 tokio::task_local! {
     /// Marks the task of a retry attempt. Registration runs in that task, so this tells a retried simulator from a
@@ -153,7 +154,7 @@ impl SimulatorRecovery {
         }
         let Some(this) = self.me.upgrade() else {
             return Err(other(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "Recovery allocation has been released",
             ));
         };
@@ -308,9 +309,13 @@ impl SimulatorRecovery {
         let acquired = async {
             let _permit = tokio::select! { biased;
                 reason = caller.cancellation.cancelled() => return Err(VendorError::Cancelled(reason).into()),
-                permit = self.permits.acquire() => permit.map_err(|e| other("java.lang.IllegalStateException", e.to_string()))?,
+                permit = self.permits.acquire() => permit.map_err(|e| other(FailureKind::IllegalState, e.to_string()))?,
             };
-            provider.services.connections.connect_worker(transport.clone(), caller.clone()).await
+            provider
+                .services
+                .connections
+                .connect_worker(transport.clone(), caller.clone())
+                .await
         }
         .await;
         let executor = match acquired {

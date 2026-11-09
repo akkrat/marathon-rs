@@ -219,7 +219,12 @@ async fn t14_tails_flood_close_and_idle_timeout() {
         panic!("{error:?}")
     };
     let chain: Vec<_> = std::iter::successors(Some(&cancel), |f| f.cause.as_deref())
-        .map(|f| (f.class.to_owned(), f.message.as_ref().map(|m| m.to_owned())))
+        .map(|f| {
+            (
+                f.kind.legacy_class().to_owned(),
+                f.message.as_ref().map(|m| m.to_owned()),
+            )
+        })
         .collect();
     assert_eq!(
         chain,
@@ -635,7 +640,7 @@ async fn d37_at_the_cap_the_idle_timeout_ends_it_on_a_real_sshd() {
         .unwrap()
         .unwrap_err();
     assert_eq!(
-        error.failure().class.to_owned(),
+        error.failure().kind.legacy_class().to_owned(),
         "java.util.concurrent.TimeoutException"
     );
     session.close().await.unwrap();

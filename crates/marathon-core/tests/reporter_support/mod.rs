@@ -16,6 +16,7 @@ use marathon_core::{
     runtime::*,
     time::{ReplayHooks, SystemTimer},
 };
+use marathon_error::FailureKind;
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
@@ -374,10 +375,9 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
                 },
             );
             let hooks = RuntimeHooks::taped(tape, &core.clock());
-            let timer = Arc::new(
-                SystemTimer::new(hooks.clone())
-                    .map_err(|e| marathon_core::executor::shared::failure("ReplayError", &e.message.to_owned()))?,
-            );
+            let timer = Arc::new(SystemTimer::new(hooks.clone()).map_err(|e| {
+                marathon_core::executor::shared::failure(FailureKind::ReplayClock, &e.message.to_owned())
+            })?);
             let io = crate::event_support::CountingRuntime::new(core.vendor());
             let output = files(io.clone(), path.clone(), if id == "paths" { 120 } else { 0 });
             let bill = BillingReporter::new(
@@ -422,7 +422,7 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
                     Ok(()) => panic!("JSON writer accepted nonfinite metadata"),
                 };
                 let expected = row("fail-json");
-                assert_eq!(error.failure().class, text(&expected["error"]["class"]));
+                assert_eq!(error.failure().kind.legacy_class(), text(&expected["error"]["class"]));
                 assert_eq!(error.failure().message, Some(text(&expected["error"]["message"])));
             } else {
                 outcome.map_err(|e| OperationError::Failed(e.failure().clone()))?;
@@ -433,9 +433,9 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
                 "only stdout dispatches its async sink to the I/O runtime"
             );
             assert!(io.blocking.load(Ordering::SeqCst) > 0);
-            hooks
-                .verify_consumed()
-                .map_err(|e| marathon_core::executor::shared::failure("ReplayError", &e.message.to_owned()))?;
+            hooks.verify_consumed().map_err(|e| {
+                marathon_core::executor::shared::failure(FailureKind::ReplayClock, &e.message.to_owned())
+            })?;
             Ok(())
         })
     }));

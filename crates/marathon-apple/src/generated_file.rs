@@ -14,6 +14,7 @@ use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::path::Path;
 
 /// Concrete simulator devices delegate here; fallback uses push_file to retain transfer measurement.
@@ -38,8 +39,8 @@ pub async fn push_generated_file(
                     _ => None,
                 };
                 VendorError::Other(match reason {
-                    Some(reason) => failure("java.io.FileNotFoundException", format!("{} ({reason})", src.display())),
-                    None => failure("java.io.IOException", error.to_string()),
+                    Some(reason) => failure(FailureKind::FileNotFound, format!("{} ({reason})", src.display())),
+                    None => failure(FailureKind::Io, error.to_string()),
                 })
             })?;
             if write_file(

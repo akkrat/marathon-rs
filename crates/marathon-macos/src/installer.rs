@@ -9,6 +9,7 @@ use marathon_apple::{
     xctestrun::test_root_factory::{FactoryError, FactoryResult},
 };
 use marathon_core::{error::VendorError, vendor::VendorContext};
+use marathon_error::FailureKind;
 use std::{
     future::Future,
     pin::Pin,
@@ -33,7 +34,7 @@ impl MacosApplicationInstaller {
         }
         if device.binary_environment().csrutil.status(context).await? {
             return Err(VendorError::IncompatibleDevice(failure(
-                "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
+                FailureKind::IncompatibleDevice,
                 "Unable to add permissions: requires System Integrity Protection to be disabled",
             ))
             .into());
@@ -46,7 +47,7 @@ impl MacosApplicationInstaller {
 }
 fn missing() -> FactoryError {
     VendorError::Other(failure(
-        "java.lang.IllegalStateException",
+        FailureKind::IllegalState,
         "macOS installer requires its device",
     ))
     .into()

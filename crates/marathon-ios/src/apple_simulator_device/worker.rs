@@ -15,6 +15,7 @@ use marathon_core::{
     screenshot::{RgbaFrame, Rotation, Screenshottable},
     transfer::TransferMeasurement,
 };
+use marathon_error::{FailureKind, ReportKind};
 use std::path::Path;
 
 pub(super) async fn blocking<T: Send + 'static>(
@@ -28,10 +29,10 @@ pub(super) async fn blocking<T: Send + 'static>(
     }));
     task.join().await?;
     rx.await
-        .map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))?
+        .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?
 }
 fn io_error(error: std::io::Error) -> VendorError {
-    VendorError::Other(failure("java.io.IOException", error.to_string()))
+    VendorError::Other(failure(FailureKind::Io, error.to_string()))
 }
 impl AppleSimulatorDevice {
     pub async fn critical_listener_command(
@@ -478,7 +479,7 @@ impl Screenshottable for AppleSimulatorDevice {
                             Ok(image) => Ok(Some(image.to_rgba8())),
                             Err(image::ImageError::Unsupported(_)) => Ok(None),
                             Err(error) => Err(VendorError::Other(failure(
-                                "javax.imageio.IIOException",
+                                FailureKind::Report(ReportKind::ImageIo),
                                 error.to_string(),
                             ))),
                         }

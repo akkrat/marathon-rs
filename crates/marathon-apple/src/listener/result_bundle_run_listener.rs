@@ -19,6 +19,7 @@ use marathon_core::{
     runtime::VendorFuture,
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use std::{
     path::{Path, PathBuf},
     sync::{
@@ -106,7 +107,7 @@ impl Bundle {
         self.context
             .hooks
             .nanos(label)
-            .map_err(|e| VendorError::Other(failure("marathon.ReplayError", &e.message.to_owned())))
+            .map_err(|e| VendorError::Other(failure(FailureKind::Replay, &e.message.to_owned())))
     }
     fn pull_needed(&self) -> bool {
         match self.configuration.pulling_policy {
@@ -233,10 +234,10 @@ impl Bundle {
 }
 fn io_failure(error: std::io::Error, path: &str) -> VendorError {
     let class = match error.kind() {
-        std::io::ErrorKind::NotFound => "java.nio.file.NoSuchFileException",
-        std::io::ErrorKind::AlreadyExists => "java.nio.file.FileAlreadyExistsException",
-        std::io::ErrorKind::PermissionDenied => "java.nio.file.AccessDeniedException",
-        _ => "java.nio.file.FileSystemException",
+        std::io::ErrorKind::NotFound => FailureKind::NoSuchFile,
+        std::io::ErrorKind::AlreadyExists => FailureKind::FileAlreadyExists,
+        std::io::ErrorKind::PermissionDenied => FailureKind::AccessDenied,
+        _ => FailureKind::FileSystem,
     };
     VendorError::Other(failure(class, path))
 }
@@ -245,10 +246,7 @@ fn move_without_replace(source: &Path, destination: &Path) -> Result<(), Failure
     std::fs::symlink_metadata(source).map_err(|e| io_failure(e, &source.to_string_lossy()).failure().clone())?;
     match std::fs::symlink_metadata(destination) {
         Ok(_) => {
-            return Err(failure(
-                "java.nio.file.FileAlreadyExistsException",
-                &destination.to_string_lossy(),
-            ));
+            return Err(failure(FailureKind::FileAlreadyExists, &destination.to_string_lossy()));
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(io_failure(e, &destination.to_string_lossy()).failure().clone()),

@@ -1,6 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx/InfluxDbProvider.kt
 //! and external/influx2/InfluxDb2Provider.kt (injected constructors for TrackerFactory.kt).
 use crate::{graphite::*, http::text, influx::*, influx2::*};
+use marathon_error::FailureKind;
 
 use marathon_config::*;
 use marathon_core::{
@@ -126,12 +127,8 @@ impl BackendFactory for BackendClients {
 struct InvalidPortSender(i32);
 impl DataSender for InvalidPortSender {
     fn send_data<'a>(&'a self, _: &'a str, _: u16, _: String, _: Arc<dyn CancellationSignal>) -> ServiceFuture<'a, ()> {
-        Box::pin(async move {
-            Err(failure(
-                "java.lang.IllegalArgumentException",
-                &format!("port out of range:{}", self.0),
-            )
-            .into())
-        })
+        Box::pin(
+            async move { Err(failure(FailureKind::IllegalArgument, &format!("port out of range:{}", self.0)).into()) },
+        )
     }
 }

@@ -26,6 +26,7 @@ use futures_util::future::Either;
 use indexmap::IndexMap;
 use jcompat::logging::Level;
 use marathon_config::Configuration;
+use marathon_error::FailureKind;
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -145,10 +146,7 @@ struct PendingQueue {
 
 /// `Job.cancel()` without a cause.
 fn job_was_cancelled() -> Cancellation {
-    Cancellation::Requested(failure(
-        "kotlinx.coroutines.JobCancellationException",
-        "Job was cancelled",
-    ))
+    Cancellation::Requested(failure(FailureKind::JobCancelled, "Job was cancelled"))
 }
 
 /// D48: what made the pool check whether it still has a device, for the lines Kotlin logs as it ends.

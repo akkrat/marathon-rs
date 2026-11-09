@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/queue/QueueActor.kt
 //! (D13 preparation cancellation and the shared metrics-provider handoff).
+use marathon_error::{FailureKind, InjectedKind};
 mod metrics_support;
 mod strategy_support;
 #[path = "support/queue.rs"]
@@ -86,7 +87,7 @@ fn prepare_preserves_caller_cancellation_when_the_fetch_is_released() {
             ));
             let reason = Cancellation::Timeout {
                 scope: 73,
-                detail: failure("timeout", "prepare caller cancelled"),
+                detail: failure(FailureKind::Injected(InjectedKind::Timeout), "prepare caller cancelled"),
             };
             signal.cancel(reason.clone());
             source.release.notify_one();
@@ -158,7 +159,10 @@ fn cancelling_a_prepare_waiter_keeps_the_other_pools_single_flight_fetch() {
                 std::task::Poll::Ready(())
             })
             .await;
-            let reason = Cancellation::Parent(failure("cancelled", "waiter parent cancelled"));
+            let reason = Cancellation::Parent(failure(
+                FailureKind::Injected(InjectedKind::Cancelled),
+                "waiter parent cancelled",
+            ));
             signal.cancel(reason.clone());
             let result = tokio::time::timeout(Duration::from_secs(60), waiter).await;
             assert!(matches!(result, Ok(Err(OperationError::Cancelled(actual))) if actual == reason));
@@ -218,7 +222,7 @@ fn a_queue_keeps_the_history_it_was_built_on_and_the_next_pools_queue_gets_the_r
             let h = metrics_support::Harness::new();
             let tests: Vec<Test> = (0..7).map(|i| mtest("pkg", "Class", &format!("method{i}"))).collect();
             let source = Arc::new(metrics_support::Source::default());
-            let down = || Some(OperationError::Failed(failure("java.lang.RuntimeException", "down")));
+            let down = || Some(OperationError::Failed(failure(FailureKind::Runtime, "down")));
             *source.errors.lock().unwrap() = [down(), down(), down()].into();
             // Ascending in insertion order. The heap drains equal keys as 0, 6, 5, 4, ..., so a comparator
             // that took this history while the heap holds them would come out differently.

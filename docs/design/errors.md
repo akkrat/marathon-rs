@@ -2,19 +2,18 @@
 
 Milestone 1 proves the representation and one core funnel. Rendered bytes remain unchanged;
 the narrower 8.6a brief applies even where PLAN §3.12 permits wording changes. No D-row or
-fixture update is needed. Milestones 2–5 await design review.
+fixture update is needed. The milestone-1 design is approved; milestones 2–5 complete the migration.
 
 ## Types and crate graph
 
 `marathon-error` is a dependency-free leaf crate. It owns `FailureKind`, re-exported from
-`marathon_core::error`. The first version has 27 named alternatives plus `External(String)`.
+`marathon_core::error`. The vocabulary includes common alternatives, domain subkinds and `External(String)`.
 `Failure`, its cloneable cause chain, `OperationError`, `Cancellation` (including timeout
 scope identity), and `VendorError` remain in core. No trait objects or downcasts enter them.
 
-ADB, DEX and config cannot depend on core. They will depend directly on the leaf crate,
+ADB, DEX and config cannot depend on core. They depend directly on the leaf crate,
 as core does now; vendor integrations already depending on core may use its re-export.
-All shared kind definitions and their mappings have one owner. In later milestones,
-`FailureKind` will wrap domain enums also defined in `marathon-error`:
+All shared kind definitions and their mappings have one owner. `FailureKind` wraps domain enums also defined in `marathon-error`, each in its own module:
 
 | Type | Meaning / consumers |
 | --- | --- |
@@ -33,27 +32,18 @@ the shared kind directly. No conversion renders a class and parses it back. Comm
 argument, state, cancellation and runner classifications stay top-level alternatives.
 `FatalKind` and SSH/DEX membership methods replace the old string hierarchy helpers.
 
-## Milestone-1 bridge and its removal
+## Typed construction and rendering
 
-As approved for this design stop, `Failure.class: String` temporarily remains public so
-unconverted consumers still build. Its field comment explicitly says milestone 2 removes
-it. `Failure::from_kind(kind, message)` obtains that string exclusively from
-`kind.legacy_class()`. There is no independently supplied class to disagree with the kind;
-tests check each converted I/O path against both the mapping and literal baseline text.
-The milestone-1 object stores the compatibility string, not a second copy of the kind.
+`Failure` owns `pub kind: FailureKind`, its nullable message, cloneable cause chain and
+opaque frame text. `Failure::from_kind` stores the kind directly. `to_java_string` obtains
+the rendered name from `kind.legacy_class()`; `stack_trace` delegates to `to_java_string`.
+There is no string constructor, string equality implementation on kinds, or independently
+stored class that can disagree with the kind.
 
-`artifact_io.rs` is the converted funnel: I/O classification, NIO reason selection,
-file-open and clock failures, and worker-completion failures use kinds. Its decisions
-never inspect the compatibility string. Other funnels and selectors remain for their
-scheduled milestones; the final grep acceptance is not claimed at this stop.
-
-Milestone 2 changes the field to `pub kind: FailureKind` and makes `from_kind` store it.
-It updates `to_java_string` to call `kind.legacy_class()`; `stack_trace` continues through
-`to_java_string`. Required consumer edits replace struct-literal fields and rendered-class
-reads across the workspace in the same buildable change. Domain alternatives must exist
-before those constructors migrate; no generic legacy/unknown-string alternative is added.
-Each domain's later milestone completes its selectors and producer-specific error types.
-There will be no permanent string constructor or string equality implementation on kinds.
+The field swap includes required consumer edits across the workspace in one buildable
+change. Domain producers project their shared kind directly; they never render and parse
+it back. `artifact_io.rs` was the first converted funnel; its I/O classification, NIO reason
+selection, file-open/clock failures and worker-completion failures all use kinds.
 
 ## Legacy rendering and external text
 
@@ -65,7 +55,7 @@ Nullable/empty messages, cause order, frame text and newline handling stay uncha
 `External(String)` makes `legacy_class` return `&str` rather than `&'static str`. Use it
 only if an adapter receives a separate class name from a runner and projects that name
 verbatim into a `Failure`; annotate every such construction with its external source.
-No production site has needed it in milestone 1. Instrumentation stack/shortMsg, logcat,
+No production construction site currently needs it. Instrumentation stack/shortMsg, logcat,
 XCTest/xcresult and command output already held in messages or traces remain opaque there;
 do not split those strings to manufacture an `External` kind. The new external-text test
 models a runner-provided class and proves embedded class names remain text.
@@ -131,9 +121,8 @@ alternatives, shared through the leaf crate, not counts of separate new enums to
 | snakeyaml | 4 parser kinds to project at the config boundary |
 
 These counts overlap. Hierarchy-only names may disappear; test injection names and
-separate retry classifications may add alternatives. Milestone 1 implements 28 alternatives
-in the leaf crate; the final shared vocabulary is expected to be roughly 130–170 named
-alternatives across the top-level and domain enums, subject to the boundary audit.
+separate retry classifications may add alternatives. The initial 28 alternatives have expanded into domain vocabularies and closed injected
+replay/test markers. Final counts are reported after the boundary audit.
 
 ## Risks for the remaining milestones
 
@@ -154,4 +143,4 @@ alternatives across the top-level and domain enums, subject to the boundary audi
   rather than changing retries or introducing a D-row silently.
 - Preserve SSH inheritance and message fallback, config wrapping stages and cause order,
   fatal-vs-exception catches and deduplication keys. `FailureKind` derives `Hash` for the
-  latter, but deduplication is not converted at this stop.
+  latter, and deduplication ignores retry metadata that did not participate in the old class/message key.

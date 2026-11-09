@@ -4,6 +4,7 @@ use super::{CoreExecutor, shared::*};
 use crate::{error::*, runtime::*, time::*};
 use crossbeam_queue::SegQueue;
 use futures_util::{FutureExt, future::Either};
+use marathon_error::FailureKind;
 use std::{
     rc::Weak,
     sync::{
@@ -19,7 +20,7 @@ fn timeout(millis: i64) -> Cancellation {
     Cancellation::Timeout {
         scope: SCOPE.fetch_add(1, Ordering::Relaxed),
         detail: failure(
-            "kotlinx.coroutines.TimeoutCancellationException",
+            FailureKind::TimeoutCancelled,
             &if millis <= 0 {
                 "Timed out immediately".to_owned()
             } else {
@@ -150,7 +151,7 @@ impl RuntimeTimeouts {
         let core = self
             .core
             .upgrade()
-            .ok_or_else(|| failure("java.lang.IllegalStateException", "Core runtime stopped"))?;
+            .ok_or_else(|| failure(FailureKind::IllegalState, "Core runtime stopped"))?;
         let job = core.new_job(JobKind::Ordinary, Some(parent.job.clone()), true);
         job.scoped.set(true);
         let context = TaskContext {

@@ -298,7 +298,7 @@ fn fallible_conversion_preserves_jvm_error_classes_and_warnings() {
             json!([
                 error.java_class(),
                 error.message(),
-                error.to_throwable().cause.map(|c| c.class)
+                error.to_throwable().cause.map(|c| c.kind.legacy_class().to_owned())
             ]),
             oracle(&format!("parser-error:{name}"))
         );

@@ -17,6 +17,7 @@ use marathon_core::{
     runtime::*,
     vendor::{LocalTestParser, RemoteTestParser, TestParser, VendorContext},
 };
+use marathon_error::FailureKind;
 use marathon_test_support::{
     console::{Line, RecordingConsole},
     factory::{FakeTimer, MarathonFactory},
@@ -269,7 +270,7 @@ impl RemoteDataSource for Unreliable {
                 self.after_close.fetch_add(1, Ordering::SeqCst);
             }
             if self.calls.fetch_add(1, Ordering::SeqCst) < self.failing {
-                return Err(marathon_core::executor::shared::failure("java.io.IOException", "down").into());
+                return Err(marathon_core::executor::shared::failure(FailureKind::Io, "down").into());
             }
             Ok(vec![ExecutionTime {
                 test_name: "pkg.SimpleTest#test".into(),

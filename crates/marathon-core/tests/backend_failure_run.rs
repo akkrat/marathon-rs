@@ -14,6 +14,7 @@ use marathon_core::{
     report::TestEvent,
     runtime::*,
 };
+use marathon_error::{AnalyticsKind, FailureKind};
 use marathon_test_support::{
     console::Line,
     factory::MarathonFactory,
@@ -33,7 +34,7 @@ impl TrackerInternalAdapter for Failing {
         self.0.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {
             Err(VendorError::Other(failure(
-                "com.malinskiy.marathon.analytics.external.graphite.GraphiteException",
+                FailureKind::Analytics(AnalyticsKind::Graphite),
                 "Error while writing data to graphite: Connection refused",
             )))
         })

@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandExecutor.kt
 
+use marathon_error::{AppleKind, FailureKind};
 pub mod base_command;
 pub mod channel;
 pub mod command_session_output;
@@ -25,24 +26,24 @@ use marathon_core::{
 use remote::ssh::sshj::error::{CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, is_instance};
 use std::{collections::BTreeMap, future::Future, path::Path, pin::Pin, sync::Arc};
 
-pub fn failure(class: &str, message: impl AsRef<str>) -> Failure {
+pub fn failure(class: FailureKind, message: impl AsRef<str>) -> Failure {
     Failure {
-        class: class.into(),
+        kind: class,
         message: Some(message.as_ref().into()),
         cause: None,
         stacktrace: None,
     }
 }
 pub fn cancelled(message: &str) -> Cancellation {
-    Cancellation::Requested(failure("java.util.concurrent.CancellationException", message))
+    Cancellation::Requested(failure(FailureKind::Cancelled, message))
 }
 pub(crate) fn io_error(error: std::io::Error) -> VendorError {
-    VendorError::Other(failure("java.io.IOException", error.to_string()))
+    VendorError::Other(failure(FailureKind::Io, error.to_string()))
 }
 pub(crate) fn millis(duration: Duration) -> VendorResult<i64> {
     duration
         .to_millis()
-        .ok_or_else(|| VendorError::Other(failure("java.lang.ArithmeticException", "long overflow")))
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))
 }
 
 /// Port of cmd/CommandHost.kt; charset remains an API slot (UTF-8, approved P1).
@@ -80,7 +81,7 @@ impl CommandException {
     pub fn for_result(command: &[String], result: &CommandResult) -> Failure {
         // trimMargin() removes no indentation here: the Kotlin string has no '|'.
         failure(
-            "com.malinskiy.marathon.apple.cmd.CommandException",
+            FailureKind::Apple(AppleKind::Command),
             format!(
                 "command {} failed with exit code {}:\n                   stdout: {}\n                   stderr: {}",
                 command.join(" "),
@@ -155,7 +156,7 @@ pub trait CommandExecutor: Send + Sync {
             .await;
             // Kotlin catches the two sshj classes and their subclasses (OpenFailException is a
             // ConnectionException), in this order.
-            let class = |f: &Failure| f.class.to_owned();
+            let class = |f: &Failure| f.kind.to_owned();
             match result {
                 Ok(value) => Ok(Some(value)),
                 Err(VendorError::Other(ref f)) if is_instance(&class(f), CONNECTION_EXCEPTION) => {
@@ -329,5 +330,5 @@ pub(crate) async fn blocking<T: Send + 'static>(
     }));
     task.join().await?;
     rx.await
-        .map_err(|e| VendorError::Other(failure("java.lang.IllegalStateException", e.to_string())))?
+        .map_err(|e| VendorError::Other(failure(FailureKind::IllegalState, e.to_string())))?
 }

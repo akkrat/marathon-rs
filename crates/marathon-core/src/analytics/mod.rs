@@ -1,5 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/Analytics.kt
 //! and analytics/external/AnalyticsFactory.kt.
+use marathon_error::FailureKind;
 mod coverage;
 mod event_pipeline;
 pub use event_pipeline::*;
@@ -46,14 +47,14 @@ impl MetricsContext {
         let mut registry = self
             .registry
             .lock()
-            .map_err(|_| failure("java.lang.IllegalStateException", "Poisoned logging registry"))?;
+            .map_err(|_| failure(FailureKind::IllegalState, "Poisoned logging registry"))?;
         registry.logger(name, None);
         Ok(())
     }
     fn timings(&self) -> OperationResult<()> {
         self.registry
             .lock()
-            .map_err(|_| failure("java.lang.IllegalStateException", "Poisoned logging registry"))?
+            .map_err(|_| failure(FailureKind::IllegalState, "Poisoned logging registry"))?
             .timings();
         Ok(())
     }

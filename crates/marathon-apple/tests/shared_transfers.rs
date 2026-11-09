@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/cmd/SharedTransfersTest.kt
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use marathon_apple::cmd::{failure, shared_transfers::SharedTransfers};
 use marathon_core::error::{LeavePoolReason, VendorError};
@@ -154,7 +155,7 @@ async fn existence_is_not_checked_before_the_first_transfer() {
 async fn callback_errors_clear_only_a_new_transfer_and_release_the_destination() {
     let t = transfers();
     let n = AtomicUsize::new(0);
-    let error = VendorError::Other(failure("java.io.IOException", "test"));
+    let error = VendorError::Other(failure(FailureKind::Io, "test"));
     assert_eq!(
         t.send(
             "worker",
@@ -203,7 +204,7 @@ async fn source_path_reuse_ignores_changed_bytes_but_retains_dot_dot() {
 fn stalled() -> VendorError {
     VendorError::LeavePool {
         reason: LeavePoolReason::TransferStalled,
-        detail: failure("TransferStalled", "no progress"),
+        detail: failure(FailureKind::Injected(InjectedKind::TransferStalled), "no progress"),
     }
 }
 /// The first send, held until the test has the others waiting, ends in `first`. Returns what each of the two waiters got and
@@ -272,7 +273,7 @@ async fn a_stall_fails_who_waited_for_that_destination_and_nobody_else_u163() {
 }
 #[tokio::test]
 async fn any_other_failure_lets_the_next_caller_try_u163() {
-    let error = VendorError::Other(failure("java.io.IOException", "broken"));
+    let error = VendorError::Other(failure(FailureKind::Io, "broken"));
     let (same, other, transfers) = behind(error, "/tmp/marathon/shared/other.app").await;
     assert_eq!((same, other), (Ok(true), Ok(true)));
     assert_eq!(transfers, 3);
@@ -348,10 +349,7 @@ async fn a_shared_send_waiter_observes_its_own_timeout_d54() {
     let scope = marathon_core::executor::shared::Signal::new();
     let expired = Cancellation::Timeout {
         scope: 7,
-        detail: failure(
-            "kotlinx.coroutines.TimeoutCancellationException",
-            "Timed out waiting for 180000 ms",
-        ),
+        detail: failure(FailureKind::TimeoutCancelled, "Timed out waiting for 180000 ms"),
     };
     {
         let (scope, expired) = (scope.clone(), expired.clone());

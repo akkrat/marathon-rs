@@ -142,7 +142,7 @@ fn if_android_sdk_is_null_should_throw_exception_if_env_android_sdk_also_is_null
     };
     let error = fill_android_sdk(&mut android, &ctx).unwrap_err();
     assert_eq!(
-        error.class.to_owned(),
+        error.kind.legacy_class().to_owned(),
         "com.malinskiy.marathon.config.exceptions.ConfigurationException"
     );
     assert_eq!(
@@ -679,7 +679,7 @@ fn validate_messages_are_verbatim() {
     };
     let error = ssh.validate().unwrap_err();
     assert_eq!(error.fqcn(), "java.io.FileNotFoundException");
-    assert_eq!(error.class, marathon_config::ExceptionClass::FileNotFound);
+    assert_eq!(error.kind, marathon_config::ExceptionClass::FileNotFound);
     assert_eq!(error.message, "Private key not found at /nope/key");
 }
 

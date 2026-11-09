@@ -21,42 +21,42 @@ use serde_json::Value as Json;
 const REJECT_INSTEAD: &[(&str, &str, &str)] = &[
     (
         "Configuration-null-list-elem",
-        marathon_config::binder::MISMATCHED,
+        marathon_config::binder::MISMATCHED.legacy_class(),
         "D9: null element in collection",
     ),
     (
         "FilteringConfiguration-allow-null-elem",
-        marathon_config::binder::MISMATCHED,
+        marathon_config::binder::MISMATCHED.legacy_class(),
         "D9: null element in collection",
     ),
     (
         "TestFilterConfiguration-composition-null-elem",
-        marathon_config::binder::MISMATCHED,
+        marathon_config::binder::MISMATCHED.legacy_class(),
         "D9: null element in collection",
     ),
     (
         "Pooling-combo-null-elem",
-        marathon_config::binder::MISMATCHED,
+        marathon_config::binder::MISMATCHED.legacy_class(),
         "D9: null element in collection",
     ),
     (
         "AnalyticsConfiguration-graphite-port-arabic",
-        marathon_config::bind::CONFIGURATION_EXCEPTION,
+        marathon_config::bind::CONFIGURATION_EXCEPTION.legacy_class(),
         "GraphiteConfigurationDeserializer: port should be a number, e.g. 2003",
     ),
     (
         "Sorting-exec-overflow",
-        marathon_config::binder::JSON_MAPPING,
+        marathon_config::binder::JSON_MAPPING.legacy_class(),
         "D9: now + Duration overflows Instant",
     ),
     (
         "Batching-fixed-overflow",
-        marathon_config::binder::JSON_MAPPING,
+        marathon_config::binder::JSON_MAPPING.legacy_class(),
         "D9: now + Duration overflows Instant",
     ),
     (
         "Flakiness-prob-overflow",
-        marathon_config::binder::JSON_MAPPING,
+        marathon_config::binder::JSON_MAPPING.legacy_class(),
         "D9: now + Duration overflows Instant",
     ),
 ];
@@ -113,7 +113,12 @@ fn schema_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
                 let rendered = binder
                     .first(&stream, |v: Value<'_>| -> Result<String> {
                         let tree = v.read_tree()?;
-                        let x = tree.get("x")?.ok_or_else(|| v.error("test", "x"))?;
+                        let x = tree.get("x")?.ok_or_else(|| {
+                            v.error(
+                                marathon_error::FailureKind::Injected(marathon_error::InjectedKind::Test),
+                                "x",
+                            )
+                        })?;
                         Ok(x.node_string())
                     })
                     .map_err(|e| format!("{id}: {e:?}"))?;
@@ -127,7 +132,7 @@ fn schema_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
                         panic!("{id}: approved simplification must reject at bind");
                     };
                     assert_eq!(e.stage, ValidationStage::Parse, "{id}");
-                    assert_eq!(e.class.to_owned(), *class, "{id}");
+                    assert_eq!(e.kind.legacy_class().to_owned(), *class, "{id}");
                     assert_eq!(
                         e.message.as_ref().map(|m| m.to_owned()).as_deref(),
                         Some(*message),
@@ -313,7 +318,7 @@ fn filter_validate_messages_keep_kotlin_simple_names() {
     assert_eq!(
         err(TestFilterConfiguration::TestMethod(rvf(None))),
         ValidationError {
-            class: ExceptionClass::Configuration,
+            kind: ExceptionClass::Configuration,
             message: "At least one of [regex,values,file] should be specified for TestMethodFilterConfiguration".into()
         }
     );
@@ -434,7 +439,7 @@ fn s4_narrowed_values_drop_nulls_allowlist_still_rejects() {
         ["a"]
     );
     let e = bind("allowlist: [~]", bind_filtering_configuration).unwrap_err();
-    assert_eq!(e.class.to_owned(), binder::MISMATCHED);
+    assert_eq!(e.kind.legacy_class().to_owned(), binder::MISMATCHED.legacy_class());
     assert_eq!(
         e.message.as_ref().map(|m| m.to_owned()).as_deref(),
         Some("D9: null element in collection")
@@ -448,13 +453,13 @@ fn container_time_limit_is_mismatched_not_invalid_format() {
         bind_sorting_strategy,
     )
     .unwrap_err();
-    assert_eq!(e.class.to_owned(), binder::MISMATCHED);
+    assert_eq!(e.kind.legacy_class().to_owned(), binder::MISMATCHED.legacy_class());
     let e = bind(
         "{type: probability, minSuccessRate: 0.5, maxCount: 1, timeLimit: {a: 1}}",
         bind_flakiness_strategy,
     )
     .unwrap_err();
-    assert_eq!(e.class.to_owned(), binder::MISMATCHED);
+    assert_eq!(e.kind.legacy_class().to_owned(), binder::MISMATCHED.legacy_class());
 }
 
 #[test]
@@ -466,7 +471,12 @@ fn copied_fixtures_bind_at_section_level() {
         ))
         .unwrap();
         bind(&text, |v| {
-            let child = v.get(key)?.ok_or_else(|| v.error("test", "section"))?;
+            let child = v.get(key)?.ok_or_else(|| {
+                v.error(
+                    marathon_error::FailureKind::Injected(marathon_error::InjectedKind::Test),
+                    "section",
+                )
+            })?;
             f(child)
         })
         .unwrap()

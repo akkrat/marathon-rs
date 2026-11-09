@@ -17,6 +17,7 @@ use crate::{
     binding::{BindingContext, ConfigurationCause, ConfigurationError, ValidationStage},
 };
 use jcompat::{StringSubstitutor, SubstitutionError};
+use marathon_error::FailureKind;
 
 #[derive(Debug)]
 pub enum LoadError {
@@ -79,15 +80,15 @@ pub fn bind_bytes<T: Send>(
     bind_first(bytes, context, bind)
         .and_then(|bound| bound.ok_or(LoadError::NullDocument))
         .map_err(|error| match error {
-            LoadError::Configuration(mut e) if e.class.to_owned().starts_with("com.fasterxml.jackson.") => {
+            LoadError::Configuration(mut e) if matches!(e.kind, FailureKind::Config(kind) if kind.is_json()) => {
                 e.causes.insert(
                     0,
                     ConfigurationCause {
-                        class: e.class.clone(),
+                        kind: e.kind.clone(),
                         message: e.message.take(),
                     },
                 );
-                e.class = "com.malinskiy.marathon.config.exceptions.ConfigurationException".into();
+                e.kind = FailureKind::Config(marathon_error::ConfigKind::Rejected);
                 let path = jcompat::file_manager::absolute_file_path(
                     &context.marathonfile.to_string_lossy(),
                     &context.process_dir.to_string_lossy(),

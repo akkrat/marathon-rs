@@ -131,7 +131,7 @@ async fn unanswered_keep_alives_kill_the_transport_after_max_plus_one_intervals(
     // sent at 2 s and 4 s, lost at the 6 s round: (max + 1) x interval of silence (T09: 5.9 s for 2 s x 2).
     assert_eq!(at, 6_000);
     assert_eq!(transport.sent.load(Ordering::SeqCst), 2);
-    assert_eq!(cause.class, CONNECTION_EXCEPTION);
+    assert_eq!(cause.kind.legacy_class(), CONNECTION_EXCEPTION.legacy_class());
     assert_eq!(cause.reason, DisconnectReason::ConnectionLost);
     assert_eq!(
         cause.message().as_deref(),

@@ -184,7 +184,7 @@ fn should_return_proper_list_of_test_methods() {
             assert!(bundle == identifier.identify(&tests[0])?.unwrap());
             let error = identifier.identify(&test()).err().unwrap();
             assert_eq!(
-                error.failure().class,
+                error.failure().kind.legacy_class(),
                 js("com.malinskiy.marathon.config.exceptions.ConfigurationException")
             );
             assert_eq!(

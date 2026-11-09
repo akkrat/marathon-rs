@@ -3,6 +3,7 @@
 //!
 //! The vendor clock does not move in most of these, so a grace period stays open for as long as a test needs and can
 //! only end by the device's own state. Whole runs, with grace periods that run out, are in `reconnect_test.rs`.
+use marathon_error::FailureKind;
 mod support;
 use marathon_android::{
     device::{AndroidBatchExecutor, AndroidDevice},
@@ -335,7 +336,7 @@ impl AndroidBatchExecutor for Lost {
             self.1.fetch_add(1, Ordering::SeqCst);
             self.0.notified().await;
             Err(VendorError::DeviceLost(Failure {
-                class: "com.malinskiy.marathon.exceptions.DeviceLostException".into(),
+                kind: FailureKind::DeviceLost,
                 message: Some(js("lost")),
                 cause: None,
                 stacktrace: None,

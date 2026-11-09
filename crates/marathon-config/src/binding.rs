@@ -3,6 +3,8 @@
 //!
 //! Source locations and nodes are shared with the production YAML parser.
 
+use marathon_error::FailureKind;
+
 use crate::{Configuration, MarathonDevices, VendorConfiguration};
 use jcompat::jtime::Instant;
 use std::path::PathBuf;
@@ -25,7 +27,7 @@ pub use snakeyaml::node::{Mark as SourceMark, Mark, Node, NodeKind, Span as Sour
 #[derive(Clone, Debug)]
 pub struct TokenError {
     pub stage: String,
-    pub class: String,
+    pub kind: FailureKind,
     pub message: String,
     pub context_mark: Option<SourceMark>,
     pub problem_mark: Option<SourceMark>,
@@ -45,7 +47,7 @@ pub enum BindingCause {
 #[derive(Clone, Debug)]
 pub struct ConfigurationError {
     pub stage: ValidationStage,
-    pub class: String,
+    pub kind: FailureKind,
     pub message: Option<String>,
     /// Nested exception classes/messages in outermost-first order (config-dump).
     pub causes: Vec<ConfigurationCause>,
@@ -55,7 +57,7 @@ pub struct ConfigurationError {
 }
 #[derive(Clone, Debug)]
 pub struct ConfigurationCause {
-    pub class: String,
+    pub kind: FailureKind,
     pub message: Option<String>,
 }
 /// P1 resolves File against marathonfile_dir; P2 uses process_dir for auth keys.

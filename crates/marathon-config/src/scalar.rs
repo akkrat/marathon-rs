@@ -1,8 +1,10 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/yaml/SerializeModule.kt
 //! Jackson 2.17 scalar coercions used by the shared binder.
+
 use crate::binder::{INVALID_FORMAT, JSON_MAPPING, MISMATCHED};
 use jcompat::jnum::{parse_double, parse_long};
 use jcompat::jtime::{duration_of, instant_of, parse_duration, parse_instant};
+use marathon_error::FailureKind;
 use snakeyaml::resolve::{JInt, base64_encode, java_trim};
 use snakeyaml::tokens::{Tok, Token};
 fn ascii_long(s: &str) -> Option<i64> {
@@ -10,7 +12,7 @@ fn ascii_long(s: &str) -> Option<i64> {
 }
 /// `StreamReadConstraints.getMaxNumberLength` (1000): databind rejects a
 /// longer number spelling before parsing it.
-pub(super) fn check_number_length(text: &str) -> Result<(), &'static str> {
+pub(super) fn check_number_length(text: &str) -> Result<(), FailureKind> {
     if text.encode_utf16().count() > 1000 {
         return Err(JSON_MAPPING);
     }
@@ -22,7 +24,7 @@ pub(super) fn embedded_text(bytes: &[u8]) -> String {
 }
 
 /// `getIntValue` with databind's range check: floats truncate, big integers fail.
-pub(super) fn int_value(t: &Token) -> Result<i32, &'static str> {
+pub(super) fn int_value(t: &Token) -> Result<i32, FailureKind> {
     match &t.tok {
         Tok::Int {
             value: Ok(JInt::Int(v)),
@@ -59,7 +61,7 @@ pub(super) fn int_value(t: &Token) -> Result<i32, &'static str> {
     }
 }
 
-pub(super) fn long_value(t: &Token) -> Result<i64, &'static str> {
+pub(super) fn long_value(t: &Token) -> Result<i64, FailureKind> {
     match &t.tok {
         Tok::Int {
             value: Ok(JInt::Int(v)),
@@ -94,7 +96,7 @@ pub(super) fn long_value(t: &Token) -> Result<i64, &'static str> {
     }
 }
 
-pub(super) fn double_value(t: &Token) -> Result<f64, &'static str> {
+pub(super) fn double_value(t: &Token) -> Result<f64, FailureKind> {
     match &t.tok {
         Tok::Int {
             value: Ok(JInt::Int(v)),
@@ -123,7 +125,7 @@ pub(super) fn double_value(t: &Token) -> Result<f64, &'static str> {
     }
 }
 
-pub(super) fn bool_value(t: &Token) -> Result<bool, &'static str> {
+pub(super) fn bool_value(t: &Token) -> Result<bool, FailureKind> {
     match &t.tok {
         Tok::True(_) => Ok(true),
         Tok::False(_) => Ok(false),
@@ -153,7 +155,7 @@ pub(super) fn bool_value(t: &Token) -> Result<bool, &'static str> {
 
 /// `None` is the null coercion (explicit null, or empty string for the
 /// jsr310/file-adjacent targets); the caller maps it per nullability.
-pub(super) fn string_value(t: &Token) -> Result<Option<String>, &'static str> {
+pub(super) fn string_value(t: &Token) -> Result<Option<String>, FailureKind> {
     match &t.tok {
         Tok::Str(s) => Ok(Some(s.to_owned())),
         Tok::Int {
@@ -173,7 +175,7 @@ pub(super) fn string_value(t: &Token) -> Result<Option<String>, &'static str> {
     }
 }
 
-pub(super) fn instant_value(t: &Token) -> Result<Option<String>, &'static str> {
+pub(super) fn instant_value(t: &Token) -> Result<Option<String>, FailureKind> {
     match &t.tok {
         Tok::Str(s) if java_trim(&s.to_owned()).is_empty() => Ok(None),
         Tok::Str(s) => {
@@ -219,7 +221,7 @@ pub(super) fn instant_value(t: &Token) -> Result<Option<String>, &'static str> {
     }
 }
 
-pub(super) fn duration_value(t: &Token) -> Result<Option<String>, &'static str> {
+pub(super) fn duration_value(t: &Token) -> Result<Option<String>, FailureKind> {
     match &t.tok {
         Tok::Str(s) if java_trim(&s.to_owned()).is_empty() => Ok(None),
         Tok::Str(s) => parse_duration(java_trim(&s.to_owned()))

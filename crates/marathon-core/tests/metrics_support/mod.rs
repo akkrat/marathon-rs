@@ -13,6 +13,7 @@ use marathon_core::{
     strategy::MetricsKey,
     time::*,
 };
+use marathon_error::FailureKind;
 use std::{
     collections::VecDeque,
     future::Future,
@@ -237,7 +238,7 @@ impl Source {
             return Err(error);
         }
         if self.failure {
-            return Err(failure("java.lang.RuntimeException", "unreadable").into());
+            return Err(failure(FailureKind::Runtime, "unreadable").into());
         }
         Ok(())
     }
@@ -262,7 +263,7 @@ impl RemoteDataSource for Source {
     fn close(&self) -> ServiceFuture<'_, ()> {
         Box::pin(async {
             if self.close_error {
-                Err(failure("java.io.IOException", "close").into())
+                Err(failure(FailureKind::Io, "close").into())
             } else {
                 Ok(())
             }

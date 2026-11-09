@@ -13,6 +13,7 @@ use marathon_core::{
     runtime::{Deferred, VendorFuture},
     vendor::VendorContext,
 };
+use marathon_error::FailureKind;
 use marathon_ios::apple_simulator_device::{SimulatorListenerFactory, SimulatorListeners};
 use std::path::Path;
 #[derive(Default)]
@@ -65,7 +66,7 @@ impl FileBridge for BundleBridge {
                 1 => return Ok(false),
                 2 => {
                     return Err(VendorError::Other(failure(
-                        "java.lang.IllegalStateException",
+                        FailureKind::IllegalState,
                         "transport closed",
                     )));
                 }
@@ -74,10 +75,10 @@ impl FileBridge for BundleBridge {
             let folder = dst.join(src.rsplit('/').next().unwrap());
             tokio::fs::create_dir_all(&folder)
                 .await
-                .map_err(|e| VendorError::Other(failure("java.io.IOException", e.to_string())))?;
+                .map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;
             tokio::fs::write(folder.join("Info.plist"), b"result")
                 .await
-                .map_err(|e| VendorError::Other(failure("java.io.IOException", e.to_string())))?;
+                .map_err(|e| VendorError::Other(failure(FailureKind::Io, e.to_string())))?;
             Ok(true)
         })
     }
@@ -127,10 +128,7 @@ impl AppleTestRunListener for Finalizer {
                 let reason = self.context.cancellation.cancelled().await;
                 Err(VendorError::Cancelled(reason))
             } else {
-                Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
-                    "device log",
-                )))
+                Err(VendorError::Other(failure(FailureKind::IllegalState, "device log")))
             }
         })
     }

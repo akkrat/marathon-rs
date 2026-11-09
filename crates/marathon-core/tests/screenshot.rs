@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/model/RotationTest.kt
 //! and core/src/main/kotlin/com/malinskiy/marathon/device/screenshot/ScreenCapturer.kt (oracle witnesses).
+use marathon_error::FailureKind;
 mod report_probe_support;
 use image::{Rgba, RgbaImage};
 use jcompat::{jtime::duration_of, logging::MarathonLogging};
@@ -125,7 +126,7 @@ fn gif_metadata_zero_frames_and_invalid_delays_match_jvm() {
             oracle(&format!("gif-{delay}"))["error"]
                 .as_str()
                 .unwrap()
-                .starts_with(&err.failure().class.to_owned())
+                .starts_with(&err.failure().kind.legacy_class().to_owned())
         );
     }
 }
@@ -224,10 +225,10 @@ impl VendorClock for Clock {
 fn capture_timeout_io_null_continue_fatal_and_cancellation_join_cleanup() {
     for terminal in [
         VendorError::Cancelled(requested("done")),
-        VendorError::Other(failure("java.lang.IllegalStateException", "fatal")),
+        VendorError::Other(failure(FailureKind::IllegalState, "fatal")),
         VendorError::Cancelled(Cancellation::Timeout {
             scope: 7,
-            detail: failure("kotlinx.coroutines.TimeoutCancellationException", "runtime"),
+            detail: failure(FailureKind::TimeoutCancelled, "runtime"),
         }),
     ] {
         let temp = Temp::new();
@@ -244,11 +245,8 @@ fn capture_timeout_io_null_continue_fatal_and_cancellation_join_cleanup() {
                     frames: Mutex::new(
                         [
                             Ok(None),
-                            Err(VendorError::Other(failure(
-                                "java.util.concurrent.TimeoutException",
-                                "source",
-                            ))),
-                            Err(VendorError::Other(failure("java.io.IOException", "source"))),
+                            Err(VendorError::Other(failure(FailureKind::Timeout, "source"))),
+                            Err(VendorError::Other(failure(FailureKind::Io, "source"))),
                             Ok(Some(image(2, 3, false))),
                             Err(terminal),
                         ]

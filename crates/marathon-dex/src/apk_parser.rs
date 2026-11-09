@@ -5,6 +5,7 @@ use crate::{
     axml::{AxmlParser, END_DOCUMENT, START_TAG},
     error::{DexError, DexResult},
 };
+use marathon_error::FailureKind;
 
 use std::{fs::File, io::Read, path::Path};
 
@@ -26,10 +27,7 @@ fn read_manifest(apk: &Path) -> DexResult<Vec<u8>> {
     let file = File::open(apk).map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
             // ZipFile opens through java.nio: NoSuchFileException directly.
-            DexError::with_class(
-                "java.nio.file.NoSuchFileException",
-                Some(apk.to_string_lossy().as_ref().into()),
-            )
+            DexError::with_class(FailureKind::NoSuchFile, Some(apk.to_string_lossy().as_ref().into()))
         } else {
             DexError::io(err.to_string().as_str())
         }
@@ -38,7 +36,7 @@ fn read_manifest(apk: &Path) -> DexResult<Vec<u8>> {
         // ZipFile's own wording for a file with no END record; it rides
         // inside the RuntimeException cause chain marathon logs.
         zip::result::ZipError::InvalidArchive(_) => {
-            DexError::with_class("java.util.zip.ZipException", Some("zip END header not found".into()))
+            DexError::with_class(FailureKind::Zip, Some("zip END header not found".into()))
         }
         other => DexError::from_zip(other),
     })?;

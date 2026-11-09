@@ -2,6 +2,7 @@
 use super::*;
 use crate::{error::OperationResult, executor::shared::failure};
 use jcompat::jnum::double_to_string;
+use marathon_error::{AnalyticsKind, FailureKind};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Narrow DTO boundary for the WP 3.4b HTTP transport (P1: numeric coercion is f64).
@@ -53,7 +54,7 @@ fn mapper_error(prefix: &str, error: String) -> crate::error::Failure {
     let mut message = String::from(prefix);
     message.push_str(&error);
     crate::error::Failure {
-        class: "org.influxdb.InfluxDBMapperException".into(),
+        kind: FailureKind::Analytics(AnalyticsKind::InfluxMapping),
         message: Some(message),
         cause: None,
         stacktrace: None,
@@ -73,7 +74,7 @@ pub fn map_result(result: QueryResult, column: &str) -> OperationResult<Vec<(Str
             for row in series.values {
                 let value = index.and_then(|i| row.get(i));
                 if let Some(Value::Text(_)) = value {
-                    return Err(failure("java.lang.ClassCastException", "Expected numeric measurement").into());
+                    return Err(failure(FailureKind::ClassCast, "Expected numeric measurement").into());
                 }
                 if let (Some(name), Some(Value::Number(value))) = (series.tags.get(&String::from("testname")), value) {
                     values.push((name.clone(), *value));

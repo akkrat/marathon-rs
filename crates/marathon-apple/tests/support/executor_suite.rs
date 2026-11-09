@@ -3,6 +3,7 @@
 use super::*;
 use marathon_apple::cmd::{CommandExecutor, CommandRequest, consume_output};
 use marathon_core::error::VendorError;
+use marathon_error::FailureKind;
 
 async fn run<E: CommandExecutor>(executor: &E, args: &[&str]) -> marathon_apple::cmd::CommandResult {
     run_with_timeout(executor, args, 5000, 1000).await
@@ -115,7 +116,7 @@ pub async fn test_consume_output_failure_does_not_block_session_close<E: Command
             &context(),
             |line| async move {
                 Err(VendorError::Other(failure(
-                    "java.lang.IllegalStateException",
+                    FailureKind::IllegalState,
                     format!("consumer failed on {line}"),
                 )))
             },
@@ -126,7 +127,7 @@ pub async fn test_consume_output_failure_does_not_block_session_close<E: Command
         assert_eq!(
             error,
             Err(VendorError::Other(failure(
-                "java.lang.IllegalStateException",
+                FailureKind::IllegalState,
                 "consumer failed on start"
             )))
         );

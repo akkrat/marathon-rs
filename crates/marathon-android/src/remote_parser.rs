@@ -12,6 +12,7 @@ use marathon_adb::{
 use marathon_config::vendor::AndroidTestParserConfiguration;
 use marathon_config::vendor::CONFIGURATION_EXCEPTION_CLASS;
 use marathon_core::{error::*, executor::bridge::call_vendor, model::Test, runtime::*, vendor::*};
+use marathon_error::{AndroidKind, FailureKind};
 use std::sync::Arc;
 
 pub const TEST_ANNOTATION_PRODUCER: &str = "com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer";
@@ -84,9 +85,7 @@ impl AmInstrumentTestParser {
                         ..
                     }) => return Err(e),
                     Err(AttemptError { error, logcat }) => {
-                        if error.failure().class
-                            == "com.malinskiy.marathon.android.adam.TestAnnotationProducerNotFoundException"
-                        {
+                        if error.failure().kind == FailureKind::Android(AndroidKind::TestAnnotationProducerNotFound) {
                             fallback = true;
                             let b = bundle.clone();
                             let info =
@@ -181,7 +180,7 @@ impl AmInstrumentTestParser {
                     .await?
                     .ok_or_else(|| {
                         VendorError::TestParsing(failure(
-                            "com.malinskiy.marathon.exceptions.TestParsingException",
+                            FailureKind::TestParsing,
                             format!("Unable to parse test list using {}", device.serial_number().to_owned()).as_str(),
                         ))
                     })?;
@@ -225,7 +224,7 @@ impl AmInstrumentTestParser {
                                 {
                                     return Err(AttemptError {
                                         error: VendorError::Other(Failure {
-                                            class: "com.malinskiy.marathon.android.adam.TestAnnotationProducerNotFoundException".into(),
+                                            kind: FailureKind::Android(AndroidKind::TestAnnotationProducerNotFound),
                                             message: None,
                                             cause: None,
                                             stacktrace: None,
@@ -318,14 +317,14 @@ fn failure_of_session(device: &AndroidDevice, reason: &str) -> Failure {
     message.push_str(&device.serial_number());
     message.push_str(": ");
     message.push_str(reason);
-    self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
+    self::failure(FailureKind::TestParsing, message)
 }
 fn failure_of_parse(device: &AndroidDevice, failure: &VendorError) -> Failure {
     let mut message = String::from("Unable to parse test list using ");
     message.push_str(&device.serial_number());
     message.push_str(": ");
     message.push_str(&failure.failure().to_java_string());
-    self::failure("com.malinskiy.marathon.exceptions.TestParsingException", message)
+    self::failure(FailureKind::TestParsing, message)
 }
 impl RemoteTestParser for AmInstrumentTestParser {
     fn extract(&self, reference: DeviceRef, context: VendorContext) -> VendorFuture<'_, Vec<Test>> {

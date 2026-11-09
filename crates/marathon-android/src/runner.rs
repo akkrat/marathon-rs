@@ -15,6 +15,7 @@ use marathon_adb::{
 use marathon_config::{Configuration, vendor::PathRoot};
 use marathon_core::{error::*, executor::shared::requested, model::*, runtime::*, vendor::*};
 use marathon_dex::apk_parser::InstrumentationInfo;
+use marathon_error::{AdbKind, FailureKind};
 use std::sync::{Arc, Mutex};
 
 pub const ERROR_STUCK: &str = "Test got stuck. You can increase the timeout in settings if it's too strict";
@@ -496,7 +497,7 @@ fn android_configuration(
 ) -> VendorResult<&marathon_config::vendor::AndroidConfiguration> {
     match &configuration.vendor_configuration {
         marathon_config::VendorConfiguration::Android(configuration) => Ok(configuration),
-        _ => Err(other("java.lang.ClassCastException", "Android configuration required")),
+        _ => Err(other(FailureKind::ClassCast, "Android configuration required")),
     }
 }
 /// Not a device loss by itself: a device that really went is reported by its server's device list, as ever.
@@ -505,30 +506,30 @@ fn stream_ended_early(exit_code: Option<i32>) -> VendorError {
         Some(code) => format!("the instrumentation stream ended before a result, with exit code {code}"),
         None => "the instrumentation stream ended before a result".to_owned(),
     };
-    other("java.io.EOFException", message.as_str().to_owned())
+    other(FailureKind::Eof, message.as_str().to_owned())
 }
 fn clone_error(error: &VendorError) -> VendorError {
     VendorError::Other(error.failure().clone())
 }
 fn is_io_exception(error: &VendorError) -> bool {
     [
-        "java.io.IOException",
-        "java.io.FileNotFoundException",
-        "java.io.EOFException",
-        "java.io.InterruptedIOException",
-        "java.net.SocketException",
-        "java.net.SocketTimeoutException",
-        "java.nio.file.NoSuchFileException",
-        "java.nio.file.AccessDeniedException",
-        "java.nio.file.FileAlreadyExistsException",
-        "java.nio.file.FileSystemException",
-        "io.netty.channel.ConnectTimeoutException",
-        "java.net.ConnectException",
-        "io.netty.channel.AbstractChannel$AnnotatedConnectException",
-        "io.netty.channel.StacklessClosedChannelException",
+        FailureKind::Io,
+        FailureKind::FileNotFound,
+        FailureKind::Eof,
+        FailureKind::InterruptedIO,
+        FailureKind::Socket,
+        FailureKind::SocketTimeout,
+        FailureKind::NoSuchFile,
+        FailureKind::AccessDenied,
+        FailureKind::FileAlreadyExists,
+        FailureKind::FileSystem,
+        FailureKind::Adb(AdbKind::ConnectTimeout),
+        FailureKind::Connect,
+        FailureKind::Adb(AdbKind::ConnectRefused),
+        FailureKind::Adb(AdbKind::ClosedChannel),
     ]
     .iter()
-    .any(|s| error.failure().class == (*s))
+    .any(|s| error.failure().kind == (*s))
         && !matches!(error, VendorError::Cancelled(_))
 }
 #[derive(Default)]
@@ -587,7 +588,7 @@ impl AndroidBatchExecutor for AndroidRunnerExecutor {
             }));
             let outcome = receiver
                 .await
-                .map_err(|_| other("java.lang.IllegalStateException", "batch task ended without outcome"))?;
+                .map_err(|_| other(FailureKind::IllegalState, "batch task ended without outcome"))?;
             task.join().await?;
             outcome.map_err(execution_error)
         })

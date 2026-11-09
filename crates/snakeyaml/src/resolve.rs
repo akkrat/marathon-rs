@@ -3,6 +3,8 @@
 //! The regular expressions of `Resolver` are reimplemented as hand-written matchers (they are small, anchored and
 //! ASCII-only); each one names the pattern it implements.
 
+use crate::tokens::TokenErrorKind;
+
 use crate::node::Style;
 
 /// SnakeYAML's implicit tags, as far as Jackson distinguishes them.
@@ -253,11 +255,11 @@ pub enum Decoded {
     /// `_decodeNumberScalar` returns null for a lone sign under `!!int`; `nextToken` then reports end of input.
     EndOfInput,
     /// `nextToken` throws: the Jackson class and our message.
-    Error(&'static str, String),
+    Error(TokenErrorKind, String),
 }
 
-pub const JSON_PARSE_EXCEPTION: &str = "com.fasterxml.jackson.core.JsonParseException";
-pub const STREAM_CONSTRAINTS_EXCEPTION: &str = "com.fasterxml.jackson.core.exc.StreamConstraintsException";
+pub const JSON_PARSE_EXCEPTION: TokenErrorKind = TokenErrorKind::JsonParse;
+pub const STREAM_CONSTRAINTS_EXCEPTION: TokenErrorKind = TokenErrorKind::StreamConstraints;
 
 /// Jackson's `_decodeScalar`. `tag` is SnakeYAML's tag string (see [`crate::node::Node::tag`]).
 pub fn decode_scalar(text: &str, style: Style, tag: Option<&str>) -> Decoded {

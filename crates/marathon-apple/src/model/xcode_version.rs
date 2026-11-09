@@ -5,6 +5,7 @@
 
 use crate::{bin::device_setup, bin::kt, cmd::failure};
 use marathon_core::error::{VendorError, VendorResult};
+use marathon_error::FailureKind;
 
 /// The derived order is the lexicographic `(major, minor, patch)` comparison.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -26,7 +27,7 @@ impl XcodeVersion {
                 let component = kt::trim(component);
                 component.parse::<i32>().map_err(|_| {
                     VendorError::Other(failure(
-                        "java.lang.NumberFormatException",
+                        FailureKind::NumberFormat,
                         format!("For input string: \"{component}\""),
                     ))
                 })

@@ -20,6 +20,7 @@
 //! bounded by the bytes left in the document.
 
 use crate::error::{DexError, DexResult};
+use marathon_error::FailureKind;
 
 pub const START_DOCUMENT: i32 = 0;
 pub const END_DOCUMENT: i32 = 1;
@@ -118,7 +119,7 @@ impl Reader<'_> {
 fn alloc_count(count: i32) -> DexResult<usize> {
     if count < 0 {
         return Err(DexError::with_class(
-            "java.lang.NegativeArraySizeException",
+            FailureKind::NegativeArraySize,
             Some(count.to_string().as_str().into()),
         ));
     }
@@ -126,12 +127,12 @@ fn alloc_count(count: i32) -> DexResult<usize> {
 }
 
 fn out_of_bounds() -> DexError {
-    DexError::with_class("java.lang.ArrayIndexOutOfBoundsException", None)
+    DexError::with_class(FailureKind::ArrayIndexOutOfBounds, None)
 }
 
 /// ByteBuffer.wrap(array, offset, length) range check.
 fn range_out_of_bounds() -> DexError {
-    DexError::with_class("java.lang.IndexOutOfBoundsException", None)
+    DexError::with_class(FailureKind::IndexOutOfBounds, None)
 }
 
 /// StringBlock: the raw pool bytes plus offsets, decoded on demand.
@@ -412,13 +413,13 @@ impl<'a> AxmlParser<'a> {
     fn attribute(&self, index: i32) -> DexResult<TagAttribute> {
         let Some(attrs) = &self.tag_attributes else {
             return Err(DexError::with_class(
-                "java.lang.IndexOutOfBoundsException",
+                FailureKind::IndexOutOfBounds,
                 Some("Attributes are not available.".into()),
             ));
         };
         if index < 0 || index as usize >= attrs.len() {
             return Err(DexError::with_class(
-                "java.lang.IndexOutOfBoundsException",
+                FailureKind::IndexOutOfBounds,
                 Some(format!("Invalid attribute index ({index}).").as_str().into()),
             ));
         }

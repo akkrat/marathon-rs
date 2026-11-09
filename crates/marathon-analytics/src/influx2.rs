@@ -14,6 +14,7 @@ use marathon_core::{
     report::TestEvent,
     runtime::*,
 };
+use marathon_error::{AnalyticsKind, FailureKind};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -51,7 +52,7 @@ impl Influx2Client {
         let (organization, bucket) = (text(&config.organization)?, text(&config.bucket)?);
         let organizations = json(
             &api(&http, "GET", "api/v2/orgs", None, None, String::new()).await?,
-            "com.influxdb.exceptions.InfluxException",
+            FailureKind::Analytics(AnalyticsKind::InfluxV2),
         )?;
         let candidates: Vec<_> = organizations["orgs"]
             .as_array()
@@ -62,7 +63,7 @@ impl Influx2Client {
             .collect();
         let Some(first) = candidates.first() else {
             return Err(failure(
-                "com.malinskiy.marathon.analytics.external.influx2.Influxdb2Exception",
+                FailureKind::Analytics(AnalyticsKind::Influxdb2),
                 &format!("No organization with name = {organization} found"),
             )
             .into());
@@ -79,7 +80,7 @@ impl Influx2Client {
         }
         if bucket.is_empty() {
             return Err(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "Expecting a non-empty string for Bucket Name",
             )
             .into());
@@ -94,7 +95,7 @@ impl Influx2Client {
                 String::new(),
             )
             .await?,
-            "com.influxdb.exceptions.InfluxException",
+            FailureKind::Analytics(AnalyticsKind::InfluxV2),
         )?;
         if buckets["buckets"].as_array().is_none_or(Vec::is_empty) {
             let rp = &config.retention_policy_configuration;
@@ -165,17 +166,13 @@ pub(crate) async fn api(
 ) -> OperationResult<String> {
     match http.request(method, path, ct, accept, body).await {
         Ok(reply) => checked(reply, true),
-        Err(OperationError::Failed(cause))
-            if cause.class.to_owned().starts_with("java.io.") || cause.class.to_owned().starts_with("java.net.") =>
-        {
-            Err(Failure {
-                class: "com.influxdb.exceptions.InfluxException".into(),
-                message: cause.message.to_owned(),
-                cause: Some(Box::new(cause)),
-                stacktrace: None,
-            }
-            .into())
+        Err(OperationError::Failed(cause)) if cause.kind.is_transport() => Err(Failure {
+            kind: FailureKind::Analytics(AnalyticsKind::InfluxV2),
+            message: cause.message.to_owned(),
+            cause: Some(Box::new(cause)),
+            stacktrace: None,
         }
+        .into()),
         Err(error) => Err(error),
     }
 }
@@ -251,14 +248,14 @@ impl FluxQuery for Influx2Client {
     }
 }
 fn parse_error(message: &str) -> OperationError {
-    failure("com.influxdb.query.exceptions.FluxCsvParserException", message).into()
+    failure(FailureKind::Analytics(AnalyticsKind::FluxCsvParser), message).into()
 }
 /// The query API wraps a cell's NumberFormatException in InfluxException.
 fn number_error(message: &str) -> OperationError {
     Failure {
-        class: "com.influxdb.exceptions.InfluxException".into(),
+        kind: FailureKind::Analytics(AnalyticsKind::InfluxV2),
         message: Some(message.into()),
-        cause: Some(Box::new(failure("java.lang.NumberFormatException", message))),
+        cause: Some(Box::new(failure(FailureKind::NumberFormat, message))),
         stacktrace: None,
     }
     .into()
@@ -319,7 +316,7 @@ pub fn decode(body: &str) -> OperationResult<Vec<Record>> {
         }
         if columns.get(1).is_some_and(|s| s == "error") {
             return Err(failure(
-                "com.influxdb.query.exceptions.FluxQueryException",
+                FailureKind::Analytics(AnalyticsKind::FluxQuery),
                 row.get(1).unwrap_or(""),
             )
             .into());

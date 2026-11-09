@@ -169,7 +169,7 @@ async fn actual_jvm_wrong_state_types_fail_and_p2_accepts_integral_storage() -> 
             .find(|r| r["kind"] == "actualState" && r["xml"] == xml)
             .unwrap();
         if let Some(class) = expected["errorClass"].as_str() {
-            assert_eq!(result.unwrap_err().failure().class.to_owned(), class);
+            assert_eq!(result.unwrap_err().failure().kind.legacy_class().to_owned(), class);
         } else {
             assert_eq!(
                 result.unwrap(),

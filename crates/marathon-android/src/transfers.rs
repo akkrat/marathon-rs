@@ -18,6 +18,7 @@ use marathon_core::{
     transfer::TransferMeasurement,
     vendor::VendorContext,
 };
+use marathon_error::{AdbKind, FailureKind};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -104,7 +105,7 @@ impl AndroidDevice {
             )
             .await;
         match result {
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PullFailedException" => Err(with_cause(
+            Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::PullFailed) => Err(with_cause(
                 transfer(
                     format!(
                         "Couldn't pull file {remote} from device {}",
@@ -114,18 +115,16 @@ impl AndroidDevice {
                 ),
                 e,
             )),
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.UnsupportedSyncProtocolException" => {
-                Err(with_cause(
-                    transfer(
-                        format!(
-                            "Device {} does not support sync: file transfer",
-                            self.serial_number().to_owned()
-                        )
-                        .as_str(),
-                    ),
-                    e,
-                ))
-            }
+            Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::UnsupportedSyncProtocol) => Err(with_cause(
+                transfer(
+                    format!(
+                        "Device {} does not support sync: file transfer",
+                        self.serial_number().to_owned()
+                    )
+                    .as_str(),
+                ),
+                e,
+            )),
             other => other,
         }
     }
@@ -173,7 +172,7 @@ impl AndroidDevice {
             )
             .await;
         match result {
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.PushFailedException" => {
+            Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::PushFailed) => {
                 return Err(with_cause(transfer(e.failure().to_java_string()), e));
             }
             other => other?,
@@ -202,7 +201,7 @@ impl AndroidDevice {
         let start = context
             .hooks
             .millis("android.BaseAndroidDevice.waitForRemoteFile")
-            .map_err(|e| other("ReplayError", e.message))?;
+            .map_err(|e| other(FailureKind::ReplayClock, e.message))?;
         // D23: the push timeout bounds the wait for every caller; Kotlin's loop has no bound of its own (N5), and a
         // file sync push has no other. Legacy install's enclosing timeout has the same length and started earlier, so
         // it fires first and keeps its message.
@@ -239,7 +238,7 @@ impl AndroidDevice {
         let elapsed = context
             .hooks
             .millis("android.BaseAndroidDevice.waitForRemoteFile")
-            .map_err(|e| other("ReplayError", e.message))?
+            .map_err(|e| other(FailureKind::ReplayClock, e.message))?
             .wrapping_sub(start);
         self.log(Level::Debug, &format!("{remote} synced in {elapsed}ms"), None);
         Ok(())
@@ -562,7 +561,7 @@ impl AndroidDevice {
         })
         .await;
         match result {
-            Err(e) if e.failure().class == "com.malinskiy.adam.exception.UnsupportedImageProtocolException" => {
+            Err(e) if e.failure().kind == FailureKind::Adb(AdbKind::UnsupportedImageProtocol) => {
                 self.log(
                     Level::Warn,
                     &format!(

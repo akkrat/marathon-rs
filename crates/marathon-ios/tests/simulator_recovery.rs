@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProviderReconnectTest.kt
+use marathon_error::FailureKind;
 mod provider_support;
 mod recovery_support;
 mod simulator_support;
@@ -73,7 +74,7 @@ async fn fifty_silent_batches_recycle_the_simulator_until_its_recoveries_run_out
     *silent.plan.lock().unwrap() = OutputPlan {
         lines: vec!["Test Case '-[Suite test1]' started.".into()],
         failure: Some(marathon_apple::cmd::failure(
-            "java.util.concurrent.TimeoutException",
+            FailureKind::Timeout,
             "idle timeout reached",
         )),
         ..Default::default()

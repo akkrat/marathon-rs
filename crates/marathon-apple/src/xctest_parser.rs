@@ -17,7 +17,6 @@ use crate::{
 use jcompat::{
     jtime::Duration,
     logging::{Level, Logger},
-    throwable::is_error_class,
 };
 use marathon_config::VendorConfiguration;
 use marathon_core::{
@@ -27,6 +26,7 @@ use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::{DeviceRef, RemoteTestParser, VendorContext},
 };
+use marathon_error::FailureKind;
 use std::{
     fs::File,
     os::unix::fs::OpenOptionsExt,
@@ -44,7 +44,7 @@ pub const SIMULATOR_SDKS: [Sdk; 4] = [
     Sdk::WatchSimulator,
     Sdk::VisionSimulator,
 ];
-const CONFIGURATION_EXCEPTION: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
+const CONFIGURATION_EXCEPTION: FailureKind = FailureKind::Config(marathon_error::ConfigKind::Rejected);
 
 /// Where an `xctest` run finds the user's copy of the library. Only the `xctest` branch of a vendor builds this from
 /// the environment, so an `nm` run never reads the variable.
@@ -339,7 +339,7 @@ impl RemoteTestParser for XCTestParser<'_> {
                     // U163: a stalled send is not worth two more on this device. Core's retry may borrow another.
                     Err(e @ (VendorError::Cancelled(_) | VendorError::LeavePool { .. })) => return Err(e),
                     Err(error) => {
-                        if !is_error_class(&error.failure().class.to_owned()) {
+                        if !error.failure().kind.is_fatal() {
                             log(
                                 &self.logging,
                                 &self.logger,

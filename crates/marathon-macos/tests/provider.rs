@@ -1,4 +1,5 @@
 //! Port of vendor/vendor-apple/macos/src/test/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProviderTest.kt
+use marathon_error::FailureKind;
 mod support;
 use marathon_apple::apple_device::AppleDevice;
 use marathon_apple::xctest_parser::ParserLibraries;
@@ -65,7 +66,7 @@ async fn file_boundaries_and_equal_transport_overwrite() -> R {
         }
         let (p, _) = h.provider();
         let e = p.initialize(h.context.clone()).await.err().ok_or("expected error")?;
-        assert_eq!(e.failure().class.to_owned(), class);
+        assert_eq!(e.failure().kind.legacy_class().to_owned(), class);
         v(p.terminate().await)?;
     }
     let mut h = Harness::new("")?;
@@ -219,7 +220,7 @@ async fn xctest_construction_fails_without_its_library_and_nm_never_looks_for_it
             };
         let failure = error.failure();
         assert_eq!(
-            failure.class.to_owned(),
+            failure.kind.legacy_class().to_owned(),
             "com.malinskiy.marathon.config.exceptions.ConfigurationException"
         );
         let message = failure.message.as_ref().unwrap().to_owned();
@@ -255,7 +256,10 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         .await
         .err()
         .ok_or("substitution failure")?;
-    assert_eq!(error.failure().class, "java.lang.IllegalStateException".to_owned());
+    assert_eq!(
+        error.failure().kind.legacy_class(),
+        "java.lang.IllegalStateException".to_owned()
+    );
     v(p.terminate().await)?;
     struct Failing {
         entered: tokio::sync::Notify,
@@ -267,7 +271,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
                 if transport == Transport::Local {
                     self.entered.notified().await;
                     Err(VendorError::Other(marathon_apple::cmd::failure(
-                        "java.io.IOException",
+                        FailureKind::Io,
                         "connect failure",
                     )))
                 } else {
@@ -301,7 +305,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         .await?
         .err()
         .ok_or("connect failure")?;
-    assert_eq!(error.failure().class, "java.io.IOException".to_owned());
+    assert_eq!(error.failure().kind.legacy_class(), "java.io.IOException".to_owned());
     assert!(connections.cancelled.load(Ordering::SeqCst));
     v(p.terminate().await)?;
     Ok(())
@@ -333,7 +337,7 @@ async fn devices_read_error_chains_match_jvm_oracle() -> R {
         let mut current = Some(error.failure());
         while let Some(failure) = current {
             chain.push(serde_json::json!({
-                "class": failure.class.to_owned(),
+                "class": failure.kind.legacy_class().to_owned(),
                 "message": failure.message.as_ref().map(|m| m.to_owned().replace(
                     &h.root.path().to_string_lossy().to_string(), &format!("$ROOT/{mode}"))),
             }));
@@ -378,10 +382,13 @@ async fn setup_on_a_connection_lost_before_the_last_probe_fails_instead_of_using
     let error = d.setup(&h.context).await.unwrap_err();
     assert_eq!(
         (
-            error.failure().class.to_owned(),
+            error.failure().kind.legacy_class().to_owned(),
             error.failure().message.as_ref().unwrap().to_owned()
         ),
-        (CONNECTION_EXCEPTION.to_owned(), "Not connected".to_owned())
+        (
+            CONNECTION_EXCEPTION.legacy_class().to_owned(),
+            "Not connected".to_owned()
+        )
     );
     Ok(())
 }

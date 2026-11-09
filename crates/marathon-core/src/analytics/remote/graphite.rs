@@ -6,6 +6,7 @@ use jcompat::{
     jnum::{double_to_string, parse_double_with_error},
     logging::Level,
 };
+use marathon_error::FailureKind;
 use std::sync::Arc;
 
 /// WP 3.4b implements QueryableGraphiteClient: render GET on port 80, Java form
@@ -41,8 +42,7 @@ impl GraphiteDataSource {
 pub fn parse_line(line: &str) -> OperationResult<(String, f64)> {
     let name = line.split_once(',').map_or(line, |p| p.0).replace("--", ".");
     let value = line.split_once('|').map_or(line, |p| p.1);
-    let value =
-        parse_double_with_error(value).map_err(|message| failure("java.lang.NumberFormatException", &message))?;
+    let value = parse_double_with_error(value).map_err(|message| failure(FailureKind::NumberFormat, &message))?;
     Ok((name, value))
 }
 /// Whether a raw line is one series with no value at all: the query summarises over 10 years, and

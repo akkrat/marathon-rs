@@ -9,6 +9,7 @@ use marathon_cli::{
     run_cli,
     runner::{ProductionRunner, missing_vendors},
 };
+use marathon_error::FailureKind;
 use std::{
     io::{self, IsTerminal},
     process::ExitCode,
@@ -40,14 +41,11 @@ fn main() -> ExitCode {
         .collect();
     let cwd = match std::env::current_dir() {
         Ok(cwd) => cwd,
-        Err(e) => return failure_exit("java.io.IOException", &e.to_string()),
+        Err(e) => return failure_exit(FailureKind::Io, &e.to_string()),
     };
     let since_epoch = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
     let Some(now) = instant_of(since_epoch.as_secs() as i64, i64::from(since_epoch.subsec_nanos())) else {
-        return failure_exit(
-            "java.time.DateTimeException",
-            "Instant exceeds minimum or maximum instant",
-        );
+        return failure_exit(FailureKind::DateTime, "Instant exceeds minimum or maximum instant");
     };
     let process = Process {
         cwd,

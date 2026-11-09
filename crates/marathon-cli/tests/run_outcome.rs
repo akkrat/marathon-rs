@@ -19,6 +19,7 @@ use marathon_config::{
     loader::MarathonConfigurationLoader,
 };
 use marathon_core::{error::Failure, model::ExecutionCommand};
+use marathon_error::{FailureKind, FatalKind, InjectedKind};
 use serde_json::Value as Json;
 use std::{
     fs,
@@ -51,9 +52,9 @@ impl Buffer {
     }
 }
 
-fn failure(class: &str, message: &str, cause: Option<Failure>) -> Failure {
+fn failure(class: FailureKind, message: &str, cause: Option<Failure>) -> Failure {
     Failure {
-        class: class.into(),
+        kind: class,
         message: Some(message.into()),
         cause: cause.map(Box::new),
         stacktrace: None,
@@ -226,9 +227,9 @@ fn run_failures_exit_1() {
 #[test]
 fn run_crash_logs_kotlin_unit_and_the_throwable() {
     let e = failure(
-        "java.lang.IllegalStateException",
+        FailureKind::IllegalState,
         "boom",
-        Some(failure("java.io.IOException", "inner", None)),
+        Some(failure(FailureKind::Io, "inner", None)),
     );
     let r = marathon(&["run"], ANDROID, Ok(Outcome::Crash(e)));
     assert_eq!(
@@ -244,7 +245,7 @@ fn run_crash_logs_kotlin_unit_and_the_throwable() {
 
 #[test]
 fn run_crash_after_configure_logging_uses_the_runtime_layout() {
-    let e = failure("java.lang.RuntimeException", "late", None);
+    let e = failure(FailureKind::Runtime, "late", None);
     let r = marathon(&["run"], ANDROID, Ok(Outcome::ConfigureThenCrash(e)));
     // Off a terminal Jansi strips the highlight; the runtime layout puts the level letter first.
     assert_eq!(
@@ -259,7 +260,7 @@ fn run_crash_after_configure_logging_uses_the_runtime_layout() {
 
 #[test]
 fn run_events_and_the_crash_log_share_the_console() {
-    let e = failure("java.lang.RuntimeException", "late", None);
+    let e = failure(FailureKind::Runtime, "late", None);
     let r = marathon(&["run"], ANDROID, Ok(Outcome::LogThenCrash(e)));
     assert_eq!(
         r.stdout,
@@ -275,9 +276,9 @@ fn run_events_and_the_crash_log_share_the_console() {
 #[test]
 fn construction_failure_escapes_execute() {
     let e = failure(
-        "org.koin.core.error.InstanceCreationException",
+        FailureKind::DependencyCreation,
         "Could not create instance",
-        Some(failure("java.lang.IllegalArgumentException", "bad", None)),
+        Some(failure(FailureKind::IllegalArgument, "bad", None)),
     );
     let r = marathon(&["run"], ANDROID, Err(e));
     assert_eq!(r.stdout, start());
@@ -541,7 +542,8 @@ fn throwable_rendering_matches_the_logback_row_without_frames() {
         .unwrap();
     fn convert(t: &Json) -> Option<Failure> {
         (!t.is_null()).then(|| Failure {
-            class: t["class"].as_str().unwrap().into(),
+            kind: marathon_test_support::recorded_errors::failure_kind(t["class"].as_str().unwrap())
+                .unwrap_or_else(|e| panic!("{e}")),
             message: t["message"].as_str().map(Into::into),
             cause: convert(&t["cause"]).map(Box::new),
             stacktrace: None,
@@ -559,10 +561,10 @@ fn throwable_rendering_matches_the_logback_row_without_frames() {
 #[test]
 fn external_trace_text_and_null_messages_render_as_the_jvm_does() {
     let f = Failure {
-        class: "com.example.TestFailure".into(),
+        kind: FailureKind::Injected(InjectedKind::ExampleFailure),
         message: None,
         cause: Some(Box::new(Failure {
-            class: "java.lang.Error".into(),
+            kind: FailureKind::Fatal(FatalKind::General),
             message: Some("x".into()),
             cause: None,
             stacktrace: Some("\tat worker.Frame(Frame.java:1)".into()),

@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/Detached.kt
 //! Barrier witnesses for the retained acquisition adapter and WP 4.3 acknowledgment seam.
+use marathon_error::{FailureKind, SshKind};
 mod provider_support;
 mod recovery_support;
 mod simulator_support;
@@ -353,7 +354,7 @@ impl Connector for AuthOnSimulator {
                                 marathon_apple::logparser::parser::DeviceFailureReason::UnreachableHost,
                                 None,
                                 Some(marathon_apple::cmd::remote::ssh::sshj::SshFailure::new(
-                                    "net.schmizz.sshj.userauth.UserAuthException",
+                                    FailureKind::Ssh(SshKind::Authentication),
                                     "Exhausted available authentication methods",
                                 )),
                             ),

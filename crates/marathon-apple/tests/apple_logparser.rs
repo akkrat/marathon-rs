@@ -704,7 +704,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 Err(error) => {
                     let f = error.to_failure();
                     assert_eq!(
-                        serde_json::json!([f.class.to_owned(), f.message.map(|s| s.to_owned())]),
+                        serde_json::json!([f.kind.legacy_class().to_owned(), f.message.map(|s| s.to_owned())]),
                         entry["exception"],
                         "{}: {text:?}",
                         row["case"]

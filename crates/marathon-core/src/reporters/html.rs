@@ -17,6 +17,7 @@ use jcompat::{
     jstring::lines,
     report_text::{escape_xml11, replace},
 };
+use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -126,7 +127,7 @@ pub fn index(summary: &Summary, title: &str) -> VendorResult<HtmlIndex> {
         |f: fn(&PoolSummary) -> i32| summary.pools.iter().fold(0i32, |sum, p| sum.wrapping_add(f(p))) as i64;
     let average = totals.iter().map(|t| *t as f64).sum::<f64>() / totals.len() as f64;
     let average = jcompat::jnum::kotlin_round_to_long(average)
-        .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalArgumentException", "Cannot round NaN value.")))?;
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "Cannot round NaN value.")))?;
     Ok(HtmlIndex {
         title: title.into(),
         total_failed: sum_count(|p| p.failed.len() as i32),

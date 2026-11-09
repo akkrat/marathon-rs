@@ -88,7 +88,7 @@ fn render_methods(methods: &[TestMethod]) -> Value {
 }
 
 fn render_error(err: &DexError) -> Value {
-    let mut object = serde_json::json!({"class": err.jvm_class.to_owned()});
+    let mut object = serde_json::json!({"class": err.kind.legacy_class().to_owned()});
     if let Some(message) = &err.message {
         object["message"] = message.to_owned().into();
     }

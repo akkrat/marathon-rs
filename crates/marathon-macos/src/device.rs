@@ -46,6 +46,7 @@ use marathon_core::{
     vendor::{Device, DeviceRef, VendorContext},
     wiring::VendorDependencies,
 };
+use marathon_error::{FailureKind, FatalKind};
 use std::path::PathBuf;
 use std::{
     collections::HashMap,
@@ -163,12 +164,9 @@ impl MacosDevice {
         device
     }
     fn retained(&self) -> VendorResult<Arc<Self>> {
-        self.identity.upgrade().ok_or_else(|| {
-            VendorError::Other(failure(
-                "java.lang.IllegalStateException",
-                "macOS device identity expired",
-            ))
-        })
+        self.identity
+            .upgrade()
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "macOS device identity expired")))
     }
     pub fn executor(&self) -> Executor {
         self.binary.command_executor.clone()
@@ -200,12 +198,16 @@ impl MacosDevice {
         .prepare_installation(self, false, context)
         .await
         .map_err(|e| e.into_vendor())?;
-        let bundle = self.options.vendor.bundle.as_ref().ok_or_else(|| {
-            VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
-        })?;
-        let xctest = bundle.xctest.as_ref().ok_or_else(|| {
-            VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
-        })?;
+        let bundle = self
+            .options
+            .vendor
+            .bundle
+            .as_ref()
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "No test bundle provided")))?;
+        let xctest = bundle
+            .xctest
+            .as_ref()
+            .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "No test bundle provided")))?;
         let bundle = AppleTestBundle::new(
             bundle.app.clone(),
             bundle.test_app.clone(),
@@ -239,7 +241,7 @@ impl MacosDevice {
                 .clone()
                 .ok_or_else(|| {
                     VendorError::Other(failure(
-                        "kotlin.UninitializedPropertyAccessException",
+                        FailureKind::UninitializedProperty,
                         "lateinit property testBundle has not been initialized",
                     ))
                 })?;
@@ -338,7 +340,7 @@ impl MacosDevice {
         batch
             .cancellation
             .cancel(marathon_core::error::Cancellation::Requested(failure(
-                "kotlinx.coroutines.JobCancellationException",
+                FailureKind::JobCancelled,
                 "LazyDeferredCoroutine was cancelled",
             )));
         let context = self.context();
@@ -349,7 +351,7 @@ impl MacosDevice {
                 self.options
                     .cancelled_batch_timeout
                     .to_millis()
-                    .ok_or_else(|| VendorError::Other(failure("java.lang.ArithmeticException", "long overflow")))?,
+                    .ok_or_else(|| VendorError::Other(failure(FailureKind::Arithmetic, "long overflow")))?,
                 Box::new(|signal| {
                     Box::pin(async move {
                         tokio::select! { biased;
@@ -436,14 +438,14 @@ impl MacosDevice {
         let major = version.split('.').next().and_then(jcompat::jnum::parse_int);
         if !major.is_some_and(|n| n > 10) {
             return Err(VendorError::IncompatibleDevice(failure(
-                "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
+                FailureKind::IncompatibleDevice,
                 "Modifying permissions is supported to macOS 10+",
             )));
         }
         // P4: malformed client identifiers are rejected before constructing SQL.
         if client.chars().any(|c| c == '"' || c.is_control()) {
             return Err(VendorError::Other(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "Permission client contains a double quote or control character",
             )));
         }
@@ -504,13 +506,13 @@ impl MacosDevice {
     }
 }
 fn lost(cause: Failure) -> VendorError {
-    let rendered = if cause.class == marathon_apple::cmd::remote::ssh::sshj::error::OPEN_FAIL_EXCEPTION {
+    let rendered = if cause.kind == marathon_apple::cmd::remote::ssh::sshj::error::OPEN_FAIL_EXCEPTION {
         marathon_apple::cmd::remote::ssh::sshj::SshFailure::new(
             marathon_apple::cmd::remote::ssh::sshj::error::OPEN_FAIL_EXCEPTION,
             cause.message.as_ref().map_or_else(|| "null".into(), String::clone),
         )
         .java_to_string()
-    } else if cause.class == "kotlinx.coroutines.JobCancellationException"
+    } else if cause.kind == FailureKind::JobCancelled
         && cause.message == Some("LazyDeferredCoroutine was cancelled".into())
     {
         format!(
@@ -520,15 +522,13 @@ fn lost(cause: Failure) -> VendorError {
     } else {
         cause.to_java_string().to_owned()
     };
-    let mut detail = failure("com.malinskiy.marathon.exceptions.DeviceLostException", rendered);
+    let mut detail = failure(FailureKind::DeviceLost, rendered);
     detail.cause = Some(Box::new(cause));
     VendorError::DeviceLost(detail)
 }
 fn classify_setup(error: VendorError) -> VendorError {
     match error {
-        VendorError::Other(f) if f.class == "com.malinskiy.marathon.exceptions.DeviceSetupException" => {
-            VendorError::DeviceSetup(f)
-        }
+        VendorError::Other(f) if f.kind == FailureKind::DeviceSetup => VendorError::DeviceSetup(f),
         other => other,
     }
 }
@@ -537,10 +537,7 @@ fn classify_run(run: RunError) -> VendorError {
     let error = run.into_vendor();
     match reason {
         Some(DeviceFailureReason::IncompatibleDevice) => {
-            let mut f = failure(
-                "com.malinskiy.marathon.exceptions.IncompatibleDeviceException",
-                error.failure().to_java_string(),
-            );
+            let mut f = failure(FailureKind::IncompatibleDevice, error.failure().to_java_string());
             f.cause = Some(Box::new(error.failure().clone()));
             VendorError::IncompatibleDevice(f)
         }
@@ -555,11 +552,11 @@ fn classify_execute(error: VendorError) -> VendorError {
     use marathon_apple::cmd::remote::ssh::sshj::error::{
         CONNECTION_EXCEPTION, OPEN_FAIL_EXCEPTION, TRANSPORT_EXCEPTION, is_instance,
     };
-    let class = error.failure().class.to_owned();
-    if class == "java.lang.IllegalStateException"
+    let class = error.failure().kind.to_owned();
+    if class == FailureKind::IllegalState
         || [CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, OPEN_FAIL_EXCEPTION]
             .iter()
-            .any(|base| is_instance(&class, base))
+            .any(|base| is_instance(&class, base.clone()))
     {
         lost(error.failure().clone())
     } else {
@@ -568,7 +565,7 @@ fn classify_execute(error: VendorError) -> VendorError {
 }
 fn unsupported<T>() -> VendorResult<T> {
     Err(VendorError::Other(failure(
-        "kotlin.NotImplementedError",
+        FailureKind::Fatal(FatalKind::NotImplemented),
         "An operation is not implemented: Not yet implemented",
     )))
 }
@@ -627,7 +624,7 @@ impl Device for MacosDevice {
                 let mut execution = self.execution.lock().unwrap_or_else(|e| e.into_inner());
                 if execution.disposal.is_some() {
                     return Err(lost(failure(
-                        "java.lang.IllegalStateException",
+                        FailureKind::IllegalState,
                         format!("Device {} has been disposed", self.serial.to_owned()),
                     )));
                 }
@@ -668,7 +665,7 @@ impl Device for MacosDevice {
     fn dispose(&self) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             if let Err(error) = self.dispose_inner().await {
-                if jcompat::throwable::is_error_class(&error.failure().class.to_owned()) {
+                if error.failure().kind.is_fatal() {
                     return Err(error);
                 }
                 self.log(
@@ -709,7 +706,7 @@ impl AppleDevice for MacosDevice {
             let result = self.execute_worker_command(vec!["env".into()], context).await?;
             let result = result.filter(CommandResult::successful).ok_or_else(|| {
                 VendorError::DeviceSetup(failure(
-                    "com.malinskiy.marathon.exceptions.DeviceSetupException",
+                    FailureKind::DeviceSetup,
                     format!("macOS {}: unable to detect environment variables", self.udid),
                 ))
             })?;
@@ -738,7 +735,7 @@ impl AppleDevice for MacosDevice {
             let home = env.get("HOME").map_or("", String::as_str);
             if marathon_apple::bin::kt::trim(home).is_empty() {
                 return Err(VendorError::DeviceSetup(failure(
-                    "com.malinskiy.marathon.exceptions.DeviceSetupException",
+                    FailureKind::DeviceSetup,
                     format!(
                         "macOS {}: invalid value {home} for environment variable HOME",
                         self.udid
@@ -945,7 +942,8 @@ mod tests {
             };
             let error = classify_run(RunError {
                 error: VendorError::Other(failure(
-                    cause["class"].as_str().unwrap(),
+                    marathon_test_support::recorded_errors::failure_kind(cause["class"].as_str().unwrap())
+                        .unwrap_or_else(|e| panic!("{e}")),
                     cause["message"].as_str().unwrap(),
                 )),
                 reason,
@@ -954,7 +952,7 @@ mod tests {
             let mut chain = vec![];
             let mut current = Some(error.failure());
             while let Some(f) = current {
-                chain.push(json!({"class":f.class.to_owned(),"message":f.message.clone()}));
+                chain.push(json!({"class":f.kind.legacy_class().to_owned(),"message":f.message.clone()}));
                 current = f.cause.as_deref();
             }
             assert_eq!(json!(chain), row["error"], "{case}");

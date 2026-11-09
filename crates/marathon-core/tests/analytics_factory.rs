@@ -1,5 +1,6 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/analytics/metrics/MetricsProviderFactoryTest.kt
 //! and NoOpMetricsProviderTest.kt, analytics/external/ExecutionTimeCoverageTest.kt.
+use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
 use jcompat::{jtime::Instant, logging::Level};
@@ -23,21 +24,21 @@ struct Setup;
 struct BadGraphite;
 impl GraphiteQuery for BadGraphite {
     fn query<'a>(&'a self, _: &'a str, _: Instant) -> ServiceFuture<'a, Vec<String>> {
-        Box::pin(async { Err(failure("java.lang.IllegalArgumentException", "Invalid URL host: not a host").into()) })
+        Box::pin(async { Err(failure(FailureKind::IllegalArgument, "Invalid URL host: not a host").into()) })
     }
 }
 impl MetricsSetup for Setup {
     fn influx<'a>(&'a self, _: &'a InfluxDbConfiguration, _: bool) -> ServiceFuture<'a, Arc<dyn InfluxQuery>> {
         Box::pin(async {
             Err(failure(
-                "java.lang.IllegalArgumentException",
+                FailureKind::IllegalArgument,
                 "Expected URL scheme 'http' or 'https' but no scheme was found for host",
             )
             .into())
         })
     }
     fn influx2<'a>(&'a self, _: &'a InfluxDb2Configuration, _: bool) -> ServiceFuture<'a, Arc<dyn FluxQuery>> {
-        Box::pin(async { Err(failure("java.lang.IllegalArgumentException", "invalid URL").into()) })
+        Box::pin(async { Err(failure(FailureKind::IllegalArgument, "invalid URL").into()) })
     }
     fn graphite<'a>(&'a self, host: &'a str) -> ServiceFuture<'a, Arc<dyn GraphiteQuery>> {
         assert!(matches!(host, "not a host" | "�"));
@@ -425,7 +426,7 @@ fn factory_rejects_overflowing_default_before_setup_or_noop_fallback() {
             assert_eq!(
                 error,
                 failure(
-                    "java.lang.IllegalArgumentException",
+                    FailureKind::IllegalArgument,
                     "analyticsConfiguration.defaults.duration exceeds the millisecond range of a Java Long"
                 )
                 .into()

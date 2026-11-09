@@ -126,7 +126,10 @@ fn validation_corpus_matches_jvm() {
         }
         if let Some(e) = &error {
             let expected = &row["error"];
-            let got = (cleaner.java(&e.class), e.message.as_ref().map(|m| cleaner.java(m)));
+            let got = (
+                cleaner.java(e.kind.legacy_class()),
+                e.message.as_ref().map(|m| cleaner.java(m)),
+            );
             let want = (
                 expected["class"].as_str().unwrap().to_owned(),
                 expected["message"].as_str().map(str::to_owned),
@@ -140,7 +143,7 @@ fn validation_corpus_matches_jvm() {
                 .iter()
                 .map(|c| c.as_str().unwrap().split(':').next().unwrap().to_owned())
                 .collect();
-            let got_causes: Vec<String> = e.causes.iter().map(|c| c.class.to_owned()).collect();
+            let got_causes: Vec<String> = e.causes.iter().map(|c| c.kind.legacy_class().to_owned()).collect();
             if got_causes != want_causes {
                 failures.push(format!("{id}: causes {got_causes:?} vs {want_causes:?}"));
             }

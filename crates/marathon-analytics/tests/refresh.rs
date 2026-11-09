@@ -1,6 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/MetricsProviderImpl.kt
 //! (D34 through the real clients: a failed history query is not final; Kotlin caches it for the
 //! whole run).
+use marathon_error::{FailureKind, InjectedKind};
 mod support;
 use jcompat::{jtime::Instant, logging::Level};
 use marathon_analytics::AnalyticsClients;
@@ -68,7 +69,7 @@ impl VendorClock for Clock {
             tokio::select! {
                 reason = cancellation.cancelled() => Err(VendorError::Cancelled(reason)),
                 permit = self.advances.acquire() => {
-                    permit.map_err(|e| VendorError::Other(failure("test.Clock", &e.to_string())))?.forget();
+                    permit.map_err(|e| VendorError::Other(failure(FailureKind::Injected(InjectedKind::TestClock), &e.to_string())))?.forget();
                     Ok(())
                 }
             }
@@ -282,7 +283,7 @@ impl RemoteDataSource for Blocking {
     fn request_all_execution_times(&self, _: f64, _: Instant) -> ServiceFuture<'_, Vec<ExecutionTime>> {
         Box::pin(async {
             if self.calls.fetch_add(1, Ordering::SeqCst) < 3 {
-                return Err(failure("java.io.IOException", "down").into());
+                return Err(failure(FailureKind::Io, "down").into());
             }
             self.blocked.store(true, Ordering::SeqCst);
             let _ = self.release.lock().unwrap().recv_timeout(Duration::from_secs(60));
@@ -349,7 +350,9 @@ fn close_gets_past_a_blocked_vendor_worker_on_the_real_runtime_and_clock() {
             assert!(source.closed.load(Ordering::SeqCst));
             assert!(!source.ended.load(Ordering::SeqCst));
 
-            release.send(()).map_err(|e| failure("test.Blocking", &e.to_string()))?;
+            release
+                .send(())
+                .map_err(|e| failure(FailureKind::Injected(InjectedKind::TestBlocking), &e.to_string()))?;
             let refresh = vendor.tasks.lock().unwrap()[0].clone();
             let _ = refresh.join().await;
             assert!(source.ended.load(Ordering::SeqCst));

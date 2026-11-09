@@ -8,10 +8,7 @@ use crate::{
     distributed_derived_data::require_distributed_test_bundle,
     model::AppleTestBundle,
 };
-use jcompat::{
-    logging::{Level, Logger},
-    throwable::is_error_class,
-};
+use jcompat::logging::{Level, Logger};
 use marathon_config::{VendorConfiguration, vendor::TestClassRegex};
 use marathon_core::{
     error::{VendorError, VendorResult},
@@ -19,6 +16,7 @@ use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::{DeviceRef, RemoteTestParser, VendorContext},
 };
+use marathon_error::{AppleKind, FailureKind};
 use std::sync::Arc;
 
 pub struct NmTestParser {
@@ -117,7 +115,7 @@ impl NmTestParser {
             .collect())
     }
     fn rescan(&self, error: &VendorError, binary: &str) -> VendorResult<()> {
-        if error.failure().class != "com.malinskiy.marathon.apple.cmd.CommandException" {
+        if error.failure().kind != FailureKind::Apple(AppleKind::Command) {
             return Err(error.clone());
         }
         log(
@@ -147,7 +145,7 @@ impl RemoteTestParser for NmTestParser {
                     // U163: a stalled send is not worth two more on this device. Core's retry may borrow another.
                     Err(e @ (VendorError::Cancelled(_) | VendorError::LeavePool { .. })) => return Err(e),
                     Err(error) => {
-                        if !is_error_class(&error.failure().class.to_owned()) {
+                        if !error.failure().kind.is_fatal() {
                             log(
                                 &self.logging,
                                 &self.logger,
@@ -194,7 +192,7 @@ fn test(pkg: &str, clazz: &str, method: &str) -> Test {
     }
 }
 pub(crate) fn parsing_error(message: String) -> VendorError {
-    let mut detail = failure("com.malinskiy.marathon.exceptions.TestParsingException", "");
+    let mut detail = failure(FailureKind::TestParsing, "");
     detail.message = Some(message);
     VendorError::TestParsing(detail)
 }
@@ -212,11 +210,11 @@ pub(crate) async fn build_bundle(
     let config = config
         .bundle_configuration()
         .filter(|c| c.xctest.is_some())
-        .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided")))?;
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "No test bundle provided")))?;
     let xctest = config
         .xctest
         .as_ref()
-        .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided")))?;
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalArgument, "No test bundle provided")))?;
     Ok(Arc::new(
         AppleTestBundle::new(
             config.app.clone(),

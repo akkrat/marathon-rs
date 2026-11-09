@@ -14,6 +14,7 @@ use marathon_core::{
     screenshot::Screenshottable,
     vendor::{Device, VendorContext},
 };
+use marathon_error::FailureKind;
 use std::path::Path;
 
 pub const SHARED_PATH: &str = "/tmp/marathon";
@@ -48,7 +49,7 @@ pub trait AppleDevice: Device + Screenshottable + LogProducer {
     ) -> VendorFuture<'a, crate::xcodebuild_session::EventReceiver> {
         Box::pin(async {
             Err(marathon_core::error::VendorError::Other(crate::cmd::failure(
-                "java.lang.UnsupportedOperationException",
+                FailureKind::UnsupportedOperation,
                 "executeTestRequest is not implemented",
             )))
         })

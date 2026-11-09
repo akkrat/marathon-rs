@@ -142,11 +142,11 @@ pub fn parse_instant(s: &str) -> Option<Instant> {
 /// `Instant.parse` failure: the `DateTimeParseException` first, then its causes, each as (class, message).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstantParseError {
-    pub chain: Vec<(&'static str, String)>,
+    pub chain: Vec<(marathon_error::FailureKind, String)>,
 }
 
-const PARSE_EXCEPTION: &str = "java.time.format.DateTimeParseException";
-const DATE_TIME_EXCEPTION: &str = "java.time.DateTimeException";
+const PARSE_EXCEPTION: marathon_error::FailureKind = marathon_error::FailureKind::DateTimeParse;
+const DATE_TIME_EXCEPTION: marathon_error::FailureKind = marathon_error::FailureKind::DateTime;
 
 /// Why the composite parser stopped: `~index`, or a `RuntimeException` thrown from inside a sub-parser.
 enum Stop {

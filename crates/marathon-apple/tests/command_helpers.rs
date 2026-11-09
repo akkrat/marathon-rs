@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/CommandExecutor.kt
 //! Additional contract tests; there are no Kotlin matrix rows for these helpers.
+use marathon_error::{AppleKind, FailureKind, SshKind};
 mod support;
 use jcompat::logging::{Logger, MarathonLogging};
 use marathon_apple::{
@@ -25,7 +26,7 @@ struct FaultExecutor {
     logs: Mutex<Vec<String>>,
 }
 impl FaultExecutor {
-    fn new(class: &str, during_await: bool) -> Self {
+    fn new(class: FailureKind, during_await: bool) -> Self {
         Self {
             host: KotlinProcessHost::host(),
             logger: MarathonLogging::default().logger("fault", None),
@@ -76,13 +77,10 @@ impl CommandExecutor for FaultExecutor {
 async fn safe_execute_catches_only_the_two_transport_classes_at_both_boundaries() {
     for during_await in [false, true] {
         for (class, prefix) in [
-            ("net.schmizz.sshj.connection.ConnectionException", "Unable to start"),
-            ("net.schmizz.sshj.transport.TransportException", "Error starting"),
+            (FailureKind::Ssh(SshKind::Connection), "Unable to start"),
+            (FailureKind::Ssh(SshKind::Transport), "Error starting"),
             // WP 4.2: subclasses are caught too (Kotlin `catch`), e.g. a MaxSessions open failure.
-            (
-                "net.schmizz.sshj.connection.channel.OpenFailException",
-                "Unable to start",
-            ),
+            (FailureKind::Ssh(SshKind::OpenChannel), "Unable to start"),
         ] {
             let executor = FaultExecutor::new(class, during_await);
             assert_eq!(
@@ -98,10 +96,7 @@ async fn safe_execute_catches_only_the_two_transport_classes_at_both_boundaries(
             );
         }
         // Neither a superclass (SSHException, UserAuthException's parent) nor an unrelated class is caught.
-        for class in [
-            "java.lang.IllegalStateException",
-            "net.schmizz.sshj.common.SSHException",
-        ] {
+        for class in [FailureKind::IllegalState, FailureKind::Ssh(SshKind::General)] {
             let executor = FaultExecutor::new(class, during_await);
             assert_eq!(
                 executor
@@ -135,7 +130,7 @@ async fn failed_session_close_is_shared_then_retried_without_overlap() {
                     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                     r.store(false, Ordering::SeqCst);
                     if first {
-                        Err(VendorError::Other(failure("java.io.IOException", "close")))
+                        Err(VendorError::Other(failure(FailureKind::Io, "close")))
                     } else {
                         Ok(())
                     }
@@ -164,7 +159,7 @@ async fn critical_execute_preserves_trim_margin_indentation_and_nonzero_output()
     assert_eq!(
         error,
         VendorError::Other(failure(
-            "com.malinskiy.marathon.apple.cmd.CommandException",
+            FailureKind::Apple(AppleKind::Command),
             "command sh -c echo out; echo err >&2; exit 1 failed with exit code 1:\n                   stdout: out\n                   stderr: err"
         ))
     );
@@ -265,10 +260,7 @@ async fn failed_backend_close_can_be_retried() {
                 let attempt = called.fetch_add(1, Ordering::SeqCst);
                 Box::pin(async move {
                     if attempt == 0 {
-                        Err(VendorError::Other(failure(
-                            "java.util.concurrent.TimeoutException",
-                            "close wait",
-                        )))
+                        Err(VendorError::Other(failure(FailureKind::Timeout, "close wait")))
                     } else {
                         Ok(())
                     }

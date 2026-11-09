@@ -5,8 +5,9 @@
 
 use crate::cmd::failure;
 use marathon_core::error::{VendorError, VendorResult};
+use marathon_error::FailureKind;
 
-const INCOMPATIBLE_DEVICE_EXCEPTION: &str = "com.malinskiy.marathon.exceptions.IncompatibleDeviceException";
+const INCOMPATIBLE_DEVICE_EXCEPTION: FailureKind = FailureKind::IncompatibleDevice;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AppleOperatingSystemVersion {
