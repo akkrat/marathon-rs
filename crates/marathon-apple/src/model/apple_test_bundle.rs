@@ -358,7 +358,7 @@ mod plist_boundary_test {
                 message: "read denied".into(),
             },
         );
-        assert_eq!(error.failure().kind.legacy_class().to_owned(), "java.io.IOException");
+        assert_eq!(error.failure().kind, marathon_error::FailureKind::Io);
         assert_eq!(error.failure().message.as_ref().unwrap().to_owned(), "read denied");
     }
 }

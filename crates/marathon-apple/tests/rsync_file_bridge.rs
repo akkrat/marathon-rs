@@ -451,15 +451,13 @@ async fn process_failure_child() {
         assert_eq!(events[0].2, format!("send error: {output}"));
         assert_eq!(events[1].2, output);
     } else {
-        let class = if profile == "missing" {
-            "java.lang.IllegalStateException"
+        let kind = if profile == "missing" {
+            marathon_error::FailureKind::IllegalState
         } else {
-            "java.io.IOException"
+            marathon_error::FailureKind::Io
         };
         for result in [send, receive] {
-            assert!(
-                matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.kind.legacy_class()==class)
-            );
+            assert!(matches!(result,Err(marathon_core::error::VendorError::Other(ref error))if error.kind==kind));
         }
     }
     b.join_pending().await.unwrap();
@@ -1470,10 +1468,7 @@ async fn stalled_send_runs() {
                 ),
                 "{error:?}"
             );
-            assert_eq!(
-                error.failure().kind.legacy_class(),
-                TRANSFER_STALLED.legacy_class().to_owned()
-            );
+            assert_eq!(error.failure().kind, TRANSFER_STALLED);
         }
         assert_eq!(std::fs::read_to_string(root.join("order")).unwrap(), "stalled\n");
         // A send that starts later waited behind nothing, so it tries: the worker may have come back.

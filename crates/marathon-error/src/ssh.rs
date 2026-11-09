@@ -14,9 +14,9 @@ pub enum SshKind {
     Transport,
     Authentication,
     Encryption,
-    PEM,
+    Pem,
     Password,
-    PKCS,
+    Pkcs,
 }
 
 impl SshKind {
@@ -32,9 +32,9 @@ impl SshKind {
             Self::Transport => "net.schmizz.sshj.transport.TransportException",
             Self::Authentication => "net.schmizz.sshj.userauth.UserAuthException",
             Self::Encryption => "org.bouncycastle.openssl.EncryptionException",
-            Self::PEM => "org.bouncycastle.openssl.PEMException",
+            Self::Pem => "org.bouncycastle.openssl.PEMException",
             Self::Password => "org.bouncycastle.openssl.PasswordException",
-            Self::PKCS => "org.bouncycastle.pkcs.PKCSException",
+            Self::Pkcs => "org.bouncycastle.pkcs.PKCSException",
         }
     }
 }
@@ -50,10 +50,10 @@ impl FailureKind {
             Self::Ssh(SshKind::Authentication) => Some(Self::Ssh(SshKind::General)),
             Self::Ssh(SshKind::General) => Some(Self::Io),
             Self::Ssh(SshKind::KeyDecryptionFailed) => Some(Self::Io),
-            Self::Ssh(SshKind::Encryption) => Some(Self::Ssh(SshKind::PEM)),
-            Self::Ssh(SshKind::Password) => Some(Self::Ssh(SshKind::PEM)),
-            Self::Ssh(SshKind::PEM) => Some(Self::Io),
-            Self::Ssh(SshKind::PKCS) => Some(Self::Generic),
+            Self::Ssh(SshKind::Encryption) => Some(Self::Ssh(SshKind::Pem)),
+            Self::Ssh(SshKind::Password) => Some(Self::Ssh(SshKind::Pem)),
+            Self::Ssh(SshKind::Pem) => Some(Self::Io),
+            Self::Ssh(SshKind::Pkcs) => Some(Self::Generic),
             Self::PatternSyntax => Some(Self::IllegalArgument),
             Self::IllegalArgument => Some(Self::Runtime),
             Self::Connect => Some(Self::Socket),
@@ -61,8 +61,8 @@ impl FailureKind {
             Self::Bind => Some(Self::Socket),
             Self::PortUnreachable => Some(Self::Socket),
             Self::Socket => Some(Self::Io),
-            Self::SocketTimeout => Some(Self::InterruptedIO),
-            Self::InterruptedIO => Some(Self::Io),
+            Self::SocketTimeout => Some(Self::InterruptedIo),
+            Self::InterruptedIo => Some(Self::Io),
             Self::UnknownHost => Some(Self::Io),
             Self::FileNotFound => Some(Self::Io),
             Self::Io => Some(Self::Generic),
@@ -115,19 +115,19 @@ mod tests {
             SshKind::KeyDecryptionFailed,
             SshKind::Encryption,
             SshKind::Password,
-            SshKind::PEM,
+            SshKind::Pem,
         ] {
             let kind = FailureKind::Ssh(kind);
             assert!(kind.is_ssh_instance(&FailureKind::Io));
             assert!(!kind.is_ssh_instance(&FailureKind::Ssh(SshKind::General)));
         }
-        assert!(FailureKind::Ssh(SshKind::PKCS).is_ssh_instance(&FailureKind::Generic));
-        assert!(!FailureKind::Ssh(SshKind::PKCS).is_ssh_instance(&FailureKind::Io));
+        assert!(FailureKind::Ssh(SshKind::Pkcs).is_ssh_instance(&FailureKind::Generic));
+        assert!(!FailureKind::Ssh(SshKind::Pkcs).is_ssh_instance(&FailureKind::Io));
         for kind in [SshKind::Buffer, SshKind::Base64Decoding] {
             assert!(!FailureKind::Ssh(kind).is_ssh_instance(&FailureKind::Ssh(SshKind::General)));
             assert!(!FailureKind::Ssh(kind).is_ssh_instance(&FailureKind::Io));
         }
-        assert!(!FailureKind::Fatal(FatalKind::IO).is_ssh_instance(&FailureKind::Io));
+        assert!(!FailureKind::Fatal(FatalKind::Io).is_ssh_instance(&FailureKind::Io));
     }
     #[test]
     fn native_socket_and_argument_subtypes_keep_the_existing_catches() {
@@ -140,7 +140,7 @@ mod tests {
             assert!(kind.is_ssh_instance(&FailureKind::Socket));
             assert!(kind.is_ssh_instance(&FailureKind::Io));
         }
-        assert!(FailureKind::SocketTimeout.is_ssh_instance(&FailureKind::InterruptedIO));
+        assert!(FailureKind::SocketTimeout.is_ssh_instance(&FailureKind::InterruptedIo));
         assert!(FailureKind::SocketTimeout.is_ssh_instance(&FailureKind::Io));
         assert!(!FailureKind::SocketTimeout.is_ssh_instance(&FailureKind::Socket));
         assert!(FailureKind::Timeout.is_ssh_instance(&FailureKind::Generic));

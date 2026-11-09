@@ -22,4 +22,3 @@ pub use regex::{JavaRegex, RegexCompileError, RegexOperationError};
 pub mod regex_patterns;
 
 pub mod report_text;
-pub mod throwable;

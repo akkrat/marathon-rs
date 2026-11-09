@@ -19,7 +19,7 @@ use marathon_config::{
     loader::MarathonConfigurationLoader,
 };
 use marathon_core::{error::Failure, model::ExecutionCommand};
-use marathon_error::{FailureKind, FatalKind, InjectedKind};
+use marathon_error::{FailureKind, FatalKind};
 use serde_json::Value as Json;
 use std::{
     fs,
@@ -564,7 +564,8 @@ fn throwable_rendering_matches_the_logback_row_without_frames() {
 #[test]
 fn external_trace_text_and_null_messages_render_as_the_jvm_does() {
     let f = Failure {
-        kind: FailureKind::Injected(InjectedKind::ExampleFailure),
+        // The external runner supplies this class and trace verbatim.
+        kind: FailureKind::External("com.example.TestFailure".into()),
         message: None,
         cause: Some(Box::new(Failure {
             kind: FailureKind::Fatal(FatalKind::General),

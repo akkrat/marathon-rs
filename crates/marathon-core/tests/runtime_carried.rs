@@ -378,7 +378,7 @@ fn watchdog_fails_a_scenario_blocked_inside_poll() {
     });
     match result {
         Err(OperationError::Failed(f)) => {
-            assert_eq!(f.kind.legacy_class().to_owned(), "marathon.ReplayError");
+            assert_eq!(f.kind, marathon_error::FailureKind::Replay);
             assert!(f.message.unwrap().to_owned().starts_with("replay watchdog"));
         }
         other => panic!("expected the watchdog failure, got {other:?}"),

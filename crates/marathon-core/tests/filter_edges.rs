@@ -379,7 +379,7 @@ fn lazy_files_do_not_read_on_disabled_empty_or_explicit_values_and_retry_errors(
     let Err(OperationError::Failed(error)) = error else {
         panic!("expected read failure")
     };
-    assert_eq!(error.kind.legacy_class(), String::from("java.io.FileNotFoundException"));
+    assert_eq!(error.kind, marathon_error::FailureKind::FileNotFound);
     remove_dir(tmp.0.join("values"))?;
     tmp.write("values", "pkg.clazz")?;
     assert_eq!(apply(f.clone(), t.clone(), false)?, t);

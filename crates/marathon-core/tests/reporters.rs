@@ -267,7 +267,10 @@ fn stdout_awaits_async_sink_off_core_without_using_the_blocking_pool() {
             let Err(OperationError::Failed(error)) = reporter.generate(&report).await else {
                 panic!("sink failure was lost");
             };
-            assert_eq!(error.kind.legacy_class(), String::from("SinkFailure"));
+            assert_eq!(
+                error.kind,
+                marathon_error::FailureKind::Injected(marathon_error::InjectedKind::SinkFailure)
+            );
             assert_eq!(error.message, Some("after suspension".into()));
             assert_eq!(io.spawns.load(Ordering::SeqCst), 1);
             assert_eq!(io.blocking.load(Ordering::SeqCst), 0);

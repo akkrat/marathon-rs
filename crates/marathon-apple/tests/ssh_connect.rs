@@ -386,7 +386,7 @@ async fn no_common_kex_is_transport_unknown_after_four_attempts_and_not_transien
         .unwrap();
     // T26: what the user sees stays sshj's. Algorithm lists are russh's, the shape sshj's. D35 changes only what the
     // classifier makes of it (A16), and every attempt still runs, as for an unverifiable host key.
-    assert_eq!(error.kind.legacy_class(), TRANSPORT_EXCEPTION.legacy_class());
+    assert_eq!(error.kind, TRANSPORT_EXCEPTION);
     assert_eq!(error.reason, DisconnectReason::Unknown);
     assert!(error.is_no_common_algorithm());
     assert!(
@@ -544,7 +544,7 @@ async fn public_key_authentication_and_key_file_failures() {
         .await
         .err()
         .unwrap();
-    assert_eq!(error.kind.legacy_class(), FILE_NOT_FOUND_EXCEPTION.legacy_class());
+    assert_eq!(error.kind, FILE_NOT_FOUND_EXCEPTION);
     assert_eq!(
         error.message(),
         Some(format!("{} (No such file or directory)", missing.display()))
@@ -610,7 +610,7 @@ async fn refused_connection_is_retried_and_rethrown() {
         .await
         .err()
         .unwrap();
-    assert_eq!(error.kind.legacy_class(), UNKNOWN_HOST_EXCEPTION.legacy_class());
+    assert_eq!(error.kind, UNKNOWN_HOST_EXCEPTION);
     assert!(error.message().unwrap().starts_with("nonexistent.invalid: "), "{error}");
 }
 

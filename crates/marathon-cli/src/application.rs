@@ -185,13 +185,8 @@ impl CliOutput {
     }
 }
 
-pub(crate) fn failure(class: FailureKind, message: &str) -> Failure {
-    Failure {
-        kind: class,
-        message: Some(message.into()),
-        cause: None,
-        stacktrace: None,
-    }
+pub(crate) fn failure(kind: FailureKind, message: &str) -> Failure {
+    Failure::from_kind(kind, Some(message.into()))
 }
 
 /// A `ConfigurationError` as the throwable it stands for: its `causes` are the cause chain, outermost first.

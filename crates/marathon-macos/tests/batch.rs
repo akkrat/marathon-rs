@@ -511,10 +511,7 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
     let VendorError::Other(failure) = error else {
         panic!("{error:?}");
     };
-    assert_eq!(
-        failure.kind.legacy_class().to_owned(),
-        CONNECTION_EXCEPTION.legacy_class()
-    );
+    assert_eq!(failure.kind, CONNECTION_EXCEPTION);
     assert_eq!(
         failure.message.map(|m| m.to_owned()),
         Some("Lost the connection to local during a transfer".into())

@@ -159,7 +159,10 @@ async fn direct_unsupported_operations_fail_with_the_kotlin_error() -> R {
     let h = Harness::new("")?;
     let d = h.device();
     let expected = |f: &Failure| {
-        assert_eq!(f.kind.legacy_class(), "kotlin.NotImplementedError".to_owned());
+        assert_eq!(
+            f.kind,
+            marathon_error::FailureKind::Fatal(marathon_error::FatalKind::NotImplemented)
+        );
         assert_eq!(
             f.message,
             Some("An operation is not implemented: Not yet implemented".into())

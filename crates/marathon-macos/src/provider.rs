@@ -135,7 +135,7 @@ impl AppleMacosProvider {
             .devices_sync_for(DevicesProvider::Macos, &bytes, &context)
             .map_err(|e| {
                 let mapping = matches!(e.kind, FailureKind::Config(kind) if kind.is_mapping())
-                    || e.kind == FailureKind::Config(ConfigKind::MissingKotlinParameter);
+                    || e.kind == FailureKind::Config(ConfigKind::MissingParameter);
                 let cause = configuration_failure(&e);
                 if mapping {
                     let mut f = failure(

@@ -140,11 +140,8 @@ impl AllureReporter {
 /// TransformerException(SAXException) as thrown by the identity transform.
 fn xml_failure(error: XmlTextError) -> Failure {
     let sax = error.sax_message();
-    let cause = failure(FailureKind::Report(ReportKind::SAX), &sax);
-    let mut top = failure(
-        FailureKind::Report(ReportKind::Transformer),
-        &format!("org.xml.sax.SAXException: {sax}"),
-    );
+    let cause = failure(FailureKind::Report(ReportKind::Sax), &sax);
+    let mut top = failure(FailureKind::Report(ReportKind::Transformer), &cause.to_java_string());
     top.cause = Some(Box::new(cause));
     top
 }
@@ -393,7 +390,7 @@ mod tests {
         let Some(cause) = failure.cause.as_deref() else {
             panic!("the serialization error must remain the cause");
         };
-        assert_eq!(cause.kind.legacy_class(), "java.lang.IllegalArgumentException");
+        assert_eq!(cause.kind, marathon_error::FailureKind::IllegalArgument);
         assert_eq!(cause.message.as_deref(), Some("serialization rejected"));
     }
 }

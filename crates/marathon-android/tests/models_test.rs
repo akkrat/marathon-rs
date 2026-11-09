@@ -213,6 +213,9 @@ fn reversed_getprop_brackets_use_java_string_exception() {
     ] {
         let error = parse_props(&js(input)).unwrap_err();
         assert!(matches!(&error, marathon_adb::client::AdbError::StringIndexOutOfBounds(value) if value == message));
-        assert_eq!(error.legacy_class(), "java.lang.StringIndexOutOfBoundsException");
+        assert_eq!(
+            error.failure_kind(),
+            marathon_error::FailureKind::StringIndexOutOfBounds
+        );
     }
 }

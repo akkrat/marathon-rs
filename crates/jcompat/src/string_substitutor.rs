@@ -9,12 +9,6 @@ pub struct SubstitutionError {
     pub message: String,
 }
 
-impl SubstitutionError {
-    pub const fn java_class(&self) -> &'static str {
-        "java.lang.IllegalStateException"
-    }
-}
-
 impl fmt::Display for SubstitutionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)

@@ -30,72 +30,38 @@ pub const ZIP_EXCEPTION_CLASS: FailureKind = FailureKind::Zip;
 pub const IO_EXCEPTION_CLASS: FailureKind = FailureKind::Io;
 pub const NO_SUCH_FILE_EXCEPTION_CLASS: FailureKind = FailureKind::NoSuchFile;
 
-/// Which Kotlin exception a `validate()` failure throws. The class is kept
-/// because `SshConfiguration.validate()` throws `FileNotFoundException`,
-/// not `ConfigurationException` (WP 2.3a decision 8; WP 2.5's exit matrix
-/// needs it). WP 2.3b adds the `java.util.zip.ZipFile` failures of bundle
-/// extraction, which escape the factory's JSON catch unwrapped (decision 6,
-/// classes verified by `fixtures/oracle/bundle-probe.jsonl`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExceptionClass {
-    Configuration,
-    FileNotFound,
-    Zip,
-    Io,
-    NoSuchFile,
-}
-impl ExceptionClass {
-    /// The fully qualified Kotlin/JVM class name.
-    pub fn failure_kind(self) -> FailureKind {
-        match self {
-            Self::Configuration => CONFIGURATION_EXCEPTION_CLASS,
-            Self::FileNotFound => FILE_NOT_FOUND_EXCEPTION_CLASS,
-            Self::Zip => ZIP_EXCEPTION_CLASS,
-            Self::Io => IO_EXCEPTION_CLASS,
-            Self::NoSuchFile => NO_SUCH_FILE_EXCEPTION_CLASS,
-        }
-    }
-    pub fn fqcn(self) -> &'static str {
-        match self {
-            Self::Configuration => CONFIGURATION_EXCEPTION_CLASS.legacy_class(),
-            Self::FileNotFound => FILE_NOT_FOUND_EXCEPTION_CLASS.legacy_class(),
-            Self::Zip => ZIP_EXCEPTION_CLASS.legacy_class(),
-            Self::Io => IO_EXCEPTION_CLASS.legacy_class(),
-            Self::NoSuchFile => NO_SUCH_FILE_EXCEPTION_CLASS.legacy_class(),
-        }
-    }
-}
+pub use marathon_error::config::ValidationKind;
 
 /// A Kotlin `validate()` failure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ValidationError {
-    pub kind: ExceptionClass,
+    pub kind: ValidationKind,
     pub message: String,
 }
 impl ValidationError {
     pub fn configuration(message: impl Into<String>) -> Self {
         Self {
-            kind: ExceptionClass::Configuration,
+            kind: ValidationKind::Configuration,
             message: message.into(),
         }
     }
     pub fn file_not_found(message: impl Into<String>) -> Self {
         Self {
-            kind: ExceptionClass::FileNotFound,
+            kind: ValidationKind::FileNotFound,
             message: message.into(),
         }
     }
     /// A `java.util.zip.ZipException` from bundle extraction (WP 2.3b).
     pub fn zip(message: impl Into<String>) -> Self {
         Self {
-            kind: ExceptionClass::Zip,
+            kind: ValidationKind::Zip,
             message: message.into(),
         }
     }
     /// A plain `java.io.IOException` from bundle extraction (WP 2.3b).
     pub fn io(message: impl Into<String>) -> Self {
         Self {
-            kind: ExceptionClass::Io,
+            kind: ValidationKind::Io,
             message: message.into(),
         }
     }
@@ -103,13 +69,13 @@ impl ValidationError {
     /// archive (WP 2.3b).
     pub fn no_such_file(message: impl Into<String>) -> Self {
         Self {
-            kind: ExceptionClass::NoSuchFile,
+            kind: ValidationKind::NoSuchFile,
             message: message.into(),
         }
     }
-    /// The fully qualified Kotlin/JVM class name of [`Self::class`].
+    /// The legacy rendering of the validation kind.
     pub fn fqcn(&self) -> &'static str {
-        self.kind.fqcn()
+        self.kind.legacy_class()
     }
 }
 impl fmt::Display for ValidationError {

@@ -26,13 +26,8 @@ use marathon_core::{
 use remote::ssh::sshj::error::{CONNECTION_EXCEPTION, TRANSPORT_EXCEPTION, is_instance};
 use std::{collections::BTreeMap, future::Future, path::Path, pin::Pin, sync::Arc};
 
-pub fn failure(class: FailureKind, message: impl AsRef<str>) -> Failure {
-    Failure {
-        kind: class,
-        message: Some(message.as_ref().into()),
-        cause: None,
-        stacktrace: None,
-    }
+pub fn failure(kind: FailureKind, message: impl AsRef<str>) -> Failure {
+    Failure::from_kind(kind, Some(message.as_ref().into()))
 }
 pub fn cancelled(message: &str) -> Cancellation {
     Cancellation::Requested(failure(FailureKind::Cancelled, message))

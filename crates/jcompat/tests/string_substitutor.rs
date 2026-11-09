@@ -24,7 +24,9 @@ fn check_table(table: &str) {
         let lookup = StringSubstitutor::new(|key: &str| row["env"][key].as_str().map(str::to_owned));
         let actual = match lookup.replace(row["input"].as_str().unwrap()) {
             Ok(value) => json!({"ok": value}),
-            Err(error) => json!({"error": {"class": error.java_class(), "message": error.to_string()}}),
+            Err(error) => {
+                json!({"error": {"class": marathon_error::FailureKind::IllegalState.legacy_class(), "message": error.to_string()}})
+            }
         };
         assert_eq!(actual, row["result"], "row {}: {line}", count + 1);
         count += 1;

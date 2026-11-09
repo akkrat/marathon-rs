@@ -183,7 +183,10 @@ fn decode_failures_are_structured_and_resource_free() {
         ]
     );
     let failure: marathon_core::error::Failure = error.into();
-    assert!(failure.kind.legacy_class().ends_with("InvalidFormatException"));
+    assert_eq!(
+        failure.kind,
+        marathon_error::FailureKind::Config(marathon_error::ConfigKind::InvalidFormat)
+    );
 }
 
 #[test]

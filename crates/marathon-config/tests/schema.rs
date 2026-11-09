@@ -298,7 +298,7 @@ fn whole_marathonfile_binds_ios_and_android_vendor_sections() {
 // ---- Focused schema rules -----------------------------------------------------
 
 use marathon_config::{
-    CompositionOperation, ExceptionClass, RegexValuesFileFilter, TestFilterConfiguration, ValidationError,
+    CompositionOperation, RegexValuesFileFilter, TestFilterConfiguration, ValidationError, ValidationKind,
     bind::{bind_filtering_configuration, bind_flakiness_strategy, bind_pooling_strategy, bind_sorting_strategy},
     binder,
 };
@@ -318,7 +318,7 @@ fn filter_validate_messages_keep_kotlin_simple_names() {
     assert_eq!(
         err(TestFilterConfiguration::TestMethod(rvf(None))),
         ValidationError {
-            kind: ExceptionClass::Configuration,
+            kind: ValidationKind::Configuration,
             message: "At least one of [regex,values,file] should be specified for TestMethodFilterConfiguration".into()
         }
     );
@@ -439,7 +439,7 @@ fn s4_narrowed_values_drop_nulls_allowlist_still_rejects() {
         ["a"]
     );
     let e = bind("allowlist: [~]", bind_filtering_configuration).unwrap_err();
-    assert_eq!(e.kind.legacy_class().to_owned(), binder::MISMATCHED.legacy_class());
+    assert_eq!(e.kind, binder::MISMATCHED);
     assert_eq!(
         e.message.as_ref().map(|m| m.to_owned()).as_deref(),
         Some("D9: null element in collection")
@@ -453,13 +453,13 @@ fn container_time_limit_is_mismatched_not_invalid_format() {
         bind_sorting_strategy,
     )
     .unwrap_err();
-    assert_eq!(e.kind.legacy_class().to_owned(), binder::MISMATCHED.legacy_class());
+    assert_eq!(e.kind, binder::MISMATCHED);
     let e = bind(
         "{type: probability, minSuccessRate: 0.5, maxCount: 1, timeLimit: {a: 1}}",
         bind_flakiness_strategy,
     )
     .unwrap_err();
-    assert_eq!(e.kind.legacy_class().to_owned(), binder::MISMATCHED.legacy_class());
+    assert_eq!(e.kind, binder::MISMATCHED);
 }
 
 #[test]

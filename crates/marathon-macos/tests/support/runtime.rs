@@ -102,10 +102,7 @@ impl VendorClock for Clock {
             let child = Arc::new(SessionScope::default());
             let expired = Cancellation::Timeout {
                 scope,
-                detail: failure(
-                    FailureKind::Injected(InjectedKind::TimeoutCancellationException),
-                    "timeout",
-                ),
+                detail: failure(FailureKind::Injected(InjectedKind::TimeoutCancellation), "timeout"),
             };
             if millis <= 0 {
                 return Err(VendorError::Cancelled(expired));

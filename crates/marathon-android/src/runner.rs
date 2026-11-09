@@ -516,7 +516,7 @@ fn is_io_exception(error: &VendorError) -> bool {
         FailureKind::Io,
         FailureKind::FileNotFound,
         FailureKind::Eof,
-        FailureKind::InterruptedIO,
+        FailureKind::InterruptedIo,
         FailureKind::Socket,
         FailureKind::SocketTimeout,
         FailureKind::NoSuchFile,
@@ -604,7 +604,7 @@ mod kind_tests {
             FailureKind::Io,
             FailureKind::FileNotFound,
             FailureKind::Eof,
-            FailureKind::InterruptedIO,
+            FailureKind::InterruptedIo,
             FailureKind::Socket,
             FailureKind::SocketTimeout,
             FailureKind::NoSuchFile,
@@ -623,7 +623,7 @@ mod kind_tests {
         }
         for kind in [
             FailureKind::Zip,
-            FailureKind::UncheckedIO,
+            FailureKind::UncheckedIo,
             FailureKind::Timeout,
             FailureKind::Runtime,
         ] {

@@ -153,10 +153,7 @@ async fn open_failure_is_a_connection_exception_and_safe_execute_returns_null() 
     let last = events.lock().unwrap().last().cloned().unwrap();
     let (_, _, message, throwable) = &last;
     assert_eq!(message, "Unable to start a remote shell session [echo, hello]");
-    assert_eq!(
-        throwable.as_ref().unwrap().kind.legacy_class(),
-        OPEN_FAIL_EXCEPTION.legacy_class().to_owned()
-    );
+    assert_eq!(throwable.as_ref().unwrap().kind, OPEN_FAIL_EXCEPTION);
     held.terminate().unwrap();
     held.close().await.unwrap();
     assert_eq!(
@@ -1071,10 +1068,7 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
             .err()
             .unwrap(),
     );
-    assert_eq!(
-        later.kind.legacy_class(),
-        CONNECTION_EXCEPTION.legacy_class().to_owned()
-    );
+    assert_eq!(later.kind, CONNECTION_EXCEPTION);
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(60), session.close()).await,
         Ok(Ok(()))
@@ -1091,10 +1085,7 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
         (*level, message.as_str()),
         (Level::Error, "Unable to start a remote shell session [held]")
     );
-    assert_eq!(
-        throwable.as_ref().unwrap().kind.legacy_class(),
-        CONNECTION_EXCEPTION.legacy_class().to_owned()
-    );
+    assert_eq!(throwable.as_ref().unwrap().kind, CONNECTION_EXCEPTION);
     assert!(executor.connected());
     assert_eq!(
         ssh::run(&executor, &["echo", "hello"], 600_000).await.unwrap().stdout,
@@ -1661,10 +1652,7 @@ async fn a_transport_that_dies_during_the_close_is_a_connection_failure_d36() {
             .err()
             .unwrap(),
     );
-    assert_eq!(
-        error.kind.legacy_class().to_owned(),
-        CONNECTION_EXCEPTION.legacy_class()
-    );
+    assert_eq!(error.kind, CONNECTION_EXCEPTION);
 }
 
 #[tokio::test(flavor = "multi_thread")]

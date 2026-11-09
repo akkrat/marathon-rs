@@ -220,10 +220,16 @@ async fn run(id: &str) -> TestResult<Value> {
                 _ => None,
             };
             let detail = error.failure();
-            if detail.kind.legacy_class().to_owned().ends_with("DeviceSetupException") {
+            if detail.kind == marathon_error::FailureKind::DeviceSetup {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::DeviceSetup(_))));
             }
-            if detail.kind.legacy_class().to_owned().ends_with("CancellationException") {
+            if matches!(
+                detail.kind,
+                marathon_error::FailureKind::Cancelled
+                    | marathon_error::FailureKind::TimeoutCancelled
+                    | marathon_error::FailureKind::JobCancelled
+                    | marathon_error::FailureKind::Injected(marathon_error::InjectedKind::TimeoutCancellation)
+            ) {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::Cancelled(_))));
             }
             json!({"class":detail.kind.legacy_class().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})

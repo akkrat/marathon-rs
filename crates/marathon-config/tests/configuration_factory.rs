@@ -786,9 +786,6 @@ fn on_configuration_with_code_coverage_should_reject_a_missing_xctestrun() {
     let dir = root.join("ios");
     let file = dir.join("sample_9.yaml");
     let error = load::parse(&file, &load::context(&file, &dir, None)).unwrap_err();
-    assert_eq!(
-        error.kind.legacy_class().to_owned(),
-        marathon_config::CONFIGURATION_EXCEPTION_CLASS.legacy_class()
-    );
+    assert_eq!(error.kind, marathon_config::CONFIGURATION_EXCEPTION_CLASS);
     assert!(error.message.as_ref().unwrap().to_owned().contains("is not a file"));
 }

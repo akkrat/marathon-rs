@@ -22,7 +22,7 @@ use snakeyaml::{
 pub const MISMATCHED: FailureKind = FailureKind::Config(ConfigKind::MismatchedInput);
 pub const INVALID_FORMAT: FailureKind = FailureKind::Config(ConfigKind::InvalidFormat);
 pub const JSON_MAPPING: FailureKind = FailureKind::Config(ConfigKind::JsonMapping);
-pub const MISSING_KOTLIN: FailureKind = FailureKind::Config(ConfigKind::MissingKotlinParameter);
+pub const MISSING_KOTLIN: FailureKind = FailureKind::Config(ConfigKind::MissingParameter);
 pub const UNKNOWN_PROPERTY: FailureKind = FailureKind::Config(ConfigKind::UnrecognizedProperty);
 pub const INVALID_TYPE: FailureKind = FailureKind::Config(ConfigKind::InvalidTypeId);
 pub type Result<T> = std::result::Result<T, Box<ConfigurationError>>;
@@ -116,11 +116,11 @@ impl<'a> Binder<'a> {
 fn token_kind(kind: tokens::TokenErrorKind) -> FailureKind {
     match kind {
         tokens::TokenErrorKind::Fixture => FailureKind::Injected(marathon_error::InjectedKind::ParserFixture),
-        tokens::TokenErrorKind::MarkedYaml => FailureKind::Config(ConfigKind::MarkedYAML),
-        tokens::TokenErrorKind::YamlParse => FailureKind::Config(ConfigKind::JacksonYAMLParse),
+        tokens::TokenErrorKind::MarkedYaml => FailureKind::Config(ConfigKind::YamlMarked),
+        tokens::TokenErrorKind::YamlParse => FailureKind::Config(ConfigKind::YamlParse),
         tokens::TokenErrorKind::JsonParse => FailureKind::Config(ConfigKind::JsonParse),
         tokens::TokenErrorKind::StreamConstraints => FailureKind::Config(ConfigKind::StreamConstraints),
-        tokens::TokenErrorKind::JsonEof => FailureKind::Config(ConfigKind::JsonEOF),
+        tokens::TokenErrorKind::JsonEof => FailureKind::Config(ConfigKind::JsonEof),
         tokens::TokenErrorKind::MismatchedInput => MISMATCHED,
     }
 }
@@ -147,7 +147,7 @@ fn token_error(
         (tokens::MARKED_YAML_EXCEPTION, "scanner") => Some(FailureKind::Config(ConfigKind::Scanner)),
         (tokens::MARKED_YAML_EXCEPTION, _) => Some(FailureKind::Config(ConfigKind::Parser)),
         (tokens::JACKSON_YAML_PARSE_EXCEPTION, "reader") => Some(FailureKind::Config(ConfigKind::Reader)),
-        (tokens::JACKSON_YAML_PARSE_EXCEPTION, _) => Some(FailureKind::Config(ConfigKind::YAML)),
+        (tokens::JACKSON_YAML_PARSE_EXCEPTION, _) => Some(FailureKind::Config(ConfigKind::Yaml)),
         _ => None,
     };
     if let Some(class) = original {

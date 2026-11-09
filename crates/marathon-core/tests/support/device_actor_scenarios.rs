@@ -221,7 +221,7 @@ pub fn run_scenario(name: &'static str) -> Outcome {
                         Err(VendorError::LeavePool {
                             reason: LeavePoolReason::NotBooted,
                             detail: marathon_core::executor::shared::failure(
-                                FailureKind::Injected(InjectedKind::OracleDeviceActorProbeNotBootedProbeException),
+                                FailureKind::Injected(InjectedKind::NotBootedProbe),
                                 "not booted",
                             ),
                         })

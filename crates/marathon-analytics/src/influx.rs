@@ -199,7 +199,7 @@ pub(crate) async fn request(
         .request(method, path, content_type, None, body)
         .await
         .map_err(|error| match error {
-            OperationError::Failed(cause) if cause.kind.is_transport() => OperationError::Failed(Failure {
+            OperationError::Failed(cause) if cause.kind.wraps_as_analytics_io() => OperationError::Failed(Failure {
                 kind: FailureKind::Analytics(AnalyticsKind::InfluxIo),
                 message: Some(cause.to_java_string()),
                 cause: Some(Box::new(cause)),

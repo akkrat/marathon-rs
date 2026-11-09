@@ -671,7 +671,7 @@ fn carbon_reset_errors_propagate_and_typed_cancellation_interrupts_send() {
                 )
             })??;
             assert!(
-                matches!(result,Err(OperationError::Failed(f)) if f.kind.legacy_class().to_owned().ends_with("GraphiteException") && f.message.as_ref().is_some_and(|m|m.to_owned().starts_with("Error while writing data to graphite: ")))
+                matches!(result,Err(OperationError::Failed(f)) if f.kind == marathon_error::FailureKind::Analytics(marathon_error::AnalyticsKind::Graphite) && f.message.as_ref().is_some_and(|m|m.to_owned().starts_with("Error while writing data to graphite: ")))
             );
             signal.cancel(requested("stop"));
             assert!(matches!(
@@ -777,7 +777,7 @@ fn a_stalled_carbon_write_times_out() {
                 failure.message.unwrap().to_owned(),
                 "Error while writing data to graphite: write timed out after 100 ms"
             );
-            assert!(failure.kind.legacy_class().to_owned().ends_with("GraphiteException"));
+            assert!(failure.kind == marathon_error::FailureKind::Analytics(marathon_error::AnalyticsKind::Graphite));
             Ok(())
         })
     });
@@ -946,7 +946,7 @@ fn invalid_carbon_port_fails_at_the_write_boundary() {
                     assert!(result.is_ok());
                 } else {
                     assert!(
-                        matches!(result,Err(marathon_core::error::VendorError::Other(f)) if f.kind.legacy_class()=="java.lang.IllegalArgumentException")
+                        matches!(result,Err(marathon_core::error::VendorError::Other(f)) if f.kind == marathon_error::FailureKind::IllegalArgument)
                     );
                 }
                 tracker.close().await?;
@@ -1164,7 +1164,7 @@ fn invalid_graphite_hosts_fail_per_query_and_fall_back_to_defaults() {
                 let limit = jcompat::jtime::instant_of(0, 0).unwrap();
                 assert!(matches!(
                     client.query("target", limit).await,
-                    Err(OperationError::Failed(f)) if f.kind.legacy_class() == "java.lang.IllegalArgumentException"
+                    Err(OperationError::Failed(f)) if f.kind == marathon_error::FailureKind::IllegalArgument
                 ));
                 let config = AnalyticsConfiguration::Graphite(marathon_config::GraphiteConfiguration {
                     host: host.into(),

@@ -6,7 +6,7 @@ pub enum ReportKind {
     ImageIo,
     ImageMetadata,
     Transformer,
-    SAX,
+    Sax,
 }
 
 impl ReportKind {
@@ -16,7 +16,7 @@ impl ReportKind {
             Self::ImageIo => "javax.imageio.IIOException",
             Self::ImageMetadata => "javax.imageio.metadata.IIOInvalidTreeException",
             Self::Transformer => "javax.xml.transform.TransformerException",
-            Self::SAX => "org.xml.sax.SAXException",
+            Self::Sax => "org.xml.sax.SAXException",
         }
     }
 }

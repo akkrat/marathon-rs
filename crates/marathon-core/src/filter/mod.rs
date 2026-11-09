@@ -237,11 +237,6 @@ fn composition(tests: &[Test], filters: &[TestFilter], op: CompositionOperation)
     }
 }
 
-pub(super) fn failure(class: FailureKind, message: &str) -> Failure {
-    Failure {
-        kind: class,
-        message: Some(message.into()),
-        cause: None,
-        stacktrace: None,
-    }
+pub(super) fn failure(kind: FailureKind, message: &str) -> Failure {
+    Failure::from_kind(kind, Some(message.into()))
 }

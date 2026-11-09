@@ -89,7 +89,7 @@ async fn both_parsers_retry_errors_without_logging_and_log_exceptions_named_erro
             };
             let error = parser.extract(id, support::context()).await.unwrap_err();
             v(device.dispose().await)?;
-            assert_eq!(error.failure().kind.legacy_class().to_owned(), class.legacy_class());
+            assert_eq!(error.failure().kind, class);
             assert_eq!(attempts.load(Ordering::SeqCst), 3);
             let logs = logs.lock().unwrap();
             assert_eq!(logs.len(), if is_error { 0 } else { 3 });

@@ -176,7 +176,7 @@ fn missing_test_application_fails_extract() {
     let Err(marathon_core::error::VendorError::TestParsing(failure)) = extracted else {
         panic!("expected TestParsing failure");
     };
-    assert_eq!(failure.kind.legacy_class().to_owned(), "java.io.FileNotFoundException");
+    assert_eq!(failure.kind, marathon_error::FailureKind::FileNotFound);
     assert!(registered.is_empty());
 }
 

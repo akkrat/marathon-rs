@@ -679,7 +679,7 @@ fn validate_messages_are_verbatim() {
     };
     let error = ssh.validate().unwrap_err();
     assert_eq!(error.fqcn(), "java.io.FileNotFoundException");
-    assert_eq!(error.kind, marathon_config::ExceptionClass::FileNotFound);
+    assert_eq!(error.kind, marathon_config::ValidationKind::FileNotFound);
     assert_eq!(error.message, "Private key not found at /nope/key");
 }
 

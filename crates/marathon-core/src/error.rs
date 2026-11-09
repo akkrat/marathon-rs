@@ -4,17 +4,29 @@
 use marathon_config::binding::ConfigurationError;
 pub use marathon_error::*;
 
-/// Preserve class, nullable message and causal chain for classification/output.
+/// Preserve kind, nullable message and causal chain for classification/output.
 /// Formatting stack traces is a later WP, not Rust Debug or Display.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Failure {
     pub kind: FailureKind,
     pub message: Option<String>,
     pub cause: Option<Box<Failure>>,
     pub stacktrace: Option<String>,
 }
+// SSH clock failures embed this Debug view in a rendered message; preserve its legacy fields.
+impl std::fmt::Debug for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Failure")
+            .field("class", &self.kind.legacy_class())
+            .field("message", &self.message)
+            .field("cause", &self.cause)
+            .field("stacktrace", &self.stacktrace)
+            .finish()
+    }
+}
+
 impl Failure {
-    /// Typed producers get their rendered class only from the legacy mapping.
+    /// Rendering obtains its class only from the kind's legacy mapping.
     pub fn from_kind(kind: FailureKind, message: Option<String>) -> Self {
         Self {
             kind,
@@ -155,7 +167,7 @@ mod tests {
         let mut failure = Failure::from_kind(FailureKind::IllegalState, Some(String::new()));
         failure.stacktrace = Some("\tat source.frame(Source:1)".into());
         failure.cause = Some(Box::new(Failure::from_kind(FailureKind::Io, None)));
-        assert_eq!(failure.kind.legacy_class(), FailureKind::IllegalState.legacy_class());
+        assert_eq!(failure.kind, FailureKind::IllegalState);
         assert_eq!(failure.to_java_string(), "java.lang.IllegalStateException: ");
         assert_eq!(
             failure.stack_trace(),
@@ -165,12 +177,22 @@ mod tests {
     }
 
     #[test]
+    fn debug_embedded_in_clock_failure_messages_keeps_legacy_fields_and_causes() {
+        let mut failure = Failure::from_kind(FailureKind::IllegalState, Some("outer".into()));
+        failure.cause = Some(Box::new(Failure::from_kind(FailureKind::Io, None)));
+        assert_eq!(
+            format!("{:?}", VendorError::Other(failure)),
+            r#"Other(Failure { class: "java.lang.IllegalStateException", message: Some("outer"), cause: Some(Failure { class: "java.io.IOException", message: None, cause: None, stacktrace: None }), stacktrace: None })"#
+        );
+    }
+
+    #[test]
     fn external_class_and_stack_text_remain_opaque() {
         // This models a class and trace supplied by an external runner.
         let kind = FailureKind::External("runner.CustomFailure".into());
         let mut failure = Failure::from_kind(kind.clone(), Some("java.io.IOException: remote".into()));
         failure.stacktrace = Some("external.Frame\n".into());
-        assert_eq!(failure.kind.legacy_class(), kind.legacy_class());
+        assert_eq!(failure.kind, kind);
         assert_eq!(
             failure.stack_trace(),
             "runner.CustomFailure: java.io.IOException: remote\nexternal.Frame\n"

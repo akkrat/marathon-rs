@@ -63,7 +63,7 @@ impl Influx2Client {
             .collect();
         let Some(first) = candidates.first() else {
             return Err(failure(
-                FailureKind::Analytics(AnalyticsKind::Influxdb2),
+                FailureKind::Analytics(AnalyticsKind::InfluxV2Provider),
                 &format!("No organization with name = {organization} found"),
             )
             .into());
@@ -166,7 +166,7 @@ pub(crate) async fn api(
 ) -> OperationResult<String> {
     match http.request(method, path, ct, accept, body).await {
         Ok(reply) => checked(reply, true),
-        Err(OperationError::Failed(cause)) if cause.kind.is_transport() => Err(Failure {
+        Err(OperationError::Failed(cause)) if cause.kind.wraps_as_analytics_io() => Err(Failure {
             kind: FailureKind::Analytics(AnalyticsKind::InfluxV2),
             message: cause.message.to_owned(),
             cause: Some(Box::new(cause)),

@@ -105,7 +105,7 @@ fn defaults_nullability_duplicates_and_unknown_keys() {
         Some("x".into())
     );
     let e = bind("k: x\nk: null", |v| reference_schema(v, false)).unwrap_err();
-    assert_eq!(e.kind.legacy_class(), binder::MISSING_KOTLIN.legacy_class().to_owned());
+    assert_eq!(e.kind, binder::MISSING_KOTLIN);
     assert!(matches!(&e.path[..], [PathPart::Key(k)] if k == &"k".to_owned()));
     assert_eq!(e.span.unwrap().start.line, 2);
     assert_eq!(
@@ -154,7 +154,7 @@ fn nested_paths_and_stream_causes_survive() {
     })
     .unwrap_err();
     assert!(matches!(e.cause, BindingCause::Stream(_)));
-    assert_eq!(e.kind.legacy_class(), binder::JSON_MAPPING.legacy_class().to_owned());
+    assert_eq!(e.kind, binder::JSON_MAPPING);
     assert_eq!(e.causes.len(), 2);
     let e = bind("k: {a:\tb}", |v| {
         let mut object = v.object()?;
@@ -162,7 +162,7 @@ fn nested_paths_and_stream_causes_survive() {
         child.map(|v| v.string())
     })
     .unwrap_err();
-    assert_eq!(e.kind.legacy_class(), binder::JSON_MAPPING.legacy_class().to_owned());
+    assert_eq!(e.kind, binder::JSON_MAPPING);
     assert_eq!(e.causes.len(), 2);
 }
 #[test]
@@ -343,14 +343,8 @@ fn filtering_section_late_type_and_singleton() {
     assert!(got.blocklist.is_empty());
     assert!(matches!(&got.allowlist[0],Some(Filter::Method {regex:Some(r),enabled:false}) if r.pattern()=="test.*"));
     assert!(matches!(&got.allowlist[1], Some(Filter::Allure)));
-    assert_eq!(
-        bind("{type: mystery}", filter).unwrap_err().kind.legacy_class(),
-        binder::INVALID_TYPE.legacy_class().to_owned()
-    );
-    assert_eq!(
-        bind("{}", filter).unwrap_err().kind.legacy_class(),
-        binder::INVALID_TYPE.legacy_class().to_owned()
-    );
+    assert_eq!(bind("{type: mystery}", filter).unwrap_err().kind, binder::INVALID_TYPE);
+    assert_eq!(bind("{}", filter).unwrap_err().kind, binder::INVALID_TYPE);
 }
 #[test]
 fn builder_and_enum_creator_use_shared_primitives() {

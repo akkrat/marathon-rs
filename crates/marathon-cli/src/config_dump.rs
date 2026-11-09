@@ -219,7 +219,7 @@ fn parse_and_validate(
 }
 
 fn io_failure(e: &std::io::Error) -> Failure {
-    failure(FailureKind::UncheckedIO, &e.to_string())
+    failure(FailureKind::UncheckedIo, &e.to_string())
 }
 
 #[derive(Clone, PartialEq, Eq)]

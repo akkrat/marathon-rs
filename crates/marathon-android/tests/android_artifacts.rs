@@ -931,7 +931,7 @@ fn profiling_setup_errors_are_batch_failures() {
             let device = device(&server, runtime);
             let listener = ProfilingRunListener::new(artifacts(&device));
             let error = listener.before_test_run_in(None, context.clone()).await.unwrap_err();
-            assert_eq!(error.failure().kind.legacy_class(), js("java.io.FileNotFoundException"));
+            assert_eq!(error.failure().kind, marathon_error::FailureKind::FileNotFound);
             assert_eq!(
                 error.failure().message,
                 Some(js("/nonexistent/config.pbtxt (No such file or directory)"))

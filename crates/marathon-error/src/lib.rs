@@ -38,8 +38,8 @@ pub enum FailureKind {
     Eof,
     FileNotFound,
     Io,
-    InterruptedIO,
-    UncheckedIO,
+    InterruptedIo,
+    UncheckedIo,
     Arithmetic,
     ArrayIndexOutOfBounds,
     ClassCast,
@@ -114,8 +114,8 @@ impl FailureKind {
             Self::Eof => "java.io.EOFException",
             Self::FileNotFound => "java.io.FileNotFoundException",
             Self::Io => "java.io.IOException",
-            Self::InterruptedIO => "java.io.InterruptedIOException",
-            Self::UncheckedIO => "java.io.UncheckedIOException",
+            Self::InterruptedIo => "java.io.InterruptedIOException",
+            Self::UncheckedIo => "java.io.UncheckedIOException",
             Self::Arithmetic => "java.lang.ArithmeticException",
             Self::ArrayIndexOutOfBounds => "java.lang.ArrayIndexOutOfBoundsException",
             Self::ClassCast => "java.lang.ClassCastException",
@@ -199,14 +199,14 @@ impl FailureKind {
 }
 
 impl FailureKind {
-    pub fn is_transport(&self) -> bool {
+    pub fn wraps_as_analytics_io(&self) -> bool {
         matches!(
             self,
             Self::Io
                 | Self::Eof
                 | Self::FileNotFound
-                | Self::InterruptedIO
-                | Self::UncheckedIO
+                | Self::InterruptedIo
+                | Self::UncheckedIo
                 | Self::Connect
                 | Self::Socket
                 | Self::SocketTimeout
@@ -215,7 +215,7 @@ impl FailureKind {
                 | Self::NoRouteToHost
                 | Self::PortUnreachable
                 | Self::Protocol
-                | Self::Fatal(FatalKind::IO)
+                | Self::Fatal(FatalKind::Io)
         )
     }
 }
@@ -227,13 +227,13 @@ mod tests {
     fn fatal_catches_keep_the_known_hierarchy_and_do_not_guess_from_suffixes() {
         for kind in [
             FatalKind::WindowSystem,
-            FatalKind::IO,
+            FatalKind::Io,
             FatalKind::Assertion,
             FatalKind::BootstrapMethod,
             FatalKind::ClassCircularity,
             FatalKind::ClassFormat,
             FatalKind::General,
-            FatalKind::ExceptionInInitializer,
+            FatalKind::Initialization,
             FatalKind::IllegalAccess,
             FatalKind::IncompatibleClassChange,
             FatalKind::Instantiation,
@@ -258,7 +258,7 @@ mod tests {
             FatalKind::StreamFactory,
             FatalKind::TransformerFactory,
             FatalKind::NotImplemented,
-            FatalKind::KotlinReflectionNotSupported,
+            FatalKind::ReflectionUnsupported,
         ] {
             assert!(FailureKind::Fatal(kind).is_fatal());
         }

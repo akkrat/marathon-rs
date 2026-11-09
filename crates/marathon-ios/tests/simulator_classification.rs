@@ -49,12 +49,9 @@ async fn transport_and_illegal_state_failures_lose_the_device_but_other_io_error
         assert!(results.is_none());
         if expected != FailureKind::Io {
             assert!(matches!(e, VendorError::DeviceLost(_)));
-            assert_eq!(
-                e.failure().cause.as_ref().unwrap().kind.legacy_class().to_owned(),
-                expected.legacy_class()
-            );
+            assert_eq!(e.failure().cause.as_ref().unwrap().kind, expected);
         } else {
-            assert_eq!(e.failure().kind.legacy_class().to_owned(), expected.legacy_class());
+            assert_eq!(e.failure().kind, expected);
         }
         h.finish(&[d]).await;
     }

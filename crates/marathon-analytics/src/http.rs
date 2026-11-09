@@ -444,7 +444,7 @@ pub(crate) mod tests {
             let result = http.request("POST", "slow", Some("text/plain"), None, body).await;
             done.notify_one();
             assert!(
-                matches!(result,Err(OperationError::Failed(f)) if f.kind.legacy_class()=="java.net.SocketTimeoutException")
+                matches!(result,Err(OperationError::Failed(f)) if f.kind == marathon_error::FailureKind::SocketTimeout)
             );
         };
         let (_, server) = futures_util::future::join(request, server).await;

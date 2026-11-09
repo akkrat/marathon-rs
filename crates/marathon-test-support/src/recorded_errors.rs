@@ -20,7 +20,7 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "SinkFailure" => Ok(FailureKind::Injected(InjectedKind::SinkFailure)),
         "TestFailure" => Ok(FailureKind::Injected(InjectedKind::TestFailure)),
         "TestTask" => Ok(FailureKind::Injected(InjectedKind::TestTask)),
-        "TimeoutCancellationException" => Ok(FailureKind::Injected(InjectedKind::TimeoutCancellationException)),
+        "TimeoutCancellationException" => Ok(FailureKind::Injected(InjectedKind::TimeoutCancellation)),
         "TransferException" => Ok(FailureKind::Injected(InjectedKind::TransferException)),
         "TransferStalled" => Ok(FailureKind::Injected(InjectedKind::TransferStalled)),
         "cancelled" => Ok(FailureKind::Injected(InjectedKind::Cancelled)),
@@ -28,7 +28,7 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "com.fasterxml.jackson.core.exc.StreamConstraintsException" => {
             Ok(FailureKind::Config(ConfigKind::StreamConstraints))
         }
-        "com.fasterxml.jackson.core.io.JsonEOFException" => Ok(FailureKind::Config(ConfigKind::JsonEOF)),
+        "com.fasterxml.jackson.core.io.JsonEOFException" => Ok(FailureKind::Config(ConfigKind::JsonEof)),
         "com.fasterxml.jackson.databind.JsonMappingException" => Ok(FailureKind::Config(ConfigKind::JsonMapping)),
         "com.fasterxml.jackson.databind.exc.InvalidDefinitionException" => {
             Ok(FailureKind::Config(ConfigKind::InvalidDefinition))
@@ -49,13 +49,13 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
             Ok(FailureKind::Config(ConfigKind::ValueInstantiation))
         }
         "com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException" => {
-            Ok(FailureKind::Config(ConfigKind::JacksonYAMLParse))
+            Ok(FailureKind::Config(ConfigKind::YamlParse))
         }
         "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException" => {
-            Ok(FailureKind::Config(ConfigKind::MarkedYAML))
+            Ok(FailureKind::Config(ConfigKind::YamlMarked))
         }
         "com.fasterxml.jackson.module.kotlin.MissingKotlinParameterException" => {
-            Ok(FailureKind::Config(ConfigKind::MissingKotlinParameter))
+            Ok(FailureKind::Config(ConfigKind::MissingParameter))
         }
         "com.hierynomus.sshj.common.KeyDecryptionFailedException" => Ok(FailureKind::Ssh(SshKind::KeyDecryptionFailed)),
         "com.influxdb.exceptions.BadRequestException" => Ok(FailureKind::Analytics(AnalyticsKind::BadRequest)),
@@ -94,7 +94,7 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
             Ok(FailureKind::Analytics(AnalyticsKind::Graphite))
         }
         "com.malinskiy.marathon.analytics.external.influx2.Influxdb2Exception" => {
-            Ok(FailureKind::Analytics(AnalyticsKind::Influxdb2))
+            Ok(FailureKind::Analytics(AnalyticsKind::InfluxV2Provider))
         }
         "com.malinskiy.marathon.android.adam.TestAnnotationProducerNotFoundException" => {
             Ok(FailureKind::Android(AndroidKind::TestAnnotationProducerNotFound))
@@ -113,7 +113,6 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "com.malinskiy.marathon.apple.ios.BootFailure" => Ok(FailureKind::Apple(AppleKind::Boot)),
         "com.malinskiy.marathon.apple.ios.NotAdmitted" => Ok(FailureKind::Apple(AppleKind::NotAdmitted)),
         "com.malinskiy.marathon.apple.ios.NotBooted" => Ok(FailureKind::Apple(AppleKind::NotBooted)),
-        "com.malinskiy.marathon.apple.ios.SetupDropped" => Ok(FailureKind::Apple(AppleKind::SetupDropped)),
         "com.malinskiy.marathon.apple.ios.device.SetupDropped" => Ok(FailureKind::Apple(AppleKind::SetupDropped)),
         "com.malinskiy.marathon.apple.logparser.parser.DeviceFailureException" => {
             Ok(FailureKind::Apple(AppleKind::DeviceFailure))
@@ -138,10 +137,10 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "java.awt.AWTError" => Ok(FailureKind::Fatal(FatalKind::WindowSystem)),
         "java.io.EOFException" => Ok(FailureKind::Eof),
         "java.io.FileNotFoundException" => Ok(FailureKind::FileNotFound),
-        "java.io.IOError" => Ok(FailureKind::Fatal(FatalKind::IO)),
+        "java.io.IOError" => Ok(FailureKind::Fatal(FatalKind::Io)),
         "java.io.IOException" => Ok(FailureKind::Io),
-        "java.io.InterruptedIOException" => Ok(FailureKind::InterruptedIO),
-        "java.io.UncheckedIOException" => Ok(FailureKind::UncheckedIO),
+        "java.io.InterruptedIOException" => Ok(FailureKind::InterruptedIo),
+        "java.io.UncheckedIOException" => Ok(FailureKind::UncheckedIo),
         "java.lang.ArithmeticException" => Ok(FailureKind::Arithmetic),
         "java.lang.ArrayIndexOutOfBoundsException" => Ok(FailureKind::ArrayIndexOutOfBounds),
         "java.lang.AssertionError" => Ok(FailureKind::Fatal(FatalKind::Assertion)),
@@ -151,7 +150,7 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "java.lang.ClassFormatError" => Ok(FailureKind::Fatal(FatalKind::ClassFormat)),
         "java.lang.Error" => Ok(FailureKind::Fatal(FatalKind::General)),
         "java.lang.Exception" => Ok(FailureKind::Generic),
-        "java.lang.ExceptionInInitializerError" => Ok(FailureKind::Fatal(FatalKind::ExceptionInInitializer)),
+        "java.lang.ExceptionInInitializerError" => Ok(FailureKind::Fatal(FatalKind::Initialization)),
         "java.lang.IllegalAccessError" => Ok(FailureKind::Fatal(FatalKind::IllegalAccess)),
         "java.lang.IllegalArgumentException" => Ok(FailureKind::IllegalArgument),
         "java.lang.IllegalStateException" => Ok(FailureKind::IllegalState),
@@ -214,9 +213,7 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "kotlin.UninitializedPropertyAccessException" => Ok(FailureKind::UninitializedProperty),
         "kotlin.io.FileAlreadyExistsException" => Ok(FailureKind::CopyDestinationExists),
         "kotlin.io.NoSuchFileException" => Ok(FailureKind::CopySourceMissing),
-        "kotlin.jvm.KotlinReflectionNotSupportedError" => {
-            Ok(FailureKind::Fatal(FatalKind::KotlinReflectionNotSupported))
-        }
+        "kotlin.jvm.KotlinReflectionNotSupportedError" => Ok(FailureKind::Fatal(FatalKind::ReflectionUnsupported)),
         "kotlinx.coroutines.JobCancellationException" => Ok(FailureKind::JobCancelled),
         "kotlinx.coroutines.TimeoutCancellationException" => Ok(FailureKind::TimeoutCancelled),
         "kotlinx.coroutines.channels.ClosedReceiveChannelException" => Ok(FailureKind::ChannelReceiveClosed),
@@ -233,13 +230,11 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "net.schmizz.sshj.connection.channel.OpenFailException" => Ok(FailureKind::Ssh(SshKind::OpenChannel)),
         "net.schmizz.sshj.transport.TransportException" => Ok(FailureKind::Ssh(SshKind::Transport)),
         "net.schmizz.sshj.userauth.UserAuthException" => Ok(FailureKind::Ssh(SshKind::Authentication)),
-        "oracle.DeviceActorProbe$NotBootedProbeException" => Ok(FailureKind::Injected(
-            InjectedKind::OracleDeviceActorProbeNotBootedProbeException,
-        )),
+        "oracle.DeviceActorProbe$NotBootedProbeException" => Ok(FailureKind::Injected(InjectedKind::NotBootedProbe)),
         "org.bouncycastle.openssl.EncryptionException" => Ok(FailureKind::Ssh(SshKind::Encryption)),
-        "org.bouncycastle.openssl.PEMException" => Ok(FailureKind::Ssh(SshKind::PEM)),
+        "org.bouncycastle.openssl.PEMException" => Ok(FailureKind::Ssh(SshKind::Pem)),
         "org.bouncycastle.openssl.PasswordException" => Ok(FailureKind::Ssh(SshKind::Password)),
-        "org.bouncycastle.pkcs.PKCSException" => Ok(FailureKind::Ssh(SshKind::PKCS)),
+        "org.bouncycastle.pkcs.PKCSException" => Ok(FailureKind::Ssh(SshKind::Pkcs)),
         "org.influxdb.InfluxDBException" => Ok(FailureKind::Analytics(AnalyticsKind::InfluxV1 {
             problem: InfluxV1Kind::General,
             retry: RetryDisposition::Retry,
@@ -290,8 +285,8 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "org.influxdb.InfluxDBMapperException" => Ok(FailureKind::Analytics(AnalyticsKind::InfluxMapping)),
         "org.koin.core.error.InstanceCreationException" => Ok(FailureKind::DependencyCreation),
         "org.koin.core.error.NoBeanDefFoundException" => Ok(FailureKind::MissingDefinition),
-        "org.xml.sax.SAXException" => Ok(FailureKind::Report(ReportKind::SAX)),
-        "org.yaml.snakeyaml.error.YAMLException" => Ok(FailureKind::Config(ConfigKind::YAML)),
+        "org.xml.sax.SAXException" => Ok(FailureKind::Report(ReportKind::Sax)),
+        "org.yaml.snakeyaml.error.YAMLException" => Ok(FailureKind::Config(ConfigKind::Yaml)),
         "org.yaml.snakeyaml.parser.ParserException" => Ok(FailureKind::Config(ConfigKind::Parser)),
         "org.yaml.snakeyaml.reader.ReaderException" => Ok(FailureKind::Config(ConfigKind::Reader)),
         "org.yaml.snakeyaml.scanner.ScannerException" => Ok(FailureKind::Config(ConfigKind::Scanner)),
@@ -409,5 +404,16 @@ mod boundary_tests {
                 retry: RetryDisposition::Retry
             })
         ));
+    }
+}
+
+#[cfg(test)]
+mod canonical_tests {
+    use super::*;
+    #[test]
+    fn recorded_classes_round_trip_without_accepting_guessed_aliases() {
+        let class = "com.malinskiy.marathon.apple.ios.device.SetupDropped";
+        assert_eq!(failure_kind(class, None).unwrap().legacy_class(), class);
+        assert!(failure_kind("com.malinskiy.marathon.apple.ios.SetupDropped", None).is_err());
     }
 }

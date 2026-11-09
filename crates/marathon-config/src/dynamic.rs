@@ -39,7 +39,7 @@ pub enum FrameSegment {
 
 /// One frame's failure. The kinds stay separate because they map to
 /// distinct Kotlin exceptions at the provider's `catch`; WP 5.5a decides
-/// the production behaviour for each. `java_class` names the exception
+/// the production behaviour for each. `kind` identifies the exception
 /// Kotlin surfaces for the non-binding kinds.
 #[derive(Debug)]
 pub enum FrameError {

@@ -15,13 +15,8 @@ use std::{
 };
 use tokio::sync::Notify;
 
-pub fn failure(class: FailureKind, message: &str) -> Failure {
-    Failure {
-        kind: class,
-        message: Some(message.into()),
-        cause: None,
-        stacktrace: None,
-    }
+pub fn failure(kind: FailureKind, message: &str) -> Failure {
+    Failure::from_kind(kind, Some(message.into()))
 }
 pub fn requested(message: &str) -> Cancellation {
     Cancellation::Requested(failure(FailureKind::Cancelled, message))

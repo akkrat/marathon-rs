@@ -357,7 +357,7 @@ fn stage_a_vendor_errors_are_unwrapped_and_binding_errors_wrapped() {
 #[test]
 fn validation_errors_convert_with_their_class_at_both_stages() {
     let error = ValidationError {
-        kind: marathon_config::vendor::ExceptionClass::FileNotFound,
+        kind: marathon_config::vendor::ValidationKind::FileNotFound,
         message: "Private key not found at /k".into(),
     };
     for stage in [ValidationStage::Parse, ValidationStage::Logical] {
@@ -377,9 +377,9 @@ fn validation_errors_convert_with_their_class_at_both_stages() {
 fn load_errors_map_to_their_kotlin_classes_at_parse() {
     let worker = load_error_to_configuration_error(LoadError::Worker(std::io::Error::other("no threads")));
     assert_eq!(worker.stage, ValidationStage::Parse);
-    assert_eq!(worker.kind.legacy_class().to_owned(), "java.lang.IllegalStateException");
+    assert_eq!(worker.kind, marathon_error::FailureKind::IllegalState);
     let null = load_error_to_configuration_error(LoadError::NullDocument);
-    assert_eq!(null.kind.legacy_class().to_owned(), "java.lang.NullPointerException");
+    assert_eq!(null.kind, marathon_error::FailureKind::NullReference);
     assert!(
         null.causes.is_empty(),
         "the NPE escapes the ConfigurationException wrapper"

@@ -305,7 +305,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         .await?
         .err()
         .ok_or("connect failure")?;
-    assert_eq!(error.failure().kind.legacy_class(), "java.io.IOException".to_owned());
+    assert_eq!(error.failure().kind, marathon_error::FailureKind::Io);
     assert!(connections.cancelled.load(Ordering::SeqCst));
     v(p.terminate().await)?;
     Ok(())

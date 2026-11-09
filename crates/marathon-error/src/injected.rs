@@ -2,9 +2,8 @@
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum InjectedKind {
-    ExampleFailure,
     ReplayStep,
-    OracleDeviceActorProbeNotBootedProbeException,
+    NotBootedProbe,
     RunTimeout,
     TransferException,
     CleanupError,
@@ -17,7 +16,7 @@ pub enum InjectedKind {
     SinkFailure,
     TestFailure,
     TestTask,
-    TimeoutCancellationException,
+    TimeoutCancellation,
     TransferStalled,
     Cancelled,
     Lost,
@@ -42,9 +41,8 @@ pub enum InjectedKind {
 impl InjectedKind {
     pub const fn legacy_class(&self) -> &'static str {
         match self {
-            Self::ExampleFailure => "com.example.TestFailure",
             Self::ReplayStep => "replay",
-            Self::OracleDeviceActorProbeNotBootedProbeException => "oracle.DeviceActorProbe$NotBootedProbeException",
+            Self::NotBootedProbe => "oracle.DeviceActorProbe$NotBootedProbeException",
             Self::RunTimeout => "RunTimeout",
             Self::TransferException => "TransferException",
             Self::CleanupError => "CleanupError",
@@ -57,7 +55,7 @@ impl InjectedKind {
             Self::SinkFailure => "SinkFailure",
             Self::TestFailure => "TestFailure",
             Self::TestTask => "TestTask",
-            Self::TimeoutCancellationException => "TimeoutCancellationException",
+            Self::TimeoutCancellation => "TimeoutCancellationException",
             Self::TransferStalled => "TransferStalled",
             Self::Cancelled => "cancelled",
             Self::Lost => "lost",

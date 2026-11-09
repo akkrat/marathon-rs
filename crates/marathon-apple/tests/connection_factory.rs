@@ -827,7 +827,7 @@ async fn reachability_uses_echo_and_rejects_approved_numeric_edges() {
         panic!("unresolvable host must be a device failure");
     };
     let cause = error.cause.expect("UnknownHostException cause");
-    assert_eq!(cause.kind.legacy_class(), "java.net.UnknownHostException");
+    assert_eq!(cause.kind, marathon_error::FailureKind::UnknownHost);
     // getaddrinfo's text is platform-specific; only the JDK's "<host>: " prefix is pinned.
     assert!(cause.message().unwrap().starts_with("no-such-host.invalid: "));
 }

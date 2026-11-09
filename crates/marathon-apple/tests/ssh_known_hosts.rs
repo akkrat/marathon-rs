@@ -134,22 +134,14 @@ fn rejected_wildcard_regex_names_the_pattern_and_the_known_hosts_line() {
         let error = OpenSshKnownHosts::parse(Path::new("known_hosts"), &text, logging.clone())
             .err()
             .unwrap_or_else(|| panic!("{entry} parsed"));
-        assert_eq!(
-            error.kind.legacy_class(),
-            PATTERN_SYNTAX_EXCEPTION.legacy_class(),
-            "{entry}"
-        );
+        assert_eq!(error.kind, PATTERN_SYNTAX_EXCEPTION, "{entry}");
         let message = error.message().unwrap();
         assert_eq!(message, expected(Path::new("known_hosts")), "{entry}");
         assert!(message.contains("known_hosts line 3"), "{entry}: {message}");
         assert!(message.contains(compiled), "{entry}: {message}");
         std::fs::write(&path, &text).unwrap();
         let error = OpenSshKnownHosts::load(&path, logging.clone()).err().unwrap();
-        assert_eq!(
-            error.kind.legacy_class(),
-            PATTERN_SYNTAX_EXCEPTION.legacy_class(),
-            "{entry}"
-        );
+        assert_eq!(error.kind, PATTERN_SYNTAX_EXCEPTION, "{entry}");
         assert_eq!(error.message().unwrap(), expected(&path), "{entry}");
     }
 }

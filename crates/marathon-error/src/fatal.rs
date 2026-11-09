@@ -3,13 +3,13 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FatalKind {
     WindowSystem,
-    IO,
+    Io,
     Assertion,
     BootstrapMethod,
     ClassCircularity,
     ClassFormat,
     General,
-    ExceptionInInitializer,
+    Initialization,
     IllegalAccess,
     IncompatibleClassChange,
     Instantiation,
@@ -34,20 +34,20 @@ pub enum FatalKind {
     StreamFactory,
     TransformerFactory,
     NotImplemented,
-    KotlinReflectionNotSupported,
+    ReflectionUnsupported,
 }
 
 impl FatalKind {
     pub const fn legacy_class(&self) -> &'static str {
         match self {
             Self::WindowSystem => "java.awt.AWTError",
-            Self::IO => "java.io.IOError",
+            Self::Io => "java.io.IOError",
             Self::Assertion => "java.lang.AssertionError",
             Self::BootstrapMethod => "java.lang.BootstrapMethodError",
             Self::ClassCircularity => "java.lang.ClassCircularityError",
             Self::ClassFormat => "java.lang.ClassFormatError",
             Self::General => "java.lang.Error",
-            Self::ExceptionInInitializer => "java.lang.ExceptionInInitializerError",
+            Self::Initialization => "java.lang.ExceptionInInitializerError",
             Self::IllegalAccess => "java.lang.IllegalAccessError",
             Self::IncompatibleClassChange => "java.lang.IncompatibleClassChangeError",
             Self::Instantiation => "java.lang.InstantiationError",
@@ -72,7 +72,7 @@ impl FatalKind {
             Self::StreamFactory => "javax.xml.stream.FactoryConfigurationError",
             Self::TransformerFactory => "javax.xml.transform.TransformerFactoryConfigurationError",
             Self::NotImplemented => "kotlin.NotImplementedError",
-            Self::KotlinReflectionNotSupported => "kotlin.jvm.KotlinReflectionNotSupportedError",
+            Self::ReflectionUnsupported => "kotlin.jvm.KotlinReflectionNotSupportedError",
         }
     }
 }

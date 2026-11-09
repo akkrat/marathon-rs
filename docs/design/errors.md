@@ -1,8 +1,8 @@
 # Typed failures (WP 8.6a)
 
-Milestone 1 proves the representation and one core funnel. Rendered bytes remain unchanged;
+Milestones 1–5 replace string classifications throughout the workspace. Rendered bytes remain unchanged;
 the narrower 8.6a brief applies even where PLAN §3.12 permits wording changes. No D-row or
-fixture update is needed. The milestone-1 design is approved; milestones 2–5 complete the migration.
+fixture update is needed. The approved milestone-1 design is implemented.
 
 ## Types and crate graph
 
@@ -19,12 +19,13 @@ All shared kind definitions and their mappings have one owner. `FailureKind` wra
 | --- | --- |
 | `AdbKind` | Request rejection, validation, sync/image protocols, transport; ADB and Android |
 | `DexKind` | DEX decoding; DEX and Android (common I/O kinds are reused) |
-| `ConfigKind` | Binding, coercion, YAML/JSON decoding and configuration rejection; config and core |
+| `ConfigKind`, `ValidationKind` | Binding, coercion, YAML/JSON decoding, validation and configuration rejection; config and core |
 | `SshKind` | Connection, authentication, channel, key decoding and transport; Apple, iOS, macOS |
 | `AnalyticsKind` | Influx v1/v2, Flux, Graphite and response decoding; analytics and core |
 | `AndroidKind`, `AppleKind` | Vendor-specific failures outside ADB/SSH |
 | `ReportKind` | Reporter/encoding failures, without moving reporter implementations |
 | `FatalKind` | Existing JVM Error catch distinctions, including ThreadDeath |
+| `InjectedKind` | Closed replay/test failure markers; no arbitrary string construction |
 
 Producer error structs keep their domain data (for example SSH disconnect reasons,
 suppressed errors and the no-common-algorithm marker); projection into `Failure` moves
@@ -38,7 +39,9 @@ argument, state, cancellation and runner classifications stay top-level alternat
 opaque frame text. `Failure::from_kind` stores the kind directly. `to_java_string` obtains
 the rendered name from `kind.legacy_class()`; `stack_trace` delegates to `to_java_string`.
 There is no string constructor, string equality implementation on kinds, or independently
-stored class that can disagree with the kind.
+stored class that can disagree with the kind. `Failure` has a custom `Debug` view using the
+same mapping: an SSH clock-error fallback embeds it in a message, so its old field labels
+and recursive representation must remain byte-identical until the wording WP.
 
 The field swap includes required consumer edits across the workspace in one buildable
 change. Domain producers project their shared kind directly; they never render and parse
@@ -67,7 +70,11 @@ failure enters execution. Use a fallible, explicit whitelist for that recording 
 scenario short names such as `DeviceLostException` are format tokens, not class suffixes
 to guess. Unknown names take the existing invalid-input path (for example the unsupported
 `batch-failed` exception error), never `External`, a default kind, or an internal panic.
-Keep recorded expectation strings as expected rendered bytes. Copied tapes and fixtures
+`marathon-test-support/src/recorded_errors.rs` owns the whitelist and scenario-token parser;
+`StubDevice::deliver` parses batch failures before queuing typed execution events. Recorded
+Influx errors retain their recorded category while the body parser supplies their independent
+retry disposition; a missing message remains retryable. Keep recorded expectation strings as
+expected rendered bytes. Copied tapes and fixtures
 remain untouched. The existing clock tape reader need not gain an exception parser when
 its format contains no exception values.
 
@@ -120,27 +127,84 @@ alternatives, shared through the leaf crate, not counts of separate new enums to
 | jcompat | 37 references to migrate/remove, chiefly fatal catch membership |
 | snakeyaml | 4 parser kinds to project at the config boundary |
 
-These counts overlap. Hierarchy-only names may disappear; test injection names and
-separate retry classifications may add alternatives. The initial 28 alternatives have expanded into domain vocabularies and closed injected
-replay/test markers. Final counts are reported after the boundary audit.
+These reference counts overlap. The final definitions in the leaf crate are:
 
-## Risks for the remaining milestones
+| Module | Enum | Alternatives |
+| --- | --- | ---: |
+| `lib.rs` | `FailureKind` | 70 (59 direct, 10 domain wrappers, 1 external) |
+| `adb.rs` | `AdbKind` | 11 |
+| `dex.rs` | `DexKind` | 1 |
+| `config.rs` | `ConfigKind` / `ValidationKind` | 18 / 5 |
+| `ssh.rs` | `SshKind` | 13 |
+| `analytics.rs` | `AnalyticsKind` / `InfluxV1Kind` / `RetryDisposition` | 16 / 8 / 2 |
+| `android.rs` | `AndroidKind` | 4 |
+| `apple.rs` | `AppleKind` | 7 |
+| `report.rs` | `ReportKind` | 5 |
+| `fatal.rs` | `FatalKind` | 33 |
+| `injected.rs` | `InjectedKind` | 34 |
 
-- The analytics transport is currently Hyper plus `hyper-timeout`, not reqwest. Use its
-  typed transport/I/O sources, retaining refused/reset/broken-pipe/socket-idle distinctions
-  and cancellation scope identity. Status/Retry-After retries are already typed; preserve
-  their consecutive-response rules. Existing transport-fault and oracle tests remain exact.
-- Influx v1 `http::v1_error_class` classifies server body text, first matching phrase wins.
-  `BatchWriter::retryable` separately rejects any of nine phrases, even a later match;
-  cache-max-memory-size is classified but is retryable. A single chosen server-error enum
-  cannot preserve mixtures containing that phrase and a later non-retryable phrase.
-  Keep response classification and retry disposition separately typed at the response
-  boundary. Pin each phrase, order/mixtures, generic responses and transport failures.
-- HTTP status alone cannot reproduce all v1 body categories. The server exposes textual
-  error descriptions; confirm the protocol classification boundary during milestone 2.
-  Also audit arbitrary transport error messages against today's substring-based retry
-  decision. If equivalent typed information cannot preserve a decision, stop and report
-  rather than changing retries or introducing a D-row silently.
-- Preserve SSH inheritance and message fallback, config wrapping stages and cause order,
-  fatal-vs-exception catches and deduplication keys. `FailureKind` derives `Hash` for the
-  latter, and deduplication ignores retry metadata that did not participate in the old class/message key.
+Independent SnakeYAML owns seven `TokenErrorKind` alternatives (six parser categories and
+one existing test marker); config projects them directly at its boundary. Validation kinds
+project into the shared vocabulary and delegate their rendering, avoiding duplicate mappings.
+
+## Analytics response and transport boundaries
+
+The transport uses Hyper and `hyper-timeout`. Its source-chain walk selects kinds from
+`io::ErrorKind`, retaining the existing deepest recognized source rule:
+
+| Typed source | Kind |
+| --- | --- |
+| `ConnectionRefused` | `Connect` |
+| `ConnectionReset`, `BrokenPipe` | `Socket` |
+| `TimedOut` (including socket-idle errors) | `SocketTimeout` |
+| No recognized transport source | `Io` |
+
+No locally built failure message selects retry behaviour. HTTP status and Retry-After
+rules retain their existing consecutive-response semantics. `wraps_as_analytics_io` is an
+explicit set matching the old `java.io.`/`java.net.` wrapper condition, distinct from the
+SSH and APK I/O catch sets.
+
+The v1 server body is an external protocol. `analytics::parse_v1_error_body` runs once at
+the HTTP response boundary (or recorded-input boundary), returning classification plus a
+separate retry disposition. In the following table, the first matching row selects the
+category; any matching `Never` row disables retry, regardless of body order:
+
+| Server phrase | Category | Retry |
+| --- | --- | --- |
+| `database not found` | `DatabaseNotFound` | Never |
+| `points beyond retention policy` | `PointsBeyondRetentionPolicy` | Never |
+| `field type conflict` | `FieldTypeConflict` | Never |
+| `unable to parse` | `UnableToParse` | Never |
+| `hinted handoff queue not empty` | `HintedHandOffQueueNotEmpty` | Never |
+| `cache-max-memory-size exceeded` | `CacheMaxMemorySizeExceeded` | Retry |
+| `user is required to write to database` | `AuthorizationFailed` | Never |
+| `user is not authorized to write to database` | `AuthorizationFailed` | Never |
+| `authorization failed` | `AuthorizationFailed` | Never |
+| `username required` | `AuthorizationFailed` | Never |
+
+A generic body selects `General` and `Retry`. Thus cache-memory followed by username-required
+keeps the cache classification and disables retry. `BatchWriter::retryable` only reads the
+typed disposition; cancellation remains non-retryable and transport failures remain retryable.
+
+`http.rs` tests pin all phrases, every ordered pair in both body orders, generic bodies,
+the cache-memory mixture and typed I/O sources with unrelated messages. Its loopback test
+pins read/write idle timeouts. `influx.rs` pins typed retry decisions independent of message
+text; existing `transport_faults.rs` and client oracle suites pin real faults, retry counts,
+causes and output bytes.
+
+## Catch sets, keys and completion
+
+`is_fatal` replaces the exact 33-member JVM Error whitelist, including ThreadDeath, with
+negative tests for Error-looking injected names. The shared SSH parent graph preserves its
+old deliberately narrow equivalence classes. Domain tests pin the three connect cases,
+the Android retry I/O set, the five APK I/O cases, JSON-vs-mapping wrapping and device loss.
+
+Analytics deduplication uses `(kind.dedup_key(), message)`: the key ignores v1 retry metadata
+because the old `(class, message)` key did. A backend-level regression proves identical
+class/message failures log once even when retry disposition differs, while a different
+class or message remains separate.
+
+The complete selector ledger is `docs/wp/8.6a-selectors.md`; test changes and acceptance grep
+are recorded beside it. No scope omissions, stop conditions, D-rows, fixture updates or parity
+row changes remain. External text, KotlinValue and YAML writing remain outside this WP; 8.6b
+can replace each domain's mapping independently, including the preserved Debug rendering.

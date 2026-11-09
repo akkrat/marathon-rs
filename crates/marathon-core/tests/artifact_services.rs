@@ -926,6 +926,6 @@ fn log_writer_rejects_nul_filename_before_opening() {
             }
         })
     }));
-    assert_eq!(failure.kind.legacy_class(), "java.nio.file.InvalidPathException");
+    assert_eq!(failure.kind, marathon_error::FailureKind::InvalidPath);
     assert_eq!(failure.message.as_deref(), Some("Nul character not allowed"));
 }

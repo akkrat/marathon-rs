@@ -42,13 +42,8 @@ impl From<XcresultDecodeError> for Failure {
     }
 }
 
-fn failure(class: FailureKind, message: &str) -> Failure {
-    Failure {
-        kind: class,
-        message: Some(String::from(message)),
-        cause: None,
-        stacktrace: None,
-    }
+fn failure(kind: FailureKind, message: &str) -> Failure {
+    Failure::from_kind(kind, Some(message.into()))
 }
 
 #[derive(Clone, Debug, Default)]
@@ -96,7 +91,7 @@ fn syntax(error: serde_json::Error) -> XcresultDecodeError {
         path: vec![],
         failure: failure(
             if error.is_eof() {
-                FailureKind::Config(ConfigKind::JsonEOF)
+                FailureKind::Config(ConfigKind::JsonEof)
             } else {
                 FailureKind::Config(ConfigKind::JsonParse)
             },
@@ -272,7 +267,7 @@ impl<'a> Fields<'a> {
     pub(super) fn required<T: Decode>(&self, name: &str) -> Result<T, XcresultDecodeError> {
         self.optional(name)?.ok_or_else(|| {
             self.path.field(name).error(
-                FailureKind::Config(ConfigKind::MissingKotlinParameter),
+                FailureKind::Config(ConfigKind::MissingParameter),
                 "Missing or null required xcresult constructor parameter",
             )
         })

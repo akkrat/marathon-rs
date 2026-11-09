@@ -30,7 +30,7 @@ use std::path::PathBuf;
 
 // `validate()` failures use the crate-wide `crate::vendor::ValidationError`
 // (WP 2.3a integration): these bodies throw Kotlin `ConfigurationException`,
-// so every error here has `ExceptionClass::Configuration`. Binding failures
+// so every error here has `ValidationKind::Configuration`. Binding failures
 // use `ConfigurationError` with that class name instead.
 
 /// `java.lang.Double.equals`: `doubleToLongBits` equality, so NaN equals

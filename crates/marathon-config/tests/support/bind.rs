@@ -201,7 +201,7 @@ pub fn compare_row(stream: &Stream, expected: &Json, overrides: &Json) -> Vec<(S
                 "error-class" => matches!(got, Outcome::Err(_)) && exp.get("error").is_some(),
                 "last-list" => matches!(got, Outcome::Ok(ref v) if v == &serde_json::json!(["x"])),
                 "last-null" => {
-                    matches!(got, Outcome::Err(ref e) if e.kind.legacy_class() == marathon_config::binder::MISSING_KOTLIN.legacy_class())
+                    matches!(got, Outcome::Err(ref e) if e.kind == marathon_config::binder::MISSING_KOTLIN)
                 }
                 "last-string" => matches!(got, Outcome::Ok(ref v) if v == "x"),
                 "syntax-before-null" => {

@@ -772,7 +772,7 @@ async fn an_asynchronous_notification_racing_channel_close_fails_without_failing
         p.h.logs.lock().unwrap().iter().any(|(_, _, _, error)| {
             error
                 .as_ref()
-                .is_some_and(|e| e.kind.legacy_class() == "kotlinx.coroutines.channels.ClosedSendChannelException")
+                .is_some_and(|e| e.kind == marathon_error::FailureKind::ChannelSendClosed)
         })
     })
     .await;

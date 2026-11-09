@@ -187,10 +187,7 @@ async fn closing_case(
         let flattened = result.into_vendor();
         let not_closed = flattened.failure().cause.as_ref().unwrap();
         let expected = close_error.unwrap_or(FailureKind::Timeout);
-        assert_eq!(
-            not_closed.cause.as_ref().unwrap().kind.legacy_class(),
-            expected.legacy_class().to_owned()
-        );
+        assert_eq!(not_closed.cause.as_ref().unwrap().kind, expected);
         if let Some(class) = output_error {
             assert!(not_closed.stack_trace().to_owned().contains(class.legacy_class()));
         }
@@ -374,10 +371,7 @@ async fn after_run_error_replaces_failure_but_exception_named_error_is_suppresse
         let result = execute(&runner, &After(class.clone())).await.unwrap_err();
         v(device.dispose().await)?;
         if is_error {
-            assert_eq!(
-                result.error.failure().kind.legacy_class(),
-                class.legacy_class().to_owned()
-            );
+            assert_eq!(result.error.failure().kind, class);
             assert!(result.suppressed.is_empty());
         } else {
             assert_eq!(result.reason, Some(DeviceFailureReason::Unknown));

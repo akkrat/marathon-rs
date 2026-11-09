@@ -152,7 +152,7 @@ mod kind_tests {
         for kind in [
             FailureKind::AccessDenied,
             FailureKind::FileSystem,
-            FailureKind::UncheckedIO,
+            FailureKind::UncheckedIo,
             FailureKind::Runtime,
             FailureKind::Dex(DexKind::Decode),
         ] {

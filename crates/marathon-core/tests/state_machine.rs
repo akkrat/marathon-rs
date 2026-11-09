@@ -96,7 +96,7 @@ fn invalid_transition_still_notifies_listener() {
 fn missing_definition_is_kotlin_failure_and_never_panics() {
     let mut machine = StateMachine::<_, _, ()>::create(State::Idle, |_| {});
     assert!(
-        matches!(machine.transition(Event::Unknown),Err(OperationError::Failed(f)) if f.kind.legacy_class()=="java.lang.IllegalStateException")
+        matches!(machine.transition(Event::Unknown),Err(OperationError::Failed(f)) if f.kind == marathon_error::FailureKind::IllegalState)
     );
 }
 #[test]

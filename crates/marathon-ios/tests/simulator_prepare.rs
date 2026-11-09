@@ -376,10 +376,7 @@ async fn a_connection_lost_during_prepare_is_not_a_failed_boot_d36() -> TestResu
     *h.worker.before.lock().unwrap() = Arc::new(|_| Box::pin(async { Ok(None) }));
     let e = h.prepare(&d).await.unwrap_err();
     assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
-    assert_eq!(
-        e.failure().kind.legacy_class().to_owned(),
-        CONNECTION_EXCEPTION.legacy_class()
-    );
+    assert_eq!(e.failure().kind, CONNECTION_EXCEPTION);
     assert_eq!(h.boot.boots.load(Ordering::SeqCst), 0);
     assert!(
         !h.logs
@@ -421,10 +418,7 @@ async fn a_null_readiness_probe_on_a_lost_connection_is_not_a_failed_boot_d36_d3
     });
     let e = h.prepare(&d).await.unwrap_err();
     assert!(!matches!(e, VendorError::LeavePool { .. }), "{e:?}");
-    assert_eq!(
-        e.failure().kind.legacy_class().to_owned(),
-        CONNECTION_EXCEPTION.legacy_class()
-    );
+    assert_eq!(e.failure().kind, CONNECTION_EXCEPTION);
     assert!(
         !h.logs
             .lock()
@@ -603,10 +597,7 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
     let VendorError::Other(failure) = error else {
         panic!("{error:?}");
     };
-    assert_eq!(
-        failure.kind.legacy_class().to_owned(),
-        CONNECTION_EXCEPTION.legacy_class()
-    );
+    assert_eq!(failure.kind, CONNECTION_EXCEPTION);
     assert_eq!(
         failure.message.map(|m| m.to_owned()),
         Some("Lost the connection to local during a transfer".into())

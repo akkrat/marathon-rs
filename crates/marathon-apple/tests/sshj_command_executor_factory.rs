@@ -81,7 +81,7 @@ async fn client_is_closed_when_authentication_fails() {
         .await
         .err()
         .unwrap();
-    assert_eq!(error.kind.legacy_class(), USER_AUTH_EXCEPTION.legacy_class());
+    assert_eq!(error.kind, USER_AUTH_EXCEPTION);
     assert!(calls.lock().unwrap().contains(&"close".to_owned()));
 }
 
@@ -97,7 +97,7 @@ async fn every_failed_connection_attempt_closes_its_own_client() {
         .await
         .err()
         .unwrap();
-    assert_eq!(error.kind.legacy_class(), TRANSPORT_EXCEPTION.legacy_class());
+    assert_eq!(error.kind, TRANSPORT_EXCEPTION);
     for calls in &clients {
         let calls = calls.lock().unwrap();
         assert!(calls.contains(&"connect worker 22".to_owned()));
