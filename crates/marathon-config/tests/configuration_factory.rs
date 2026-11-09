@@ -181,7 +181,7 @@ fn on_sample_config_1_should_deserialize() {
     let configuration = parse_sample("sample_1.yaml", None).unwrap();
 
     assert_eq!(configuration.name, s("sample-app tests"));
-    assert_eq!(configuration.output_dir, p(&dir, "marathon"));
+    assert_eq!(configuration.output_dir.as_os_str(), p(&dir, "marathon").as_os_str());
     assert_eq!(
         configuration.analytics_configuration,
         AnalyticsConfiguration::InfluxDb(InfluxDbConfiguration {
@@ -361,7 +361,7 @@ fn on_sample_config_2_with_minimal_configuration_should_deserialize() {
     let configuration = parse_sample("sample_2.yaml", None).unwrap();
 
     assert_eq!(configuration.name, s("sample-app tests"));
-    assert_eq!(configuration.output_dir, p(&dir, "marathon"));
+    assert_eq!(configuration.output_dir.as_os_str(), p(&dir, "marathon").as_os_str());
     assert_eq!(configuration.analytics_configuration, AnalyticsConfiguration::Disabled);
     assert_eq!(configuration.pooling_strategy, PoolingStrategyConfiguration::Omni);
     assert_eq!(configuration.sharding_strategy, ShardingStrategyConfiguration::Parallel);

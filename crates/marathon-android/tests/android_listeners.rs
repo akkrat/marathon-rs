@@ -565,6 +565,10 @@ mod log_listener_test {
                             name: Some("log".into())
                         }])
                     );
+                    assert_eq!(
+                        collector.get(&test("method0")).unwrap()[0].file.as_os_str(),
+                        std::ffi::OsStr::new("/log0")
+                    );
                     if isolation {
                         checked(log.on_line("a").await);
                         checked(adapter.on_event(&start("method1")).await);
@@ -572,7 +576,10 @@ mod log_listener_test {
                         checked(log.on_line("c").await);
                         checked(adapter.on_event(&end("method1")).await);
                         checked(log.on_line("d").await);
-                        assert_eq!(collector.get(&test("method1")).unwrap()[0].file, PathBuf::from("/log1"));
+                        assert_eq!(
+                            collector.get(&test("method1")).unwrap()[0].file.as_os_str(),
+                            std::ffi::OsStr::new("/log1")
+                        );
                     }
                     let saved = writer.saved.lock().unwrap();
                     assert_eq!(saved[0].1, vec![String::from("1\n2\n")]);

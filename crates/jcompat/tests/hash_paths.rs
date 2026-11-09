@@ -2,7 +2,7 @@
 //! and core/src/test/kotlin/com/malinskiy/marathon/io/FileManagerTest.kt.
 use jcompat::{file_manager::*, fragment_hash::*};
 use serde_json::Value;
-use std::path::PathBuf;
+use std::ffi::OsStr;
 
 fn rows(data: &str) -> Vec<Value> {
     let mut lines = data.lines();
@@ -104,7 +104,7 @@ fn file_manager_oracle() {
                 chunk: optional(a, "chunk"),
             })
         };
-        assert_eq!(plan.path, PathBuf::from(text(&row["result"], "ok")), "{row}");
+        assert_eq!(plan.path.as_os_str(), OsStr::new(text(&row["result"], "ok")), "{row}");
     }
 }
 fn input_text(value: &Value) -> Option<String> {
@@ -119,7 +119,8 @@ fn input_text(value: &Value) -> Option<String> {
 fn check_edge(row: &Value) {
     let a = &row["args"];
     match text(row, "op") {
-        "native_file" => assert!(String::from_utf16(&units(a)).is_err()),
+        // n/a: 8.3: D55 — no surviving text-path boundary accepts this row's lone surrogate.
+        "native_file" => {}
         "filesystem" => {} // The filesystem_effects test executes this row in its own sandbox.
         "fragment" => {
             let actual = fragment_index_for_hash(
@@ -154,8 +155,8 @@ fn check_edge(row: &Value) {
             assert_eq!(signed_md5(&String::from_utf16_lossy(&raw)).to_string(), expected);
         }
         "absolute" => assert_eq!(
-            absolute_file_path(a.as_str().unwrap(), text(row, "cwd")),
-            PathBuf::from(String::from_utf16_lossy(&units(&row["result"])))
+            absolute_file_path(a.as_str().unwrap(), text(row, "cwd")).as_os_str(),
+            OsStr::new(&String::from_utf16_lossy(&units(&row["result"])))
         ),
         op => {
             let output = input_text(&a["output"]).unwrap();
@@ -200,8 +201,16 @@ fn check_edge(row: &Value) {
                 assert_eq!(plan.diagnostics.len(), usize::from(!op.starts_with("result")));
                 return;
             }
-            let actual_messages = if row["id"] == "folder-18" {
-                // D56: the directory cut used to retain a lone high surrogate and fail mkdir.
+            let actual_messages = if row["id"] == "filename-1" {
+                // D56: dropping the first pair leaves no filename; materialization rejects it.
+                assert_eq!(
+                    plan.path.as_os_str(),
+                    OsStr::new("/tmp/oracle-wp17/out/logs/testPoolId/xxyyzz")
+                );
+                plan.diagnostics.clone()
+            } else if row["id"] == "folder-18" || row["id"] == "path-18" {
+                // D56: dropping the first pair in a component leaves its normalized parent.
+                // Materialization rejects this empty component instead of returning that parent.
                 assert_eq!(plan.path.to_string_lossy(), "/tmp/oracle-wp17");
                 plan.diagnostics.clone()
             } else if row["result"]["error"].is_string() {
@@ -226,7 +235,7 @@ fn check_edge(row: &Value) {
                 } else {
                     char::decode_utf16(raw).flatten().collect()
                 };
-                assert_eq!(plan.path, PathBuf::from(expected), "{}", text(row, "id"));
+                assert_eq!(plan.path.as_os_str(), OsStr::new(&expected), "{}", text(row, "id"));
                 plan.diagnostics.clone()
             };
             let messages: Vec<String> = row["messages"]
@@ -348,4 +357,54 @@ fn split_pair_limits_write_complete_paths_d56() -> std::io::Result<()> {
     assert_eq!(std::fs::read(&filename.path)?, b"filename");
     assert_eq!(std::fs::read(&file.path)?, b"path");
     std::fs::remove_dir_all(root)
+}
+
+#[test]
+fn split_pair_limits_reject_empty_components_d56() -> std::io::Result<()> {
+    let root = std::env::temp_dir().join(format!("empty-path-limit-d56-{}", std::process::id()));
+    let output = root.to_string_lossy();
+    let filename = FileManager::new(0, 1, &output, "/").plan_test_result_file("😀.json");
+    let prefix = format!("{output}/test_result/");
+    let file =
+        FileManager::new(prefix.encode_utf16().count() as i32 + 1, 0, &output, "/").plan_test_result_file("😀.json");
+    let prefix = format!("{output}/device-files/");
+    let folder = FileManager::new(prefix.encode_utf16().count() as i32 + 1, 0, &output, "/").plan_folder(
+        FolderType::DeviceFiles,
+        Some("😀pool"),
+        None,
+    );
+    let batch = FileManager::new(0, 1, &output, "/").plan_file(FileRequest {
+        file_type: FileType::Log,
+        pool: "pool",
+        serial: "serial",
+        test_name: None,
+        batch_id: Some("😀batch"),
+        id: None,
+        chunk: None,
+    });
+    for plan in [filename, file, folder, batch] {
+        let error = plan
+            .materialize(|_| {})
+            .expect_err("an empty cut must not return its parent");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "invalid utf-16: lone surrogate found");
+    }
+    assert!(!root.join("device-files").exists());
+    // A shorter maxPath removes the invalid filename before the native boundary.
+    let masked = FileManager::new(1, 1, &output, "/").plan_test_result_file("😀.json");
+    assert_eq!(masked.materialize(|_| {})?.as_os_str(), OsStr::new("/"));
+    std::fs::remove_dir_all(root)
+}
+
+#[test]
+fn materialize_rejects_nul_before_filesystem_access() {
+    let manager = FileManager::new(0, 0, "out\0tail", "/");
+    for plan in [
+        manager.plan_test_result_file("result.json"),
+        manager.plan_folder(FolderType::Html, None, None),
+    ] {
+        let error = plan.materialize(|_| {}).expect_err("NUL must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "Nul character not allowed");
+    }
 }

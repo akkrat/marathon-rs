@@ -116,6 +116,7 @@ impl LogWriter for FileLogWriter {
                     }
                     let output = path.clone();
                     blocking(this.io.as_ref(), move || {
+                        validate_path(&output)?;
                         let mut file =
                             std::fs::File::create(&output).map_err(|error| file_open_error(error, &output))?;
                         file.write_all(text.as_bytes()).map_err(io_error)
@@ -153,6 +154,7 @@ impl LogWriter for FileLogWriter {
                 Box::pin(async move {
                     let path = this.files.create_file(&target).await.map_err(vendor_error)?;
                     blocking(this.io.as_ref(), move || {
+                        validate_path(&path)?;
                         let mut file = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)

@@ -255,7 +255,7 @@ async fn policies_results_traces_and_attachments_match_synchronous_baseline_for_
                             result
                                 .attachments
                                 .iter()
-                                .any(|a| a.file == *h.dir.path().join("test.log").to_str().unwrap())
+                                .any(|a| a.file.as_os_str() == h.dir.path().join("test.log").as_os_str())
                         );
                         for a in result.attachments.iter().filter(|a| a.name.is_some()) {
                             assert_eq!(a.name.as_ref().unwrap().to_owned(), "xcodebuild-log");

@@ -120,3 +120,41 @@ fn junit_create_new_file_and_stream_open_keep_distinct_java_errors() {
         );
     }
 }
+
+#[test]
+fn junit_rejects_nul_pool_before_creating_directories() {
+    use marathon_core::{
+        executor::CoreExecutor,
+        report::{JUnitReporter, Reporter},
+    };
+    let temp = Temp::new();
+    let output = temp.0.join("out");
+    let path = output.clone();
+    let mut input = row("passed")["input"].clone();
+    for key in ["connected", "tests"] {
+        for event in input[key].as_array_mut().unwrap() {
+            event["pool"] = "pool\0tail".into();
+        }
+    }
+    let failure = checked(CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            let reporter = JUnitReporter::new(core.vendor(), path, PathBuf::new());
+            let report = reporter_support::report(&input);
+            let task = core.vendor().spawn(Box::pin(async move {
+                reporter.generate(&report).await.map_err(|e| match e {
+                    marathon_core::error::OperationError::Failed(f) => marathon_core::error::VendorError::Other(f),
+                    marathon_core::error::OperationError::Cancelled(c) => {
+                        marathon_core::error::VendorError::Cancelled(c)
+                    }
+                })
+            }));
+            match task.join().await {
+                Err(e) => Ok(e.failure().clone()),
+                Ok(()) => panic!("NUL pool was accepted"),
+            }
+        })
+    }));
+    assert_eq!(failure.class, "java.nio.file.InvalidPathException");
+    assert_eq!(failure.message.as_deref(), Some("Nul character not allowed"));
+    assert!(!output.exists());
+}

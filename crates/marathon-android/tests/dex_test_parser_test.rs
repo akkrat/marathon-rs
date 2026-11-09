@@ -143,7 +143,10 @@ fn should_return_proper_list_of_test_methods() {
     // built off the core thread (the blocking pool).
     assert_eq!(registered.len(), 1);
     assert_eq!(registered[0].0, extracted[0]);
-    assert_eq!(registered[0].1.files.test_application, PathBuf::from(&apk_path()));
+    assert_eq!(
+        registered[0].1.files.test_application.as_os_str(),
+        std::ffi::OsStr::new(&apk_path())
+    );
     assert_ne!(registered[0].1.thread, "marathon-core");
 }
 

@@ -280,7 +280,7 @@ fn when_applications_are_not_specified_should_search_for_them_under_derived_data
     let ios = parse_ios(&dir, "").unwrap();
     let xctest = ios.bundle.as_ref().unwrap().xctest.as_ref().unwrap();
     let expected = fs::canonicalize(dir.join("derivedDataDir/ui.xctest")).unwrap();
-    assert_eq!(Path::new(&path_text(xctest)), expected.as_path());
+    assert_eq!(xctest.as_os_str(), expected.as_os_str());
 }
 
 #[test]

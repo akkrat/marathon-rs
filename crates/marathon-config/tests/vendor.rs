@@ -64,13 +64,19 @@ fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
 #[test]
 fn environment_configuration_should_point_to_android_home() {
     let config = read_environment(&env(&[("ANDROID_HOME", "/android")]));
-    assert_eq!(config.android_sdk, Some(path("/android")));
+    assert_eq!(
+        config.android_sdk.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/android"))
+    );
 }
 
 #[test]
 fn environment_configuration_should_point_to_android_sdk_root() {
     let config = read_environment(&env(&[("ANDROID_SDK_ROOT", "/android")]));
-    assert_eq!(config.android_sdk, Some(path("/android")));
+    assert_eq!(
+        config.android_sdk.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/android"))
+    );
 }
 
 #[test]
@@ -79,7 +85,10 @@ fn environment_configuration_should_prefer_android_home_over_android_sdk_root() 
         ("ANDROID_HOME", "/android"),
         ("ANDROID_SDK_ROOT", "/android_sdk"),
     ]));
-    assert_eq!(config.android_sdk, Some(path("/android")));
+    assert_eq!(
+        config.android_sdk.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/android"))
+    );
 }
 
 // ---- AndroidConfigurationTest (section level) -----------------------------------
@@ -145,13 +154,19 @@ fn if_android_sdk_is_null_should_throw_exception_if_env_android_sdk_also_is_null
 #[test]
 fn if_android_sdk_is_null_should_use_env_android_sdk_if_it_is_not_null() {
     let android = android_with_env("sample_1.yaml");
-    assert_eq!(android.android_sdk, Some(path("/env-sdk")));
+    assert_eq!(
+        android.android_sdk.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/env-sdk"))
+    );
 }
 
 #[test]
 fn if_android_sdk_is_not_null_should_use_android_sdk_instead_of_env_if_both_exists() {
     let android = android_with_env("sample_2.yaml");
-    assert_eq!(android.android_sdk, Some(path("/opt/android-sdk")));
+    assert_eq!(
+        android.android_sdk.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/opt/android-sdk"))
+    );
 }
 
 #[test]
@@ -166,8 +181,8 @@ fn if_android_sdk_is_not_null_test_application_output_should_be_null_if_provided
     // Kotlin asserts the provided applicationOutput despite the test name.
     let android = android_with_env("sample_3.yaml");
     assert_eq!(
-        android.application_output,
-        Some(path("/some/folder/with/marathonfile/debug.apk"))
+        android.application_output.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/some/folder/with/marathonfile/debug.apk"))
     );
 }
 
@@ -175,8 +190,11 @@ fn if_android_sdk_is_not_null_test_application_output_should_be_null_if_provided
 fn if_android_sdk_is_not_null_test_application_apk_should_be_equal() {
     let android = android_with_env("sample_2.yaml");
     assert_eq!(
-        android.test_application_output,
-        Some(path("/some/folder/with/marathonfile/foo/bar"))
+        android
+            .test_application_output
+            .as_deref()
+            .map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/some/folder/with/marathonfile/foo/bar"))
     );
 }
 
@@ -220,8 +238,11 @@ fn if_android_sdk_is_not_null_install_options_should_be_equal_if_provided() {
 fn if_android_sdk_is_not_null_extra_applications_output_should_be_equal_if_provided() {
     let android = android_with_env("sample_6.yaml");
     assert_eq!(
-        android.extra_applications_output,
-        Some(vec![path("/some/folder/with/marathonfile/foo/bar")])
+        android
+            .extra_applications_output
+            .as_ref()
+            .map(|paths| paths.iter().map(|p| p.as_os_str()).collect::<Vec<_>>()),
+        Some(vec![std::ffi::OsStr::new("/some/folder/with/marathonfile/foo/bar")])
     );
 }
 
@@ -666,7 +687,10 @@ fn validate_messages_are_verbatim() {
 fn sdk_lookup_empty_counts_as_unset_and_relative_stays_relative() {
     // P2: empty ANDROID_HOME falls through; Kotlin accepts File("").
     let config = read_environment(&env(&[("ANDROID_HOME", ""), ("ANDROID_SDK_ROOT", "rel/sdk")]));
-    assert_eq!(config.android_sdk, Some(path("rel/sdk")));
+    assert_eq!(
+        config.android_sdk.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("rel/sdk"))
+    );
     let config = read_environment(&env(&[("ANDROID_HOME", "")]));
     assert_eq!(config.android_sdk, None);
 }
@@ -684,7 +708,10 @@ fn post_processing_paths_and_xcresult_pull() {
     };
     post_process_ios(&mut ios, &ctx).unwrap();
     // Missing devices defaults to <dir>/Marathondevices, not canonicalised.
-    assert_eq!(ios.devices_file, Some(path(&format!("{dir_text}/Marathondevices"))));
+    assert_eq!(
+        ios.devices_file.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new(&format!("{dir_text}/Marathondevices")))
+    );
     // knownHostsPath goes through resolve(...).canonicalFile: /../ is gone.
     let known = ios.ssh.known_hosts_path.as_ref().expect("known hosts");
     assert_eq!(
@@ -929,7 +956,10 @@ fn wrapping_and_saturating_edges_never_panic() {
 #[test]
 fn duplicate_environment_names_resolve_to_the_first_occurrence() {
     let config = read_environment(&env(&[("ANDROID_HOME", "/first"), ("ANDROID_HOME", "/second")]));
-    assert_eq!(config.android_sdk, Some(path("/first")));
+    assert_eq!(
+        config.android_sdk.as_deref().map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("/first"))
+    );
     // P2: an empty FIRST occurrence counts as unset; no fallback to a later one.
     let config = read_environment(&env(&[("ANDROID_HOME", ""), ("ANDROID_HOME", "/second")]));
     assert_eq!(config.android_sdk, None);

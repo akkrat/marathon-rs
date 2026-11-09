@@ -352,6 +352,7 @@ impl ScreenCapturer {
                     // so an invalid delay still leaves the empty file behind.
                     let delay = settings.delay.to_millis();
                     let writer = blocking(services.io.as_ref(), move || {
+                        validate_path(&path)?;
                         let stream = std::fs::OpenOptions::new()
                             .create(true)
                             .truncate(false)

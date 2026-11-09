@@ -32,6 +32,15 @@ pub(crate) fn io_error(error: std::io::Error) -> VendorError {
     };
     VendorError::Other(crate::executor::shared::failure(class, &error.to_string()))
 }
+pub(crate) fn validate_path(path: &std::path::Path) -> VendorResult<()> {
+    if path.as_os_str().as_encoded_bytes().contains(&0) {
+        return Err(io_error(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Nul character not allowed",
+        )));
+    }
+    Ok(())
+}
 fn native_reason(error: &std::io::Error) -> String {
     let text = error.to_string();
     text.split(" (os error ").next().unwrap_or(&text).to_owned()

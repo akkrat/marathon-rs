@@ -38,6 +38,7 @@ impl Reporter for JUnitReporter {
                 blocking(self.io.as_ref(), move || {
                     // Paths.get joins raw pool segments, unlike FileManager's escape.
                     let directory = PathBuf::from(format!("{}/tests/{pool}", output.to_string_lossy()));
+                    validate_path(&directory)?;
                     let _ = std::fs::create_dir_all(&directory);
                     let path = PathBuf::from(format!("{}/marathon_junit_report.xml", directory.to_string_lossy()));
                     let native = &path;

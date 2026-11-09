@@ -30,6 +30,7 @@ pub struct ReporterFiles {
 impl ReporterFiles {
     pub(super) async fn write(&self, path: PathBuf, text: String) -> OperationResult<()> {
         blocking(self.io.as_ref(), move || {
+            validate_path(&path)?;
             let mut file = std::fs::File::create(&path).map_err(|e| file_open_error(e, &path))?;
             file.write_all(text.as_bytes()).map_err(io_error)
         })

@@ -210,11 +210,19 @@ fn absolute_paths_preserve_dot_segments_relative_paths_resolve_symlink_prefixes(
         let b = Binder::new(&ctx, &stream);
         b.first(&stream, |v| v.file()).map(|p| p.flatten())
     };
-    assert_eq!(file("'/a/../b'").unwrap(), Some(PathBuf::from("/a/../b")));
+    for (input, expected) in [("'/a/../b'", "/a/../b"), ("'/a//./b/'", "/a/./b")] {
+        assert_eq!(
+            file(input).unwrap().as_deref().map(std::path::Path::as_os_str),
+            Some(std::ffi::OsStr::new(expected))
+        );
+    }
     #[cfg(unix)]
     {
         let expected = std::fs::canonicalize(temp.path().join("real"))?.join("missing/leaf");
-        assert_eq!(file("'link/../missing/leaf'").unwrap().unwrap(), expected);
+        assert_eq!(
+            file("'link/../missing/leaf'").unwrap().unwrap().as_os_str(),
+            expected.as_os_str()
+        );
     }
     assert!(file("'\0'").is_err());
     Ok(())
@@ -231,8 +239,12 @@ fn p2_registry_has_no_java_time_or_marathonfile_path_resolver() {
     let s = node::load("'relative/key'");
     let b = Binder::new(&ctx, &s);
     assert_eq!(
-        b.first(&s, |v| v.file()).unwrap().flatten(),
-        Some(PathBuf::from("relative/key"))
+        b.first(&s, |v| v.file())
+            .unwrap()
+            .flatten()
+            .as_deref()
+            .map(std::path::Path::as_os_str),
+        Some(std::ffi::OsStr::new("relative/key"))
     );
 }
 #[test]

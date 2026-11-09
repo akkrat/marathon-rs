@@ -105,6 +105,7 @@ pub struct PathPlan {
     pub diagnostics: Vec<String>,
     best_effort_mkdirs: bool,
     folder: bool,
+    invalid_empty_cut: bool,
     preflight: Vec<PathBuf>,
 }
 impl PathPlan {
@@ -126,8 +127,12 @@ impl PathPlan {
                 log_error(message);
             }
         };
+        let invalid_cut = || io::Error::new(io::ErrorKind::InvalidInput, "invalid utf-16: lone surrogate found");
         if self.folder {
             emit(&mut log_error);
+            if self.invalid_empty_cut {
+                return Err(invalid_cut());
+            }
         }
         if self.best_effort_mkdirs {
             // File.mkdirs returns false on failure; createTestResultFile ignores it.
@@ -137,6 +142,9 @@ impl PathPlan {
         }
         if !self.folder {
             emit(&mut log_error);
+        }
+        if self.invalid_empty_cut {
+            return Err(invalid_cut());
         }
         Ok(self.path.clone())
     }
@@ -254,11 +262,18 @@ impl FileManager {
     }
     fn finish_file(&self, directory: PathBuf, mut filename: String) -> PathPlan {
         let mut diagnostics = Vec::new();
+        let mut invalid_empty_cut = false;
         if self.max_filename > 0 && filename.encode_utf16().count() > self.max_filename as usize {
             filename = cut(&filename, self.max_filename as usize).to_owned();
+            // A later path cut can remove the invalid filename altogether, as in rc.1.
+            invalid_empty_cut = filename.is_empty()
+                && (self.max_path <= 0
+                    || self.max_path as usize > directory.to_string_lossy().encode_utf16().count() + 1);
             diagnostics.push(format!("File name length cannot exceed {} characters and has been trimmed to {} and can create a conflict.This usually happens because the test name is too long.", self.max_filename, filename));
         }
-        let path = self.trim_path(append(&directory, &filename, false), false, &mut diagnostics);
+        let (path, empty_path_component) =
+            self.trim_path(append(&directory, &filename, false), false, &mut diagnostics);
+        invalid_empty_cut |= empty_path_component;
         PathPlan {
             path,
             preflight: vec![directory.clone()],
@@ -266,6 +281,7 @@ impl FileManager {
             diagnostics,
             best_effort_mkdirs: false,
             folder: false,
+            invalid_empty_cut,
         }
     }
     pub fn plan_folder(&self, kind: FolderType, pool: Option<&str>, serial: Option<&str>) -> PathPlan {
@@ -279,24 +295,27 @@ impl FileManager {
         }
         let mut diagnostics = Vec::new();
         preflight.push(path.clone());
-        let path = self.trim_path(path, true, &mut diagnostics);
+        let (path, invalid_empty_cut) = self.trim_path(path, true, &mut diagnostics);
         PathPlan {
             directory: path.clone(),
             path,
             diagnostics,
             best_effort_mkdirs: false,
             folder: true,
+            invalid_empty_cut,
             preflight,
         }
     }
-    fn trim_path(&self, path: PathBuf, folder: bool, diagnostics: &mut Vec<String>) -> PathBuf {
+    fn trim_path(&self, path: PathBuf, folder: bool, diagnostics: &mut Vec<String>) -> (PathBuf, bool) {
         let text = path.to_string_lossy();
         if self.max_path <= 0 || text.encode_utf16().count() <= self.max_path as usize {
-            return path;
+            return (path, false);
         }
         let trimmed = cut(&text, self.max_path as usize);
+        let split_pair = trimmed.encode_utf16().count() < self.max_path as usize;
+        let invalid_empty_cut = split_pair && (trimmed.is_empty() || trimmed.ends_with('/'));
         diagnostics.push(format!("{} path length cannot exceed {} characters and has been trimmed from {} to {}{}", if folder { "Directory" } else { "File" }, self.max_path, text, trimmed, if folder { " and can create a conflict. This happened because the combination of file path, pool name and device serial is too long." } else { " and can create a conflict. This happened because the combination of file path, test class name, and test name is too long." }));
-        normalize(trimmed)
+        (normalize(trimmed), invalid_empty_cut)
     }
 }
 
@@ -336,7 +355,7 @@ mod diagnostic_tests {
     #[test]
     fn truncated_path_diagnostics_keep_only_complete_characters() {
         let plan = FileManager::new(0, 2, "/out", "/").plan_test_result_file("a😀z");
-        assert_eq!(plan.path, PathBuf::from("/out/test_result/a"));
+        assert_eq!(plan.path.as_os_str(), Path::new("/out/test_result/a").as_os_str());
         assert_eq!(
             plan.diagnostics,
             [

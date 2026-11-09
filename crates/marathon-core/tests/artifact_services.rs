@@ -749,7 +749,10 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
                     capture.lock().unwrap().push(checked.clone().exists());
                 }),
             );
-            assert_eq!(files.create_folder(FolderType::Html, None, None).await?, truncated);
+            assert_eq!(
+                files.create_folder(FolderType::Html, None, None).await?.as_os_str(),
+                truncated.as_os_str()
+            );
             assert_eq!(*created.lock().unwrap(), [false]);
             // createTestResultFile ignores File.mkdirs failure, and creates no file.
             let blocked = temp.path("blocked");
@@ -905,4 +908,23 @@ fn native_directory_failure_retains_jvm_class_and_message() {
         })
     })
     .unwrap();
+}
+
+#[test]
+fn log_writer_rejects_nul_filename_before_opening() {
+    let temp = Temp::new();
+    let failure = checked(CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            let files = output(core.vendor(), temp.path("out"));
+            let writer = FileLogWriter::new(core.vendor(), files);
+            let mut target = target();
+            target.batch_id = "batch\0tail".into();
+            match writer.save_logs(&target, &["log".into()]).await {
+                Err(OperationError::Failed(f)) => Ok(f),
+                other => panic!("expected invalid path error, got {other:?}"),
+            }
+        })
+    }));
+    assert_eq!(failure.class, "java.nio.file.InvalidPathException");
+    assert_eq!(failure.message.as_deref(), Some("Nul character not allowed"));
 }
