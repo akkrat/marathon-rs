@@ -700,7 +700,7 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.4 | Write JSON with serde instead of the Gson emulation (docs/wp/8.4.md) | M | 8.3 |
 | 8.5 | Remove JVM identity strings from outputs (docs/wp/8.5.md) | L | 8.4 |
 | 8.6a | Typed error kinds instead of Java class strings (docs/wp/8.6a.md) | H | 8.5 |
-| 8.6b | Plain error wording instead of Java class names | M | 8.6a |
+| 8.6b | Plain error wording instead of Java class names (docs/wp/8.6b.md) | M | 8.6a |
 
 Later candidates:
 
