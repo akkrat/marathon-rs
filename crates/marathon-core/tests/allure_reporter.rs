@@ -1,6 +1,6 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/allure/AllureReporter.kt.
 mod report_probe_support;
-use jcompat::report_text::{allure_history_id, jackson_json};
+use jcompat::report_text::allure_history_id;
 use marathon_core::{
     artifacts::LocalAttachmentFiles,
     executor::{
@@ -13,8 +13,8 @@ use marathon_core::{
 };
 use report_probe_support::*;
 use std::sync::{Arc, Mutex};
-fn model_json(value: &jcompat::writers::WriterValue) -> serde_json::Value {
-    checked(serde_json::from_slice(jackson_json(value).as_bytes()))
+fn model_json(value: &AllureResult) -> serde_json::Value {
+    checked(serde_json::to_value(value))
 }
 #[test]
 fn all_statuses_attempts_defaults_and_package_collision_match_library() {
@@ -34,10 +34,8 @@ fn all_statuses_attempts_defaults_and_package_collision_match_library() {
                 .replace("\\uD800", "�")
                 .into_bytes();
             assert_eq!(
-                jackson_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root))
-                    .as_bytes()
-                    .to_vec(),
-                expected
+                model_json(&result_model(&uuid, &e.device, &e.test_result, &[], &cfg, &root)),
+                checked(serde_json::from_slice::<serde_json::Value>(&expected))
             );
             continue;
         }

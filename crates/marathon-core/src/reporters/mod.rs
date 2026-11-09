@@ -24,6 +24,13 @@ fn gson(v: &WriterValue) -> VendorResult<String> {
         .write(v)
         .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.0)))
 }
+fn json<T: serde::Serialize + ?Sized>(value: &T) -> VendorResult<String> {
+    serde_json::to_string(value).map_err(json_error)
+}
+fn json_error(error: serde_json::Error) -> VendorError {
+    VendorError::Other(failure("java.lang.IllegalArgumentException", &error.to_string()))
+}
+
 fn child(dir: &std::path::Path, name: &str) -> PathBuf {
     child_file(dir, name)
 }

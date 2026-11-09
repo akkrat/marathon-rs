@@ -15,7 +15,7 @@ use crate::{
 use jcompat::{
     file_manager::{absolute_file_path, relative_file},
     jstring::lines,
-    report_text::{XmlTextError, allure_history_id, form_encode, jackson_json, replace, xml_text},
+    report_text::{XmlTextError, allure_history_id, form_encode, replace, xml_text},
 };
 use marathon_config::{Configuration, VendorConfiguration};
 use std::path::PathBuf;
@@ -93,7 +93,7 @@ impl AllureReporter {
                     .map_err(|e| allure_error("Could not create Allure results directory", nio_error(e, &output)))?;
                 let mut name = uuid;
                 name.push_str("-result.json");
-                write(&child_file(&output, &name), jackson_json(&model).as_bytes())
+                write(&child_file(&output, &name), json(&model)?.as_bytes())
                     .map_err(|e| allure_error("Could not write Allure test result", e))
             })
             .await?;
@@ -177,11 +177,65 @@ fn value<'a>(test: &'a Test, name: &str) -> Option<&'a str> {
         _ => None,
     }
 }
-fn label(name: &str, value: &str) -> WriterValue {
-    object([("name", name.into()), ("value", string(value))])
+#[derive(serde::Serialize)]
+pub struct Label {
+    name: String,
+    value: String,
 }
-fn issue(value: &str) -> WriterValue {
-    object([("name", "Issue".into()), ("url", string(value))])
+#[derive(serde::Serialize)]
+pub struct Link {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+}
+#[derive(serde::Serialize)]
+pub struct AllureAttachment {
+    name: String,
+    source: String,
+    #[serde(rename = "type")]
+    mime: &'static str,
+}
+#[derive(serde::Serialize)]
+pub struct StatusDetails {
+    known: bool,
+    muted: bool,
+    flaky: bool,
+    message: String,
+    trace: String,
+}
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AllureResult {
+    uuid: String,
+    history_id: String,
+    full_name: String,
+    labels: Vec<Label>,
+    links: Vec<Link>,
+    name: String,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status_details: Option<StatusDetails>,
+    stage: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    steps: [(); 0],
+    attachments: Vec<AllureAttachment>,
+    parameters: [(); 0],
+    start: i64,
+    stop: i64,
+}
+fn label(name: &str, value: &str) -> Label {
+    Label {
+        name: name.into(),
+        value: value.into(),
+    }
+}
+fn issue(value: &str) -> Link {
+    Link {
+        name: Some("Issue".into()),
+        url: Some(value.into()),
+    }
 }
 fn attachment_type(kind: AttachmentType) -> (&'static str, &'static str) {
     match kind {
@@ -202,7 +256,7 @@ pub fn result_model(
     retained: &[Attachment],
     configuration: &Configuration,
     process_dir: &std::path::Path,
-) -> WriterValue {
+) -> AllureResult {
     let test = &r.test;
     let suite = test.to_class_name('.');
     let mut links = Vec::new();
@@ -213,38 +267,27 @@ pub fn result_model(
                 let link = if let VendorConfiguration::Android(c) = &configuration.vendor_configuration {
                     let mut path = String::from("/");
                     path.push_str(&relative_file(&a.file, &configuration.output_dir, process_dir));
-                    object([
-                        ("name", "Tracing".into()),
-                        (
-                            "url",
-                            string(&replace(
-                                &c.profiling_configuration.url_template,
-                                "{}",
-                                &form_encode(&path),
-                            )),
-                        ),
-                    ])
+                    Link {
+                        name: Some("Tracing".into()),
+                        url: Some(replace(
+                            &c.profiling_configuration.url_template,
+                            "{}",
+                            &form_encode(&path),
+                        )),
+                    }
                 } else {
-                    WriterValue::Object(Vec::new())
+                    Link { name: None, url: None }
                 };
                 links.push(link);
             }
             let (default, mime) = attachment_type(a.kind);
-            object([
-                (
-                    "name",
-                    a.name.as_ref().map_or_else(|| default.into(), |text| string(text)),
-                ),
-                (
-                    "source",
-                    WriterValue::String(
-                        absolute_file_path(&a.file.to_string_lossy(), &process_dir.to_string_lossy())
-                            .to_string_lossy()
-                            .into_owned(),
-                    ),
-                ),
-                ("type", mime.into()),
-            ])
+            AllureAttachment {
+                name: a.name.clone().unwrap_or_else(|| default.into()),
+                source: absolute_file_path(&a.file.to_string_lossy(), &process_dir.to_string_lossy())
+                    .to_string_lossy()
+                    .into_owned(),
+                mime,
+            }
         })
         .collect();
     let mut labels = vec![
@@ -282,43 +325,31 @@ pub fn result_model(
         TestStatus::Incomplete => "broken",
         TestStatus::Ignored | TestStatus::AssumptionFailure => "skipped",
     };
-    let mut fields = vec![
-        ("uuid".into(), string(uuid)),
-        (
-            "historyId".into(),
-            WriterValue::from(allure_history_id(&test.clazz, &test.method).as_str()),
-        ),
-        ("fullName".into(), string(&test.to_safe_test_name())),
-        ("labels".into(), WriterValue::Array(labels)),
-        ("links".into(), WriterValue::Array(links)),
-        ("name".into(), string(&test.method)),
-        ("status".into(), status.into()),
-    ];
-    if let Some(trace) = &r.stacktrace {
-        fields.push((
-            "statusDetails".into(),
-            object([
-                ("known", WriterValue::Bool(false)),
-                ("muted", WriterValue::Bool(false)),
-                ("flaky", WriterValue::Bool(false)),
-                ("message", string(&lines(trace)[0])),
-                ("trace", string(trace)),
-            ]),
-        ))
+    AllureResult {
+        uuid: uuid.into(),
+        history_id: allure_history_id(&test.clazz, &test.method),
+        full_name: test.to_safe_test_name(),
+        labels,
+        links,
+        name: test.method.clone(),
+        status,
+        status_details: r.stacktrace.as_ref().map(|trace| StatusDetails {
+            known: false,
+            muted: false,
+            flaky: false,
+            message: lines(trace)[0].clone(),
+            trace: trace.clone(),
+        }),
+        stage: "scheduled",
+        description: description.map(str::to_owned),
+        steps: [],
+        attachments,
+        parameters: [],
+        start: r.start_time,
+        stop: r.end_time,
     }
-    fields.push(("stage".into(), "scheduled".into()));
-    if let Some(v) = description {
-        fields.push(("description".into(), string(v)))
-    }
-    fields.extend([
-        ("steps".into(), WriterValue::Array(Vec::new())),
-        ("attachments".into(), WriterValue::Array(attachments)),
-        ("parameters".into(), WriterValue::Array(Vec::new())),
-        ("start".into(), r.start_time.into()),
-        ("stop".into(), r.end_time.into()),
-    ]);
-    WriterValue::Object(fields)
 }
+
 /// Keys and values are text nodes; the first one Xalan rejects aborts the document.
 pub fn environment_xml(params: &[(String, String)]) -> Result<String, XmlTextError> {
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><environment>");
