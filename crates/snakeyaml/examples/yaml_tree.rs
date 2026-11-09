@@ -61,7 +61,7 @@ fn tree(node: &Node, anchors: &mut HashMap<String, Value>) -> Result<Value, Box<
             if matches!(tag, Some("tag:yaml.org,2002:map" | "tag:yaml.org,2002:seq")) {
                 return Err("invalid scalar tag".into());
             }
-            let text = text.as_utf8()?;
+            let text = text.clone();
             let style = match style {
                 Style::Plain => "plain",
                 Style::SingleQuoted => "single-quoted",
