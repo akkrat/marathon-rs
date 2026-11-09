@@ -1,12 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/ (JVM reporter probes).
 #![allow(dead_code)]
 
-use jcompat::{
-    file_manager::FileManager,
-    jtime::instant_of,
-    logging::MarathonLogging,
-    writers::{GsonWriter, WriterValue},
-};
+use jcompat::{file_manager::FileManager, jtime::instant_of, logging::MarathonLogging};
 use marathon_core::{artifacts::FileManagerOutput, model::*, report::*, runtime::VendorRuntime};
 use std::{
     path::PathBuf,
@@ -172,8 +167,8 @@ pub fn fixture(name: &str) -> PathBuf {
         .join("../../fixtures/oracle/html-allure-gif")
         .join(name)
 }
-pub fn json(v: &WriterValue) -> Vec<u8> {
-    checked(GsonWriter::default().write(v)).as_bytes().to_vec()
+pub fn json(v: &(impl serde::Serialize + ?Sized)) -> Vec<u8> {
+    checked(serde_json::to_vec(v))
 }
 pub fn oracle(id: &str) -> serde_json::Value {
     let rows: Vec<serde_json::Value> = checked(serde_json::from_str(include_str!(

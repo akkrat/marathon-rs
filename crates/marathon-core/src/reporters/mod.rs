@@ -31,6 +31,37 @@ fn json_error(error: serde_json::Error) -> VendorError {
     VendorError::Other(failure("java.lang.IllegalArgumentException", &error.to_string()))
 }
 
+#[derive(Default)]
+struct HtmlSafeFormatter;
+impl serde_json::ser::Formatter for HtmlSafeFormatter {
+    fn write_string_fragment<W: Write + ?Sized>(&mut self, writer: &mut W, fragment: &str) -> std::io::Result<()> {
+        let mut start = 0;
+        for (at, ch) in fragment.char_indices() {
+            let escape = match ch {
+                '<' => b"\\u003c".as_slice(),
+                '>' => b"\\u003e".as_slice(),
+                '&' => b"\\u0026".as_slice(),
+                '=' => b"\\u003d".as_slice(),
+                '\'' => b"\\u0027".as_slice(),
+                '\u{2028}' => b"\\u2028".as_slice(),
+                '\u{2029}' => b"\\u2029".as_slice(),
+                _ => continue,
+            };
+            writer.write_all(&fragment.as_bytes()[start..at])?;
+            writer.write_all(escape)?;
+            start = at + ch.len_utf8();
+        }
+        writer.write_all(&fragment.as_bytes()[start..])
+    }
+}
+fn html_json<T: serde::Serialize + ?Sized>(value: &T) -> VendorResult<String> {
+    let mut bytes = Vec::new();
+    let mut serializer = serde_json::Serializer::with_formatter(&mut bytes, HtmlSafeFormatter);
+    value.serialize(&mut serializer).map_err(json_error)?;
+    String::from_utf8(bytes)
+        .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.to_string())))
+}
+
 fn child(dir: &std::path::Path, name: &str) -> PathBuf {
     child_file(dir, name)
 }
@@ -53,6 +84,21 @@ fn exists(path: &std::path::Path) -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn embedded_json_escapes_script_delimiters_keys_and_line_separators() {
+        let text = "</script><>&='\u{2028}\u{2029}名😀\n\\\"";
+        let value = std::collections::BTreeMap::from([(text, [text])]);
+        let html = html_json(&value).unwrap();
+        for forbidden in ['<', '>', '&', '=', '\'', '\u{2028}', '\u{2029}'] {
+            assert!(!html.contains(forbidden));
+        }
+        assert!(html.contains(r"\u003c/script\u003e"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&html).unwrap(),
+            serde_json::to_value(value).unwrap()
+        );
+        assert!(json(&text).unwrap().contains("</script>"));
+    }
     #[test]
     fn reporter_paths_reject_nul_before_filesystem_access() {
         let path = std::path::Path::new("pool\0tail");

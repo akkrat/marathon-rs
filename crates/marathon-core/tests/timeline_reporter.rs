@@ -6,11 +6,11 @@ use report_probe_support::*;
 #[test]
 fn jvm_timeline_bytes_and_empty_means() {
     assert_eq!(
-        json(&checked(TimelineSummaryProvider::generate(&mixed())).json()),
+        json(&checked(TimelineSummaryProvider::generate(&mixed()))),
         checked(std::fs::read(fixture("timeline.json")))
     );
     assert_eq!(
-        json(&checked(TimelineSummaryProvider::generate(&empty())).json()),
+        json(&checked(TimelineSummaryProvider::generate(&empty()))),
         checked(std::fs::read(fixture("timeline-empty.json")))
     );
 }

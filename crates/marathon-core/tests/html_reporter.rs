@@ -10,6 +10,9 @@ use marathon_core::{
     reporters::html::*,
 };
 use report_probe_support::*;
+fn legacy_json(value: &jcompat::writers::WriterValue) -> Vec<u8> {
+    checked(jcompat::writers::GsonWriter::default().write(value)).into_bytes()
+}
 fn without_date(s: String) -> String {
     let marker = "by Juno at ";
     let start = s.find(marker).unwrap() + marker.len();
@@ -27,11 +30,11 @@ fn native_trace_html(text: String) -> String {
 fn jvm_html_model_bytes_and_xml11_log() {
     let r = mixed();
     assert_eq!(
-        json(&checked(index(r.summary(), "Report <&> 名"))),
+        legacy_json(&checked(index(r.summary(), "Report <&> 名"))),
         checked(std::fs::read(fixture("index.json")))
     );
     assert_eq!(
-        json(&pool_summary(&r.summary().pools[0])),
+        legacy_json(&pool_summary(&r.summary().pools[0])),
         checked(std::fs::read(fixture("pool.json")))
     );
     assert_eq!(
@@ -123,7 +126,7 @@ fn empty_html_does_not_read_clock_or_touch_output() {
 fn filename_is_fixed_128_units_independent_of_file_manager_limit() {
     let r = result(&"<&>".repeat(150), marathon_core::model::TestStatus::Passed, 0, 7);
     assert_eq!(filename(&r).encode_utf16().count(), 133);
-    let value: serde_json::Value = checked(serde_json::from_slice(&json(&short_test(&r))));
+    let value: serde_json::Value = checked(serde_json::from_slice(&legacy_json(&short_test(&r))));
     assert_eq!(value["duration_millis"], 7);
 }
 
@@ -252,7 +255,7 @@ fn connected_without_tests_and_empty_helper_arithmetic_match_jvm() {
         vec![],
     );
     assert_eq!(
-        json(&checked(index(report.summary(), "Report <&> 名"))),
+        legacy_json(&checked(index(report.summary(), "Report <&> 名"))),
         checked(std::fs::read(fixture("index-connected-empty.json")))
     );
     let error = index(empty().summary(), "title").err().unwrap();

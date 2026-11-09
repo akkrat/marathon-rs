@@ -9,14 +9,12 @@ use crate::{
     report::{ExecutionReport, Reporter},
     runtime::{ServiceFuture, VendorRuntime},
 };
-use jcompat::{
-    logging::{Logger, MarathonLogging},
-    writers::JavaNumber,
-};
+use jcompat::logging::{Logger, MarathonLogging};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MetricType {
     Failure,
     Passed,
@@ -26,19 +24,6 @@ pub enum MetricType {
     DeviceProviderInit,
     DevicePrepare,
 }
-impl MetricType {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Failure => "FAILURE",
-            Self::Passed => "PASSED",
-            Self::Ignored => "IGNORED",
-            Self::Incomplete => "INCOMPLETE",
-            Self::AssumptionFailure => "ASSUMPTION_FAILURE",
-            Self::DeviceProviderInit => "DEVICE_PROVIDER_INIT",
-            Self::DevicePrepare => "DEVICE_PREPARE",
-        }
-    }
-}
 #[derive(Clone, Debug)]
 pub struct Data {
     pub test_name: String,
@@ -46,73 +31,52 @@ pub struct Data {
     pub start_date: i64,
     pub end_date: i64,
 }
-impl Data {
-    fn json(&self) -> WriterValue {
-        let zero = WriterValue::Number(JavaNumber::new("0.0").unwrap());
-        object([
-            ("testName", string(&self.test_name)),
-            ("metricType", self.metric_type.name().into()),
-            ("startDate", self.start_date.into()),
-            ("endDate", self.end_date.into()),
-            ("expectedValue", zero.clone()),
-            ("variance", zero),
-        ])
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DataJson<'a> {
+    test_name: &'a str,
+    metric_type: MetricType,
+    start_date: i64,
+    end_date: i64,
+    expected_value: f64,
+    variance: f64,
+}
+impl serde::Serialize for Data {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(
+            &DataJson {
+                test_name: &self.test_name,
+                metric_type: self.metric_type,
+                start_date: self.start_date,
+                end_date: self.end_date,
+                expected_value: 0.0,
+                variance: 0.0,
+            },
+            serializer,
+        )
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionStats {
     pub idle_time_millis: i64,
     pub average_test_execution_time_millis: i64,
 }
-impl ExecutionStats {
-    fn json(&self) -> WriterValue {
-        object([
-            ("idleTimeMillis", self.idle_time_millis.into()),
-            (
-                "averageTestExecutionTimeMillis",
-                self.average_test_execution_time_millis.into(),
-            ),
-        ])
-    }
-}
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Measure {
     pub measure: String,
     pub stats: ExecutionStats,
     pub data: Vec<Data>,
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimelineExecutionResult {
     pub passed_tests: i32,
     pub failed_tests: i32,
     pub ignored_tests: i32,
     pub execution_stats: ExecutionStats,
     pub measures: Vec<Measure>,
-}
-impl TimelineExecutionResult {
-    pub fn json(&self) -> WriterValue {
-        object([
-            ("passedTests", (self.passed_tests as i64).into()),
-            ("failedTests", (self.failed_tests as i64).into()),
-            ("ignoredTests", (self.ignored_tests as i64).into()),
-            ("executionStats", self.execution_stats.json()),
-            (
-                "measures",
-                WriterValue::Array(
-                    self.measures
-                        .iter()
-                        .map(|m| {
-                            object([
-                                ("measure", string(&m.measure)),
-                                ("stats", m.stats.json()),
-                                ("data", WriterValue::Array(m.data.iter().map(Data::json).collect())),
-                            ])
-                        })
-                        .collect(),
-                ),
-            ),
-        ])
-    }
 }
 pub struct TimelineSummaryProvider {
     pub logger: Logger,
@@ -309,7 +273,7 @@ impl Reporter for TimelineReporter {
                 ] {
                     write(&child(&dir, name), bytes)?;
                 }
-                let json = gson(&TimelineSummaryProvider::generate(&report)?.json())?;
+                let json = html_json(&TimelineSummaryProvider::generate(&report)?)?;
                 let text = jcompat::report_text::replace(
                     &String::from(include_str!("../../../../fixtures/reporters/timeline/index.html")),
                     "${dataset}",
