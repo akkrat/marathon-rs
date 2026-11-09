@@ -31,59 +31,92 @@ pub fn filename(test: &TestResult) -> String {
     name.push_str(".html");
     name
 }
-fn status(status: TestStatus) -> WriterValue {
+fn status(status: TestStatus) -> &'static str {
     match status {
         TestStatus::Passed => "passed",
         TestStatus::Ignored | TestStatus::AssumptionFailure => "ignored",
         _ => "failed",
     }
-    .into()
 }
 fn duration(r: &TestResult) -> i64 {
     r.end_time.wrapping_sub(r.start_time)
 }
-pub fn short_test(r: &TestResult) -> WriterValue {
-    object([
-        ("id", string(&id(r))),
-        ("package_name", string(&r.test.pkg)),
-        ("filename", string(&filename(r))),
-        ("class_name", string(&r.test.clazz)),
-        ("name", string(&r.test.method)),
-        ("duration_millis", duration(r).into()),
-        ("status", status(r.status)),
-        ("deviceId", string(&safe_serial(&r.device))),
-    ])
+#[derive(serde::Serialize)]
+pub struct HtmlShortTest {
+    id: String,
+    package_name: String,
+    filename: String,
+    class_name: String,
+    name: String,
+    duration_millis: i64,
+    status: &'static str,
+    #[serde(rename = "deviceId")]
+    device_id: String,
 }
-pub fn pool_summary(p: &PoolSummary) -> WriterValue {
-    object([
-        ("id", string(&p.pool_id.name)),
-        (
-            "tests",
-            WriterValue::Array(p.tests.iter().map(|r| short_test(r)).collect()),
-        ),
-        ("passed_count", (p.passed.len() as i32 as i64).into()),
-        ("failed_count", (p.failed.len() as i32 as i64).into()),
-        ("ignored_count", (p.ignored.len() as i32 as i64).into()),
-        ("duration_millis", p.duration_millis.into()),
-        (
-            "devices",
-            WriterValue::Array(
-                p.devices
-                    .iter()
-                    .map(|d| {
-                        object([
-                            ("apiLevel", string(&d.operating_system.version)),
-                            ("isTable", WriterValue::Bool(false)),
-                            ("serial", string(&safe_serial(d))),
-                            ("modelName", string(&d.model)),
-                        ])
-                    })
-                    .collect(),
-            ),
-        ),
-    ])
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HtmlDevice {
+    api_level: String,
+    is_table: bool,
+    serial: String,
+    model_name: String,
 }
-pub fn index(summary: &Summary, title: &str) -> VendorResult<WriterValue> {
+#[derive(serde::Serialize)]
+pub struct HtmlPoolSummary {
+    id: String,
+    tests: Vec<HtmlShortTest>,
+    passed_count: i32,
+    failed_count: i32,
+    ignored_count: i32,
+    duration_millis: i64,
+    devices: Vec<HtmlDevice>,
+}
+#[derive(serde::Serialize)]
+pub struct HtmlIndex {
+    title: String,
+    total_failed: i64,
+    total_flaky: i64,
+    total_ignored: i64,
+    total_passed: i64,
+    total_duration_millis: i64,
+    average_duration_millis: i64,
+    max_duration_millis: i64,
+    min_duration_millis: i64,
+    pools: Vec<HtmlPoolSummary>,
+}
+pub fn short_test(r: &TestResult) -> HtmlShortTest {
+    HtmlShortTest {
+        id: id(r),
+        package_name: r.test.pkg.clone(),
+        filename: filename(r),
+        class_name: r.test.clazz.clone(),
+        name: r.test.method.clone(),
+        duration_millis: duration(r),
+        status: status(r.status),
+        device_id: safe_serial(&r.device),
+    }
+}
+pub fn pool_summary(p: &PoolSummary) -> HtmlPoolSummary {
+    HtmlPoolSummary {
+        id: p.pool_id.name.clone(),
+        tests: p.tests.iter().map(|r| short_test(r)).collect(),
+        passed_count: p.passed.len() as i32,
+        failed_count: p.failed.len() as i32,
+        ignored_count: p.ignored.len() as i32,
+        duration_millis: p.duration_millis,
+        devices: p
+            .devices
+            .iter()
+            .map(|d| HtmlDevice {
+                api_level: d.operating_system.version.clone(),
+                is_table: false,
+                serial: safe_serial(d),
+                model_name: d.model.clone(),
+            })
+            .collect(),
+    }
+}
+pub fn index(summary: &Summary, title: &str) -> VendorResult<HtmlIndex> {
     let totals: Vec<i64> = summary
         .pools
         .iter()
@@ -94,30 +127,23 @@ pub fn index(summary: &Summary, title: &str) -> VendorResult<WriterValue> {
     let average = totals.iter().map(|t| *t as f64).sum::<f64>() / totals.len() as f64;
     let average = jcompat::jnum::kotlin_round_to_long(average)
         .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalArgumentException", "Cannot round NaN value.")))?;
-    Ok(object([
-        ("title", string(title)),
-        ("total_failed", sum_count(|p| p.failed.len() as i32).into()),
-        ("total_flaky", sum_count(|p| p.flaky).into()),
-        ("total_ignored", sum_count(|p| p.ignored.len() as i32).into()),
-        ("total_passed", sum_count(|p| p.passed.len() as i32).into()),
-        (
-            "total_duration_millis",
-            (summary
-                .pools
-                .iter()
-                .flat_map(|p| &p.tests)
-                .map(|r| duration(r) as f64)
-                .sum::<f64>() as i64)
-                .into(),
-        ),
-        ("average_duration_millis", average.into()),
-        ("max_duration_millis", totals.iter().max().copied().unwrap_or(0).into()),
-        ("min_duration_millis", totals.iter().min().copied().unwrap_or(0).into()),
-        (
-            "pools",
-            WriterValue::Array(summary.pools.iter().map(pool_summary).collect()),
-        ),
-    ]))
+    Ok(HtmlIndex {
+        title: title.into(),
+        total_failed: sum_count(|p| p.failed.len() as i32),
+        total_flaky: sum_count(|p| p.flaky),
+        total_ignored: sum_count(|p| p.ignored.len() as i32),
+        total_passed: sum_count(|p| p.passed.len() as i32),
+        total_duration_millis: summary
+            .pools
+            .iter()
+            .flat_map(|p| &p.tests)
+            .map(|r| duration(r) as f64)
+            .sum::<f64>() as i64,
+        average_duration_millis: average,
+        max_duration_millis: totals.iter().max().copied().unwrap_or(0),
+        min_duration_millis: totals.iter().min().copied().unwrap_or(0),
+        pools: summary.pools.iter().map(pool_summary).collect(),
+    })
 }
 pub fn logcat_html(log: &str) -> String {
     if log.is_empty() {
@@ -150,39 +176,58 @@ fn url(path: &std::path::Path, root: &std::path::Path) -> String {
     out.push_str(&replace(&relative_file(path, root, root), "#", "%23"));
     out
 }
+#[derive(serde::Serialize)]
+struct HtmlFullTest {
+    pool_id: String,
+    package_name: String,
+    class_name: String,
+    name: String,
+    id: String,
+    filename: String,
+    duration_millis: i64,
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stacktrace: Option<String>,
+    #[serde(rename = "deviceId")]
+    device_id: String,
+    diagnostic_video: bool,
+    diagnostic_screenshots: bool,
+    screenshot: String,
+    videos: Vec<String>,
+    log_file: String,
+}
+#[derive(serde::Serialize)]
+struct HtmlTestLogDetails {
+    pool_id: String,
+    test_id: String,
+    display_name: String,
+    device_id: String,
+    log_path: String,
+}
 fn full_test(
     r: &TestResult,
     pool: &DevicePoolId,
     screenshot: String,
-    videos: Vec<WriterValue>,
+    videos: Vec<String>,
     log: String,
-) -> WriterValue {
-    object([
-        ("pool_id", string(&pool.name)),
-        ("package_name", string(&r.test.pkg)),
-        ("class_name", string(&r.test.clazz)),
-        ("name", string(&r.test.method)),
-        ("id", string(&id(r))),
-        ("filename", string(&filename(r))),
-        ("duration_millis", duration(r).into()),
-        ("status", status(r.status)),
-        (
-            "stacktrace",
-            r.stacktrace.as_ref().map_or(WriterValue::Null, |text| string(text)),
-        ),
-        ("deviceId", string(&safe_serial(&r.device))),
-        (
-            "diagnostic_video",
-            WriterValue::Bool(r.device.device_features.contains(&DeviceFeature::Video)),
-        ),
-        (
-            "diagnostic_screenshots",
-            WriterValue::Bool(r.device.device_features.contains(&DeviceFeature::Screenshot)),
-        ),
-        ("screenshot", string(&screenshot)),
-        ("videos", WriterValue::Array(videos)),
-        ("log_file", string(&log)),
-    ])
+) -> HtmlFullTest {
+    HtmlFullTest {
+        pool_id: pool.name.clone(),
+        package_name: r.test.pkg.clone(),
+        class_name: r.test.clazz.clone(),
+        name: r.test.method.clone(),
+        id: id(r),
+        filename: filename(r),
+        duration_millis: duration(r),
+        status: status(r.status),
+        stacktrace: r.stacktrace.clone(),
+        device_id: safe_serial(&r.device),
+        diagnostic_video: r.device.device_features.contains(&DeviceFeature::Video),
+        diagnostic_screenshots: r.device.device_features.contains(&DeviceFeature::Screenshot),
+        screenshot,
+        videos,
+        log_file: log,
+    }
 }
 fn page(path: &std::path::Path, html: &std::path::Path, data: String, log: String, date: &str) -> VendorResult<()> {
     let text = path.to_string_lossy();
@@ -202,10 +247,10 @@ fn page(path: &std::path::Path, html: &std::path::Path, data: String, log: Strin
     }
     write(path, text.as_bytes())
 }
-fn assignment(name: &str, value: &WriterValue) -> VendorResult<String> {
+fn assignment(name: &str, value: &(impl serde::Serialize + ?Sized)) -> VendorResult<String> {
     let mut out = String::from(name);
     out.push_str(" = ");
-    out.push_str(&gson(value)?);
+    out.push_str(&html_json(value)?);
     Ok(out)
 }
 #[derive(Clone)]
@@ -331,7 +376,7 @@ impl HtmlSummaryReporter {
                         r1.attachments
                             .iter()
                             .filter(|a| a.kind == AttachmentType::Video && exists(&a.file))
-                            .map(|a| string(&url(&a.file, &root)))
+                            .map(|a| url(&a.file, &root))
                             .collect()
                     } else {
                         Vec::new()
@@ -373,13 +418,13 @@ impl HtmlSummaryReporter {
                     mkdir(&logs)?;
                     let mut path = String::from("../");
                     path.push_str(&log);
-                    let data = object([
-                        ("pool_id", string(&p.name)),
-                        ("test_id", string(&id(&r))),
-                        ("display_name", string(&r.test.method)),
-                        ("device_id", string(&safe_serial(&r.device))),
-                        ("log_path", string(&path)),
-                    ]);
+                    let data = HtmlTestLogDetails {
+                        pool_id: p.name.clone(),
+                        test_id: id(&r),
+                        display_name: r.test.method.clone(),
+                        device_id: safe_serial(&r.device),
+                        log_path: path,
+                    };
                     page(
                         &child_file(&logs, &filename),
                         &h,

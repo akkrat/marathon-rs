@@ -6,24 +6,10 @@ pub mod html;
 pub mod timeline;
 
 use crate::{artifact_io::*, error::*, executor::shared::failure};
-use jcompat::{
-    file_manager::child_file,
-    writers::{GsonWriter, WriterValue},
-};
+use jcompat::file_manager::child_file;
 use std::io::Write;
 use std::path::PathBuf;
 
-fn object<const N: usize>(fields: [(&str, WriterValue); N]) -> WriterValue {
-    WriterValue::Object(fields.into_iter().map(|(k, v)| (k.into(), v)).collect())
-}
-fn string(s: &str) -> WriterValue {
-    WriterValue::String(s.to_string())
-}
-fn gson(v: &WriterValue) -> VendorResult<String> {
-    GsonWriter::default()
-        .write(v)
-        .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.0)))
-}
 fn json<T: serde::Serialize + ?Sized>(value: &T) -> VendorResult<String> {
     serde_json::to_string(value).map_err(json_error)
 }
