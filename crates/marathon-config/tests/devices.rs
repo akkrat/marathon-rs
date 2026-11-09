@@ -151,6 +151,19 @@ fn transport_id_and_hash_keys() {
     let mut set: HashSet<Transport> = HashSet::new();
     set.insert(ssh.clone());
     assert!(set.contains(&ssh));
+    let keyed = |key: &str| Transport::Ssh {
+        addr: "worker".into(),
+        port: 22,
+        authentication: Some(SshAuthentication::PublicKey {
+            username: "user".into(),
+            key: PathBuf::from(key),
+        }),
+        check_reachability: true,
+    };
+    let plain = keyed("keys/id");
+    let dotted = keyed("keys/./id");
+    assert_ne!(plain, dotted);
+    assert_eq!(HashSet::from([plain, dotted]).len(), 2);
     let mut targets: HashSet<AppleTarget> = HashSet::new();
     targets.insert(AppleTarget::Host);
     assert!(targets.contains(&AppleTarget::Host));

@@ -440,8 +440,10 @@ async fn process_failure_child() {
         assert_eq!(send, Ok(false));
         assert_eq!(receive, Ok(false));
         let events = events.lock().unwrap();
+        let native: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/phase8/d57-process-text.json")).unwrap();
         let output = if profile == "badutf8" {
-            "�\nline\n"
+            native["rsync_stderr"].as_str().unwrap()
         } else {
             "failure\nline\n"
         };

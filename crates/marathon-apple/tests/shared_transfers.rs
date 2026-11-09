@@ -193,9 +193,12 @@ async fn source_path_reuse_ignores_changed_bytes_but_retains_dot_dot() {
     assert!(push(&t, "worker", src.to_str().unwrap(), DST, Some(true), true, &n).await);
     std::fs::write(&src, b"changed").unwrap();
     assert!(push(&t, "worker", src.to_str().unwrap(), DST, Some(true), true, &n).await);
+    let dotted = format!("{}/./source", dir.path().display());
+    assert!(push(&t, "worker", &dotted, DST, Some(true), true, &n).await);
+    assert!(push(&t, "worker", &dotted, DST, Some(true), true, &n).await);
     let other = dir.path().join("sub/../source");
     assert!(push(&t, "worker", other.to_str().unwrap(), DST, Some(true), true, &n).await);
-    assert_eq!(n.load(Ordering::SeqCst), 2);
+    assert_eq!(n.load(Ordering::SeqCst), 3);
 }
 fn stalled() -> VendorError {
     VendorError::LeavePool {

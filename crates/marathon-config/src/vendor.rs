@@ -383,10 +383,31 @@ pub struct RsyncConfiguration {
 /// Port of config/vendor/apple/SshConfiguration.kt (`SshAuthentication`).
 /// `Debug` never prints the password; Kotlin's `toString` shows only the
 /// username for password authentication (WP 2.4 renders that form).
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Eq)]
 pub enum SshAuthentication {
     Password { username: String, password: String },
     PublicKey { username: String, key: PathBuf },
+}
+// Worker keys retain the key path's spelling, including dot components.
+impl PartialEq for SshAuthentication {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Password {
+                    username: a,
+                    password: ap,
+                },
+                Self::Password {
+                    username: b,
+                    password: bp,
+                },
+            ) => a == b && ap == bp,
+            (Self::PublicKey { username: a, key: ak }, Self::PublicKey { username: b, key: bk }) => {
+                a == b && ak.as_os_str() == bk.as_os_str()
+            }
+            _ => false,
+        }
+    }
 }
 impl fmt::Debug for SshAuthentication {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

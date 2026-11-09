@@ -81,7 +81,7 @@ fn hash_authentication<H: Hasher>(authentication: &Option<SshAuthentication>, st
         Some(SshAuthentication::PublicKey { username, key }) => {
             1u8.hash(state);
             username.hash(state);
-            key.hash(state);
+            key.as_os_str().hash(state);
         }
         None => {}
     }

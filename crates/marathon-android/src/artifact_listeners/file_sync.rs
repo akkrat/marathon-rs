@@ -84,6 +84,12 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     );
                     continue;
                 }
+                if entry.path.contains('\0') {
+                    return Err(io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Nul character not allowed",
+                    )));
+                }
                 let local = jcompat::file_manager::file_path(&entry.path.to_owned());
                 let name = basename(&entry.path);
                 let remote = self.path(entry.path_root, &name.to_owned());
@@ -178,6 +184,12 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     .next()
                     .unwrap_or("");
                 let local = jcompat::file_manager::child_file(&folder, base);
+                if local.as_os_str().as_encoded_bytes().contains(&0) {
+                    return Err(io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Nul character not allowed",
+                    )));
+                }
                 let path = local.clone();
                 let local = blocking(device.runtime().dependencies.io.as_ref(), move || {
                     let _ = std::fs::create_dir_all(&path);

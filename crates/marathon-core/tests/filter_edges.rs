@@ -291,12 +291,19 @@ fn escape(s: &str) -> String {
 }
 #[test]
 fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResult<()> {
+    let native: serde_json::Value =
+        serde_json::from_str(include_str!("../../../fixtures/phase8/d57-process-text.json")).unwrap();
     for row in rows("files") {
         if let Some(bytes) = row["bytes"].as_array() {
             let bytes: Vec<u8> = bytes.iter().map(|n| n.as_u64().expect("byte") as u8).collect();
+            let expected = if row["bytes"] == native["filter_values"]["bytes"] {
+                &native["filter_values"]["values"]
+            } else {
+                &row["values"]
+            };
             assert_eq!(
-                json!(parse_values(&bytes).iter().map(String::clone).collect::<Vec<_>>()),
-                row["values"]
+                &json!(parse_values(&bytes).iter().map(String::clone).collect::<Vec<_>>()),
+                expected
             );
         }
     }

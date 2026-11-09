@@ -37,9 +37,9 @@ impl Reporter for JUnitReporter {
                 let output = absolute_file_path(&self.output_dir.to_string_lossy(), &self.cwd.to_string_lossy());
                 blocking(self.io.as_ref(), move || {
                     // Paths.get joins raw pool segments, unlike FileManager's escape.
-                    let directory = jcompat::file_manager::child_file(&output, &format!("tests/{pool}"));
+                    let directory = PathBuf::from(format!("{}/tests/{pool}", output.to_string_lossy()));
                     let _ = std::fs::create_dir_all(&directory);
-                    let path = jcompat::file_manager::child_file(&directory, "marathon_junit_report.xml");
+                    let path = PathBuf::from(format!("{}/marathon_junit_report.xml", directory.to_string_lossy()));
                     let native = &path;
                     // createNewFile precedes the serializer's truncating FileOutputStream.
                     match std::fs::OpenOptions::new().write(true).create_new(true).open(native) {

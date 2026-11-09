@@ -93,6 +93,10 @@ fn name_without_extension(file_name: &str) -> &str {
 /// stem, deleted recursively then recreated. Kotlin ignores the results of
 /// `deleteRecursively()` and `mkdirs()`; the port ignores the second only.
 pub fn default_temp_dir_for(file: &std::path::Path) -> Result<PathBuf> {
+    // mkdirs is best-effort below, so reject invalid input before that error can be ignored.
+    if file.as_os_str().as_encoded_bytes().contains(&0) {
+        return Err(ValidationError::io("Nul character not allowed"));
+    }
     let buf = file;
     let file_name = name(file);
     let stem = name_without_extension(&file_name);

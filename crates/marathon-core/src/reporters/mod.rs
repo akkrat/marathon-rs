@@ -28,7 +28,13 @@ fn child(dir: &std::path::Path, name: &str) -> PathBuf {
     child_file(dir, name)
 }
 fn mkdir(dir: &std::path::Path) -> VendorResult<()> {
-    // File.mkdirs returns false on failure; the following file open supplies the exception.
+    // Keep invalid-input errors even though File.mkdirs ignores filesystem failures.
+    if dir.as_os_str().as_encoded_bytes().contains(&0) {
+        return Err(io_error(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Nul character not allowed",
+        )));
+    }
     let _ = std::fs::create_dir_all(dir);
     Ok(())
 }

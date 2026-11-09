@@ -53,7 +53,21 @@ impl MarathonTestParseCommand {
 /// `File(parent, child)` on Unix: the normalized child appended with one separator,
 /// even when the child is absolute; an empty child is the parent itself.
 fn java_child(parent: &std::path::Path, child: &str) -> PathBuf {
-    jcompat::file_manager::child_file(parent, child)
+    let child = jcompat::file_manager::file_path(child);
+    let child = child.to_string_lossy();
+    if child.is_empty() {
+        return parent.to_path_buf();
+    }
+    let mut path = parent.to_string_lossy().into_owned();
+    if child.starts_with('/') {
+        if path == "/" {
+            path.clear();
+        }
+    } else if !path.ends_with('/') {
+        path.push('/');
+    }
+    path.push_str(&child);
+    PathBuf::from(path)
 }
 
 impl ParseOutput for MarathonTestParseCommand {
@@ -102,6 +116,8 @@ mod tests {
         assert_eq!(child("/abs.yml"), "/out/abs.yml");
         assert_eq!(child("a//b/.yml"), "/out/a/b/.yml");
         assert_eq!(child(""), "/out");
+        assert_eq!(child("/"), "/out/");
+        assert_eq!(child("./r.yml"), "/out/./r.yml");
         let root = PathBuf::from("/");
         assert_eq!(java_child(&root, "/x").to_string_lossy().into_owned(), "/x");
         assert_eq!(java_child(&root, "x").to_string_lossy().into_owned(), "/x");

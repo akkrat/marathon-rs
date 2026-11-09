@@ -115,6 +115,7 @@ impl PathPlan {
 
     /// Folder diagnostics precede mkdir; file diagnostics follow directory creation.
     pub fn materialize(&self, mut log_error: impl FnMut(&str)) -> io::Result<PathBuf> {
+        // A trim or absolute pool can hide invalid input from the eventual mkdir.
         for path in &self.preflight {
             if path.to_string_lossy().contains('\0') {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput, "Nul character not allowed"));

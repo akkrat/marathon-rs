@@ -125,6 +125,13 @@ impl AndroidAppInstaller {
         let paths: Vec<_> = std::iter::once(app)
             .chain(splits.iter().map(PathBuf::as_path))
             .map(|p| {
+                // absolute() does not validate NUL; these paths precede worker commands.
+                if p.as_os_str().as_encoded_bytes().contains(&0) {
+                    return Err(io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Nul character not allowed",
+                    )));
+                }
                 std::path::absolute(p)
                     .map_err(io)
                     .map(|p| p.to_string_lossy().to_string())

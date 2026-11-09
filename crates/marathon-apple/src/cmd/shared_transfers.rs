@@ -101,7 +101,8 @@ impl SharedTransfers {
             );
             return Err(error);
         }
-        let reusable = if previous.as_ref() == Some(&source) {
+        // Path equality omits dot components; transfer reuse follows the stored spelling.
+        let reusable = if previous.as_ref().is_some_and(|p| p.as_os_str() == source.as_os_str()) {
             match exists().await? {
                 Some(value) => value,
                 None => {

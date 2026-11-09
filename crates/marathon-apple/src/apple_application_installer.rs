@@ -240,6 +240,14 @@ impl<'a> AppleApplicationInstaller<'a> {
             .after_install_on(device, &bundle, context)
             .await?;
         for extra in config.extra_applications.iter().flatten() {
+            // The directory probe below swallows stat failures, but invalid input used to propagate.
+            if extra.as_os_str().as_encoded_bytes().contains(&0) {
+                return Err(crate::cmd::io_error(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "Nul character not allowed",
+                ))
+                .into());
+            }
             let local = extra.clone();
             let shown = extra.to_string_lossy().into_owned();
             let name = shown.to_owned();
