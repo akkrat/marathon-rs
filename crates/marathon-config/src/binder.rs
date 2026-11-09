@@ -113,7 +113,8 @@ impl<'a> Binder<'a> {
         }
     }
 }
-fn token_kind(kind: tokens::TokenErrorKind) -> FailureKind {
+/// Share the config-boundary projection with standalone tokenizer consumers such as the corpus runner.
+pub fn token_kind(kind: tokens::TokenErrorKind) -> FailureKind {
     match kind {
         tokens::TokenErrorKind::Fixture => FailureKind::Injected(marathon_error::InjectedKind::ParserFixture),
         tokens::TokenErrorKind::MarkedYaml => FailureKind::Config(ConfigKind::YamlMarked),

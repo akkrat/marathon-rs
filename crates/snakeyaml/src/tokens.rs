@@ -53,19 +53,6 @@ pub enum TokenErrorKind {
     JsonEof,
     MismatchedInput,
 }
-impl TokenErrorKind {
-    pub fn legacy_class(self) -> &'static str {
-        match self {
-            Self::Fixture => "C",
-            Self::MarkedYaml => "com.fasterxml.jackson.dataformat.yaml.snakeyaml.error.MarkedYAMLException",
-            Self::YamlParse => "com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException",
-            Self::JsonParse => "com.fasterxml.jackson.core.JsonParseException",
-            Self::StreamConstraints => "com.fasterxml.jackson.core.exc.StreamConstraintsException",
-            Self::JsonEof => "com.fasterxml.jackson.core.io.JsonEOFException",
-            Self::MismatchedInput => "com.fasterxml.jackson.databind.exc.MismatchedInputException",
-        }
-    }
-}
 
 /// An error `nextToken` throws.
 #[derive(Clone, Debug, PartialEq)]

@@ -58,6 +58,9 @@ Nullable/empty messages, cause order, frame text and newline handling stay uncha
 `External(String)` makes `legacy_class` return `&str` rather than `&'static str`. Use it
 only if an adapter receives a separate class name from a runner and projects that name
 verbatim into a `Failure`; annotate every such construction with its external source.
+Its text deliberately participates in no selector: no equality-based selection,
+`wraps_as_analytics_io`, `is_fatal` or deduplication class. It carries verbatim external
+text only; never classify or normalise that text into an internal catch or key.
 No production construction site currently needs it. Instrumentation stack/shortMsg, logcat,
 XCTest/xcresult and command output already held in messages or traces remain opaque there;
 do not split those strings to manufacture an `External` kind. The new external-text test
@@ -71,6 +74,8 @@ scenario short names such as `DeviceLostException` are format tokens, not class 
 to guess. Unknown names take the existing invalid-input path (for example the unsupported
 `batch-failed` exception error), never `External`, a default kind, or an internal panic.
 `marathon-test-support/src/recorded_errors.rs` owns the whitelist and scenario-token parser;
+its exhaustive enum round-trip test covers every recordable legacy kind, including the
+`InjectedKind::ReplayStep` string `replay`, while excluding opaque `External` text;
 `StubDevice::deliver` parses batch failures before queuing typed execution events. Recorded
 Influx errors retain their recorded category while the body parser supplies their independent
 retry disposition; a missing message remains retryable. Keep recorded expectation strings as
@@ -144,7 +149,9 @@ These reference counts overlap. The final definitions in the leaf crate are:
 | `injected.rs` | `InjectedKind` | 34 |
 
 Independent SnakeYAML owns seven `TokenErrorKind` alternatives (six parser categories and
-one existing test marker); config projects them directly at its boundary. Validation kinds
+one existing test marker); config projects them directly at its boundary. SnakeYAML has no
+legacy string table; the corpus runner also reuses `binder::token_kind` and the shared
+kinds' live mappings. Validation kinds
 project into the shared vocabulary and delegate their rendering, avoiding duplicate mappings.
 
 ## Analytics response and transport boundaries
@@ -185,6 +192,15 @@ category; any matching `Never` row disables retry, regardless of body order:
 A generic body selects `General` and `Retry`. Thus cache-memory followed by username-required
 keeps the cache classification and disables retry. `BatchWriter::retryable` only reads the
 typed disposition; cancellation remains non-retryable and transport failures remain retryable.
+On the `BatchWriter::send` producer path, the old phrase predicate could only ever match
+server bodies: `influx::request` passes successful `Http::request` replies to
+`checked(reply, false)`, the only producer copying response text into failures. Transport
+operations feed `network_error`, wrapped as `InfluxIo` by `influx::request`; URL/URI,
+request-builder and redirect/protocol failures are generated locally by `Http::request`.
+These transport and local failures never carry the nine phrases. Non-v1 failures are
+therefore retryable whatever their message says, including a synthetic `InfluxIo` or
+`IllegalState` containing a v1 phrase. A regression contrasts these synthetic failures
+with the identical phrase received through `checked` as a server body.
 
 `http.rs` tests pin all phrases, every ordered pair in both body orders, generic bodies,
 the cache-memory mixture and typed I/O sources with unrelated messages. Its loopback test

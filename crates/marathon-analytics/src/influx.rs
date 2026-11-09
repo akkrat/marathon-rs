@@ -302,6 +302,10 @@ impl BatchWriter {
         .await
         .map(|_| ())
     }
+    // On send's producer path, the old phrase predicate could only match server bodies:
+    // checked(reply, false) copies them; Http::request/network_error create transport and
+    // local request failures, which never carry those phrases (InfluxIo only wraps them).
+    // Non-v1 failures are therefore retryable whatever their message says.
     fn retryable(error: &OperationError) -> bool {
         let OperationError::Failed(failure) = error else {
             return false;
@@ -444,6 +448,32 @@ fn valid_duration(value: &str) -> bool {
 #[cfg(test)]
 mod retry_tests {
     use super::*;
+    #[test]
+    fn v1_phrases_only_disable_retries_when_received_as_server_bodies() {
+        let phrase = "database not found";
+        let cause = failure(FailureKind::Connect, phrase);
+        let transport = Failure {
+            kind: FailureKind::Analytics(AnalyticsKind::InfluxIo),
+            message: Some(cause.to_java_string()),
+            cause: Some(Box::new(cause)),
+            stacktrace: None,
+        };
+        for non_v1 in [failure(FailureKind::IllegalState, phrase), transport] {
+            assert!(BatchWriter::retryable(&OperationError::Failed(non_v1)));
+        }
+        let server_error = checked(
+            crate::http::Reply {
+                status: 400,
+                body: phrase.into(),
+                location: None,
+                retry_after: None,
+            },
+            false,
+        )
+        .unwrap_err();
+        assert!(!BatchWriter::retryable(&server_error));
+    }
+
     #[test]
     fn retries_use_the_recorded_server_disposition_and_keep_transport_failures_retryable() {
         for (body, expected) in [

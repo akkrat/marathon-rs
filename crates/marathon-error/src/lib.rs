@@ -94,7 +94,9 @@ pub enum FailureKind {
     Report(ReportKind),
     Fatal(FatalKind),
     Injected(InjectedKind),
-    /// Only a class separately supplied by an external tool.
+    /// Verbatim class text separately supplied by an external tool; rendering only.
+    /// It participates in no selector: no equality-based selection, analytics I/O
+    /// wrapping (`wraps_as_analytics_io`), fatal catch (`is_fatal`) or deduplication class.
     External(String),
 }
 

@@ -16,6 +16,7 @@ pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, S
         "ExecutionError" => Ok(FailureKind::Injected(InjectedKind::ExecutionError)),
         "NotAdmitted" => Ok(FailureKind::Injected(InjectedKind::NotAdmitted)),
         "ReplayError" => Ok(FailureKind::ReplayClock),
+        "replay" => Ok(FailureKind::Injected(InjectedKind::ReplayStep)),
         "RunTimeout" => Ok(FailureKind::Injected(InjectedKind::RunTimeout)),
         "SinkFailure" => Ok(FailureKind::Injected(InjectedKind::SinkFailure)),
         "TestFailure" => Ok(FailureKind::Injected(InjectedKind::TestFailure)),
@@ -415,5 +416,322 @@ mod canonical_tests {
         let class = "com.malinskiy.marathon.apple.ios.device.SetupDropped";
         assert_eq!(failure_kind(class, None).unwrap().legacy_class(), class);
         assert!(failure_kind("com.malinskiy.marathon.apple.ios.SetupDropped", None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod whitelist_tests {
+    use super::*;
+    use marathon_error::config::ValidationKind;
+
+    fn round_trip(kind: FailureKind) {
+        let class = kind.legacy_class();
+        let recorded = failure_kind(class, None).unwrap_or_else(|error| panic!("{class}: {error}"));
+        assert_eq!(recorded.legacy_class(), class);
+        assert_eq!(recorded.dedup_key(), kind.dedup_key());
+    }
+
+    // Exhaustive matches require new enum variants to be covered, rather than silently
+    // omitted from a hand-written list. Payload alternatives are covered separately.
+    macro_rules! check_variants {
+        ($ty:ident, $wrap:expr, [$($variant:ident),+ $(,)?] $(, $($payload:pat_param)|+)? ) => {{
+            let check = |kind: $ty| match kind {
+                $($ty::$variant => round_trip(($wrap)($ty::$variant)),)+
+                $($($payload)|+ => {},)?
+            };
+            $(check($ty::$variant);)+
+        }};
+    }
+
+    #[test]
+    fn every_recordable_legacy_kind_round_trips_through_the_whitelist() {
+        check_variants!(
+            FailureKind,
+            |kind| kind,
+            [
+                Security,
+                ReplayClock,
+                DeviceLost,
+                DeviceSetup,
+                IncompatibleDevice,
+                NoDevices,
+                NoTests,
+                BatchExecution,
+                TestParsing,
+                Transfer,
+                Eof,
+                FileNotFound,
+                Io,
+                InterruptedIo,
+                UncheckedIo,
+                Arithmetic,
+                ArrayIndexOutOfBounds,
+                ClassCast,
+                Generic,
+                IllegalArgument,
+                IllegalState,
+                IndexOutOfBounds,
+                NegativeArraySize,
+                NullReference,
+                NumberFormat,
+                Runtime,
+                StringIndexOutOfBounds,
+                UnsupportedOperation,
+                Bind,
+                Connect,
+                NoRouteToHost,
+                PortUnreachable,
+                Protocol,
+                Socket,
+                SocketTimeout,
+                UnknownHost,
+                AccessDenied,
+                FileAlreadyExists,
+                FileSystem,
+                InvalidPath,
+                NoSuchFile,
+                GeneralSecurity,
+                DateTime,
+                DateTimeParse,
+                NoSuchElement,
+                Cancelled,
+                Timeout,
+                PatternSyntax,
+                Zip,
+                UninitializedProperty,
+                CopyDestinationExists,
+                CopySourceMissing,
+                JobCancelled,
+                TimeoutCancelled,
+                ChannelReceiveClosed,
+                ChannelSendClosed,
+                Replay,
+                DependencyCreation,
+                MissingDefinition,
+            ],
+            FailureKind::Config(_)
+                | FailureKind::Ssh(_)
+                | FailureKind::Analytics(_)
+                | FailureKind::Dex(_)
+                | FailureKind::Adb(_)
+                | FailureKind::Android(_)
+                | FailureKind::Apple(_)
+                | FailureKind::Report(_)
+                | FailureKind::Fatal(_)
+                | FailureKind::Injected(_)
+                | FailureKind::External(_)
+        );
+        check_variants!(
+            AdbKind,
+            FailureKind::Adb,
+            [
+                PullFailed,
+                PushFailed,
+                RequestRejected,
+                RequestValidation,
+                UnsupportedForwardingSpec,
+                UnsupportedImageProtocol,
+                UnsupportedSyncProtocol,
+                ConnectRefused,
+                ConnectTimeout,
+                ClosedChannel,
+                TransportClosed,
+            ]
+        );
+        check_variants!(DexKind, FailureKind::Dex, [Decode,]);
+        check_variants!(
+            ConfigKind,
+            FailureKind::Config,
+            [
+                Rejected,
+                JsonParse,
+                StreamConstraints,
+                JsonEof,
+                JsonMapping,
+                InvalidDefinition,
+                InvalidFormat,
+                InvalidTypeId,
+                MismatchedInput,
+                UnrecognizedProperty,
+                ValueInstantiation,
+                YamlParse,
+                YamlMarked,
+                MissingParameter,
+                Yaml,
+                Parser,
+                Reader,
+                Scanner,
+            ]
+        );
+        check_variants!(
+            ValidationKind,
+            ValidationKind::failure_kind,
+            [Configuration, FileNotFound, Zip, Io, NoSuchFile,]
+        );
+        check_variants!(
+            SshKind,
+            FailureKind::Ssh,
+            [
+                KeyDecryptionFailed,
+                Base64Decoding,
+                Buffer,
+                CircularBuffer,
+                General,
+                Connection,
+                OpenChannel,
+                Transport,
+                Authentication,
+                Encryption,
+                Pem,
+                Password,
+                Pkcs,
+            ]
+        );
+        check_variants!(
+            AnalyticsKind,
+            FailureKind::Analytics,
+            [
+                BadRequest,
+                Forbidden,
+                InfluxV2,
+                InternalServerError,
+                NotFound,
+                ServiceUnavailable,
+                Unauthorized,
+                UnprocessableEntity,
+                FluxCsvParser,
+                FluxQuery,
+                Graphite,
+                InfluxV2Provider,
+                JsonEncoding,
+                InfluxIo,
+                InfluxMapping,
+            ],
+            AnalyticsKind::InfluxV1 { .. }
+        );
+        check_variants!(
+            InfluxV1Kind,
+            |problem| FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+                problem,
+                retry: RetryDisposition::Retry
+            }),
+            [
+                General,
+                AuthorizationFailed,
+                CacheMaxMemorySizeExceeded,
+                DatabaseNotFound,
+                FieldTypeConflict,
+                HintedHandOffQueueNotEmpty,
+                PointsBeyondRetentionPolicy,
+                UnableToParse,
+            ]
+        );
+        check_variants!(
+            AndroidKind,
+            FailureKind::Android,
+            [
+                TestAnnotationProducerNotFound,
+                CommandRejected,
+                DeviceNotSupported,
+                Install,
+            ]
+        );
+        check_variants!(
+            AppleKind,
+            FailureKind::Apple,
+            [
+                NotAdmitted,
+                NotBooted,
+                TransferStalled,
+                SetupDropped,
+                Boot,
+                Command,
+                DeviceFailure,
+            ]
+        );
+        check_variants!(
+            ReportKind,
+            FailureKind::Report,
+            [AllureResultsWrite, ImageIo, ImageMetadata, Transformer, Sax,]
+        );
+        check_variants!(
+            FatalKind,
+            FailureKind::Fatal,
+            [
+                WindowSystem,
+                Io,
+                Assertion,
+                BootstrapMethod,
+                ClassCircularity,
+                ClassFormat,
+                General,
+                Initialization,
+                IllegalAccess,
+                IncompatibleClassChange,
+                Instantiation,
+                Internal,
+                Linkage,
+                NoClassDefFound,
+                NoSuchField,
+                NoSuchMethod,
+                OutOfMemory,
+                StackOverflow,
+                ThreadDeath,
+                Unknown,
+                UnsatisfiedLink,
+                UnsupportedClassVersion,
+                Verify,
+                VirtualMachine,
+                AnnotationFormat,
+                CoderMalfunction,
+                ServiceConfiguration,
+                Zip,
+                ParserFactory,
+                StreamFactory,
+                TransformerFactory,
+                NotImplemented,
+                ReflectionUnsupported,
+            ]
+        );
+        check_variants!(
+            InjectedKind,
+            FailureKind::Injected,
+            [
+                ReplayStep,
+                NotBootedProbe,
+                RunTimeout,
+                TransferException,
+                CleanupError,
+                ExecutionError,
+                After,
+                Callback,
+                Test,
+                ParserFixture,
+                NotAdmitted,
+                SinkFailure,
+                TestFailure,
+                TestTask,
+                TimeoutCancellation,
+                TransferStalled,
+                Cancelled,
+                Lost,
+                Probe,
+                ProbeAssertionError,
+                ProbeExceptionNamedError,
+                QualificationConfig,
+                TestBackend,
+                TestBarrier,
+                TestBlocking,
+                TestCarbon,
+                TestClock,
+                TestClose,
+                TestError,
+                TestFactory,
+                TestPeer,
+                TestQuery,
+                TestWatchdog,
+                Timeout,
+            ]
+        );
     }
 }
