@@ -2,8 +2,8 @@
 //! and device/ConnectionFailures.kt (4.3) observe: `net/schmizz/sshj/common/SSHException.java`, `DisconnectReason.java`,
 //! `connection/channel/OpenFailException.java` and the JDK classes they wrap.
 //!
-//! `Failure` has no disconnect reason and no class hierarchy, so connect failures stay `SshFailure` for 4.3's
-//! classifier. Execute failures cross the 4.1 boundary as `Failure`; `is_instance` keeps the hierarchy for them.
+//! Disconnect reasons and suppressed failures stay in `SshFailure`; shared kinds retain catch
+//! membership when execute failures cross into core `Failure`.
 
 use crate::cmd::failure;
 use marathon_core::error::{Failure, VendorError};
@@ -32,48 +32,9 @@ pub const FILE_NOT_FOUND_EXCEPTION: FailureKind = FailureKind::FileNotFound;
 pub const PATTERN_SYNTAX_EXCEPTION: FailureKind = FailureKind::PatternSyntax;
 const NOT_CONNECTED: &str = "Not connected";
 
-/// Direct superclasses of every class this module creates.
-const SUPERCLASS: &[(FailureKind, FailureKind)] = &[
-    (OPEN_FAIL_EXCEPTION, CONNECTION_EXCEPTION),
-    (CONNECTION_EXCEPTION, SSH_EXCEPTION),
-    (CIRCULAR_BUFFER_EXCEPTION, SSH_EXCEPTION),
-    (TRANSPORT_EXCEPTION, SSH_EXCEPTION),
-    (USER_AUTH_EXCEPTION, SSH_EXCEPTION),
-    (SSH_EXCEPTION, IO_EXCEPTION),
-    (KEY_DECRYPTION_FAILED_EXCEPTION, IO_EXCEPTION),
-    (ENCRYPTION_EXCEPTION, PEM_EXCEPTION),
-    (PASSWORD_EXCEPTION, PEM_EXCEPTION),
-    (PEM_EXCEPTION, IO_EXCEPTION),
-    (PKCS_EXCEPTION, FailureKind::Generic),
-    (PATTERN_SYNTAX_EXCEPTION, ILLEGAL_ARGUMENT_EXCEPTION),
-    (ILLEGAL_ARGUMENT_EXCEPTION, FailureKind::Runtime),
-    (CONNECT_EXCEPTION, SOCKET_EXCEPTION),
-    (FailureKind::NoRouteToHost, SOCKET_EXCEPTION),
-    (FailureKind::Bind, SOCKET_EXCEPTION),
-    (FailureKind::PortUnreachable, SOCKET_EXCEPTION),
-    (SOCKET_EXCEPTION, IO_EXCEPTION),
-    (SOCKET_TIMEOUT_EXCEPTION, FailureKind::InterruptedIO),
-    (FailureKind::InterruptedIO, IO_EXCEPTION),
-    (UNKNOWN_HOST_EXCEPTION, IO_EXCEPTION),
-    (FILE_NOT_FOUND_EXCEPTION, IO_EXCEPTION),
-    (IO_EXCEPTION, FailureKind::Generic),
-    (TIMEOUT_EXCEPTION, FailureKind::Generic),
-    (ILLEGAL_STATE_EXCEPTION, FailureKind::Runtime),
-    (FailureKind::Runtime, FailureKind::Generic),
-];
-
-/// `class instanceof of`, over the classes this executor produces.
-pub fn is_instance(class: &FailureKind, of: FailureKind) -> bool {
-    let mut current = class;
-    loop {
-        if *current == of {
-            return true;
-        }
-        match SUPERCLASS.iter().find(|(sub, _)| sub == current) {
-            Some((_, parent)) => current = parent,
-            None => return false,
-        }
-    }
+/// Shared typed catch membership, also used after projection into core failures.
+pub fn is_instance(kind: &FailureKind, of: FailureKind) -> bool {
+    kind.is_ssh_instance(&of)
 }
 
 /// `net.schmizz.sshj.common.DisconnectReason`; the ordinal is the wire code.

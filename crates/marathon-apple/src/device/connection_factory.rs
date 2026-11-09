@@ -773,10 +773,10 @@ fn tcp_echo(address: SocketAddr, timeout: i32) -> Result<bool, String> {
         time::{Duration, Instant},
     };
     // JNU_ThrowByNameWithMessageAndLastError: "<strerror> (<detail>)".
-    let exception = |class: &str, errno: Errno, detail: &str| {
+    let exception = |kind: marathon_error::FailureKind, errno: Errno, detail: &str| {
         let text = std::io::Error::from_raw_os_error(errno as i32).to_string();
         let text = text.rsplit_once(" (os error ").map_or(text.as_str(), |(text, _)| text);
-        format!("java.net.{class}: {text} ({detail})")
+        format!("{kind}: {text} ({detail})")
     };
     let socket = socket(
         if address.is_ipv4() {
@@ -788,16 +788,16 @@ fn tcp_echo(address: SocketAddr, timeout: i32) -> Result<bool, String> {
         SockFlag::empty(),
         SockProtocol::Tcp,
     )
-    .map_err(|errno| exception("SocketException", errno, "Can't create socket"))?;
+    .map_err(|errno| exception(marathon_error::FailureKind::Socket, errno, "Can't create socket"))?;
     nix::fcntl::fcntl(&socket, nix::fcntl::FcntlArg::F_SETFL(nix::fcntl::OFlag::O_NONBLOCK))
-        .map_err(|errno| exception("SocketException", errno, "Can't create socket"))?;
+        .map_err(|errno| exception(marathon_error::FailureKind::Socket, errno, "Can't create socket"))?;
     match connect(socket.as_raw_fd(), &SockaddrStorage::from(address)) {
         Ok(()) | Err(Errno::ECONNREFUSED) => return Ok(true),
         Err(Errno::EINPROGRESS) => {}
         Err(Errno::ENETUNREACH | Errno::EAFNOSUPPORT | Errno::EADDRNOTAVAIL) => return Ok(false),
         #[cfg(target_os = "linux")]
         Err(Errno::EINVAL | Errno::EHOSTUNREACH) => return Ok(false),
-        Err(errno) => return Err(exception("ConnectException", errno, "connect failed")),
+        Err(errno) => return Err(exception(marathon_error::FailureKind::Connect, errno, "connect failed")),
     }
     // NET_Wait(NET_WAIT_CONNECT): poll POLLOUT, retrying failed or early polls
     // until under a millisecond of the budget remains.

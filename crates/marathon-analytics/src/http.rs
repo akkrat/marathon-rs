@@ -8,7 +8,7 @@ use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::connect::HttpConnector;
 use jcompat::logging::Level;
 use marathon_core::{analytics::MetricsContext, error::*, executor::shared::failure};
-use marathon_error::{AnalyticsKind, FailureKind, InfluxV1Kind, RetryDisposition};
+use marathon_error::{AnalyticsKind, FailureKind};
 use std::{
     sync::{Arc, OnceLock},
     time::Duration,
@@ -288,70 +288,9 @@ pub(crate) fn checked(reply: Reply, v2: bool) -> OperationResult<String> {
     };
     Err(failure(class, &message).into())
 }
-/// Parse the server's error protocol once; the category and retry rule have different precedence.
 pub(crate) fn v1_error_kind(message: &str) -> FailureKind {
-    const PHRASES: [(&str, InfluxV1Kind, RetryDisposition); 10] = [
-        (
-            "database not found",
-            InfluxV1Kind::DatabaseNotFound,
-            RetryDisposition::Never,
-        ),
-        (
-            "points beyond retention policy",
-            InfluxV1Kind::PointsBeyondRetentionPolicy,
-            RetryDisposition::Never,
-        ),
-        (
-            "field type conflict",
-            InfluxV1Kind::FieldTypeConflict,
-            RetryDisposition::Never,
-        ),
-        ("unable to parse", InfluxV1Kind::UnableToParse, RetryDisposition::Never),
-        (
-            "hinted handoff queue not empty",
-            InfluxV1Kind::HintedHandOffQueueNotEmpty,
-            RetryDisposition::Never,
-        ),
-        (
-            "cache-max-memory-size exceeded",
-            InfluxV1Kind::CacheMaxMemorySizeExceeded,
-            RetryDisposition::Retry,
-        ),
-        (
-            "user is required to write to database",
-            InfluxV1Kind::AuthorizationFailed,
-            RetryDisposition::Never,
-        ),
-        (
-            "user is not authorized to write to database",
-            InfluxV1Kind::AuthorizationFailed,
-            RetryDisposition::Never,
-        ),
-        (
-            "authorization failed",
-            InfluxV1Kind::AuthorizationFailed,
-            RetryDisposition::Never,
-        ),
-        (
-            "username required",
-            InfluxV1Kind::AuthorizationFailed,
-            RetryDisposition::Never,
-        ),
-    ];
-    let mut problem = None;
-    let mut retry = RetryDisposition::Retry;
-    for (phrase, category, disposition) in PHRASES {
-        if message.contains(phrase) {
-            problem.get_or_insert(category);
-            if disposition == RetryDisposition::Never {
-                retry = disposition;
-            }
-        }
-    }
-    FailureKind::Analytics(AnalyticsKind::InfluxV1 {
-        problem: problem.unwrap_or(InfluxV1Kind::General),
-        retry,
-    })
+    let (problem, retry) = marathon_error::analytics::parse_v1_error_body(message);
+    FailureKind::Analytics(AnalyticsKind::InfluxV1 { problem, retry })
 }
 pub(crate) fn closed() -> OperationError {
     failure(FailureKind::IllegalState, "Client is closed").into()
@@ -417,6 +356,7 @@ pub(crate) fn query_encode(text: &str) -> String {
 pub(crate) mod tests {
     use super::*;
     use marathon_core::{executor::Signal, logging::LogQueue, runtime::*, time::*};
+    use marathon_error::{InfluxV1Kind, RetryDisposition};
     use tokio::{io::AsyncReadExt, net::TcpListener, sync::Notify};
 
     impl Http {

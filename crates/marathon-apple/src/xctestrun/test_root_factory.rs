@@ -666,8 +666,11 @@ async fn staging_writer_failure_cleans_up_and_preserves_the_error() {
             .all(|p| p["kind"] != "generated")
     );
     let expected = VendorError::Other(failure(
-        marathon_test_support::recorded_errors::failure_kind(row["error"]["class"].as_str().unwrap())
-            .unwrap_or_else(|e| panic!("{e}")),
+        marathon_test_support::recorded_errors::failure_kind(
+            row["error"]["class"].as_str().unwrap(),
+            row["error"]["message"].as_str(),
+        )
+        .unwrap_or_else(|e| panic!("{e}")),
         row["error"]["message"].as_str().unwrap(),
     ));
     let write_error = expected.clone();

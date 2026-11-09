@@ -6,8 +6,8 @@ use marathon_error::{
     InjectedKind, ReportKind, RetryDisposition, SshKind,
 };
 
-pub fn failure_kind(class: &str) -> Result<FailureKind, String> {
-    match class {
+pub fn failure_kind(class: &str, message: Option<&str>) -> Result<FailureKind, String> {
+    let kind = match class {
         "java.lang.SecurityException" => Ok(FailureKind::Security),
         "After" => Ok(FailureKind::Injected(InjectedKind::After)),
         "C" => Ok(FailureKind::Injected(InjectedKind::ParserFixture)),
@@ -313,6 +313,36 @@ pub fn failure_kind(class: &str) -> Result<FailureKind, String> {
         "test.Watchdog" => Ok(FailureKind::Injected(InjectedKind::TestWatchdog)),
         "timeout" => Ok(FailureKind::Injected(InjectedKind::Timeout)),
         other => Err(format!("unsupported recorded exception {other}")),
+    }?;
+    Ok(match kind {
+        FailureKind::Analytics(AnalyticsKind::InfluxV1 { problem, .. }) => {
+            let (_, retry) = marathon_error::analytics::parse_v1_error_body(message.unwrap_or_default());
+            FailureKind::Analytics(AnalyticsKind::InfluxV1 { problem, retry })
+        }
+        other => other,
+    })
+}
+
+/// The scenario format uses short exception tokens, not arbitrary class suffixes.
+pub fn batch_failure(class: &str, message: &str) -> marathon_core::error::VendorError {
+    use marathon_core::error::{Failure, VendorError};
+    let detail = |kind| Failure::from_kind(kind, Some(message.into()));
+    match class {
+        "TestBatchExecutionException" => VendorError::BatchExecution(detail(FailureKind::BatchExecution)),
+        "DeviceLostException" => {
+            let cause = detail(FailureKind::Runtime);
+            VendorError::DeviceLost(Failure {
+                kind: FailureKind::DeviceLost,
+                message: Some(cause.to_java_string()),
+                cause: Some(Box::new(cause)),
+                stacktrace: None,
+            })
+        }
+        "RuntimeException" => VendorError::Other(detail(FailureKind::Runtime)),
+        other => VendorError::Other(Failure::from_kind(
+            FailureKind::IllegalArgument,
+            Some(format!("batch-failed: exception {other} is not supported")),
+        )),
     }
 }
 
@@ -321,10 +351,63 @@ mod tests {
     use super::*;
     #[test]
     fn recorded_security_failure_is_typed_and_unknown_classes_are_rejected() {
-        assert_eq!(failure_kind("java.lang.SecurityException"), Ok(FailureKind::Security));
         assert_eq!(
-            failure_kind("java.lang.FutureException"),
+            failure_kind("java.lang.SecurityException", None),
+            Ok(FailureKind::Security)
+        );
+        assert_eq!(
+            failure_kind("java.lang.FutureException", None),
             Err("unsupported recorded exception java.lang.FutureException".into())
         );
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+    use marathon_core::error::VendorError;
+    #[test]
+    fn replay_batch_tokens_keep_classification_causes_and_unknown_value_errors() {
+        assert!(matches!(
+            batch_failure("TestBatchExecutionException", "x"),
+            VendorError::BatchExecution(_)
+        ));
+        let lost = batch_failure("DeviceLostException", "x");
+        assert!(matches!(lost, VendorError::DeviceLost(_)));
+        assert_eq!(lost.failure().message.as_deref(), Some("java.lang.RuntimeException: x"));
+        assert_eq!(
+            lost.failure().cause.as_deref().map(|c| &c.kind),
+            Some(&FailureKind::Runtime)
+        );
+        assert!(matches!(batch_failure("RuntimeException", "x"), VendorError::Other(_)));
+        for value in ["unknown", "java.lang.RuntimeException"] {
+            let error = batch_failure(value, "x");
+            assert_eq!(error.failure().kind, FailureKind::IllegalArgument);
+            assert_eq!(
+                error.failure().message,
+                Some(format!("batch-failed: exception {value} is not supported"))
+            );
+        }
+    }
+    #[test]
+    fn recorded_v1_kind_keeps_its_class_and_reconstructs_the_separate_disposition() {
+        let class = "org.influxdb.InfluxDBException$CacheMaxMemorySizeExceededException";
+        let kind = failure_kind(class, Some("cache-max-memory-size exceeded; username required")).unwrap();
+        assert_eq!(kind.legacy_class(), class);
+        assert!(matches!(
+            kind,
+            FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+                retry: RetryDisposition::Never,
+                ..
+            })
+        ));
+        let kind = failure_kind("org.influxdb.InfluxDBException$DatabaseNotFoundException", None).unwrap();
+        assert!(matches!(
+            kind,
+            FailureKind::Analytics(AnalyticsKind::InfluxV1 {
+                problem: InfluxV1Kind::DatabaseNotFound,
+                retry: RetryDisposition::Retry
+            })
+        ));
     }
 }

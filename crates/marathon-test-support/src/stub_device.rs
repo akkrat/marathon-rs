@@ -91,7 +91,13 @@ impl Recorder {
 /// A scripted device's suspended call and the event that resumes it.
 enum Step {
     Prepare(Arc<SharedDeferred<serde_json::Value>>),
-    Execute(Vec<String>, Arc<SharedDeferred<serde_json::Value>>),
+    Execute(Vec<String>, Arc<SharedDeferred<BatchEvent>>),
+}
+
+#[derive(Clone)]
+struct BatchEvent {
+    payload: serde_json::Value,
+    failure: Option<VendorError>,
 }
 
 pub struct StubDevice {
@@ -305,7 +311,16 @@ impl StubDevice {
                         ));
                     }
                 }
-                done.complete(Ok(event.clone()));
+                let failure = (kind == "batch-failed").then(|| {
+                    crate::recorded_errors::batch_failure(
+                        event["exception"].as_str().unwrap_or_default(),
+                        event["message"].as_str().unwrap_or("scripted failure"),
+                    )
+                });
+                done.complete(Ok(BatchEvent {
+                    payload: event.clone(),
+                    failure,
+                }));
             }
             ("batch-result" | "batch-failed", _) => {
                 return Some(format!("{kind} for {serial}, which is not executing a batch"));
@@ -334,9 +349,10 @@ impl StubDevice {
     ) -> VendorResult<()> {
         let done = SharedDeferred::new();
         *lock(&self.pending) = Some(Step::Execute(tests.clone(), done.clone()));
-        let event = done.wait_in(context.cancellation.clone()).await?;
+        let decoded = done.wait_in(context.cancellation.clone()).await?;
+        let event = &decoded.payload;
         let device = self.reference();
-        if event["event"] == "batch-failed" {
+        if let Some(error) = &decoded.failure {
             if event["reportEmptyResultsFirst"].as_bool().unwrap_or(false) {
                 result.complete(Ok(TestBatchResults {
                     device,
@@ -345,26 +361,7 @@ impl StubDevice {
                     uncompleted: vec![],
                 }));
             }
-            let message = event["message"].as_str().unwrap_or("scripted failure");
-            return Err(match event["exception"].as_str().unwrap_or_default() {
-                "TestBatchExecutionException" => {
-                    VendorError::BatchExecution(failure(FailureKind::BatchExecution, message))
-                }
-                "DeviceLostException" => {
-                    let cause = failure(FailureKind::Runtime, message);
-                    VendorError::DeviceLost(Failure {
-                        kind: FailureKind::DeviceLost,
-                        message: Some(cause.to_java_string()),
-                        cause: Some(Box::new(cause)),
-                        stacktrace: None,
-                    })
-                }
-                "RuntimeException" => VendorError::Other(failure(FailureKind::Runtime, message)),
-                kind => VendorError::Other(failure(
-                    FailureKind::IllegalArgument,
-                    &format!("batch-failed: exception {kind} is not supported"),
-                )),
-            });
+            return Err(error.clone());
         }
         let info = self.info();
         let mut results = vec![];

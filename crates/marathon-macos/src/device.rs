@@ -942,8 +942,11 @@ mod tests {
             };
             let error = classify_run(RunError {
                 error: VendorError::Other(failure(
-                    marathon_test_support::recorded_errors::failure_kind(cause["class"].as_str().unwrap())
-                        .unwrap_or_else(|e| panic!("{e}")),
+                    marathon_test_support::recorded_errors::failure_kind(
+                        cause["class"].as_str().unwrap(),
+                        cause["message"].as_str(),
+                    )
+                    .unwrap_or_else(|e| panic!("{e}")),
                     cause["message"].as_str().unwrap(),
                 )),
                 reason,

@@ -542,8 +542,11 @@ fn throwable_rendering_matches_the_logback_row_without_frames() {
         .unwrap();
     fn convert(t: &Json) -> Option<Failure> {
         (!t.is_null()).then(|| Failure {
-            kind: marathon_test_support::recorded_errors::failure_kind(t["class"].as_str().unwrap())
-                .unwrap_or_else(|e| panic!("{e}")),
+            kind: marathon_test_support::recorded_errors::failure_kind(
+                t["class"].as_str().unwrap(),
+                t["message"].as_str(),
+            )
+            .unwrap_or_else(|e| panic!("{e}")),
             message: t["message"].as_str().map(Into::into),
             cause: convert(&t["cause"]).map(Box::new),
             stacktrace: None,

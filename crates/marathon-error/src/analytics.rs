@@ -78,3 +78,66 @@ impl AnalyticsKind {
         }
     }
 }
+
+/// Parse the server's error protocol once; the category and retry rule have different precedence.
+pub fn parse_v1_error_body(body: &str) -> (InfluxV1Kind, RetryDisposition) {
+    const PHRASES: [(&str, InfluxV1Kind, RetryDisposition); 10] = [
+        (
+            "database not found",
+            InfluxV1Kind::DatabaseNotFound,
+            RetryDisposition::Never,
+        ),
+        (
+            "points beyond retention policy",
+            InfluxV1Kind::PointsBeyondRetentionPolicy,
+            RetryDisposition::Never,
+        ),
+        (
+            "field type conflict",
+            InfluxV1Kind::FieldTypeConflict,
+            RetryDisposition::Never,
+        ),
+        ("unable to parse", InfluxV1Kind::UnableToParse, RetryDisposition::Never),
+        (
+            "hinted handoff queue not empty",
+            InfluxV1Kind::HintedHandOffQueueNotEmpty,
+            RetryDisposition::Never,
+        ),
+        (
+            "cache-max-memory-size exceeded",
+            InfluxV1Kind::CacheMaxMemorySizeExceeded,
+            RetryDisposition::Retry,
+        ),
+        (
+            "user is required to write to database",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
+        ),
+        (
+            "user is not authorized to write to database",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
+        ),
+        (
+            "authorization failed",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
+        ),
+        (
+            "username required",
+            InfluxV1Kind::AuthorizationFailed,
+            RetryDisposition::Never,
+        ),
+    ];
+    let mut problem = None;
+    let mut retry = RetryDisposition::Retry;
+    for (phrase, category, disposition) in PHRASES {
+        if body.contains(phrase) {
+            problem.get_or_insert(category);
+            if disposition == RetryDisposition::Never {
+                retry = disposition;
+            }
+        }
+    }
+    (problem.unwrap_or(InfluxV1Kind::General), retry)
+}
