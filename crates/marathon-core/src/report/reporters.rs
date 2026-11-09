@@ -9,7 +9,7 @@ use crate::{
     error::*,
     logging::OutputRecord,
     output::*,
-    time::{ReplayHooks, Timer, WallClock},
+    time::{Timer, WallClock},
 };
 use jcompat::{
     formatting::format_stdout_duration,
@@ -125,11 +125,10 @@ fn string_map<S: serde::Serializer>(entries: &[(&str, String)], serializer: S) -
 }
 pub struct RawJsonReporter {
     pub output: ReporterFiles,
-    pub hooks: Arc<dyn ReplayHooks>,
 }
 impl RawJsonReporter {
-    pub fn new(output: ReporterFiles, hooks: Arc<dyn ReplayHooks>) -> Self {
-        Self { output, hooks }
+    pub fn new(output: ReporterFiles) -> Self {
+        Self { output }
     }
 }
 impl Reporter for RawJsonReporter {
@@ -145,9 +144,7 @@ impl Reporter for RawJsonReporter {
                         let text = if matches!(value, MetaValue::Null) {
                             String::default()
                         } else {
-                            p::kotlin_meta(value, self.hooks.as_ref())
-                                .map_err(operation_error)?
-                                .render()
+                            p::kotlin_meta(value).render()
                         };
                         entries.push((key.as_str(), text));
                     }

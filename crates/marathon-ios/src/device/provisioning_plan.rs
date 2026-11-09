@@ -33,17 +33,13 @@ pub struct PlanCalculator {
     timing: ProvisioningTiming,
 }
 impl PlanCalculator {
-    pub fn new(
-        logging: SshLogging,
-        timing: ProvisioningTiming,
-        _hooks: &dyn marathon_core::time::ReplayHooks,
-    ) -> ProvisioningResult<Self> {
+    pub fn new(logging: SshLogging, timing: ProvisioningTiming) -> Self {
         let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider");
-        Ok(Self {
+        Self {
             logging,
             logger,
             timing,
-        })
+        }
     }
     #[allow(clippy::too_many_arguments)]
     pub async fn plan(

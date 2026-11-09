@@ -240,11 +240,7 @@ impl AppleSimulatorProvider {
             analytics_tracking: binding.analytics_tracking,
             bugsnag_reporting: binding.bugsnag_reporting,
         });
-        let planner = PlanCalculator::new(
-            services.logging.clone(),
-            services.timing.clone(),
-            services.context.hooks.as_ref(),
-        )?;
+        let planner = PlanCalculator::new(services.logging.clone(), services.timing.clone());
         let owner = Arc::new(Mutex::new(Weak::<Self>::new()));
         let weak = owner.clone();
         let provisioner = SimulatorProvisioner::new(
@@ -264,7 +260,6 @@ impl AppleSimulatorProvider {
             }),
             services.vendor.threading_configuration.provisioning_concurrency,
             services.logging.clone(),
-            services.context.hooks.as_ref(),
         )?;
         let provider = Arc::new_cyclic(|me| Self {
             me: me.clone(),

@@ -36,24 +36,22 @@ impl Hash for Test {
 /// prefix, so a whitespace-only package is dropped, not printed.
 impl Test {
     /// Renders the Kotlin data-class toString.
-    pub fn kotlin_value(&self, hooks: &dyn crate::time::ReplayHooks) -> crate::error::VendorResult<KotlinValue> {
+    pub fn kotlin_value(&self) -> KotlinValue {
         let properties = self
             .meta_properties
             .iter()
-            .map(|p| {
-                Ok(KotlinValue::DataClass {
-                    name: "MetaProperty".into(),
-                    fields: vec![
-                        ("name".into(), KotlinValue::Text(p.name.clone())),
-                        (
-                            "values".into(),
-                            crate::report::projection::kotlin_meta(&MetaValue::Map(p.values.clone()), hooks)?,
-                        ),
-                    ],
-                })
+            .map(|p| KotlinValue::DataClass {
+                name: "MetaProperty".into(),
+                fields: vec![
+                    ("name".into(), KotlinValue::Text(p.name.clone())),
+                    (
+                        "values".into(),
+                        crate::report::projection::kotlin_meta(&MetaValue::Map(p.values.clone())),
+                    ),
+                ],
             })
-            .collect::<crate::error::VendorResult<Vec<_>>>()?;
-        Ok(KotlinValue::DataClass {
+            .collect();
+        KotlinValue::DataClass {
             name: "Test".into(),
             fields: vec![
                 ("pkg".into(), KotlinValue::Text(self.pkg.clone())),
@@ -61,7 +59,7 @@ impl Test {
                 ("method".into(), KotlinValue::Text(self.method.clone())),
                 ("metaProperties".into(), KotlinValue::List(properties)),
             ],
-        })
+        }
     }
     pub fn to_class_name(&self, separator: char) -> String {
         let mut name = String::default();

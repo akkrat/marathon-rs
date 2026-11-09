@@ -543,7 +543,6 @@ impl Harness {
                 }),
                 limit,
                 logging.clone(),
-                clock.as_ref(),
             )
             .unwrap()
             .with_simulator_commands(commands.clone()),

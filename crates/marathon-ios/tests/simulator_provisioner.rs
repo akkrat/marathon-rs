@@ -335,7 +335,6 @@ async fn dropped_registration_disposes_then_releases_and_deletes_without_a_failu
         Arc::new(|_, _| Box::pin(async { Err(marathon_ios::device::error::SetupDropped("gone".into()).into()) })),
         2,
         logging,
-        h.clock.as_ref(),
     )?;
     assert!(
         p.provision(
@@ -554,7 +553,6 @@ async fn release_failure_replaces_disposal_and_registration_errors_in_the_finall
         }),
         2,
         logging,
-        h.clock.as_ref(),
     )?;
     let failed = p
         .provision(

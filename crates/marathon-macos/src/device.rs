@@ -317,7 +317,6 @@ impl MacosDevice {
             Arc::new(DebugTestRunListener::new(
                 DeviceRef(device.clone()),
                 self.options.logging.clone(),
-                context.hooks.clone(),
             )),
             diagnostic.clone(),
             session.clone(),

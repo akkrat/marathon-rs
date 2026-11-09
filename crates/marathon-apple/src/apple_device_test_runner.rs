@@ -16,7 +16,7 @@ use jcompat::{
 };
 use marathon_config::Configuration;
 use marathon_core::{
-    error::{Failure, VendorError, VendorResult},
+    error::{Failure, VendorError},
     model::TestBatch,
     runtime::VendorRuntime,
     vendor::VendorContext,
@@ -124,11 +124,7 @@ impl AppleDeviceTestRunner {
         let fm = self.device.remote_file_manager();
         let remote = fm.remote_xctestrun_file();
         self.log(Level::Debug, format!("Remote xctestrun = {remote}"), None);
-        let tests = batch
-            .tests
-            .iter()
-            .map(|t| t.kotlin_value(&*context.hooks))
-            .collect::<VendorResult<Vec<_>>>()?;
+        let tests = batch.tests.iter().map(|t| t.kotlin_value()).collect();
         self.log(
             Level::Debug,
             format!("Tests = {}", KotlinValue::List(tests).render().to_owned()),

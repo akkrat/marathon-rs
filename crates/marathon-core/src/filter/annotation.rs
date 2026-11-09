@@ -10,8 +10,8 @@ use jcompat::{JavaRegex, jnum, writers::KotlinValue};
 #[derive(Default)]
 pub struct AnnotationRenderer;
 impl AnnotationRenderer {
-    pub fn render(&self, value: &MetaValue) -> OperationResult<String> {
-        Ok(Self::value(value).render())
+    pub fn render(&self, value: &MetaValue) -> String {
+        Self::value(value).render()
     }
     fn value(value: &MetaValue) -> KotlinValue {
         use MetaValue::*;
@@ -61,13 +61,8 @@ pub(super) fn matches(
                 let rendered = array
                     .elements
                     .iter()
-                    .map(|element| {
-                        dependencies
-                            .rendering
-                            .render(element)
-                            .map(|text| array_element_value(&text))
-                    })
-                    .collect::<OperationResult<Vec<_>>>()?;
+                    .map(|element| array_element_value(&dependencies.rendering.render(element)))
+                    .collect::<Vec<_>>();
                 for text in rendered {
                     if matches_regex(value, &text, "annotation-data.value")? {
                         return Ok(true);
@@ -75,7 +70,7 @@ pub(super) fn matches(
                 }
             }
             _ => {
-                if matches_regex(value, &dependencies.rendering.render(data)?, "annotation-data.value")? {
+                if matches_regex(value, &dependencies.rendering.render(data), "annotation-data.value")? {
                     return Ok(true);
                 }
             }

@@ -130,7 +130,6 @@ impl AppleSimulatorDevice {
             Arc::new(DebugTestRunListener::new(
                 DeviceRef(me.clone()),
                 self.services.logging.clone(),
-                context.hooks.clone(),
             )),
             diagnostics.clone(),
             session.clone(),

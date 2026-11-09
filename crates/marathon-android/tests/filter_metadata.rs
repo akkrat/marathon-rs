@@ -53,7 +53,7 @@ fn c28_real_metadata_conversion_and_filtering_replay_the_jvm() -> OperationResul
         let MetaValue::Array(array) = &meta.values.entries()[0].1 else {
             panic!("retained array")
         };
-        let rendered = rendering.render(&array.elements[0])?;
+        let rendered = rendering.render(&array.elements[0]);
         let extracted = marathon_core::filter::array_element_value(&rendered);
         let expected = if kind == "decodedNull" {
             "null"

@@ -34,7 +34,7 @@ async fn profiles_reuse_first_available_unused_records_once_and_preserve_input_o
         .await?;
     let (logging, _) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing, h.clock.as_ref())?;
+    let planner = PlanCalculator::new(logging.clone(), timing);
     let targets = vec![
         AppleTarget::Host,
         AppleTarget::Simulator {
@@ -106,7 +106,7 @@ async fn shutdown_is_serial_and_final_eligibility_is_read_after_the_last_await()
     });
     let (logging, logs) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing, h.clock.as_ref())?;
+    let planner = PlanCalculator::new(logging.clone(), timing);
     let expected = order.clone();
     let plan = planner
         .plan(
@@ -184,7 +184,7 @@ async fn registration_during_inventory_is_excluded_from_profile_reuse() -> TestR
     });
     let (logging, _) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing, h.clock.as_ref())?;
+    let planner = PlanCalculator::new(logging.clone(), timing);
     let p = profile();
     let plan = planner
         .plan(
@@ -213,7 +213,7 @@ async fn host_warning_precedes_missing_simulator_error() -> TestResult {
     let h = Harness::new();
     let (logging, logs) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing, h.clock.as_ref())?;
+    let planner = PlanCalculator::new(logging.clone(), timing);
     logging.registry.lock().unwrap().logger(
         "com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider",
         Some(jcompat::logging::Level::Warn),

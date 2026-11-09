@@ -22,7 +22,6 @@ use marathon_core::{
     error::{Cancellation, VendorError},
     executor::shared::Signal,
     runtime::{CancellationSignal, VendorFuture},
-    time::ReplayHooks,
     vendor::VendorContext,
 };
 use std::{
@@ -184,7 +183,6 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
         register: Registration<H>,
         concurrency: i32,
         logging: SshLogging,
-        _hooks: &dyn ReplayHooks,
     ) -> ProvisioningResult<Self> {
         if concurrency <= 0 {
             return Err(VendorError::Other(failure(

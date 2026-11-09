@@ -111,7 +111,6 @@ fn regular_output() {
 }
 #[test]
 fn test() -> Result<(), Box<dyn std::error::Error>> {
-    let hooks = marathon_core::executor::hooks::RuntimeHooks::live();
     for (name, target) in [
         ("success_0", ""),
         ("patrol_0", "testTarget"),
@@ -131,12 +130,7 @@ fn test() -> Result<(), Box<dyn std::error::Error>> {
         let mut actual = vec![];
         for line in input.lines() {
             for event in parser.process(line)?.into_iter().flatten() {
-                actual.push(
-                    event
-                        .to_kotlin_string(&*hooks)
-                        .map_err(|e| format!("{e:?}"))?
-                        .to_owned(),
-                );
+                actual.push(event.to_kotlin_string().to_owned());
             }
         }
         // D45: Kotlin's expectation holds except that a hang now reports its line as the trace.
@@ -641,7 +635,6 @@ fn the_d45_allowance_hides_nothing_else_in_the_recordings() -> Result<(), Box<dy
 #[test]
 fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std::error::Error>> {
     use jcompat::logging::{Level, Vendor};
-    let hooks = marathon_core::executor::hooks::RuntimeHooks::live();
     for line in include_str!("../../../fixtures/oracle/apple-logparser/probes.jsonl")
         .split('\n')
         .filter(|l| !l.is_empty())
@@ -678,11 +671,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 Ok(events) => {
                     let thrown = text.contains(D45_MARKER) && d45.is_some();
                     assert_eq!(entry["exception"].is_null(), !thrown, "{}: {text:?}", row["case"]);
-                    let events = events.map(|v| {
-                        v.iter()
-                            .map(|e| e.to_kotlin_string(&*hooks).unwrap().to_owned())
-                            .collect::<Vec<_>>()
-                    });
+                    let events = events.map(|v| v.iter().map(|e| e.to_kotlin_string().to_owned()).collect::<Vec<_>>());
                     // D39: the JVM aborts on this name, recorded as TestRunFailed; here the test starts.
                     let expected = if row["case"] == "failure-literals" && text == D39_WITNESS {
                         assert_eq!(

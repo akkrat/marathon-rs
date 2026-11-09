@@ -2,7 +2,7 @@
 
 use super::super::logparser::parser::DeviceFailureReason;
 use jcompat::writers::KotlinValue;
-use marathon_core::{error::VendorResult, model::Test, time::ReplayHooks};
+use marathon_core::model::Test;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TestEvent {
@@ -33,17 +33,17 @@ pub enum TestEvent {
     TestRunEnded,
 }
 impl TestEvent {
-    pub fn to_kotlin_string(&self, hooks: &dyn ReplayHooks) -> VendorResult<String> {
+    pub fn to_kotlin_string(&self) -> String {
         use TestEvent::*;
         let (name, fields) = match self {
-            TestStarted { id } => ("TestStarted", vec![("id".into(), id.kotlin_value(hooks)?)]),
+            TestStarted { id } => ("TestStarted", vec![("id".into(), id.kotlin_value())]),
             TestFailed {
                 id,
                 start_time,
                 end_time,
                 trace,
             } => {
-                let mut fields = Self::timed(id, *start_time, *end_time, hooks)?;
+                let mut fields = Self::timed(id, *start_time, *end_time);
                 fields.push((
                     "trace".into(),
                     trace.clone().map_or(KotlinValue::Null, KotlinValue::Text),
@@ -54,12 +54,12 @@ impl TestEvent {
                 id,
                 start_time,
                 end_time,
-            } => ("TestPassed", Self::timed(id, *start_time, *end_time, hooks)?),
+            } => ("TestPassed", Self::timed(id, *start_time, *end_time)),
             TestIgnored {
                 id,
                 start_time,
                 end_time,
-            } => ("TestIgnored", Self::timed(id, *start_time, *end_time, hooks)?),
+            } => ("TestIgnored", Self::timed(id, *start_time, *end_time)),
             TestRunFailed { message, reason } => (
                 "TestRunFailed",
                 vec![
@@ -68,20 +68,20 @@ impl TestEvent {
                 ],
             ),
             // These singleton events have no production rendering site.
-            TestRunStartedEvent => return Ok("TestRunStartedEvent".into()),
-            TestRunEnded => return Ok("TestRunEnded".into()),
+            TestRunStartedEvent => return "TestRunStartedEvent".into(),
+            TestRunEnded => return "TestRunEnded".into(),
         };
-        Ok(KotlinValue::DataClass {
+        KotlinValue::DataClass {
             name: name.into(),
             fields,
         }
-        .render())
+        .render()
     }
-    fn timed(id: &Test, start: i64, end: i64, hooks: &dyn ReplayHooks) -> VendorResult<Vec<(String, KotlinValue)>> {
-        Ok(vec![
-            ("id".into(), id.kotlin_value(hooks)?),
+    fn timed(id: &Test, start: i64, end: i64) -> Vec<(String, KotlinValue)> {
+        vec![
+            ("id".into(), id.kotlin_value()),
             ("startTime".into(), KotlinValue::Text(start.to_string())),
             ("endTime".into(), KotlinValue::Text(end.to_string())),
-        ])
+        ]
     }
 }

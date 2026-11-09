@@ -224,7 +224,7 @@ fn c28_wrapper_and_scalar_rendering_replays_the_jvm() -> OperationResult<()> {
             "map" => M::Map([("x".into(), M::Int(1)), ("y".into(), M::Null)].into_iter().collect()),
             _ => wrapper(kind),
         };
-        let rendered = render.render(&value)?;
+        let rendered = render.render(&value);
         let expected = match kind {
             "decodedNull" => "null",
             "nested" => "DecodedArrayValue(values=[DecodedString(value=a)b), null])",
@@ -740,9 +740,9 @@ fn annotation_arrays_render_values_and_filters_match_nested_contents() -> Operat
         array(vec![M::Int(7)]),
         M::List(vec![M::Boolean(true)]),
     ]);
-    assert_eq!(rendering.render(&values)?, "[a, null, [7], [true]]");
-    assert_eq!(rendering.render(&array(vec![]))?, "[]");
-    assert_eq!(rendering.render(&values.clone())?, rendering.render(&values)?);
+    assert_eq!(rendering.render(&values), "[a, null, [7], [true]]");
+    assert_eq!(rendering.render(&array(vec![])), "[]");
+    assert_eq!(rendering.render(&values.clone()), rendering.render(&values));
     let null_filter = C::AnnotationData {
         name_regex: regex("A"),
         value_regex: regex("null"),

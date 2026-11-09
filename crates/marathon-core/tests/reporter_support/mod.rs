@@ -398,10 +398,7 @@ pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {
                     output_dir: path,
                     cwd: output.cwd.clone(),
                 },
-                RawJsonReporter {
-                    output: output.clone(),
-                    hooks: hooks.clone(),
-                },
+                RawJsonReporter { output: output.clone() },
                 TestJsonReporter { output },
                 StdoutReporter {
                     io: io.clone(),

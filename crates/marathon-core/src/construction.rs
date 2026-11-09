@@ -385,7 +385,7 @@ async fn build(
         DeviceInfoJsonReporter::new(reporter_files.clone()),
         bill,
         JUnitReporter::new(io.clone(), output_dir.clone(), inputs.cwd.clone()),
-        RawJsonReporter::new(reporter_files.clone(), hooks.clone()),
+        RawJsonReporter::new(reporter_files.clone()),
         TestJsonReporter::new(reporter_files.clone()),
         StdoutReporter::new(io.clone(), timer.clone(), inputs.console.clone()),
     );

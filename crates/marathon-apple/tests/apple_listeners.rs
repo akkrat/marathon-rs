@@ -639,8 +639,7 @@ fn oracle_rows() -> Vec<Value> {
         .collect()
 }
 fn projection(results: &[TestResult]) -> Value {
-    let hooks = marathon_core::executor::hooks::RuntimeHooks::live();
-    json!(results.iter().map(|r|json!({"test":r.test.kotlin_value(&*hooks).unwrap().render().to_owned(),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.clone()})).collect::<Vec<_>>())
+    json!(results.iter().map(|r|json!({"test":r.test.kotlin_value().render().to_owned(),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.clone()})).collect::<Vec<_>>())
 }
 #[tokio::test]
 async fn jvm_listener_production_and_test_sequences_keep_a6_and_incomplete_zero_end() {
@@ -702,7 +701,7 @@ async fn jvm_debug_lines_and_approved_artifact_order() {
     // Reuse the same per-run registry/sink as a device's listener construction.
     let logging = h.logging.clone();
     let t = test("p", "C", "m");
-    let debug = DebugTestRunListener::new(h.device.clone(), logging.clone(), support::context().hooks);
+    let debug = DebugTestRunListener::new(h.device.clone(), logging.clone());
     debug.before_test_run().await.unwrap();
     debug.test_run_started().await.unwrap();
     debug.test_started(&t).await.unwrap();
@@ -980,7 +979,7 @@ async fn disabled_debug_listener_does_not_log_decoded_null_metadata() {
         .lock()
         .unwrap()
         .configure(false, jcompat::logging::Vendor::Apple { compact_output: false });
-    let debug = DebugTestRunListener::new(h.device, h.logging, support::context().hooks);
+    let debug = DebugTestRunListener::new(h.device, h.logging);
     let mut t = test("p", "C", "m");
     t.meta_properties.push(MetaProperty {
         name: "annotation".into(),

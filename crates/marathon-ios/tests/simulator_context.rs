@@ -65,7 +65,6 @@ fn provisioner(
         }),
         concurrency,
         h.services.logging.clone(),
-        h.services.context.hooks.as_ref(),
     )
     .unwrap();
     (p, devices)
@@ -174,7 +173,6 @@ async fn a_lost_connection_invalidates_what_was_loaded_through_it_within_one_cyc
         }),
         1,
         h.services.logging.clone(),
-        h.services.context.hooks.as_ref(),
     )?;
     p.existing(
         ["a", "b", "c"].map(str::to_owned),

@@ -328,7 +328,6 @@ async fn unavailable_simulators_are_neither_planned_nor_re_provisioned() -> Test
         }),
         2,
         p.h.services.logging.clone(),
-        p.h.services.context.hooks.as_ref(),
     )?;
     provisioner
         .existing(["a".into(), "b".into()], Transport::Local, p.h.services.context.clone())

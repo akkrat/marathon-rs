@@ -2,7 +2,7 @@
 //! test/MetaProperty.kt, device/DeviceInfo.kt, execution/TestResult.kt,
 //! execution/Attachment.kt and json/FileSerializer.kt.
 
-use crate::{error::VendorResult, model::*, time::ReplayHooks};
+use crate::model::*;
 use WriterValue as V;
 use jcompat::{
     jnum,
@@ -132,23 +132,18 @@ pub fn parse_results(tests: &[Test], flaky_tests: &[Test]) -> String {
     jcompat::writers::JacksonYamlWriter.write(&object(fields))
 }
 
-pub fn kotlin_meta(value: &MetaValue, _hooks: &dyn ReplayHooks) -> VendorResult<KotlinValue> {
+pub fn kotlin_meta(value: &MetaValue) -> KotlinValue {
     use MetaValue::*;
-    Ok(match value {
+    match value {
         Null => KotlinValue::Null,
-        List(v) => KotlinValue::List(v.iter().map(|v| kotlin_meta(v, _hooks)).collect::<VendorResult<_>>()?),
+        List(v) => KotlinValue::List(v.iter().map(kotlin_meta).collect()),
         Map(v) => KotlinValue::Map(
             v.entries()
                 .iter()
-                .map(|(k, v)| Ok((KotlinValue::Text(k.clone()), kotlin_meta(v, _hooks)?)))
-                .collect::<VendorResult<_>>()?,
+                .map(|(k, v)| (KotlinValue::Text(k.clone()), kotlin_meta(v)))
+                .collect(),
         ),
-        Array(v) => KotlinValue::List(
-            v.elements
-                .iter()
-                .map(|v| kotlin_meta(v, _hooks))
-                .collect::<VendorResult<_>>()?,
-        ),
+        Array(v) => KotlinValue::List(v.elements.iter().map(kotlin_meta).collect()),
         Decoded(v) => v.kotlin_value(),
         _ => KotlinValue::Text(match meta(value) {
             V::String(v) => v,
@@ -156,5 +151,5 @@ pub fn kotlin_meta(value: &MetaValue, _hooks: &dyn ReplayHooks) -> VendorResult<
             V::Number(v) => v.as_str().into(),
             _ => unreachable!("scalar projection"),
         }),
-    })
+    }
 }
