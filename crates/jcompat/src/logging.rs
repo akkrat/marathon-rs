@@ -166,37 +166,36 @@ pub fn abbreviate(name: &str, length: usize) -> String {
     if length == 0 {
         return name.rsplit('.').next().unwrap_or(name).to_owned();
     }
-    let units: Vec<u16> = name.encode_utf16().collect();
-    if units.len() < length {
+    let unit_len = name.encode_utf16().count();
+    if unit_len < length {
         return name.to_owned();
     }
-    let Some(last_dot) = units.iter().rposition(|&u| u == u16::from(b'.')) else {
+    let Some(last_dot) = name.rfind('.') else {
         return name.to_owned();
     };
-    let to_trim = units.len().saturating_sub(length).min(last_dot);
+    let to_trim = unit_len
+        .saturating_sub(length)
+        .min(name[..last_dot].encode_utf16().count());
     let mut trimmed = 0;
     let mut first = true;
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < last_dot {
-        let unit = units[i];
-        if unit == u16::from(b'.') {
+    let mut out = String::new();
+    for (i, ch) in name[..last_dot].char_indices() {
+        if ch == '.' {
             if trimmed >= to_trim {
-                break;
+                out.push_str(&name[i..]);
+                return out;
             }
-            out.push(unit);
+            out.push(ch);
             first = true;
         } else if first {
-            out.push(unit);
+            out.push(ch);
             first = false;
         } else {
-            trimmed += 1;
+            trimmed += ch.len_utf16();
         }
-        i += 1;
     }
-    out.extend_from_slice(&units[i..]);
-    // Java's UTF-8 encoder replaces an unpaired surrogate left by abbreviation with '?'.
-    char::decode_utf16(out).map(|ch| ch.unwrap_or('?')).collect()
+    out.push_str(&name[last_dot..]);
+    out
 }
 
 /// SLF4J substitution receives Java-rendered argument values (including `null`).

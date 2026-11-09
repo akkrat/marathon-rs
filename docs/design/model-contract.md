@@ -27,7 +27,7 @@ supply explicit Gson/Jackson/Kotlin writers; WP 3.9 selects the correct one.
 | DeviceEvent (`device/DeviceProvider.kt:6–9`) | Kotlin event classes use identity; Rust deliberately exposes no Eq | Carried DeviceRef retains device identity; event wrapper identity is not used by core | Internal channel message, not a report record |
 | Failure / VendorError (exception package) | Rust structural comparison is diagnostic only, not Kotlin Throwable.equals | No Throwable object identity is used for device classification; enum kind and cause chain are authoritative | Explicit class/message/cause formatter, never Rust Debug |
 | ExecutionCommand (`config/ExecutionCommands.kt`) | Parse outputFileName/includeFlakyTests; Run singleton | No resource identity | CLI command, not Marathonfile schema |
-| JavaString (`jcompat::writers`) | UTF-16 code units, Java lexicographic ordering | None | JDK-compatible escaping/encoding at output boundary; no lossy UTF-8 conversion during storage |
+| String / &str | Unicode text, Rust scalar-value ordering (D55) | None | Lone surrogates are replaced at input boundaries; contract-sensitive lengths still count UTF-16 units |
 | JavaPath (`jcompat::file_manager`) | Stored Java File path spelling, not canonical/inode identity | None | Gson writes absolute path; config dump preserves noncanonical `.` components. File construction normalization belongs to 2.1, not native PathBuf normalization |
 | Instant / Duration (`jcompat::jtime`) | Signed seconds + normalized nanos | None | Merged Java parsing/formatting; never std::time::Duration for negative durations |
 | Configuration (`configuration/.../Configuration.kt`) | Kotlin compares serial regex source strings but hashes Regex identity (F7); approved pattern-based Rust Eq/Hash implemented in `schema.rs` | No emulated Regex identity API | P1 binding, P3 YAML, config-dump and toMap are distinct views, not one derive |
@@ -81,7 +81,7 @@ MetaValue::Decoded(DecodedWrapper)
 enum DecodedWrapper {
     DecodedByte(i8), DecodedShort(i16), DecodedInt(i32), DecodedLong(i64),
     DecodedFloat(f32), DecodedDouble(f64), DecodedChar(u16), DecodedBoolean(bool),
-    DecodedString(JavaString), DecodedType(JavaString), DecodedEnum(JavaString),
+    DecodedString(String), DecodedType(String), DecodedEnum(String),
     DecodedNull,
     DecodedArrayValue(Arc<[DecodedWrapper]>),
 }
@@ -105,7 +105,7 @@ first occurrence wins; this is not structured extraction or recursive matching
 Kotlin writer. The caller supplies DecodedNull's identity suffix from the replay
 identity service, reusing one stable singleton token per run; the suffix is
 never stored as annotation data. Every null occurrence, including in nested
-arrays, uses that token. Scalars retain UTF-16 and Java numeric formatting.
+arrays, uses that token. Character scalars retain UTF-16 units and numbers use Java formatting.
 
 The pinned `com.linkedin.dextestparser:parser:2.3.4` JAR (SHA-1
 `9279e0742f97d099cd0b07df66ca1045479ff156`) was inspected with `javap -p -c`
@@ -150,8 +150,8 @@ respectively.
 
 `jcompat` is the canonical implementation, not an interface placeholder:
 
-- `writers::JavaString` retains UTF-16 for lossless Node/model storage and output.
-  Core key types use its code-unit Ord/Hash. `file_manager::JavaPath` is the
+- Node and model text uses `String` (D55); contract-sensitive lengths count UTF-16 units.
+  `file_manager::JavaPath` is the
   path representation throughout config, attachments and output services.
 - `jtime::Instant` / `Duration` use validated constructors (`instant_of`,
   `duration_of`) and their existing parsers/formatters; do not redeclare public
@@ -163,9 +163,8 @@ respectively.
   `find`/`find_all` use UTF-8 captures, while `split`/`replace` retain their
   merged operation errors. `pattern()` supplies source text for comparisons
   and output. There is no Java-regex backend, UTF-16 regex overload, runtime
-  abort outcome or budget. UTF-16 model text crosses via checked `as_utf8()`;
-  unpaired surrogates become a contextual binding/filter conversion error,
-  never an implicit lossy replacement. The binders own that error mapping.
+  abort outcome or budget. Model text is UTF-8; input boundaries replace lone surrogates
+  as described in D55.
 - `StringSubstitutor` receives the binder's explicit environment lookup.
   Substitution errors keep their source-defined exception boundary.
 - `writers::{WriterValue, GsonWriter, JacksonYamlWriter, KotlinValue}` are the
@@ -212,7 +211,7 @@ Opaque slots reserve type names/ownership, not their eventual field layout.
 WP 2.1 owns Node/Mark/Span and token shapes, following yaml-spike-results.md;
 0.6 removes its duplicate declarations. SourceMark/SourceSpan are private-field
 opaque placeholders for the future location types in structured errors, not a
-second implementation. The future Node contract retains duplicates, raw UTF-16
+second implementation. The Node contract retains duplicates, raw string
 spelling, scalar style, anchors/tags, spans and incomplete collection prefixes.
 Stream error roles remain distinct. P1/P2 BindingContext carries the Marathonfile
 path (diagnostics use its absolute path), Marathonfile directory, process directory, ordered environment, injectable

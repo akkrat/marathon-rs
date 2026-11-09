@@ -273,7 +273,13 @@ fn supplementary_names_long_names_and_slf4j_escaping() {
             }
             _ => unreachable!(),
         };
-        assert_eq!(output, row["output"].as_str().unwrap(), "{row}");
+        // D55 keeps supplementary logger characters whole instead of the JVM's `?`.
+        let expected = if row["op"] == "abbreviate" && row["output"] == "c.?.Foo" {
+            "c.😀.Foo"
+        } else {
+            row["output"].as_str().unwrap()
+        };
+        assert_eq!(output, expected, "{row}");
         count += 1;
     }
     assert_eq!(count, 117);
@@ -462,4 +468,12 @@ fn failing_console_events_all_targets_and_modes() {
         output.extend_from_slice(stream.finish(Layout::Compact));
         assert_eq!(output, row["output"].as_str().unwrap().as_bytes(), "{row}");
     }
+}
+
+#[test]
+fn abbreviation_keeps_supplementary_characters_whole() {
+    assert_eq!(
+        abbreviate("a.😀bcdefghijklmnop.qrstuvwxyz0123456789", 36),
+        "a.😀.qrstuvwxyz0123456789"
+    );
 }

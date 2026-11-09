@@ -356,7 +356,7 @@ but core may neither do I/O nor take the registry lock. They therefore append a
 | `at_millis: i64` | scheduler time of the call: replay order and timelines only |
 | `wall_millis: i64` | wall time (epoch ms) when the record is created, as logback stamps an event; the rendered timestamp |
 | `level: jcompat::logging::Level` | as called; the registry decides whether it is enabled |
-| `message: JavaString` | already interpolated (core's lazy message lambdas have no side effects) |
+| `message: String` | already interpolated (core's lazy message lambdas have no side effects) |
 | `cause: Option<Failure>` | the throwable, rendered as `Failure::stack_trace()` (§3.10 frames) |
 
 Records keep call order across all core actors. Send producers outside core
@@ -531,7 +531,7 @@ introduced here.
 
 ### Ordered raw console output (WP 3.5)
 
-`LogQueue` also accepts `raw(JavaString)` and retains both forms as ordered
+`LogQueue` also accepts `raw(String)` and retains both forms as ordered
 `OutputRecord::{Log, Raw}` entries. Raw text enters the same shared queue as
 core and `LogSender` records (see "Core log records"), and every read drains
 it first, so sender records appear as `OutputRecord::Log` at their push

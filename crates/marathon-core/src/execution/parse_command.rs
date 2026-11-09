@@ -56,8 +56,8 @@ impl MarathonTestParseCommand {
 /// even when the child is absolute; an empty child is the parent itself.
 fn java_child(parent: &JavaPath, child: &str) -> JavaPath {
     let slash = u16::from(b'/');
-    let mut normalized: Vec<u16> = Vec::with_capacity(child.encode_utf16().count());
-    for &unit in &child.encode_utf16().collect::<Vec<_>>() {
+    let mut normalized: Vec<u16> = Vec::new();
+    for unit in child.encode_utf16() {
         if unit == slash && normalized.last() == Some(&slash) {
             continue;
         }

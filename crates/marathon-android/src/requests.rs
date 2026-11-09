@@ -24,19 +24,16 @@ impl ComplexRequest for GetPropRequest {
 pub fn parse_props(text: &str) -> Result<HashMap<String, String>, AdbError> {
     let mut props = HashMap::new();
     for line in jstring::lines(text) {
-        if line.is_empty() || line.encode_utf16().collect::<Vec<_>>()[0] == 35 {
+        if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let opens: Vec<_> = line
-            .encode_utf16()
-            .collect::<Vec<_>>()
+        let units: Vec<_> = line.encode_utf16().collect();
+        let opens: Vec<_> = units
             .iter()
             .enumerate()
             .filter_map(|(i, u)| (*u == 91).then_some(i))
             .collect();
-        let closes: Vec<_> = line
-            .encode_utf16()
-            .collect::<Vec<_>>()
+        let closes: Vec<_> = units
             .iter()
             .enumerate()
             .filter_map(|(i, u)| (*u == 93).then_some(i))
@@ -45,8 +42,7 @@ pub fn parse_props(text: &str) -> Result<HashMap<String, String>, AdbError> {
             continue;
         }
         let slice = |index: usize| {
-            line.encode_utf16()
-                .collect::<Vec<_>>()
+            units
                 .get(opens[index] + 1..closes[index])
                 .map(String::from_utf16_lossy)
                 .ok_or_else(|| {
@@ -54,7 +50,7 @@ pub fn parse_props(text: &str) -> Result<HashMap<String, String>, AdbError> {
                         "Range [{}, {}) out of bounds for length {}",
                         opens[index] + 1,
                         closes[index],
-                        line.encode_utf16().count()
+                        units.len()
                     ))
                 })
         };

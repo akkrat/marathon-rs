@@ -107,13 +107,6 @@ impl Console {
         let _ = out.flush();
     }
 
-    /// UTF-16 println text uses the JVM encoder's replacement at the sink.
-    pub fn write_java_text(&self, text: &str) {
-        let mut out = lock(&self.stdout);
-        let _ = out.write_all(text.as_bytes());
-        let _ = out.flush();
-    }
-
     /// One event in `layout` through the Jansi state; the state stays locked until its bytes are written, so events
     /// from several threads reach stdout in the order the parser saw them.
     pub fn write_event(&self, layout: Layout, event: &LogEvent<'_>) {

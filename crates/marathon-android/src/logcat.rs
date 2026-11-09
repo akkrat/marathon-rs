@@ -65,11 +65,7 @@ impl LogLevel {
     }
     /// Only the first character is used; empty input finds nothing.
     pub fn get_by_letter_string(letter: &str) -> Option<Self> {
-        letter
-            .encode_utf16()
-            .collect::<Vec<_>>()
-            .first()
-            .and_then(|&first| Self::get_by_letter(first))
+        letter.encode_utf16().next().and_then(Self::get_by_letter)
     }
 }
 

@@ -32,7 +32,7 @@ impl RunConsoleSink {
     fn write_records(&self, records: Vec<OutputRecord>) {
         for record in records {
             match record {
-                OutputRecord::Raw(text) => self.console.write_java_text(&text),
+                OutputRecord::Raw(text) => self.console.write_text(&text),
                 OutputRecord::Log(record) => {
                     let (enabled, layout, name) = {
                         let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
@@ -53,11 +53,7 @@ impl RunConsoleSink {
                         )
                     };
                     if enabled {
-                        // Encode malformed UTF-16 at the JVM byte boundary, never as U+FFFD.
-                        let message = String::from_utf8(record.message.as_bytes().to_vec()).unwrap_or_default();
-                        let cause = record.cause.map(|cause| {
-                            String::from_utf8(cause.stack_trace().as_bytes().to_vec()).unwrap_or_default()
-                        });
+                        let cause = record.cause.map(|cause| cause.stack_trace());
                         self.console.write_event(
                             layout,
                             &LogEvent {
@@ -65,7 +61,7 @@ impl RunConsoleSink {
                                 logger: &name,
                                 thread: std::thread::current().name().unwrap_or("main"),
                                 local_time_millis: record.wall_millis.wrapping_add((self.zone)(record.wall_millis)),
-                                message: &message,
+                                message: &record.message,
                                 throwable: cause.as_deref().unwrap_or(""),
                             },
                         );
