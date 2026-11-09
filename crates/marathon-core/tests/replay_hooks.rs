@@ -272,3 +272,56 @@ fn live_and_unspecified_barriers_pass_through() {
         })
     });
 }
+
+#[test]
+fn removed_metadata_array_ids_do_not_require_consumption() {
+    run(|core, driver| {
+        Box::pin(async move {
+            let tape = Tape {
+                ids: HashMap::from([("metadata.array.identity".into(), Ids::Values(vec!["abc".into()]))]),
+                ..Tape::default()
+            };
+            let hooks = RuntimeHooks::taped(tape, core.clock().as_ref());
+            replay(hooks.verify_consumed());
+            driver.set_hooks(hooks);
+            replay(driver.finish());
+            Ok(())
+        })
+    });
+}
+#[test]
+fn removed_decoded_null_ids_do_not_require_consumption() {
+    run(|core, driver| {
+        Box::pin(async move {
+            let tape = Tape {
+                ids: HashMap::from([("metadata.decoded_null.identity".into(), Ids::Values(vec!["abc".into()]))]),
+                ..Tape::default()
+            };
+            let hooks = RuntimeHooks::taped(tape, core.clock().as_ref());
+            replay(hooks.verify_consumed());
+            driver.set_hooks(hooks);
+            replay(driver.finish());
+            Ok(())
+        })
+    });
+}
+#[test]
+fn unused_active_id_entries_still_fail_with_obsolete_metadata_entries() {
+    run(|core, _| {
+        Box::pin(async move {
+            let tape = Tape {
+                ids: HashMap::from([
+                    ("metadata.array.identity".into(), Ids::Values(vec!["abc".into()])),
+                    ("metadata.decoded_null.identity".into(), Ids::Values(vec!["def".into()])),
+                    ("core.TestBatch.id".into(), Ids::Values(vec!["batch".into()])),
+                ]),
+                ..Tape::default()
+            };
+            let hooks = RuntimeHooks::taped(tape, core.clock().as_ref());
+            let error = hooks.verify_consumed().expect_err("unused active ID");
+            assert_eq!(error.label, "core.TestBatch.id");
+            assert_eq!(error.message, "unused ID entries");
+            Ok(())
+        })
+    });
+}

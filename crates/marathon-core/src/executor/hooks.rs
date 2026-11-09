@@ -88,11 +88,15 @@ impl RuntimeHooks {
     pub fn live() -> Arc<Self> {
         Self::build(None, None)
     }
-    /// No tape: wall, monotonic and identity reads are the host's.
+    /// No tape: clocks and random draws use the host.
     pub fn is_live(&self) -> bool {
         self.tape.is_none()
     }
-    pub fn taped(tape: Tape, clock: &super::RuntimeClock) -> Arc<Self> {
+    pub fn taped(mut tape: Tape, clock: &super::RuntimeClock) -> Arc<Self> {
+        // D58 retired these reads; historical explicit entries need no consumer.
+        for label in ["metadata.array.identity", "metadata.decoded_null.identity"] {
+            tape.ids.remove(label);
+        }
         Self::build(Some(tape), Some(clock.timeline.clone()))
     }
     fn build(tape: Option<Tape>, timeline: Option<Arc<Timeline>>) -> Arc<Self> {
