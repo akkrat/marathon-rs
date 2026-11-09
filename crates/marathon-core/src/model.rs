@@ -4,7 +4,8 @@
 //! including execution/queue/TestAction.kt.
 
 use crate::vendor::DeviceRef;
-use jcompat::{file_manager::JavaPath, jnum, jstring, writers::KotlinValue};
+use jcompat::{jnum, jstring, writers::KotlinValue};
+use std::path::PathBuf;
 use std::{
     hash::{Hash, Hasher},
     sync::Arc,
@@ -327,7 +328,7 @@ pub struct TestBatchResults {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Attachment {
-    pub file: JavaPath,
+    pub file: PathBuf,
     pub kind: AttachmentType,
     pub name: Option<String>,
 }

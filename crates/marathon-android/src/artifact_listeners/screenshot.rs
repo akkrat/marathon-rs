@@ -120,9 +120,7 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                             let file = self
                                 .artifacts
                                 .file(FileType::Screenshot, Some(&test), None, None)
-                                .await?
-                                .to_file_path_buf()
-                                .map_err(io)?;
+                                .await?;
                             blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
                                 let _ = std::fs::remove_file(file);
                                 Ok(())
@@ -153,21 +151,14 @@ impl AndroidTestRunListener for ScreenCapturerTestRunListener {
                         let file = self
                             .artifacts
                             .file(FileType::Screenshot, Some(&test), None, None)
-                            .await?
-                            .to_file_path_buf()
-                            .map_err(io)?;
+                            .await?;
                         let path = file.clone();
                         let nonempty = blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
                             Ok(path.metadata().map(|m| m.len() > 0).unwrap_or(false))
                         })
                         .await?;
                         if nonempty {
-                            let batch = self
-                                .artifacts
-                                .file(FileType::Screenshot, None, None, None)
-                                .await?
-                                .to_file_path_buf()
-                                .map_err(io)?;
+                            let batch = self.artifacts.file(FileType::Screenshot, None, None, None).await?;
                             blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
                                 let _ = std::fs::rename(file, batch);
                                 Ok(())

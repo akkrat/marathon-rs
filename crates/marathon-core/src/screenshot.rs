@@ -357,7 +357,7 @@ impl ScreenCapturer {
                             .truncate(false)
                             .read(true)
                             .write(true)
-                            .open(path.to_file_path_buf().map_err(io_error)?)
+                            .open(&path)
                             .map_err(|e| file_open_error(e, &path))?;
                         let delay = delay.ok_or_else(|| {
                             VendorError::Other(failure("java.lang.ArithmeticException", "long overflow"))

@@ -7,7 +7,6 @@
 //! `CompletableDeferred`s and `Channel`s that the devices wait on are `Gate`s and `Finish`es.
 #![allow(dead_code)]
 use jcompat::{
-    file_manager::JavaPath,
     jtime::Instant,
     logging::{Level, Logger, MarathonLogging},
 };
@@ -42,6 +41,7 @@ use marathon_core::{
     vendor::{Device, DeviceRef, TestBundleIdentifier, VendorContext},
     wiring::{MetricsProvider, Tracker},
 };
+use std::path::PathBuf;
 use std::{
     cell::RefCell,
     future::Future,
@@ -61,9 +61,9 @@ pub fn configuration() -> Configuration {
         .get_or_init(|| {
             let context = BindingContext {
                 profile: Profile::Marathonfile,
-                marathonfile: JavaPath::from_text("/config/Marathonfile"),
-                marathonfile_dir: JavaPath::from_text("/config"),
-                process_dir: JavaPath::from_text("/"),
+                marathonfile: PathBuf::from("/config/Marathonfile"),
+                marathonfile_dir: PathBuf::from("/config"),
+                process_dir: PathBuf::from("/"),
                 environment: vec![],
                 now: jcompat::jtime::instant_of(0, 0).unwrap(),
                 analytics_tracking: false,

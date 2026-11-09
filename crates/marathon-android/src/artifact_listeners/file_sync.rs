@@ -5,6 +5,7 @@ use jcompat::logging::Level;
 use marathon_config::vendor::{AggregationMode, PathRoot};
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;
+use std::path::PathBuf;
 pub struct FileSyncTestRunListener {
     pub artifacts: ArtifactContext,
     /// The batch's application packages, one per instrumentation in the usual case of one.
@@ -86,9 +87,9 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                 let local = jcompat::file_manager::file_path(&entry.path.to_owned());
                 let name = basename(&entry.path);
                 let remote = self.path(entry.path_root, &name.to_owned());
-                let path = local.to_file_path_buf().map_err(io)?;
+                let path = local.clone();
                 let directory = blocking(device.runtime().dependencies.io.as_ref(), move || Ok(path.is_dir())).await?;
-                let local = String::from_utf16_lossy(&local.0.clone()).to_owned();
+                let local = local.to_string_lossy().into_owned().to_owned();
                 device.log_named(
                     "FileSyncTestRunListener",
                     Level::Debug,
@@ -176,14 +177,15 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     .rsplit('/')
                     .next()
                     .unwrap_or("");
-                let local = jcompat::file_manager::child_file(&folder, &base.encode_utf16().collect::<Vec<_>>());
-                let path = local.to_file_path_buf().map_err(io)?;
+                let local = jcompat::file_manager::child_file(&folder, base);
+                let path = local.clone();
                 let local = blocking(device.runtime().dependencies.io.as_ref(), move || {
                     let _ = std::fs::create_dir_all(&path);
                     let cwd = std::env::current_dir().map_err(io)?;
-                    let cwd = JavaPath::from_text(&cwd.to_string_lossy());
-                    let absolute = jcompat::file_manager::absolute_file_path_utf16(&local.0, &cwd.0);
-                    Ok(String::from_utf16_lossy(&absolute.0).to_owned())
+                    let cwd = PathBuf::from(cwd.to_string_lossy().into_owned());
+                    let absolute =
+                        jcompat::file_manager::absolute_file_path(&local.to_string_lossy(), &cwd.to_string_lossy());
+                    Ok(absolute.to_string_lossy().into_owned().to_owned())
                 })
                 .await?;
                 device.log_named(
@@ -229,5 +231,5 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
 
 fn basename(path: &str) -> String {
     let path = jcompat::file_manager::file_path(path);
-    String::from_utf16_lossy(path.0.rsplit(|u| *u == 47).next().unwrap_or(&[]))
+    path.to_string_lossy().rsplit('/').next().unwrap_or("").to_owned()
 }

@@ -8,7 +8,6 @@
 //! parity row moves to 6.5. Test equality excludes meta-properties by
 //! design (frozen model contract), so they are asserted explicitly.
 
-use jcompat::file_manager::JavaPath;
 use marathon_android::dex_test_parser::{
     DexTestBundleFiles, DexTestParser, MetaConverter, test_from_method, to_meta_property,
 };
@@ -42,8 +41,8 @@ fn apk_path() -> String {
 
 fn bundle(test_application: &str) -> DexTestBundleFiles {
     DexTestBundleFiles {
-        application: Some(JavaPath::from_text("")),
-        test_application: JavaPath::from_text(test_application),
+        application: Some(PathBuf::from("")),
+        test_application: PathBuf::from(test_application),
         extra_applications: Vec::new(),
         split_apks: Vec::new(),
     }
@@ -144,7 +143,7 @@ fn should_return_proper_list_of_test_methods() {
     // built off the core thread (the blocking pool).
     assert_eq!(registered.len(), 1);
     assert_eq!(registered[0].0, extracted[0]);
-    assert_eq!(registered[0].1.files.test_application, JavaPath::from_text(&apk_path()));
+    assert_eq!(registered[0].1.files.test_application, PathBuf::from(&apk_path()));
     assert_ne!(registered[0].1.thread, "marathon-core");
 }
 

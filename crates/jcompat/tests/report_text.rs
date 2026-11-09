@@ -1,33 +1,23 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/{html/HtmlSummaryReporter,allure/AllureReporter}.kt.
 use jcompat::{
-    file_manager::{JavaPath, child_file, relative_file},
+    file_manager::{child_file, relative_file},
     jnum::kotlin_round_to_long,
     report_text::*,
     writers::WriterValue,
 };
+use std::path::PathBuf;
 #[test]
 fn jvm_paths_hash_xml_and_rounding() {
     let rows: Vec<serde_json::Value> =
         serde_json::from_str(include_str!("../../../fixtures/oracle/html-allure-gif/probe.json")).unwrap();
     let oracle = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap();
-    let root = JavaPath::from_text(include_str!(
+    let root = PathBuf::from(include_str!(
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
-    let html = child_file(&root, &"/html".encode_utf16().collect::<Vec<_>>());
+    let html = child_file(&root, "/html");
+    assert_eq!(html.to_string_lossy().into_owned().to_owned(), oracle("path")["html"]);
     assert_eq!(
-        String::from_utf16_lossy(&html.0.clone()).to_owned(),
-        oracle("path")["html"]
-    );
-    assert_eq!(
-        relative_file(
-            &html,
-            &child_file(
-                &html,
-                &"pools/raw # pool/device/logs".encode_utf16().collect::<Vec<_>>()
-            ),
-            &root
-        )
-        .to_owned(),
+        relative_file(&html, &child_file(&html, "pools/raw # pool/device/logs"), &root).to_owned(),
         "../../../.."
     );
     assert_eq!(allure_history_id("Clazz", "test1"), oracle("history")["hash"]);

@@ -23,10 +23,10 @@
 
 use jcompat::{
     JavaRegex,
-    file_manager::JavaPath,
     jtime::{Duration, Instant},
 };
 use std::fmt;
+use std::path::PathBuf;
 
 // `validate()` failures use the crate-wide `crate::vendor::ValidationError`
 // (WP 2.3a integration): these bodies throw Kotlin `ConfigurationException`,
@@ -69,7 +69,7 @@ pub use analytics::Defaults;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Configuration {
     pub name: String,
-    pub output_dir: JavaPath,
+    pub output_dir: PathBuf,
     pub output_configuration: OutputConfiguration,
     pub analytics_configuration: AnalyticsConfiguration,
     pub pooling_strategy: PoolingStrategyConfiguration,
@@ -395,14 +395,14 @@ impl FilteringConfiguration {
 pub struct RegexValuesFileFilter {
     pub regex: Option<JavaRegex>,
     pub values: Option<Vec<String>>,
-    pub file: Option<JavaPath>,
+    pub file: Option<PathBuf>,
     pub enabled: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TestPackageFilter {
     pub regex: Option<JavaRegex>,
     pub values: Option<Vec<String>>,
-    pub file: Option<JavaPath>,
+    pub file: Option<PathBuf>,
     pub subpackages: bool,
     pub enabled: bool,
 }

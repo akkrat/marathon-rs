@@ -9,7 +9,8 @@ use crate::{
     error::OperationResult,
     model::{MetaValue, Test},
 };
-use jcompat::{file_manager::JavaPath, logging::Level};
+use jcompat::logging::Level;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,16 +60,14 @@ impl AllurePlanSupplier for FileTestPlanSupplier {
         else {
             return Ok(None);
         };
-        let native = match JavaPath(path.encode_utf16().collect::<Vec<_>>().clone()).to_path_buf() {
-            Ok(native) => native,
-            Err(_) => {
-                let mut message = String::from("could not read test plan file ");
-                message.push_str(&path);
-                message.push_str(": invalid path");
-                self.logger.log(Level::Warn, LOGGER, message, None);
-                return Ok(None);
-            }
-        };
+        let native = PathBuf::from(&path);
+        if path.contains('\0') {
+            let mut message = String::from("could not read test plan file ");
+            message.push_str(&path);
+            message.push_str(": invalid path");
+            self.logger.log(Level::Warn, LOGGER, message, None);
+            return Ok(None);
+        }
         if !native.is_file() {
             return Ok(None);
         }
@@ -81,7 +80,7 @@ impl AllurePlanSupplier for FileTestPlanSupplier {
             Ok(plan) => Ok(Some(plan)),
             Err(error) => {
                 let mut message = String::from("could not read test plan file ");
-                message.push_str(&String::from_utf16_lossy(&display.0));
+                message.push_str(&display.to_string_lossy());
                 self.logger.log(Level::Warn, LOGGER, message, Some(error));
                 Ok(None)
             }

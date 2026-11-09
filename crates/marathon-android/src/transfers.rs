@@ -1,15 +1,12 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamAndroidDevice.kt
 //! (file transfer, package installation, screenshot and recording methods).
+
 use crate::{
     device::AndroidDevice,
     models::{ShellCommandResult, to_screen_recorder_command},
     support::*,
 };
-use jcompat::{
-    file_manager::{JavaPath, escape},
-    jtime::Duration,
-    logging::Level,
-};
+use jcompat::{file_manager::escape, jtime::Duration, logging::Level};
 use marathon_adb::client::sync::listing::{AndroidFileType, ListFilesRequest};
 use marathon_adb::client::{
     AdbError, Feature, framebuffer::ScreenCaptureRequest, pkg::*, sync::directory::PushRequest, sync::*,
@@ -39,7 +36,7 @@ impl AndroidDevice {
         let result = self
             .measurement()
             .measure_file_transfer(
-                JavaPath::from_text(local),
+                PathBuf::from(local),
                 Box::pin(async {
                     let stat = cancellable(context.cancellation.clone(), async {
                         CompatStatFileRequest::new(remote, self.supported_features())
@@ -136,7 +133,7 @@ impl AndroidDevice {
         let result = self
             .measurement()
             .measure_file_transfer(
-                JavaPath::from_text(local),
+                PathBuf::from(local),
                 Box::pin(async {
                     let request =
                         CompatPushFileRequest::prepare(PathBuf::from(local), remote, self.supported_features(), "0777")

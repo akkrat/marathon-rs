@@ -2,7 +2,7 @@
 //! (JVM differential probes and lifecycle regressions beyond the Kotlin tests).
 mod filter_support;
 use filter_support::*;
-use jcompat::{file_manager::JavaPath, logging::Level};
+use jcompat::logging::Level;
 use marathon_config::schema::{CompositionOperation as Op, TestFilterConfiguration as C, TestPackageFilter};
 use marathon_core::{
     error::{Cancellation, OperationError, OperationResult},
@@ -20,6 +20,7 @@ use marathon_core::{
     time::ObjectIdentity,
 };
 use serde_json::{Value as J, json};
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     sync::{
@@ -323,10 +324,10 @@ fn values_file_byte_decoding_and_comment_rules_replay_the_jvm() -> OperationResu
     Ok(())
 }
 
-type ReadValues = dyn Fn(&JavaPath) -> OperationResult<Vec<String>> + Send + Sync;
+type ReadValues = dyn Fn(&std::path::Path) -> OperationResult<Vec<String>> + Send + Sync;
 struct Reader(Arc<ReadValues>);
 impl FilterValuesReader for Reader {
-    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<String>> {
+    fn read_values(&self, path: &std::path::Path) -> OperationResult<Vec<String>> {
         (self.0)(path)
     }
 }
@@ -358,7 +359,7 @@ fn missing_values_are_logged_once_and_cached_across_operations() -> OperationRes
         records[0].message.to_owned(),
         format!(
             "Filtering configuration file {} does not exist. Applying empty list.",
-            path.to_path_buf().map_err(|e| fail(&e.to_string()))?.display()
+            path.display()
         )
     );
     assert_eq!(records[0].cause, None);
@@ -418,12 +419,12 @@ fn composition_laziness_child_order_and_non_short_circuit_are_observable() -> Op
         observed
             .lock()
             .expect("trace")
-            .push(String::from_utf16_lossy(&p.0.clone()).to_owned());
+            .push(p.to_string_lossy().into_owned().to_owned());
         Ok(vec![])
     })));
     let child = |name: &str| {
         let mut c = config(None, None, true);
-        c.file = Some(JavaPath::from_text(name));
+        c.file = Some(PathBuf::from(name));
         C::SimpleClassname(c)
     };
     let t = vec![test("pkg", "Class", "method")];
@@ -491,7 +492,7 @@ fn worker_read_is_off_core_and_the_result_is_joined_with_typed_errors() -> Opera
         wait.lock().expect("release").recv().map_err(|e| fail(&e.to_string()))?;
         Ok(vec!["pkg.clazz".into()])
     })));
-    let f = TestFilter::from_config(&file_config(JavaPath::from_text("irrelevant")), &dependencies);
+    let f = TestFilter::from_config(&file_config(PathBuf::from("irrelevant")), &dependencies);
     CoreExecutor::run(move |core| {
         Box::pin(async move {
             let vendor = core.vendor();
@@ -798,9 +799,9 @@ fn d6_lookaround_is_rejected_at_binding_with_field_and_pattern() {
     };
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: jcompat::jtime::parse_instant("2026-10-12T00:00:00Z").expect("instant"),
         analytics_tracking: false,

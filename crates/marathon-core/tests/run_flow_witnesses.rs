@@ -7,6 +7,7 @@
 //! files survive in outputDir (C9). Normalizations: `Parsing took N ms` (wall clock), the
 //! outputDir path in `Output … already exists`, P1's OS facts after `System Information:`, and
 //! D1's usage slot (a no-op here, so its close is absent from the Rust trace).
+
 use jcompat::logging::Level;
 use marathon_core::{
     analytics::{
@@ -204,7 +205,7 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
     let mut factory = MarathonFactory::new();
     let out = factory.configuration.output_dir().join("output");
     let c = &mut factory.configuration.configuration;
-    c.output_dir = jcompat::file_manager::JavaPath::from_text(&out.to_string_lossy());
+    c.output_dir = std::path::PathBuf::from(out.to_string_lossy().into_owned());
     c.debug = o.debug;
     c.ignore_failures = o.ignore_failures;
     if let Some(millis) = o.device_initialization_timeout_millis {
@@ -214,9 +215,9 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
         let config = "name: \"\"\noutputDir: \"\"\nvendorConfiguration:\n  type: \"stub\"\nfilteringConfiguration:\n  blocklist:\n    - type: \"simple-class-name\"\n      regex: \".*\"\n";
         let context = marathon_config::binding::BindingContext {
             profile: marathon_config::binding::Profile::Marathonfile,
-            marathonfile: jcompat::file_manager::JavaPath::from_text("/config/Marathonfile"),
-            marathonfile_dir: jcompat::file_manager::JavaPath::from_text("/config"),
-            process_dir: jcompat::file_manager::JavaPath::from_text("/"),
+            marathonfile: std::path::PathBuf::from("/config/Marathonfile"),
+            marathonfile_dir: std::path::PathBuf::from("/config"),
+            process_dir: std::path::PathBuf::from("/"),
             environment: vec![],
             now: jcompat::jtime::instant_of(0, 0).unwrap(),
             analytics_tracking: false,

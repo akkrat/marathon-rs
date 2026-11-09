@@ -3,7 +3,7 @@
 //! The command alone, not through Marathon's no-tests guard. Besides the source's
 //! `trimIndent()` comparison, each file is checked against the JVM's exact bytes
 //! (fixtures/oracle/run-flow/parse-command.jsonl).
-use jcompat::{file_manager::JavaPath, logging::MarathonLogging};
+use jcompat::logging::MarathonLogging;
 use marathon_core::{
     analytics::MetricsContext,
     execution::parse_command::{EXTENSION, MarathonTestParseCommand},
@@ -11,6 +11,7 @@ use marathon_core::{
     model::Test,
     wiring::ParseOutput,
 };
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 const RESULT_FILE_NAME: &str = "result";
@@ -27,7 +28,7 @@ fn test(method: &str) -> Test {
 /// `execute(tests, flakyTests, RESULT_FILE_NAME)` into a fresh temporary root; the file's text.
 fn execute(tests: Vec<Test>, flaky_tests: Vec<Test>) -> String {
     let root = tempfile::tempdir().unwrap();
-    let output = JavaPath::from_text(&root.path().to_string_lossy());
+    let output = PathBuf::from(root.path().to_string_lossy().into_owned());
     CoreExecutor::run(move |core| {
         Box::pin(async move {
             let context = MetricsContext {
@@ -39,7 +40,7 @@ fn execute(tests: Vec<Test>, flaky_tests: Vec<Test>) -> String {
                 logs: core.log_queue().sender(),
                 stamp: Arc::new(|| (0, 0)),
             };
-            let command = MarathonTestParseCommand::new(core.vendor(), output, JavaPath::from_text("/"), &context);
+            let command = MarathonTestParseCommand::new(core.vendor(), output, PathBuf::from("/"), &context);
             let name = String::from(RESULT_FILE_NAME);
             let (tests, flaky_tests) = (tests, flaky_tests);
             let io = core.vendor();

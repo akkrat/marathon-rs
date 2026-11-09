@@ -36,7 +36,7 @@ fn native_reason(error: &std::io::Error) -> String {
     let text = error.to_string();
     text.split(" (os error ").next().unwrap_or(&text).to_owned()
 }
-pub(crate) fn nio_error(error: std::io::Error, path: &jcompat::file_manager::JavaPath) -> VendorError {
+pub(crate) fn nio_error(error: std::io::Error, path: &std::path::Path) -> VendorError {
     use std::io::ErrorKind;
     if error.kind() == ErrorKind::InvalidInput {
         return io_error(error);
@@ -47,12 +47,11 @@ pub(crate) fn nio_error(error: std::io::Error, path: &jcompat::file_manager::Jav
         ErrorKind::AlreadyExists => "java.nio.file.FileAlreadyExistsException",
         _ => "java.nio.file.FileSystemException",
     };
-    let mut message = String::from_utf16_lossy(&path.0.clone());
+    let mut message = path.to_string_lossy().into_owned();
     // UnixFileSystemProvider.createDirectories first tries the whole path,
     // then checks its parent. ENOTDIR escapes that parent access check.
     if error.kind() == ErrorKind::NotADirectory
-        && let Ok(native) = path.to_path_buf()
-        && let Some(parent) = native.parent()
+        && let Some(parent) = path.parent()
         && parent.metadata().is_err_and(|e| e.kind() == ErrorKind::NotADirectory)
         && let Some(index) = message.rfind('/')
     {
@@ -69,8 +68,8 @@ pub(crate) fn nio_error(error: std::io::Error, path: &jcompat::file_manager::Jav
         stacktrace: None,
     })
 }
-pub(crate) fn file_open_error(error: std::io::Error, path: &jcompat::file_manager::JavaPath) -> VendorError {
-    let mut message = String::from_utf16_lossy(&path.0.clone());
+pub(crate) fn file_open_error(error: std::io::Error, path: &std::path::Path) -> VendorError {
+    let mut message = path.to_string_lossy().into_owned();
     message.push_str(" (");
     message.push_str(&native_reason(&error));
     message.push(')');

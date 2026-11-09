@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AndroidDeviceTestRunner.kt
 //! (derived runner/argument/cleanup integration corpus; this class has no Kotlin tests).
 mod support;
-use jcompat::{file_manager::JavaPath, logging::Level};
+use jcompat::logging::Level;
 use marathon_adb::testrunner::TestEvent as E;
 use marathon_android::{arguments, device::AndroidBatchExecutor, listener_factory::*, listeners::*, runner::*};
 use marathon_config::vendor::TestAccessConfiguration;
@@ -16,6 +16,7 @@ use marathon_core::{
     vendor::*,
 };
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use support::*;
 fn oracle(name: &str) -> Value {
@@ -193,8 +194,10 @@ fn config() -> marathon_config::Configuration {
     a.test_application_pm_clear = false;
     a.screen_record_configuration.video_configuration.enabled = false;
     a.screen_record_configuration.screenshot_configuration.enabled = false;
-    a.test_application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.test_application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     c
 }
@@ -936,11 +939,15 @@ fn second_bundle() -> Arc<marathon_android::models::AndroidTestBundle> {
     Arc::new(marathon_android::models::AndroidTestBundle::new(
         marathon_android::dex_test_parser::DexTestBundleFiles {
             application: None,
-            test_application: JavaPath::from_text(&fixture("dex/mutants/manifest-relative-bare.apk").to_string_lossy()),
+            test_application: PathBuf::from(
+                fixture("dex/mutants/manifest-relative-bare.apk")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             extra_applications: vec![],
             split_apks: vec![],
         },
-        &JavaPath::from_text("/"),
+        &PathBuf::from("/"),
     ))
 }
 fn instrumentations(server: &marathon_adb::server::FakeAdbServer) -> Vec<String> {
@@ -1495,7 +1502,7 @@ impl AndroidTestRunListener for InjectLine {
 fn logcat_attachment_is_saved_before_result_completion_and_listener_is_removed() {
     let temp = checked(tempfile::tempdir());
     let mut c = config();
-    c.output_dir = JavaPath::from_text(&temp.path().to_string_lossy());
+    c.output_dir = PathBuf::from(temp.path().to_string_lossy().into_owned());
     run(c, move |runtime, context| {
         Box::pin(async move {
             let mut server = server(base_script(30, vec![])).await;
@@ -1524,7 +1531,7 @@ fn logcat_attachment_is_saved_before_result_completion_and_listener_is_removed()
             assert_eq!(attachment.name, Some("logcat".into()));
             assert_eq!(attachment.kind, AttachmentType::Log);
             assert_eq!(
-                checked(tokio::fs::read_to_string(checked(attachment.file.to_file_path_buf())).await),
+                checked(tokio::fs::read_to_string(attachment.file.clone()).await),
                 "hello\n"
             );
             assert_eq!(d.listener_counts(), (0, 0));

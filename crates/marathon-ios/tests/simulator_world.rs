@@ -29,8 +29,8 @@ async fn setup_prepare_batch_and_dispose_share_the_in_process_apple_world() -> T
     std::fs::write(runner.join("Runner"), [0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0])?;
     std::fs::rename(h.dir.path().join("tests.xctest"), runner.join("PlugIns/tests.xctest"))?;
     let bundle = Arc::make_mut(&mut h.services.vendor).bundle.as_mut().unwrap();
-    bundle.test_app = Some(jcompat::file_manager::JavaPath::from_text(runner.to_str().unwrap()));
-    bundle.xctest = Some(jcompat::file_manager::JavaPath::from_text(
+    bundle.test_app = Some(std::path::PathBuf::from(runner.to_str().unwrap()));
+    bundle.xctest = Some(std::path::PathBuf::from(
         runner.join("PlugIns/tests.xctest").to_str().unwrap(),
     ));
     Arc::make_mut(&mut h.services.configuration).vendor_configuration =

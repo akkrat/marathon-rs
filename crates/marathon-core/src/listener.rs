@@ -6,7 +6,7 @@ use crate::{
     model::{Attachment, DeviceInfo, DevicePoolId, Test},
     runtime::{ServiceFuture, VendorFuture},
 };
-use jcompat::file_manager::JavaPath;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Sequential awaited callbacks. testEnded may be absent on interruption.
@@ -42,7 +42,7 @@ pub struct LogTarget {
 }
 /// Backend failures propagate as OperationError::Failed; cancellation stays typed.
 pub trait LogWriter: Send + Sync {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath>;
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, PathBuf>;
     fn append_logs<'a>(
         &'a self,
         pool: &'a DevicePoolId,

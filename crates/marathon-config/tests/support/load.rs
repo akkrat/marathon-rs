@@ -3,10 +3,7 @@
 //! P1 context Kotlin's tests build, and the production loader/validator.
 #![allow(dead_code)]
 
-use jcompat::{
-    file_manager::JavaPath,
-    jtime::{Instant, instant_of},
-};
+use jcompat::jtime::{Instant, instant_of};
 use marathon_config::{
     Configuration,
     binding::{
@@ -52,8 +49,8 @@ pub fn fixture_copy() -> io::Result<(tempfile::TempDir, PathBuf)> {
     Ok((dir, root))
 }
 
-pub fn java_path(path: &Path) -> JavaPath {
-    JavaPath::from_text(&path.to_string_lossy())
+pub fn java_path(path: &Path) -> PathBuf {
+    PathBuf::from(path.to_string_lossy().into_owned())
 }
 
 /// Kotlin tests' reference instant, `Instant.ofEpochSecond(1000000)`.

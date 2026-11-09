@@ -581,11 +581,11 @@ fn external_trace_text_and_null_messages_render_as_the_jvm_does() {
 fn configuration_error_chain_renders_outermost_first() {
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: jcompat::file_manager::JavaPath::from_text("bad.yaml"),
+        marathonfile: std::path::PathBuf::from("bad.yaml"),
         analytics_tracking: true,
         bugsnag_reporting: true,
-        marathonfile_dir: jcompat::file_manager::JavaPath::from_text("/w"),
-        process_dir: jcompat::file_manager::JavaPath::from_text("/w"),
+        marathonfile_dir: std::path::PathBuf::from("/w"),
+        process_dir: std::path::PathBuf::from("/w"),
         environment: Vec::new(),
         now: instant_of(1_000_000, 0).unwrap(),
     };

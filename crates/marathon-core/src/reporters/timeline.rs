@@ -13,6 +13,7 @@ use jcompat::{
     logging::{Logger, MarathonLogging},
     writers::JavaNumber,
 };
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -262,12 +263,12 @@ impl TimelineSummaryProvider {
 #[derive(Clone)]
 pub struct TimelineReporter {
     io: Arc<dyn VendorRuntime>,
-    root: JavaPath,
+    root: PathBuf,
     pub logger: Logger,
     pub provider: Arc<TimelineSummaryProvider>,
 }
 impl TimelineReporter {
-    pub fn new(io: Arc<dyn VendorRuntime>, root: JavaPath, registry: &mut MarathonLogging) -> Self {
+    pub fn new(io: Arc<dyn VendorRuntime>, root: PathBuf, registry: &mut MarathonLogging) -> Self {
         let provider = Arc::new(TimelineSummaryProvider::new(registry));
         Self {
             io,

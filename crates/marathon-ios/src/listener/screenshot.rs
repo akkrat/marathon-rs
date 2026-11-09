@@ -72,9 +72,7 @@ impl ScreenCapturerTestRunListener {
             )?;
         } else {
             blocking(self.c.device.services().runtime.as_ref(), move || {
-                if let Ok(path) = file.to_file_path_buf() {
-                    let _ = std::fs::remove_file(path);
-                }
+                let _ = std::fs::remove_file(file);
                 Ok(())
             })
             .await?;
@@ -126,20 +124,14 @@ impl AppleTestRunListener for ScreenCapturerTestRunListener {
                 let nonempty = {
                     let src = src.clone();
                     blocking(self.c.device.services().runtime.as_ref(), move || {
-                        Ok(src
-                            .to_file_path_buf()
-                            .ok()
-                            .and_then(|p| std::fs::metadata(p).ok())
-                            .is_some_and(|m| m.len() > 0))
+                        Ok(std::fs::metadata(src).ok().is_some_and(|m| m.len() > 0))
                     })
                     .await?
                 };
                 if nonempty {
                     let dst = self.c.file(FileType::Screenshot, None).await?;
                     blocking(self.c.device.services().runtime.as_ref(), move || {
-                        if let (Ok(src), Ok(dst)) = (src.to_file_path_buf(), dst.to_file_path_buf()) {
-                            let _ = std::fs::rename(src, dst);
-                        }
+                        let _ = std::fs::rename(src, dst);
                         Ok(())
                     })
                     .await?;

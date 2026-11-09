@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/executor/listeners/filesync/FileSyncTestRunListenerTest.kt,
 //! screenshot/ScreenCapturerTestRunListenerTest.kt and video/ScreenRecorderTestRunListenerTest.kt.
 mod support;
-use jcompat::file_manager::JavaPath;
 use marathon_adb::{
     server::FakeAdbServer,
     testrunner::{MetricMap, TestEvent as E, TestIdentifier},
@@ -14,6 +13,7 @@ use marathon_config::{ScreenRecordingPolicy, vendor::*};
 use marathon_core::runtime::Deferred;
 use marathon_core::{artifacts::AttachmentCollector, listener::*, model::*, vendor::*};
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::Arc;
 use support::*;
 fn id() -> TestIdentifier {
@@ -55,7 +55,7 @@ fn collector(provider: Arc<dyn AttachmentProvider>) -> Arc<AttachmentCollector> 
 }
 fn output(c: &mut marathon_config::Configuration) -> tempfile::TempDir {
     let temp = checked(tempfile::tempdir());
-    c.output_dir = JavaPath::from_text(&temp.path().to_string_lossy());
+    c.output_dir = PathBuf::from(temp.path().to_string_lossy().into_owned());
     temp
 }
 fn shell(script: &mut Value, command: &str, stdout: &str) {
@@ -376,7 +376,7 @@ mod file_sync_test_run_listener_test {
 fn file_sync_with_two_instrumentations_prepares_and_pulls_once_d28() {
     let temp = checked(tempfile::tempdir());
     let mut c = configuration();
-    c.output_dir = JavaPath::from_text(&temp.path().to_string_lossy());
+    c.output_dir = PathBuf::from(temp.path().to_string_lossy().into_owned());
     for (name, root) in [("fixture3", PathRoot::ExternalStorage), ("fixture4", PathRoot::AppData)] {
         android(&mut c).file_sync_configuration.pull.push(FileSyncEntry {
             relative_path: js(name),
@@ -531,10 +531,7 @@ mod screen_recorder_test_run_listener_test {
                             "screen".into()
                         }))
                     );
-                    assert_eq!(
-                        checked(tokio::fs::read(checked(a.file.to_file_path_buf())).await),
-                        b"video"
-                    );
+                    assert_eq!(checked(tokio::fs::read(a.file.clone()).await), b"video");
                 }
                 let commands = commands(&server);
                 expect_setup(&commands);
@@ -552,10 +549,7 @@ mod screen_recorder_test_run_listener_test {
                     let local = artifacts(&device)
                         .file(marathon_core::output::FileType::Video, None, None, Some(js("0")))
                         .await?;
-                    assert_eq!(
-                        checked(tokio::fs::read(checked(local.to_file_path_buf())).await),
-                        b"video"
-                    );
+                    assert_eq!(checked(tokio::fs::read(local.clone()).await), b"video");
                 }
                 finish(server, device).await;
                 Ok(())
@@ -633,9 +627,9 @@ mod screen_capturer_test_run_listener_test {
                     )
                     .await?;
                 if assumption {
-                    assert!(!checked(path.to_file_path_buf()).exists());
+                    assert!(!path.clone().exists());
                 } else {
-                    let bytes = checked(tokio::fs::read(checked(path.to_file_path_buf())).await);
+                    let bytes = checked(tokio::fs::read(path.clone()).await);
                     assert_eq!(&bytes[..6], b"GIF89a");
                     assert_eq!(bytes.last(), Some(&0x3b));
                 }
@@ -686,7 +680,7 @@ fn adam_extensions_and_missing_file_still_attach() {
             );
             assert!(values.iter().all(|a| a.name == Some(js("screen"))));
             for (i, a) in values.iter().enumerate() {
-                let file = checked(a.file.to_file_path_buf());
+                let file = a.file.clone();
                 if i == 1 {
                     assert!(!file.exists());
                 } else {
@@ -705,7 +699,7 @@ fn adam_capture_with_relative_output_directory() {
     let temp = checked(tempfile::tempdir_in("."));
     let relative = std::path::Path::new(temp.path().file_name().unwrap());
     assert!(relative.is_relative());
-    c.output_dir = JavaPath::from_text(&relative.to_string_lossy());
+    c.output_dir = PathBuf::from(relative.to_string_lossy().into_owned());
     run(c, move |mut runtime, context| {
         Box::pin(async move {
             let _temp = temp;
@@ -717,7 +711,7 @@ fn adam_capture_with_relative_output_directory() {
                 jcompat::file_manager::FileManager::new(
                     4096,
                     255,
-                    &String::from_utf16_lossy(&output.0.clone()).to_owned(),
+                    &output.to_string_lossy().into_owned().to_owned(),
                     &cwd.to_string_lossy(),
                 ),
                 output,
@@ -739,7 +733,7 @@ fn adam_capture_with_relative_output_directory() {
                 .await?;
             let values = attachments.get(&test()).unwrap();
             assert_eq!(values.len(), 1);
-            let path = checked(values[0].file.to_file_path_buf());
+            let path = values[0].file.clone();
             assert!(path.is_absolute());
             assert!(path.starts_with(_temp.path()));
             assert_eq!(checked(tokio::fs::read(path).await), b"image");
@@ -773,13 +767,15 @@ async fn setup_bundle(device: &marathon_android::device::AndroidDevice) {
     let bundle = Arc::new(AndroidTestBundle::new(
         DexTestBundleFiles {
             application: None,
-            test_application: JavaPath::from_text(
-                &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+            test_application: PathBuf::from(
+                fixture("vendor-android/apk/app-debug-androidTest.apk")
+                    .to_string_lossy()
+                    .into_owned(),
             ),
             extra_applications: vec![],
             split_apks: vec![],
         },
-        &JavaPath::from_text("/"),
+        &PathBuf::from("/"),
     ));
     device.runtime().identifier.put(&test(), &bundle);
 }
@@ -800,7 +796,7 @@ fn scenario(mode: &'static str) {
     c.is_code_coverage_enabled = mode == "filesync-coverage";
     let a = android(&mut c);
     a.screen_record_configuration.screenshot_configuration.delay_ms = 60000;
-    a.profiling_configuration.pbtxt = Some(JavaPath::from_text(&pbtxt.to_string_lossy()));
+    a.profiling_configuration.pbtxt = Some(PathBuf::from(pbtxt.to_string_lossy().into_owned()));
     a.profiling_configuration.enabled = true;
     if mode == "filesync-coverage" {
         a.file_sync_configuration.pull.push(FileSyncEntry {
@@ -881,7 +877,7 @@ fn scenario(mode: &'static str) {
                 assert_eq!(values.len(), expected.len());
                 for (a, e) in values.iter().zip(expected) {
                     assert_eq!(a.name.as_ref().unwrap().to_owned(), e[0].as_str().unwrap());
-                    let p = checked(a.file.to_file_path_buf());
+                    let p = a.file.clone();
                     assert_eq!(p.file_name().unwrap().to_string_lossy(), e[2].as_str().unwrap());
                     if mode.starts_with("video") {
                         assert_eq!(
@@ -930,7 +926,7 @@ fn compare_gif(actual: &[u8], expected: &[u8]) {
 fn profiling_setup_errors_are_batch_failures() {
     let mut c = configuration();
     let temp = output(&mut c);
-    android(&mut c).profiling_configuration.pbtxt = Some(JavaPath::from_text("/nonexistent/config.pbtxt"));
+    android(&mut c).profiling_configuration.pbtxt = Some(PathBuf::from("/nonexistent/config.pbtxt"));
     run(c, move |runtime, context| {
         Box::pin(async move {
             let _temp = temp;
@@ -1020,7 +1016,7 @@ fn factory_produces_all_attachments_before_results_complete() {
     checked(std::fs::write(&pbtxt, "pid: ${TRACING_TARGET_PID}"));
     c.screen_recording_policy = ScreenRecordingPolicy::OnAny;
     android(&mut c).profiling_configuration.enabled = true;
-    android(&mut c).profiling_configuration.pbtxt = Some(JavaPath::from_text(&pbtxt.to_string_lossy()));
+    android(&mut c).profiling_configuration.pbtxt = Some(PathBuf::from(pbtxt.to_string_lossy().into_owned()));
     run(c, move |runtime, context| {
         Box::pin(async move {
             let _temp = temp;
@@ -1379,7 +1375,7 @@ fn missing_and_timed_out_pulls_still_emit_video_capture_and_trace_attachments() 
                 trace.on_event_in(&end(), context).await?;
                 let values = collected.get(&test()).unwrap();
                 assert_eq!(values.len(), 3);
-                assert!(values.iter().all(|a| !checked(a.file.to_file_path_buf()).exists()));
+                assert!(values.iter().all(|a| !a.file.clone().exists()));
                 let sync = server.transcript().iter().filter(|r| r["type"] == "sync").count();
                 assert_eq!(sync, if timeout { 0 } else { 3 });
                 finish(server, device).await;

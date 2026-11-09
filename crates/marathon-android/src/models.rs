@@ -2,7 +2,7 @@
 //! model/TestIdentifier.kt, model/AndroidTestStatus.kt, AndroidTestBundleIdentifier.kt,
 //! extension/Test.kt and extension/ConfigurationExtensions.kt.
 use crate::{dex_test_parser::DexTestBundleFiles, support::*};
-use jcompat::file_manager::{JavaPath, absolute_file_path_utf16};
+use jcompat::file_manager::absolute_file_path;
 use marathon_config::vendor::*;
 use marathon_core::{
     error::*,
@@ -21,8 +21,10 @@ pub struct AndroidTestBundle {
     info: Mutex<Option<InstrumentationInfo>>,
 }
 impl AndroidTestBundle {
-    pub fn new(files: DexTestBundleFiles, cwd: &JavaPath) -> Self {
-        let id = String::from_utf16_lossy(&absolute_file_path_utf16(&files.test_application.0, &cwd.0).0);
+    pub fn new(files: DexTestBundleFiles, cwd: &std::path::Path) -> Self {
+        let id = absolute_file_path(&files.test_application.to_string_lossy(), &cwd.to_string_lossy())
+            .to_string_lossy()
+            .into_owned();
         Self {
             files,
             id,
@@ -35,10 +37,8 @@ impl AndroidTestBundle {
         if let Some(info) = info.as_ref() {
             return Ok(info.clone());
         }
-        let parsed = marathon_dex::apk_parser::parse_instrumentation_info(
-            &self.files.test_application.to_file_path_buf().map_err(io)?,
-        )
-        .map_err(dex_error)?;
+        let parsed =
+            marathon_dex::apk_parser::parse_instrumentation_info(&self.files.test_application).map_err(dex_error)?;
         *info = Some(parsed.clone());
         Ok(parsed)
     }

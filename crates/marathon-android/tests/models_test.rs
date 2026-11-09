@@ -161,8 +161,10 @@ fn jvm_version_and_address_rows() {
 #[test]
 fn should_return_proper_list_of_test_methods() {
     let mut c = configuration();
-    android(&mut c).test_application_output = Some(jcompat::file_manager::JavaPath::from_text(
-        &fixture("vendor-android/android_test_1.apk").to_string_lossy(),
+    android(&mut c).test_application_output = Some(std::path::PathBuf::from(
+        fixture("vendor-android/android_test_1.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     run(c, |runtime, context| {
         Box::pin(async move {

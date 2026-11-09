@@ -1,6 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/DistributedDerivedData.kt
 
 use crate::apple_device::AppleDevice;
+use std::path::PathBuf;
 
 use marathon_core::{
     error::{VendorError, VendorResult},
@@ -37,20 +38,20 @@ pub(crate) async fn remote_test_bundle(
     bundle: &crate::model::AppleTestBundle,
     runtime: &dyn marathon_core::runtime::VendorRuntime,
 ) -> VendorResult<String> {
-    use jcompat::file_manager::{JavaPath, relative_file};
+    use jcompat::file_manager::relative_file;
     let fm = device.remote_file_manager();
     let Some(runner) = &bundle.test_application else {
         return Ok(fm.remote_xctest_file());
     };
-    let local = JavaPath::from_text(&bundle.xctest_bundle.to_string_lossy());
-    let base = JavaPath::from_text(&runner.to_string_lossy());
+    let local = PathBuf::from(bundle.xctest_bundle.to_string_lossy().into_owned());
+    let base = PathBuf::from(runner.to_string_lossy().into_owned());
     let relative = crate::cmd::blocking(runtime, move || {
         let cwd = std::env::current_dir()
             .map_err(|e| VendorError::Other(crate::cmd::failure("java.io.IOException", e.to_string())))?;
         Ok(relative_file(
             &local,
             &base,
-            &JavaPath::from_text(&cwd.to_string_lossy()),
+            &PathBuf::from(cwd.to_string_lossy().into_owned()),
         ))
     })
     .await?;

@@ -2,7 +2,7 @@
 
 use crate::installer::MacosApplicationInstaller;
 use jcompat::{
-    file_manager::{FileManager, JavaPath},
+    file_manager::FileManager,
     jtime::Duration,
     logging::{Level, Logger},
 };
@@ -46,6 +46,7 @@ use marathon_core::{
     vendor::{Device, DeviceRef, VendorContext},
     wiring::VendorDependencies,
 };
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     path::Path,
@@ -202,7 +203,7 @@ impl MacosDevice {
         let bundle = self.options.vendor.bundle.as_ref().ok_or_else(|| {
             VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
         })?;
-        let path = |p: &JavaPath| p.to_file_path_buf().map_err(crate::io_error);
+        let path = |p: &PathBuf| Ok::<_, VendorError>(p.clone());
         let xctest = bundle.xctest.as_ref().ok_or_else(|| {
             VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
         })?;
@@ -831,7 +832,7 @@ impl AppleDevice for MacosDevice {
         Box::pin(async move {
             self.measurement()
                 .measure_file_transfer(
-                    JavaPath::from_text(&src.to_string_lossy()),
+                    PathBuf::from(src.to_string_lossy().into_owned()),
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
@@ -841,7 +842,7 @@ impl AppleDevice for MacosDevice {
         Box::pin(async move {
             self.measurement()
                 .measure_file_transfer(
-                    JavaPath::from_text(&dst.to_string_lossy()),
+                    PathBuf::from(dst.to_string_lossy().into_owned()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
                 .await
@@ -851,7 +852,7 @@ impl AppleDevice for MacosDevice {
         Box::pin(async move {
             self.measurement()
                 .measure_folder_transfer(
-                    JavaPath::from_text(&src.to_string_lossy()),
+                    PathBuf::from(src.to_string_lossy().into_owned()),
                     self.bridge.send_with(src, dst, self.send_stop(context)),
                 )
                 .await
@@ -861,7 +862,7 @@ impl AppleDevice for MacosDevice {
         Box::pin(async move {
             self.measurement()
                 .measure_folder_transfer(
-                    JavaPath::from_text(&dst.to_string_lossy()),
+                    PathBuf::from(dst.to_string_lossy().into_owned()),
                     self.bridge.receive_with(src, dst, self.receive_stop()),
                 )
                 .await

@@ -396,7 +396,7 @@ async fn workers_with_different_credentials_on_one_host_share_neither_inventory_
         port: 22,
         authentication: Some(SshAuthentication::PublicKey {
             username: user.into(),
-            key: jcompat::file_manager::JavaPath::from_text(user),
+            key: std::path::PathBuf::from(user),
         }),
         check_reachability: true,
     };

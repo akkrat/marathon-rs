@@ -3,12 +3,13 @@
 //!
 //! The production `CliRunner`: one dedicated core executor per run. `construct` builds the run graph on it and reports
 //! construction errors (the uncaught path); `run` hands it the command and waits for `Marathon.run`'s Boolean.
+
 use crate::{
     VendorFactories,
     application::{CliRunner, Console, MarathonRun, VERSION, failure, render_throwable},
     core_output::RunConsoleSink,
 };
-use jcompat::{file_manager::JavaPath, logging::MarathonLogging};
+use jcompat::logging::MarathonLogging;
 use marathon_analytics::{AnalyticsClients, BackendClients};
 use marathon_config::{AnalyticsConfiguration, Configuration};
 use marathon_core::{
@@ -136,7 +137,7 @@ impl ProductionRunner {
             stderr: Arc::new(|f: &Failure| {
                 let _ = std::io::stderr().write_all(render_throwable(f).as_bytes());
             }),
-            cwd: JavaPath::from_text(&self.cwd.to_string_lossy()),
+            cwd: PathBuf::from(self.cwd.to_string_lossy().into_owned()),
             environment: self.environment.clone(),
             system_information: system_information(&self.cwd),
             vendor: Box::new(move |dependencies| factories.construct(dependencies)),

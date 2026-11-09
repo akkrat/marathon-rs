@@ -1,7 +1,7 @@
 //! Corpus-only canonical projections of the production WP 2.2 binders.
 //! Every binding call goes through `marathon_config::bind`; this file only
 //! renders the bound values in the oracle's Canonical JSON shape.
-use jcompat::{file_manager::JavaPath, jtime::parse_instant};
+use jcompat::jtime::parse_instant;
 use marathon_config::{
     AnalyticsConfiguration, BatchingStrategyConfiguration, CiConfiguration, CompositionOperation, Configuration,
     Defaults, ExecutionMode, ExecutionStrategyConfiguration, FilteringConfiguration, FlakinessStrategyConfiguration,
@@ -21,13 +21,14 @@ use marathon_config::{
 };
 use serde_json::{Value as Json, json};
 use snakeyaml::node::Stream;
+use std::path::PathBuf;
 
 pub fn corpus_context() -> BindingContext {
     BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: parse_instant("2026-10-12T00:00:00Z").unwrap(),
         analytics_tracking: false,
@@ -54,8 +55,8 @@ fn f(v: f64) -> Json {
         json!(jcompat::jnum::double_to_string(v))
     }
 }
-fn path(v: &JavaPath) -> Json {
-    json!(String::from_utf16_lossy(&v.0))
+fn path(v: &std::path::Path) -> Json {
+    json!(v.to_string_lossy().into_owned())
 }
 fn defaults(d: &Defaults) -> Json {
     json!({"duration": d.duration.to_string(), "observedDurationMinTests": d.observed_duration_min_tests, "successRate": f(d.success_rate)})
@@ -158,7 +159,7 @@ fn output(v: &OutputConfiguration) -> Json {
     json!({"maxFilename": v.max_filename, "maxPath": v.max_path})
 }
 fn rvf(v: &RegexValuesFileFilter, ty: &str) -> Json {
-    json!({"enabled": v.enabled, "file": v.file.as_ref().map(path), "regex": v.regex.as_ref().map(|r| r.pattern().to_owned()),
+    json!({"enabled": v.enabled, "file": v.file.as_ref().map(|v| path(v)), "regex": v.regex.as_ref().map(|r| r.pattern().to_owned()),
         "type": ty, "values": v.values.as_ref().map(|xs| xs.iter().map(|text| s(text)).collect::<Vec<_>>())})
 }
 fn filter(v: &TestFilterConfiguration) -> Json {
@@ -170,7 +171,7 @@ fn filter(v: &TestFilterConfiguration) -> Json {
         F::FullyQualifiedTestname(x) => rvf(x, "fully-qualified-test-name"),
         F::TestMethod(x) => rvf(x, "method"),
         F::Annotation(x) => rvf(x, "annotation"),
-        F::TestPackage(x) => json!({"enabled": x.enabled, "file": x.file.as_ref().map(path),
+        F::TestPackage(x) => json!({"enabled": x.enabled, "file": x.file.as_ref().map(|v| path(v)),
             "regex": x.regex.as_ref().map(|r| r.pattern().to_owned()), "subpackages": x.subpackages,
             "type": "package", "values": x.values.as_ref().map(|xs| xs.iter().map(|text| s(text)).collect::<Vec<_>>())}),
         F::AnnotationData {

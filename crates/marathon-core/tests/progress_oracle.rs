@@ -449,7 +449,7 @@ fn tracker_cancellation_preserves_the_stored_state_and_callback_payload() {
             let mut r = result(&t, &d, "batch", TestStatus::Passed, -10, 20);
             r.stacktrace = Some("trace".into());
             r.attachments.push(Attachment {
-                file: jcompat::file_manager::JavaPath::from_text("/tmp/attachment"),
+                file: std::path::PathBuf::from("/tmp/attachment"),
                 kind: AttachmentType::Log,
                 name: Some("log".into()),
             });

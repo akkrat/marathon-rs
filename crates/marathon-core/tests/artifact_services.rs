@@ -1,9 +1,10 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/listener/LogListener.kt
 //! and report/logs/LogWriter.kt, report/attachment/, device/file/FileTransferExtensions.kt.
 mod event_support;
+
 use event_support::*;
 use jcompat::{
-    file_manager::{FileManager, JavaPath},
+    file_manager::FileManager,
     logging::{Level, Logger, MarathonLogging},
 };
 use marathon_core::{
@@ -40,8 +41,8 @@ impl Temp {
         checked(std::fs::create_dir_all(&path));
         Self(path)
     }
-    fn path(&self, name: &str) -> JavaPath {
-        JavaPath::from_text(self.0.join(name).to_str().unwrap())
+    fn path(&self, name: &str) -> PathBuf {
+        PathBuf::from(self.0.join(name).to_str().unwrap())
     }
 }
 impl Drop for Temp {
@@ -70,10 +71,10 @@ fn target() -> LogTarget {
         test: None,
     }
 }
-fn output(io: Arc<dyn VendorRuntime>, path: JavaPath) -> Arc<FileManagerOutput> {
+fn output(io: Arc<dyn VendorRuntime>, path: PathBuf) -> Arc<FileManagerOutput> {
     Arc::new(FileManagerOutput::new(
         io,
-        FileManager::new_utf16(0, 0, &path.0, &[]),
+        FileManager::new(0, 0, &path.to_string_lossy(), ""),
         path,
         MarathonLogging::default().logger("FileManager", None),
         Arc::new(|_, _, _, _| assert_worker()),
@@ -147,13 +148,13 @@ fn logs_keep_preamble_reset_tail_partition_blank_lines_and_arc_removal() {
                     chunk: None,
                 })
                 .await?;
-            assert!(String::from_utf16(&batch.0).unwrap().ends_with("batch.batch"));
+            assert!(batch.to_string_lossy().into_owned().ends_with("batch.batch"));
             assert!(producer.listeners.lock().unwrap().is_empty());
             // Synchronous verification belongs to a blocking task as production writes do.
             let (tx, rx) = tokio::sync::oneshot::channel();
             let worker = core.vendor().spawn_blocking(Box::new(move || {
-                let bytes = checked(std::fs::read(test_path.to_path_buf().unwrap()));
-                let tail = checked(std::fs::read(batch.to_path_buf().unwrap()));
+                let bytes = checked(std::fs::read(test_path.clone()));
+                let tail = checked(std::fs::read(batch.clone()));
                 tx.send((bytes, tail)).unwrap();
                 Ok(())
             }));
@@ -173,7 +174,7 @@ struct RecordingWriter {
     threads: Mutex<Vec<String>>,
 }
 impl LogWriter for RecordingWriter {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath> {
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, PathBuf> {
         Box::pin(async move {
             assert_worker();
             self.threads
@@ -184,7 +185,7 @@ impl LogWriter for RecordingWriter {
             if self.fail {
                 Err(failure().into())
             } else {
-                Ok(JavaPath::from_text("/nonexistent/log"))
+                Ok(PathBuf::from("/nonexistent/log"))
             }
         })
     }
@@ -300,8 +301,8 @@ fn log_writer_encoding_append_and_output_paths_use_real_off_core_files() {
             let (tx, rx) = tokio::sync::oneshot::channel();
             let task = core.vendor().spawn_blocking(Box::new(move || {
                 tx.send((
-                    checked(std::fs::read(saved.to_path_buf().unwrap())),
-                    checked(std::fs::read(appended.to_path_buf().unwrap())),
+                    checked(std::fs::read(saved.clone())),
+                    checked(std::fs::read(appended.clone())),
                 ))
                 .unwrap();
                 Ok(())
@@ -322,13 +323,13 @@ fn log_writer_encoding_append_and_output_paths_use_real_off_core_files() {
                 })
                 .await?;
             assert!(
-                String::from_utf16(&p.0)
-                    .unwrap()
+                p.to_string_lossy()
+                    .into_owned()
                     .ends_with("screenshot/raw/pool/xxyyzz.jpg")
             );
             let (tx, rx) = tokio::sync::oneshot::channel();
             let task = core.vendor().spawn_blocking(Box::new(move || {
-                let path = p.to_path_buf().unwrap();
+                let path = p.clone();
                 tx.send((path.exists(), path.parent().unwrap().is_dir())).unwrap();
                 Ok(())
             }));
@@ -360,7 +361,7 @@ impl AttachmentListener for Attach {
 }
 fn attachment() -> Attachment {
     Attachment {
-        file: JavaPath::from_text("/missing"),
+        file: PathBuf::from("/missing"),
         kind: AttachmentType::Log,
         name: None,
     }
@@ -442,7 +443,7 @@ fn attachment_empty_follows_stat_including_directories() {
                 );
             }
             let invalid = Attachment {
-                file: JavaPath(vec![0xd800]),
+                file: PathBuf::from("invalid\0path"),
                 kind: AttachmentType::Log,
                 name: None,
             };
@@ -692,7 +693,12 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
             let io = core.vendor();
             let files = FileManagerOutput::new(
                 io.clone(),
-                FileManager::new_utf16((out.0.len() + 3) as i32, 4, &out.0, &[]),
+                FileManager::new(
+                    (out.to_string_lossy().encode_utf16().count() + 3) as i32,
+                    4,
+                    &out.to_string_lossy(),
+                    "",
+                ),
                 out.clone(),
                 MarathonLogging::default().logger("FileManager", None),
                 Arc::new(move |_, _, message, _| {
@@ -714,32 +720,40 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
                     chunk: None,
                 })
                 .await?;
-            assert_eq!(path.0.len(), out.0.len() + 3);
+            assert_eq!(
+                path.to_string_lossy().encode_utf16().count(),
+                out.to_string_lossy().encode_utf16().count() + 3
+            );
             let seen = seen.lock().unwrap().clone();
             assert_eq!(seen.len(), 2);
             assert!(seen[0].0.starts_with("File name length"));
             assert!(seen[1].0.starts_with("File path length"));
             assert!(seen.iter().all(|(_, created)| *created));
             let folder_root = temp.path("folder-out");
-            let truncated = JavaPath(folder_root.0.clone());
+            let truncated = folder_root.clone();
             let created = Arc::new(Mutex::new(vec![]));
             let capture = created.clone();
             let checked = truncated.clone();
             let files = FileManagerOutput::new(
                 io.clone(),
-                FileManager::new_utf16(folder_root.0.len() as i32, 0, &folder_root.0, &[]),
+                FileManager::new(
+                    folder_root.to_string_lossy().encode_utf16().count() as i32,
+                    0,
+                    &folder_root.to_string_lossy(),
+                    "",
+                ),
                 folder_root,
                 MarathonLogging::default().logger("FileManager", None),
                 Arc::new(move |_, _, _, _| {
                     assert_worker();
-                    capture.lock().unwrap().push(checked.to_path_buf().unwrap().exists());
+                    capture.lock().unwrap().push(checked.clone().exists());
                 }),
             );
             assert_eq!(files.create_folder(FolderType::Html, None, None).await?, truncated);
             assert_eq!(*created.lock().unwrap(), [false]);
             // createTestResultFile ignores File.mkdirs failure, and creates no file.
             let blocked = temp.path("blocked");
-            let native = blocked.to_path_buf().unwrap();
+            let native = blocked.clone();
             let task = io.spawn_blocking(Box::new(move || {
                 assert!(std::fs::write(native, b"x").is_ok());
                 Ok(())
@@ -748,8 +762,9 @@ fn output_materialization_retains_diagnostic_order_and_ignored_mkdirs() {
             let files = output(io, blocked);
             let result = files.create_test_result_file("raw.json").await?;
             assert!(
-                String::from_utf16(&result.0)
-                    .unwrap()
+                result
+                    .to_string_lossy()
+                    .into_owned()
                     .ends_with("blocked/test_result/raw.json")
             );
             assert!(
@@ -851,8 +866,8 @@ fn output_adapter_reuses_existing_jvm_path_tables() {
                 };
                 let relative = expected.strip_prefix(prefix).unwrap();
                 assert_eq!(
-                    String::from_utf16(&actual.0).unwrap(),
-                    format!("{}{relative}", String::from_utf16(&out.0).unwrap())
+                    actual.to_string_lossy().into_owned(),
+                    format!("{}{relative}", out.to_string_lossy().into_owned())
                 );
             }
             Ok(())

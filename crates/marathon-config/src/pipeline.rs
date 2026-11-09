@@ -88,11 +88,13 @@ pub fn bind_bytes<T: Send>(
                     },
                 );
                 e.class = "com.malinskiy.marathon.config.exceptions.ConfigurationException".into();
-                let path =
-                    jcompat::file_manager::absolute_file_path_utf16(&context.marathonfile.0, &context.process_dir.0);
+                let path = jcompat::file_manager::absolute_file_path(
+                    &context.marathonfile.to_string_lossy(),
+                    &context.process_dir.to_string_lossy(),
+                );
                 e.message = Some(format!(
                     "Error parsing config file {}",
-                    String::from_utf16_lossy(&path.0)
+                    path.to_string_lossy().into_owned()
                 ));
                 LoadError::Configuration(e)
             }

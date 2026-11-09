@@ -1,7 +1,8 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidAppInstaller.kt
 use crate::{device::AndroidDevice, models::AndroidTestBundle, services::AndroidRuntime, support::*};
-use jcompat::{file_manager::JavaPath, logging::Level};
+use jcompat::logging::Level;
 use marathon_core::{error::*, vendor::VendorContext};
+use std::path::PathBuf;
 use std::sync::Arc;
 pub struct AndroidAppInstaller {
     runtime: Arc<AndroidRuntime>,
@@ -55,7 +56,7 @@ impl AndroidAppInstaller {
         }
         for extra in &bundle.files.extra_applications {
             self.log(Level::Debug, &format!("Installing extra application to {serial}"), None);
-            let path = extra.to_file_path_buf().map_err(io)?;
+            let path = extra.clone();
             let package = blocking(self.runtime.dependencies.io.as_ref(), move || {
                 marathon_dex::apk_parser::parse_app_package_name(&path).map_err(dex_error)
             })
@@ -117,16 +118,15 @@ impl AndroidAppInstaller {
         &self,
         device: &AndroidDevice,
         package: &str,
-        app: &JavaPath,
-        splits: &[JavaPath],
+        app: &PathBuf,
+        splits: &[PathBuf],
         context: VendorContext,
     ) -> VendorResult<()> {
         let paths: Vec<_> = std::iter::once(app)
             .chain(splits)
             .map(|p| {
-                p.to_file_path_buf()
+                std::path::absolute(p)
                     .map_err(io)
-                    .and_then(|p| std::path::absolute(p).map_err(io))
                     .map(|p| p.to_string_lossy().to_string())
             })
             .collect::<VendorResult<_>>()?;

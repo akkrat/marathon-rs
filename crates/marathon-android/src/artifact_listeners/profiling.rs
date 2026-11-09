@@ -79,13 +79,13 @@ impl AndroidTestRunListener for ProfilingRunListener {
                     use std::io::Read;
                     let open_error = |e: std::io::Error| {
                         let reason = e.to_string();
-                        let mut message = String::from_utf16_lossy(&p.0.clone());
+                        let mut message = p.to_string_lossy().into_owned();
                         message.push_str(" (");
                         message.push_str(reason.split(" (os error ").next().unwrap_or(&reason));
                         message.push(')');
                         other("java.io.FileNotFoundException", message)
                     };
-                    let mut file = std::fs::File::open(p.to_file_path_buf().map_err(io)?).map_err(open_error)?;
+                    let mut file = std::fs::File::open(&p).map_err(open_error)?;
                     if file.metadata().map_err(io)?.is_dir() {
                         return Err(open_error(std::io::Error::from(std::io::ErrorKind::IsADirectory)));
                     }
@@ -222,7 +222,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                             .device
                             .safe_pull_file(
                                 &remote.to_owned(),
-                                &String::from_utf16_lossy(&file.0.clone()).to_owned(),
+                                &file.to_string_lossy().into_owned().to_owned(),
                                 context.clone(),
                             )
                             .await?;

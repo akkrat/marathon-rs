@@ -17,6 +17,7 @@ use jcompat::{
     jstring::lines,
     report_text::{escape_xml11, replace},
 };
+use std::path::PathBuf;
 use std::sync::Arc;
 
 fn safe_serial(device: &DeviceInfo) -> String {
@@ -144,7 +145,7 @@ pub fn logcat_html(log: &str) -> String {
     out.push_str("</div></div>\n");
     out
 }
-fn url(path: &JavaPath, root: &JavaPath) -> String {
+fn url(path: &std::path::Path, root: &std::path::Path) -> String {
     let mut out = String::from("../../../../");
     out.push_str(&replace(&relative_file(path, root, root), "#", "%23"));
     out
@@ -183,8 +184,9 @@ fn full_test(
         ("log_file", string(&log)),
     ])
 }
-fn page(path: &JavaPath, html: &JavaPath, data: String, log: String, date: &str) -> VendorResult<()> {
-    let parent = JavaPath(path.0[..path.0.iter().rposition(|u| *u == 47).unwrap_or(0)].to_vec());
+fn page(path: &PathBuf, html: &std::path::Path, data: String, log: String, date: &str) -> VendorResult<()> {
+    let text = path.to_string_lossy();
+    let parent = PathBuf::from(&text[..text.rfind('/').unwrap_or(0)]);
     let mut prefix = relative_file(html, &parent, html);
     if !prefix.is_empty() {
         prefix.push('/')
@@ -212,7 +214,7 @@ pub struct HtmlSummaryReporter {
     files: Arc<dyn OutputFiles>,
     clock: Arc<dyn WallClock>,
     title: String,
-    root: JavaPath,
+    root: PathBuf,
 }
 impl HtmlSummaryReporter {
     pub fn new(
@@ -220,9 +222,12 @@ impl HtmlSummaryReporter {
         files: Arc<dyn OutputFiles>,
         clock: Arc<dyn WallClock>,
         title: String,
-        process_dir: JavaPath,
+        process_dir: PathBuf,
     ) -> Self {
-        let root = jcompat::file_manager::absolute_file_path_utf16(&files.output_dir().0, &process_dir.0);
+        let root = jcompat::file_manager::absolute_file_path(
+            &files.output_dir().to_string_lossy(),
+            &process_dir.to_string_lossy(),
+        );
         Self {
             root,
             io,
@@ -282,7 +287,7 @@ impl HtmlSummaryReporter {
                 let mut name = p.pool_id.name.clone();
                 name.push_str(".html");
                 page(
-                    &child_file(&pools, &name.encode_utf16().collect::<Vec<_>>()),
+                    &child_file(&pools, &name),
                     &h,
                     assignment("window.pool", &pool_summary(&p))?,
                     String::default(),
@@ -291,10 +296,7 @@ impl HtmlSummaryReporter {
                 p.tests
                     .iter()
                     .map(|r| {
-                        let dir = child_file(
-                            &child_file(&pools, &p.pool_id.name.encode_utf16().collect::<Vec<_>>()),
-                            &safe_serial(&r.device).encode_utf16().collect::<Vec<_>>(),
-                        );
+                        let dir = child_file(&child_file(&pools, &p.pool_id.name), &safe_serial(&r.device));
                         mkdir(&dir)?;
                         Ok(dir)
                     })
@@ -361,7 +363,7 @@ impl HtmlSummaryReporter {
                 blocking(self.io.as_ref(), move || {
                     let filename = filename(&r);
                     page(
-                        &child_file(&dir, &filename.encode_utf16().collect::<Vec<_>>()),
+                        &child_file(&dir, &filename),
                         &h,
                         assignment("window.test", &data)?,
                         logcat_html(&r.stacktrace.clone().unwrap_or_default()),
@@ -379,7 +381,7 @@ impl HtmlSummaryReporter {
                         ("log_path", string(&path)),
                     ]);
                     page(
-                        &child_file(&logs, &filename.encode_utf16().collect::<Vec<_>>()),
+                        &child_file(&logs, &filename),
                         &h,
                         assignment("window.logs", &data)?,
                         String::default(),

@@ -10,10 +10,7 @@
 //! through `bind_vendor_configuration` and this WP's post-processing pieces
 //! run with a stubbed environment. The assembled forms belong to WP 2.4.
 
-use jcompat::{
-    file_manager::JavaPath,
-    jtime::{Duration, instant_of},
-};
+use jcompat::jtime::{Duration, instant_of};
 use marathon_config::{
     AndroidConfiguration, AppleTimeoutParameters, SshAuthentication, SshConfiguration, TestClassRegex,
     VendorConfiguration, WorkerConnectionConfiguration, XcresultQueueConfiguration,
@@ -26,13 +23,14 @@ use marathon_config::{
     node,
     vendor::{apply_xcresult_pull, fill_android_sdk, post_process_ios, read_environment},
 };
+use std::path::PathBuf;
 
 fn context(dir: &str, environment: Vec<(String, String)>) -> BindingContext {
     BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text(dir),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from(dir),
+        process_dir: PathBuf::from("/"),
         environment,
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,
@@ -50,8 +48,8 @@ fn bind_vendor(text: &str, ctx: &BindingContext) -> VendorConfiguration {
         .flatten()
         .expect("vendor binds")
 }
-fn path(text: &str) -> JavaPath {
-    JavaPath::from_text(text)
+fn path(text: &str) -> PathBuf {
+    PathBuf::from(text)
 }
 fn secs(seconds: i64) -> Duration {
     Duration::of_seconds(seconds)
@@ -690,7 +688,7 @@ fn post_processing_paths_and_xcresult_pull() {
     // knownHostsPath goes through resolve(...).canonicalFile: /../ is gone.
     let known = ios.ssh.known_hosts_path.as_ref().expect("known hosts");
     assert_eq!(
-        String::from_utf16_lossy(&known.0),
+        known.to_string_lossy().into_owned(),
         format!("{}/known_hosts", dir.path().canonicalize().unwrap().to_string_lossy())
     );
     // pull=false rewrites the policy; the bound pull stays (P6 rejected).

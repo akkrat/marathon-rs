@@ -3,10 +3,7 @@
 use crate::{
     device::AndroidBatchExecutor, dex_test_parser::DexTestParser, models::*, provider::AdamDeviceProvider, support::*,
 };
-use jcompat::{
-    file_manager::JavaPath,
-    logging::{Level, Logger, MarathonLogging, Vendor},
-};
+use jcompat::logging::{Level, Logger, MarathonLogging, Vendor};
 use marathon_config::{
     VendorConfiguration,
     vendor::{AndroidConfiguration, AndroidTestParserConfiguration, FileSyncConfiguration},
@@ -37,7 +34,7 @@ impl AndroidRuntime {
         let configuration = config.clone();
         let cwd = blocking(dependencies.io.as_ref(), || {
             let p = std::env::current_dir().map_err(io)?;
-            Ok(JavaPath(p.to_string_lossy().encode_utf16().collect()))
+            Ok(p)
         })
         .await?;
         let bundles = test_bundles_compat(&configuration)
@@ -87,7 +84,7 @@ pub async fn create_services_with_executor(
     let identifier = runtime.identifier.clone();
     let cwd = blocking(runtime.dependencies.io.as_ref(), || {
         let p = std::env::current_dir().map_err(io)?;
-        Ok(JavaPath(p.to_string_lossy().encode_utf16().collect()))
+        Ok(p)
     })
     .await?;
     let provider = Arc::new(AdamDeviceProvider::new(runtime.clone())?);

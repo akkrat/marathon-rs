@@ -170,7 +170,7 @@ pub fn model_filter(regex: &JavaRegex, test: &Test) -> Result<bool, std::string:
 pub async fn output_contract(
     files: &dyn OutputFiles,
     target: &marathon_core::output::FileTarget,
-) -> OperationResult<jcompat::file_manager::JavaPath> {
+) -> OperationResult<std::path::PathBuf> {
     files.create_file(target).await
 }
 

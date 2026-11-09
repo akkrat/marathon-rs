@@ -213,10 +213,7 @@ pub(crate) async fn build_bundle(
         .bundle_configuration()
         .filter(|c| c.xctest.is_some())
         .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided")))?;
-    let path = |p: &jcompat::file_manager::JavaPath| {
-        p.to_file_path_buf()
-            .map_err(|e| VendorError::Other(failure("java.nio.file.InvalidPathException", e.to_string())))
-    };
+    let path = |p: &std::path::PathBuf| Ok::<_, VendorError>(p.clone());
     let xctest = config
         .xctest
         .as_ref()

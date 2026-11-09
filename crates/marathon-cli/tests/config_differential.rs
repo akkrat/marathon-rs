@@ -1,6 +1,7 @@
 //! Differential replay of tools/oracle/module/src/main/kotlin/oracle/ConfigDump.kt.
 //! The driver compares committed JVM documents and final trees with fresh production CLI runs.
 
+use std::path::PathBuf;
 use std::{path::Path, process::Command};
 
 #[test]
@@ -27,7 +28,7 @@ fn config_differential_replays_committed_jvm_evidence() -> Result<(), Box<dyn st
 
 #[test]
 fn document_reuses_the_production_canonical_configuration() -> Result<(), Box<dyn std::error::Error>> {
-    use jcompat::{file_manager::JavaPath, jtime::parse_instant};
+    use jcompat::jtime::parse_instant;
     use marathon_cli::{application::Process, config_dump::document};
     use marathon_config::{
         binding::{BindingContext, Profile},
@@ -47,9 +48,9 @@ fn document_reuses_the_production_canonical_configuration() -> Result<(), Box<dy
     let now = parse_instant("1970-01-12T13:46:40Z").ok_or("fixed instant")?;
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text(&file.to_string_lossy()),
-        marathonfile_dir: JavaPath::from_text(&config_dir.to_string_lossy()),
-        process_dir: JavaPath::from_text(&cwd.to_string_lossy()),
+        marathonfile: PathBuf::from(file.to_string_lossy().into_owned()),
+        marathonfile_dir: PathBuf::from(config_dir.to_string_lossy().into_owned()),
+        process_dir: PathBuf::from(cwd.to_string_lossy().into_owned()),
         analytics_tracking: true,
         bugsnag_reporting: true,
         environment: Vec::new(),

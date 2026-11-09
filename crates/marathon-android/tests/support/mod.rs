@@ -1,7 +1,8 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/adam/TestDeviceFactory.kt
 //! and TestConfigurationFactory.kt, DeviceExpectationExtensions.kt.
 #![allow(dead_code)]
-use jcompat::file_manager::{FileManager, JavaPath};
+
+use jcompat::file_manager::FileManager;
 use marathon_adb::{
     client::{
         AndroidDebugBridgeClient, SocketFactory,
@@ -45,10 +46,10 @@ pub fn fixture(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures").join(path)
 }
 pub fn configuration() -> Configuration {
-    let base = JavaPath::from_text("/");
+    let base = PathBuf::from("/");
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
+        marathonfile: PathBuf::from("/Marathonfile"),
         marathonfile_dir: base.clone(),
         process_dir: base,
         environment: vec![],
@@ -94,7 +95,7 @@ fn on_core(
                 Arc::new(|_, _, _, _| assert_ne!(std::thread::current().name(), Some("marathon-core")));
             let files = Arc::new(FileManagerOutput::new(
                 io.clone(),
-                FileManager::new_utf16(4096, 255, &output.0, &[]),
+                FileManager::new(4096, 255, &output.to_string_lossy(), ""),
                 output,
                 logging.lock().unwrap().logger("FileManager", None),
                 log.clone(),

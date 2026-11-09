@@ -23,7 +23,6 @@
 //! one class, not a cause chain.
 
 use crate::vendor::{AppleTestBundleConfiguration, ValidationError, absolute_path_text};
-use jcompat::file_manager::JavaPath;
 use std::{
     collections::HashMap,
     fs,
@@ -36,7 +35,7 @@ type Result<T> = std::result::Result<T, ValidationError>;
 /// The extraction-dir factory: Kotlin's `tempDirFor` constructor parameter
 /// (S7). It receives the archive path and returns the directory to extract
 /// into, creating it as the Kotlin default does.
-pub type TempDirFor<'a> = dyn FnMut(&JavaPath) -> Result<JavaPath> + 'a;
+pub type TempDirFor<'a> = dyn FnMut(&PathBuf) -> Result<PathBuf> + 'a;
 
 const ARCHIVE_EXTENSIONS: [&str; 2] = ["ipa", "zip"];
 // Resource-fork junk, matched against the whole entry name (Kotlin IGNORED).
@@ -46,40 +45,40 @@ fn configuration(message: &str) -> ValidationError {
     ValidationError::configuration(message)
 }
 
-fn text(path: &JavaPath) -> String {
-    String::from_utf16_lossy(&path.0)
+fn text(path: &std::path::Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 fn io_error(error: io::Error) -> ValidationError {
     ValidationError::io(error.to_string())
 }
 
-fn path_buf(path: &JavaPath) -> Result<PathBuf> {
-    path.to_path_buf().map_err(|e| ValidationError::io(e.to_string()))
+fn path_buf(path: &std::path::Path) -> Result<PathBuf> {
+    Ok(path.to_path_buf())
 }
 
-fn java_path(path: &Path) -> JavaPath {
-    JavaPath::from_text(&path.to_string_lossy())
+fn java_path(path: &Path) -> PathBuf {
+    path.to_path_buf()
 }
 
 /// `java.io.File.isFile` / `isDirectory` on the stored spelling: false on
 /// any error, following symlinks.
-fn is_file(path: &JavaPath) -> bool {
-    path.to_path_buf().is_ok_and(|p| p.is_file())
+fn is_file(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
-fn is_directory(path: &JavaPath) -> bool {
-    path.to_path_buf().is_ok_and(|p| p.is_dir())
+fn is_directory(path: &std::path::Path) -> bool {
+    path.is_dir()
 }
 
 /// Kotlin `File.extension`: after the last `.` of the name, `""` if none.
-fn extension(path: &JavaPath) -> String {
+fn extension(path: &std::path::Path) -> String {
     let name = name(path);
     name.rsplit_once('.').map_or("", |(_, ext)| ext).to_owned()
 }
 
 /// Kotlin `File.name`: after the last `/`.
-fn name(path: &JavaPath) -> String {
+fn name(path: &std::path::Path) -> String {
     let spelling = text(path);
     spelling
         .trim_end_matches('/')
@@ -101,7 +100,7 @@ fn name_without_extension(file_name: &str) -> &str {
 /// The default `tempDirFor`: a sibling directory named after the archive
 /// stem, deleted recursively then recreated. Kotlin ignores the results of
 /// `deleteRecursively()` and `mkdirs()`; the port ignores the second only.
-pub fn default_temp_dir_for(file: &JavaPath) -> Result<JavaPath> {
+pub fn default_temp_dir_for(file: &std::path::Path) -> Result<PathBuf> {
     let buf = path_buf(file)?;
     let file_name = name(file);
     let stem = name_without_extension(&file_name);
@@ -141,7 +140,7 @@ pub fn default_temp_dir_for(file: &JavaPath) -> Result<JavaPath> {
 impl AppleTestBundleConfiguration {
     /// `validate()` with the Kotlin default extraction directory.
     pub fn validate(&mut self) -> Result<()> {
-        self.validate_with_temp_dir_for(&mut default_temp_dir_for)
+        self.validate_with_temp_dir_for(&mut |p| default_temp_dir_for(p))
     }
 
     /// `validate()` (AppleTestBundleConfiguration.kt:33-83). On success
@@ -174,7 +173,7 @@ impl AppleTestBundleConfiguration {
 
     fn resolve_test_application(
         &mut self,
-        test_application: &JavaPath,
+        test_application: &PathBuf,
         temp_dir_for: &mut TempDirFor<'_>,
     ) -> Result<()> {
         let ext = extension(test_application);
@@ -212,7 +211,7 @@ impl AppleTestBundleConfiguration {
     }
 }
 
-fn resolve_application(application: &JavaPath, temp_dir_for: &mut TempDirFor<'_>) -> Result<JavaPath> {
+fn resolve_application(application: &PathBuf, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf> {
     let ext = extension(application);
     if is_file(application) && ARCHIVE_EXTENSIONS.contains(&ext.as_str()) {
         let extracted = extract(application, temp_dir_for)?;
@@ -232,12 +231,10 @@ fn resolve_application(application: &JavaPath, temp_dir_for: &mut TempDirFor<'_>
 /// `findDirectoryInDirectory` (AppleTestBundleConfiguration.kt:86-114):
 /// every directory (root included) whose extension matches. S4 sorts the
 /// matches; Kotlin's `walkTopDown` order is the filesystem's.
-fn find_directory(directory: &JavaPath, extension_name: &str, validate: bool) -> Result<Option<JavaPath>> {
-    let mut found: Vec<JavaPath> = Vec::new();
-    if let Ok(root) = directory.to_path_buf() {
-        walk(&root, extension_name, &mut found);
-    }
-    found.sort_by_key(text);
+fn find_directory(directory: &std::path::Path, extension_name: &str, validate: bool) -> Result<Option<PathBuf>> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    walk(directory, extension_name, &mut found);
+    found.sort_by_key(|p| text(p));
     match found.len() {
         0 if validate => Err(configuration(&format!(
             "Unable to find an {extension_name} directory in {}",
@@ -261,8 +258,8 @@ fn find_directory(directory: &JavaPath, extension_name: &str, validate: bool) ->
     }
 }
 
-fn ambiguous(extension_name: &str, found: &[JavaPath]) -> ValidationError {
-    let list: Vec<String> = found.iter().map(absolute_path_text).collect();
+fn ambiguous(extension_name: &str, found: &[PathBuf]) -> ValidationError {
+    let list: Vec<String> = found.iter().map(|p| absolute_path_text(p)).collect();
     configuration(&format!(
         "Ambiguous {extension_name} configuration in derived data folder [{}]. Please specify parameters explicitly",
         list.join(", ")
@@ -272,7 +269,7 @@ fn ambiguous(extension_name: &str, found: &[JavaPath]) -> ValidationError {
 /// `walkTopDown` without an `onFail` handler: a directory that cannot be
 /// listed is still matched but not descended into, and unreadable entries
 /// are skipped (probe `unreadable-dir-in-derived`).
-fn walk(dir: &Path, extension_name: &str, found: &mut Vec<JavaPath>) {
+fn walk(dir: &Path, extension_name: &str, found: &mut Vec<PathBuf>) {
     if !dir.is_dir() {
         return;
     }
@@ -294,7 +291,7 @@ fn walk(dir: &Path, extension_name: &str, found: &mut Vec<JavaPath>) {
 /// The first component of `to` relative to `from`, lexically (the walk
 /// shares one root spelling, so no filesystem resolution is needed):
 /// `Some("Watch")` when `to` is under `from/Watch/...`.
-fn first_component_below(from: &JavaPath, to: &JavaPath) -> Option<String> {
+fn first_component_below(from: &std::path::Path, to: &std::path::Path) -> Option<String> {
     let from_parts: Vec<String> = text(from)
         .split('/')
         .filter(|s| !s.is_empty())
@@ -316,7 +313,7 @@ fn first_component_below(from: &JavaPath, to: &JavaPath) -> Option<String> {
 /// `java.util.zip.ZipFile` semantics: central-directory order and names,
 /// exact-name ignores, paths rebuilt from `/`-split segments with blank
 /// segments dropped, regular files only (no modes, no symlinks).
-fn extract(file: &JavaPath, temp_dir_for: &mut TempDirFor<'_>) -> Result<JavaPath> {
+fn extract(file: &PathBuf, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf> {
     let dst = temp_dir_for(file)?;
     let dst_buf = path_buf(&dst)?;
     let archive_path = path_buf(file)?;
@@ -541,7 +538,7 @@ fn escapes(entry_name: &str) -> ValidationError {
 
 /// `ZipFile` on a missing archive throws `NoSuchFileException` with the
 /// path as its message (probe `hidden-archive-stem`).
-fn open_error(file: &JavaPath, error: io::Error) -> ValidationError {
+fn open_error(file: &std::path::Path, error: io::Error) -> ValidationError {
     if error.kind() == io::ErrorKind::NotFound {
         ValidationError::no_such_file(text(file))
     } else {

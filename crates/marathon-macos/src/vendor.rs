@@ -5,7 +5,7 @@ use crate::{
     installer::MacosApplicationInstaller,
     provider::AppleMacosProvider,
 };
-use jcompat::file_manager::{FileManager, JavaPath};
+use jcompat::file_manager::FileManager;
 use marathon_apple::{
     apple_application_installer::AppleApplicationInstaller,
     apple_device_registry::AppleDeviceRegistry,
@@ -25,6 +25,7 @@ use marathon_core::{
     vendor::{TestParser, VendorServices},
     wiring::VendorDependencies,
 };
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub fn logging(dependencies: &VendorDependencies) -> SshLogging {
@@ -72,11 +73,11 @@ pub async fn construct_with_parser_libraries(
     };
     let logging = logging(&dependencies);
     let cwd = std::env::current_dir().map_err(crate::io_error)?;
-    let files = Arc::new(FileManager::new_utf16(
+    let files = Arc::new(FileManager::new(
         dependencies.configuration.output_configuration.max_path,
         dependencies.configuration.output_configuration.max_filename,
-        &dependencies.configuration.output_dir.0,
-        &cwd.to_string_lossy().encode_utf16().collect::<Vec<_>>(),
+        &dependencies.configuration.output_dir.to_string_lossy(),
+        &cwd.to_string_lossy(),
     ));
     let connections = ConnectionFactory::new(
         dependencies.configuration.debug,
@@ -105,7 +106,7 @@ pub async fn construct_with_parser_libraries(
         options,
         registry.clone(),
         Arc::new(connections),
-        JavaPath::from_text(&cwd.to_string_lossy()),
+        PathBuf::from(cwd.to_string_lossy().into_owned()),
         std::env::vars_os()
             .map(|(k, v)| {
                 (

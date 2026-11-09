@@ -84,7 +84,7 @@ impl FileBridge for BundleBridge {
 }
 pub struct Recorder {
     pub provider: Arc<AttachmentProviderDelegate>,
-    pub file: jcompat::file_manager::JavaPath,
+    pub file: std::path::PathBuf,
 }
 impl Recorder {
     fn attach(&self, test: &Test) -> VendorResult<()> {
@@ -109,7 +109,7 @@ impl AppleTestRunListener for Recorder {
 struct Empty;
 impl AppleTestRunListener for Empty {}
 pub struct Factory {
-    pub file: jcompat::file_manager::JavaPath,
+    pub file: std::path::PathBuf,
     pub fail_finalizer: bool,
     pub cancel_finalizer: bool,
     pub finalizing: Arc<SharedDeferred<()>>,

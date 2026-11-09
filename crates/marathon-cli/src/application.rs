@@ -7,7 +7,7 @@
 
 use crate::args::CliConfiguration;
 use jcompat::{
-    file_manager::{JavaPath, absolute_file_path_utf16},
+    file_manager::absolute_file_path,
     jtime::Instant,
     logging::{ConsoleOutput, JansiMode, Layout, Level, LogEvent, Logger, MarathonLogging, OutputTarget},
 };
@@ -252,14 +252,14 @@ pub fn render_uncaught(failure: &Failure) -> String {
 
 /// `MarathonStartConfiguration`.
 struct StartConfiguration {
-    marathonfile: JavaPath,
+    marathonfile: PathBuf,
     analytics_tracking: bool,
     bugsnag_reporting: bool,
     command: ExecutionCommand,
 }
 
-fn lossy(path: &JavaPath) -> String {
-    String::from_utf16_lossy(&path.0)
+fn lossy(path: &std::path::Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 /// `File.isFile`: follows links; false for a missing file, a directory or a dangling link.
@@ -278,7 +278,7 @@ pub(crate) fn os_error_text(error: &io::Error) -> String {
 
 /// Reading an existing Marathonfile failed: the JVM's `FileNotFoundException: <path> (<reason>)` (P7 for the reason's
 /// wording); a permission error keeps the NIO `AccessDeniedException` it wraps.
-pub(crate) fn read_failure(given: &JavaPath, error: &io::Error) -> Failure {
+pub(crate) fn read_failure(given: &std::path::Path, error: &io::Error) -> Failure {
     let mut f = failure(
         "java.io.FileNotFoundException",
         &format!("{} ({})", lossy(given), os_error_text(error)),
@@ -290,13 +290,13 @@ pub(crate) fn read_failure(given: &JavaPath, error: &io::Error) -> Failure {
 }
 
 /// The Marathonfile's `canonicalFile.parentFile`.
-pub(crate) fn canonical_parent(absolute: &str) -> Result<JavaPath, Failure> {
+pub(crate) fn canonical_parent(absolute: &str) -> Result<PathBuf, Failure> {
     let canonical = fs::canonicalize(absolute).map_err(|e| failure("java.io.IOException", &os_error_text(&e)))?;
     let parent = canonical
         .parent()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    Ok(JavaPath::from_text(&parent))
+    Ok(PathBuf::from(&parent))
 }
 
 /// `ApplicationView.execute`: returns the exit status after printing everything the JVM would.
@@ -357,9 +357,12 @@ fn run(
 ) -> Result<i32, Failure> {
     let given = lossy(&start.marathonfile);
     output.log(Level::Info, &format!("Checking {given} config"), "");
-    let cwd = JavaPath::from_text(&process.cwd.to_string_lossy());
+    let cwd = PathBuf::from(process.cwd.to_string_lossy().into_owned());
     // `File.absolutePath`: joined to the working directory, not canonicalised.
-    let absolute = lossy(&absolute_file_path_utf16(&start.marathonfile.0, &cwd.0));
+    let absolute = lossy(&absolute_file_path(
+        &start.marathonfile.to_string_lossy(),
+        &cwd.to_string_lossy(),
+    ));
     if !is_file(&absolute) {
         let message = format!("No config {absolute} present");
         output.log(Level::Error, &message, "");

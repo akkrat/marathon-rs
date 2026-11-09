@@ -5,9 +5,10 @@
 
 use crate::{artifact_io::*, error::*, listener::*, model::*, output::*, runtime::*};
 use jcompat::{
-    file_manager::{FileManager, JavaPath, PathPlan},
+    file_manager::{FileManager, PathPlan},
     logging::{Level, Logger},
 };
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     io::Write,
@@ -18,7 +19,7 @@ use std::{
 pub struct FileManagerOutput {
     io: Arc<dyn VendorRuntime>,
     manager: Arc<FileManager>,
-    output: JavaPath,
+    output: PathBuf,
     logger: Logger,
     log: ServiceLog,
 }
@@ -26,7 +27,7 @@ impl FileManagerOutput {
     pub fn new(
         io: Arc<dyn VendorRuntime>,
         manager: FileManager,
-        output: JavaPath,
+        output: PathBuf,
         logger: Logger,
         log: ServiceLog,
     ) -> Self {
@@ -38,28 +39,21 @@ impl FileManagerOutput {
             log,
         }
     }
-    async fn materialize(&self, plan: PathPlan) -> OperationResult<JavaPath> {
+    async fn materialize(&self, plan: PathPlan) -> OperationResult<PathBuf> {
         let (logger, log) = (self.logger.clone(), self.log.clone());
         blocking(self.io.as_ref(), move || {
-            plan.materialize(|text| {
-                log(
-                    &logger,
-                    Level::Error,
-                    &jcompat::file_manager::path_diagnostic(text),
-                    None,
-                )
-            })
-            .map_err(|error| nio_error(error, &plan.directory))
+            plan.materialize(|text| log(&logger, Level::Error, text, None))
+                .map_err(|error| nio_error(error, &plan.directory))
         })
         .await
         .map_err(operation_error)
     }
 }
 impl OutputFiles for FileManagerOutput {
-    fn output_dir(&self) -> &JavaPath {
+    fn output_dir(&self) -> &PathBuf {
         &self.output
     }
-    fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, JavaPath> {
+    fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, PathBuf> {
         Box::pin(async move {
             let test = target.test.as_ref().map(|t| t.to_test_name('.', '#'));
             self.materialize(self.manager.plan_file(target.request(test.as_deref())))
@@ -71,7 +65,7 @@ impl OutputFiles for FileManagerOutput {
         kind: FolderType,
         pool: Option<&'a DevicePoolId>,
         device: Option<&'a DeviceInfo>,
-    ) -> ServiceFuture<'a, JavaPath> {
+    ) -> ServiceFuture<'a, PathBuf> {
         Box::pin(async move {
             self.materialize(self.manager.plan_folder(
                 kind,
@@ -81,7 +75,7 @@ impl OutputFiles for FileManagerOutput {
             .await
         })
     }
-    fn create_test_result_file<'a>(&'a self, filename: &'a str) -> ServiceFuture<'a, JavaPath> {
+    fn create_test_result_file<'a>(&'a self, filename: &'a str) -> ServiceFuture<'a, PathBuf> {
         Box::pin(async move { self.materialize(self.manager.plan_test_result_file(filename)).await })
     }
 }
@@ -96,7 +90,7 @@ impl FileLogWriter {
     }
 }
 impl LogWriter for FileLogWriter {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath> {
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, PathBuf> {
         let this = self.clone();
         let target = FileTarget {
             kind: FileType::Log,
@@ -122,8 +116,8 @@ impl LogWriter for FileLogWriter {
                     }
                     let output = path.clone();
                     blocking(this.io.as_ref(), move || {
-                        let mut file = std::fs::File::create(output.to_file_path_buf().map_err(io_error)?)
-                            .map_err(|error| file_open_error(error, &output))?;
+                        let mut file =
+                            std::fs::File::create(&output).map_err(|error| file_open_error(error, &output))?;
                         file.write_all(text.as_bytes()).map_err(io_error)
                     })
                     .await?;
@@ -162,7 +156,7 @@ impl LogWriter for FileLogWriter {
                         let mut file = std::fs::OpenOptions::new()
                             .create(true)
                             .append(true)
-                            .open(path.to_file_path_buf().map_err(io_error)?)
+                            .open(&path)
                             .map_err(|error| file_open_error(error, &path))?;
                         file.write_all(text.as_bytes()).map_err(io_error)
                     })
@@ -270,11 +264,7 @@ impl AttachmentFiles for LocalAttachmentFiles {
             blocking(self.io.as_ref(), move || {
                 // File.exists/length both return zero-like values on failed stat,
                 // including invalid paths. Directories keep their platform length.
-                Ok(path
-                    .to_file_path_buf()
-                    .ok()
-                    .and_then(|p| std::fs::metadata(p).ok())
-                    .is_none_or(|m| m.len() == 0))
+                Ok(std::fs::metadata(&path).ok().is_none_or(|m| m.len() == 0))
             })
             .await
         })

@@ -35,9 +35,9 @@ use crate::{
 };
 use jcompat::{
     JavaRegex,
-    file_manager::JavaPath,
     jtime::{Duration, Instant, duration_of},
 };
+use std::path::PathBuf;
 
 pub const CONFIGURATION_EXCEPTION: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
 
@@ -664,7 +664,7 @@ pub fn bind_analytics_configuration(value: Value<'_>) -> Result<Option<Analytics
 fn regex_values_file(value: Value<'_>) -> Result<RegexValuesFileFilter> {
     let mut regex = Field::nullable(&value, None::<JavaRegex>);
     let mut values = Field::nullable(&value, None::<Vec<String>>);
-    let mut file = Field::nullable(&value, None::<JavaPath>);
+    let mut file = Field::nullable(&value, None::<PathBuf>);
     let mut enabled = Field::primitive(&value, true);
     let mut object = value.object()?;
     while let Some((name, child)) = object.next_field()? {
@@ -699,7 +699,7 @@ fn regex_values_file(value: Value<'_>) -> Result<RegexValuesFileFilter> {
 fn test_package(value: Value<'_>) -> Result<TestPackageFilter> {
     let mut regex = Field::nullable(&value, None::<JavaRegex>);
     let mut values = Field::nullable(&value, None::<Vec<String>>);
-    let mut file = Field::nullable(&value, None::<JavaPath>);
+    let mut file = Field::nullable(&value, None::<PathBuf>);
     let mut subpackages = Field::primitive(&value, false);
     let mut enabled = Field::primitive(&value, true);
     let mut object = value.object()?;
@@ -896,7 +896,7 @@ pub fn bind_configuration(
 ) -> Result<Option<Configuration>> {
     value.nullable(|v| {
         let mut name = Field::reference(&v, None::<String>);
-        let mut output_dir = Field::reference(&v, None::<JavaPath>);
+        let mut output_dir = Field::reference(&v, None::<PathBuf>);
         let mut analytics = Field::reference(&v, Some(AnalyticsConfiguration::Disabled));
         let mut pooling = Field::reference(&v, Some(PoolingStrategyConfiguration::Omni));
         let mut sharding = Field::reference(&v, Some(ShardingStrategyConfiguration::Parallel));

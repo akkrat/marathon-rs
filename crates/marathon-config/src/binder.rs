@@ -2,6 +2,7 @@
 //! and serialization/yaml/SerializeModule.kt. Synchronous binding runs off the core executor.
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 
 use crate::binding::{
     BindingCause, BindingContext, ConfigurationCause, ConfigurationError, PathPart, Profile, TokenError,
@@ -9,7 +10,6 @@ use crate::binding::{
 };
 use jcompat::{
     JavaRegex,
-    file_manager::JavaPath,
     jtime::{Duration, Instant},
 };
 use snakeyaml::{
@@ -556,7 +556,7 @@ impl<'a> Value<'a> {
         }
         error
     }
-    pub fn file(&self) -> Result<Option<JavaPath>> {
+    pub fn file(&self) -> Result<Option<PathBuf>> {
         let t = self.token()?;
         if matches!(t.tok, Tok::Null(_)) {
             return Ok(None);
@@ -605,17 +605,13 @@ impl<'a> Value<'a> {
         if text.starts_with('/') {
             return Ok(Some(jcompat::file_manager::absolute_file_path(&text, "/")));
         }
-        let base = self
-            .context()
-            .marathonfile_dir
-            .to_path_buf()
-            .map_err(|e| self.error(JSON_MAPPING, e.to_string()))?;
+        let base = &self.context().marathonfile_dir;
         let path =
             crate::paths::canonical_file(&base.join(text)).map_err(|e| self.error(JSON_MAPPING, e.to_string()))?;
         let text = path
             .to_str()
             .ok_or_else(|| self.error(JSON_MAPPING, "canonical path must be UTF-8"))?;
-        Ok(Some(JavaPath::from_text(text)))
+        Ok(Some(PathBuf::from(text)))
     }
     pub fn regex(&self) -> Result<Option<JavaRegex>> {
         let token = self.token()?;

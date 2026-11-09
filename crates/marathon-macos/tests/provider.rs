@@ -247,7 +247,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         h.options.clone(),
         Arc::new(AppleDeviceRegistry::default()),
         connections,
-        jcompat::file_manager::JavaPath::from_text(&h.root.path().to_string_lossy()),
+        std::path::PathBuf::from(h.root.path().to_string_lossy().into_owned()),
         vec![("LOOP".into(), "${LOOP}".into())],
     );
     let error = p
@@ -294,7 +294,7 @@ async fn substitution_failure_is_outside_mapping_catch_and_initializations_cance
         h.options.clone(),
         Arc::new(AppleDeviceRegistry::default()),
         connections.clone(),
-        jcompat::file_manager::JavaPath::from_text(&h.root.path().to_string_lossy()),
+        std::path::PathBuf::from(h.root.path().to_string_lossy().into_owned()),
         vec![],
     );
     let error = tokio::time::timeout(std::time::Duration::from_secs(60), p.initialize(h.context.clone()))
@@ -468,7 +468,7 @@ async fn borrow_untried_avoids_a_tried_mac_and_takes_only_a_connected_one_d53() 
             bridge: h.bridge.clone(),
             next: std::sync::atomic::AtomicUsize::new(0),
         }),
-        jcompat::file_manager::JavaPath::from_text(&h.root.path().to_string_lossy()),
+        std::path::PathBuf::from(h.root.path().to_string_lossy().into_owned()),
         vec![],
     );
     for _ in 0..2 {

@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/executor/listeners/
 //! CompositeTestRunListenerTest.kt, LogListenerTest.kt and TestResultsListenerTest.kt.
 mod support;
-use jcompat::file_manager::JavaPath;
 use marathon_adb::testrunner::{MetricMap, TestEvent as E, TestIdentifier};
 use marathon_android::{device::AndroidDevice, listeners::*, services::AndroidRuntime};
 use marathon_core::{
@@ -15,6 +14,7 @@ use marathon_core::{
     time::{ClockResult, Timer},
     vendor::*,
 };
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use support::*;
 struct ZeroTimer;
@@ -103,7 +103,7 @@ fn run_results(
                     checked(listener.attachments.on_attachment(
                         &test("method2"),
                         Attachment {
-                            file: JavaPath::from_text("/log"),
+                            file: PathBuf::from("/log"),
                             kind: AttachmentType::Log,
                             name: None,
                         },
@@ -174,7 +174,7 @@ mod test_results_listener_test {
                     assert_result(result, method, status, trace);
                 }
                 let attachment = Attachment {
-                    file: JavaPath::from_text("/log"),
+                    file: PathBuf::from("/log"),
                     kind: AttachmentType::Log,
                     name: None,
                 };
@@ -495,10 +495,10 @@ struct Writer {
     saved: Mutex<Vec<(Option<Test>, Vec<String>)>>,
 }
 impl LogWriter for Writer {
-    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, JavaPath> {
+    fn save_logs<'a>(&'a self, target: &'a LogTarget, logs: &'a [String]) -> ServiceFuture<'a, PathBuf> {
         Box::pin(async move {
             self.saved.lock().unwrap().push((target.test.clone(), logs.to_vec()));
-            Ok(JavaPath::from_text(
+            Ok(PathBuf::from(
                 if target.test.as_ref().is_some_and(|t| t.method == "method1") {
                     "/log1"
                 } else {
@@ -560,7 +560,7 @@ mod log_listener_test {
                     assert_eq!(
                         collector.get(&test("method0")),
                         Some(vec![Attachment {
-                            file: JavaPath::from_text("/log0"),
+                            file: PathBuf::from("/log0"),
                             kind: AttachmentType::Log,
                             name: Some("log".into())
                         }])
@@ -572,10 +572,7 @@ mod log_listener_test {
                         checked(log.on_line("c").await);
                         checked(adapter.on_event(&end("method1")).await);
                         checked(log.on_line("d").await);
-                        assert_eq!(
-                            collector.get(&test("method1")).unwrap()[0].file,
-                            JavaPath::from_text("/log1")
-                        );
+                        assert_eq!(collector.get(&test("method1")).unwrap()[0].file, PathBuf::from("/log1"));
                     }
                     let saved = writer.saved.lock().unwrap();
                     assert_eq!(saved[0].1, vec![String::from("1\n2\n")]);

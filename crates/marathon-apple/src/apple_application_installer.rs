@@ -7,10 +7,7 @@ use crate::{
     model::{AppleTestBundle, Sdk},
     xctestrun::test_root_factory::{FactoryError, FactoryResult, TestRootFactory},
 };
-use jcompat::{
-    file_manager::JavaPath,
-    logging::{Level, Logger},
-};
+use jcompat::logging::{Level, Logger};
 use marathon_config::{CONFIGURATION_EXCEPTION_CLASS, VendorConfiguration, vendor::TestType};
 use marathon_core::{
     error::{Cancellation, OperationError, VendorError},
@@ -60,9 +57,8 @@ pub struct AppleApplicationInstaller<'a> {
 fn illegal(message: &str) -> FactoryError {
     VendorError::Other(failure("java.lang.IllegalArgumentException", message)).into()
 }
-fn path(path: &JavaPath) -> Result<PathBuf, VendorError> {
-    path.to_file_path_buf()
-        .map_err(|e| VendorError::Other(failure("java.nio.file.InvalidPathException", e.to_string())))
+fn path(path: &std::path::Path) -> Result<PathBuf, VendorError> {
+    Ok(path.to_path_buf())
 }
 fn setup(message: String) -> VendorError {
     let mut detail = failure("com.malinskiy.marathon.exceptions.DeviceSetupException", "");
@@ -141,8 +137,8 @@ impl<'a> AppleApplicationInstaller<'a> {
             .ok_or_else(|| illegal("No test bundle provided"))?;
         let config = config.ok_or_else(|| illegal("No test bundle provided"))?;
         let bundle = AppleTestBundle::new(
-            config.app.as_ref().map(path).transpose()?,
-            config.test_app.as_ref().map(path).transpose()?,
+            config.app.as_ref().map(|p| path(p)).transpose()?,
+            config.test_app.as_ref().map(|p| path(p)).transpose()?,
             path(xctest)?,
             device.sdk(),
             self.runtime.clone(),
@@ -172,7 +168,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             };
             let src = bundle.test_application.as_ref().unwrap_or(&bundle.xctest_bundle);
             let mut message = String::from("Error transferring ");
-            message.push_str(&String::from_utf16_lossy(&xctest.0.clone()));
+            message.push_str(&xctest.to_string_lossy());
             message.push_str(" to ");
             message.push_str(&device.info().serial_number);
             // Keep the last vendor variant intact across the core retry helper's Failure seam.
@@ -233,7 +229,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             .xctestrun
             .as_ref()
             .filter(|_| self.code_coverage)
-            .map(path)
+            .map(|p| path(p))
             .transpose()?;
         static WARNED_ABOUT_COVERAGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if self.code_coverage
@@ -253,7 +249,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             .await?;
         for extra in config.extra_applications.iter().flatten() {
             let local = path(extra)?;
-            let shown = String::from_utf16_lossy(&extra.0.clone());
+            let shown = extra.to_string_lossy().into_owned();
             let name = shown.to_owned();
             let name = name.rsplit('/').next().unwrap_or("");
             if tokio::fs::metadata(&local).await.is_ok_and(|m| m.is_dir())

@@ -1,5 +1,6 @@
 //! Port of vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt (in-process world lifecycle).
 mod support;
+
 use fake_worker::{
     apple::{Scenario, World},
     fs::VirtualFs,
@@ -141,7 +142,7 @@ async fn provider_setup_prepare_batch_inline_results_and_terminate_in_apple_worl
             h.options.clone(),
             Arc::new(AppleDeviceRegistry::default()),
             Arc::new(Connections(worker.clone(), fs.clone())),
-            jcompat::file_manager::JavaPath::from_text(&h.root.path().to_string_lossy()),
+            std::path::PathBuf::from(h.root.path().to_string_lossy().into_owned()),
             vec![],
         );
         v(provider.initialize(h.context.clone()).await)?;
@@ -172,12 +173,12 @@ async fn provider_setup_prepare_batch_inline_results_and_terminate_in_apple_worl
             .join(&device.info().serial_number)
             .join("xcresult/batch.xcresult");
         // FileManager escapes the serial for local path names; use the shared plan to locate it.
-        let plan = h.options.files.plan_folder_utf16(
+        let plan = h.options.files.plan_folder(
             jcompat::file_manager::FolderType::DeviceFiles,
-            Some(&"pool".encode_utf16().collect::<Vec<_>>()),
-            Some(&device.info().serial_number.encode_utf16().collect::<Vec<_>>()),
+            Some("pool"),
+            Some(&device.info().serial_number),
         );
-        let expected = plan.materialize(|_| {})?.to_path_buf()?.join("xcresult/batch.xcresult");
+        let expected = plan.materialize(|_| {})?.join("xcresult/batch.xcresult");
         assert!(
             expected.is_dir(),
             "expected {} (raw {})",

@@ -10,7 +10,7 @@
 #[path = "support/load.rs"]
 mod load;
 
-use jcompat::{file_manager::JavaPath, jtime::Duration};
+use jcompat::jtime::Duration;
 use marathon_config::{
     AnalyticsConfiguration, Configuration, Defaults, VendorConfiguration,
     binding::{
@@ -26,6 +26,7 @@ use marathon_config::{
         AppleThreadingConfiguration, PullingPolicy, SshAuthentication, ValidationError, XcresultQueueConfiguration,
     },
 };
+use std::path::PathBuf;
 use std::{fs, path::Path};
 
 const CONFIGURATION_EXCEPTION: &str = "com.malinskiy.marathon.config.exceptions.ConfigurationException";
@@ -388,11 +389,11 @@ fn load_errors_map_to_their_kotlin_classes_at_parse() {
 fn devices_binds_with_p2_whatever_the_callers_profile() {
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/elsewhere/Marathonfile"),
+        marathonfile: PathBuf::from("/elsewhere/Marathonfile"),
         analytics_tracking: true,
         bugsnag_reporting: true,
-        marathonfile_dir: JavaPath::from_text("/elsewhere"),
-        process_dir: JavaPath::from_text("/elsewhere"),
+        marathonfile_dir: PathBuf::from("/elsewhere"),
+        process_dir: PathBuf::from("/elsewhere"),
         environment: Vec::new(),
         now: load::reference_now(),
     };
@@ -410,7 +411,7 @@ fn devices_binds_with_p2_whatever_the_callers_profile() {
     else {
         panic!("expected ssh publicKey");
     };
-    assert_eq!(String::from_utf16_lossy(&key.0), "relative/key.pem");
+    assert_eq!(key.to_string_lossy().into_owned(), "relative/key.pem");
     // P2 binding failures keep the Provider stage and their own class.
     let error = load::ready(ConfigurationLoader::devices(
         &MarathonConfigurationLoader,

@@ -1,6 +1,7 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/report/JUnitReporterTest.kt.
 mod event_support;
 mod reporter_support;
+
 use reporter_support::*;
 use std::{
     path::{Path, PathBuf},
@@ -89,10 +90,10 @@ fn junit_create_new_file_and_stream_open_keep_distinct_java_errors() {
                 output.join("tests/myPool/marathon_junit_report.xml"),
             ));
         }
-        let path = jcompat::file_manager::JavaPath::from_text(output.to_str().unwrap());
+        let path = std::path::PathBuf::from(output.to_str().unwrap());
         let failure = checked(CoreExecutor::run(move |core| {
             Box::pin(async move {
-                let reporter = JUnitReporter::new(core.vendor(), path, jcompat::file_manager::JavaPath::from_text(""));
+                let reporter = JUnitReporter::new(core.vendor(), path, std::path::PathBuf::from(""));
                 let report = reporter_support::report(&row("passed")["input"]);
                 let task = core.vendor().spawn(Box::pin(async move {
                     reporter.generate(&report).await.map_err(|e| match e {

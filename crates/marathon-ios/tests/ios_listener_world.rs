@@ -203,7 +203,7 @@ async fn replay(
         h.logs.lock().unwrap()
     );
     if let Some(attachments) = attached {
-        let bytes = std::fs::read(attachments[0].file.to_file_path_buf()?)?;
+        let bytes = std::fs::read(&attachments[0].file)?;
         if screenshot {
             assert!(bytes.starts_with(b"GIF89a"));
             assert_eq!(u16::from_le_bytes([bytes[6], bytes[7]]), 32);
@@ -229,15 +229,13 @@ async fn replay(
             .output
             .create_file(&target(Some(test.clone())))
             .await
-            .map_err(|e| format!("{e:?}"))?
-            .to_file_path_buf()?;
+            .map_err(|e| format!("{e:?}"))?;
         let dst = h
             .services
             .output
             .create_file(&target(None))
             .await
-            .map_err(|e| format!("{e:?}"))?
-            .to_file_path_buf()?;
+            .map_err(|e| format!("{e:?}"))?;
         assert!(!src.exists());
         assert!(std::fs::read(&dst)?.starts_with(b"GIF89a"));
         // A97: lastTestIdentifier survives the failure; repeated callbacks rename again.

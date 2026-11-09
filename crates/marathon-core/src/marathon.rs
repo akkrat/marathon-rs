@@ -791,25 +791,20 @@ impl Marathon {
     /// results ignored (C9: whatever the provider or parser wrote there is lost).
     async fn wipe_output_dir(&self) -> VendorResult<()> {
         let output = self.deps.vendor.configuration.output_dir.clone();
-        let path = output.to_file_path_buf().ok();
+        let path = output.clone();
         let probe = path.clone();
-        let exists = blocking(self.services.core.vendor().as_ref(), move || {
-            Ok(probe.is_some_and(|p| p.exists()))
-        })
-        .await?;
+        let exists = blocking(self.services.core.vendor().as_ref(), move || Ok(probe.exists())).await?;
         if exists {
             let mut message = text(&["Output "]);
-            message.push_str(&String::from_utf16_lossy(&output.0.clone()));
+            message.push_str(&output.to_string_lossy());
             message.push_str(" already exists");
             self.log(LOGGER, Level::Info, message, None);
         }
         blocking(self.services.core.vendor().as_ref(), move || {
-            if let Some(path) = path {
-                if exists {
-                    delete_recursively(&path);
-                }
-                let _ = std::fs::create_dir_all(&path);
+            if exists {
+                delete_recursively(&path);
             }
+            let _ = std::fs::create_dir_all(&path);
             Ok(())
         })
         .await

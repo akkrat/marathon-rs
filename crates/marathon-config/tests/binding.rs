@@ -1,6 +1,6 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt
 //! Test-only schemas exercise the binding API without taking WP 2.2's schema ownership.
-use jcompat::{JavaRegex, file_manager::JavaPath};
+use jcompat::JavaRegex;
 use marathon_config::{
     binder::{self, Binder, Field, Result, Value},
     binding::{BindingCause, BindingContext, PathPart, Profile},
@@ -8,13 +8,14 @@ use marathon_config::{
     pipeline::{LoadError, bind_bytes},
 };
 use serde_json::{Value as Json, json};
+use std::path::PathBuf;
 
 fn context() -> BindingContext {
     BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/config/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/config"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/config/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/config"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: jcompat::jtime::instant_of(0, 0).unwrap(),
         analytics_tracking: false,
@@ -203,20 +204,17 @@ fn absolute_paths_preserve_dot_segments_relative_paths_resolve_symlink_prefixes(
     #[cfg(unix)]
     std::os::unix::fs::symlink(temp.path().join("real/sub"), temp.path().join("link"))?;
     let mut ctx = context();
-    ctx.marathonfile_dir = JavaPath::from_text(temp.path().to_str().ok_or("temp UTF8")?);
+    ctx.marathonfile_dir = PathBuf::from(temp.path().to_str().ok_or("temp UTF8")?);
     let file = |text: &str| {
         let stream = node::load(text);
         let b = Binder::new(&ctx, &stream);
         b.first(&stream, |v| v.file()).map(|p| p.flatten())
     };
-    assert_eq!(file("'/a/../b'").unwrap(), Some(JavaPath::from_text("/a/../b")));
+    assert_eq!(file("'/a/../b'").unwrap(), Some(PathBuf::from("/a/../b")));
     #[cfg(unix)]
     {
         let expected = std::fs::canonicalize(temp.path().join("real"))?.join("missing/leaf");
-        assert_eq!(
-            file("'link/../missing/leaf'").unwrap().unwrap().to_path_buf()?,
-            expected
-        );
+        assert_eq!(file("'link/../missing/leaf'").unwrap().unwrap(), expected);
     }
     assert!(file("'\0'").is_err());
     Ok(())
@@ -234,7 +232,7 @@ fn p2_registry_has_no_java_time_or_marathonfile_path_resolver() {
     let b = Binder::new(&ctx, &s);
     assert_eq!(
         b.first(&s, |v| v.file()).unwrap().flatten(),
-        Some(JavaPath::from_text("relative/key"))
+        Some(PathBuf::from("relative/key"))
     );
 }
 #[test]

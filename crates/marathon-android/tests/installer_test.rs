@@ -1,9 +1,9 @@
 //! Port of vendor/vendor-android/src/test/kotlin/com/malinskiy/marathon/android/AndroidAppInstallerTest.kt
 mod support;
-use jcompat::file_manager::JavaPath;
 use marathon_android::installer::AndroidAppInstaller;
 use marathon_core::{error::*, vendor::Device};
 use serde_json::json;
+use std::path::PathBuf;
 use support::*;
 #[test]
 fn test_clean_installation() {
@@ -50,8 +50,8 @@ fn install_case(grant: bool, options: &'static str, installed: bool, fail: bool,
     };
     let mut c = configuration();
     let a = android(&mut c);
-    a.application_output = Some(JavaPath::from_text(&app.to_string_lossy()));
-    a.test_application_output = Some(JavaPath::from_text(&test_apk.to_string_lossy()));
+    a.application_output = Some(PathBuf::from(app.to_string_lossy().into_owned()));
+    a.test_application_output = Some(PathBuf::from(test_apk.to_string_lossy().into_owned()));
     a.auto_grant_permission = grant;
     a.install_options = js(options);
     a.timeout_configuration.shell = jcompat::jtime::duration_of(0, 100_000_000).unwrap();
@@ -140,10 +140,12 @@ fn test_clean_split_installation() {
     let app = fixture("vendor-android/apk/base-en.apk");
     let split = fixture("vendor-android/apk/standalone-hdpi.apk");
     let total = checked(app.metadata()).len() + checked(split.metadata()).len();
-    a.application_output = Some(JavaPath::from_text(&app.to_string_lossy()));
-    a.split_apks = Some(vec![JavaPath::from_text(&split.to_string_lossy())]);
-    a.test_application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.application_output = Some(PathBuf::from(app.to_string_lossy().into_owned()));
+    a.split_apks = Some(vec![PathBuf::from(split.to_string_lossy().into_owned())]);
+    a.test_application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     run(c, move |runtime, context| {
         Box::pin(async move {
@@ -199,11 +201,15 @@ fn prepare_leaves_external_storage_alone_d27() {
 fn inverted_api21_check_rejects_plain_apk() {
     let mut c = configuration();
     let a = android(&mut c);
-    a.application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug.apk").to_string_lossy(),
+    a.application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
-    a.test_application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.test_application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     run(c, |runtime, context| {
         Box::pin(async move {

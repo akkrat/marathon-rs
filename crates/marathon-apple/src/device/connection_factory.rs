@@ -584,12 +584,12 @@ impl Connector for ProductionConnector {
                 SshAuthentication::PublicKey { username, key } => {
                     crate::cmd::remote::ssh::sshj::SshAuthentication::PublicKey {
                         username: username.to_owned(),
-                        key: key.to_file_path_buf().map_err(crate::cmd::io_error)?,
+                        key,
                     }
                 }
             };
             let verifier: Option<Arc<dyn HostKeyVerifier>> = if let Some(path) = &self.ssh.known_hosts_path {
-                let path = path.to_file_path_buf().map_err(crate::cmd::io_error)?;
+                let path = path.clone();
                 let logging = self.logging.clone();
                 Some(
                     blocking(self.runtime.as_ref(), move || {
@@ -667,7 +667,7 @@ pub fn transport_text(transport: &Transport, local_identity: &str) -> String {
                     "PublicKeyAuthentication",
                     vec![
                         ("username", KotlinValue::Text(username.clone())),
-                        ("key", KotlinValue::Text(String::from_utf16_lossy(&key.0.clone()))),
+                        ("key", KotlinValue::Text(key.to_string_lossy().into_owned())),
                     ],
                 ),
             };

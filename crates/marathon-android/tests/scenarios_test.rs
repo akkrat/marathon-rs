@@ -1,12 +1,12 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt
 //! and AdamAndroidDevice.kt (Kotlin-first strict fake-ADB differential scenarios).
 mod support;
-use jcompat::file_manager::JavaPath;
 use marathon_adb::server::{FakeAdbServer, Script, ServerOptions};
 use marathon_android::provider::AdamDeviceProvider;
 use marathon_core::vendor::{DeviceEvent, DeviceProvider};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use support::*;
 fn transcript_commands(rows: &[Value]) -> BTreeMap<String, Vec<String>> {
     let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -76,11 +76,15 @@ fn kotlin_install_matrix() {
     )));
     let mut c = configuration();
     let a = android(&mut c);
-    a.application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug.apk").to_string_lossy(),
+    a.application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
-    a.test_application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.test_application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     a.auto_grant_permission = true;
     a.install_options = js("-custom");
@@ -128,11 +132,15 @@ fn kotlin_two_devices_setup_and_install_subset() {
     )));
     let mut c = configuration();
     let a = android(&mut c);
-    a.application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug.apk").to_string_lossy(),
+    a.application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
-    a.test_application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.test_application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     a.auto_grant_permission = false;
     run(c, move |runtime, context| {

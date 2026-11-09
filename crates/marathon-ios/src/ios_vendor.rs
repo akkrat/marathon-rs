@@ -21,6 +21,7 @@ use marathon_apple::{
 };
 use marathon_config::{VendorConfiguration, binding::BindingContext, vendor::AppleTestParserConfiguration};
 use marathon_core::vendor::{TestParser, VendorServices};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// All run-owned services are explicit. In particular the device constructor and both
@@ -116,7 +117,7 @@ pub async fn construct_with_parser_libraries(
     dependencies: marathon_core::wiring::VendorDependencies,
     parser_libraries: impl FnOnce() -> ParserLibraries,
 ) -> marathon_core::error::VendorResult<VendorServices> {
-    use jcompat::file_manager::{FileManager, JavaPath};
+    use jcompat::file_manager::FileManager;
     use marathon_apple::{
         apple_test_bundle_identifier::AppleTestBundleIdentifier,
         artifact_processor::ArtifactProcessor,
@@ -159,7 +160,7 @@ pub async fn construct_with_parser_libraries(
         }),
     );
     let cwd = std::env::current_dir().map_err(|e| VendorError::Other(failure("java.io.IOException", e.to_string())))?;
-    let cwd = JavaPath::from_text(&cwd.to_string_lossy());
+    let cwd = PathBuf::from(cwd.to_string_lossy().into_owned());
     let context = VendorContext {
         cancellation: Signal::new(),
         clock: dependencies.clock.clone(),
@@ -184,11 +185,11 @@ pub async fn construct_with_parser_libraries(
     .map_err(|e| VendorError::Other(failure("java.lang.IllegalArgumentException", &e.0)))?;
     let track = Track::new(dependencies.io.clone(), dependencies.hooks.clone());
     track.add(dependencies.tracker.clone());
-    let files = Arc::new(FileManager::new_utf16(
+    let files = Arc::new(FileManager::new(
         dependencies.configuration.output_configuration.max_path,
         dependencies.configuration.output_configuration.max_filename,
-        &dependencies.configuration.output_dir.0,
-        &cwd.0,
+        &dependencies.configuration.output_dir.to_string_lossy(),
+        &cwd.to_string_lossy(),
     ));
     IosVendor {
         simulator: SimulatorServices {

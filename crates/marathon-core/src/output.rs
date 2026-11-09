@@ -5,7 +5,7 @@ use crate::{
     model::{DeviceInfo, DevicePoolId, Test},
     runtime::ServiceFuture,
 };
-use jcompat::file_manager::JavaPath;
+use std::path::PathBuf;
 
 pub use jcompat::file_manager::{FileType, FolderType};
 
@@ -38,15 +38,15 @@ impl FileTarget {
 /// the merged path rules and C1/C2 suffix bugs.
 /// Backend failures propagate as OperationError::Failed; cancellation stays typed.
 pub trait OutputFiles: Send + Sync {
-    fn output_dir(&self) -> &JavaPath;
-    fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, JavaPath>;
+    fn output_dir(&self) -> &PathBuf;
+    fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, PathBuf>;
     fn create_folder<'a>(
         &'a self,
         kind: FolderType,
         pool: Option<&'a DevicePoolId>,
         device: Option<&'a DeviceInfo>,
-    ) -> ServiceFuture<'a, JavaPath>;
-    fn create_test_result_file<'a>(&'a self, filename: &'a str) -> ServiceFuture<'a, JavaPath>;
+    ) -> ServiceFuture<'a, PathBuf>;
+    fn create_test_result_file<'a>(&'a self, filename: &'a str) -> ServiceFuture<'a, PathBuf>;
 }
 
 /// Called off core. Render Log through the shared console's write_event/Jansi

@@ -22,11 +22,12 @@ use crate::{
 };
 use jcompat::{
     JavaRegex,
-    file_manager::{JavaPath, absolute_file_path_utf16},
+    file_manager::absolute_file_path,
     jnum::double_to_string,
     jtime::{Duration, Instant},
     writers::{JacksonYamlWriter, JavaNumber, KotlinValue, WriterValue},
 };
+use std::path::PathBuf;
 
 // ---- Enum names ---------------------------------------------------------------
 
@@ -117,14 +118,16 @@ impl Configuration {
     /// `File.absolutePath`, resolved against `process_dir` (the JVM's
     /// `user.dir`) when it is relative; every other value is the field's
     /// Kotlin `toString()`.
-    pub fn to_map(&self, process_dir: &JavaPath) -> Vec<(String, String)> {
+    pub fn to_map(&self, process_dir: &std::path::Path) -> Vec<(String, String)> {
         let entries = [
             ("name", text(&self.name)),
             (
                 "outputDir",
-                KotlinValue::Text(String::from_utf16_lossy(
-                    &absolute_file_path_utf16(&self.output_dir.0, &process_dir.0).0,
-                )),
+                KotlinValue::Text(
+                    absolute_file_path(&self.output_dir.to_string_lossy(), &process_dir.to_string_lossy())
+                        .to_string_lossy()
+                        .into_owned(),
+                ),
             ),
             ("outputConfiguration", self.output_configuration.kotlin()),
             ("analyticsConfiguration", self.analytics_configuration.kotlin()),
@@ -188,8 +191,8 @@ fn quoted(s: &str) -> KotlinValue {
     out.push('\'');
     KotlinValue::Text(out)
 }
-fn path(p: &JavaPath) -> KotlinValue {
-    KotlinValue::Text(String::from_utf16_lossy(&p.0.clone()))
+fn path(p: &std::path::Path) -> KotlinValue {
+    KotlinValue::Text(p.to_string_lossy().into_owned())
 }
 fn regex(r: &JavaRegex) -> KotlinValue {
     r.pattern().into()
@@ -465,7 +468,7 @@ fn values_filter(name: &str, f: &RegexValuesFileFilter) -> KotlinValue {
         vec![
             ("regex", opt(f.regex.as_ref(), regex)),
             ("values", opt(f.values.as_ref(), |v| list(v, |s| text(s)))),
-            ("file", opt(f.file.as_ref(), path)),
+            ("file", opt(f.file.as_ref(), |p| path(p))),
             ("enabled", boolean(f.enabled)),
         ],
     )
@@ -490,7 +493,7 @@ impl Kotlin for TestFilterConfiguration {
                 vec![
                     ("regex", opt(r.as_ref(), regex)),
                     ("values", opt(values.as_ref(), |v| list(v, |s| text(s)))),
-                    ("file", opt(file.as_ref(), path)),
+                    ("file", opt(file.as_ref(), |p| path(p))),
                     ("subpackages", boolean(*subpackages)),
                     ("enabled", boolean(*enabled)),
                 ],
@@ -548,19 +551,19 @@ impl Kotlin for VendorConfiguration {
         }
     }
 }
-fn paths(v: Option<&Vec<JavaPath>>) -> KotlinValue {
-    opt(v, |v| list(v, path))
+fn paths(v: Option<&Vec<PathBuf>>) -> KotlinValue {
+    opt(v, |v| list(v, |p| path(p)))
 }
 impl Kotlin for AndroidConfiguration {
     fn kotlin(&self) -> KotlinValue {
         data(
             "AndroidConfiguration",
             vec![
-                ("androidSdk", opt(self.android_sdk.as_ref(), path)),
-                ("applicationOutput", opt(self.application_output.as_ref(), path)),
+                ("androidSdk", opt(self.android_sdk.as_ref(), |p| path(p))),
+                ("applicationOutput", opt(self.application_output.as_ref(), |p| path(p))),
                 (
                     "testApplicationOutput",
-                    opt(self.test_application_output.as_ref(), path),
+                    opt(self.test_application_output.as_ref(), |p| path(p)),
                 ),
                 ("splitApks", paths(self.split_apks.as_ref())),
                 (
@@ -599,7 +602,7 @@ impl Kotlin for AndroidTestBundleConfiguration {
         data(
             "AndroidTestBundleConfiguration",
             vec![
-                ("application", opt(self.application.as_ref(), path)),
+                ("application", opt(self.application.as_ref(), |p| path(p))),
                 ("testApplication", path(&self.test_application)),
                 ("extraApplications", paths(self.extra_applications.as_ref())),
                 ("splitApks", paths(self.split_apks.as_ref())),
@@ -757,7 +760,7 @@ impl Kotlin for ProfilingConfiguration {
             "ProfilingConfiguration",
             vec![
                 ("enabled", boolean(self.enabled)),
-                ("pbtxt", opt(self.pbtxt.as_ref(), path)),
+                ("pbtxt", opt(self.pbtxt.as_ref(), |p| path(p))),
                 ("urlTemplate", text(&self.url_template)),
             ],
         )
@@ -771,7 +774,7 @@ impl Kotlin for IosConfiguration {
             vec![
                 ("bundle", opt(self.bundle.as_ref(), Kotlin::kotlin)),
                 ("deviceProvider", self.device_provider.kotlin()),
-                ("devicesFile", opt(self.devices_file.as_ref(), path)),
+                ("devicesFile", opt(self.devices_file.as_ref(), |p| path(p))),
                 ("ssh", self.ssh.kotlin()),
                 ("workerConnection", self.worker_connection.kotlin()),
                 ("xcresult", self.xcresult.kotlin()),
@@ -812,7 +815,7 @@ impl Kotlin for MacosConfiguration {
             vec![
                 ("bundle", opt(self.bundle.as_ref(), Kotlin::kotlin)),
                 ("deviceProvider", self.device_provider.kotlin()),
-                ("devicesFile", opt(self.devices_file.as_ref(), path)),
+                ("devicesFile", opt(self.devices_file.as_ref(), |p| path(p))),
                 ("ssh", self.ssh.kotlin()),
                 ("xcresult", self.xcresult.kotlin()),
                 ("xctestrunEnv", self.xctestrun_env.kotlin()),
@@ -850,12 +853,12 @@ impl Kotlin for AppleTestBundleConfiguration {
         data(
             "AppleTestBundleConfiguration",
             vec![
-                ("application", opt(self.application.as_ref(), path)),
-                ("testApplication", opt(self.test_application.as_ref(), path)),
+                ("application", opt(self.application.as_ref(), |p| path(p))),
+                ("testApplication", opt(self.test_application.as_ref(), |p| path(p))),
                 ("extraApplications", paths(self.extra_applications.as_ref())),
-                ("derivedDataDir", opt(self.derived_data_dir.as_ref(), path)),
+                ("derivedDataDir", opt(self.derived_data_dir.as_ref(), |p| path(p))),
                 ("testType", opt(self.test_type.as_ref(), |t| enumeration(*t))),
-                ("xctestrun", opt(self.xctestrun.as_ref(), path)),
+                ("xctestrun", opt(self.xctestrun.as_ref(), |p| path(p))),
                 ("tempDirFor", "(java.io.File) -> java.io.File".into()),
             ],
         )
@@ -864,7 +867,7 @@ impl Kotlin for AppleTestBundleConfiguration {
 impl Kotlin for DeviceProvider {
     fn kotlin(&self) -> KotlinValue {
         match self {
-            Self::Static { path: p } => data("Static", vec![("path", opt(p.as_ref(), path))]),
+            Self::Static { path: p } => data("Static", vec![("path", opt(p.as_ref(), |p| path(p)))]),
             Self::Dynamic { host, port } => data("Dynamic", vec![("host", text(host)), ("port", number(port))]),
         }
     }
@@ -885,7 +888,7 @@ impl Kotlin for SshConfiguration {
             "SshConfiguration",
             vec![
                 ("authentication", authentication),
-                ("knownHostsPath", opt(self.known_hosts_path.as_ref(), path)),
+                ("knownHostsPath", opt(self.known_hosts_path.as_ref(), |p| path(p))),
                 ("keepAliveInterval", duration(&self.keep_alive_interval)),
                 ("keepAliveMaxCount", number(self.keep_alive_max_count)),
                 ("debug", boolean(self.debug)),
@@ -1125,8 +1128,8 @@ fn typed(id: &str, mut entries: Vec<(&str, WriterValue)>) -> WriterValue {
 fn w_text(s: &str) -> WriterValue {
     WriterValue::String(s.to_string())
 }
-fn w_path(p: &JavaPath) -> WriterValue {
-    WriterValue::String(String::from_utf16_lossy(&p.0.clone()))
+fn w_path(p: &std::path::Path) -> WriterValue {
+    WriterValue::String(p.to_string_lossy().into_owned())
 }
 /// `RegexSerializer`: the pattern string.
 fn w_regex(r: &JavaRegex) -> WriterValue {
@@ -1160,8 +1163,8 @@ fn w_opt<T>(v: Option<&T>, f: impl FnOnce(&T) -> WriterValue) -> WriterValue {
 fn w_list<T>(v: &[T], f: impl FnMut(&T) -> WriterValue) -> WriterValue {
     WriterValue::Array(v.iter().map(f).collect())
 }
-fn w_paths(v: Option<&Vec<JavaPath>>) -> WriterValue {
-    w_opt(v, |v| w_list(v, w_path))
+fn w_paths(v: Option<&Vec<PathBuf>>) -> WriterValue {
+    w_opt(v, |v| w_list(v, |p| w_path(p)))
 }
 fn w_map(v: &[(String, String)]) -> WriterValue {
     WriterValue::Object(v.iter().map(|(k, v)| (k.as_str().into(), w_text(v))).collect())
@@ -1415,7 +1418,7 @@ fn w_values_filter(id: &str, f: &RegexValuesFileFilter) -> WriterValue {
         vec![
             ("regex", w_opt(f.regex.as_ref(), w_regex)),
             ("values", w_opt(f.values.as_ref(), |v| w_list(v, |s| w_text(s)))),
-            ("file", w_opt(f.file.as_ref(), w_path)),
+            ("file", w_opt(f.file.as_ref(), |p| w_path(p))),
             ("enabled", WriterValue::Bool(f.enabled)),
         ],
     )
@@ -1434,7 +1437,7 @@ impl WriterProjection for TestFilterConfiguration {
                 vec![
                     ("regex", w_opt(f.regex.as_ref(), w_regex)),
                     ("values", w_opt(f.values.as_ref(), |v| w_list(v, |s| w_text(s)))),
-                    ("file", w_opt(f.file.as_ref(), w_path)),
+                    ("file", w_opt(f.file.as_ref(), |p| w_path(p))),
                     ("subpackages", WriterValue::Bool(f.subpackages)),
                     ("enabled", WriterValue::Bool(f.enabled)),
                 ],
@@ -1491,9 +1494,12 @@ fn android(c: &AndroidConfiguration) -> WriterValue {
     typed(
         "Android",
         vec![
-            ("androidSdk", w_opt(c.android_sdk.as_ref(), w_path)),
-            ("applicationApk", w_opt(c.application_output.as_ref(), w_path)),
-            ("testApplicationApk", w_opt(c.test_application_output.as_ref(), w_path)),
+            ("androidSdk", w_opt(c.android_sdk.as_ref(), |p| w_path(p))),
+            ("applicationApk", w_opt(c.application_output.as_ref(), |p| w_path(p))),
+            (
+                "testApplicationApk",
+                w_opt(c.test_application_output.as_ref(), |p| w_path(p)),
+            ),
             ("splitApks", w_paths(c.split_apks.as_ref())),
             ("extraApplicationsApk", w_paths(c.extra_applications_output.as_ref())),
             (
@@ -1501,7 +1507,7 @@ fn android(c: &AndroidConfiguration) -> WriterValue {
                 w_opt(c.outputs.as_ref(), |v| {
                     w_list(v, |o| {
                         obj(vec![
-                            ("application", w_opt(o.application.as_ref(), w_path)),
+                            ("application", w_opt(o.application.as_ref(), |p| w_path(p))),
                             ("testApplication", w_path(&o.test_application)),
                             ("extraApplications", w_paths(o.extra_applications.as_ref())),
                             ("splitApks", w_paths(o.split_apks.as_ref())),
@@ -1637,7 +1643,7 @@ fn android(c: &AndroidConfiguration) -> WriterValue {
                 "profilingConfiguration",
                 obj(vec![
                     ("enabled", WriterValue::Bool(c.profiling_configuration.enabled)),
-                    ("pbtxt", w_opt(c.profiling_configuration.pbtxt.as_ref(), w_path)),
+                    ("pbtxt", w_opt(c.profiling_configuration.pbtxt.as_ref(), |p| w_path(p))),
                     ("urlTemplate", w_text(&c.profiling_configuration.url_template)),
                 ]),
             ),
@@ -1649,17 +1655,17 @@ fn android(c: &AndroidConfiguration) -> WriterValue {
 /// are `@JsonIgnore` and are found again by the re-parse's `validate()`.
 fn w_bundle(b: &AppleTestBundleConfiguration) -> WriterValue {
     obj(vec![
-        ("application", w_opt(b.application.as_ref(), w_path)),
-        ("testApplication", w_opt(b.test_application.as_ref(), w_path)),
+        ("application", w_opt(b.application.as_ref(), |p| w_path(p))),
+        ("testApplication", w_opt(b.test_application.as_ref(), |p| w_path(p))),
         ("extraApplications", w_paths(b.extra_applications.as_ref())),
-        ("derivedDataDir", w_opt(b.derived_data_dir.as_ref(), w_path)),
+        ("derivedDataDir", w_opt(b.derived_data_dir.as_ref(), |p| w_path(p))),
         ("testType", w_opt(b.test_type.as_ref(), |t| w_enum(*t))),
-        ("xctestrun", w_opt(b.xctestrun.as_ref(), w_path)),
+        ("xctestrun", w_opt(b.xctestrun.as_ref(), |p| w_path(p))),
     ])
 }
 fn w_device_provider(p: &DeviceProvider) -> WriterValue {
     match p {
-        DeviceProvider::Static { path } => typed("static", vec![("path", w_opt(path.as_ref(), w_path))]),
+        DeviceProvider::Static { path } => typed("static", vec![("path", w_opt(path.as_ref(), |p| w_path(p)))]),
         DeviceProvider::Dynamic { host, port } => {
             typed("dynamic", vec![("host", w_text(host)), ("port", w_int(*port))])
         }
@@ -1679,7 +1685,7 @@ fn w_ssh(s: &SshConfiguration) -> WriterValue {
                 }
             }),
         ),
-        ("knownHostsPath", w_opt(s.known_hosts_path.as_ref(), w_path)),
+        ("knownHostsPath", w_opt(s.known_hosts_path.as_ref(), |p| w_path(p))),
         ("keepAliveInterval", w_duration(&s.keep_alive_interval)),
         ("keepAliveMaxCount", w_int(s.keep_alive_max_count)),
         ("debug", WriterValue::Bool(s.debug)),
@@ -1783,7 +1789,7 @@ fn ios(c: &IosConfiguration) -> WriterValue {
         vec![
             ("bundle", w_opt(c.bundle.as_ref(), w_bundle)),
             ("deviceProvider", w_device_provider(&c.device_provider)),
-            ("devices", w_opt(c.devices_file.as_ref(), w_path)),
+            ("devices", w_opt(c.devices_file.as_ref(), |p| w_path(p))),
             ("ssh", w_ssh(&c.ssh)),
             (
                 "workerConnection",
@@ -1890,7 +1896,7 @@ fn macos(c: &MacosConfiguration) -> WriterValue {
         vec![
             ("bundle", w_opt(c.bundle.as_ref(), w_bundle)),
             ("deviceProvider", w_device_provider(&c.device_provider)),
-            ("devices", w_opt(c.devices_file.as_ref(), w_path)),
+            ("devices", w_opt(c.devices_file.as_ref(), |p| w_path(p))),
             ("ssh", w_ssh(&c.ssh)),
             ("xcresult", c.xcresult.writer_value()),
             ("xctestrunEnv", w_xctestrun_env(&c.xctestrun_env)),

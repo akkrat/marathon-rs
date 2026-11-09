@@ -1,19 +1,19 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt
 //! Test-only consumers of the shared binder, backed by the review JVM corpus.
-use jcompat::file_manager::JavaPath;
 use marathon_config::{
     binder::{Binder, Field, MISSING_KOTLIN, Result, Value},
     binding::{BindingContext, Profile},
     node,
 };
 use serde_json::{Value as Json, json};
+use std::path::PathBuf;
 
 fn context() -> BindingContext {
     BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: jcompat::jtime::instant_of(0, 0).unwrap(),
         analytics_tracking: false,
@@ -218,7 +218,7 @@ fn schema(v: Value<'_>, target: &str) -> Result<Json> {
             }
             Ok(json!({"k":field.optional().map(|r|r.pattern().to_owned())}))
         }
-        "P2File" => Ok(json!(v.file()?.map(|p| String::from_utf16_lossy(&p.0)))),
+        "P2File" => Ok(json!(v.file()?.map(|p| p.to_string_lossy().into_owned()))),
         "SerialStrategy" | "AndroidRecorder" | "IosRecorder" => Ok(json!(v.enum_creator(|s| {
             let names: &[&str] = if target == "SerialStrategy" {
                 &["AUTOMATIC", "MARATHON_PROPERTY", "BOOT_PROPERTY", "HOSTNAME", "DDMS"]

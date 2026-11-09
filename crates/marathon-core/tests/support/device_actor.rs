@@ -5,10 +5,7 @@
 //!
 //! Every scenario runs on `run_virtual`: virtual time, explicit drains, no sleeps.
 #![allow(dead_code)]
-use jcompat::{
-    file_manager::JavaPath,
-    logging::{Level, Logger, MarathonLogging},
-};
+use jcompat::logging::{Level, Logger, MarathonLogging};
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},
@@ -34,6 +31,7 @@ use marathon_core::{
     vendor::{Device, DeviceRef, VendorContext},
 };
 use serde_json::{Map, Value, json};
+use std::path::PathBuf;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -56,9 +54,9 @@ pub fn configuration() -> Arc<Configuration> {
         .get_or_init(|| {
             let context = BindingContext {
                 profile: Profile::Marathonfile,
-                marathonfile: JavaPath::from_text("/config/Marathonfile"),
-                marathonfile_dir: JavaPath::from_text("/config"),
-                process_dir: JavaPath::from_text("/"),
+                marathonfile: PathBuf::from("/config/Marathonfile"),
+                marathonfile_dir: PathBuf::from("/config"),
+                process_dir: PathBuf::from("/"),
                 environment: vec![],
                 now: jcompat::jtime::instant_of(0, 0).unwrap(),
                 analytics_tracking: false,

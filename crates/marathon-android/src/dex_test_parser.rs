@@ -7,7 +7,6 @@
 //! runtime's blocking pool (lifecycle.md: no blocking work on the core
 //! executor).
 
-use jcompat::file_manager::JavaPath;
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
     model::{DecodedWrapper, MetaArray, MetaMap, MetaProperty, MetaValue, Test},
@@ -15,6 +14,7 @@ use marathon_core::{
     vendor::{LocalTestParser, VendorContext},
 };
 use marathon_dex::{DecodedValue, DexError, TestAnnotation, TestMethod};
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -26,10 +26,10 @@ use std::{
 /// (only `test_application` is parsed).
 #[derive(Clone, Debug)]
 pub struct DexTestBundleFiles {
-    pub application: Option<JavaPath>,
-    pub test_application: JavaPath,
-    pub extra_applications: Vec<JavaPath>,
-    pub split_apks: Vec<JavaPath>,
+    pub application: Option<PathBuf>,
+    pub test_application: PathBuf,
+    pub extra_applications: Vec<PathBuf>,
+    pub split_apks: Vec<PathBuf>,
 }
 
 /// `AndroidTestBundle(bundle.application, bundle.testApplication,
@@ -79,13 +79,10 @@ fn extract_bundles<B>(
 ) -> VendorResult<Vec<Test>> {
     let mut tests = Vec::new();
     for bundle in bundles {
-        let test_application = bundle
-            .test_application
-            .to_file_path_buf()
-            .map_err(|err| failure_from(DexError::io(err.to_string().as_str().to_owned())))?;
+        let test_application = &bundle.test_application;
         // bundle.testApplication.absolutePath: FileInputStream failures
         // propagate unwrapped (no try/catch in DexTestParser.kt).
-        let methods = marathon_dex::find_test_methods(&test_application, &[]).map_err(failure_from)?;
+        let methods = marathon_dex::find_test_methods(test_application, &[]).map_err(failure_from)?;
         let android_test_bundle = create_bundle(bundle);
         // Arrays are shared within a bundle's results only; the converter
         // keeps every source array it has seen alive while it lives.

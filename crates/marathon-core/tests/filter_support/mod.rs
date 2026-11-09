@@ -3,7 +3,8 @@
 #![allow(dead_code)]
 #[path = "../strategy_support/mod.rs"]
 mod strategy_support;
-use jcompat::{JavaRegex, file_manager::JavaPath, logging::Level};
+
+use jcompat::{JavaRegex, logging::Level};
 use marathon_config::schema::{RegexValuesFileFilter, TestFilterConfiguration as C};
 use marathon_core::{
     error::{Failure, OperationResult},
@@ -121,8 +122,8 @@ pub fn check(config: C, tests: &[Test], not: bool, expected: &[Test]) -> Operati
     assert_eq!(apply(filter(&config), tests.to_vec(), not)?, expected);
     Ok(())
 }
-pub fn fixture(name: &str) -> JavaPath {
-    JavaPath::from_text(&format!(
+pub fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(&format!(
         "{}/../../fixtures/core/testfilters/{name}",
         env!("CARGO_MANIFEST_DIR")
     ))
@@ -139,8 +140,8 @@ impl Temp {
         std::fs::create_dir(&p).map_err(|e| fail(&e.to_string()))?;
         Ok(Self(p))
     }
-    pub fn path(&self, name: &str) -> JavaPath {
-        JavaPath::from_text(&self.0.join(name).to_string_lossy())
+    pub fn path(&self, name: &str) -> PathBuf {
+        PathBuf::from(self.0.join(name).to_string_lossy().into_owned())
     }
     pub fn write(&self, name: &str, bytes: impl AsRef<[u8]>) -> OperationResult<()> {
         std::fs::write(self.0.join(name), bytes).map_err(|e| fail(&e.to_string()).into())
@@ -151,13 +152,13 @@ impl Drop for Temp {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-pub fn file_config(path: JavaPath) -> C {
+pub fn file_config(path: PathBuf) -> C {
     C::FullyQualifiedClassname(RegexValuesFileFilter {
         file: Some(path),
         ..config(None, None, true)
     })
 }
-pub fn read(path: &JavaPath) -> OperationResult<Vec<String>> {
+pub fn read(path: &std::path::Path) -> OperationResult<Vec<String>> {
     use marathon_core::filter::values::FilterValuesReader;
     FileValuesReader {
         logger: Arc::new(Logs::default()),

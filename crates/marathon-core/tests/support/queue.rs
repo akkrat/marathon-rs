@@ -6,7 +6,7 @@
 //! events of a message keep the order they happened in although logs and output reach the sink later.
 #![allow(dead_code)]
 use futures_util::future::{Either, select};
-use jcompat::{file_manager::JavaPath, jtime::Instant, logging::Level};
+use jcompat::{jtime::Instant, logging::Level};
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},
@@ -35,6 +35,7 @@ use marathon_core::{
     wiring::{MetricsProvider, Tracker},
 };
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::{
     cell::RefCell,
     collections::{HashMap, VecDeque},
@@ -59,9 +60,9 @@ pub fn configuration() -> Configuration {
         .get_or_init(|| {
             let context = BindingContext {
                 profile: Profile::Marathonfile,
-                marathonfile: JavaPath::from_text("/config/Marathonfile"),
-                marathonfile_dir: JavaPath::from_text("/config"),
-                process_dir: JavaPath::from_text("/"),
+                marathonfile: PathBuf::from("/config/Marathonfile"),
+                marathonfile_dir: PathBuf::from("/config"),
+                process_dir: PathBuf::from("/"),
                 environment: vec![],
                 now: jcompat::jtime::instant_of(0, 0).unwrap(),
                 analytics_tracking: false,

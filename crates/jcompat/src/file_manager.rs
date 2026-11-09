@@ -1,37 +1,10 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/io/FileManager.kt,
 //! io/FileType.kt, io/FolderType.kt, extension/StringExtensions.kt and json/FileSerializer.kt.
 
-use std::{io, path::PathBuf};
-
-/// Java paths retain UTF-16 units even when a length limit splits a surrogate pair.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct JavaPath(pub Vec<u16>);
-
-impl JavaPath {
-    pub fn from_text(text: &str) -> Self {
-        Self(text.encode_utf16().collect())
-    }
-
-    /// Legacy File operations also reject malformed UTF-16 on the reference JDK.
-    pub fn to_file_path_buf(&self) -> io::Result<PathBuf> {
-        self.to_path_buf()
-    }
-
-    /// File.toPath uses the NIO encoder, which rejects malformed UTF-16 and NUL.
-    pub fn to_path_buf(&self) -> io::Result<PathBuf> {
-        let text = String::from_utf16(&self.0).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-        if text.contains('\0') {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Nul character not allowed"));
-        }
-        Ok(PathBuf::from(text))
-    }
-}
-
-/// D55: diagnostic text omits incomplete characters left by path truncation.
-/// The path itself keeps its UTF-16 units and its existing filesystem behavior.
-pub fn path_diagnostic(units: &[u16]) -> String {
-    char::decode_utf16(units.iter().copied()).flatten().collect()
-}
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 /// Java's negated ASCII character class consumes a supplementary code point once.
 pub fn escape(input: &str) -> String {
@@ -43,15 +16,6 @@ pub fn escape(input: &str) -> String {
             } else {
                 '-'
             }
-        })
-        .collect()
-}
-
-pub fn escape_utf16(input: &[u16]) -> Vec<u16> {
-    char::decode_utf16(input.iter().copied())
-        .map(|c| match c {
-            Ok(c) if c.is_ascii_alphanumeric() || c == '.' || c == '#' => c as u16,
-            _ => u16::from(b'-'),
         })
         .collect()
 }
@@ -136,30 +100,29 @@ pub struct FileRequest<'a> {
 
 #[derive(Debug)]
 pub struct PathPlan {
-    pub path: JavaPath,
-    pub directory: JavaPath,
-    /// ERROR messages, in the order FileManager emits them. Keep UTF-16 for split surrogates.
-    pub diagnostics: Vec<JavaPath>,
+    pub path: PathBuf,
+    pub directory: PathBuf,
+    pub diagnostics: Vec<String>,
     best_effort_mkdirs: bool,
     folder: bool,
-    preflight: Vec<JavaPath>,
+    preflight: Vec<PathBuf>,
 }
 impl PathPlan {
     /// Blocking: call on an I/O executor. This creates directories, never the file.
-    /// Use materialize when the original ERROR log ordering matters.
     pub fn create_directories(&self) -> io::Result<()> {
         self.materialize(|_| {}).map(|_| ())
     }
 
-    /// Performs Kotlin's directory side effects and emits the exact ERROR message units.
-    /// Folder diagnostics precede mkdir; file diagnostics follow successful directory creation.
-    pub fn materialize(&self, mut log_error: impl FnMut(&[u16])) -> io::Result<JavaPath> {
+    /// Folder diagnostics precede mkdir; file diagnostics follow directory creation.
+    pub fn materialize(&self, mut log_error: impl FnMut(&str)) -> io::Result<PathBuf> {
         for path in &self.preflight {
-            path.to_path_buf()?;
+            if path.to_string_lossy().contains('\0') {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "Nul character not allowed"));
+            }
         }
-        let emit = |log_error: &mut dyn FnMut(&[u16])| {
+        let emit = |log_error: &mut dyn FnMut(&str)| {
             for message in &self.diagnostics {
-                log_error(&message.0);
+                log_error(message);
             }
         };
         if self.folder {
@@ -167,11 +130,9 @@ impl PathPlan {
         }
         if self.best_effort_mkdirs {
             // File.mkdirs returns false on failure; createTestResultFile ignores it.
-            if let Ok(path) = self.directory.to_file_path_buf() {
-                let _ = std::fs::create_dir_all(path);
-            }
+            let _ = std::fs::create_dir_all(&self.directory);
         } else {
-            std::fs::create_dir_all(self.directory.to_path_buf()?)?;
+            std::fs::create_dir_all(&self.directory)?;
         }
         if !self.folder {
             emit(&mut log_error);
@@ -184,72 +145,62 @@ impl PathPlan {
 pub struct FileManager {
     pub max_path: i32,
     pub max_filename: i32,
-    output: JavaPath,
+    output: PathBuf,
 }
 
 // Unix File/Path normalizes repeated slashes and trailing slashes, but retains dot components.
-fn normalize(path: &[u16]) -> JavaPath {
-    let mut result = Vec::new();
-    for &unit in path {
-        if unit != 47 || result.last() != Some(&47) {
-            result.push(unit);
+fn normalize(path: &str) -> PathBuf {
+    let mut result = String::new();
+    for c in path.chars() {
+        if c != '/' || !result.ends_with('/') {
+            result.push(c);
         }
     }
-    while result.len() > 1 && result.last() == Some(&47) {
+    while result.len() > 1 && result.ends_with('/') {
         result.pop();
     }
-    JavaPath(result)
+    PathBuf::from(result)
 }
-fn append_units(base: &JavaPath, child: &[u16], resolve: bool) -> JavaPath {
-    if resolve && child.first() == Some(&47) {
+fn append(base: &Path, child: &str, resolve: bool) -> PathBuf {
+    if resolve && child.starts_with('/') {
         return normalize(child);
     }
-    let mut units = base.0.clone();
+    let mut joined = base.to_string_lossy().into_owned();
     if !child.is_empty() {
-        units.push(47);
-        units.extend(child);
+        joined.push('/');
+        joined.push_str(child);
     }
-    normalize(&units)
-}
-fn append(base: &JavaPath, child: &str, resolve: bool) -> JavaPath {
-    append_units(base, &child.encode_utf16().collect::<Vec<_>>(), resolve)
+    normalize(&joined)
 }
 
 /// `new File(String).getPath()`: slash normalization without path validation or resolution.
-pub fn file_path(path: &str) -> JavaPath {
-    normalize(&path.encode_utf16().collect::<Vec<_>>())
+pub fn file_path(path: &str) -> PathBuf {
+    normalize(path)
 }
 
 /// FileSerializer writes this absolute path, without canonicalizing `.` or `..`.
-pub fn absolute_file_path(path: &str, cwd: &str) -> JavaPath {
-    absolute_file_path_utf16(
-        &path.encode_utf16().collect::<Vec<_>>(),
-        &cwd.encode_utf16().collect::<Vec<_>>(),
-    )
-}
-pub fn absolute_file_path_utf16(path: &[u16], cwd: &[u16]) -> JavaPath {
-    if path.first() == Some(&47) {
+pub fn absolute_file_path(path: &str, cwd: &str) -> PathBuf {
+    if path.starts_with('/') {
         normalize(path)
     } else {
-        append_units(&JavaPath(cwd.to_vec()), path, false)
+        append(Path::new(cwd), path, false)
     }
 }
 
-/// Internal path-unit inputs and oracle probes; application strings use FileRequest.
-#[derive(Clone, Copy, Debug)]
-pub struct Utf16FileRequest<'a> {
-    pub file_type: FileType,
-    pub pool: &'a [u16],
-    pub serial: &'a [u16],
-    pub test_name: Option<&'a [u16]>,
-    pub batch_id: Option<&'a [u16]>,
-    pub id: Option<&'a [u16]>,
-    pub chunk: Option<&'a [u16]>,
+// Java's limits count UTF-16 units. D56 omits a character if its pair would be split.
+fn cut(text: &str, limit: usize) -> &str {
+    let mut units = 0;
+    for (offset, c) in text.char_indices() {
+        units += c.len_utf16();
+        if units > limit {
+            return &text[..offset];
+        }
+    }
+    text
 }
 
 impl FileManager {
-    /// `cwd` must be the process working directory. Kotlin resolves `output.absolutePath` against the
-    /// live `user.dir` on every call; this resolves it once, which is identical only for that `cwd`.
+    /// `cwd` must be the process working directory.
     pub fn new(max_path: i32, max_filename: i32, output: &str, cwd: &str) -> Self {
         Self {
             max_path,
@@ -257,47 +208,19 @@ impl FileManager {
             output: absolute_file_path(output, cwd),
         }
     }
-
-    pub fn new_utf16(max_path: i32, max_filename: i32, output: &[u16], cwd: &[u16]) -> Self {
-        Self {
-            max_path,
-            max_filename,
-            output: absolute_file_path_utf16(output, cwd),
-        }
-    }
-
     pub fn plan_file(&self, r: FileRequest<'_>) -> PathPlan {
-        let pool = JavaPath::from_text(r.pool);
-        let serial = JavaPath::from_text(r.serial);
-        let test = r.test_name.map(JavaPath::from_text);
-        let batch = r.batch_id.map(JavaPath::from_text);
-        let id = r.id.map(JavaPath::from_text);
-        let chunk = r.chunk.map(JavaPath::from_text);
-        self.plan_file_utf16(Utf16FileRequest {
-            file_type: r.file_type,
-            pool: &pool.0,
-            serial: &serial.0,
-            test_name: test.as_ref().map(|s| s.0.as_slice()),
-            batch_id: batch.as_ref().map(|s| s.0.as_slice()),
-            id: id.as_ref().map(|s| s.0.as_slice()),
-            chunk: chunk.as_ref().map(|s| s.0.as_slice()),
-        })
-    }
-
-    pub fn plan_file_utf16(&self, r: Utf16FileRequest<'_>) -> PathPlan {
-        let mut directory = append_units(&append(&self.output, r.file_type.directory(), false), r.pool, false);
+        let mut directory = append(&append(&self.output, r.file_type.directory(), false), r.pool, false);
         if r.test_name.is_some() || r.batch_id.is_some() {
-            directory = append_units(&directory, &escape_utf16(r.serial), true);
+            directory = append(&directory, &escape(r.serial), true);
         }
-        let mut filename = r.test_name.map(escape_utf16).unwrap_or_else(|| {
-            r.batch_id
-                .map(<[u16]>::to_vec)
-                .unwrap_or_else(|| escape_utf16(r.serial))
-        });
-        let mut component = |value: Option<&[u16]>| {
+        let mut filename = r
+            .test_name
+            .map(escape)
+            .unwrap_or_else(|| r.batch_id.map(str::to_owned).unwrap_or_else(|| escape(r.serial)));
+        let mut component = |value: Option<&str>| {
             if let Some(value) = value {
-                filename.push(45);
-                filename.extend(value);
+                filename.push('-');
+                filename.push_str(value);
             }
         };
         if r.test_name.is_some() {
@@ -308,53 +231,33 @@ impl FileManager {
             component(r.chunk);
         }
         // C1: batch ID, not the file type's suffix.
-        filename.push(46);
-        let suffix = JavaPath::from_text(r.file_type.suffix());
-        filename.extend(if r.test_name.is_none() {
-            r.batch_id.unwrap_or(&suffix.0)
+        filename.push('.');
+        filename.push_str(if r.test_name.is_none() {
+            r.batch_id.unwrap_or(r.file_type.suffix())
         } else {
-            &suffix.0
+            r.file_type.suffix()
         });
         if r.test_name.is_none()
             && r.batch_id.is_some()
             && let Some(chunk) = r.chunk
         {
-            filename.push(45);
-            filename.extend(chunk);
+            filename.push('-');
+            filename.push_str(chunk);
         }
-        self.finish_file(directory, JavaPath(filename))
+        self.finish_file(directory, filename)
     }
-
     pub fn plan_test_result_file(&self, filename: &str) -> PathPlan {
-        self.plan_test_result_file_utf16(&filename.encode_utf16().collect::<Vec<_>>())
-    }
-
-    pub fn plan_test_result_file_utf16(&self, filename: &[u16]) -> PathPlan {
-        let mut plan = self.finish_file(append(&self.output, "test_result", false), JavaPath(filename.to_vec()));
+        let mut plan = self.finish_file(append(&self.output, "test_result", false), filename.to_owned());
         plan.best_effort_mkdirs = true;
         plan
     }
-
-    fn finish_file(&self, directory: JavaPath, mut filename: JavaPath) -> PathPlan {
+    fn finish_file(&self, directory: PathBuf, mut filename: String) -> PathPlan {
         let mut diagnostics = Vec::new();
-        if self.max_filename > 0 && filename.0.len() > self.max_filename as usize {
-            filename.0.truncate(self.max_filename as usize);
-            let mut message = JavaPath::from_text(&format!(
-                "File name length cannot exceed {} characters and has been trimmed to ",
-                self.max_filename
-            ));
-            message.0.extend(&filename.0);
-            message.0.extend(
-                " and can create a conflict.This usually happens because the test name is too long.".encode_utf16(),
-            );
-            diagnostics.push(message);
+        if self.max_filename > 0 && filename.encode_utf16().count() > self.max_filename as usize {
+            filename = cut(&filename, self.max_filename as usize).to_owned();
+            diagnostics.push(format!("File name length cannot exceed {} characters and has been trimmed to {} and can create a conflict.This usually happens because the test name is too long.", self.max_filename, filename));
         }
-        let mut joined = directory.0.clone();
-        if !filename.0.is_empty() {
-            joined.push(47);
-            joined.extend(filename.0);
-        }
-        let path = self.trim_path(normalize(&joined), false, &mut diagnostics);
+        let path = self.trim_path(append(&directory, &filename, false), false, &mut diagnostics);
         PathPlan {
             path,
             preflight: vec![directory.clone()],
@@ -364,25 +267,14 @@ impl FileManager {
             folder: false,
         }
     }
-
     pub fn plan_folder(&self, kind: FolderType, pool: Option<&str>, serial: Option<&str>) -> PathPlan {
-        let pool = pool.map(JavaPath::from_text);
-        let serial = serial.map(JavaPath::from_text);
-        self.plan_folder_utf16(
-            kind,
-            pool.as_ref().map(|s| s.0.as_slice()),
-            serial.as_ref().map(|s| s.0.as_slice()),
-        )
-    }
-
-    pub fn plan_folder_utf16(&self, kind: FolderType, pool: Option<&[u16]>, serial: Option<&[u16]>) -> PathPlan {
         let mut path = append(&self.output, kind.directory(), false);
         let mut preflight = vec![path.clone()];
         if let Some(pool) = pool {
-            path = append_units(&path, pool, true);
+            path = append(&path, pool, true);
         }
         if let Some(serial) = serial {
-            path = append_units(&path, &escape_utf16(serial), true);
+            path = append(&path, &escape(serial), true);
         }
         let mut diagnostics = Vec::new();
         preflight.push(path.clone());
@@ -396,47 +288,34 @@ impl FileManager {
             preflight,
         }
     }
-
-    fn trim_path(&self, path: JavaPath, folder: bool, diagnostics: &mut Vec<JavaPath>) -> JavaPath {
-        if self.max_path <= 0 || path.0.len() <= self.max_path as usize {
+    fn trim_path(&self, path: PathBuf, folder: bool, diagnostics: &mut Vec<String>) -> PathBuf {
+        let text = path.to_string_lossy();
+        if self.max_path <= 0 || text.encode_utf16().count() <= self.max_path as usize {
             return path;
         }
-        let trimmed = JavaPath(path.0[..self.max_path as usize].to_vec());
-        let mut message = JavaPath::from_text(&format!(
-            "{} path length cannot exceed {} characters and has been trimmed from ",
-            if folder { "Directory" } else { "File" },
-            self.max_path
-        ));
-        message.0.extend(&path.0);
-        message.0.extend(" to ".encode_utf16());
-        message.0.extend(&trimmed.0);
-        message.0.extend(if folder {
-            " and can create a conflict. This happened because the combination of file path, pool name and device serial is too long."
-        } else {
-            " and can create a conflict. This happened because the combination of file path, test class name, and test name is too long."
-        }.encode_utf16());
-        diagnostics.push(message);
-        normalize(&trimmed.0)
+        let trimmed = cut(&text, self.max_path as usize);
+        diagnostics.push(format!("{} path length cannot exceed {} characters and has been trimmed from {} to {}{}", if folder { "Directory" } else { "File" }, self.max_path, text, trimmed, if folder { " and can create a conflict. This happened because the combination of file path, pool name and device serial is too long." } else { " and can create a conflict. This happened because the combination of file path, test class name, and test name is too long." }));
+        normalize(trimmed)
     }
 }
 
 /// Unix `File(parent, child)` retains the parent even for a leading slash.
-pub fn child_file(parent: &JavaPath, child: &[u16]) -> JavaPath {
-    append_units(parent, child, false)
+pub fn child_file(parent: &Path, child: &str) -> PathBuf {
+    append(parent, child, false)
 }
 
 /// Kotlin File.relativePathTo: absolute lexical paths, normalized dot segments.
-pub fn relative_file(path: &JavaPath, base: &JavaPath, cwd: &JavaPath) -> String {
-    fn segments(path: &JavaPath, cwd: &JavaPath) -> Vec<Vec<u16>> {
-        let absolute = absolute_file_path_utf16(&path.0, &cwd.0);
+pub fn relative_file(path: &Path, base: &Path, cwd: &Path) -> String {
+    fn segments(path: &Path, cwd: &Path) -> Vec<String> {
+        let absolute = absolute_file_path(&path.to_string_lossy(), &cwd.to_string_lossy());
         let mut parts = Vec::new();
-        for part in absolute.0.split(|u| *u == 47) {
+        for part in absolute.to_string_lossy().split('/') {
             match part {
-                [] | [46] => {}
-                [46, 46] => {
+                "" | "." => {}
+                ".." => {
                     parts.pop();
                 }
-                _ => parts.push(part.to_vec()),
+                _ => parts.push(part.to_owned()),
             }
         }
         parts
@@ -444,24 +323,24 @@ pub fn relative_file(path: &JavaPath, base: &JavaPath, cwd: &JavaPath) -> String
     let target = segments(path, cwd);
     let base = segments(base, cwd);
     let common = target.iter().zip(&base).take_while(|(a, b)| a == b).count();
-    let parts = std::iter::repeat_n(vec![46, 46], base.len() - common).chain(target.into_iter().skip(common));
-    String::from_utf16_lossy(&parts.collect::<Vec<_>>().join(&47))
+    std::iter::repeat_n("..".to_owned(), base.len() - common)
+        .chain(target.into_iter().skip(common))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
-
     #[test]
     fn truncated_path_diagnostics_keep_only_complete_characters() {
         let plan = FileManager::new(0, 2, "/out", "/").plan_test_result_file("a😀z");
-        assert!(plan.path.0.ends_with(&[97, 0xd83d]));
-        assert_eq!(plan.diagnostics.len(), 1);
+        assert_eq!(plan.path, PathBuf::from("/out/test_result/a"));
         assert_eq!(
-            path_diagnostic(&plan.diagnostics[0].0),
-            "File name length cannot exceed 2 characters and has been trimmed to a and can create a conflict.This usually happens because the test name is too long."
+            plan.diagnostics,
+            [
+                "File name length cannot exceed 2 characters and has been trimmed to a and can create a conflict.This usually happens because the test name is too long."
+            ]
         );
-        assert_eq!(path_diagnostic(&[97, 0xd83d]), "a");
-        assert_eq!(path_diagnostic(&[97, 0xd83d, 0xde00, 0xfffd]), "a😀�");
     }
 }

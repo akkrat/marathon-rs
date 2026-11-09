@@ -13,11 +13,12 @@ use crate::{
     time::ReplayHooks,
 };
 use jcompat::{
-    file_manager::{absolute_file_path_utf16, relative_file},
+    file_manager::{absolute_file_path, relative_file},
     jstring::lines,
     report_text::{XmlTextError, allure_history_id, form_encode, jackson_json, replace, xml_text},
 };
 use marathon_config::{Configuration, VendorConfiguration};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// environment-writer catches TransformerException and prints its stack trace.
@@ -29,8 +30,8 @@ pub const ENVIRONMENT_SAVED: &str = "Allure environment data saved.\n";
 pub struct AllureReporter {
     io: Arc<dyn VendorRuntime>,
     configuration: Arc<Configuration>,
-    output: JavaPath,
-    process_dir: JavaPath,
+    output: PathBuf,
+    process_dir: PathBuf,
     hooks: Arc<dyn ReplayHooks>,
     attachments: Arc<dyn AttachmentFiles>,
     environment_errors: EnvironmentErrors,
@@ -41,14 +42,14 @@ impl AllureReporter {
     pub fn new(
         io: Arc<dyn VendorRuntime>,
         configuration: Arc<Configuration>,
-        output: JavaPath,
-        process_dir: JavaPath,
+        output: PathBuf,
+        process_dir: PathBuf,
         hooks: Arc<dyn ReplayHooks>,
         attachments: Arc<dyn AttachmentFiles>,
         environment_errors: EnvironmentErrors,
         stdout: Arc<dyn ConsoleSink>,
     ) -> Self {
-        let output = absolute_file_path_utf16(&output.0, &process_dir.0);
+        let output = absolute_file_path(&output.to_string_lossy(), &process_dir.to_string_lossy());
         Self {
             io,
             configuration,
@@ -87,16 +88,13 @@ impl AllureReporter {
             );
             blocking(self.io.as_ref(), move || {
                 let model = result_model(&uuid, &device, &r, &retained, &cfg, &cwd);
-                let native = output.to_path_buf().map_err(io_error)?;
+                let native = &output;
                 std::fs::create_dir_all(native)
                     .map_err(|e| allure_error("Could not create Allure results directory", nio_error(e, &output)))?;
                 let mut name = uuid;
                 name.push_str("-result.json");
-                write(
-                    &child_file(&output, &name.encode_utf16().collect::<Vec<_>>()),
-                    jackson_json(&model).as_bytes(),
-                )
-                .map_err(|e| allure_error("Could not write Allure test result", e))
+                write(&child_file(&output, &name), jackson_json(&model).as_bytes())
+                    .map_err(|e| allure_error("Could not write Allure test result", e))
             })
             .await?;
         }
@@ -203,7 +201,7 @@ pub fn result_model(
     r: &TestResult,
     retained: &[Attachment],
     configuration: &Configuration,
-    process_dir: &JavaPath,
+    process_dir: &std::path::Path,
 ) -> WriterValue {
     let test = &r.test;
     let suite = test.to_class_name('.');
@@ -239,9 +237,11 @@ pub fn result_model(
                 ),
                 (
                     "source",
-                    WriterValue::String(String::from_utf16_lossy(
-                        &absolute_file_path_utf16(&a.file.0, &process_dir.0).0,
-                    )),
+                    WriterValue::String(
+                        absolute_file_path(&a.file.to_string_lossy(), &process_dir.to_string_lossy())
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
                 ),
                 ("type", mime.into()),
             ])

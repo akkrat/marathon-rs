@@ -37,10 +37,11 @@ use crate::{
     wiring::{RunDependencies, UsageLifecycle, VendorDependencies},
 };
 use jcompat::{
-    file_manager::{FileManager, JavaPath, child_file},
+    file_manager::{FileManager, child_file},
     logging::{Level, Logger, MarathonLogging},
 };
 use marathon_config::{AnalyticsConfiguration, Configuration};
+use std::path::PathBuf;
 use std::{
     rc::Rc,
     sync::{
@@ -75,7 +76,7 @@ pub fn standard_reporters(ctx: &ReporterContext) -> VendorResult<Vec<ReporterReg
     let allure = AllureReporter::new(
         ctx.io.clone(),
         ctx.configuration.clone(),
-        child_file(&output_dir, &"allure-results".encode_utf16().collect::<Vec<_>>()),
+        child_file(&output_dir, "allure-results"),
         ctx.cwd.clone(),
         ctx.hooks.clone(),
         Arc::new(LocalAttachmentFiles { io: ctx.io.clone() }),
@@ -101,7 +102,7 @@ pub struct ReporterContext {
     pub io: Arc<dyn VendorRuntime>,
     pub configuration: Arc<Configuration>,
     pub files: Arc<FileManagerOutput>,
-    pub cwd: JavaPath,
+    pub cwd: PathBuf,
     pub hooks: Arc<dyn ReplayHooks>,
     pub console: Arc<dyn ConsoleSink>,
     pub stderr: Arc<dyn Fn(&Failure) + Send + Sync>,
@@ -117,7 +118,7 @@ pub struct RunInputs {
     /// stderr for throwables the source prints rather than logs (Allure's environment writer).
     pub stderr: Arc<dyn Fn(&Failure) + Send + Sync>,
     /// `user.dir`.
-    pub cwd: JavaPath,
+    pub cwd: PathBuf,
     pub environment: Vec<(String, String)>,
     pub system_information: Vec<(String, String)>,
     pub vendor: VendorFactoryFn,
@@ -334,11 +335,11 @@ async fn build(
     let registry = logging.clone();
     let file_logger = blocking(io.as_ref(), move || registry_logger(&registry, "FileManager")).await?;
     let output_dir = configuration.output_dir.clone();
-    let manager = FileManager::new_utf16(
+    let manager = FileManager::new(
         configuration.output_configuration.max_path,
         configuration.output_configuration.max_filename,
-        &output_dir.0,
-        &inputs.cwd.0,
+        &output_dir.to_string_lossy(),
+        &inputs.cwd.to_string_lossy(),
     );
     let files = Arc::new(FileManagerOutput::new(
         io.clone(),

@@ -85,16 +85,7 @@ impl AppleTestRunListener for DeviceLogListener {
                 let local = self.c.file(FileType::DeviceLog, None).await?;
                 let remote = self.c.device.remote_file_manager().remote_log();
                 let start = self.c.millis("ios.DeviceLogListener.pullLogfile")?;
-                self.c
-                    .device
-                    .pull_file(
-                        &remote,
-                        &local.to_file_path_buf().map_err(|e| {
-                            VendorError::Other(marathon_apple::cmd::failure("java.io.IOException", e.to_string()))
-                        })?,
-                        &self.c.context,
-                    )
-                    .await?;
+                self.c.device.pull_file(&remote, &local, &self.c.context).await?;
                 self.c.log(
                     &self.logger,
                     Level::Debug,

@@ -18,9 +18,10 @@ use crate::{
     binder::{Field, MISMATCHED, Result, Value},
     vendor::*,
 };
-use jcompat::{file_manager::JavaPath, jtime::Duration};
+use jcompat::jtime::Duration;
+use std::path::PathBuf;
 
-fn file_list(value: &Value<'_>) -> Result<Option<Vec<JavaPath>>> {
+fn file_list(value: &Value<'_>) -> Result<Option<Vec<PathBuf>>> {
     list_non_null(value, |v| v.file())
 }
 
@@ -320,10 +321,10 @@ pub fn bind_allure_configuration(value: Value<'_>) -> Result<Option<AllureConfig
 
 pub fn bind_android_test_bundle_configuration(value: Value<'_>) -> Result<Option<AndroidTestBundleConfiguration>> {
     value.nullable(|v| {
-        let mut application = Field::nullable(&v, None::<JavaPath>);
-        let mut test_application = Field::reference(&v, None::<JavaPath>);
-        let mut extra = Field::nullable(&v, None::<Vec<JavaPath>>);
-        let mut split = Field::nullable(&v, None::<Vec<JavaPath>>);
+        let mut application = Field::nullable(&v, None::<PathBuf>);
+        let mut test_application = Field::reference(&v, None::<PathBuf>);
+        let mut extra = Field::nullable(&v, None::<Vec<PathBuf>>);
+        let mut split = Field::nullable(&v, None::<Vec<PathBuf>>);
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
             match name.as_str() {
@@ -439,7 +440,7 @@ pub fn bind_file_sync_configuration(value: Value<'_>) -> Result<Option<FileSyncC
 pub fn bind_profiling_configuration(value: Value<'_>) -> Result<Option<ProfilingConfiguration>> {
     value.nullable(|v| {
         let mut enabled = Field::primitive(&v, false);
-        let mut pbtxt = Field::nullable(&v, None::<JavaPath>);
+        let mut pbtxt = Field::nullable(&v, None::<PathBuf>);
         let mut url_template = Field::reference(&v, Some(String::from("https://cloud.marathonlabs.io/")));
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
@@ -767,11 +768,11 @@ pub fn bind_android_timeout_configuration(value: Value<'_>) -> Result<Option<And
 
 pub fn bind_android_configuration(value: Value<'_>) -> Result<Option<AndroidConfiguration>> {
     value.nullable(|v| {
-        let mut android_sdk = Field::nullable(&v, None::<JavaPath>);
-        let mut application_output = Field::nullable(&v, None::<JavaPath>);
-        let mut test_application_output = Field::nullable(&v, None::<JavaPath>);
-        let mut split_apks = Field::nullable(&v, None::<Vec<JavaPath>>);
-        let mut extra_output = Field::nullable(&v, None::<Vec<JavaPath>>);
+        let mut android_sdk = Field::nullable(&v, None::<PathBuf>);
+        let mut application_output = Field::nullable(&v, None::<PathBuf>);
+        let mut test_application_output = Field::nullable(&v, None::<PathBuf>);
+        let mut split_apks = Field::nullable(&v, None::<Vec<PathBuf>>);
+        let mut extra_output = Field::nullable(&v, None::<Vec<PathBuf>>);
         let mut outputs = Field::nullable(&v, None::<Vec<AndroidTestBundleConfiguration>>);
         let mut auto_grant = Field::primitive(&v, false);
         let mut instrumentation_args = Field::reference(&v, Some(Vec::new()));
@@ -943,7 +944,7 @@ pub fn bind_device_provider(value: Value<'_>) -> Result<Option<DeviceProvider>> 
     value.polymorphic(|id, v| match id {
         "static" | "marathondevices" => Some(
             bind_object(v.clone(), |v| {
-                let mut path = Field::nullable(v, None::<JavaPath>);
+                let mut path = Field::nullable(v, None::<PathBuf>);
                 let mut object = v.object()?;
                 while let Some((name, child)) = object.next_field()? {
                     match name.as_str() {
@@ -1041,7 +1042,7 @@ pub fn bind_ssh_authentication(value: Value<'_>) -> Result<Option<SshAuthenticat
         "publicKey" => Some(
             bind_object(v.clone(), |v| {
                 let mut username = Field::reference(v, None::<String>);
-                let mut key = Field::reference(v, None::<JavaPath>);
+                let mut key = Field::reference(v, None::<PathBuf>);
                 let mut object = v.object()?;
                 while let Some((name, child)) = object.next_field()? {
                     match name.as_str() {
@@ -1070,7 +1071,7 @@ pub fn bind_ssh_authentication(value: Value<'_>) -> Result<Option<SshAuthenticat
 pub fn bind_ssh_configuration(value: Value<'_>) -> Result<Option<SshConfiguration>> {
     value.nullable(|v| {
         let mut authentication = Field::nullable(&v, None::<SshAuthentication>);
-        let mut known_hosts = Field::nullable(&v, None::<JavaPath>);
+        let mut known_hosts = Field::nullable(&v, None::<PathBuf>);
         let mut keep_alive_interval = Field::reference(&v, Some(secs(15)));
         let mut keep_alive_max = Field::primitive(&v, 4);
         let mut debug = Field::primitive(&v, false);
@@ -1126,12 +1127,12 @@ pub fn bind_test_type(value: &Value<'_>) -> Result<Option<TestType>> {
 
 pub fn bind_apple_test_bundle_configuration(value: Value<'_>) -> Result<Option<AppleTestBundleConfiguration>> {
     value.nullable(|v| {
-        let mut application = Field::nullable(&v, None::<JavaPath>);
-        let mut test_application = Field::nullable(&v, None::<JavaPath>);
-        let mut extra = Field::nullable(&v, None::<Vec<JavaPath>>);
-        let mut derived = Field::nullable(&v, None::<JavaPath>);
+        let mut application = Field::nullable(&v, None::<PathBuf>);
+        let mut test_application = Field::nullable(&v, None::<PathBuf>);
+        let mut extra = Field::nullable(&v, None::<Vec<PathBuf>>);
+        let mut derived = Field::nullable(&v, None::<PathBuf>);
         let mut test_type = Field::nullable(&v, None::<TestType>);
-        let mut xctestrun = Field::nullable(&v, None::<JavaPath>);
+        let mut xctestrun = Field::nullable(&v, None::<PathBuf>);
         let mut object = v.object()?;
         while let Some((name, child)) = object.next_field()? {
             match name.as_str() {
@@ -1824,7 +1825,7 @@ pub fn bind_ios_configuration(value: Value<'_>) -> Result<Option<IosConfiguratio
     value.nullable(|v| {
         let mut bundle = Field::nullable(&v, None::<AppleTestBundleConfiguration>);
         let mut device_provider = Field::reference(&v, Some(DeviceProvider::Static { path: None }));
-        let mut devices_file = Field::nullable(&v, None::<JavaPath>);
+        let mut devices_file = Field::nullable(&v, None::<PathBuf>);
         let mut ssh = Field::reference(&v, Some(default_ssh()));
         let mut worker_connection = Field::reference(&v, Some(default_worker_connection()));
         let mut xcresult = Field::reference(&v, Some(default_xcresult()));
@@ -1832,7 +1833,7 @@ pub fn bind_ios_configuration(value: Value<'_>) -> Result<Option<IosConfiguratio
         let mut xctestrun_env = Field::reference(&v, Some(default_xctestrun_env()));
         let mut lifecycle = Field::reference(&v, Some(default_lifecycle()));
         let mut permissions = Field::reference(&v, Some(default_ios_permissions()));
-        let mut media_files = Field::nullable(&v, None::<Vec<JavaPath>>);
+        let mut media_files = Field::nullable(&v, None::<Vec<PathBuf>>);
         let mut timeout = Field::reference(&v, Some(apple_timeout_configuration(AppleTimeoutParameters::empty())));
         let mut threading = Field::reference(&v, Some(AppleThreadingConfiguration::default_instance()));
         let mut hide_runner = Field::primitive(&v, false);
@@ -1975,7 +1976,7 @@ pub fn bind_macos_configuration(value: Value<'_>) -> Result<Option<MacosConfigur
     value.nullable(|v| {
         let mut bundle = Field::nullable(&v, None::<AppleTestBundleConfiguration>);
         let mut device_provider = Field::reference(&v, Some(DeviceProvider::Static { path: None }));
-        let mut devices_file = Field::nullable(&v, None::<JavaPath>);
+        let mut devices_file = Field::nullable(&v, None::<PathBuf>);
         let mut ssh = Field::reference(&v, Some(default_ssh()));
         let mut xcresult = Field::reference(&v, Some(default_xcresult()));
         let mut xctestrun_env = Field::reference(&v, Some(default_xctestrun_env()));

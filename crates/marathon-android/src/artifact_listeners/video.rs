@@ -6,6 +6,7 @@ use jcompat::logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_config::ScreenRecordingPolicy;
 use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorContext};
+use std::path::PathBuf;
 
 /// Kotlin splits only on spaces, uses the last nonempty line, and normalizes the Int.
 pub fn grep_pid(output: &str) -> String {
@@ -156,7 +157,7 @@ impl ScreenRecorderTestBatchListener {
         test: Option<&Test>,
         chunk: Option<String>,
         context: VendorContext,
-    ) -> VendorResult<JavaPath> {
+    ) -> VendorResult<PathBuf> {
         let local = self.artifacts.file(FileType::Video, test, None, chunk).await?;
         let label = if test.is_some() {
             "android.ScreenRecorderTestBatchListener.pullTestVideoFile"
@@ -166,7 +167,7 @@ impl ScreenRecorderTestBatchListener {
         let start = self.artifacts.now(label)?;
         self.artifacts
             .device
-            .safe_pull_file(remote, &String::from_utf16_lossy(&local.0.clone()).to_owned(), context)
+            .safe_pull_file(remote, &local.to_string_lossy().into_owned().to_owned(), context)
             .await?;
         let end = self.artifacts.now(label)?;
         self.artifacts.device.log_named(

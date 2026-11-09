@@ -421,9 +421,9 @@ async fn explicit_vendor_construction_shares_identity_and_performs_no_initializa
             simulator: p.h.services.clone(),
             binding: Arc::new(marathon_config::binding::BindingContext {
                 profile: marathon_config::binding::Profile::Marathonfile,
-                marathonfile: jcompat::file_manager::JavaPath::from_text("/Marathonfile"),
-                marathonfile_dir: jcompat::file_manager::JavaPath::from_text("/"),
-                process_dir: jcompat::file_manager::JavaPath::from_text(p.h.dir.path().to_str().unwrap()),
+                marathonfile: std::path::PathBuf::from("/Marathonfile"),
+                marathonfile_dir: std::path::PathBuf::from("/"),
+                process_dir: std::path::PathBuf::from(p.h.dir.path().to_str().unwrap()),
                 environment: vec![],
                 now: jcompat::jtime::instant_of(0, 0).unwrap(),
                 analytics_tracking: false,

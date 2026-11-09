@@ -23,14 +23,9 @@ impl<'a> AppleSimulatorMediaImporter<'a> {
         let remote = self.device.remote_file_manager();
         remote.create_remote_shared_media_directory(context).await?;
         for file in files {
-            let local = file.to_file_path_buf().map_err(|e| {
-                marathon_core::error::VendorError::Other(marathon_apple::cmd::failure(
-                    "java.nio.file.InvalidPathException",
-                    e.to_string(),
-                ))
-            })?;
+            let local = file;
             let dst = remote.remote_media_file(local.file_name().and_then(|s| s.to_str()).unwrap_or(""));
-            if !self.device.push_shared(&local, &dst, context).await? {
+            if !self.device.push_shared(local, &dst, context).await? {
                 return Err(self
                     .device
                     .setup_failure(format!("Error transferring {dst} to {}", self.device.serial())));
@@ -42,7 +37,7 @@ impl<'a> AppleSimulatorMediaImporter<'a> {
                         jcompat::logging::Level::Debug,
                         format!(
                             "Importing media {} to {}",
-                            String::from_utf16_lossy(&file.0),
+                            file.to_string_lossy().into_owned(),
                             self.device.serial()
                         ),
                         None,

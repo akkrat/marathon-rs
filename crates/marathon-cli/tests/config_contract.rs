@@ -1,4 +1,5 @@
-use jcompat::{file_manager::JavaPath, jtime::instant_of};
+use jcompat::jtime::instant_of;
+
 use marathon_config::{
     binding::{BindingContext, Profile},
     devices::{AppleTarget, MarathonDevices, Transport},
@@ -14,7 +15,10 @@ use std::{
 };
 
 fn devices_dump(devices: &MarathonDevices, root: &Path) -> Value {
-    let path = |units: &[u16]| String::from_utf16_lossy(units).replace(&root.to_string_lossy().to_string(), "<ROOT>");
+    let path = |path: &Path| {
+        path.to_string_lossy()
+            .replace(&root.to_string_lossy().to_string(), "<ROOT>")
+    };
     json!(devices.workers.iter().map(|worker| {
         let transport = match &worker.transport {
             Transport::Local => json!({"type": "local"}),
@@ -22,7 +26,7 @@ fn devices_dump(devices: &MarathonDevices, root: &Path) -> Value {
                 let authentication = match authentication {
                     None => Value::Null,
                     Some(SshAuthentication::Password { username, password }) => json!({"type": "password", "username": username, "password": password}),
-                    Some(SshAuthentication::PublicKey { username, key }) => json!({"type": "public-key", "username": username, "key": path(&key.0)}),
+                    Some(SshAuthentication::PublicKey { username, key }) => json!({"type": "public-key", "username": username, "key": path(key)}),
                 };
                 json!({"type": "ssh", "addr": addr, "port": port, "authentication": authentication, "checkReachability": check_reachability})
             }
@@ -143,9 +147,9 @@ fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::err
         let row = if devices {
             let context = BindingContext {
                 profile: Profile::Marathondevices,
-                marathonfile: JavaPath::from_text(&input.to_string_lossy()),
-                marathonfile_dir: JavaPath::from_text(&context_path),
-                process_dir: JavaPath::from_text(&context_path),
+                marathonfile: PathBuf::from(input.to_string_lossy().into_owned()),
+                marathonfile_dir: PathBuf::from(context_path.as_ref()),
+                process_dir: PathBuf::from(context_path.as_ref()),
                 environment: vec![("ANDROID_HOME".into(), "/android-sdk".into())],
                 now: instant_of(0, 0).unwrap(),
                 analytics_tracking: true,

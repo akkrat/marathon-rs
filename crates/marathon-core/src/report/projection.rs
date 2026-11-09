@@ -10,7 +10,7 @@ use crate::{
 };
 use WriterValue as V;
 use jcompat::{
-    file_manager::{JavaPath, absolute_file_path_utf16},
+    file_manager::absolute_file_path,
     jnum,
     writers::{JavaNumber, KotlinValue, WriterValue},
 };
@@ -169,13 +169,15 @@ fn decoded(value: &DecodedWrapper) -> V {
     };
     object([("value", value)])
 }
-pub fn attachment(attachment: &Attachment, cwd: &JavaPath) -> V {
+pub fn attachment(attachment: &Attachment, cwd: &std::path::Path) -> V {
     object([
         (
             "file",
-            V::String(std::string::String::from_utf16_lossy(
-                &absolute_file_path_utf16(&attachment.file.0, &cwd.0).0,
-            )),
+            V::String(
+                absolute_file_path(&attachment.file.to_string_lossy(), &cwd.to_string_lossy())
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
         ),
         (
             "type",
@@ -193,7 +195,7 @@ pub fn attachment(attachment: &Attachment, cwd: &JavaPath) -> V {
         ("name", attachment.name.clone().map_or(V::Null, V::String)),
     ])
 }
-pub fn test_result(result: &TestResult, cwd: &JavaPath) -> V {
+pub fn test_result(result: &TestResult, cwd: &std::path::Path) -> V {
     object([
         ("test", test(&result.test)),
         ("device", device(&result.device)),

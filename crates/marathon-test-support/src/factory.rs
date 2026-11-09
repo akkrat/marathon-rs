@@ -5,7 +5,7 @@
 //! the configured tests, the bundle identifier and log configurator are inert, and the
 //! graph is the production `construction::construct` with the Stub vendor factory.
 use crate::{console::RecordingConsole, stub_bundle::MockTestBundleIdentifier, stub_provider::StubDeviceProvider};
-use jcompat::{file_manager::JavaPath, logging::MarathonLogging};
+use jcompat::logging::MarathonLogging;
 use marathon_config::{
     Configuration, VendorConfiguration,
     binding::{BindingContext, Profile},
@@ -27,6 +27,7 @@ use marathon_core::{
     time::{ClockResult, Timer},
     vendor::{LocalTestParser, LogConfigurator, TestParser, VendorContext, VendorServices},
 };
+use std::path::PathBuf;
 use std::{
     rc::Rc,
     sync::{Arc, Mutex, OnceLock},
@@ -37,9 +38,9 @@ fn base() -> Configuration {
     BASE.get_or_init(|| {
         let context = BindingContext {
             profile: Profile::Marathonfile,
-            marathonfile: JavaPath::from_text("/config/Marathonfile"),
-            marathonfile_dir: JavaPath::from_text("/config"),
-            process_dir: JavaPath::from_text("/"),
+            marathonfile: PathBuf::from("/config/Marathonfile"),
+            marathonfile_dir: PathBuf::from("/config"),
+            process_dir: PathBuf::from("/"),
             environment: vec![],
             now: jcompat::jtime::instant_of(0, 0).unwrap_or_else(|| unreachable!("epoch is representable")),
             analytics_tracking: false,
@@ -73,7 +74,7 @@ impl ConfigurationFactory {
             .unwrap_or_else(|e| panic!("temporary outputDir: {e}"));
         let mut c = base();
         c.name = "DEFAULT_TEST_CONFIG".into();
-        c.output_dir = JavaPath::from_text(&output.path().to_string_lossy());
+        c.output_dir = PathBuf::from(output.path().to_string_lossy().into_owned());
         c.vendor_configuration = VendorConfiguration::Stub;
         c.debug = true;
         c.batching_strategy = BatchingStrategyConfiguration::Isolate;
@@ -103,7 +104,7 @@ impl ConfigurationFactory {
         }
     }
     pub fn output_dir(&self) -> std::path::PathBuf {
-        std::path::PathBuf::from(String::from_utf16_lossy(&self.configuration.output_dir.0))
+        std::path::PathBuf::from(self.configuration.output_dir.to_string_lossy().into_owned())
     }
 }
 
@@ -267,7 +268,7 @@ impl MarathonFactory {
             logging: self.logging.clone(),
             console: console.clone(),
             stderr: Arc::new(|_| {}),
-            cwd: JavaPath::from_text(
+            cwd: PathBuf::from(
                 &std::env::current_dir()
                     .map(|p| p.to_string_lossy().into_owned())
                     .unwrap_or_default(),

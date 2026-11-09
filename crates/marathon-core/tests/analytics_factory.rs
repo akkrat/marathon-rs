@@ -184,16 +184,16 @@ impl MetricsProvider for Recorder {
     }
 }
 fn config() -> Configuration {
-    use jcompat::file_manager::JavaPath;
     use marathon_config::{
         binder::Binder,
         binding::{BindingContext, Profile},
     };
+    use std::path::PathBuf;
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: limit(),
         analytics_tracking: false,

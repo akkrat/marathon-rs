@@ -1,20 +1,20 @@
 //! Port of configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt
 //! A subprocess keeps stack-overflow regressions from aborting the test suite.
-use jcompat::file_manager::JavaPath;
 use marathon_config::{
     binder::{Field, Result, Value},
     binding::{BindingContext, Profile},
     pipeline::{BIND_STACK_SIZE, bind_bytes},
 };
 use serde_json::{Value as Json, json};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 fn context() -> BindingContext {
     BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: jcompat::jtime::instant_of(0, 0).unwrap(),
         analytics_tracking: false,

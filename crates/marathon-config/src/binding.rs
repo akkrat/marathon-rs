@@ -4,7 +4,8 @@
 //! Source locations and nodes are shared with the production YAML parser.
 
 use crate::{Configuration, MarathonDevices, VendorConfiguration};
-use jcompat::{file_manager::JavaPath, jtime::Instant};
+use jcompat::jtime::Instant;
+use std::path::PathBuf;
 use std::{future::Future, pin::Pin};
 
 pub type BindingFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ConfigurationError>> + Send + 'a>>;
@@ -61,11 +62,11 @@ pub struct ConfigurationCause {
 /// Environment order/spelling and injectable now are inputs, not global lookups.
 pub struct BindingContext {
     pub profile: Profile,
-    pub marathonfile: JavaPath,
+    pub marathonfile: PathBuf,
     pub analytics_tracking: bool,
     pub bugsnag_reporting: bool,
-    pub marathonfile_dir: JavaPath,
-    pub process_dir: JavaPath,
+    pub marathonfile_dir: PathBuf,
+    pub process_dir: PathBuf,
     pub environment: Vec<(String, String)>,
     pub now: Instant,
 }

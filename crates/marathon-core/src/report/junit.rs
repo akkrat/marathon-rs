@@ -5,19 +5,20 @@
 use super::*;
 use crate::{artifact_io::*, runtime::VendorRuntime};
 use jcompat::{
-    file_manager::{JavaPath, absolute_file_path_utf16},
+    file_manager::absolute_file_path,
     formatting::{DatePattern, format_date},
     jnum,
 };
 use std::io::Write;
+use std::path::PathBuf;
 
 pub struct JUnitReporter {
     pub io: Arc<dyn VendorRuntime>,
-    pub output_dir: JavaPath,
-    pub cwd: JavaPath,
+    pub output_dir: PathBuf,
+    pub cwd: PathBuf,
 }
 impl JUnitReporter {
-    pub fn new(io: Arc<dyn VendorRuntime>, output_dir: JavaPath, cwd: JavaPath) -> Self {
+    pub fn new(io: Arc<dyn VendorRuntime>, output_dir: PathBuf, cwd: PathBuf) -> Self {
         Self { io, output_dir, cwd }
     }
 }
@@ -33,20 +34,15 @@ impl Reporter for JUnitReporter {
                 .map(|p| (p.pool_id.name.clone(), junit_xml(p)))
                 .collect();
             for (pool, text) in reports {
-                let output = absolute_file_path_utf16(&self.output_dir.0, &self.cwd.0);
+                let output = absolute_file_path(&self.output_dir.to_string_lossy(), &self.cwd.to_string_lossy());
                 blocking(self.io.as_ref(), move || {
                     // Paths.get joins raw pool segments, unlike FileManager's escape.
-                    let mut directory = output.0;
-                    directory.extend("/tests/".encode_utf16());
-                    directory.extend(pool.encode_utf16().collect::<Vec<_>>());
-                    let directory = JavaPath(directory);
-                    let _ = std::fs::create_dir_all(directory.to_path_buf().map_err(io_error)?);
-                    let mut path = directory.0;
-                    path.extend("/marathon_junit_report.xml".encode_utf16());
-                    let path = JavaPath(path);
-                    let native = path.to_file_path_buf().map_err(io_error)?;
+                    let directory = jcompat::file_manager::child_file(&output, &format!("tests/{pool}"));
+                    let _ = std::fs::create_dir_all(&directory);
+                    let path = jcompat::file_manager::child_file(&directory, "marathon_junit_report.xml");
+                    let native = &path;
                     // createNewFile precedes the serializer's truncating FileOutputStream.
-                    match std::fs::OpenOptions::new().write(true).create_new(true).open(&native) {
+                    match std::fs::OpenOptions::new().write(true).create_new(true).open(native) {
                         Ok(_) => {}
                         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
                         Err(e) => {

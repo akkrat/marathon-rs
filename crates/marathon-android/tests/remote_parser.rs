@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AmInstrumentTestParser.kt
 //! (derived integration corpus; no direct Kotlin tests exist).
 mod support;
-use jcompat::file_manager::JavaPath;
 use marathon_android::{
     provider::AdamDeviceProvider,
     remote_parser::{AmInstrumentTestParser, TEST_ANNOTATION_PRODUCER},
@@ -14,13 +13,16 @@ use marathon_core::{
     vendor::*,
 };
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::Arc;
 use support::*;
 fn config() -> marathon_config::Configuration {
     let mut c = configuration();
     let a = android(&mut c);
-    a.test_application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.test_application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     a.test_parser_configuration = AndroidTestParserConfiguration::Remote {
         instrumentation_args: vec![

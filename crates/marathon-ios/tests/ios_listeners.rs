@@ -681,8 +681,7 @@ async fn screenshot_zero_captures_deletes_and_no_inflight_batch_failure_is_inert
             .output
             .create_file(&target)
             .await
-            .map_err(|e| format!("{e:?}"))?
-            .to_file_path_buf()?;
+            .map_err(|e| format!("{e:?}"))?;
         std::fs::write(&path, b"existing")?;
         let l = ScreenCapturerTestRunListener::new(c);
         let collector =

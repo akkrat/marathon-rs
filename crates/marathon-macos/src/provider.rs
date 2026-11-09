@@ -3,7 +3,7 @@
 use crate::device::{MacosDevice, MacosDeviceOptions};
 use indexmap::IndexMap;
 use jcompat::{
-    file_manager::{JavaPath, absolute_file_path_utf16},
+    file_manager::absolute_file_path,
     logging::{Level, Logger},
     writers::KotlinValue,
 };
@@ -25,6 +25,7 @@ use marathon_core::{
     runtime::{EventChannel, VendorFuture},
     vendor::{Device, DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
 };
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 /// The production implementation owns ConnectionFactory leases. Recording worlds replace only transport I/O.
@@ -55,7 +56,7 @@ pub struct AppleMacosProvider {
     channel: Arc<SharedChannel<DeviceEvent>>,
     tasks: RetainedTasks,
     logger: Logger,
-    process_dir: JavaPath,
+    process_dir: PathBuf,
     environment: Vec<(String, String)>,
 }
 impl AppleMacosProvider {
@@ -63,7 +64,7 @@ impl AppleMacosProvider {
         options: MacosDeviceOptions,
         registry: Arc<AppleDeviceRegistry>,
         connections: Arc<dyn MacosConnections>,
-        process_dir: JavaPath,
+        process_dir: PathBuf,
         environment: Vec<(String, String)>,
     ) -> Arc<Self> {
         let logger = options.logging.logger("AppleMacosProvider");
@@ -94,13 +95,13 @@ impl AppleMacosProvider {
     }
     fn read_devices(&self) -> VendorResult<MarathonDevices> {
         let path = self.options.vendor.devices_file.clone().unwrap_or_else(|| {
-            JavaPath::from_text(&format!(
+            PathBuf::from(&format!(
                 "{}/Marathondevices",
-                String::from_utf16_lossy(&self.process_dir.0)
+                self.process_dir.to_string_lossy().into_owned()
             ))
         });
-        let absolute = absolute_file_path_utf16(&path.0, &self.process_dir.0);
-        let bytes = std::fs::read(absolute.to_file_path_buf().map_err(crate::io_error)?).map_err(|e| {
+        let absolute = absolute_file_path(&path.to_string_lossy(), &self.process_dir.to_string_lossy());
+        let bytes = std::fs::read(&absolute).map_err(|e| {
             let suffix = match e.kind() {
                 std::io::ErrorKind::NotFound => "No such file or directory",
                 std::io::ErrorKind::PermissionDenied => "Permission denied",
@@ -109,14 +110,14 @@ impl AppleMacosProvider {
             {
                 let mut detail = failure(
                     "java.io.FileNotFoundException",
-                    format!("{} ({suffix})", String::from_utf16_lossy(&path.0)),
+                    format!("{} ({suffix})", path.to_string_lossy().into_owned()),
                 );
                 let class = match e.kind() {
                     std::io::ErrorKind::NotFound => Some("java.nio.file.NoSuchFileException"),
                     std::io::ErrorKind::PermissionDenied => Some("java.nio.file.AccessDeniedException"),
                     _ => None,
                 };
-                detail.cause = class.map(|class| Box::new(failure(class, String::from_utf16_lossy(&path.0))));
+                detail.cause = class.map(|class| Box::new(failure(class, path.to_string_lossy())));
                 VendorError::Other(detail)
             }
         })?;
@@ -141,7 +142,7 @@ impl AppleMacosProvider {
                         "com.malinskiy.marathon.exceptions.NoDevicesException",
                         format!(
                             "Invalid Marathondevices file {} format",
-                            String::from_utf16_lossy(&absolute.0)
+                            absolute.to_string_lossy().into_owned()
                         ),
                     );
                     f.cause = Some(Box::new(cause));
@@ -153,7 +154,7 @@ impl AppleMacosProvider {
         if devices.workers.is_empty() {
             return Err(VendorError::NoDevices(failure(
                 "com.malinskiy.marathon.exceptions.NoDevicesException",
-                format!("No workers found in the {}", String::from_utf16_lossy(&absolute.0)),
+                format!("No workers found in the {}", absolute.to_string_lossy().into_owned()),
             )));
         }
         Ok(devices)

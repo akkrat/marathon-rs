@@ -6,8 +6,8 @@ pub mod screenshot;
 pub mod video;
 
 use crate::{device::AndroidDevice, support::*};
-use jcompat::file_manager::JavaPath;
 use marathon_core::{error::*, listener::*, model::*, output::*, vendor::Device};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -23,7 +23,7 @@ impl ArtifactContext {
         test: Option<&Test>,
         id: Option<String>,
         chunk: Option<String>,
-    ) -> VendorResult<JavaPath> {
+    ) -> VendorResult<PathBuf> {
         self.device
             .runtime()
             .dependencies
@@ -65,7 +65,7 @@ impl Attachments {
     pub fn listeners(&self) -> Vec<Arc<dyn AttachmentListener>> {
         lock(&self.0).clone()
     }
-    pub fn emit(&self, test: &Test, file: JavaPath, kind: AttachmentType, name: &str) -> VendorResult<()> {
+    pub fn emit(&self, test: &Test, file: PathBuf, kind: AttachmentType, name: &str) -> VendorResult<()> {
         for listener in self.listeners() {
             listener.on_attachment(
                 test,

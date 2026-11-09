@@ -4,6 +4,7 @@ use crate::listeners::{AndroidTestRunListener, to_test};
 use jcompat::logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
+use std::path::PathBuf;
 pub const METRIC: &str = "com.malinskiy.adam.junit4.android.screencapture.AdamScreenCaptureProcessor.v1";
 pub struct AdamScreenCaptureTestRunListener {
     pub artifacts: ArtifactContext,
@@ -47,9 +48,12 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                         let local = file.clone();
                         let local = blocking(self.artifacts.device.runtime().dependencies.io.as_ref(), move || {
                             let cwd = std::env::current_dir().map_err(io)?;
-                            let cwd = JavaPath::from_text(&cwd.to_string_lossy());
-                            let absolute = jcompat::file_manager::absolute_file_path_utf16(&local.0, &cwd.0);
-                            Ok(String::from_utf16_lossy(&absolute.0).to_owned())
+                            let cwd = PathBuf::from(cwd.to_string_lossy().into_owned());
+                            let absolute = jcompat::file_manager::absolute_file_path(
+                                &local.to_string_lossy(),
+                                &cwd.to_string_lossy(),
+                            );
+                            Ok(absolute.to_string_lossy().into_owned().to_owned())
                         })
                         .await?;
                         self.artifacts

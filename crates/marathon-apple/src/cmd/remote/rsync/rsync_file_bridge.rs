@@ -260,7 +260,7 @@ impl Inner {
         let username = match auth {
             SshAuthentication::Password { username, .. } => username,
             SshAuthentication::PublicKey { username, key } => {
-                rsh.push_str(&format!("-i {} ", String::from_utf16_lossy(&key.0)));
+                rsh.push_str(&format!("-i {} ", key.to_string_lossy().into_owned()));
                 username
             }
         };
@@ -505,7 +505,7 @@ impl Inner {
         let local = blocking(self.runtime.as_ref(), move || {
             let cwd = std::env::current_dir().map_err(io_error)?;
             let path = absolute_file_path(&local.to_string_lossy(), &cwd.to_string_lossy());
-            let mut text = String::from_utf16_lossy(&path.0);
+            let mut text = path.to_string_lossy().into_owned();
             if local.is_dir() {
                 text = format!("{}/", text.trim_end_matches('/'));
             }

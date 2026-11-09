@@ -18,7 +18,7 @@ fn model_json(value: &jcompat::writers::WriterValue) -> serde_json::Value {
 }
 #[test]
 fn all_statuses_attempts_defaults_and_package_collision_match_library() {
-    let root = jcompat::file_manager::JavaPath::from_text(include_str!(
+    let root = std::path::PathBuf::from(include_str!(
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
     let cfg = config(&root);
@@ -82,11 +82,11 @@ fn annotations() -> Vec<MetaProperty> {
 }
 #[test]
 fn annotation_casts_duplicate_links_and_all_attachment_types_match_library() {
-    let root = jcompat::file_manager::JavaPath::from_text(include_str!(
+    let root = std::path::PathBuf::from(include_str!(
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
     let cfg = config(&root);
-    let path = jcompat::file_manager::child_file(&root, &"artifact # name.bin".encode_utf16().collect::<Vec<_>>());
+    let path = jcompat::file_manager::child_file(&root, "artifact # name.bin");
     let mut attachments: Vec<_> = [
         AttachmentType::ScreenshotGif,
         AttachmentType::ScreenshotJpeg,
@@ -238,7 +238,7 @@ fn without_identities(xml: &str) -> String {
 }
 #[test]
 fn complete_environment_matches_jvm_keys_order_and_values() {
-    let root = jcompat::file_manager::JavaPath::from_text(include_str!(
+    let root = std::path::PathBuf::from(include_str!(
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
     let entries = config(&root).to_map(&root);
@@ -432,7 +432,7 @@ fn profiling_links_use_form_encoding_and_replace_every_placeholder() {
         binding::{BindingContext, Profile},
         pipeline::bind_bytes,
     };
-    let root = jcompat::file_manager::JavaPath::from_text(include_str!(
+    let root = std::path::PathBuf::from(include_str!(
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
     let mut cfg = config(&root);
@@ -453,7 +453,7 @@ fn profiling_links_use_form_encoding_and_replace_every_placeholder() {
     ))
     .unwrap();
     let attachment = Attachment {
-        file: jcompat::file_manager::child_file(&root, &"artifact # name.bin".encode_utf16().collect::<Vec<_>>()),
+        file: jcompat::file_manager::child_file(&root, "artifact # name.bin"),
         kind: AttachmentType::Profiling,
         name: None,
     };

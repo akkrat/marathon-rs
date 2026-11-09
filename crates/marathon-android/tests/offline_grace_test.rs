@@ -539,8 +539,10 @@ fn remote_parsing_waits_out_a_brief_offline_d41() {
     };
     let mut c = configuration();
     let a = android(&mut c);
-    a.test_application_output = Some(jcompat::file_manager::JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.test_application_output = Some(std::path::PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     a.test_parser_configuration = marathon_config::vendor::AndroidTestParserConfiguration::Remote {
         instrumentation_args: vec![],

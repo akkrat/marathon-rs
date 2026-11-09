@@ -4,7 +4,7 @@ use crate::{
     support,
     test_root_device::{Fake, TestResult, v},
 };
-use jcompat::{file_manager::JavaPath, jtime::instant_of};
+use jcompat::jtime::instant_of;
 use marathon_apple::{
     apple_device_registry::AppleDeviceRegistry, apple_test_bundle_identifier::AppleTestBundleIdentifier,
     model::AppleTestBundle, nm_test_parser::NmTestParser,
@@ -18,6 +18,7 @@ use marathon_config::{
     vendor::AppleTestBundleConfiguration,
 };
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::{path::Path, sync::Arc};
 /// Plainly not a library: a test must never need the real third-party file (D20).
 pub const STAND_IN_LIBRARY: &[u8] = b"fake stand-in for libxctest-parser.dylib, written by a test\n";
@@ -45,9 +46,9 @@ pub fn input(reuse: bool, skip: bool) -> Value {
 pub fn configuration(c: &Value, root: &Path) -> TestResult<VendorConfiguration> {
     let ctx = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,
@@ -56,7 +57,7 @@ pub fn configuration(c: &Value, root: &Path) -> TestResult<VendorConfiguration> 
     let stream = node::load("type: iOS");
     let binder = Binder::new(&ctx, &stream);
     let mut vendor = v(binder.first(&stream, bind_vendor_configuration))?.flatten().unwrap();
-    let path = |name: &str| JavaPath::from_text(&root.join(c[name].as_str().unwrap()).to_string_lossy());
+    let path = |name: &str| PathBuf::from(root.join(c[name].as_str().unwrap()).to_string_lossy().into_owned());
     let mut bundle =
         AppleTestBundleConfiguration::unresolved(Some(path("app")), Some(path("runner")), None, None, None);
     bundle.app = Some(path("app"));

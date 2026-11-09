@@ -287,7 +287,7 @@ fn failing_tests() -> Vec<Test> {
 }
 fn attachment() -> Attachment {
     Attachment {
-        file: jcompat::file_manager::JavaPath::from_text("/tmp/testPassed.log"),
+        file: std::path::PathBuf::from("/tmp/testPassed.log"),
         kind: AttachmentType::Log,
         name: Some("log".into()),
     }

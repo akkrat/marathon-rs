@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/DeviceTrackerTest.kt
 mod support;
-use jcompat::{file_manager::JavaPath, jtime::instant_of};
+use jcompat::jtime::instant_of;
 use marathon_config::{
     binding::{BindingContext, Profile},
     devices::*,
@@ -8,6 +8,7 @@ use marathon_config::{
 };
 use marathon_ios::device::device_tracker::*;
 use std::path::Path;
+use std::path::PathBuf;
 use support::*;
 fn fixture(name: &str) -> Result<MarathonDevices, Box<dyn std::error::Error>> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -16,9 +17,9 @@ fn fixture(name: &str) -> Result<MarathonDevices, Box<dyn std::error::Error>> {
     let bytes = std::fs::read(path)?;
     let context = BindingContext {
         profile: Profile::Marathondevices,
-        marathonfile: JavaPath::from_text("/tmp/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/tmp"),
-        process_dir: JavaPath::from_text("/tmp"),
+        marathonfile: PathBuf::from("/tmp/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/tmp"),
+        process_dir: PathBuf::from("/tmp"),
         environment: vec![],
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,

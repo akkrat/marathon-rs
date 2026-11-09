@@ -86,12 +86,14 @@ pub(super) async fn load(provider: &AppleSimulatorProvider) -> VendorResult<Opti
         let file = vendor
             .devices_file
             .as_ref()
-            .map(|p| PathBuf::from(String::from_utf16_lossy(&p.0)))
-            .unwrap_or_else(|| PathBuf::from(String::from_utf16_lossy(&binding.process_dir.0)).join("Marathondevices"));
+            .map(|p| PathBuf::from(p.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| {
+                PathBuf::from(binding.process_dir.to_string_lossy().into_owned()).join("Marathondevices")
+            });
         let file = if file.is_absolute() {
             file
         } else {
-            PathBuf::from(String::from_utf16_lossy(&binding.process_dir.0)).join(file)
+            PathBuf::from(binding.process_dir.to_string_lossy().into_owned()).join(file)
         };
         if !matches!(vendor.device_provider, Source::Static { .. }) && !file.exists() {
             return Ok(None);

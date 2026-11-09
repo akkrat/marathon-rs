@@ -68,7 +68,7 @@ fn with_timeout<S: From<String> + PartialEq<&'static str>>(mut argv: Vec<S>) -> 
 fn key(path: &str) -> SshAuthentication {
     SshAuthentication::PublicKey {
         username: "fixture".into(),
-        key: jcompat::file_manager::JavaPath::from_text(path),
+        key: std::path::PathBuf::from(path),
     }
 }
 #[tokio::test]

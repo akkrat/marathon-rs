@@ -1,10 +1,7 @@
 //! Port of core/src/test/kotlin/com/malinskiy/marathon/report/JUnitReporterTest.kt.
 #![allow(dead_code)]
-use jcompat::{
-    file_manager::{FileManager, JavaPath},
-    jtime::instant_of,
-    logging::MarathonLogging,
-};
+
+use jcompat::{file_manager::FileManager, jtime::instant_of, logging::MarathonLogging};
 use marathon_core::{
     artifacts::FileManagerOutput,
     error::*,
@@ -200,7 +197,7 @@ pub fn result(v: &Value) -> TestResult {
             .unwrap()
             .iter()
             .map(|v| Attachment {
-                file: JavaPath(text(&v["file"]).encode_utf16().collect::<Vec<_>>()),
+                file: PathBuf::from(text(&v["file"])),
                 kind: if v["type"] == "LOG" {
                     AttachmentType::Log
                 } else {
@@ -295,8 +292,8 @@ impl Temp {
         checked(std::fs::create_dir_all(&p));
         Self(p)
     }
-    pub fn path(&self) -> JavaPath {
-        JavaPath::from_text(self.0.to_str().unwrap())
+    pub fn path(&self) -> PathBuf {
+        PathBuf::from(self.0.to_str().unwrap())
     }
 }
 impl Default for Temp {
@@ -330,17 +327,17 @@ pub fn context() -> Value {
         "../../../../fixtures/oracle/reporters/context.json"
     )))
 }
-pub fn files(io: Arc<dyn VendorRuntime>, path: JavaPath, max_filename: i32) -> ReporterFiles {
+pub fn files(io: Arc<dyn VendorRuntime>, path: PathBuf, max_filename: i32) -> ReporterFiles {
     ReporterFiles {
         files: Arc::new(FileManagerOutput::new(
             io.clone(),
-            FileManager::new_utf16(0, max_filename, &path.0, &[]),
+            FileManager::new(0, max_filename, &path.to_string_lossy(), ""),
             path,
             MarathonLogging::default().logger("FileManager", None),
             Arc::new(|_, _, _, _| assert_ne!(std::thread::current().name(), Some("marathon-core"))),
         )),
         io,
-        cwd: JavaPath(text(&context()["cwd"]).encode_utf16().collect::<Vec<_>>()),
+        cwd: PathBuf::from(text(&context()["cwd"])),
     }
 }
 pub fn generate(id: &str) -> (Temp, Vec<u8>, Vec<String>) {

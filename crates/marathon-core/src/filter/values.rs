@@ -2,12 +2,7 @@
 
 use super::failure;
 use crate::error::{Failure, OperationResult};
-use jcompat::{
-    file_manager::{JavaPath, absolute_file_path_utf16},
-    jstring,
-    logging::Level,
-    utf8,
-};
+use jcompat::{file_manager::absolute_file_path, jstring, logging::Level, utf8};
 use std::{io, sync::Arc};
 
 /// Called only on the vendor blocking pool. A run can forward these records to
@@ -16,34 +11,34 @@ pub trait FilterLogger: Send + Sync {
     fn log(&self, level: Level, logger: &str, message: String, cause: Option<Failure>);
 }
 pub trait FilterValuesReader: Send + Sync {
-    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<String>>;
+    fn read_values(&self, path: &std::path::Path) -> OperationResult<Vec<String>>;
 }
 pub struct FileValuesReader {
     pub logger: Arc<dyn FilterLogger>,
 }
 impl FilterValuesReader for FileValuesReader {
-    fn read_values(&self, path: &JavaPath) -> OperationResult<Vec<String>> {
-        let native = path.to_file_path_buf();
+    fn read_values(&self, path: &std::path::Path) -> OperationResult<Vec<String>> {
+        let native = path;
         // File.exists returns false for invalid legacy File paths (including
         // NUL); unlike NIO Paths.get, it does not throw during this check.
-        if !native.as_ref().is_ok_and(|path| path.exists()) {
+        if !native.exists() {
             // The JVM resolves against its cached `user.dir`, so a deleted or
             // unreadable working directory never fails here; log the path as given.
             let absolute = match std::env::current_dir() {
                 Ok(cwd) => {
-                    let cwd: Vec<u16> = cwd.to_string_lossy().encode_utf16().collect();
-                    absolute_file_path_utf16(&path.0, &cwd)
+                    let cwd = cwd.to_string_lossy();
+                    absolute_file_path(&path.to_string_lossy(), &cwd)
                 }
-                Err(_) => JavaPath(path.0.clone()),
+                Err(_) => path.to_path_buf(),
             };
             let mut message = String::from("Filtering configuration file ");
-            message.push_str(&String::from_utf16_lossy(&absolute.0));
+            message.push_str(&absolute.to_string_lossy());
             message.push_str(" does not exist. Applying empty list.");
             self.logger.log(Level::Error, "FilterValuesFileReader", message, None);
             return Ok(Vec::new());
         }
-        let native = native.map_err(|e| io_failure(path, &e))?;
-        let bytes = std::fs::read(&native).map_err(|e| io_failure(path, &e))?;
+
+        let bytes = std::fs::read(native).map_err(|e| io_failure(path, &e))?;
         Ok(parse_values(&bytes))
     }
 }
@@ -80,7 +75,7 @@ fn ascii_space(c: u8) -> bool {
     matches!(c, 9..=13 | 32)
 }
 
-pub(super) fn io_failure(path: &JavaPath, error: &io::Error) -> Failure {
+pub(super) fn io_failure(path: &std::path::Path, error: &io::Error) -> Failure {
     let class = if matches!(
         error.kind(),
         io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied | io::ErrorKind::IsADirectory
@@ -95,7 +90,7 @@ pub(super) fn io_failure(path: &JavaPath, error: &io::Error) -> Failure {
         io::ErrorKind::IsADirectory => "Is a directory",
         _ => return failure(class, &error.to_string()),
     };
-    let mut message = String::from_utf16_lossy(&path.0.clone());
+    let mut message = path.to_string_lossy().into_owned();
     message.push_str(" (");
     message.push_str(reason);
     message.push(')');

@@ -10,7 +10,7 @@ use crate::{
     model::{AppleOperatingSystemVersion, AppleTestBundle, Arch, Sdk},
     plist::{PlistError, PropertyList, bundle::BundleInfo, delegates::OrderedStringMap},
 };
-use jcompat::file_manager::{JavaPath, relative_file};
+use jcompat::file_manager::relative_file;
 use marathon_config::{
     CONFIGURATION_EXCEPTION_CLASS,
     vendor::{TestType, XcresultConfiguration, XctestrunEnvConfiguration},
@@ -20,6 +20,7 @@ use marathon_core::{
     runtime::VendorRuntime,
     vendor::VendorContext,
 };
+use std::path::PathBuf;
 use std::{path::Path, sync::Arc};
 
 const INCOMPATIBLE: &str = "com.malinskiy.marathon.exceptions.IncompatibleDeviceException";
@@ -294,11 +295,11 @@ impl<'a> TestRootFactory<'a> {
                 .await?;
             fm.symlink(&fm.remote_test_runner_application(), &runner, true, context)
                 .await?;
-            let local = JavaPath::from_text(path_text(&bundle.xctest_bundle)?);
-            let base = JavaPath::from_text(path_text(local_runner)?);
+            let local = PathBuf::from(path_text(&bundle.xctest_bundle)?);
+            let base = PathBuf::from(path_text(local_runner)?);
             let relative = blocking(&*self.runtime, move || {
                 let cwd = std::env::current_dir().map_err(io_error)?;
-                Ok(relative_file(&local, &base, &JavaPath::from_text(path_text(&cwd)?)))
+                Ok(relative_file(&local, &base, &PathBuf::from(path_text(&cwd)?)))
             })
             .await?;
             let remote_test = self.join(&runner, &[&relative]);

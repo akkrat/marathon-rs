@@ -2,7 +2,7 @@
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
-use jcompat::{file_manager::JavaPath, jtime::instant_of};
+use jcompat::jtime::instant_of;
 use marathon_apple::{
     apple_application_installer::{AfterInstall, AppleApplicationInstaller},
     cmd::{cancelled, failure},
@@ -24,6 +24,7 @@ use marathon_core::{
     vendor::{Device, VendorContext},
 };
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::{
     future::Future,
     path::Path,
@@ -40,9 +41,9 @@ fn rows() -> impl Iterator<Item = Value> {
 fn vendor(c: &Value, root: &Path) -> TestResult<VendorConfiguration> {
     let ctx = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,
@@ -55,7 +56,7 @@ fn vendor(c: &Value, root: &Path) -> TestResult<VendorConfiguration> {
     });
     let binder = Binder::new(&ctx, &stream);
     let mut vendor = v(binder.first(&stream, bind_vendor_configuration))?.flatten().unwrap();
-    let path = |key| JavaPath::from_text(root.join(s(c, key, "")).to_str().unwrap());
+    let path = |key| PathBuf::from(root.join(s(c, key, "")).to_str().unwrap());
     let kind = match s(c, "type", "") {
         "XCUITEST" => Some(TestType::Xcuitest),
         "XCTEST" => Some(TestType::Xctest),
@@ -66,7 +67,7 @@ fn vendor(c: &Value, root: &Path) -> TestResult<VendorConfiguration> {
         (c["raw"] != false).then(|| path("app")),
         Some(path(if b(c, "reuse") { "runner" } else { "test" })),
         None,
-        b(c, "derived").then(|| JavaPath::from_text(root.to_str().unwrap())),
+        b(c, "derived").then(|| PathBuf::from(root.to_str().unwrap())),
         kind,
     );
     if b(c, "derived") {
@@ -77,13 +78,13 @@ fn vendor(c: &Value, root: &Path) -> TestResult<VendorConfiguration> {
         bundle.xctest = Some(path("test"));
     }
     if b(c, "coverageFile") {
-        bundle.xctestrun = Some(JavaPath::from_text(root.join("AllTests.xctestrun").to_str().unwrap()));
+        bundle.xctestrun = Some(PathBuf::from(root.join("AllTests.xctestrun").to_str().unwrap()));
     }
     if s(c, "mode", "").starts_with("extras") {
         bundle.extra_applications = Some(
             ["first.app", "wrong.APP", ".app", "second.app"]
                 .iter()
-                .map(|n| JavaPath::from_text(root.join(n).to_str().unwrap()))
+                .map(|n| PathBuf::from(root.join(n).to_str().unwrap()))
                 .collect(),
         );
     }

@@ -131,16 +131,7 @@ impl ScreenRecordingListener {
             "ios.ScreenRecordingListener.pullLastBatchVideo"
         };
         let start = self.c.millis(label)?;
-        self.c
-            .device
-            .pull_file(
-                src,
-                &local.to_file_path_buf().map_err(|e| {
-                    VendorError::Other(marathon_apple::cmd::failure("java.io.IOException", e.to_string()))
-                })?,
-                &self.c.context,
-            )
-            .await?;
+        self.c.device.pull_file(src, &local, &self.c.context).await?;
         self.c.log(
             &self.logger,
             Level::Debug,

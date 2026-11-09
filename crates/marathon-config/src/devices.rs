@@ -26,7 +26,7 @@ pub struct Worker {
 
 /// Port of `Transport` (Transport.kt). `Eq`/`Hash` derive from the bound
 /// fields: `DeviceTracker` (WP 5.4) and the macOS provider key maps by
-/// transport. `Hash` is written out because `JavaPath` has none.
+/// transport. `Hash` follows the authentication fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Transport {
     Local,
@@ -81,7 +81,7 @@ fn hash_authentication<H: Hasher>(authentication: &Option<SshAuthentication>, st
         Some(SshAuthentication::PublicKey { username, key }) => {
             1u8.hash(state);
             username.hash(state);
-            key.0.hash(state);
+            key.hash(state);
         }
         None => {}
     }

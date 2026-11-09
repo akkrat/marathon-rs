@@ -150,11 +150,9 @@ impl Bundle {
         let outcome = async {
             let start = self.now("apple.ResultBundleRunListener.deliver")?;
             let owner = self.owner();
-            let plan = self.files.plan_folder_utf16(
-                FolderType::DeviceFiles,
-                Some(&self.pool.name.encode_utf16().collect::<Vec<_>>()),
-                Some(&owner.encode_utf16().collect::<Vec<_>>()),
-            );
+            let plan = self
+                .files
+                .plan_folder(FolderType::DeviceFiles, Some(&self.pool.name), Some(&owner));
             let fm_logger = {
                 let mut registry = self.logging.registry.lock().unwrap_or_else(|e| e.into_inner());
                 let name = "com.malinskiy.marathon.io.FileManager";
@@ -167,16 +165,9 @@ impl Bundle {
             let local = plan
                 .materialize(|message| {
                     if self.logging.enabled(&fm_logger, Level::Error) {
-                        (self.logging.sink)(
-                            &fm_logger,
-                            Level::Error,
-                            jcompat::file_manager::path_diagnostic(message),
-                            None,
-                        );
+                        (self.logging.sink)(&fm_logger, Level::Error, message.to_owned(), None);
                     }
                 })
-                .map_err(|e| io_failure(e, ""))?
-                .to_path_buf()
                 .map_err(|e| io_failure(e, ""))?
                 .join("xcresult");
             // File.mkdirs ignores its Boolean result; the pull/move supplies the failure.

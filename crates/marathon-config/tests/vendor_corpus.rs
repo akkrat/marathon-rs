@@ -7,10 +7,7 @@
 //! Set-valued fields are compared as multisets: Kotlin sets are `HashSet`s
 //! whose iteration order is unspecified (P7 keeps first-seen order here).
 
-use jcompat::{
-    file_manager::JavaPath,
-    jtime::{Duration, instant_of},
-};
+use jcompat::jtime::{Duration, instant_of};
 use marathon_config::{
     VendorConfiguration,
     bind_vendor::bind_vendor_configuration,
@@ -20,15 +17,16 @@ use marathon_config::{
     vendor::*,
 };
 use serde_json::{Value as Json, json};
+use std::path::PathBuf;
 
 fn s(value: &str) -> Json {
     value.to_owned().into()
 }
-fn p(value: &JavaPath) -> Json {
-    String::from_utf16_lossy(&value.0).into()
+fn p(value: &std::path::Path) -> Json {
+    value.to_string_lossy().into_owned().into()
 }
-fn opt_path(value: &Option<JavaPath>) -> Json {
-    value.as_ref().map_or(Json::Null, p)
+fn opt_path(value: &Option<PathBuf>) -> Json {
+    value.as_ref().map_or(Json::Null, |v| p(v))
 }
 fn opt_str(value: &Option<String>) -> Json {
     value.as_ref().map_or(Json::Null, |text| s(text))
@@ -36,10 +34,10 @@ fn opt_str(value: &Option<String>) -> Json {
 fn dur(value: Duration) -> Json {
     value.to_string().into()
 }
-fn paths(value: &Option<Vec<JavaPath>>) -> Json {
+fn paths(value: &Option<Vec<PathBuf>>) -> Json {
     value
         .as_ref()
-        .map_or(Json::Null, |files| Json::Array(files.iter().map(p).collect()))
+        .map_or(Json::Null, |files| Json::Array(files.iter().map(|v| p(v)).collect()))
 }
 fn str_map(pairs: &[(String, String)]) -> Json {
     Json::Object(pairs.iter().map(|(k, v)| (k.clone(), s(v))).collect())
@@ -610,9 +608,9 @@ fn vendor_corpus_matches_jvm() -> std::result::Result<(), Box<dyn std::error::Er
     let dir = dir_path.to_string_lossy().into_owned();
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text(&format!("{dir}/Marathonfile")),
-        marathonfile_dir: JavaPath::from_text(&dir),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from(&format!("{dir}/Marathonfile")),
+        marathonfile_dir: PathBuf::from(&dir),
+        process_dir: PathBuf::from("/"),
         environment: vec![("ANDROID_HOME".into(), "/env-sdk".into())],
         now: instant_of(0, 0).ok_or("epoch instant")?,
         analytics_tracking: false,

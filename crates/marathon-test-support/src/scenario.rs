@@ -7,6 +7,7 @@
 //! after it (docs/design/replay-tapes.md). `end` is Kotlin's `advanceTimeBy(end)`, which
 //! runs tasks strictly before `end`. A run still active then is cancelled and joined as
 //! harness teardown, which is not an application finish (C26).
+
 use crate::{
     console::Line,
     factory::{Built, CounterTimer, MarathonFactory},
@@ -220,9 +221,14 @@ pub type Ready = Box<dyn FnOnce(&Built) + Send>;
 
 /// `launch { marathon.runAsync(command) }`, the events, then `advanceTimeBy(end)`.
 pub fn drive(mut factory: MarathonFactory, script: Script, prepare: Option<Prepare>, ready: Option<Ready>) -> Outcome {
-    let output_dir = std::path::PathBuf::from(String::from_utf16_lossy(
-        &factory.configuration.configuration.output_dir.0,
-    ));
+    let output_dir = std::path::PathBuf::from(
+        factory
+            .configuration
+            .configuration
+            .output_dir
+            .to_string_lossy()
+            .into_owned(),
+    );
     let output = factory.configuration.output.take();
     let Script {
         entry,
@@ -357,8 +363,7 @@ pub fn load(name: &str) -> (MarathonFactory, Script) {
     let mut factory = MarathonFactory::new();
     // As the oracle driver does (`outputDir = File(work, "output")`): not created beforehand.
     let output = factory.configuration.output_dir().join("output");
-    factory.configuration.configuration.output_dir =
-        jcompat::file_manager::JavaPath::from_text(&output.to_string_lossy());
+    factory.configuration.configuration.output_dir = std::path::PathBuf::from(output.to_string_lossy().into_owned());
     configure(&mut factory.configuration.configuration, &spec["configuration"]);
     factory.tests = tests_of(&spec["tests"]);
     if spec["timer"] == "counter" {

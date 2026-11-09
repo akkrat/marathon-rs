@@ -133,7 +133,7 @@ fn raw_pool_names_overwrites_artifact_gates_and_log_urls() {
     use marathon_core::{model::*, report::*};
     let temp = Temp::new();
     let root = temp.path("");
-    let manager = FileManager::new_utf16(4096, 255, &root.0, &[]);
+    let manager = FileManager::new(4096, 255, &root.to_string_lossy(), "");
     checked(std::fs::write(temp.0.join("artifact # name.bin"), b"content"));
     let mut events = Vec::new();
     for features in [
@@ -167,7 +167,7 @@ fn raw_pool_names_overwrites_artifact_gates_and_log_urls() {
                         chunk: None,
                     });
                     let path = checked(plan.materialize(|_| {}));
-                    checked(std::fs::write(checked(path.to_path_buf()), b"not stacktrace"));
+                    checked(std::fs::write(path.clone(), b"not stacktrace"));
                 }
             }
             events.push(event(r, true, "pool"));

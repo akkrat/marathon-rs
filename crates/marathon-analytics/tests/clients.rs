@@ -441,18 +441,18 @@ fn real_transport_query_failures_retry_three_times_and_remain_cached() {
 }
 
 fn bind_analytics(yaml: &str) -> AnalyticsConfiguration {
-    use jcompat::file_manager::JavaPath;
     use marathon_config::{
         bind::bind_analytics_configuration,
         binder::Binder,
         binding::{BindingContext, Profile},
         node,
     };
+    use std::path::PathBuf;
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: jcompat::jtime::instant_of(0, 0).unwrap(),
         analytics_tracking: false,

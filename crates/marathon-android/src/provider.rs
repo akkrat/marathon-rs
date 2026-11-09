@@ -1,15 +1,13 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt
 //! and adam/src/main/kotlin/com/malinskiy/adam/interactor/{StartAdbInteractor,AdbBinaryInteractor}.kt.
+
 use crate::{
     device::AndroidDevice,
     services::AndroidRuntime,
     support::*,
     tracker::{DeviceStateTracker, MultiServerDeviceStateTracker, TrackingUpdate, is_passing},
 };
-use jcompat::{
-    file_manager::JavaPath,
-    logging::{Level, Logger},
-};
+use jcompat::logging::{Level, Logger};
 use marathon_adb::client::{
     AdamLogging, AdbError, AndroidDebugBridgeClient, ChannelStream, SocketFactory,
     device::{AsyncDeviceMonitorRequest, Device as AdbDevice, DeviceState, ListDevicesRequest},
@@ -1005,8 +1003,8 @@ fn server_name(client: &AndroidDebugBridgeClient) -> String {
     )
 }
 /// Runs only the selected binary; tests always provide a temp SDK with a fake adb.
-pub async fn start_adb(sdk: Option<&JavaPath>, port: u16, context: VendorContext) -> VendorResult<bool> {
-    let home = sdk.map(|p| p.to_file_path_buf().map_err(io)).transpose()?.or_else(|| {
+pub async fn start_adb(sdk: Option<&PathBuf>, port: u16, context: VendorContext) -> VendorResult<bool> {
+    let home = sdk.cloned().or_else(|| {
         std::env::var_os("ANDROID_HOME")
             .or_else(|| std::env::var_os("ANDROID_SDK_ROOT"))
             .map(PathBuf::from)

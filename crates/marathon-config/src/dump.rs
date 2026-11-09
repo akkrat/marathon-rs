@@ -15,10 +15,11 @@ use crate::{
 };
 use jcompat::{
     JavaRegex,
-    file_manager::{JavaPath, absolute_file_path_utf16},
+    file_manager::absolute_file_path,
     jnum::double_to_string,
     jtime::{Duration, Instant},
 };
+use std::path::PathBuf;
 
 /// A JSON value as the oracle's `Json` writer sees it.
 #[derive(Clone, Debug, PartialEq)]
@@ -122,7 +123,7 @@ fn write_string(out: &mut String, text: &str) {
 
 /// The canonical configuration (`Canonical.render(configuration)`). `process_dir` is the JVM's `user.dir`, against
 /// which `File.absolutePath` resolves a relative path.
-pub fn canonical_configuration(configuration: &Configuration, process_dir: &JavaPath) -> DumpValue {
+pub fn canonical_configuration(configuration: &Configuration, process_dir: &PathBuf) -> DumpValue {
     Canonical { cwd: process_dir }.configuration(configuration)
 }
 
@@ -151,7 +152,7 @@ pub fn error_json(class: &str, message: Option<&str>, causes: &[(String, Option<
 }
 
 struct Canonical<'a> {
-    cwd: &'a JavaPath,
+    cwd: &'a PathBuf,
 }
 
 type Fields = Vec<(&'static str, DumpValue)>;
@@ -205,10 +206,14 @@ fn string_map(v: &[(String, String)]) -> DumpValue {
 
 impl Canonical<'_> {
     /// `File.absolutePath`: absolute, not normalised.
-    fn file(&self, p: &JavaPath) -> DumpValue {
-        DumpValue::Str(String::from_utf16_lossy(&absolute_file_path_utf16(&p.0, &self.cwd.0).0))
+    fn file(&self, p: &std::path::Path) -> DumpValue {
+        DumpValue::Str(
+            absolute_file_path(&p.to_string_lossy(), &self.cwd.to_string_lossy())
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
-    fn files(&self, v: Option<&Vec<JavaPath>>) -> DumpValue {
+    fn files(&self, v: Option<&Vec<PathBuf>>) -> DumpValue {
         opt(v, |v| list(v, |p| self.file(p)))
     }
 

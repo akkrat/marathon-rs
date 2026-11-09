@@ -126,7 +126,7 @@ async fn fixed(
         let provider = Arc::new(AttachmentProviderDelegate::default());
         let recorder = Arc::new(Recorder {
             provider: provider.clone(),
-            file: jcompat::file_manager::JavaPath::from_text(h.dir.path().join("test.log").to_str().unwrap()),
+            file: std::path::PathBuf::from(h.dir.path().join("test.log").to_str().unwrap()),
         });
         let results = TestResultsListener::new(TestResultsListenerConfig {
             batch: batch.clone(),
@@ -160,9 +160,9 @@ async fn fixed(
         ]);
         let b = h.services.vendor.bundle.as_ref().unwrap();
         let bundle = AppleTestBundle::new(
-            b.app.as_ref().map(|p| p.to_file_path_buf().unwrap()),
+            b.app.clone(),
             None,
-            b.xctest.as_ref().unwrap().to_file_path_buf().unwrap(),
+            b.xctest.as_ref().unwrap().clone(),
             marathon_apple::model::Sdk::IphoneSimulator,
             h.services.runtime.clone(),
             h.services.logging.clone(),
@@ -198,9 +198,7 @@ async fn policies_results_traces_and_attachments_match_synchronous_baseline_for_
                         v.xcresult.remote_clean = clean;
                     })?;
                     h.services.listeners = Arc::new(Factory {
-                        file: jcompat::file_manager::JavaPath::from_text(
-                            h.dir.path().join("test.log").to_str().unwrap(),
-                        ),
+                        file: std::path::PathBuf::from(h.dir.path().join("test.log").to_str().unwrap()),
                         fail_finalizer: false,
                         cancel_finalizer: false,
                         finalizing: SharedDeferred::new(),
@@ -253,10 +251,12 @@ async fn policies_results_traces_and_attachments_match_synchronous_baseline_for_
                         } else {
                             &queued.failed[0]
                         };
-                        assert!(result.attachments.iter().any(|a| a.file
-                            == jcompat::file_manager::JavaPath::from_text(
-                                h.dir.path().join("test.log").to_str().unwrap()
-                            )));
+                        assert!(
+                            result
+                                .attachments
+                                .iter()
+                                .any(|a| a.file == *h.dir.path().join("test.log").to_str().unwrap())
+                        );
                         for a in result.attachments.iter().filter(|a| a.name.is_some()) {
                             assert_eq!(a.name.as_ref().unwrap().to_owned(), "xcodebuild-log");
                         }
@@ -303,7 +303,7 @@ async fn bundle_skipped_by_a_failing_earlier_finalizer_stays_protected_and_is_re
         let mut h = Harness::new(|v| v.xcresult.pulling_policy = PullingPolicy::Always)?;
         let finalizing = SharedDeferred::new();
         h.services.listeners = Arc::new(Factory {
-            file: jcompat::file_manager::JavaPath::from_text("test.log"),
+            file: std::path::PathBuf::from("test.log"),
             fail_finalizer: true,
             cancel_finalizer: cancelled,
             finalizing: finalizing.clone(),
@@ -359,7 +359,7 @@ async fn bundles_registered_around_queue_shutdown_are_kept_and_reported_once() -
     let mut h = Harness::new(|v| v.xcresult.pulling_policy = PullingPolicy::Always)?;
     let finalizing = SharedDeferred::new();
     h.services.listeners = Arc::new(Factory {
-        file: jcompat::file_manager::JavaPath::from_text("test.log"),
+        file: std::path::PathBuf::from("test.log"),
         fail_finalizer: true,
         cancel_finalizer: true,
         finalizing: finalizing.clone(),
@@ -392,7 +392,7 @@ async fn bundles_registered_around_queue_shutdown_are_kept_and_reported_once() -
     // A fresh factory finalizer fails after a batch has registered with the already-closed queue.
     let mut services = h.services.clone();
     services.listeners = Arc::new(Factory {
-        file: jcompat::file_manager::JavaPath::from_text("test.log"),
+        file: std::path::PathBuf::from("test.log"),
         fail_finalizer: true,
         cancel_finalizer: false,
         finalizing: SharedDeferred::new(),

@@ -68,7 +68,6 @@ fn parse_results_match_actual_command_emission() {
     }
 }
 
-use jcompat::file_manager::JavaPath;
 use marathon_core::{
     analytics::{DelegatingTrackerInternal, ExecutionReportGenerator, TrackerInternal, TrackerInternalAdapter},
     error::*,
@@ -78,6 +77,7 @@ use marathon_core::{
     report::*,
     runtime::*,
 };
+use std::path::PathBuf;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -88,10 +88,10 @@ struct FailFiles {
     error: OperationError,
 }
 impl OutputFiles for FailFiles {
-    fn output_dir(&self) -> &JavaPath {
+    fn output_dir(&self) -> &PathBuf {
         self.inner.output_dir()
     }
-    fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, JavaPath> {
+    fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, PathBuf> {
         Box::pin(async move {
             assert_ne!(std::thread::current().name(), Some("marathon-core"));
             if self.calls.fetch_add(1, Ordering::SeqCst) == 1 {
@@ -105,10 +105,10 @@ impl OutputFiles for FailFiles {
         kind: FolderType,
         pool: Option<&'a DevicePoolId>,
         device: Option<&'a DeviceInfo>,
-    ) -> ServiceFuture<'a, JavaPath> {
+    ) -> ServiceFuture<'a, PathBuf> {
         self.inner.create_folder(kind, pool, device)
     }
-    fn create_test_result_file<'a>(&'a self, name: &'a str) -> ServiceFuture<'a, JavaPath> {
+    fn create_test_result_file<'a>(&'a self, name: &'a str) -> ServiceFuture<'a, PathBuf> {
         self.inner.create_test_result_file(name)
     }
 }

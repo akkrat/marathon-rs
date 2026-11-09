@@ -13,7 +13,6 @@ mod load;
 
 use jcompat::{
     JavaRegex,
-    file_manager::JavaPath,
     jtime::{Duration, Instant, duration_of, parse_duration, parse_instant},
 };
 use marathon_config::{
@@ -39,13 +38,13 @@ fn re(pattern: &str) -> JavaRegex {
 fn s(text: &str) -> String {
     text.into()
 }
-fn p(dir: &Path, rel: &str) -> JavaPath {
+fn p(dir: &Path, rel: &str) -> PathBuf {
     load::java_path(&dir.join(rel))
 }
 
 /// `File(path).canonicalFile` for a path whose leaf may not exist: the
 /// longest existing prefix is resolved, the rest appended.
-fn canonical_file(path: &str) -> JavaPath {
+fn canonical_file(path: &str) -> PathBuf {
     let mut existing = PathBuf::from(path);
     let mut rest = Vec::new();
     while !existing.exists() {
@@ -70,7 +69,7 @@ fn parse_sample(
     load::parse(&file, &load::context(&file, &dir, sdk))
 }
 
-fn values_filter(regex: Option<&str>, values: Option<&[&str]>, file: Option<JavaPath>) -> RegexValuesFileFilter {
+fn values_filter(regex: Option<&str>, values: Option<&[&str]>, file: Option<PathBuf>) -> RegexValuesFileFilter {
     RegexValuesFileFilter {
         regex: regex.map(re),
         values: values.map(|v| v.iter().copied().map(s).collect()),
@@ -90,7 +89,7 @@ fn package_filter(regex: &str) -> TestFilterConfiguration {
 
 /// `VendorConfiguration.AndroidConfiguration`'s constructor defaults after
 /// the four leading parameters, as the Kotlin tests pass them positionally.
-fn android(sdk: JavaPath, app: Option<JavaPath>, test_app: Option<JavaPath>) -> AndroidConfiguration {
+fn android(sdk: PathBuf, app: Option<PathBuf>, test_app: Option<PathBuf>) -> AndroidConfiguration {
     AndroidConfiguration {
         android_sdk: Some(sdk),
         application_output: app,
@@ -292,7 +291,7 @@ fn on_sample_config_1_should_deserialize() {
     assert_eq!(configuration.device_initialization_timeout_millis, 300_000);
 
     let mut expected = android(
-        JavaPath::from_text("/local/android"),
+        PathBuf::from("/local/android"),
         Some(p(&dir, APP)),
         Some(p(&dir, TEST_APP)),
     );
@@ -383,7 +382,7 @@ fn on_sample_config_2_with_minimal_configuration_should_deserialize() {
     assert_eq!(
         configuration.vendor_configuration,
         VendorConfiguration::Android(android(
-            JavaPath::from_text("/local/android"),
+            PathBuf::from("/local/android"),
             Some(p(&dir, APP)),
             Some(p(&dir, TEST_APP)),
         ))
@@ -406,7 +405,7 @@ fn on_configuration_without_android_sdk_value_should_use_value_provided_by_envir
     let dir = mock_marathonfile_dir();
     let configuration = parse_sample("sample_6.yaml", Some("/android/home")).unwrap();
     let mut expected = android(
-        JavaPath::from_text("/android/home"),
+        PathBuf::from("/android/home"),
         Some(p(&dir, APP)),
         Some(p(&dir, TEST_APP)),
     );

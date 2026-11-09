@@ -2,10 +2,10 @@
 
 use crate::{artifact_io::*, error::VendorResult, runtime::*, time::WallClock};
 use jcompat::{
-    file_manager::JavaPath,
     formatting::format_fixed,
     logging::{Level, Logger},
 };
+use std::path::PathBuf;
 use std::{path::Path, sync::Arc};
 
 #[derive(Clone)]
@@ -19,21 +19,21 @@ pub struct TransferMeasurement {
 impl TransferMeasurement {
     pub async fn measure_file_transfer<'a, T: Send + 'a>(
         &self,
-        file: JavaPath,
+        file: PathBuf,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
         self.measure(file, body, false).await
     }
     pub async fn measure_folder_transfer<'a, T: Send + 'a>(
         &self,
-        file: JavaPath,
+        file: PathBuf,
         body: VendorFuture<'a, T>,
     ) -> VendorResult<T> {
         self.measure(file, body, true).await
     }
     async fn measure<'a, T: Send + 'a>(
         &self,
-        file: JavaPath,
+        file: PathBuf,
         body: VendorFuture<'a, T>,
         folder: bool,
     ) -> VendorResult<T> {
@@ -69,11 +69,9 @@ impl TransferMeasurement {
         result
     }
 
-    fn emit(&self, file: JavaPath, elapsed: i64, folder: bool) {
-        let Ok(path) = file.to_file_path_buf() else {
-            return;
-        };
-        let Ok(metadata) = std::fs::metadata(&path) else {
+    fn emit(&self, file: PathBuf, elapsed: i64, folder: bool) {
+        let path = &file;
+        let Ok(metadata) = std::fs::metadata(path) else {
             return;
         };
         let (dirs, files, bytes) = if folder {
@@ -81,7 +79,7 @@ impl TransferMeasurement {
                 return;
             }
             let mut counts = (0i32, 0i32, 0i64);
-            walk(&path, &mut counts);
+            walk(path, &mut counts);
             counts
         } else {
             (0, 0, metadata.len() as i64)
@@ -96,14 +94,11 @@ impl TransferMeasurement {
         ) else {
             return;
         };
-        // A truncated JavaPath can still contain a split pair.
-        let mut name = file.0.as_slice();
-        while name.len() > 1 && name.last() == Some(&47) {
-            name = &name[..name.len() - 1];
-        }
-        let base = name.iter().rposition(|&u| u == 47).map_or(name, |i| &name[i + 1..]);
+        let name = file.to_string_lossy();
+        let name = if name == "/" { &name } else { name.trim_end_matches('/') };
+        let base = name.rsplit('/').next().unwrap_or("");
         let mut message = String::from("Transferred ");
-        message.push_str(&jcompat::file_manager::path_diagnostic(base));
+        message.push_str(base);
         if folder {
             message.push_str(" with ");
             message.push_str(&dirs.to_string());

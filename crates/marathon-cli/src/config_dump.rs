@@ -8,7 +8,7 @@ use crate::application::{
     CliOutput, Process, canonical_parent, configuration_failure, failure, read_failure, render_uncaught,
 };
 use jcompat::{
-    file_manager::{JavaPath, absolute_file_path_utf16, file_path},
+    file_manager::{absolute_file_path, file_path},
     jtime::{Instant, InstantParseError, parse_instant_detailed},
 };
 use marathon_config::{
@@ -18,6 +18,7 @@ use marathon_config::{
 };
 use marathon_core::error::Failure;
 use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 use std::{collections::BTreeMap, fs, path::Path};
 
 const USAGE: &str = "usage: config-dump <Marathonfile> [--env-file F] [--now <ISO instant>]";
@@ -141,9 +142,11 @@ pub fn document(
         None => process.environment.clone(),
     };
     let now = now.unwrap_or(process.now);
-    let cwd = JavaPath::from_text(&process.cwd.to_string_lossy());
+    let cwd = PathBuf::from(process.cwd.to_string_lossy().into_owned());
     let given = file_path(file);
-    let absolute = String::from_utf16_lossy(&absolute_file_path_utf16(&given.0, &cwd.0).0);
+    let absolute = absolute_file_path(&given.to_string_lossy(), &cwd.to_string_lossy())
+        .to_string_lossy()
+        .into_owned();
     let parent = Path::new(&absolute).parent().map(Path::to_path_buf).unwrap_or_default();
     let dir = if parent.exists() {
         fs::canonicalize(&parent).map_err(|e| io_failure(&e))?
@@ -177,9 +180,9 @@ fn failure_json(f: &Failure) -> DumpValue {
 
 /// `parseAndValidate`: stage (a) with both tracking flags true, then the logical validator.
 fn parse_and_validate(
-    given: &JavaPath,
+    given: &std::path::Path,
     absolute: &str,
-    cwd: &JavaPath,
+    cwd: &std::path::Path,
     environment: Vec<(String, String)>,
     now: Instant,
 ) -> (&'static str, Option<Failure>, Option<marathon_config::Configuration>) {
@@ -193,11 +196,11 @@ fn parse_and_validate(
         let bytes = fs::read(absolute).map_err(|e| read_failure(given, &e))?;
         let context = BindingContext {
             profile: Profile::Marathonfile,
-            marathonfile: given.clone(),
+            marathonfile: given.to_path_buf(),
             analytics_tracking: true,
             bugsnag_reporting: true,
             marathonfile_dir: canonical_parent(absolute)?,
-            process_dir: cwd.clone(),
+            process_dir: cwd.to_path_buf(),
             environment,
             now,
         };

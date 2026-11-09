@@ -10,7 +10,8 @@
 //! provider events received by the scheduler). A test
 //! takes four virtual seconds on a device (`VirtualDuration`), where the fake in the CLI runs wait four real ones.
 mod support;
-use jcompat::{file_manager::JavaPath, logging::MarathonLogging};
+
+use jcompat::logging::MarathonLogging;
 use marathon_adb::server::{FakeAdbServer, Script, ServerOptions};
 use marathon_android::{
     device::{AndroidBatchExecutor, AndroidDevice},
@@ -398,10 +399,10 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
     let script_events = events.clone();
     let gate_started = started.clone();
     let output = checked(tempfile::tempdir());
-    let base = JavaPath::from_text("/");
+    let base = PathBuf::from("/");
     let context = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
+        marathonfile: PathBuf::from("/Marathonfile"),
         marathonfile_dir: base.clone(),
         process_dir: base,
         environment: vec![],
@@ -429,7 +430,7 @@ fn run_losing_requests(loaded: Vec<(Value, Vec<Event>, usize)>, lost_requests: i
                     logging,
                     console: console.clone(),
                     stderr: Arc::new(|_| {}),
-                    cwd: JavaPath::from_text("/"),
+                    cwd: PathBuf::from("/"),
                     environment: vec![],
                     system_information: vec![],
                     vendor: Box::new(move |dependencies| {

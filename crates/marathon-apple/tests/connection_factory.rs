@@ -392,7 +392,7 @@ async fn configuration_errors_propagate_instead_of_reporting_the_worker_as_unrea
         username: "fixture".into(),
         password: "fake-password".into(),
     });
-    cfg.known_hosts_path = Some(jcompat::file_manager::JavaPath::from_text(dir.path().to_str().unwrap()));
+    cfg.known_hosts_path = Some(std::path::PathBuf::from(dir.path().to_str().unwrap()));
     let f = ConnectionFactory::new(
         false,
         cfg,

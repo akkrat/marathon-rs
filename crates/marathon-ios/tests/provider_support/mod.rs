@@ -4,7 +4,6 @@ use crate::{
     simulator_support::*,
     support::{BridgeMock, Runtime},
 };
-use jcompat::file_manager::JavaPath;
 use marathon_apple::{
     apple_device_registry::AppleDeviceRegistry,
     device::connection_factory::{Bridge, ConnectionFuture, Executor},
@@ -23,6 +22,7 @@ use marathon_ios::device::{
     timing::ProvisioningTiming,
 };
 use marathon_test_support::apple::FakeSimulatorWorker;
+use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -168,9 +168,9 @@ impl ProviderHarness {
             context: services.context.clone(),
             binding: Arc::new(BindingContext {
                 profile: Profile::Marathondevices,
-                marathonfile: JavaPath::from_text("/Marathondevices"),
-                marathonfile_dir: JavaPath::from_text("/"),
-                process_dir: JavaPath::from_text(h.dir.path().to_str().unwrap()),
+                marathonfile: PathBuf::from("/Marathondevices"),
+                marathonfile_dir: PathBuf::from("/"),
+                process_dir: PathBuf::from(h.dir.path().to_str().unwrap()),
                 environment: vec![],
                 now: jcompat::jtime::instant_of(0, 0).unwrap(),
                 analytics_tracking: false,

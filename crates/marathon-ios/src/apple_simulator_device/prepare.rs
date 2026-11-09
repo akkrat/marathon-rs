@@ -196,10 +196,7 @@ impl AppleSimulatorDevice {
         let bundle = self.services.vendor.bundle.as_ref().ok_or_else(|| {
             VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
         })?;
-        let path = |p: &jcompat::file_manager::JavaPath| {
-            p.to_file_path_buf()
-                .map_err(|e| VendorError::Other(failure("java.nio.file.InvalidPathException", e.to_string())))
-        };
+        let path = |p: &std::path::PathBuf| Ok::<_, VendorError>(p.clone());
         AppleTestBundle::new(
             bundle.app.as_ref().map(path).transpose()?,
             bundle.test_app.as_ref().map(path).transpose()?,

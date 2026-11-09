@@ -1,11 +1,12 @@
 //! Corpus-only projections. Every binding operation calls the production binder.
-use jcompat::{file_manager::JavaPath, jtime::instant_of};
+use jcompat::jtime::instant_of;
 use marathon_config::{
     binder::{Binder, Field, Result, Value},
     binding::{BindingContext, Profile},
 };
 use serde_json::Value as Json;
 use snakeyaml::node::Stream;
+use std::path::PathBuf;
 /// The thirteen simple targets of the spike rows, in corpus order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -130,9 +131,9 @@ fn shorten_string(v: serde_json::Value) -> serde_json::Value {
 pub fn context() -> BindingContext {
     BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![],
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,
@@ -164,7 +165,7 @@ fn schema(v: Value<'_>, target: Target) -> Result<Json> {
             Target::Duration => value.duration()?.map_or(Json::Null, |i| i.to_string().into()),
             Target::File => value
                 .file()?
-                .map_or(Json::Null, |p| String::from_utf16_lossy(&p.0).into()),
+                .map_or(Json::Null, |p| p.to_string_lossy().into_owned().into()),
             Target::List | Target::ListOpt => value.list(|v| Ok(string(v.string()?)))?.map_or(Json::Null, Json::Array),
             Target::Map => value
                 .map(|v| Ok(string(v.string()?)))?

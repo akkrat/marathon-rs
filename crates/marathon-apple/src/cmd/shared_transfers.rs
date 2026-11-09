@@ -4,13 +4,14 @@ use super::{
     TransferStop, TransferStopped, blocking, io_error, remote::ssh::sshj::config::SshLogging, stall_record::StallRecord,
 };
 use jcompat::{
-    file_manager::{JavaPath, absolute_file_path, file_path},
+    file_manager::{absolute_file_path, file_path},
     logging::{Level, Logger},
 };
 use marathon_core::{
     error::{LeavePoolReason, VendorError, VendorResult},
     runtime::VendorRuntime,
 };
+use std::path::PathBuf;
 use std::{
     collections::HashMap,
     future::Future,
@@ -21,7 +22,7 @@ use std::{
 type Destination = (String, String);
 #[derive(Default)]
 struct DestinationState {
-    previous: tokio::sync::Mutex<Option<JavaPath>>,
+    previous: tokio::sync::Mutex<Option<PathBuf>>,
     stalls: StallRecord,
 }
 type TransferState = Arc<DestinationState>;
@@ -55,7 +56,7 @@ impl SharedTransfers {
         T: Future<Output = VendorResult<bool>>,
     {
         let path = src.to_string_lossy().into_owned();
-        let display_path = String::from_utf16_lossy(&file_path(&path).0);
+        let display_path = file_path(&path).to_string_lossy().into_owned();
         let source = blocking(self.runtime.as_ref(), move || {
             let cwd = std::env::current_dir().map_err(io_error)?;
             Ok(absolute_file_path(&path, &cwd.to_string_lossy()))

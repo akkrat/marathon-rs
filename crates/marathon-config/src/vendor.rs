@@ -14,7 +14,6 @@ use crate::{
 };
 use jcompat::{
     JavaRegex,
-    file_manager::JavaPath,
     jtime::Duration,
     regex_patterns::{DEFAULT_TEST_CLASS_PATTERN, default_test_class_matches},
 };
@@ -112,25 +111,25 @@ impl std::error::Error for ValidationError {}
 
 /// `File.absolutePath`: absolute paths verbatim, relative ones against the
 /// process directory. Used only for `validate()` messages.
-pub(crate) fn absolute_path_text(path: &JavaPath) -> String {
-    let text = String::from_utf16_lossy(&path.0);
+pub(crate) fn absolute_path_text(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy().into_owned();
     if text.starts_with('/') {
         return text;
     }
     match std::env::current_dir() {
         Ok(dir) => {
-            let cwd: Vec<u16> = dir.to_string_lossy().encode_utf16().collect();
-            let abs = jcompat::file_manager::absolute_file_path_utf16(&path.0, &cwd);
-            String::from_utf16_lossy(&abs.0)
+            let cwd = dir.to_string_lossy();
+            let abs = jcompat::file_manager::absolute_file_path(&path.to_string_lossy(), &cwd);
+            abs.to_string_lossy().into_owned()
         }
         Err(_) => text,
     }
 }
-fn file_exists(path: &JavaPath) -> bool {
-    path.to_path_buf().is_ok_and(|p| p.exists())
+fn file_exists(path: &std::path::Path) -> bool {
+    path.exists()
 }
-fn file_is_regular(path: &JavaPath) -> bool {
-    path.to_path_buf().is_ok_and(|p| p.is_file())
+fn file_is_regular(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 // ---- Android leaves (config/vendor/android/*.kt) ----------------------------
@@ -169,10 +168,10 @@ pub struct AllureConfiguration {
 /// Port of config/vendor/android/AndroidTestBundleConfiguration.kt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AndroidTestBundleConfiguration {
-    pub application: Option<JavaPath>,
-    pub test_application: JavaPath,
-    pub extra_applications: Option<Vec<JavaPath>>,
-    pub split_apks: Option<Vec<JavaPath>>,
+    pub application: Option<PathBuf>,
+    pub test_application: PathBuf,
+    pub extra_applications: Option<Vec<PathBuf>>,
+    pub split_apks: Option<Vec<PathBuf>>,
 }
 
 /// Port of config/vendor/android/FileSyncConfiguration.kt. Sets are ordered
@@ -198,7 +197,7 @@ pub struct FilePushEntry {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProfilingConfiguration {
     pub enabled: bool,
-    pub pbtxt: Option<JavaPath>,
+    pub pbtxt: Option<PathBuf>,
     pub url_template: String,
 }
 
@@ -371,7 +370,7 @@ pub fn android_timeout_configuration(p: AndroidTimeoutParameters) -> AndroidTime
 /// Port of config/vendor/apple/DeviceProvider.kt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DeviceProvider {
-    Static { path: Option<JavaPath> },
+    Static { path: Option<PathBuf> },
     Dynamic { host: String, port: i32 },
 }
 
@@ -387,7 +386,7 @@ pub struct RsyncConfiguration {
 #[derive(Clone, PartialEq, Eq)]
 pub enum SshAuthentication {
     Password { username: String, password: String },
-    PublicKey { username: String, key: JavaPath },
+    PublicKey { username: String, key: PathBuf },
 }
 impl fmt::Debug for SshAuthentication {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -410,7 +409,7 @@ impl fmt::Debug for SshAuthentication {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SshConfiguration {
     pub authentication: Option<SshAuthentication>,
-    pub known_hosts_path: Option<JavaPath>,
+    pub known_hosts_path: Option<PathBuf>,
     pub keep_alive_interval: Duration,
     pub keep_alive_max_count: i32,
     pub debug: bool,
@@ -433,7 +432,7 @@ impl SshConfiguration {
         {
             return Err(ValidationError::file_not_found(format!(
                 "knownhosts file not found at {}",
-                String::from_utf16_lossy(&path.0)
+                path.to_string_lossy().into_owned()
             )));
         }
         if self.keep_alive_max_count < 1 {
@@ -472,15 +471,15 @@ impl TestType {
 /// counterpart, WP 2.3b S7).
 #[derive(Clone, Debug)]
 pub struct AppleTestBundleConfiguration {
-    pub application: Option<JavaPath>,
-    pub test_application: Option<JavaPath>,
-    pub extra_applications: Option<Vec<JavaPath>>,
-    pub derived_data_dir: Option<JavaPath>,
+    pub application: Option<PathBuf>,
+    pub test_application: Option<PathBuf>,
+    pub extra_applications: Option<Vec<PathBuf>>,
+    pub derived_data_dir: Option<PathBuf>,
     pub test_type: Option<TestType>,
-    pub xctestrun: Option<JavaPath>,
-    pub app: Option<JavaPath>,
-    pub test_app: Option<JavaPath>,
-    pub xctest: Option<JavaPath>,
+    pub xctestrun: Option<PathBuf>,
+    pub app: Option<PathBuf>,
+    pub test_app: Option<PathBuf>,
+    pub xctest: Option<PathBuf>,
 }
 impl PartialEq for AppleTestBundleConfiguration {
     fn eq(&self, other: &Self) -> bool {
@@ -496,10 +495,10 @@ impl Eq for AppleTestBundleConfiguration {}
 impl AppleTestBundleConfiguration {
     /// The five bound fields with no resolved paths yet, as binding produces.
     pub fn unresolved(
-        application: Option<JavaPath>,
-        test_application: Option<JavaPath>,
-        extra_applications: Option<Vec<JavaPath>>,
-        derived_data_dir: Option<JavaPath>,
+        application: Option<PathBuf>,
+        test_application: Option<PathBuf>,
+        extra_applications: Option<Vec<PathBuf>>,
+        derived_data_dir: Option<PathBuf>,
         test_type: Option<TestType>,
     ) -> Self {
         Self {
@@ -1107,11 +1106,11 @@ impl MacosPermission {
 /// Field names keep the Kotlin property names; YAML renames live in the binder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AndroidConfiguration {
-    pub android_sdk: Option<JavaPath>,
-    pub application_output: Option<JavaPath>,
-    pub test_application_output: Option<JavaPath>,
-    pub split_apks: Option<Vec<JavaPath>>,
-    pub extra_applications_output: Option<Vec<JavaPath>>,
+    pub android_sdk: Option<PathBuf>,
+    pub application_output: Option<PathBuf>,
+    pub test_application_output: Option<PathBuf>,
+    pub split_apks: Option<Vec<PathBuf>>,
+    pub extra_applications_output: Option<Vec<PathBuf>>,
     pub outputs: Option<Vec<AndroidTestBundleConfiguration>>,
     pub auto_grant_permission: bool,
     pub instrumentation_args: Vec<(String, String)>,
@@ -1135,14 +1134,14 @@ pub struct AndroidConfiguration {
     pub mock_location: bool,
 }
 impl AndroidConfiguration {
-    pub fn safe_android_sdk(&self) -> Result<JavaPath, ValidationError> {
+    pub fn safe_android_sdk(&self) -> Result<PathBuf, ValidationError> {
         self.android_sdk
             .clone()
             .ok_or_else(|| ValidationError::configuration("No android SDK path specified"))
     }
     /// `AndroidConfiguration.validate()` (VendorConfiguration.kt:86-104).
     pub fn validate(&self) -> Result<(), ValidationError> {
-        fn check(file: Option<&JavaPath>) -> Result<(), ValidationError> {
+        fn check(file: Option<&PathBuf>) -> Result<(), ValidationError> {
             if let Some(file) = file {
                 if !file_exists(file) {
                     return Err(ValidationError::configuration(format!(
@@ -1196,7 +1195,7 @@ impl AndroidConfiguration {
 pub struct IosConfiguration {
     pub bundle: Option<AppleTestBundleConfiguration>,
     pub device_provider: DeviceProvider,
-    pub devices_file: Option<JavaPath>,
+    pub devices_file: Option<PathBuf>,
     pub ssh: SshConfiguration,
     pub worker_connection: WorkerConnectionConfiguration,
     pub xcresult: XcresultConfiguration,
@@ -1204,7 +1203,7 @@ pub struct IosConfiguration {
     pub xctestrun_env: XctestrunEnvConfiguration,
     pub lifecycle_configuration: LifecycleConfiguration,
     pub permissions: IosPermissionsConfiguration,
-    pub media_files: Option<Vec<JavaPath>>,
+    pub media_files: Option<Vec<PathBuf>>,
     pub timeout_configuration: AppleTimeoutConfiguration,
     pub threading_configuration: AppleThreadingConfiguration,
     pub hide_runner_output: bool,
@@ -1250,7 +1249,7 @@ impl IosConfiguration {
 pub struct MacosConfiguration {
     pub bundle: Option<AppleTestBundleConfiguration>,
     pub device_provider: DeviceProvider,
-    pub devices_file: Option<JavaPath>,
+    pub devices_file: Option<PathBuf>,
     pub ssh: SshConfiguration,
     pub xcresult: XcresultConfiguration,
     pub xctestrun_env: XctestrunEnvConfiguration,
@@ -1284,7 +1283,7 @@ impl MacosConfiguration {
 /// Port of config/environment/EnvironmentConfiguration.kt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnvironmentConfiguration {
-    pub android_sdk: Option<JavaPath>,
+    pub android_sdk: Option<PathBuf>,
 }
 
 /// Port of `SystemEnvironmentReader.read()` over an ordered environment:
@@ -1306,7 +1305,7 @@ pub fn read_environment(environment: &[(String, String)]) -> EnvironmentConfigur
     }
     let sdk = lookup(environment, "ANDROID_HOME").or_else(|| lookup(environment, "ANDROID_SDK_ROOT"));
     EnvironmentConfiguration {
-        android_sdk: sdk.map(|value| JavaPath(value.encode_utf16().collect::<Vec<_>>().clone())),
+        android_sdk: sdk.map(PathBuf::from),
     }
 }
 
@@ -1347,31 +1346,29 @@ pub fn fill_android_sdk(
 
 /// `File(parent).resolve(child)`: an absolute child is itself, otherwise the
 /// child appended to the parent. No canonicalisation. Delegates to
-/// `jcompat`'s UTF-16 `File` path semantics so malformed UTF-16 survives.
-fn resolve(parent: &JavaPath, child: &JavaPath) -> JavaPath {
-    jcompat::file_manager::absolute_file_path_utf16(&child.0, &parent.0)
+/// `jcompat`'s slash normalization, retaining dot components.
+fn resolve(parent: &std::path::Path, child: &std::path::Path) -> PathBuf {
+    jcompat::file_manager::absolute_file_path(&child.to_string_lossy(), &parent.to_string_lossy())
 }
 
 /// `File.resolveAgainst` (ConfigurationFactory.kt:211):
 /// `dir.resolve(this).canonicalFile`.
-fn resolve_against(dir: &JavaPath, path: &JavaPath) -> Result<JavaPath, Box<ConfigurationError>> {
+fn resolve_against(dir: &std::path::Path, path: &std::path::Path) -> Result<PathBuf, Box<ConfigurationError>> {
     let resolved = resolve(dir, path);
-    let resolved_buf: PathBuf = resolved
-        .to_path_buf()
-        .map_err(|e| parse_stage_error("java.io.IOException", e.to_string()))?;
+    let resolved_buf: PathBuf = resolved;
     let canonical = crate::paths::canonical_file(&resolved_buf)
         .map_err(|e| parse_stage_error("java.io.IOException", e.to_string()))?;
     let text = canonical
         .to_str()
         .ok_or_else(|| parse_stage_error("java.io.IOException", "canonical path must be UTF-8"))?;
-    Ok(JavaPath::from_text(text))
+    Ok(PathBuf::from(text))
 }
 
 /// Step 1 of the factory's Apple branches: re-resolve the bundle paths
 /// against `marathonfileDir` with plain `resolve` (no canonicalisation).
 /// Public so WP 2.3b/2.4 can run `bundle.validate()` on the result before
 /// any `canonicalFile` step (devices/SSH) runs.
-pub fn resolve_bundle(bundle: &AppleTestBundleConfiguration, dir: &JavaPath) -> AppleTestBundleConfiguration {
+pub fn resolve_bundle(bundle: &AppleTestBundleConfiguration, dir: &std::path::Path) -> AppleTestBundleConfiguration {
     // The factory builds a fresh bundle and calls `validate()` on it here;
     // WP 2.3b owns that call and its extraction side effects.
     // A fresh bundle in Kotlin, so any previously resolved paths are dropped.
@@ -1393,7 +1390,7 @@ pub fn resolve_bundle(bundle: &AppleTestBundleConfiguration, dir: &JavaPath) -> 
 /// resolved BEFORE the public-key `key`, as in
 /// `ConfigurationFactory.kt:94,97-100` (so a `canonicalFile` failure on
 /// the known-hosts path precedes one on the key).
-pub fn resolve_ssh(ssh: &SshConfiguration, dir: &JavaPath) -> Result<SshConfiguration, Box<ConfigurationError>> {
+pub fn resolve_ssh(ssh: &SshConfiguration, dir: &std::path::Path) -> Result<SshConfiguration, Box<ConfigurationError>> {
     let known_hosts_path = match &ssh.known_hosts_path {
         Some(path) => Some(resolve_against(dir, path)?),
         None => None,
@@ -1414,10 +1411,10 @@ pub fn resolve_ssh(ssh: &SshConfiguration, dir: &JavaPath) -> Result<SshConfigur
 
 /// The devices step: `devicesFile?.resolveAgainst(dir)` else
 /// `dir.resolve("Marathondevices")` (not canonicalised).
-pub fn resolve_devices(devices: Option<&JavaPath>, dir: &JavaPath) -> Result<JavaPath, Box<ConfigurationError>> {
+pub fn resolve_devices(devices: Option<&PathBuf>, dir: &std::path::Path) -> Result<PathBuf, Box<ConfigurationError>> {
     match devices {
         Some(path) => resolve_against(dir, path),
-        None => Ok(resolve(dir, &JavaPath::from_text("Marathondevices"))),
+        None => Ok(resolve(dir, &PathBuf::from("Marathondevices"))),
     }
 }
 

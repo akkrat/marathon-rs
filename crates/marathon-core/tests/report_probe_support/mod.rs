@@ -1,7 +1,8 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/ (JVM reporter probes).
 #![allow(dead_code)]
+
 use jcompat::{
-    file_manager::{FileManager, JavaPath},
+    file_manager::FileManager,
     jtime::instant_of,
     logging::MarathonLogging,
     writers::{GsonWriter, WriterValue},
@@ -32,8 +33,8 @@ impl Temp {
         checked(std::fs::create_dir_all(&p));
         Self(p)
     }
-    pub fn path(&self, name: &str) -> JavaPath {
-        JavaPath::from_text(self.0.join(name).to_str().unwrap())
+    pub fn path(&self, name: &str) -> PathBuf {
+        PathBuf::from(self.0.join(name).to_str().unwrap())
     }
 }
 impl Drop for Temp {
@@ -41,10 +42,10 @@ impl Drop for Temp {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
-pub fn output(io: Arc<dyn VendorRuntime>, path: JavaPath) -> Arc<FileManagerOutput> {
+pub fn output(io: Arc<dyn VendorRuntime>, path: PathBuf) -> Arc<FileManagerOutput> {
     Arc::new(FileManagerOutput::new(
         io,
-        FileManager::new_utf16(4096, 255, &path.0, &[]),
+        FileManager::new(4096, 255, &path.to_string_lossy(), ""),
         path,
         MarathonLogging::default().logger("FileManager", None),
         Arc::new(|_, _, _, _| assert_ne!(std::thread::current().name(), Some("marathon-core"))),
@@ -180,15 +181,15 @@ pub fn oracle(id: &str) -> serde_json::Value {
     )));
     rows.into_iter().find(|r| r["id"] == id).unwrap()
 }
-pub fn config(root: &JavaPath) -> marathon_config::Configuration {
+pub fn config(root: &std::path::Path) -> marathon_config::Configuration {
     use marathon_config::{binding::BindingContext, binding::Profile, loader::MarathonConfigurationLoader};
     let ctx = BindingContext {
         profile: Profile::Marathonfile,
-        marathonfile: JavaPath::from_text("/tmp/Marathonfile"),
+        marathonfile: PathBuf::from("/tmp/Marathonfile"),
         analytics_tracking: false,
         bugsnag_reporting: false,
-        marathonfile_dir: root.clone(),
-        process_dir: root.clone(),
+        marathonfile_dir: root.to_path_buf(),
+        process_dir: root.to_path_buf(),
         environment: vec![],
         now: epoch(0),
     };
@@ -196,7 +197,7 @@ pub fn config(root: &JavaPath) -> marathon_config::Configuration {
         "name: 'Report <&> 名'\noutputDir: output\nvendorConfiguration:\n  type: stub\n".as_bytes(),
         &ctx,
     ));
-    cfg.output_dir = root.clone();
+    cfg.output_dir = root.to_path_buf();
     cfg
 }
 /// Records raw console writes, as the CLI's stdout adapter would print them.

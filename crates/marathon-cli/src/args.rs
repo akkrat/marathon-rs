@@ -6,18 +6,19 @@
 //! Jaro-Winkler suggestions, which errors are reported together and under which usage line, and the help texts in
 //! the non-terminal 79-column layout (D12). Clikt's `@argfile` expansion and completion script are not reproduced (D12).
 
-use jcompat::file_manager::{JavaPath, file_path};
+use jcompat::file_manager::file_path;
+use std::path::PathBuf;
 
 /// The `CliConfiguration` a command hands to `execute`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CliConfiguration {
     Run {
-        marathonfile: JavaPath,
+        marathonfile: PathBuf,
         analytics_tracking: bool,
         bugsnag_reporting: bool,
     },
     Parse {
-        marathonfile: JavaPath,
+        marathonfile: PathBuf,
         output_file_name: Option<String>,
         include_flaky_tests: bool,
     },
@@ -37,7 +38,7 @@ impl CliConfiguration {
                 bugsnag_reporting,
             } => format!(
                 "MarathonRunCommandCliConfiguration(marathonfile={}, analyticsTracking={analytics_tracking}, bugsnagReporting={bugsnag_reporting})",
-                String::from_utf16_lossy(&marathonfile.0)
+                marathonfile.to_string_lossy().into_owned()
             ),
             Self::Parse {
                 marathonfile,
@@ -45,7 +46,7 @@ impl CliConfiguration {
                 include_flaky_tests,
             } => format!(
                 "ParseCommandCliConfiguration(marathonfile={}, outputFileName={}, includeFlakyTests={include_flaky_tests})",
-                String::from_utf16_lossy(&marathonfile.0),
+                marathonfile.to_string_lossy().into_owned(),
                 output_file_name.as_deref().unwrap_or("null")
             ),
             Self::Version => {
@@ -545,7 +546,7 @@ fn finalize(p: &CommandParse) -> Result<(), Invocation> {
     Ok(())
 }
 
-fn marathonfile(p: &CommandParse) -> JavaPath {
+fn marathonfile(p: &CommandParse) -> PathBuf {
     file_path(&last_value(p, MARATHONFILE.names).unwrap_or_else(|| "Marathonfile".into()))
 }
 

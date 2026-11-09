@@ -6,19 +6,20 @@
 //! the close behaviour over a real ktor socket in
 //! `fixtures/oracle/frame-eof-probe.jsonl`.
 
-use jcompat::{file_manager::JavaPath, jtime::instant_of};
+use jcompat::jtime::instant_of;
 use marathon_config::{
     MarathonDevices,
     binding::{BindingContext, Profile},
     dynamic::{FrameDecoder, FrameError, FrameSegment, MAX_FRAME_PAYLOAD},
 };
+use std::path::PathBuf;
 
 fn context() -> BindingContext {
     BindingContext {
         profile: Profile::Marathondevices,
-        marathonfile: JavaPath::from_text("/Marathonfile"),
-        marathonfile_dir: JavaPath::from_text("/"),
-        process_dir: JavaPath::from_text("/"),
+        marathonfile: PathBuf::from("/Marathonfile"),
+        marathonfile_dir: PathBuf::from("/"),
+        process_dir: PathBuf::from("/"),
         environment: vec![(String::from("ADDR"), String::from("node-7"))],
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,

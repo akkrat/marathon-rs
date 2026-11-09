@@ -9,10 +9,7 @@
 //! position. The assembled `ConfigurationFactory.parse` is WP 2.4's.
 //! Plus the JVM probe comparison (`fixtures/oracle/bundle-probe.jsonl`).
 
-use jcompat::{
-    file_manager::JavaPath,
-    jtime::{Duration, instant_of},
-};
+use jcompat::jtime::{Duration, instant_of};
 use marathon_config::{
     VendorConfiguration, WorkerConnectionConfiguration,
     bind_vendor::bind_vendor_configuration,
@@ -32,30 +29,28 @@ fn ios_fixture_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/configuration/fixture/config/ios")
 }
 
-fn jp(path: &Path) -> JavaPath {
-    JavaPath::from_text(&path.to_string_lossy())
+fn jp(path: &Path) -> PathBuf {
+    PathBuf::from(path.to_string_lossy().into_owned())
 }
 
-fn path_text(path: &JavaPath) -> String {
-    String::from_utf16_lossy(&path.0)
+fn path_text(path: &std::path::Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 fn bundle(
-    application: Option<JavaPath>,
-    test_application: Option<JavaPath>,
-    derived: Option<JavaPath>,
+    application: Option<PathBuf>,
+    test_application: Option<PathBuf>,
+    derived: Option<PathBuf>,
 ) -> AppleTestBundleConfiguration {
     AppleTestBundleConfiguration::unresolved(application, test_application, None, derived, None)
 }
 
 /// The Kotlin test's injected `tempDirFor`: a fresh temp directory per
 /// archive, named after it.
-fn temp_dir_for(
-    root: &Path,
-) -> impl FnMut(&JavaPath) -> std::result::Result<JavaPath, marathon_config::ValidationError> {
+fn temp_dir_for(root: &Path) -> impl FnMut(&PathBuf) -> std::result::Result<PathBuf, marathon_config::ValidationError> {
     let root = root.to_path_buf();
     let mut counter = 0;
-    move |file: &JavaPath| {
+    move |file: &PathBuf| {
         counter += 1;
         let name = Path::new(&path_text(file))
             .file_name()
@@ -82,13 +77,13 @@ fn test_explicit_config() {
         .validate_with_temp_dir_for(&mut temp_dir_for(tmp.path()))
         .unwrap();
     assert_eq!(
-        config.app.as_ref().map(path_text),
+        config.app.as_ref().map(|v| path_text(v)),
         Some(dir.join("sample.app").to_string_lossy().into_owned())
     );
     // A .xctest test application leaves testApp null.
     assert_eq!(config.test_app, None);
     assert_eq!(
-        config.xctest.as_ref().map(path_text),
+        config.xctest.as_ref().map(|v| path_text(v)),
         Some(dir.join("ui.xctest").to_string_lossy().into_owned())
     );
 }
@@ -102,11 +97,11 @@ fn test_derived_dir() {
         .validate_with_temp_dir_for(&mut temp_dir_for(tmp.path()))
         .unwrap();
     assert_eq!(
-        config.app.as_ref().map(path_text),
+        config.app.as_ref().map(|v| path_text(v)),
         Some(dir.join("sample.app").to_string_lossy().into_owned())
     );
     assert_eq!(
-        config.xctest.as_ref().map(path_text),
+        config.xctest.as_ref().map(|v| path_text(v)),
         Some(dir.join("ui.xctest").to_string_lossy().into_owned())
     );
 }
@@ -128,8 +123,22 @@ fn test_ipa() {
     config
         .validate_with_temp_dir_for(&mut temp_dir_for(tmp.path()))
         .unwrap();
-    assert!(config.app.as_ref().map(path_text).unwrap().ends_with("sample.app"));
-    assert!(config.xctest.as_ref().map(path_text).unwrap().ends_with("ui.xctest"));
+    assert!(
+        config
+            .app
+            .as_ref()
+            .map(|v| path_text(v))
+            .unwrap()
+            .ends_with("sample.app")
+    );
+    assert!(
+        config
+            .xctest
+            .as_ref()
+            .map(|v| path_text(v))
+            .unwrap()
+            .ends_with("ui.xctest")
+    );
     assert_eq!(config.test_app, None);
 }
 
@@ -140,8 +149,22 @@ fn test_zip() {
     config
         .validate_with_temp_dir_for(&mut temp_dir_for(tmp.path()))
         .unwrap();
-    assert!(config.app.as_ref().map(path_text).unwrap().ends_with("sample.app"));
-    assert!(config.xctest.as_ref().map(path_text).unwrap().ends_with("ui.xctest"));
+    assert!(
+        config
+            .app
+            .as_ref()
+            .map(|v| path_text(v))
+            .unwrap()
+            .ends_with("sample.app")
+    );
+    assert!(
+        config
+            .xctest
+            .as_ref()
+            .map(|v| path_text(v))
+            .unwrap()
+            .ends_with("ui.xctest")
+    );
     assert_eq!(config.test_app, None);
 }
 
@@ -171,7 +194,7 @@ fn real_ios_bundle_smoke() {
     );
     config.validate().unwrap();
     assert_eq!(
-        config.xctest.as_ref().map(path_text),
+        config.xctest.as_ref().map(|v| path_text(v)),
         Some(
             tmp.path()
                 .join("sample-appUITests-Runner.app/PlugIns/sample-appUITests.xctest")
@@ -183,7 +206,7 @@ fn real_ios_bundle_smoke() {
         config
             .test_app
             .as_ref()
-            .map(path_text)
+            .map(|v| path_text(v))
             .unwrap()
             .ends_with("sample-appUITests-Runner.app")
     );
@@ -214,7 +237,7 @@ fn context(dir: &Path) -> BindingContext {
         profile: Profile::Marathonfile,
         marathonfile: jp(&dir.join("Marathonfile")),
         marathonfile_dir: jp(dir),
-        process_dir: JavaPath::from_text("/"),
+        process_dir: PathBuf::from("/"),
         environment: Vec::<(String, String)>::new(),
         now: instant_of(0, 0).unwrap(),
         analytics_tracking: false,
@@ -933,7 +956,7 @@ fn bundle_probe_matches_jvm() {
             (_, Ok(())) => {
                 let ok = &result["ok"];
                 assert!(!ok.is_null(), "{id}: Kotlin failed with {result}, Rust validated");
-                let rel = |p: &Option<JavaPath>| {
+                let rel = |p: &Option<PathBuf>| {
                     p.as_ref().map(|p| {
                         Path::new(&path_text(p))
                             .strip_prefix(&dir)
@@ -1027,7 +1050,7 @@ fn extraction_never_writes_through_a_stale_symlink() {
     let stale = mkdirs(&dir, "stale");
     symlink(&outside, stale.join("link")).unwrap();
     symlink(dir.join("created-outside"), mkdirs(&stale, "d").join("f")).unwrap();
-    let mut extract_into_stale = |_: &JavaPath| Ok(jp(&stale));
+    let mut extract_into_stale = |_: &PathBuf| Ok(jp(&stale));
     let app = make_zip(&dir, "app.zip", &[("link/owned", Some("ESCAPE"))]);
     let mut config = bundle(Some(jp(&app)), Some(jp(&bundle_dir(&dir, "ui.xctest"))), None);
     let error = config.validate_with_temp_dir_for(&mut extract_into_stale).unwrap_err();
@@ -1056,7 +1079,7 @@ fn extraction_never_writes_through_a_stale_hard_link() {
             chmod(&stale, 0o555);
         }
         let stale = dir.join("stale");
-        let mut extract_into_stale = |_: &JavaPath| Ok(jp(&stale));
+        let mut extract_into_stale = |_: &PathBuf| Ok(jp(&stale));
         let app = make_zip(
             &dir,
             "app.zip",

@@ -1,10 +1,7 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/StartupPhasesTest.kt
 #![allow(dead_code)]
 use crate::support::*;
-use jcompat::{
-    file_manager::{FileManager, JavaPath},
-    jtime::instant_of,
-};
+use jcompat::{file_manager::FileManager, jtime::instant_of};
 use marathon_apple::{
     apple_test_bundle_identifier::AppleTestBundleIdentifier,
     artifact_processor::ArtifactProcessor,
@@ -26,6 +23,7 @@ use marathon_ios::{
     device::{simulator_factory::*, worker_provisioning_context::*},
 };
 use marathon_test_support::apple::{FakeSimulatorWorker, fake_simulator_worker::ok};
+use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -155,9 +153,9 @@ impl Harness {
         }
         let ctx = BindingContext {
             profile: Profile::Marathonfile,
-            marathonfile: JavaPath::from_text("/Marathonfile"),
-            marathonfile_dir: JavaPath::from_text("/"),
-            process_dir: JavaPath::from_text("/"),
+            marathonfile: PathBuf::from("/Marathonfile"),
+            marathonfile_dir: PathBuf::from("/"),
+            process_dir: PathBuf::from("/"),
             environment: vec![],
             now: instant_of(0, 0).unwrap(),
             analytics_tracking: false,
@@ -175,7 +173,7 @@ impl Harness {
         let VendorConfiguration::Ios(mut vendor) = configuration.vendor_configuration.clone() else {
             panic!("iOS");
         };
-        let path = |s: &str| JavaPath::from_text(dir.path().join(s).to_str().unwrap());
+        let path = |s: &str| PathBuf::from(dir.path().join(s).to_str().unwrap());
         let mut bundle = AppleTestBundleConfiguration::unresolved(
             Some(path("app.app")),
             Some(path("tests.xctest")),
@@ -226,7 +224,7 @@ impl Harness {
             output: Arc::new(marathon_core::artifacts::FileManagerOutput::new(
                 Arc::new(Runtime),
                 FileManager::new(0, 0, dir.path().to_str().unwrap(), "/"),
-                JavaPath::from_text(dir.path().to_str().unwrap()),
+                PathBuf::from(dir.path().to_str().unwrap()),
                 logging.logger("com.malinskiy.marathon.io.FileManager"),
                 {
                     let log = logging.clone();

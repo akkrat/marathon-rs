@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 pub mod runtime;
 use jcompat::{
-    file_manager::{FileManager, JavaPath},
+    file_manager::FileManager,
     jtime::instant_of,
     logging::{MarathonLogging, Vendor},
 };
@@ -42,6 +42,7 @@ use marathon_macos::{
     installer::MacosApplicationInstaller, provider::MacosConnections,
 };
 use marathon_test_support::apple::{FakeSimulatorWorker, fake_simulator_worker::ok};
+use std::path::PathBuf;
 use std::{
     path::Path,
     sync::{
@@ -212,10 +213,10 @@ impl Harness {
             )?;
             std::fs::write(contents.join("MacOS").join(name), [0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0])?;
         }
-        let path = JavaPath::from_text(&root.path().to_string_lossy());
+        let path = PathBuf::from(root.path().to_string_lossy().into_owned());
         let bind = BindingContext {
             profile: Profile::Marathonfile,
-            marathonfile: JavaPath::from_text(&root.path().join("Marathonfile").to_string_lossy()),
+            marathonfile: PathBuf::from(root.path().join("Marathonfile").to_string_lossy().into_owned()),
             marathonfile_dir: path.clone(),
             process_dir: path.clone(),
             environment: vec![],
@@ -380,7 +381,7 @@ impl Harness {
             self.options.clone(),
             Arc::new(AppleDeviceRegistry::default()),
             connections.clone(),
-            JavaPath::from_text(&self.root.path().to_string_lossy()),
+            PathBuf::from(self.root.path().to_string_lossy().into_owned()),
             vec![],
         );
         (provider, connections)

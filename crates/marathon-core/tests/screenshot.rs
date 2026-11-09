@@ -296,7 +296,7 @@ fn capture_timeout_io_null_continue_fatal_and_cancellation_join_cleanup() {
 }
 fn capturer(
     core: &CoreExecutor,
-    root: jcompat::file_manager::JavaPath,
+    root: std::path::PathBuf,
     frames: Vec<VendorResult<Option<RgbaFrame>>>,
     delay: jcompat::jtime::Duration,
 ) -> ScreenCapturer {

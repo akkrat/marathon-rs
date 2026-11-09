@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/adam/AdamDeviceProvider.kt
 //! and DeviceStateTracker.kt (fake-server behavior witnesses); adam AdbBinaryIntegrationTest.kt.
 mod support;
-use jcompat::file_manager::JavaPath;
 use marathon_adb::client::device::{Device as AdbDevice, DeviceState as S};
 use marathon_android::{
     device::{detect_serial, host_address},
@@ -14,6 +13,7 @@ use marathon_core::{
     vendor::{Device, DeviceEvent, DeviceProvider, RemoteTestParser},
 };
 use std::collections::HashMap;
+use std::path::PathBuf;
 use support::*;
 /// The loopback test releases a free port and expects it to stay free until the provider has
 /// asked it for a version; other tests here bind ephemeral ports and could take it meanwhile.
@@ -533,8 +533,10 @@ fn parse_script(failing: usize) -> serde_json::Value {
 fn parse_configuration() -> marathon_config::Configuration {
     let mut c = configuration();
     let a = android(&mut c);
-    a.test_application_output = Some(JavaPath::from_text(
-        &fixture("vendor-android/apk/app-debug-androidTest.apk").to_string_lossy(),
+    a.test_application_output = Some(PathBuf::from(
+        fixture("vendor-android/apk/app-debug-androidTest.apk")
+            .to_string_lossy()
+            .into_owned(),
     ));
     a.test_parser_configuration = marathon_config::vendor::AndroidTestParserConfiguration::Remote {
         instrumentation_args: vec![],
@@ -894,7 +896,7 @@ fn a_lost_loopback_server_is_started_again_through_the_setup_path_d22() {
         std::fs::Permissions::from_mode(0o755),
     ));
     let mut c = configuration();
-    android(&mut c).android_sdk = Some(JavaPath::from_text(&temp.path().to_string_lossy()));
+    android(&mut c).android_sdk = Some(PathBuf::from(temp.path().to_string_lossy().into_owned()));
     run(c, move |runtime, context| {
         Box::pin(async move {
             let mut server = server(base_script(27, vec![])).await;
@@ -959,7 +961,7 @@ fn test_start_and_kill_adb_server() {
         &binary,
         std::fs::Permissions::from_mode(0o755),
     ));
-    let sdk = JavaPath::from_text(&temp.path().to_string_lossy());
+    let sdk = PathBuf::from(temp.path().to_string_lossy().into_owned());
     run(configuration(), move |_, context| {
         Box::pin(async move {
             assert!(start_adb(Some(&sdk), 5037, context.clone()).await?);
@@ -1066,7 +1068,7 @@ fn loopback_start_server_retries_version_after_fake_binary() {
         std::fs::Permissions::from_mode(0o755),
     ));
     let mut config = configuration();
-    android(&mut config).android_sdk = Some(JavaPath::from_text(&temp.path().to_string_lossy()));
+    android(&mut config).android_sdk = Some(PathBuf::from(temp.path().to_string_lossy().into_owned()));
     run(config, move |runtime, context| {
         Box::pin(async move {
             let listener = checked(tokio::net::TcpListener::bind("127.0.0.1:0").await);

@@ -12,12 +12,12 @@ use crate::{
     time::{ReplayHooks, Timer, WallClock},
 };
 use jcompat::{
-    file_manager::JavaPath,
     formatting::format_stdout_duration,
     jtime::{instant_duration_millis, instant_to_epoch_milli},
     logging::{Level, Logger},
     writers::{GsonWriter, WriterValue},
 };
+use std::path::PathBuf;
 use std::{collections::BTreeMap, io::Write};
 
 #[derive(Clone)]
@@ -25,13 +25,12 @@ pub struct ReporterFiles {
     pub io: Arc<dyn crate::runtime::VendorRuntime>,
     pub files: Arc<dyn OutputFiles>,
     /// The process working directory, for FileSerializer's absolute paths.
-    pub cwd: JavaPath,
+    pub cwd: PathBuf,
 }
 impl ReporterFiles {
-    pub(super) async fn write(&self, path: JavaPath, text: String) -> OperationResult<()> {
+    pub(super) async fn write(&self, path: PathBuf, text: String) -> OperationResult<()> {
         blocking(self.io.as_ref(), move || {
-            let mut file = std::fs::File::create(path.to_file_path_buf().map_err(io_error)?)
-                .map_err(|e| file_open_error(e, &path))?;
+            let mut file = std::fs::File::create(&path).map_err(|e| file_open_error(e, &path))?;
             file.write_all(text.as_bytes()).map_err(io_error)
         })
         .await
