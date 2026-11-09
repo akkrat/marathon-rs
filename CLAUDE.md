@@ -6,7 +6,7 @@ A Rust rewrite of marathon, a test runner for Android, iOS and macOS. The source
 
 - **Behaviour parity.** Phases 0–7 followed JVM parity: port the bugs and record them in `docs/known-kotlin-bugs.md`. From Phase 8, the contract in PLAN.md §3.12 applies; contract changes need a D-row and golden updates are reviewed.
 - **Name the source.** Each ported module starts with `//! Port of <kotlin path relative to the marathon repo>`.
-- **Java semantics live in `jcompat`.** Phase 8 WPs may replace jcompat types with standard or crate equivalents as their brief specifies; until then, the old rule holds for new code. Use `marathon_core::strategy::queue::OrderedQueue` for test queues (D60); use the jcompat regex wrapper over the Rust `regex` crate for user-supplied regexes (D6); use the jcompat formatters for anything that reaches an output file or log.
+- **Java semantics live in `jcompat`.** Phase 8 WPs may replace jcompat types with standard or crate equivalents as their brief specifies; until then, the old rule holds for new code. Use `marathon_core::strategy::queue::OrderedQueue` for test queues (D60); use the jcompat regex wrapper over the Rust `regex` crate for user-supplied regexes (D6). Keep existing formatters for result-file data and pinned progress/summary text. Diagnostic logging uses `tracing` with Rust format arguments and module targets; follow [the logging design](docs/design/logging.md).
 - **Concurrency** follows `docs/design/lifecycle.md` once it exists (WP 0.6).
   - No blocking calls on the core executor thread.
   - No `unwrap()`/`expect()` on I/O, process or network results; they return errors.

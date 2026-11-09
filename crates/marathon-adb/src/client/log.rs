@@ -21,8 +21,16 @@ pub const CLIENT_LOGGER: &str = "com.malinskiy.adam.AndroidDebugBridgeClient";
 
 #[derive(Clone)]
 pub struct AdamLogging {
-    logging: Arc<Mutex<MarathonLogging>>,
-    sink: Arc<LogSink>,
+    backend: Backend,
+}
+
+#[derive(Clone)]
+enum Backend {
+    Legacy {
+        logging: Arc<Mutex<MarathonLogging>>,
+        sink: Arc<LogSink>,
+    },
+    Tracing(tracing::Dispatch),
 }
 
 impl AdamLogging {
@@ -31,20 +39,53 @@ impl AdamLogging {
         sink: impl Fn(&str, Level, String, Option<&AdbError>) + Send + Sync + 'static,
     ) -> Self {
         Self {
-            logging,
-            sink: Arc::new(sink),
+            backend: Backend::Legacy {
+                logging,
+                sink: Arc::new(sink),
+            },
+        }
+    }
+
+    /// Explicit dispatch also reaches ADB tasks running outside the CLI thread.
+    pub fn traced(dispatch: tracing::Dispatch) -> Self {
+        Self {
+            backend: Backend::Tracing(dispatch),
         }
     }
 
     /// mu's lazy `log.<level> { message }`: the message is built only if the level is enabled.
     pub(crate) fn log(&self, logger: &str, level: Level, error: Option<&AdbError>, message: impl FnOnce() -> String) {
+        let Backend::Legacy { logging, sink } = &self.backend else {
+            if let Backend::Tracing(dispatch) = &self.backend {
+                tracing::dispatcher::with_default(dispatch, || {
+                    macro_rules! emit {
+                        ($macro:ident) => {
+                            if let Some(error) = error {
+                                tracing::$macro!(error = %error, "{}", message());
+                            } else {
+                                tracing::$macro!("{}", message());
+                            }
+                        };
+                    }
+                    match level {
+                        Level::All | Level::Trace => emit!(trace),
+                        Level::Debug => emit!(debug),
+                        Level::Info => emit!(info),
+                        Level::Warn => emit!(warn),
+                        Level::Error => emit!(error),
+                        Level::Off => {}
+                    }
+                });
+            }
+            return;
+        };
         let enabled = {
-            let logging = self.logging.lock().unwrap_or_else(|e| e.into_inner());
+            let logging = logging.lock().unwrap_or_else(|e| e.into_inner());
             let threshold = logging.effective_level(logger);
             threshold != Level::Off && level >= threshold
         };
         if enabled {
-            (self.sink)(logger, level, message(), error);
+            sink(logger, level, message(), error);
         }
     }
 }

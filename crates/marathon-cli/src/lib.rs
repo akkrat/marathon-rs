@@ -10,6 +10,7 @@ pub mod args;
 pub mod config_dump;
 pub mod core_output;
 pub mod runner;
+pub mod tracing_output;
 
 use application::{CliOutput, CliRunner, Process};
 use args::Invocation;

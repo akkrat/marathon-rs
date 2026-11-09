@@ -126,6 +126,7 @@ pub struct CliOutput {
     logging: Arc<Mutex<MarathonLogging>>,
     logger: Logger,
     clock: Box<dyn Fn() -> i64 + Send + Sync>,
+    tracing: Option<crate::tracing_output::TracingOutput>,
 }
 
 impl CliOutput {
@@ -140,7 +141,15 @@ impl CliOutput {
             logging: Arc::new(Mutex::new(logging)),
             logger,
             clock,
+            tracing: None,
         }
+    }
+
+    /// Design pilot; the production binary switches after the milestone-1 review.
+    pub fn traced(tracing: crate::tracing_output::TracingOutput, stderr: Sink) -> Self {
+        let mut output = Self::new(Box::new(tracing.writer()), stderr, OutputTarget::Pipe, Box::new(|| 0));
+        output.tracing = Some(tracing);
+        output
     }
 
     /// The per-process registry (later `VendorDependencies.logging`).
@@ -166,6 +175,28 @@ impl CliOutput {
 
     /// One event through the registry's current layout, on thread `main`.
     fn log(&self, level: Level, message: &str, throwable: &str) {
+        if let Some(output) = &self.tracing {
+            tracing::dispatcher::with_default(&output.dispatch(), || {
+                macro_rules! emit {
+                    ($macro:ident) => {
+                        if throwable.is_empty() {
+                            tracing::$macro!("{message}");
+                        } else {
+                            tracing::$macro!(error = %throwable, "{message}");
+                        }
+                    };
+                }
+                match level {
+                    Level::All | Level::Trace => emit!(trace),
+                    Level::Debug => emit!(debug),
+                    Level::Info => emit!(info),
+                    Level::Warn => emit!(warn),
+                    Level::Error => emit!(error),
+                    Level::Off => {}
+                }
+            });
+            return;
+        }
         let (layout, enabled) = {
             let logging = lock(&self.logging);
             (logging.layout(), logging.enabled(&self.logger, level))
@@ -398,6 +429,23 @@ fn run(
     // D47. After the vendor gate, so that a stub or missing vendor keeps its own error; `run` and `parse` alike, since
     // a Marathonfile that `run` refuses should fail at a CI job's first step. `config-dump` runs no test and doesn't come here.
     validate_uncompleted_retries_bounded(&configuration).map_err(|e| configuration_failure(&e))?;
+
+    if let Some(output) = &output.tracing {
+        use crate::tracing_output::Configurator;
+        let configurator = match &configuration.vendor_configuration {
+            VendorConfiguration::Android(_) => Configurator::Android,
+            VendorConfiguration::Ios(c) => Configurator::Apple {
+                compact: c.compact_output,
+            },
+            VendorConfiguration::Macos(c) => Configurator::Apple {
+                compact: c.compact_output,
+            },
+            _ => Configurator::Startup,
+        };
+        output
+            .configure(configurator, configuration.debug)
+            .map_err(|e| failure(FailureKind::IllegalState, &e.to_string()))?;
+    }
 
     let ignore_failures = configuration.ignore_failures;
     let marathon = runner.construct(Arc::new(configuration), output.logging(), output.console())?;

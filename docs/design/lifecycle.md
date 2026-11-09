@@ -1,5 +1,9 @@
 # Core lifecycle and interface contract
 
+WP 8.8's [logging design](logging.md) describes the subscriber and writer pilot
+and the planned replacement of the logging sections below. At its milestone-1
+stop, the production logging and output lifecycle described here still applies.
+
 Frozen by WP 0.6 against Kotlin `e47352f2`. Paths below are relative to
 `core/src/main/kotlin/com/malinskiy/marathon/` unless stated otherwise.
 WP 3.1 implements the runtime; 3.6–3.8 implement the actors. This document
