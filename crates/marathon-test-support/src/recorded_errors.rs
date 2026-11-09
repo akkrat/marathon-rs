@@ -1121,6 +1121,26 @@ mod wording_boundary_tests {
         assert_ne!(value, changed);
     }
     #[test]
+    fn config_cause_without_a_message_uses_null_but_an_empty_message_stays_empty() {
+        let mut error = serde_json::json!({
+            "class":"java.io.IOException", "message":null,
+            "causes":["java.io.IOException", "java.io.IOException: null", "java.io.IOException: ",
+                "com.fasterxml.jackson.core.JsonParseException",
+                "java.io.IOException: external java.lang.IllegalStateException: remote"],
+        });
+        config_error(&mut error);
+        assert_eq!(
+            error,
+            serde_json::json!({
+                "kind":"io", "message":null,
+                "causes":["I/O error: null", "I/O error: null", "I/O error: ",
+                    "JSON parsing failure: null", "I/O error: external java.lang.IllegalStateException: remote"],
+            })
+        );
+        assert_eq!(rendered("java.io.IOException"), Ok("I/O error".into()));
+    }
+
+    #[test]
     fn class_looking_continuation_lines_in_messages_are_not_cause_headers() {
         let message = "external\nCaused by: java.lang.IllegalStateException: remote";
         let value = serde_json::json!({"class":"java.io.IOException", "message":message, "cause":null});
@@ -1204,14 +1224,22 @@ pub fn config_error(error: &mut serde_json::Value) {
     if error.is_null() {
         return;
     }
-    let kind = kind(error["class"].as_str().expect("recorded config error class"));
+    let outer_kind = kind(error["class"].as_str().expect("recorded config error class"));
     let causes: Vec<_> = error["causes"]
         .as_array()
         .expect("recorded config causes")
         .iter()
-        .map(|cause| rendered(cause.as_str().expect("recorded config cause")).unwrap_or_else(|e| panic!("{e}")))
+        .map(|cause| {
+            let cause = cause.as_str().expect("recorded config cause");
+            if cause.contains(": ") {
+                rendered(cause).unwrap_or_else(|e| panic!("{e}"))
+            } else {
+                // Treat a bare recorded cause as an absent message in this format only.
+                format!("{}: null", kind(cause))
+            }
+        })
         .collect();
-    *error = serde_json::json!({"kind":kind.identifier(), "message":error["message"], "causes":causes});
+    *error = serde_json::json!({"kind":outer_kind.identifier(), "message":error["message"], "causes":causes});
 }
 
 /// Exact short tokens emitted by the SSH oracle's separate cause-chain format.

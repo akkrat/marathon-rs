@@ -419,14 +419,19 @@ async fn idle_timeout_counts_milliseconds_d21() {
         "{elapsed:?}"
     );
     // The unit, in the other direction: 1 ms does not last the one second Kotlin's did.
+    let started = Instant::now();
     let error = self::client(&server, 1)
         .execute(ShellCommandRequest::new("sleep 0.2"), serial)
         .await
         .unwrap_err();
-    assert_eq!(
-        error,
-        AdbError::RequestRejected("No exit code delimiter found in ".into())
+    let elapsed = started.elapsed();
+    // A 1 ms timer may fire during the handshake (N15) before it reaches the shell reply.
+    assert!(
+        matches!(error, AdbError::RequestRejected(ref message)
+        if message.is_empty() || message == "No exit code delimiter found in "),
+        "{error:?}"
     );
+    assert!(elapsed < Duration::from_millis(750), "{elapsed:?}");
 }
 
 /// D21: a client without an idle limit waits through silence that fails the same request on the plain client.

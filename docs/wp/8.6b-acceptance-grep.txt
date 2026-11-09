@@ -304,5 +304,10 @@ crates/marathon-test-support/src/recorded_errors.rs:1105:        assert_eq!(rend
 crates/marathon-test-support/src/recorded_errors.rs:1106:        assert_eq!(rendered("java.io.IOException: "), Ok("I/O error: ".into()));
 crates/marathon-test-support/src/recorded_errors.rs:1108:        assert!(rendered("java.io.IOExceptionSuffix: remote").is_err());
 crates/marathon-test-support/src/recorded_errors.rs:1113:        let mut value = serde_json::json!({"class":"java.io.IOException", "message":message, "cause":null});
-crates/marathon-test-support/src/recorded_errors.rs:1126:        let value = serde_json::json!({"class":"java.io.IOException", "message":message, "cause":null});
-crates/marathon-test-support/src/recorded_errors.rs:1128:        assert_eq!(recorded, format!("java.io.IOException: {message}\n"));
+crates/marathon-test-support/src/recorded_errors.rs:1126:            "class":"java.io.IOException", "message":null,
+crates/marathon-test-support/src/recorded_errors.rs:1127:            "causes":["java.io.IOException", "java.io.IOException: null", "java.io.IOException: ",
+crates/marathon-test-support/src/recorded_errors.rs:1128:                "com.fasterxml.jackson.core.JsonParseException",
+crates/marathon-test-support/src/recorded_errors.rs:1129:                "java.io.IOException: external java.lang.IllegalStateException: remote"],
+crates/marathon-test-support/src/recorded_errors.rs:1140:        assert_eq!(rendered("java.io.IOException"), Ok("I/O error".into()));
+crates/marathon-test-support/src/recorded_errors.rs:1146:        let value = serde_json::json!({"class":"java.io.IOException", "message":message, "cause":null});
+crates/marathon-test-support/src/recorded_errors.rs:1148:        assert_eq!(recorded, format!("java.io.IOException: {message}\n"));

@@ -110,8 +110,14 @@ impl ValidationKind {
             Self::NoSuchFile => crate::FailureKind::NoSuchFile,
         }
     }
-    pub fn description(self) -> String {
-        self.to_string()
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Configuration => ConfigKind::Rejected.description(),
+            Self::FileNotFound => "file not found",
+            Self::Zip => "archive failure",
+            Self::Io => "I/O error",
+            Self::NoSuchFile => "no such file or directory",
+        }
     }
 }
 

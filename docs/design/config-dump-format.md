@@ -63,14 +63,22 @@ One JSON object, pretty-printed with two-space indentation and a final newline:
 Native dumps use `error.kind` instead of the JVM tool's `error.class`. Identifiers
 are explicit, stable and independent of descriptions: common kinds use kebab-case
 (`io`, `file-not-found`, `no-such-file`), and domain kinds add a prefix
-(`config.rejected`, `config.json-mapping`, `config.yaml-marked`). They do not expose
-Rust or Java type names. `crates/marathon-error/tests/wording.rs` pins every identifier
-and approved description.
+(`config.rejected`, `config.json-mapping`, `config.yaml-marked`). Built-in identifiers
+do not expose Rust or Java type names. An opaque `External(class)` instead uses
+`external:<class>`, retaining the entire supplied class verbatim, including case
+and punctuation. Different external classes therefore have different stable identifiers;
+the `external:` prefix keeps them distinct from built-in kinds.
+`crates/marathon-error/tests/wording.rs` pins every identifier and approved description.
 
 Cause strings retain their order and shape, with the kind's description replacing
 the class prefix. Their existing absent-message spelling stays `: null`; an empty
 message stays `: `. This differs from an ordinary failure's message-less `Display`.
-Messages, including external class names inside them, are opaque.
+Messages, including external class names inside them, are opaque. The JVM recorder
+always writes `class: message`, including `class: null` for an absent message
+(`tools/oracle/module/src/main/kotlin/oracle/Json.kt`, `errorJson`). The config-dump
+adapters also accept a bare-class cause as shorthand for an absent message and
+normalize it to `<description>: null`; they preserve an explicit empty `: `.
+Ordinary failure rendering still prints only the description when no message exists.
 
 Historical JVM dumps keep their original schema and bytes. Oracle adapters decode
 only generated error classifications through the whitelist in

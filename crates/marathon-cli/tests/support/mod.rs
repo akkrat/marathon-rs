@@ -57,8 +57,12 @@ pub fn config_error_comparison(actual: &str, expected: &str) -> (String, String)
         assert_eq!(got["causes"].as_array().unwrap().len(), recorded_causes.len());
     }
     for (i, cause) in recorded_causes.iter().enumerate() {
-        let (class, _) = cause.as_str().unwrap().split_once(": ").expect("recorded cause");
+        let cause = cause.as_str().unwrap();
+        let (class, message) = cause
+            .split_once(": ")
+            .map_or((cause, None), |(class, message)| (class, Some(message)));
         if let FailureKind::Config(k) = kind(class)
+            && message.is_some()
             && k != ConfigKind::Rejected
             && k.is_json()
         {

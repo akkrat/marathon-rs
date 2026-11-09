@@ -893,6 +893,22 @@ fn validation_aliases_display_the_projected_kind() {
         ValidationKind::Io,
         ValidationKind::NoSuchFile,
     ] {
-        assert_eq!(kind.to_string(), kind.failure_kind().to_string());
+        let description: &'static str = kind.description();
+        assert_eq!(description, kind.failure_kind().description());
+        assert_eq!(kind.to_string(), description);
     }
+}
+
+#[test]
+fn external_identifiers_keep_each_class_verbatim_and_distinct() {
+    let first = FailureKind::External("runner.FirstException".into());
+    let second = FailureKind::External("runner.SecondException".into());
+    assert_eq!(first.identifier(), "external:runner.FirstException");
+    assert_eq!(second.identifier(), "external:runner.SecondException");
+    assert_ne!(first.identifier(), second.identifier());
+    assert_eq!(first.identifier(), first.clone().identifier());
+    assert_eq!(
+        FailureKind::External("runner.Nested$Error: external text".into()).identifier(),
+        "external:runner.Nested$Error: external text",
+    );
 }

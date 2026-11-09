@@ -74,7 +74,7 @@ impl ValidationError {
         }
     }
     /// The plain description of the validation kind.
-    pub fn description(&self) -> String {
+    pub fn description(&self) -> &'static str {
         self.kind.description()
     }
 }

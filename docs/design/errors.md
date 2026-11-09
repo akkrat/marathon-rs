@@ -1,8 +1,9 @@
 # Typed failures (WP 8.6a history)
 
-Milestones 1–5 replace string classifications throughout the workspace. Rendered bytes remain unchanged;
-the narrower 8.6a brief applies even where PLAN §3.12 permits wording changes. No D-row or
-fixture update is needed. The approved milestone-1 design is implemented.
+Milestones 1–5 replaced string classifications throughout the workspace. Rendered bytes stayed unchanged;
+the narrower 8.6a brief applied even where PLAN §3.12 permitted wording changes. No D-row or
+fixture update was needed for 8.6a. The sections below record that migration;
+[WP 8.6b, D59](#plain-failure-wording-wp-86b-d59) defines the current rendering.
 
 ## Types and crate graph
 
@@ -33,38 +34,39 @@ the shared kind directly. No conversion renders a class and parses it back. Comm
 argument, state, cancellation and runner classifications stay top-level alternatives.
 `FatalKind` and SSH/DEX membership methods replace the old string hierarchy helpers.
 
-## Typed construction and rendering
+## Typed construction and rendering in 8.6a
 
-`Failure` owns `pub kind: FailureKind`, its nullable message, cloneable cause chain and
-opaque frame text. `Failure::from_kind` stores the kind directly. `to_java_string` obtains
-the rendered name from `kind.legacy_class()`; `stack_trace` delegates to `to_java_string`.
-There is no string constructor, string equality implementation on kinds, or independently
-stored class that can disagree with the kind. `Failure` has a custom `Debug` view using the
-same mapping: an SSH clock-error fallback embeds it in a message, so its old field labels
-and recursive representation must remain byte-identical until the wording WP.
+`Failure` gained `pub kind: FailureKind`, retaining its nullable message, cloneable
+cause chain and opaque frame text. `Failure::from_kind` stored the kind directly.
+At that stage, `to_java_string` obtained the rendered name from `kind.legacy_class()`;
+`stack_trace` delegated to `to_java_string`. There was no string constructor,
+string equality implementation on kinds, or independently stored class that could
+disagree with the kind. `Failure` had a custom `Debug` view using the same mapping:
+an SSH clock-error fallback embedded it in a message, so 8.6a preserved its old
+field labels and recursive representation. WP 8.6b replaced those renderers with
+`Display` and plain descriptions; its current contract appears below.
 
-The field swap includes required consumer edits across the workspace in one buildable
-change. Domain producers project their shared kind directly; they never render and parse
-it back. `artifact_io.rs` was the first converted funnel; its I/O classification, NIO reason
-selection, file-open/clock failures and worker-completion failures all use kinds.
+The field swap included required consumer edits across the workspace in one buildable
+change. Domain producers projected their shared kind directly; they never rendered and
+parsed it back. `artifact_io.rs` was the first converted funnel; its I/O classification,
+NIO reason selection, file-open/clock failures and worker-completion failures all used kinds.
 
-## Legacy rendering and external text
+## Legacy rendering and external text in 8.6a
 
-Each kind type has one `legacy_class` mapping. Wrapper variants delegate to their domain
-mapping; unrelated distinctions never share a rendering accidentally. In particular,
-`Replay` renders `marathon.ReplayError`, while `ReplayClock` renders `ReplayError`.
-Nullable/empty messages, cause order, frame text and newline handling stay unchanged.
+Each kind type had one `legacy_class` mapping. Wrapper variants delegated to their domain
+mapping; unrelated distinctions never shared a rendering accidentally. In particular,
+`Replay` rendered `marathon.ReplayError`, while `ReplayClock` rendered `ReplayError`.
+Nullable/empty messages, cause order, frame text and newline handling stayed unchanged.
 
-`External(String)` makes `legacy_class` return `&str` rather than `&'static str`. Use it
-only if an adapter receives a separate class name from a runner and projects that name
-verbatim into a `Failure`; annotate every such construction with its external source.
-Its text deliberately participates in no selector: no equality-based selection,
-`wraps_as_analytics_io`, `is_fatal` or deduplication class. It carries verbatim external
-text only; never classify or normalise that text into an internal catch or key.
-No production construction site currently needs it. Instrumentation stack/shortMsg, logcat,
-XCTest/xcresult and command output already held in messages or traces remain opaque there;
-do not split those strings to manufacture an `External` kind. The new external-text test
-models a runner-provided class and proves embedded class names remain text.
+`External(String)` required `legacy_class` to return `&str` rather than `&'static str`.
+It was reserved for an adapter receiving a separate class name from a runner and
+projecting that name verbatim into a `Failure`, with its external source annotated.
+Its text deliberately participated in no selector or internal catch classification.
+No production construction site needed it. Instrumentation stack/shortMsg, logcat,
+XCTest/xcresult and command output already held in messages or traces remained opaque;
+they were not split to manufacture an `External` kind. The external-text test modeled
+a runner-provided class and proved embedded class names remained text. WP 8.6b keeps
+those external-text rules and gives each External class its own stable identifier.
 
 ## Recorded-input boundary
 
@@ -659,12 +661,14 @@ normalize class names away from native-golden comparison.
 ## Config-dump
 
 Replace only the top-level error classification key `class` with `kind`. Its value
-is an explicit stable lower-case identifier, independent of description wording:
-common variants use kebab-case (`file-not-found`, `io`, `no-such-file`); domain
+is an explicit stable identifier, independent of description wording. Built-in
+identifiers use lower-case: common variants use kebab-case (`file-not-found`, `io`, `no-such-file`); domain
 variants add a domain prefix (`config.rejected`, `config.json-mapping`,
 `config.missing-parameter`, `config.yaml-parse`). Freeze these identifiers in tests;
-do not derive them from `Debug`, Rust type paths or a Java name. The renderer
-accepts typed kinds, not caller-supplied class strings. Example:
+do not derive built-in identifiers from `Debug`, Rust type paths or a Java name.
+Opaque external kinds instead use `external:<class>` with the supplied class
+verbatim, as documented in `config-dump-format.md`. The renderer accepts typed
+kinds, not caller-supplied class strings. Example:
 
 ```json
 {

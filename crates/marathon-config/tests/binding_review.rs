@@ -255,7 +255,7 @@ fn review_round_one_matches_jvm() -> std::result::Result<(), Box<dyn std::error:
         let got = match got {
             Ok(value) => json!({"ok":value}),
             Err(error) => {
-                json!({"error": std::iter::once(error.kind.identifier()).chain(error.causes.iter().map(|c|c.kind.identifier())).map(str::to_owned).collect::<Vec<_>>()})
+                json!({"error": std::iter::once(error.kind.identifier()).chain(error.causes.iter().map(|c|c.kind.identifier())).map(std::borrow::Cow::into_owned).collect::<Vec<_>>()})
             }
         };
         let mut expected = row["result"].clone();

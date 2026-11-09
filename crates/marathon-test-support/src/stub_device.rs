@@ -268,7 +268,7 @@ impl Device for StubDevice {
                 Ok(()) => self.call("executed", serde_json::json!({"batch": id})),
                 Err(VendorError::Cancelled(_)) => self.call("execute-cancelled", serde_json::json!({"batch": id})),
                 Err(e) => {
-                    let simple = e.failure().kind.identifier().to_owned();
+                    let simple = e.failure().kind.identifier().into_owned();
                     self.call("execute-threw", serde_json::json!({"batch": id, "exception": simple}));
                 }
             }

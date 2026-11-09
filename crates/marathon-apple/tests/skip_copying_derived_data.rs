@@ -232,7 +232,7 @@ async fn run(id: &str) -> TestResult<Value> {
             ) {
                 assert!(matches!(error, FactoryError::Vendor(VendorError::Cancelled(_))));
             }
-            json!({"class":detail.kind.identifier().to_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
+            json!({"class":detail.kind.identifier().into_owned(),"message":detail.message.as_ref().map(|s|s.to_owned().replace(temp.path().to_str().unwrap(),"<bundle>")),"reason":reason})
         }
     };
     // Always join before comparing: even an assertion failure leaves no live fake worker.

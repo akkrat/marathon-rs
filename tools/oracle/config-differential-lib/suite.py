@@ -249,9 +249,9 @@ def native_error(got, want, kinds):
     for i, cause in enumerate(want['causes']):
         name, separator, message = cause.partition(': ')
         kind = kinds[name]  # An unknown recorded input is an error, never guessed.
-        prefix = kind['description'] + separator
-        expected['causes'].append(prefix + message)
-        if kind['diagnostic']:
+        prefix = kind['description'] + ': '
+        expected['causes'].append(prefix + (message if separator else 'null'))
+        if kind['diagnostic'] and separator:
             if not isinstance(actual['causes'][i], str) or not actual['causes'][i].startswith(prefix):
                 return '$.error.causes: diagnostic kind differs'
             actual['causes'][i] = kind['description']
@@ -269,6 +269,15 @@ def native_error_self_test(kinds):
                          ('causes', []), ('causes', ['I/O error: external invalid state: remote'])]:
         mutant = dict(got, **{field: value})
         assert native_error(mutant, want, kinds)
+    diagnostic = next(n for n, k in kinds.items() if k['diagnostic'])
+    for cause_name in [name, diagnostic]:
+        description = kinds[cause_name]['description']
+        bare = dict(want, causes=[cause_name])
+        explicit_null = dict(got, causes=[description + ': null'])
+        assert native_error(explicit_null, bare, kinds) is None
+        assert native_error(dict(got, causes=[description]), bare, kinds)
+        assert native_error(dict(got, causes=[description + ': ']), bare, kinds)
+    assert native_error(dict(got, causes=['I/O error: ']), dict(want, causes=[name + ': ']), kinds) is None
     unknown = dict(want, **{'class': 'java.lang.FutureException'})
     try:
         native_error(got, unknown, kinds)

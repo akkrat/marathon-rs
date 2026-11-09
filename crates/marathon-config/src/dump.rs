@@ -146,7 +146,7 @@ pub fn error_json(
         })
         .collect();
     DumpValue::object(vec![
-        ("kind", DumpValue::Str(kind.identifier().to_owned())),
+        ("kind", DumpValue::Str(kind.identifier().into_owned())),
         (
             "message",
             message.map_or(DumpValue::Null, |m| DumpValue::Str(m.to_string())),

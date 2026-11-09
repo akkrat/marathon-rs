@@ -68,7 +68,7 @@ fn setup(storage: &str, mode: &str) -> (RemoteFileManager, Arc<Scripted>, Logs) 
     let logging = SshLogging::new(
         Arc::new(Mutex::new(MarathonLogging::default())),
         Arc::new(move |logger: &Logger, level, message, cause| {
-            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.kind.identifier().to_owned())}));
+            out.lock().unwrap().push(json!({"logger":logger.name(),"level":if level == Level::Error { "ERROR" } else { "unexpected" },"message":message,"throwable":cause.map(|f| f.kind.identifier().into_owned())}));
         }),
     );
     (
@@ -199,13 +199,13 @@ async fn every_command_result_and_log_matches_jvm_including_swallowed_cancellati
         let result = invoke(&fm, string(&row["operation"]), &support::context()).await;
         let (result, thrown) = match result {
             Ok(value) => (value, Value::Null),
-            Err(error) => (Value::Null, json!(error.failure().kind.identifier().to_owned())),
+            Err(error) => (Value::Null, json!(error.failure().kind.identifier().into_owned())),
         };
         assert_eq!(result, row["result"], "{row}");
         let expected_thrown = row["thrown"].as_str().map(|class| {
             marathon_test_support::recorded_errors::kind(class)
                 .identifier()
-                .to_owned()
+                .into_owned()
         });
         assert_eq!(thrown, json!(expected_thrown), "{row}");
         assert_eq!(json!(*commands.argv.lock().unwrap()), row["argv"], "{row}");

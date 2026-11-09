@@ -36,7 +36,7 @@ fn chain(failure: &SshFailure) -> Vec<(String, Option<String>, Option<&'static s
     let mut out = Vec::new();
     let mut current = Some(failure);
     while let Some(f) = current {
-        let simple = f.kind.identifier().to_owned();
+        let simple = f.kind.identifier().into_owned();
         out.push((simple, f.message(), f.is_ssh().then(|| f.reason.name())));
         current = f.cause.as_deref();
     }
@@ -324,7 +324,12 @@ async fn disconnect_during_exec_fails_execute_with_the_wire_reason() {
         };
         let expected = evidence(&format!("during_exec-{reason}.stdout"));
         let simple: Vec<_> = std::iter::successors(Some(&error), |f| f.cause.as_deref())
-            .map(|f| (f.kind.identifier().to_owned(), f.message.as_ref().map(|m| m.to_owned())))
+            .map(|f| {
+                (
+                    f.kind.identifier().into_owned(),
+                    f.message.as_ref().map(|m| m.to_owned()),
+                )
+            })
             .collect();
         let kotlin: Vec<_> = evidence_chain(&expected["value"])
             .into_iter()

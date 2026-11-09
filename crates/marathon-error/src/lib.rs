@@ -177,7 +177,7 @@ impl FailureKind {
     }
 
     /// Stable machine identifier, independent of user-facing wording.
-    pub const fn identifier(&self) -> &str {
+    pub fn identifier(&self) -> std::borrow::Cow<'static, str> {
         match self {
             Self::Security => "security",
             Self::ReplayClock => "replay-clock",
@@ -248,8 +248,9 @@ impl FailureKind {
             Self::Report(kind) => kind.identifier(),
             Self::Fatal(kind) => kind.identifier(),
             Self::Injected(kind) => kind.identifier(),
-            Self::External(_) => "external",
+            Self::External(class) => return format!("external:{class}").into(),
         }
+        .into()
     }
 }
 
