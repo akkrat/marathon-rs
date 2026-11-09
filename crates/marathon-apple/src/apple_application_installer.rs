@@ -15,7 +15,7 @@ use marathon_core::{
     runtime::VendorRuntime,
     vendor::VendorContext,
 };
-use std::{borrow::Cow, future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc};
 
 /// The hook owner captures its concrete device; no core device downcast is needed.
 pub trait AfterInstall: Send + Sync {
@@ -56,9 +56,6 @@ pub struct AppleApplicationInstaller<'a> {
 }
 fn illegal(message: &str) -> FactoryError {
     VendorError::Other(failure("java.lang.IllegalArgumentException", message)).into()
-}
-fn path(path: &std::path::Path) -> Result<PathBuf, VendorError> {
-    Ok(path.to_path_buf())
 }
 fn setup(message: String) -> VendorError {
     let mut detail = failure("com.malinskiy.marathon.exceptions.DeviceSetupException", "");
@@ -137,9 +134,9 @@ impl<'a> AppleApplicationInstaller<'a> {
             .ok_or_else(|| illegal("No test bundle provided"))?;
         let config = config.ok_or_else(|| illegal("No test bundle provided"))?;
         let bundle = AppleTestBundle::new(
-            config.app.as_ref().map(|p| path(p)).transpose()?,
-            config.test_app.as_ref().map(|p| path(p)).transpose()?,
-            path(xctest)?,
+            config.app.clone(),
+            config.test_app.clone(),
+            xctest.clone(),
             device.sdk(),
             self.runtime.clone(),
             self.logging.clone(),
@@ -225,12 +222,7 @@ impl<'a> AppleApplicationInstaller<'a> {
         let mut parts = bundle.relative_binary_path();
         parts.push(name);
         let test_type = self.test_type(device, &fm.join_path(&remote, &parts), context).await?;
-        let coverage = config
-            .xctestrun
-            .as_ref()
-            .filter(|_| self.code_coverage)
-            .map(|p| path(p))
-            .transpose()?;
+        let coverage = config.xctestrun.as_ref().filter(|_| self.code_coverage).cloned();
         static WARNED_ABOUT_COVERAGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if self.code_coverage
             && coverage.is_none()
@@ -248,7 +240,7 @@ impl<'a> AppleApplicationInstaller<'a> {
             .after_install_on(device, &bundle, context)
             .await?;
         for extra in config.extra_applications.iter().flatten() {
-            let local = path(extra)?;
+            let local = extra.clone();
             let shown = extra.to_string_lossy().into_owned();
             let name = shown.to_owned();
             let name = name.rsplit('/').next().unwrap_or("");

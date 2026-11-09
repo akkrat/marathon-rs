@@ -27,12 +27,12 @@ fn gson(v: &WriterValue) -> VendorResult<String> {
 fn child(dir: &std::path::Path, name: &str) -> PathBuf {
     child_file(dir, name)
 }
-fn mkdir(dir: &PathBuf) -> VendorResult<()> {
+fn mkdir(dir: &std::path::Path) -> VendorResult<()> {
     // File.mkdirs returns false on failure; the following file open supplies the exception.
     let _ = std::fs::create_dir_all(dir);
     Ok(())
 }
-fn write(path: &PathBuf, bytes: &[u8]) -> VendorResult<()> {
+fn write(path: &std::path::Path, bytes: &[u8]) -> VendorResult<()> {
     let mut file = std::fs::File::create(path).map_err(|e| file_open_error(e, path))?;
     file.write_all(bytes).map_err(io_error)
 }

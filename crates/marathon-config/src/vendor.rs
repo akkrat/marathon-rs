@@ -1141,7 +1141,7 @@ impl AndroidConfiguration {
     }
     /// `AndroidConfiguration.validate()` (VendorConfiguration.kt:86-104).
     pub fn validate(&self) -> Result<(), ValidationError> {
-        fn check(file: Option<&PathBuf>) -> Result<(), ValidationError> {
+        fn check(file: Option<&std::path::Path>) -> Result<(), ValidationError> {
             if let Some(file) = file {
                 if !file_exists(file) {
                     return Err(ValidationError::configuration(format!(
@@ -1158,8 +1158,8 @@ impl AndroidConfiguration {
             }
             Ok(())
         }
-        check(self.application_output.as_ref())?;
-        check(self.test_application_output.as_ref())?;
+        check(self.application_output.as_deref())?;
+        check(self.test_application_output.as_deref())?;
         if let Some(files) = &self.split_apks {
             for file in files {
                 check(Some(file))?;
@@ -1172,7 +1172,7 @@ impl AndroidConfiguration {
         }
         if let Some(outputs) = &self.outputs {
             for output in outputs {
-                check(output.application.as_ref())?;
+                check(output.application.as_deref())?;
                 check(Some(&output.test_application))?;
                 if let Some(files) = &output.split_apks {
                     for file in files {
@@ -1411,7 +1411,10 @@ pub fn resolve_ssh(ssh: &SshConfiguration, dir: &std::path::Path) -> Result<SshC
 
 /// The devices step: `devicesFile?.resolveAgainst(dir)` else
 /// `dir.resolve("Marathondevices")` (not canonicalised).
-pub fn resolve_devices(devices: Option<&PathBuf>, dir: &std::path::Path) -> Result<PathBuf, Box<ConfigurationError>> {
+pub fn resolve_devices(
+    devices: Option<&std::path::Path>,
+    dir: &std::path::Path,
+) -> Result<PathBuf, Box<ConfigurationError>> {
     match devices {
         Some(path) => resolve_against(dir, path),
         None => Ok(resolve(dir, &PathBuf::from("Marathondevices"))),
@@ -1456,7 +1459,7 @@ pub fn post_process_ios_with_bundle_validation(
     if let Some(media) = &config.media_files {
         config.media_files = Some(media.iter().map(|p| resolve(dir, p)).collect());
     }
-    config.devices_file = Some(resolve_devices(config.devices_file.as_ref(), dir)?);
+    config.devices_file = Some(resolve_devices(config.devices_file.as_deref(), dir)?);
     config.ssh = resolve_ssh(&config.ssh, dir)?;
     apply_xcresult_pull(&mut config.xcresult);
     Ok(())
@@ -1484,7 +1487,7 @@ pub fn post_process_macos_with_bundle_validation(
         validate_bundle(&mut resolved)?;
         config.bundle = Some(resolved);
     }
-    config.devices_file = Some(resolve_devices(config.devices_file.as_ref(), dir)?);
+    config.devices_file = Some(resolve_devices(config.devices_file.as_deref(), dir)?);
     config.ssh = resolve_ssh(&config.ssh, dir)?;
     apply_xcresult_pull(&mut config.xcresult);
     Ok(())

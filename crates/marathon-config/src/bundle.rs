@@ -35,7 +35,7 @@ type Result<T> = std::result::Result<T, ValidationError>;
 /// The extraction-dir factory: Kotlin's `tempDirFor` constructor parameter
 /// (S7). It receives the archive path and returns the directory to extract
 /// into, creating it as the Kotlin default does.
-pub type TempDirFor<'a> = dyn FnMut(&PathBuf) -> Result<PathBuf> + 'a;
+pub type TempDirFor<'a> = dyn FnMut(&std::path::Path) -> Result<PathBuf> + 'a;
 
 const ARCHIVE_EXTENSIONS: [&str; 2] = ["ipa", "zip"];
 // Resource-fork junk, matched against the whole entry name (Kotlin IGNORED).
@@ -51,14 +51,6 @@ fn text(path: &std::path::Path) -> String {
 
 fn io_error(error: io::Error) -> ValidationError {
     ValidationError::io(error.to_string())
-}
-
-fn path_buf(path: &std::path::Path) -> Result<PathBuf> {
-    Ok(path.to_path_buf())
-}
-
-fn java_path(path: &Path) -> PathBuf {
-    path.to_path_buf()
 }
 
 /// `java.io.File.isFile` / `isDirectory` on the stored spelling: false on
@@ -101,7 +93,7 @@ fn name_without_extension(file_name: &str) -> &str {
 /// stem, deleted recursively then recreated. Kotlin ignores the results of
 /// `deleteRecursively()` and `mkdirs()`; the port ignores the second only.
 pub fn default_temp_dir_for(file: &std::path::Path) -> Result<PathBuf> {
-    let buf = path_buf(file)?;
+    let buf = file;
     let file_name = name(file);
     let stem = name_without_extension(&file_name);
     if matches!(stem, "" | "." | "..") {
@@ -134,13 +126,13 @@ pub fn default_temp_dir_for(file: &std::path::Path) -> Result<PathBuf> {
         )));
     }
     let _ = fs::create_dir_all(&dst);
-    Ok(java_path(&dst))
+    Ok(dst)
 }
 
 impl AppleTestBundleConfiguration {
     /// `validate()` with the Kotlin default extraction directory.
     pub fn validate(&mut self) -> Result<()> {
-        self.validate_with_temp_dir_for(&mut |p| default_temp_dir_for(p))
+        self.validate_with_temp_dir_for(&mut default_temp_dir_for)
     }
 
     /// `validate()` (AppleTestBundleConfiguration.kt:33-83). On success
@@ -173,7 +165,7 @@ impl AppleTestBundleConfiguration {
 
     fn resolve_test_application(
         &mut self,
-        test_application: &PathBuf,
+        test_application: &std::path::Path,
         temp_dir_for: &mut TempDirFor<'_>,
     ) -> Result<()> {
         let ext = extension(test_application);
@@ -194,14 +186,14 @@ impl AppleTestBundleConfiguration {
             );
             Ok(())
         } else if is_directory(test_application) && ext == "app" {
-            self.test_app = Some(test_application.clone());
+            self.test_app = Some(test_application.to_path_buf());
             self.xctest = Some(
                 find_directory(test_application, "xctest", true)?
                     .ok_or_else(|| configuration("Unable to find xctest bundle"))?,
             );
             Ok(())
         } else if is_directory(test_application) && ext == "xctest" {
-            self.xctest = Some(test_application.clone());
+            self.xctest = Some(test_application.to_path_buf());
             Ok(())
         } else {
             Err(configuration(
@@ -211,7 +203,7 @@ impl AppleTestBundleConfiguration {
     }
 }
 
-fn resolve_application(application: &PathBuf, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf> {
+fn resolve_application(application: &std::path::Path, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf> {
     let ext = extension(application);
     if is_file(application) && ARCHIVE_EXTENSIONS.contains(&ext.as_str()) {
         let extracted = extract(application, temp_dir_for)?;
@@ -220,7 +212,7 @@ fn resolve_application(application: &PathBuf, temp_dir_for: &mut TempDirFor<'_>)
         find_directory(&extracted, "app", true)?
             .ok_or_else(|| configuration("Unable to find an app directory in the extracted archive"))
     } else if is_directory(application) && ext == "app" {
-        Ok(application.clone())
+        Ok(application.to_path_buf())
     } else {
         Err(configuration(
             "application should be .ipa/.zip archive or a .app folder",
@@ -273,9 +265,8 @@ fn walk(dir: &Path, extension_name: &str, found: &mut Vec<PathBuf>) {
     if !dir.is_dir() {
         return;
     }
-    let as_java = java_path(dir);
-    if extension(&as_java) == extension_name {
-        found.push(as_java);
+    if extension(dir) == extension_name {
+        found.push(dir.to_path_buf());
     }
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -313,11 +304,11 @@ fn first_component_below(from: &std::path::Path, to: &std::path::Path) -> Option
 /// `java.util.zip.ZipFile` semantics: central-directory order and names,
 /// exact-name ignores, paths rebuilt from `/`-split segments with blank
 /// segments dropped, regular files only (no modes, no symlinks).
-fn extract(file: &PathBuf, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf> {
+fn extract(file: &std::path::Path, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf> {
     let dst = temp_dir_for(file)?;
-    let dst_buf = path_buf(&dst)?;
-    let archive_path = path_buf(file)?;
-    let open = || fs::File::open(&archive_path).map_err(|e| open_error(file, e));
+    let dst_buf = &dst;
+    let archive_path = file;
+    let open = || fs::File::open(archive_path).map_err(|e| open_error(file, e));
     let mut zip = zip::ZipArchive::new(Patched::new(open()?, Vec::new())).map_err(zip_error)?;
     let mut headers = io::BufReader::new(open()?);
     let (entries, unicode_ids) = central_directory(&mut headers, zip.central_directory_start())?;
@@ -330,7 +321,7 @@ fn extract(file: &PathBuf, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf>
     // S1 containment: every path written is checked against the real
     // extraction dir, so a link left in a stale tree cannot redirect a
     // write outside it.
-    let root = fs::canonicalize(&dst_buf).map_err(io_error)?;
+    let root = fs::canonicalize(dst_buf).map_err(io_error)?;
     // The zip crate's index of each distinct stored name: an exact
     // duplicate shares the first copy's index and holds the last copy's
     // data (R1-sol-3, last wins).
@@ -351,7 +342,7 @@ fn extract(file: &PathBuf, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf>
         // ZipEntry.isDirectory(): the name ends with '/'.
         if entry_name.ends_with('/') {
             let parts = contained_parts(&segments(entry_name), entry_name)?;
-            create_dirs(&dst_buf, &root, &parts, entry_name)?;
+            create_dirs(dst_buf, &root, &parts, entry_name)?;
         } else {
             // substringAfterLast/substringBeforeLast on "/": for a
             // root-level entry both give the whole name, so the file lands
@@ -365,7 +356,7 @@ fn extract(file: &PathBuf, temp_dir_for: &mut TempDirFor<'_>) -> Result<PathBuf>
             parts.push(file_name.to_owned());
             let parts = contained_parts(&parts, entry_name)?;
             let target = match parts.split_last() {
-                Some((name, parents)) => create_dirs(&dst_buf, &root, parents, entry_name)?.join(name),
+                Some((name, parents)) => create_dirs(dst_buf, &root, parents, entry_name)?.join(name),
                 None => dst_buf.clone(),
             };
             let mut out = create_file(&target)?;

@@ -89,7 +89,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                 let remote = self.path(entry.path_root, &name.to_owned());
                 let path = local.clone();
                 let directory = blocking(device.runtime().dependencies.io.as_ref(), move || Ok(path.is_dir())).await?;
-                let local = local.to_string_lossy().into_owned().to_owned();
+                let local = local.to_string_lossy().into_owned();
                 device.log_named(
                     "FileSyncTestRunListener",
                     Level::Debug,
@@ -185,7 +185,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                     let cwd = PathBuf::from(cwd.to_string_lossy().into_owned());
                     let absolute =
                         jcompat::file_manager::absolute_file_path(&local.to_string_lossy(), &cwd.to_string_lossy());
-                    Ok(absolute.to_string_lossy().into_owned().to_owned())
+                    Ok(absolute.to_string_lossy().into_owned())
                 })
                 .await?;
                 device.log_named(

@@ -47,10 +47,12 @@ fn bundle(
 
 /// The Kotlin test's injected `tempDirFor`: a fresh temp directory per
 /// archive, named after it.
-fn temp_dir_for(root: &Path) -> impl FnMut(&PathBuf) -> std::result::Result<PathBuf, marathon_config::ValidationError> {
+fn temp_dir_for(
+    root: &Path,
+) -> impl FnMut(&std::path::Path) -> std::result::Result<PathBuf, marathon_config::ValidationError> {
     let root = root.to_path_buf();
     let mut counter = 0;
-    move |file: &PathBuf| {
+    move |file: &std::path::Path| {
         counter += 1;
         let name = Path::new(&path_text(file))
             .file_name()
@@ -1050,7 +1052,7 @@ fn extraction_never_writes_through_a_stale_symlink() {
     let stale = mkdirs(&dir, "stale");
     symlink(&outside, stale.join("link")).unwrap();
     symlink(dir.join("created-outside"), mkdirs(&stale, "d").join("f")).unwrap();
-    let mut extract_into_stale = |_: &PathBuf| Ok(jp(&stale));
+    let mut extract_into_stale = |_: &std::path::Path| Ok(jp(&stale));
     let app = make_zip(&dir, "app.zip", &[("link/owned", Some("ESCAPE"))]);
     let mut config = bundle(Some(jp(&app)), Some(jp(&bundle_dir(&dir, "ui.xctest"))), None);
     let error = config.validate_with_temp_dir_for(&mut extract_into_stale).unwrap_err();
@@ -1079,7 +1081,7 @@ fn extraction_never_writes_through_a_stale_hard_link() {
             chmod(&stale, 0o555);
         }
         let stale = dir.join("stale");
-        let mut extract_into_stale = |_: &PathBuf| Ok(jp(&stale));
+        let mut extract_into_stale = |_: &std::path::Path| Ok(jp(&stale));
         let app = make_zip(
             &dir,
             "app.zip",

@@ -416,10 +416,7 @@ fn composition_laziness_child_order_and_non_short_circuit_are_observable() -> Op
     let observed = trace.clone();
     let mut dependencies = deps(None, Arc::default());
     dependencies.values = Arc::new(Reader(Arc::new(move |p| {
-        observed
-            .lock()
-            .expect("trace")
-            .push(p.to_string_lossy().into_owned().to_owned());
+        observed.lock().expect("trace").push(p.to_string_lossy().into_owned());
         Ok(vec![])
     })));
     let child = |name: &str| {

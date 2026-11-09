@@ -220,11 +220,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                         let start = self.artifacts.now("android.ProfilingRunListener.pullTracing")?;
                         self.artifacts
                             .device
-                            .safe_pull_file(
-                                &remote.to_owned(),
-                                &file.to_string_lossy().into_owned().to_owned(),
-                                context.clone(),
-                            )
+                            .safe_pull_file(&remote.to_owned(), &file.to_string_lossy(), context.clone())
                             .await?;
                         let end = self.artifacts.now("android.ProfilingRunListener.pullTracing")?;
                         self.log(

@@ -708,12 +708,7 @@ fn adam_capture_with_relative_output_directory() {
             let output = runtime.dependencies.configuration.output_dir.clone();
             let files = marathon_core::artifacts::FileManagerOutput::new(
                 runtime.dependencies.io.clone(),
-                jcompat::file_manager::FileManager::new(
-                    4096,
-                    255,
-                    &output.to_string_lossy().into_owned().to_owned(),
-                    &cwd.to_string_lossy(),
-                ),
+                jcompat::file_manager::FileManager::new(4096, 255, &output.to_string_lossy(), &cwd.to_string_lossy()),
                 output,
                 runtime.logger("FileManager"),
                 runtime.log.clone(),

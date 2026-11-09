@@ -203,14 +203,13 @@ impl MacosDevice {
         let bundle = self.options.vendor.bundle.as_ref().ok_or_else(|| {
             VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
         })?;
-        let path = |p: &PathBuf| Ok::<_, VendorError>(p.clone());
         let xctest = bundle.xctest.as_ref().ok_or_else(|| {
             VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
         })?;
         let bundle = AppleTestBundle::new(
-            bundle.app.as_ref().map(path).transpose()?,
-            bundle.test_app.as_ref().map(path).transpose()?,
-            path(xctest)?,
+            bundle.app.clone(),
+            bundle.test_app.clone(),
+            xctest.clone(),
             Sdk::Macos,
             self.options.dependencies.io.clone(),
             self.options.logging.clone(),

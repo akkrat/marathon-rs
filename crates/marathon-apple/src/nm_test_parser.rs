@@ -213,16 +213,15 @@ pub(crate) async fn build_bundle(
         .bundle_configuration()
         .filter(|c| c.xctest.is_some())
         .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided")))?;
-    let path = |p: &std::path::PathBuf| Ok::<_, VendorError>(p.clone());
     let xctest = config
         .xctest
         .as_ref()
         .ok_or_else(|| VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided")))?;
     Ok(Arc::new(
         AppleTestBundle::new(
-            config.app.as_ref().map(path).transpose()?,
-            config.test_app.as_ref().map(path).transpose()?,
-            path(xctest)?,
+            config.app.clone(),
+            config.test_app.clone(),
+            xctest.clone(),
             device.sdk(),
             runtime,
             logging,

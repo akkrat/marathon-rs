@@ -53,7 +53,7 @@ impl AndroidTestRunListener for AdamScreenCaptureTestRunListener {
                                 &local.to_string_lossy(),
                                 &cwd.to_string_lossy(),
                             );
-                            Ok(absolute.to_string_lossy().into_owned().to_owned())
+                            Ok(absolute.to_string_lossy().into_owned())
                         })
                         .await?;
                         self.artifacts

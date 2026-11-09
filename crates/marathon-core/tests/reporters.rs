@@ -88,7 +88,7 @@ struct FailFiles {
     error: OperationError,
 }
 impl OutputFiles for FailFiles {
-    fn output_dir(&self) -> &PathBuf {
+    fn output_dir(&self) -> &std::path::Path {
         self.inner.output_dir()
     }
     fn create_file<'a>(&'a self, target: &'a FileTarget) -> ServiceFuture<'a, PathBuf> {

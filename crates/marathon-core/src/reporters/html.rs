@@ -184,7 +184,7 @@ fn full_test(
         ("log_file", string(&log)),
     ])
 }
-fn page(path: &PathBuf, html: &std::path::Path, data: String, log: String, date: &str) -> VendorResult<()> {
+fn page(path: &std::path::Path, html: &std::path::Path, data: String, log: String, date: &str) -> VendorResult<()> {
     let text = path.to_string_lossy();
     let parent = PathBuf::from(&text[..text.rfind('/').unwrap_or(0)]);
     let mut prefix = relative_file(html, &parent, html);

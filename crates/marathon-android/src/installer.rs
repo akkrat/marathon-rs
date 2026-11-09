@@ -118,12 +118,12 @@ impl AndroidAppInstaller {
         &self,
         device: &AndroidDevice,
         package: &str,
-        app: &PathBuf,
+        app: &std::path::Path,
         splits: &[PathBuf],
         context: VendorContext,
     ) -> VendorResult<()> {
         let paths: Vec<_> = std::iter::once(app)
-            .chain(splits)
+            .chain(splits.iter().map(PathBuf::as_path))
             .map(|p| {
                 std::path::absolute(p)
                     .map_err(io)

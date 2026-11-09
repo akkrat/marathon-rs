@@ -321,3 +321,31 @@ fn test_screenshotfile() {
 fn test_too_long_output_path_unlimited_filename() {
     original("test_too_long_output_path_unlimited_filename");
 }
+
+#[test]
+fn split_pair_limits_write_complete_paths_d56() -> std::io::Result<()> {
+    let root = std::env::temp_dir().join(format!("path-limit-d56-{}", std::process::id()));
+    let output = root.to_string_lossy();
+    let filename = FileManager::new(0, 2, &output, "/").plan_test_result_file("a😀z");
+    filename.create_directories()?;
+    assert_eq!(filename.path.as_os_str(), root.join("test_result/a").as_os_str());
+    std::fs::write(&filename.path, b"filename")?;
+    let prefix = format!("{output}/test_result/b");
+    let file =
+        FileManager::new(prefix.encode_utf16().count() as i32 + 1, 0, &output, "/").plan_test_result_file("b😀z");
+    file.create_directories()?;
+    assert_eq!(file.path.as_os_str(), root.join("test_result/b").as_os_str());
+    std::fs::write(&file.path, b"path")?;
+    let prefix = format!("{output}/device-files/c");
+    let folder = FileManager::new(prefix.encode_utf16().count() as i32 + 1, 0, &output, "/").plan_folder(
+        FolderType::DeviceFiles,
+        Some("c😀z"),
+        None,
+    );
+    folder.create_directories()?;
+    assert_eq!(folder.path.as_os_str(), root.join("device-files/c").as_os_str());
+    assert!(folder.path.is_dir());
+    assert_eq!(std::fs::read(&filename.path)?, b"filename");
+    assert_eq!(std::fs::read(&file.path)?, b"path");
+    std::fs::remove_dir_all(root)
+}

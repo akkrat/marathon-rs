@@ -92,7 +92,7 @@ impl AmInstrumentTestParser {
                             let info =
                                 blocking(self.runtime.dependencies.io.as_ref(), move || b.instrumentation_info())
                                     .await?;
-                            self.log(Level::Warn, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_owned(), bundle.files.test_application.to_string_lossy().into_owned().to_owned(), logcat.to_owned()), None);
+                            self.log(Level::Warn, &format!("Previous parsing attempt failed for {}\n                         file: {}\n                       due to test parser misconfiguration: test annotation producer was not found. See https://docs.marathonlabs.io/runner/android/configure#test-parser\n                       Next parsing attempt will remove overridden test run listener.\n                       Device log:\n                       {}", info.instrumentation_package.to_owned(), bundle.files.test_application.to_string_lossy().into_owned(), logcat.to_owned()), None);
                         } else {
                             self.log(Level::Debug, "Remote parsing failed. Retrying", Some(error.failure()));
                             // D22, D41: the retries have no delay, so an outage or a brief `offline` would use them all

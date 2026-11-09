@@ -196,13 +196,16 @@ impl AppleSimulatorDevice {
         let bundle = self.services.vendor.bundle.as_ref().ok_or_else(|| {
             VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
         })?;
-        let path = |p: &std::path::PathBuf| Ok::<_, VendorError>(p.clone());
         AppleTestBundle::new(
-            bundle.app.as_ref().map(path).transpose()?,
-            bundle.test_app.as_ref().map(path).transpose()?,
-            path(bundle.xctest.as_ref().ok_or_else(|| {
-                VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
-            })?)?,
+            bundle.app.clone(),
+            bundle.test_app.clone(),
+            bundle
+                .xctest
+                .as_ref()
+                .ok_or_else(|| {
+                    VendorError::Other(failure("java.lang.IllegalArgumentException", "No test bundle provided"))
+                })?
+                .clone(),
             self.sdk,
             self.services.runtime.clone(),
             self.services.logging.clone(),

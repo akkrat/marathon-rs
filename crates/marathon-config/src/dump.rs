@@ -123,7 +123,7 @@ fn write_string(out: &mut String, text: &str) {
 
 /// The canonical configuration (`Canonical.render(configuration)`). `process_dir` is the JVM's `user.dir`, against
 /// which `File.absolutePath` resolves a relative path.
-pub fn canonical_configuration(configuration: &Configuration, process_dir: &PathBuf) -> DumpValue {
+pub fn canonical_configuration(configuration: &Configuration, process_dir: &std::path::Path) -> DumpValue {
     Canonical { cwd: process_dir }.configuration(configuration)
 }
 
@@ -152,7 +152,7 @@ pub fn error_json(class: &str, message: Option<&str>, causes: &[(String, Option<
 }
 
 struct Canonical<'a> {
-    cwd: &'a PathBuf,
+    cwd: &'a std::path::Path,
 }
 
 type Fields = Vec<(&'static str, DumpValue)>;

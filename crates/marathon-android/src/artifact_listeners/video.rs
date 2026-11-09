@@ -167,7 +167,7 @@ impl ScreenRecorderTestBatchListener {
         let start = self.artifacts.now(label)?;
         self.artifacts
             .device
-            .safe_pull_file(remote, &local.to_string_lossy().into_owned().to_owned(), context)
+            .safe_pull_file(remote, &local.to_string_lossy(), context)
             .await?;
         let end = self.artifacts.now(label)?;
         self.artifacts.device.log_named(

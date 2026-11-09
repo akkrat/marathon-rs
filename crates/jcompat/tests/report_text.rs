@@ -15,7 +15,7 @@ fn jvm_paths_hash_xml_and_rounding() {
         "../../../fixtures/oracle/html-allure-gif/runtime-root.txt"
     ));
     let html = child_file(&root, "/html");
-    assert_eq!(html.to_string_lossy().into_owned().to_owned(), oracle("path")["html"]);
+    assert_eq!(html.to_string_lossy().into_owned(), oracle("path")["html"]);
     assert_eq!(
         relative_file(&html, &child_file(&html, "pools/raw # pool/device/logs"), &root).to_owned(),
         "../../../.."

@@ -196,7 +196,7 @@ impl AdamDeviceProvider {
         match self.version(client, context).await {
             Ok(()) => Ok(true),
             Err(e) if is_connect(&e) => {
-                let sdk = self.inner.runtime.configuration.android_sdk.as_ref();
+                let sdk = self.inner.runtime.configuration.android_sdk.as_deref();
                 if client.host().is_loopback() && start_adb(sdk, client.port(), context.clone()).await? {
                     match self.version(client, context).await {
                         Ok(()) => Ok(true),
@@ -1003,8 +1003,8 @@ fn server_name(client: &AndroidDebugBridgeClient) -> String {
     )
 }
 /// Runs only the selected binary; tests always provide a temp SDK with a fake adb.
-pub async fn start_adb(sdk: Option<&PathBuf>, port: u16, context: VendorContext) -> VendorResult<bool> {
-    let home = sdk.cloned().or_else(|| {
+pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: VendorContext) -> VendorResult<bool> {
+    let home = sdk.map(std::path::Path::to_path_buf).or_else(|| {
         std::env::var_os("ANDROID_HOME")
             .or_else(|| std::env::var_os("ANDROID_SDK_ROOT"))
             .map(PathBuf::from)
