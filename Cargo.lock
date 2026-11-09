@@ -1612,6 +1612,7 @@ dependencies = [
  "jcompat",
  "marathon-config",
  "marathon-core",
+ "marathon-error",
  "marathon-test-support",
  "nix 0.30.1",
  "rand",
@@ -1630,6 +1631,10 @@ dependencies = [
  "tempfile",
  "zip",
 ]
+
+[[package]]
+name = "marathon-error"
+version = "0.0.0"
 
 [[package]]
 name = "marathon-ios"

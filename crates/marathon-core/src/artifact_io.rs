@@ -22,15 +22,15 @@ pub(crate) fn vendor_error(error: OperationError) -> VendorError {
     }
 }
 pub(crate) fn io_error(error: std::io::Error) -> VendorError {
-    let class = match error.kind() {
-        std::io::ErrorKind::NotFound => "java.nio.file.NoSuchFileException",
-        std::io::ErrorKind::PermissionDenied => "java.nio.file.AccessDeniedException",
-        std::io::ErrorKind::NotADirectory => "java.nio.file.FileSystemException",
-        std::io::ErrorKind::AlreadyExists => "java.nio.file.FileAlreadyExistsException",
-        std::io::ErrorKind::InvalidInput => "java.nio.file.InvalidPathException",
-        _ => "java.io.IOException",
+    let kind = match error.kind() {
+        std::io::ErrorKind::NotFound => FailureKind::NoSuchFile,
+        std::io::ErrorKind::PermissionDenied => FailureKind::AccessDenied,
+        std::io::ErrorKind::NotADirectory => FailureKind::FileSystem,
+        std::io::ErrorKind::AlreadyExists => FailureKind::FileAlreadyExists,
+        std::io::ErrorKind::InvalidInput => FailureKind::InvalidPath,
+        _ => FailureKind::Io,
     };
-    VendorError::Other(crate::executor::shared::failure(class, &error.to_string()))
+    VendorError::Other(Failure::from_kind(kind, Some(error.to_string())))
 }
 pub(crate) fn validate_path(path: &std::path::Path) -> VendorResult<()> {
     if path.as_os_str().as_encoded_bytes().contains(&0) {
@@ -50,11 +50,11 @@ pub(crate) fn nio_error(error: std::io::Error, path: &std::path::Path) -> Vendor
     if error.kind() == ErrorKind::InvalidInput {
         return io_error(error);
     }
-    let class = match error.kind() {
-        ErrorKind::NotFound => "java.nio.file.NoSuchFileException",
-        ErrorKind::PermissionDenied => "java.nio.file.AccessDeniedException",
-        ErrorKind::AlreadyExists => "java.nio.file.FileAlreadyExistsException",
-        _ => "java.nio.file.FileSystemException",
+    let kind = match error.kind() {
+        ErrorKind::NotFound => FailureKind::NoSuchFile,
+        ErrorKind::PermissionDenied => FailureKind::AccessDenied,
+        ErrorKind::AlreadyExists => FailureKind::FileAlreadyExists,
+        _ => FailureKind::FileSystem,
     };
     let mut message = path.to_string_lossy().into_owned();
     // UnixFileSystemProvider.createDirectories first tries the whole path,
@@ -66,39 +66,24 @@ pub(crate) fn nio_error(error: std::io::Error, path: &std::path::Path) -> Vendor
     {
         message.truncate(index);
     }
-    if class == "java.nio.file.FileSystemException" {
+    if kind == FailureKind::FileSystem {
         message.push_str(": ");
         message.push_str(&native_reason(&error));
     }
-    VendorError::Other(Failure {
-        class: class.into(),
-        message: Some(message),
-        cause: None,
-        stacktrace: None,
-    })
+    VendorError::Other(Failure::from_kind(kind, Some(message)))
 }
 pub(crate) fn file_open_error(error: std::io::Error, path: &std::path::Path) -> VendorError {
     let mut message = path.to_string_lossy().into_owned();
     message.push_str(" (");
     message.push_str(&native_reason(&error));
     message.push(')');
-    VendorError::Other(Failure {
-        class: "java.io.FileNotFoundException".into(),
-        message: Some(message),
-        cause: None,
-        stacktrace: None,
-    })
+    VendorError::Other(Failure::from_kind(FailureKind::FileNotFound, Some(message)))
 }
 pub(crate) fn clock_error(error: crate::time::ReplayError) -> VendorError {
     let mut message = error.label;
     message.push_str(": ");
     message.push_str(&error.message);
-    VendorError::Other(Failure {
-        class: "ReplayError".into(),
-        message: Some(message),
-        cause: None,
-        stacktrace: None,
-    })
+    VendorError::Other(Failure::from_kind(FailureKind::ReplayClock, Some(message)))
 }
 
 pub(crate) async fn on_io<T: Send + 'static>(
@@ -112,9 +97,9 @@ pub(crate) async fn on_io<T: Send + 'static>(
     }));
     task.join().await?;
     rx.await.map_err(|_| {
-        VendorError::Other(crate::executor::shared::failure(
-            "java.lang.IllegalStateException",
-            "I/O task finished without a result",
+        VendorError::Other(Failure::from_kind(
+            FailureKind::IllegalState,
+            Some("I/O task finished without a result".into()),
         ))
     })?
 }
@@ -129,9 +114,119 @@ pub(crate) async fn blocking<T: Send + 'static>(
     }));
     task.join().await?;
     rx.await.map_err(|_| {
-        VendorError::Other(crate::executor::shared::failure(
-            "java.lang.IllegalStateException",
-            "blocking task finished without a result",
+        VendorError::Other(Failure::from_kind(
+            FailureKind::IllegalState,
+            Some("blocking task finished without a result".into()),
         ))
     })?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{io::ErrorKind, path::Path};
+
+    #[test]
+    fn io_funnel_kinds_preserve_each_legacy_class_and_message() {
+        for (source, kind, class) in [
+            (
+                ErrorKind::NotFound,
+                FailureKind::NoSuchFile,
+                "java.nio.file.NoSuchFileException",
+            ),
+            (
+                ErrorKind::PermissionDenied,
+                FailureKind::AccessDenied,
+                "java.nio.file.AccessDeniedException",
+            ),
+            (
+                ErrorKind::NotADirectory,
+                FailureKind::FileSystem,
+                "java.nio.file.FileSystemException",
+            ),
+            (
+                ErrorKind::AlreadyExists,
+                FailureKind::FileAlreadyExists,
+                "java.nio.file.FileAlreadyExistsException",
+            ),
+            (
+                ErrorKind::InvalidInput,
+                FailureKind::InvalidPath,
+                "java.nio.file.InvalidPathException",
+            ),
+            (ErrorKind::Other, FailureKind::Io, "java.io.IOException"),
+        ] {
+            let error = io_error(std::io::Error::new(source, "reason"));
+            let failure = error.failure();
+            assert_eq!(failure.class, kind.legacy_class());
+            assert_eq!(failure.class, class);
+            assert_eq!(failure.to_java_string(), format!("{class}: reason"));
+            assert!(matches!(error, VendorError::Other(_)));
+        }
+    }
+
+    #[test]
+    fn nio_funnel_adds_the_native_reason_only_for_filesystem_failures() {
+        for (source, kind, class, message) in [
+            (
+                ErrorKind::NotFound,
+                FailureKind::NoSuchFile,
+                "java.nio.file.NoSuchFileException",
+                "output",
+            ),
+            (
+                ErrorKind::PermissionDenied,
+                FailureKind::AccessDenied,
+                "java.nio.file.AccessDeniedException",
+                "output",
+            ),
+            (
+                ErrorKind::AlreadyExists,
+                FailureKind::FileAlreadyExists,
+                "java.nio.file.FileAlreadyExistsException",
+                "output",
+            ),
+            (
+                ErrorKind::Other,
+                FailureKind::FileSystem,
+                "java.nio.file.FileSystemException",
+                "output: reason",
+            ),
+            (
+                ErrorKind::InvalidInput,
+                FailureKind::InvalidPath,
+                "java.nio.file.InvalidPathException",
+                "reason (os error 7)",
+            ),
+        ] {
+            let error = nio_error(std::io::Error::new(source, "reason (os error 7)"), Path::new("output"));
+            let failure = error.failure();
+            assert_eq!(failure.class, kind.legacy_class());
+            assert_eq!(failure.to_java_string(), format!("{class}: {message}"));
+        }
+    }
+
+    #[test]
+    fn file_open_and_clock_funnels_keep_their_distinct_legacy_names() {
+        let error = file_open_error(
+            std::io::Error::new(ErrorKind::NotFound, "missing (os error 2)"),
+            Path::new("output"),
+        );
+        assert_eq!(error.failure().class, FailureKind::FileNotFound.legacy_class());
+        assert_eq!(
+            error.failure().to_java_string(),
+            "java.io.FileNotFoundException: output (missing)"
+        );
+
+        let error = clock_error(crate::time::ReplayError {
+            label: "clock".into(),
+            message: "exhausted".into(),
+        });
+        assert_eq!(error.failure().class, FailureKind::ReplayClock.legacy_class());
+        assert_eq!(error.failure().to_java_string(), "ReplayError: clock: exhausted");
+        assert_ne!(
+            FailureKind::ReplayClock.legacy_class(),
+            FailureKind::Replay.legacy_class()
+        );
+    }
 }

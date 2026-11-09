@@ -2,17 +2,29 @@
 //! and the other exceptions in that package; DeviceActor.kt supplies catch order.
 
 use marathon_config::binding::ConfigurationError;
+pub use marathon_error::FailureKind;
 
 /// Preserve class, nullable message and causal chain for classification/output.
 /// Formatting stack traces is a later WP, not Rust Debug or Display.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
+    /// Temporary compatibility field; WP 8.6a milestone 2 replaces it with `kind: FailureKind`.
     pub class: String,
     pub message: Option<String>,
     pub cause: Option<Box<Failure>>,
     pub stacktrace: Option<String>,
 }
 impl Failure {
+    /// Typed producers get their rendered class only from the legacy mapping.
+    pub fn from_kind(kind: FailureKind, message: Option<String>) -> Self {
+        Self {
+            class: kind.legacy_class().to_owned(),
+            message,
+            cause: None,
+            stacktrace: None,
+        }
+    }
+
     /// `Throwable.toString()`: the class, then `: message` when there is one.
     pub fn to_java_string(&self) -> String {
         let mut text = self.class.clone();
@@ -133,4 +145,36 @@ pub enum RunOutcome {
     NoTests(Failure),
     Configuration(Box<ConfigurationError>),
     Crashed(Failure),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_failures_render_nullable_messages_frames_and_causes_unchanged() {
+        let mut failure = Failure::from_kind(FailureKind::IllegalState, Some(String::new()));
+        failure.stacktrace = Some("\tat source.frame(Source:1)".into());
+        failure.cause = Some(Box::new(Failure::from_kind(FailureKind::Io, None)));
+        assert_eq!(failure.class, FailureKind::IllegalState.legacy_class());
+        assert_eq!(failure.to_java_string(), "java.lang.IllegalStateException: ");
+        assert_eq!(
+            failure.stack_trace(),
+            "java.lang.IllegalStateException: \n\tat source.frame(Source:1)\nCaused by: java.io.IOException\n"
+        );
+        assert_eq!(failure, failure.clone());
+    }
+
+    #[test]
+    fn external_class_and_stack_text_remain_opaque() {
+        // This models a class and trace supplied by an external runner.
+        let kind = FailureKind::External("runner.CustomFailure".into());
+        let mut failure = Failure::from_kind(kind.clone(), Some("java.io.IOException: remote".into()));
+        failure.stacktrace = Some("external.Frame\n".into());
+        assert_eq!(failure.class, kind.legacy_class());
+        assert_eq!(
+            failure.stack_trace(),
+            "runner.CustomFailure: java.io.IOException: remote\nexternal.Frame\n"
+        );
+    }
 }

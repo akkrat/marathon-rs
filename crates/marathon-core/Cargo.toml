@@ -13,6 +13,7 @@ test-support = []
 
 [dependencies]
 jcompat = { path = "../jcompat" }
+marathon-error = { path = "../marathon-error" }
 marathon-config = { path = "../marathon-config" }
 tokio = { version = "=1.53.2", features = ["rt", "rt-multi-thread", "time", "sync", "net", "signal", "macros"] }
 futures-util = "=0.3.34"
