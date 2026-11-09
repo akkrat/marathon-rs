@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Adversarial checks go through the production comparator, with recomputed digests."""
 import base64
+import gzip
 import json
 import os
 from pathlib import Path
@@ -109,6 +110,74 @@ class EvidenceTests(unittest.TestCase):
 
     def test_native_yaml_rejects_changed_infinity_to_string(self):
         self.reject_changed_yaml(b'a: .inf\n', b'a: .iNF\n')
+
+    def test_native_xml_indentation_and_significant_text(self):
+        target = self.tree / 'result.xml'
+        target.write_bytes(b'<root><item id="1">hello</item><item>world</item></root>')
+        expected = e.normalized(self.record('xml-baseline'), self.contract, native=True)
+        target.write_bytes(b'<root>\n  <item id="1">hello</item>\n  <item>world</item>\n</root>')
+        e.compare_native_views(expected, e.normalized(self.record('xml-indented'), self.contract, native=True))
+        target.write_bytes(b'<root>\n  <item id="1">hello!</item>\n  <item>world</item>\n</root>')
+        with self.assertRaises(e.Invalid):
+            e.compare_native_views(expected, e.normalized(self.record('xml-changed'), self.contract, native=True))
+        self.assertNotEqual(e.xml_value(b'<a> </a>'), e.xml_value(b'<a></a>'))
+
+    def test_allure_environment_accepts_indentation_and_real_values(self):
+        import vendor_reports
+        identities = {'sandbox':'/sandbox', 'port':'22'}
+        compact = b'<environment><parameter><key>analyticsConfiguration</key><value>com.malinskiy.marathon.config.Foo@abc</value></parameter></environment>'
+        pretty = b'<environment>\n <parameter>\n  <key>analyticsConfiguration</key>\n  <value>com.malinskiy.marathon.config.Foo@abc</value>\n </parameter>\n</environment>'
+        first = e.xml_value(vendor_reports.environment(compact, identities, 'native', []))
+        self.assertEqual(first, e.xml_value(vendor_reports.environment(pretty, identities, 'native', [])))
+        real = pretty.replace(b'com.malinskiy.marathon.config.Foo@abc', b'analytics enabled')
+        self.assertNotEqual(first, e.xml_value(vendor_reports.environment(real, identities, 'native', [])))
+
+    def test_native_state_json_compares_parsed_data(self):
+        self.artifacts['state.json'] = b'{"devices":[1.0e10],"ready":true}'
+        expected = e.normalized(self.record('state-baseline'), self.contract, native=True)
+        self.artifacts['state.json'] = b'{ "devices": [10000000000.0], "ready": true }'
+        e.compare_native_views(expected, e.normalized(self.record('state-equivalent'), self.contract, native=True))
+        self.artifacts['state.json'] = b'{"devices":[10000000000.0],"ready":false}'
+        with self.assertRaises(e.Invalid):
+            e.compare_native_views(expected, e.normalized(self.record('state-changed'), self.contract, native=True))
+
+    def test_stale_yaml_helper_reports_build_command(self):
+        target = self.root / 'target'
+        executable = target / 'debug/examples/yaml_tree'
+        executable.parent.mkdir(parents=True)
+        executable.write_bytes(b'old')
+        source = self.root / 'changed.rs'; source.write_text('new')
+        stamp = executable.stat().st_mtime_ns + 2_000_000_000
+        os.utime(source, ns=(stamp, stamp))
+        with mock.patch.dict(os.environ, {'CARGO_TARGET_DIR': str(target)}), mock.patch.object(e, 'yaml_helper_sources', return_value=[source]):
+            with self.assertRaisesRegex(e.Invalid, 'stale YAML helper; run cargo build'):
+                e.structured_yaml(b'a: 1\n')
+
+    def test_golden_diff_is_readable_and_detects_additions(self):
+        before = gzip.compress(b'{"value": 1}'); after = gzip.compress(b'{"value": 2}')
+        text = DRIVER['diff_view'](before, after, 'case.json.gz', 'baseline')
+        self.assertIn('-  "value": 1', text)
+        self.assertIn('+  "value": 2', text)
+        self.assertIn('+  "value": 2', DRIVER['diff_view'](None, after, 'case.json.gz', 'baseline'))
+
+    def test_capture_requires_explicit_historical_flag(self):
+        args = ['run', 'capture', 'local', '--output', str(self.root/'never-created')]
+        with mock.patch.object(sys, 'argv', args), self.assertRaisesRegex(e.Invalid, '--historical'):
+            DRIVER['main']()
+        self.assertFalse((self.root/'never-created').exists())
+
+    def test_all_uses_native_captures_only(self):
+        namespace = DRIVER['main'].__globals__
+        selected = {'local': {'kind':'portable'}, 'parse': {'kind':'portable'}}
+        capture = mock.Mock(return_value=self.root/'recording')
+        command = mock.Mock()
+        args = ['run', 'all', '--profile', 'harness-first', '--output', str(self.root/'all')]
+        with mock.patch.dict(namespace, {'validate_registry': lambda: {'cases': []},
+                             'adapters': lambda: selected, 'command': command,
+                             'capture': capture, 'compare_golden': mock.Mock()}), mock.patch.object(sys, 'argv', args):
+            DRIVER['main']()
+        self.assertEqual([call.args[1] for call in capture.call_args_list], ['native', 'native'])
+        self.assertTrue(all('oracle/build.sh' not in str(call.args[0]) for call in command.call_args_list))
 
     def test_native_console_ignores_other_diagnostics(self):
         values = {'serial': 'device-1'}

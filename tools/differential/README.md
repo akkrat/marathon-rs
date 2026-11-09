@@ -6,10 +6,13 @@ do not generate new JVM records.
 
 `./run check` validates historical evidence and checks native cases against
 `fixtures/contract/native-v1`. `./run native-vendors --output runs/new-native`
-runs the 15 bounded vendor cases. The gate does not write goldens.
+runs the 15 bounded vendor cases. `./run all --profile PROFILE --output DIR`
+runs the native gate and selected captures. The gate does not write goldens.
+The JVM `capture` command is historical and requires `--historical`.
 
 To re-bless intentionally, remove the existing `fixtures/contract/native-v1`
-generation and run `./run bless`; review the generated views and provenance.
+generation and run `./run bless`; review the generated views and provenance
+with `./run diff-golden --against HEAD` (or another revision).
 For the configuration corpus, use `MARATHON_BLESS_CONFIG=1 cargo test -p
 marathon-cli --test config_contract`, then review `fixtures/contract/config/`.
 Changes to the contract require a D-row in PLAN.md §3.11. Before running the

@@ -44,13 +44,22 @@ contracts and comparator self-tests. `scripts/check.sh` runs the offline checks
 and the native targets through the workspace tests. `native-vendors --output
 NEW_DIRECTORY` runs the 15 whole-vendor cases. The gate builds the YAML helper
 with `cargo build -q -p snakeyaml --example yaml_tree` before comparison; run
-that command first when using the harness directly. No JVM or JDK is needed.
+that command first when using the harness directly. Missing or stale helpers
+are rejected with the build command. No JVM or JDK is needed.
 
 `tools/differential/run bless` explicitly captures all registered cases and
 publishes normalized, compressed views and commit/host provenance under
 `fixtures/contract/native-v1`. It refuses to overwrite an existing generation;
-remove the old generation explicitly before a deliberate re-bless. Review every
-golden change, and add a D-row for a contract change. The gate never blesses.
+remove the old generation explicitly before a deliberate re-bless. Run
+`tools/differential/run diff-golden --against HEAD` to review readable,
+decompressed per-file differences (use another revision with `--against`).
+Review every golden change, and add a D-row for a contract change. The gate
+never blesses.
+
+`tools/differential/run all --profile PROFILE --output NEW_DIRECTORY` runs the
+native gate and captures selected native adapters; it does not capture a JVM.
+The retained JVM capture command is historical only and requires an explicit
+`--historical` flag.
 
 The configuration corpus runs as `cargo test -p marathon-cli --test
 config_contract`. Set `MARATHON_BLESS_CONFIG=1` only when deliberately
@@ -165,7 +174,10 @@ validate the JVM tape value and native class-name hash before substituting the
 same typed object role. Temporary source/receive file roles come from declared
 rsync operands; transferred/consumed bytes remain exact.
 
-JSON, XML and YAML result files compare as parsed data. JSON object key order,
+JSON, XML and YAML result files compare as parsed data. XML indentation-only
+whitespace between elements is ignored; significant text is retained. Allure
+environment values can replace JVM identities with real values without changing
+the normalizer, subject to a D-row and a reviewed golden update. JSON object key order,
 XML element order and attribute sets, and YAML mapping order remain observable;
 equivalent JSON numeric and escaped-string forms compare equal. Other text and
 binary data retain their existing comparison. Vendor console comparison retains

@@ -471,8 +471,16 @@ def normalize(data, rules, values):
 
 
 def xml_value(data):
-    def node(e):
-        return (e.tag, sorted(e.attrib.items()), e.text or '', e.tail or '', [node(c) for c in e])
+    def node(element, parent_mixed=False):
+        children = list(element)
+        mixed = bool((element.text or '').strip() or any((child.tail or '').strip() for child in children))
+        text = element.text or ''
+        if children and not mixed and not text.strip():
+            text = ''
+        tail = element.tail or ''
+        if not parent_mixed and not tail.strip():
+            tail = ''
+        return (element.tag, sorted(element.attrib.items()), text, tail, [node(child, mixed) for child in children])
     require(b'<!DOCTYPE' not in data and b'<!ENTITY' not in data, 'XML entities are not supported')
     return node(ET.fromstring(data))
 
@@ -525,6 +533,14 @@ def structured_json(data):
     return tagged(value)
 
 
+def yaml_helper_sources(root):
+    sources = [root / 'Cargo.toml', root / 'Cargo.lock', root / 'crates/snakeyaml/Cargo.toml',
+               root / 'crates/jcompat/Cargo.toml', root / 'crates/snakeyaml/examples/yaml_tree.rs']
+    for crate in ('snakeyaml', 'jcompat'):
+        sources.extend((root / 'crates' / crate / 'src').rglob('*.rs'))
+    return sources
+
+
 def yaml_tree(data, classify=False):
     root = Path(__file__).resolve().parents[2]
     target = Path(os.environ.get('CARGO_TARGET_DIR', root / 'target'))
@@ -532,6 +548,8 @@ def yaml_tree(data, classify=False):
         target = root / target
     executable = target / 'debug/examples/yaml_tree'
     require(executable.is_file(), 'missing YAML helper; run cargo build -q -p snakeyaml --example yaml_tree')
+    require(all(path.stat().st_mtime_ns <= executable.stat().st_mtime_ns for path in yaml_helper_sources(root)),
+            'stale YAML helper; run cargo build -q -p snakeyaml --example yaml_tree')
     try:
         result = subprocess.run([str(executable), *(['--classify'] if classify else [])],
                                 input=data, capture_output=True, check=True)
@@ -673,7 +691,7 @@ def normalized(directory, contract, native=False):
                     content = vendor_transport.host_argv(data,record['identities'],may_withhold(directory,record))
                 else:
                     content = vendor_transport.ssh(data,contract['vendor'],may_withhold(directory,record)) if contract['transport'] == 'ssh' else vendor_transport.adb(data,may_withhold(directory,record))
-            elif native and name.startswith(('reports/', 'tree/')) and name.endswith(('.json', '.xml', '.yml', '.yaml')):
+            elif native and (name == 'state.json' or name.startswith(('reports/', 'tree/'))) and name.endswith(('.json', '.xml', '.yml', '.yaml')):
                 content = native_content(name, data)
             elif mode == 'allure-json':
                 require(name.startswith('reports/allure-results/') and name.endswith('.json'), 'Allure scope')

@@ -1,7 +1,7 @@
 """Typed vendor report locations; leave all surrounding product bytes untouched."""
-import html
 import json
 import re
+import xml.etree.ElementTree as ET
 import evidence as e
 
 
@@ -66,40 +66,34 @@ def omit_delegate(data, pointer, implementation):
 
 
 def environment(data, identities, implementation, expected):
-    text = data.decode()
+    e.xml_value(data)  # Apply the same entity restrictions as the comparator.
+    root = ET.fromstring(data)
     allowed_objects = {'analyticsConfiguration','pooling','sharding','sorting','flakiness','retry','executionStrategy','batching','ciConfiguration'}
+    identity = re.compile(r'com\.malinskiy\.marathon\.config\.[A-Za-z0-9_.$]+@[0-9a-f]+')
     def object_identity(value):
-        cls,suffix = value.rsplit('@',1)
         if implementation == 'jvm':
-            e.require(value in expected,'taped configuration identity differs')
-        else:
-            code = 0
-            for i in range(0,len(cls.encode('utf-16-be')),2):
-                code = (31*code + int.from_bytes(cls.encode('utf-16-be')[i:i+2],'big')) & 0xffffffff
-            e.require(suffix == format(code,'x'),'native configuration identity violates D12/F29')
-        return cls+'@{class-identity}'
-    def parameter(match):
-        key, value = match[1], html.unescape(match[2])
+            e.require(value in expected, 'taped configuration identity differs')
+        return value.rsplit('@', 1)[0] + '@{class-identity}'
+    for parameter in root.iter('parameter'):
+        key_node, value_node = parameter.find('key'), parameter.find('value')
+        if key_node is None or value_node is None or list(value_node):
+            continue
+        key, value = key_node.text or '', value_node.text or ''
         if key == 'outputDir':
             e.require(value == identities['sandbox'] + '/in/report', 'unexpected outputDir')
             value = '{sandbox}/in/report'
         elif key == 'vendorConfiguration':
-            # File-valued constructor slots only. This exact config text is
-            # otherwise compared, including nulls, booleans, order and quoting.
             value = value.replace(identities['sandbox'] + '/in/', '{sandbox}/in/')
             value = value.replace(identities['sandbox'] + '/client-key', '{sandbox}/client-key')
             value = value.replace(identities['sandbox'] + '/known_hosts', '{sandbox}/known_hosts')
             value = value.replace('port=' + identities['port'] + ')', 'port={port})')
             value = value.replace('port=' + identities['port'] + ',', 'port={port},')
-            for cls in ['com.malinskiy.marathon.config.vendor.android.TestParserConfiguration$LocalTestParserConfiguration',
-                        'com.malinskiy.marathon.config.vendor.apple.TestParserConfiguration$XCTestParserConfiguration']:
-                value = re.sub(r'(?<=testParserConfiguration=)' + re.escape(cls) + r'@[0-9a-f]+(?=, )', lambda m:object_identity(m[0]), value)
-        elif key in allowed_objects and value.startswith('com.malinskiy.marathon.config.'):
-            e.require(re.fullmatch(r'com\.malinskiy\.marathon\.config\.[A-Za-z0-9_.$]+@[0-9a-f]+',value), 'unknown configuration object')
+            pattern = r'(?<=testParserConfiguration=)(?:com\.malinskiy\.marathon\.config\.vendor\.(?:android\.TestParserConfiguration\$LocalTestParserConfiguration|apple\.TestParserConfiguration\$XCTestParserConfiguration))@[0-9a-f]+(?=, )'
+            value = re.sub(pattern, lambda m: object_identity(m[0]), value)
+        elif key in allowed_objects and identity.fullmatch(value):
             value = object_identity(value)
-        return '<parameter><key>' + key + '</key><value>' + html.escape(value, quote=False) + '</value></parameter>'
-    text = re.sub(r'<parameter><key>([^<]+)</key><value>(.*?)</value></parameter>',parameter,text,flags=re.S)
-    return text.encode()
+        value_node.text = value
+    return ET.tostring(root, encoding='utf-8')
 
 
 def normalize(path, data, identities, implementation, contract):

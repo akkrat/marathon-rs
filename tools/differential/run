@@ -3,6 +3,7 @@
 import argparse
 import base64
 import datetime
+import difflib
 import gzip
 import json
 import os
@@ -60,6 +61,31 @@ def compare_golden(name, actual, mismatch=None):
     actual_view = e.normalized(actual, contract(name), native=True)
     # Round-trip converts tuples used by XML and GIF normalization into lists.
     e.compare_native_views(expected, actual_view)
+
+def diff_view(before, after, name, revision):
+    def lines(data):
+        if data is None:
+            return []
+        if name.endswith('.gz'):
+            data = gzip.decompress(data)
+        return e.encoded(e.loads(data)).decode().splitlines(keepends=True)
+    return ''.join(difflib.unified_diff(lines(before), lines(after),
+                   fromfile=f'{revision}/{name}', tofile=f'working/{name}'))
+
+
+def diff_golden(revision):
+    commit = subprocess.check_output(['git', 'rev-parse', '--verify', '--end-of-options', revision + '^{commit}'], cwd=ROOT, text=True).strip()
+    prefix = 'fixtures/contract/native-v1/'
+    tracked = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', commit, '--', prefix], cwd=ROOT, text=True).splitlines()
+    directory = ROOT / prefix
+    working = [str(p.relative_to(ROOT)) for p in directory.glob('*') if p.is_file()] if directory.exists() else []
+    for path in sorted(set(tracked) | set(working)):
+        if not path.endswith(('.json', '.json.gz')):
+            continue
+        before = subprocess.check_output(['git', 'show', commit + ':' + path], cwd=ROOT) if path in tracked else None
+        after = (ROOT / path).read_bytes() if path in working else None
+        sys.stdout.write(diff_view(before, after, path, revision))
+
 
 def native_binary(work, local=False):
     argv = ['cargo', 'test', '--no-run', '-q', '-p', 'marathon-test-support', '--test', 'differential_local', '--message-format=json'] if local else [
@@ -246,12 +272,15 @@ def main():
     sub.add_parser('validate')
     sub.add_parser('check')
     sub.add_parser('bless')
+    p = sub.add_parser('diff-golden')
+    p.add_argument('--against', default='HEAD')
     for name in ('smoke', 'all'):
         p = sub.add_parser(name)
         p.add_argument('--profile', choices=['harness-first', 'macos-arm64', 'linux-x86_64'], required=True)
         p.add_argument('--output', type=Path, required=True)
     p = sub.add_parser('capture')
     p.add_argument('scenario', choices=list(adapters()))
+    p.add_argument('--historical', action='store_true', help='explicitly permit a historical JVM capture')
     p.add_argument('--output', type=Path, required=True, help='new immutable JVM golden generation')
     p = sub.add_parser('compare')
     p.add_argument('expected', type=Path); p.add_argument('actual', type=Path)
@@ -261,7 +290,9 @@ def main():
     for name in ('verify-local', 'verify-parse'):
         p = sub.add_parser(name); p.add_argument('raw', type=Path)
     args = parser.parse_args()
-    if args.operation == 'bless':
+    if args.operation == 'diff-golden':
+        diff_golden(args.against)
+    elif args.operation == 'bless':
         validate_registry()
         destination = ROOT / 'fixtures/contract/native-v1'
         e.require(not destination.exists(), 'native generation already exists; remove it explicitly before re-blessing')
@@ -307,6 +338,7 @@ def main():
                 subprocess.run(['cargo', 'test', '-q', *target], cwd=ROOT, check=True, timeout=600)
             print('PASS profile=registered-offline-native (whole vendor baselines plus scoped owner contracts)')
     elif args.operation == 'capture':
+        e.require(args.historical, 'JVM capture is historical; pass --historical explicitly')
         # Never touch an existing generation, even if capture fails.
         e.require(not args.output.exists(), 'capture output already exists')
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -317,6 +349,24 @@ def main():
         recording = capture(args.scenario, 'jvm', work)
         e.publish(recording, args.output, contract(args.scenario))
         print('Published JVM evidence:', args.output)
+    elif args.operation == 'all':
+        ledger = validate_registry()
+        args.output.mkdir(parents=True, exist_ok=False)
+        if args.profile != 'harness-first':
+            required_host = {'macos-arm64':('Darwin','arm64'),'linux-x86_64':('Linux','x86_64')}[args.profile]
+            e.require((platform.system(),platform.machine()) == required_host, 'selected profile does not match this host')
+            pending = [r['id'] for r in ledger['cases'] if r['state'] == 'planned']
+            e.require(not pending, 'full vendor profile is not active: ' + ', '.join(pending))
+        selected = [name for name,row in adapters().items() if args.profile != 'harness-first' or row['kind'] == 'portable']
+        (args.output / 'selection.json').write_bytes(e.encoded(dict(profile=args.profile, cases=selected)))
+        command(['cargo','build','-q','-p','snakeyaml','--example','yaml_tree'], args.output/'yaml-helper-build', timeout=600)
+        command([sys.executable, '-I', Path(__file__), 'check'], args.output/'offline-native', timeout=1200)
+        binaries = build_vendor_binaries(args.output/'binaries') if any(adapters()[name]['kind'] == 'vendor' for name in selected) else None
+        for name in selected:
+            case = (args.output / name).resolve(); case.mkdir()
+            recording = capture(name, 'native', case, binaries)
+            compare_golden(name, recording, case/'mismatch')
+        print('PASS profile=' + args.profile + '; native adapters: ' + ', '.join(selected))
     else:
         ledger = validate_registry()
         args.output.mkdir(parents=True, exist_ok=False)
@@ -327,8 +377,6 @@ def main():
             pending = [r['id'] for r in ledger['cases'] if r['state'] == 'planned']
             e.require(not pending, 'full vendor profile is not active: ' + ', '.join(pending))
         command([ROOT / 'tools/oracle/build.sh', 'reference'], args.output / 'verified-reference-build', timeout=600)
-        if args.operation == 'all':
-            command([sys.executable, '-I', Path(__file__), 'check'], args.output / 'offline-native', timeout=1200)
         selected = [name for name,row in adapters().items() if args.profile != 'harness-first' or row['kind'] == 'portable']
         binaries = None
         if any(adapters()[name]['kind'] == 'vendor' for name in selected):

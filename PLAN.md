@@ -9,7 +9,7 @@
 - A single native `marathon` binary that replaces the JVM distribution.
 - **External interface unchanged, except for the deviations of §3.11 (D47 requires a finite `uncompletedTestRetryQuota`):** Marathonfile, Marathondevices and the dynamic-provider protocol, the CLI, exit codes, the output-directory layout and file formats, and the commands sent to workers.
 - **Scope:** all three vendors in v1 (iOS, macOS and Android). All three are release-gated on real end-to-end runs (§6.6).
-- **Bug-for-bug parity by default**, so that Kotlin and Rust can be compared directly. Intentional deviations are listed in §3.11; smaller approved simplifications are recorded in each WP's findings.
+- **Phases 0–7 used bug-for-bug parity by default**; from Phase 8, §3.12 supersedes conflicting baseline rules in §3.1–3.11. Intentional deviations are listed in §3.11; smaller approved simplifications are recorded in each WP's findings.
 
 ## 2. What is being ported
 
@@ -289,7 +289,7 @@ Feature negotiation must match adam: shell v2, sync v2, `cmd` and `abb_exec` cho
 
 ### 3.12 Phase 8 contract
 
-`0.12.0-rc.1` is the JVM-parity baseline. Phase 8 preserves:
+`0.12.0-rc.1` is the JVM-parity baseline described by §3.1–3.11. From Phase 8, §3.12 supersedes those sections wherever they conflict. Phase 8 preserves:
 
 1. All Marathonfile and Marathondevices inputs accepted today, with the same meaning, including YAML 1.1 scalars, environment substitutions (`${VAR}` and `${VAR:-default}`), ISO-8601 durations and instants, and binder coercions. Rejected inputs remain rejected; error wording may change.
 2. CLI subcommands, flags, defaults and exit codes. Help, usage and error wording may change.
