@@ -2,8 +2,6 @@
 //! and `.../request/transform/StringResponseTransformer.kt`.
 //! adam portions: Copyright (C) 2019-2021 Anton Malinskiy; Apache-2.0.
 
-use jcompat::utf8::decode_utf8;
-
 use super::error::AdbError;
 
 pub trait ResponseTransformer {
@@ -30,7 +28,7 @@ impl ResponseTransformer for StringResponseTransformer {
     }
 
     fn transform(&mut self) -> Result<String, AdbError> {
-        Ok(kotlin_trim(&decode_utf8(&self.bytes)).to_string())
+        Ok(kotlin_trim(&String::from_utf8_lossy(&self.bytes)).to_string())
     }
 }
 

@@ -500,7 +500,7 @@ async fn connect_refused_is_a_connect_exception() {
     assert!(error.is_connect_exception(), "{error}");
     assert_eq!(
         error.message(),
-        Some(format!("Connection refused: /127.0.0.1:{port}").as_str())
+        Some(format!("Connection refused: 127.0.0.1:{port}").as_str())
     );
     // Over a stream the same error is the stream's.
     let mut track = client.execute_channel(AsyncDeviceMonitorRequest, None).unwrap();

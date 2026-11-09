@@ -1,0 +1,63 @@
+{
+  "probe.apk": [
+    {
+      "pointer": "/tests/0/annotations/2/values/8/1/1",
+      "before": "��",
+      "after": "������"
+    }
+  ],
+  "probe-utf8.apk": [
+    {
+      "pointer": "/tests/0/annotations/1/values/0/1/1",
+      "before": "s:��",
+      "after": "s:������"
+    },
+    {
+      "pointer": "/tests/0/annotations/1/values/1/1/1/0/1",
+      "before": "u00:��",
+      "after": "u00:������"
+    },
+    {
+      "pointer": "/tests/0/annotations/1/values/1/1/1/1/1",
+      "before": "u01:�",
+      "after": "u01:���"
+    },
+    {
+      "pointer": "/tests/0/annotations/1/values/1/1/1/2/1",
+      "before": "u02:�A",
+      "after": "u02:��A"
+    },
+    {
+      "pointer": "/tests/0/annotations/1/values/1/1/1/3/1",
+      "before": "u03:�",
+      "after": "u03:��"
+    },
+    {
+      "pointer": "/tests/0/annotations/1/values/1/1/1/4/1",
+      "before": "u04:�",
+      "after": "u04:���"
+    },
+    {
+      "pointer": "/tests/0/annotations/1/values/1/1/1/5/1",
+      "before": "u05:�",
+      "after": "u05:���"
+    },
+    {
+      "pointer": "/tests/0/annotations/1/values/1/1/1/7/1",
+      "before": "u07:�A",
+      "after": "u07:���A"
+    },
+    {
+      "pointer": "/tests/1/testName",
+      "before": "probe.Utf8ProbeTest#utf8Pair��",
+      "after": "probe.Utf8ProbeTest#utf8Pair������"
+    }
+  ],
+  "probe-deflated-descriptor.apk": [
+    {
+      "pointer": "/tests/0/annotations/2/values/8/1/1",
+      "before": "��",
+      "after": "������"
+    }
+  ]
+}

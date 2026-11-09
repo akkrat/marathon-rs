@@ -43,7 +43,7 @@ pub trait PlanEnvironment: Send + Sync {
 pub struct ProcessEnvironment;
 impl PlanEnvironment for ProcessEnvironment {
     fn get(&self, key: &str) -> Option<String> {
-        std::env::var_os(key).map(|value| jcompat::utf8::decode_utf8(value.as_encoded_bytes()))
+        std::env::var_os(key).map(|value| String::from_utf8_lossy(value.as_encoded_bytes()).into_owned())
     }
 }
 pub struct FileTestPlanSupplier {

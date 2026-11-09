@@ -1,7 +1,8 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/analytics/external/influx2/InfluxDb2Provider.kt
 //! and external/influx2/InfluxDb2Tracker.kt, external/influx2/Influxdb2Exception.kt.
+use crate::http::query_encode;
 use crate::{http::*, points};
-use jcompat::{jnum, logging::Level, net::query_encode};
+use jcompat::{jnum, logging::Level};
 use marathon_config::InfluxDb2Configuration;
 use marathon_core::{
     analytics::{

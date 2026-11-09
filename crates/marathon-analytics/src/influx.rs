@@ -2,7 +2,6 @@
 //! and external/influx/InfluxDbTracker.kt.
 use crate::{http::*, points};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use jcompat::net::{basic_credentials, form_encode, query_encode};
 use marathon_config::InfluxDbConfiguration;
 use marathon_core::{
     analytics::{MetricsContext, TrackerInternalAdapter, remote::influx::*},
@@ -58,7 +57,7 @@ impl InfluxClient {
     ) -> OperationResult<Arc<Self>> {
         let (user, password) = (text(&config.user)?, text(&config.password)?);
         let auth = (!user.is_empty() && !password.is_empty())
-            .then(|| format!("Basic {}", STANDARD.encode(basic_credentials(&user, &password))));
+            .then(|| format!("Basic {}", STANDARD.encode(format!("{user}:{password}").as_bytes())));
         let http = Arc::new(Http::new(&config.url, auth, context.clone(), debug)?);
         let database = text(&config.db_name)?;
         let rp = &config.retention_policy_configuration;

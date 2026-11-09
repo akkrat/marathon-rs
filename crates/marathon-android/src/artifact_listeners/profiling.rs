@@ -91,7 +91,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                     }
                     let mut bytes = Vec::new();
                     file.read_to_end(&mut bytes).map_err(io)?;
-                    Ok(jcompat::utf8::decode_utf8(&bytes))
+                    Ok(String::from_utf8_lossy(&bytes).into_owned())
                 })
                 .transpose()
             })

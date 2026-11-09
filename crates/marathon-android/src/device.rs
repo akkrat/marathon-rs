@@ -1011,13 +1011,20 @@ impl crate::logcat_listener::LogcatProducer for AndroidDevice {
     }
 }
 pub fn host_address(ip: std::net::IpAddr) -> String {
-    let value = jcompat::net::inet_socket_address(None, ip, 0);
-    value
-        .trim_start_matches('/')
-        .trim_end_matches(":0")
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .to_owned()
+    // This spelling is part of device IDs and result data, beyond D57's diagnostics.
+    match ip {
+        std::net::IpAddr::V4(ip) => ip.to_string(),
+        std::net::IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or_else(
+            || {
+                ip.segments()
+                    .iter()
+                    .map(|part| format!("{part:x}"))
+                    .collect::<Vec<_>>()
+                    .join(":")
+            },
+            |ip| ip.to_string(),
+        ),
+    }
 }
 pub fn detect_serial(
     strategy: marathon_config::vendor::SerialStrategy,

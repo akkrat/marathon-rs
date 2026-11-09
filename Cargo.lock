@@ -1369,6 +1369,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 name = "jcompat"
 version = "0.0.0"
 dependencies = [
+ "form_urlencoded",
  "md5 0.7.0",
  "regex",
  "serde_json",
@@ -1495,6 +1496,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "csv",
+ "form_urlencoded",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -1504,6 +1506,7 @@ dependencies = [
  "jcompat",
  "marathon-config",
  "marathon-core",
+ "percent-encoding",
  "rustls",
  "rustls-native-certs",
  "serde_json",

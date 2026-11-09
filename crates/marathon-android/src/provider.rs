@@ -1018,7 +1018,7 @@ pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: Vendor
             .await
             .map_err(io)?;
         PathBuf::from(
-            jcompat::jstring::lines(jcompat::utf8::decode_utf8(&result.stdout).as_str())
+            jcompat::jstring::lines(String::from_utf8_lossy(&result.stdout).into_owned().as_str())
                 .first()
                 .map(|s| s.to_owned())
                 .unwrap_or_default(),

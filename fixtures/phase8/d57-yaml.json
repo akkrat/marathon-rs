@@ -1,0 +1,27 @@
+{
+  "UTF8-surrogate": {
+    "before": "�",
+    "after": "���",
+    "decoded": "k: ���\n"
+  },
+  "UTF8-short-surrogate": {
+    "before": "�",
+    "after": "��",
+    "decoded": "k: ��\n"
+  },
+  "UTF8-encoded-low-surrogate": {
+    "before": "�",
+    "after": "���",
+    "decoded": "k: ���\n"
+  },
+  "R2-bytes-138": {
+    "before": "�",
+    "after": "���",
+    "decoded": "k: ���\n"
+  },
+  "R2-bytes-143": {
+    "before": "�A",
+    "after": "��A",
+    "decoded": "k: ��A\n"
+  }
+}

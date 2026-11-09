@@ -120,7 +120,7 @@ pub struct YamlError {
 
 /// Kotlin File.readText() boundary: JDK UTF-8 replacement before YAML parsing.
 pub fn load_bytes(bytes: &[u8]) -> Stream {
-    load(&jcompat::utf8::decode_utf8(bytes))
+    load(&String::from_utf8_lossy(bytes))
 }
 
 /// Read events lazily, limiting construction before a hostile tree exists.

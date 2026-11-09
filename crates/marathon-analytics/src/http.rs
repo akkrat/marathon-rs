@@ -388,6 +388,20 @@ pub(crate) fn network_error(error: &(dyn std::error::Error + 'static)) -> Failur
     failure(class, &error.to_string())
 }
 
+/// Form fields keep the analytics wire encoding, including plus for spaces.
+pub(crate) fn form_encode(text: &str) -> String {
+    form_urlencoded::byte_serialize(text.as_bytes()).collect()
+}
+
+pub(crate) fn query_encode(text: &str) -> String {
+    const QUERY: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'.')
+        .remove(b'-')
+        .remove(b'*')
+        .remove(b'_');
+    percent_encoding::utf8_percent_encode(text, QUERY).to_string()
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;

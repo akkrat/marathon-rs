@@ -27,23 +27,9 @@ pub fn escape_xml11(text: &str) -> String {
 
 /// Java URLEncoder with UTF-8; spaces become plus, not percent-20.
 pub fn form_encode(text: &str) -> String {
-    const HEX: &[u8] = b"0123456789ABCDEF";
-    let mut out = String::default();
-    for byte in text.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'*' | b'_' => out.push(byte as char),
-            b' ' => out.push('+'),
-            _ => {
-                out.extend([
-                    '%',
-                    HEX[(byte >> 4) as usize] as char,
-                    HEX[(byte & 15) as usize] as char,
-                ]);
-            }
-        }
-    }
-    out
+    form_urlencoded::byte_serialize(text.as_bytes()).collect()
 }
+
 pub fn replace(text: &str, pattern: &str, replacement: &str) -> String {
     text.replace(pattern, replacement)
 }

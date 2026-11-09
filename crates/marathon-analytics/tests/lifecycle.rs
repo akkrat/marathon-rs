@@ -228,7 +228,10 @@ fn jcompat_wire_format_helpers_match_jvm_values() {
             row["text"]
         );
     }
-    assert_eq!(jcompat::net::form_encode("a b+*~é"), "a+b%2B*%7E%C3%A9");
+    assert_eq!(
+        form_urlencoded::byte_serialize("a b+*~é".as_bytes()).collect::<String>(),
+        "a+b%2B*%7E%C3%A9"
+    );
     assert_eq!(
         jcompat::jtime::instant_to_epoch_milli(jcompat::jtime::instant_of(-2, 999_000_000).unwrap()),
         Some(-1001)

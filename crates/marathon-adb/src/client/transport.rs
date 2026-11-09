@@ -118,7 +118,7 @@ impl SocketFactory {
                 Err(_) => {
                     return Err(AdbError::Connect(ConnectError {
                         timed_out: true,
-                        message: format!("connection timed out: {}", java_address(addr, host_name)),
+                        message: format!("connection timed out: {}", socket_address(addr, host_name)),
                     }));
                 }
             },
@@ -170,22 +170,22 @@ impl SocketFactory {
     }
 }
 
-/// Java's `InetSocketAddress.toString()`, as netty puts it in connect errors.
-fn java_address(addr: SocketAddr, host_name: Option<&str>) -> String {
-    jcompat::net::inet_socket_address(host_name, addr.ip(), addr.port())
+/// Connection diagnostics include the configured name when one was resolved.
+fn socket_address(addr: SocketAddr, host_name: Option<&str>) -> String {
+    host_name.map_or_else(|| addr.to_string(), |name| format!("{name}/{addr}"))
 }
 
 fn connect_error(e: io::Error, addr: SocketAddr, host_name: Option<&str>) -> AdbError {
     match e.kind() {
         io::ErrorKind::ConnectionRefused => AdbError::Connect(ConnectError {
             timed_out: false,
-            message: format!("Connection refused: {}", java_address(addr, host_name)),
+            message: format!("Connection refused: {}", socket_address(addr, host_name)),
         }),
         io::ErrorKind::TimedOut => AdbError::Connect(ConnectError {
             timed_out: true,
-            message: format!("connection timed out: {}", java_address(addr, host_name)),
+            message: format!("connection timed out: {}", socket_address(addr, host_name)),
         }),
-        _ => AdbError::Io(format!("{e}: {}", java_address(addr, host_name))),
+        _ => AdbError::Io(format!("{e}: {}", socket_address(addr, host_name))),
     }
 }
 
@@ -533,9 +533,23 @@ mod tests {
     }
 
     #[test]
-    fn java_address_keeps_the_host_name() {
+    fn socket_address_keeps_the_host_name() {
         let addr: SocketAddr = "127.0.0.1:5037".parse().unwrap();
-        assert_eq!(java_address(addr, None), "/127.0.0.1:5037");
-        assert_eq!(java_address(addr, Some("localhost")), "localhost/127.0.0.1:5037");
+        assert_eq!(socket_address(addr, None), "127.0.0.1:5037");
+        assert_eq!(socket_address(addr, Some("localhost")), "localhost/127.0.0.1:5037");
+    }
+    #[test]
+    fn socket_addresses_use_native_display_d57() {
+        for (ip, expected) in [
+            ("127.0.0.1", "127.0.0.1:5037"),
+            ("::1", "[::1]:5037"),
+            ("2001:db8::a:0:1", "[2001:db8::a:0:1]:5037"),
+            ("fe80::1", "[fe80::1]:5037"),
+            ("::ffff:10.0.0.1", "[::ffff:10.0.0.1]:5037"),
+            ("::", "[::]:5037"),
+        ] {
+            let address = SocketAddr::new(ip.parse().unwrap(), 5037);
+            assert_eq!(socket_address(address, None), expected);
+        }
     }
 }

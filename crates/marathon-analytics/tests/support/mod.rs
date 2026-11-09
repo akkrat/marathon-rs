@@ -332,10 +332,18 @@ pub fn observations(scenario: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 pub async fn replay(scenario: &str) -> OperationResult<(Peer, Arc<Mutex<usize>>)> {
-    let rows = exchanges(scenario)
+    let mut rows = exchanges(scenario)
         .into_iter()
         .filter(|r| r["method"].is_string())
         .collect::<Vec<_>>();
+    if scenario == "v1-config-escaping" {
+        for row in &mut rows {
+            if row["headers"]["authorization"].is_string() {
+                // D57: base64 of the UTF-8 bytes of `u é😀:päss`.
+                row["headers"]["authorization"] = "Basic dSDDqfCfmIA6cMOkc3M=".into();
+            }
+        }
+    }
     let seen = Arc::new(Mutex::new(0));
     let count = seen.clone();
     let peer = Peer::new(move |request| {

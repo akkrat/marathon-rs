@@ -6,8 +6,7 @@
 //! results, and JVM failure classes where they surface.
 //!
 //! Regenerate with tools/oracle/dex/dex-oracle.sh (never hand-edit the
-//! JSONL). Strings compare exactly: DEX strings decode as the JVM's
-//! `String(bytes)` does (P1 withdrawn), so there is no rendering map.
+//! JSONL). D57 overlays the encoded-surrogate byte cases from a separate native expectation file.
 
 use jcompat::jnum;
 use marathon_dex::{DecodedValue, DexError, TestMethod};
@@ -109,6 +108,16 @@ fn custom_of(row: &Value) -> Vec<String> {
 }
 
 fn check_row(row: &Value) {
+    let mut row = row.clone();
+    let overrides: Value = serde_json::from_str(include_str!("../../../fixtures/phase8/d57-dex-probes.json")).unwrap();
+    if let Some(changes) = overrides.get(row["apk"].as_str().unwrap()).and_then(Value::as_array) {
+        for change in changes {
+            let value = row.pointer_mut(change["pointer"].as_str().unwrap()).unwrap();
+            assert_eq!(*value, change["before"]);
+            *value = change["after"].clone();
+        }
+    }
+    let row = &row;
     let apk = row["apk"].as_str().unwrap();
     let path = apk_for(apk);
     // D26: the JVM parser rejects DEX 040, as this row keeps witnessing (N10). This mutant is `probe.apk` with only its
@@ -196,10 +205,10 @@ fn differential_over_probe_apks() {
 }
 
 /// The supplementary-plane value written by d8 as a CESU pair reads as
-/// two U+FFFD, exactly as on the JVM; probe-utf8.apk covers malformed
-/// bytes in values and test names (P1 withdrawn).
+/// six U+FFFD with Rust's replacement granularity (D57); the original
+/// JVM probe remains the witness for the old two-character result.
 #[test]
-fn supplementary_string_reads_as_two_replacement_characters() {
+fn supplementary_string_reads_as_six_replacement_characters_d57() {
     let methods = marathon_dex::find_test_methods(&apk_for("probe.apk"), &[]).unwrap();
     let negatives = methods[0]
         .annotations
@@ -209,7 +218,7 @@ fn supplementary_string_reads_as_two_replacement_characters() {
     let Some(DecodedValue::String(supplementary)) = negatives.value("supplementary") else {
         panic!("supplementary must be a string");
     };
-    assert_eq!(supplementary.encode_utf16().collect::<Vec<_>>(), [0xfffd, 0xfffd]);
+    assert_eq!(supplementary.encode_utf16().collect::<Vec<_>>(), [0xfffd; 6]);
 }
 
 /// Missing file: recorded by the oracle with a relative path; driven

@@ -40,7 +40,7 @@ fn bind_first<T: Send>(
     context: &BindingContext,
     bind: impl FnOnce(Value<'_>) -> Result<T> + Send,
 ) -> std::result::Result<Option<T>, LoadError> {
-    let decoded = jcompat::utf8::decode_utf8(bytes);
+    let decoded = String::from_utf8_lossy(bytes).into_owned();
     // A repeated name resolves to its FIRST occurrence, as JVM
     // `System.getenv` (the substitutor's environment lookup) does.
     let substitutor = StringSubstitutor::new(|key| {

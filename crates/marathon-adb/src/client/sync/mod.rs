@@ -10,10 +10,7 @@ use super::{
     file_io::{AsyncFileReader, AsyncFileWriter, FileCompletion, io_error},
     request::{create_base_request, handshake},
 };
-use jcompat::{
-    jtime::{Instant, instant_of},
-    utf8::decode_utf8,
-};
+use jcompat::jtime::{Instant, instant_of};
 use std::{collections::VecDeque, path::PathBuf};
 
 pub mod directory;
@@ -268,7 +265,7 @@ impl ComplexRequest for ListFileRequest {
             }
             let data = record(socket, if self.v2 { 72 } else { 16 }).await?;
             let n = u32_at(&data, data.len() - 4) as usize;
-            let name = decode_utf8(&record(socket, n).await?);
+            let name = String::from_utf8_lossy(&record(socket, n).await?).into_owned();
             out.push(entry(&data, self.v2, Some(name))?);
         }
     }
@@ -357,11 +354,11 @@ impl AsyncChannelRequest for PullFileRequest {
             b"FAIL" => Err(AdbError::PullFailed(format!(
                 "Failed to pull file {}: {}",
                 self.remote_path,
-                decode_utf8(&record(socket, u32_at(&b, 4) as usize).await?)
+                String::from_utf8_lossy(&record(socket, u32_at(&b, 4) as usize).await?).into_owned()
             ))),
             tag => Err(AdbError::UnsupportedSyncProtocol(format!(
                 "Unexpected header message {}",
-                decode_utf8(tag)
+                String::from_utf8_lossy(tag).into_owned()
             ))),
         }
     }

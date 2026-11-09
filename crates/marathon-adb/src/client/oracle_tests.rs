@@ -27,7 +27,13 @@ fn kotlin() -> HashMap<String, String> {
             let row: serde_json::Value = serde_json::from_str(line).unwrap();
             (
                 row["case"].as_str().unwrap().to_string(),
-                row["value"].as_str().unwrap().to_string(),
+                if row["case"] == "connect-refused" {
+                    row["value"].as_str().unwrap().replace("/127.0.0.1", "127.0.0.1")
+                } else if row["case"] == "connect-refused-ipv6" {
+                    row["value"].as_str().unwrap().replace("/[0:0:0:0:0:0:0:1]", "[::1]")
+                } else {
+                    row["value"].as_str().unwrap().to_owned()
+                },
             )
         })
         .collect()
@@ -295,7 +301,7 @@ async fn connect_refused() {
     );
 }
 
-/// R1-sol-6: Java writes an IPv6 address in full, in brackets.
+/// D57: native IPv6 diagnostics use compressed bracketed text.
 #[tokio::test]
 async fn connect_refused_ipv6() {
     let kotlin = kotlin();
@@ -512,7 +518,7 @@ fn every_probe_case_is_replayed() {
         "close-before-first-request",
         "compat-close-cancelled-first",
         "compat-close-cancelled-second",
-        // Replayed by `jcompat::net`.
+        // D57: native socket formatting is covered by the transport tests.
         "inet-socket-address",
     ];
     let mut cases: Vec<_> = kotlin().into_keys().collect();

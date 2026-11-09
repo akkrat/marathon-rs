@@ -940,7 +940,8 @@ async fn read_stderr<R: tokio::io::AsyncRead + Unpin>(
         }
     }
     // CollectingProcessReader uses BufferedReader.readLine and appends '\n' to every line.
-    let text = jcompat::utf8::decode_utf8(&bytes)
+    let text = String::from_utf8_lossy(&bytes)
+        .into_owned()
         .replace("\r\n", "\n")
         .replace('\r', "\n");
     Ok(if text.is_empty() || text.ends_with('\n') {

@@ -4,10 +4,8 @@ pub mod compat;
 pub mod v1;
 pub mod v2;
 
-use jcompat::utf8::decode_utf8;
-
 /// UTF-8 decoding across reads (D11): a sequence cut off at the end of one read is kept for the next, and
-/// whatever is complete is decoded with the JDK's replacement rules.
+/// whatever is complete is decoded with Rust's replacement rules (D57).
 #[derive(Debug, Default)]
 pub(crate) struct Utf8Stream {
     pending: Vec<u8>,
@@ -17,14 +15,14 @@ impl Utf8Stream {
     pub(crate) fn push(&mut self, bytes: &[u8]) -> String {
         self.pending.extend_from_slice(bytes);
         let complete = complete_prefix(&self.pending);
-        let text = decode_utf8(&self.pending[..complete]);
+        let text = String::from_utf8_lossy(&self.pending[..complete]).into_owned();
         self.pending.drain(..complete);
         text
     }
 
     /// The end of the stream: an unfinished sequence becomes a replacement character.
     pub(crate) fn finish(&mut self) -> String {
-        decode_utf8(&std::mem::take(&mut self.pending))
+        String::from_utf8_lossy(&std::mem::take(&mut self.pending)).into_owned()
     }
 }
 

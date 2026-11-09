@@ -15,7 +15,6 @@ pub mod jnum;
 pub mod jstring;
 pub mod jtime;
 pub mod logging;
-pub mod net;
 pub mod writers;
 
 mod regex;
@@ -24,4 +23,3 @@ pub mod regex_patterns;
 
 pub mod report_text;
 pub mod throwable;
-pub mod utf8;

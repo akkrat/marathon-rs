@@ -3,8 +3,9 @@
 //!
 //! BasicGraphiteClient's Kotlin source is adapted from
 //! https://github.com/mihkels/graphite-client-kotlin/blob/master/graphite-client/src/main/kotlin/com/mihkels/graphite/client/BasicGraphiteClient.kt.
+use crate::http::form_encode;
 use crate::{http::*, points};
-use jcompat::{file_manager::escape, formatting::format_graphite, jtime::Instant, net::form_encode};
+use jcompat::{file_manager::escape, formatting::format_graphite, jtime::Instant};
 use marathon_core::{
     analytics::{
         MetricsContext, TrackerInternalAdapter,

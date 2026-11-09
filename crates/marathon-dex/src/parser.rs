@@ -257,12 +257,10 @@ pub fn parse_string_at(dex: &DexFile, offset: i32) -> DexResult<String> {
     Ok(decode_string_bytes(&bytes))
 }
 
-/// `String(bytes)` with the UTF-8 default charset: the JDK's replacing
-/// decode, one U+FFFD per maximal invalid subpart, where `ED A0..BF`
-/// starts a (surrogate) sequence that becomes ONE U+FFFD. Checked against
-/// the JVM in fixtures/oracle/dex/string-bytes.txt.
+/// The parser keeps its historical UTF-8 treatment of MUTF-8 bytes.
+/// D57 uses Rust's replacement granularity for malformed sequences.
 pub fn decode_string_bytes(bytes: &[u8]) -> String {
-    jcompat::utf8::decode_utf8(bytes)
+    String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// ParseUtils.parseDescriptor: the raw `L…;` string for a type id.

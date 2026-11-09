@@ -8,8 +8,6 @@
 
 use std::collections::VecDeque;
 
-use jcompat::utf8::decode_utf8;
-
 use super::Utf8Stream;
 use crate::client::consts::MAX_FILE_PACKET_LENGTH;
 use crate::client::error::AdbError;
@@ -30,7 +28,7 @@ pub struct ShellCommandResult {
 impl ShellCommandResult {
     /// `output`: stdout as text.
     pub fn output(&self) -> String {
-        decode_utf8(&self.stdout)
+        String::from_utf8_lossy(&self.stdout).into_owned()
     }
 }
 
@@ -54,7 +52,7 @@ impl ResponseTransformer for ShellResultResponseTransformer {
     }
 
     fn transform(&mut self) -> Result<ShellCommandResult, AdbError> {
-        let output = decode_utf8(&self.bytes);
+        let output = String::from_utf8_lossy(&self.bytes).into_owned();
         let Some(index) = output.rfind(EXIT_CODE_DELIMITER) else {
             return Err(AdbError::RequestRejected(format!(
                 "No exit code delimiter found in {output}"

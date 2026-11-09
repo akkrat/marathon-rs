@@ -11,7 +11,6 @@ use std::collections::VecDeque;
 use std::future::Future;
 
 use jcompat::logging::Level;
-use jcompat::utf8::decode_utf8;
 use tokio::sync::mpsc;
 
 use super::consts::MAX_PACKET_LENGTH;
@@ -125,7 +124,10 @@ pub async fn handshake(request: &[u8], socket: &mut Socket) -> Result<(), AdbErr
     if !response.okay {
         if let Some(logging) = socket.logging() {
             logging.log(REQUEST_LOGGER, Level::Warn, None, || {
-                format!("adb server rejected command {}", decode_utf8(request))
+                format!(
+                    "adb server rejected command {}",
+                    String::from_utf8_lossy(request).into_owned()
+                )
             });
         }
         return Err(AdbError::RequestRejected(

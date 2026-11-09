@@ -1,8 +1,6 @@
 //! Port of adam 0.5.8 `adam/src/main/kotlin/com/malinskiy/adam/extension/Socket.kt` (including the sync/file writers at :142-195).
 //! adam portions: Copyright (C) 2019-2021 Anton Malinskiy; Apache-2.0.
 
-use jcompat::utf8::decode_utf8;
-
 use super::consts::{MAX_PACKET_LENGTH, POOLED_DEFAULT_BUFFER_SIZE, message};
 use super::error::AdbError;
 use super::transform::{ResponseTransformer, StringResponseTransformer};
@@ -130,7 +128,7 @@ impl Socket {
         if read != message_length {
             return Err(AdbError::RequestRejected("Incomplete string received".into()));
         }
-        Ok(decode_utf8(&body))
+        Ok(String::from_utf8_lossy(&body).into_owned())
     }
 
     /// `readStatus`: the rest of the stream, trimmed.

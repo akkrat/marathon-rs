@@ -2,7 +2,7 @@
 
 use super::failure;
 use crate::error::{Failure, OperationResult};
-use jcompat::{file_manager::absolute_file_path, jstring, logging::Level, utf8};
+use jcompat::{file_manager::absolute_file_path, jstring, logging::Level};
 use std::{io, sync::Arc};
 
 /// Called only on the vendor blocking pool. A run can forward these records to
@@ -44,7 +44,7 @@ impl FilterValuesReader for FileValuesReader {
 }
 
 pub fn parse_values(bytes: &[u8]) -> Vec<String> {
-    jstring::lines(&utf8::decode_utf8(bytes))
+    jstring::lines(&String::from_utf8_lossy(bytes))
         .into_iter()
         .filter_map(|line| {
             let trimmed = jstring::trim(&line);

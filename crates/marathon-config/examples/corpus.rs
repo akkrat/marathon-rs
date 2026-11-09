@@ -42,6 +42,7 @@ pub fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<_, _>>()?;
     for row in &mut rows {
         d55_expectations(row);
+        d57_expectations(row);
     }
 
     let base_tokens: Vec<serde_json::Value> = {
@@ -83,7 +84,10 @@ pub fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
         let input = expand_input(row);
         let stream = if let Some(bytes) = row["input_bytes"].as_array() {
             let bytes: Vec<u8> = bytes.iter().map(|b| b.as_u64().unwrap() as u8).collect();
-            assert_eq!(jcompat::utf8::decode_utf8(&bytes), row["decoded"].as_str().unwrap());
+            assert_eq!(
+                String::from_utf8_lossy(&bytes).into_owned(),
+                row["decoded"].as_str().unwrap()
+            );
             node::load_bytes(&bytes)
         } else {
             node::load_bytes(input.as_bytes())
@@ -190,6 +194,34 @@ fn d55_expectations(row: &mut serde_json::Value) {
     {
         row["bind"]["File?"] = json!({"ok": text::short_json(&format!("/{path}"), 256)});
     }
+}
+
+// D57 overrides only the five encoded-surrogate byte rows; copied oracles stay intact.
+fn d57_expectations(row: &mut serde_json::Value) {
+    use serde_json::Value;
+    let overrides: Value = serde_json::from_str(include_str!("../../../fixtures/phase8/d57-yaml.json")).unwrap();
+    let Some(change) = overrides.get(row["id"].as_str().unwrap()) else {
+        return;
+    };
+    fn replace(value: &mut Value, before: &str, after: &str) {
+        match value {
+            Value::String(s) => *s = s.replace(before, after),
+            Value::Array(values) => values.iter_mut().for_each(|v| replace(v, before, after)),
+            Value::Object(values) => values.values_mut().for_each(|v| replace(v, before, after)),
+            _ => {}
+        }
+    }
+    replace(
+        &mut row["tokens"],
+        change["before"].as_str().unwrap(),
+        change["after"].as_str().unwrap(),
+    );
+    replace(
+        &mut row["bind"],
+        change["before"].as_str().unwrap(),
+        change["after"].as_str().unwrap(),
+    );
+    row["decoded"] = change["decoded"].clone();
 }
 
 trait ShortJson {

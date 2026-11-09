@@ -1218,3 +1218,10 @@ with U+FFFD (D55), independently generated with
 as `writer_edges.jsonl`. Retain only rows differing from that original table;
 raw input units stay in each row. Valid-input rows continue to use the unchanged
 original oracle. No copied resource or original oracle table was edited.
+
+
+## WP 8.3 native decoding expectations
+
+- `phase8/d57-yaml.json`: five hand-reviewed replacement-count overrides for encoded-surrogate byte inputs in `oracle/yaml-review-corpus.jsonl`. Inputs and original oracle rows remain unchanged.
+- `phase8/d57-dex-bytes.json`: the 140 encoded-surrogate byte cases whose Unicode maximal-subpart replacements differ from `oracle/dex/string-bytes.txt`. Expected units were independently derived with Python's UTF-8 replacement decoder; the Rust tests still check all 11,420 original inputs.
+- `phase8/d57-dex-probes.json`: exact JSON-pointer overrides for the three affected APK probes, derived from the byte sequences in `tools/oracle/dex/mutate_dex.py` and the supplementary CESU pair in the probe source. Each override checks the original value before applying the D57 expectation. No contract golden or copied fixture changed.
