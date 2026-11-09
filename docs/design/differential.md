@@ -184,6 +184,13 @@ binary data retain their existing comparison. Vendor console comparison retains
 only progress and summary lines. Allure history IDs and fragmentation hashes
 remain exact. Historical JVM comparisons retain their original rules.
 
+Native comparison parses the JSON values of line-start `window.<name> = <json>`
+assignments in `reports/html/**/*.html`, including `var dataset = <json>` in
+`reports/html/timeline/index.html`, using the same ordered-data rules as JSON
+files. Numeric spellings and string escapes may differ; changed values, key or
+array order, null/omission, and every byte outside the JSON values still differ.
+Stored golden views and historical JVM comparisons remain unchanged.
+
 GIF comparison decodes every composited RGBA frame and compares frame order,
 rectangle/count, delay, disposal, transparency, user-input flag, dimensions,
 aspect, version, loop and unknown extensions. There is no pixel tolerance.

@@ -141,6 +141,53 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaises(e.Invalid):
             e.compare_native_views(expected, e.normalized(self.record('state-changed'), self.contract, native=True))
 
+    def html_view(self, name, data):
+        return {name: {'kind': 'file', 'mode': 0o644,
+                       'content': base64.b64encode(data).decode()}}
+
+    def test_native_html_embedded_json_accepts_numeric_and_escape_spellings(self):
+        for name, assignment in [('reports/html/pools/p/test.html', b'window.test'),
+                                 ('reports/html/timeline/index.html', b'var dataset')]:
+            before = b'<script>\n  ' + assignment + br' = {"n":1.0E10,"s":"\u003c"};' + b'\n</script>'
+            after = before.replace(b'1.0E10', b'10000000000.0').replace(br'\u003c', b'<')
+            e.compare_native_views(self.html_view(name, before), self.html_view(name, after))
+
+    def test_native_html_rejects_changed_data_key_order_and_surrounding_bytes(self):
+        name = 'reports/html/index.html'
+        before = b'<script>\nwindow.mainData = {"n":1,"s":"text","a":[1,2],"z":null};\n</script>'
+        mutations = [(b'"n":1', b'"n":2'), (b'"n":1,"s":"text"', b'"s":"text","n":1'),
+                     (b'<script>', b'<script >'), (b' = ', b'  = '), (b';', b''),
+                     (b'[1,2]', b'[2,1]'), (b',"z":null', b''), (b'"n":1', b'"n":true')]
+        for old, new in mutations:
+            with self.subTest(new=new), self.assertRaises(e.Invalid):
+                e.compare_native_views(self.html_view(name, before), self.html_view(name, before.replace(old, new)))
+
+    def test_native_html_scope_and_historical_comparison_stay_byte_exact(self):
+        before = b'<script>\nwindow.test = {"n":1.0E10}\n</script>'
+        after = before.replace(b'1.0E10', b'10000000000.0')
+        for name in ['reports/other/index.html', 'tree/html/index.html', 'reports/html/app.js']:
+            with self.subTest(name=name), self.assertRaises(e.Invalid):
+                e.compare_native_views(self.html_view(name, before), self.html_view(name, after))
+        (self.tree / 'html').mkdir()
+        target = self.tree / 'html/index.html'
+        target.write_bytes(before)
+        expected = self.record('html-before')
+        target.write_bytes(after)
+        actual = self.record('html-after')
+        with self.assertRaises(e.Invalid):
+            e.compare(expected, actual, self.contract)
+        e.compare_native_views(e.normalized(expected, self.contract, native=True),
+                               e.normalized(actual, self.contract, native=True))
+
+    def test_native_html_multiple_assignments_and_invalid_json(self):
+        name = 'reports/html/index.html'
+        before = b'window.test = {"text":"} ; window.fake = 0"};\nwindow.logs = [1,null]\n'
+        with self.assertRaises(e.Invalid):
+            e.compare_native_views(self.html_view(name, before), self.html_view(name, before.replace(b'[1,null]', b'[2,null]')))
+        for invalid in [b'{"n":NaN}', b'{"n":1,"n":1}', b'{broken']:
+            with self.subTest(invalid=invalid), self.assertRaises((e.Invalid, ValueError)):
+                e.compare_native_views(self.html_view(name, before), self.html_view(name, b'window.test = ' + invalid))
+
     def test_stale_yaml_helper_reports_build_command(self):
         target = self.root / 'target'
         executable = target / 'debug/examples/yaml_tree'

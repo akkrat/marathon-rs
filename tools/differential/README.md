@@ -18,3 +18,10 @@ marathon-cli --test config_contract`, then review `fixtures/contract/config/`.
 Changes to the contract require a D-row in PLAN.md §3.11. Before running the
 harness directly, build its YAML parser helper with `cargo build -q -p
 snakeyaml --example yaml_tree`; the gate builds it automatically.
+
+Native comparison parses the JSON values of line-start `window.<name> = <json>`
+assignments in `reports/html/**/*.html`, including `var dataset = <json>` in
+`reports/html/timeline/index.html`, using the same ordered-data rules as JSON
+files. Numeric spellings and string escapes may differ; changed values, key or
+array order, null/omission, and every byte outside the JSON values still differ.
+Stored golden views and historical JVM comparisons remain unchanged.

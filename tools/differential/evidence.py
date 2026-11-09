@@ -722,9 +722,36 @@ def normalized(directory, contract, native=False):
     return files
 
 
+def embedded_json(data, timeline=False):
+    """Only assignment values are structured; every surrounding byte stays exact."""
+    text = data.decode('utf-8')
+    assignment = r'^[ \t]*window\.[A-Za-z_$][A-Za-z0-9_$]*[ \t]*=[ \t]*'
+    if timeline:
+        assignment += r'|^[ \t]*var dataset[ \t]*=[ \t]*'
+    decoder = json.JSONDecoder()
+    parts, end = [], 0
+    for match in re.finditer(assignment, text, re.MULTILINE):
+        require(match.start() >= end, 'overlapping embedded JSON assignments')
+        _, stop = decoder.raw_decode(text, match.end())
+        parts.extend([['text', text[end:match.end()]],
+                      ['json', structured_json(text[match.end():stop])]])
+        end = stop
+    parts.append(['text', text[end:]])
+    return parts
+
+
+def native_html_view(view):
+    view = loads(encoded(view))
+    for name, entry in view.items():
+        if path_glob(name, 'reports/html/**/*.html') and entry.get('kind') == 'file':
+            data = base64.b64decode(entry['content'], validate=True)
+            entry['content'] = embedded_json(data, name == 'reports/html/timeline/index.html')
+    return view
+
+
 def compare_native_views(expected, actual):
-    expected = loads(encoded(expected))
-    actual = loads(encoded(actual))
+    expected = native_html_view(expected)
+    actual = native_html_view(actual)
     require(expected == actual, 'native golden differs: ' + first_difference(expected, actual))
 
 
