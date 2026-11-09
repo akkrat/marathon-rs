@@ -286,7 +286,7 @@ fn to_meta_property_unboxes_only_the_top_level() {
 /// DecodedValue[]), and a fresh equal-content array converts to a
 /// different, unequal one.
 #[test]
-fn to_meta_property_preserves_array_identity() {
+fn to_meta_property_preserves_array_aliases() {
     let shared: Arc<[DecodedValue]> = Arc::from(vec![DecodedValue::Int(1)]);
     let fresh: Arc<[DecodedValue]> = Arc::from(vec![DecodedValue::Int(1)]);
     let mut converter = MetaConverter::default();

@@ -25,11 +25,8 @@ pub enum CliConfiguration {
     Version,
 }
 
-const VERSION_CLASS: &str = "com.malinskiy.marathon.cli.args.VersionCommandCliConfiguration";
-
 impl CliConfiguration {
-    /// The data classes' `toString()`. `VersionCommandCliConfiguration` is a Kotlin `object` without one, so the JVM
-    /// prints `Object.toString()`; its identity hash is the class name's `String.hashCode()` (D12, F29's rule).
+    /// Data classes retain their Kotlin rendering; objects use simple names (D58).
     pub fn to_kotlin_string(&self) -> String {
         match self {
             Self::Run {
@@ -49,12 +46,7 @@ impl CliConfiguration {
                 marathonfile.to_string_lossy().into_owned(),
                 output_file_name.as_deref().unwrap_or("null")
             ),
-            Self::Version => {
-                let hash = VERSION_CLASS
-                    .encode_utf16()
-                    .fold(0_i32, |h, c| h.wrapping_mul(31).wrapping_add(i32::from(c)));
-                format!("{VERSION_CLASS}@{:x}", hash as u32)
-            }
+            Self::Version => "VersionCommandCliConfiguration".into(),
         }
     }
 }
@@ -617,16 +609,10 @@ mod tests {
     }
 
     #[test]
-    fn version_line_uses_the_class_name_hash() {
+    fn version_line_uses_the_simple_class_name() {
         assert_eq!(
             CliConfiguration::Version.to_kotlin_string(),
-            format!("{VERSION_CLASS}@{:x}", {
-                let mut h = 0_i32;
-                for c in VERSION_CLASS.encode_utf16() {
-                    h = h.wrapping_mul(31).wrapping_add(i32::from(c));
-                }
-                h as u32
-            })
+            "VersionCommandCliConfiguration"
         );
     }
 }

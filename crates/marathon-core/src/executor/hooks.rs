@@ -79,7 +79,6 @@ impl Failures {
 pub struct RuntimeHooks {
     tape: Option<Tape>,
     cursors: SkipMap<String, AtomicUsize>,
-    identities: SkipMap<u64, OnceLock<ClockResult<String>>>,
     timeline: Option<Arc<Timeline>>,
     epoch: std::time::Instant,
     failures: Arc<Failures>,
@@ -105,7 +104,6 @@ impl RuntimeHooks {
         Arc::new(Self {
             tape,
             cursors: SkipMap::new(),
-            identities: SkipMap::new(),
             timeline,
             epoch: std::time::Instant::now(),
             failures,
@@ -250,19 +248,6 @@ impl ReplayHooks for RuntimeHooks {
             }
             None => self.failures.fail(label, "ID tape missing"),
         }
-    }
-    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<String> {
-        self.identities
-            .get_or_insert(identity.0, OnceLock::new())
-            .value()
-            .get_or_init(|| {
-                if self.tape.is_none() {
-                    Ok(format!("{:x}", rand::random::<u32>()))
-                } else {
-                    self.allocate_id(label)
-                }
-            })
-            .clone()
     }
     fn verify_consumed(&self) -> ClockResult<()> {
         self.failures.verify()?;

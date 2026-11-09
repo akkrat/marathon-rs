@@ -665,7 +665,7 @@ impl SimulatorRecovery {
                 } else {
                     format!(
                         "Failed to re-provision simulators of {}",
-                        transport_text(transport, &provider.local_identity)
+                        transport_text(transport, "Local")
                     )
                 }
             })
@@ -676,7 +676,7 @@ impl SimulatorRecovery {
                 || {
                     format!(
                         "Failed to hand over the recovery of {}",
-                        transport_text(transport, &provider.local_identity)
+                        transport_text(transport, "Local")
                     )
                 },
                 Some(error.failure().clone()),

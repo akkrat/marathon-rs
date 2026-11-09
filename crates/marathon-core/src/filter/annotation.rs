@@ -1,80 +1,22 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/filter/AnnotationDataFilter.kt
 
-use super::{FilterDependencies, failure, single::matches_regex};
+use super::{FilterDependencies, single::matches_regex};
 use crate::{
     error::OperationResult,
-    model::{MetaArray, MetaValue, Test},
-    time::{ObjectIdentity, ReplayHooks},
+    model::{MetaValue, Test},
 };
 use jcompat::{JavaRegex, jnum, writers::KotlinValue};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, Weak},
-};
 
-/// Share this run-local renderer with consumers of metadata identity strings.
-/// Tokens are allocated internally; native addresses never become output.
-pub struct AnnotationRenderer {
-    pub hooks: Arc<dyn ReplayHooks>,
-    pub decoded_null_identity: ObjectIdentity,
-    arrays: Mutex<ArrayIdentities>,
-    allocate_identity: Arc<dyn Fn() -> ObjectIdentity + Send + Sync>,
-}
-/// Array identities keyed by address. The `Weak` detects a freed address
-/// reused by a new array, and dead entries are pruned as the map grows.
 #[derive(Default)]
-struct ArrayIdentities {
-    by_address: HashMap<usize, (Weak<MetaArray>, ObjectIdentity)>,
-    prune_at: usize,
-}
-impl ArrayIdentities {
-    fn identity(&mut self, array: &Arc<MetaArray>, allocate: &dyn Fn() -> ObjectIdentity) -> ObjectIdentity {
-        let address = Arc::as_ptr(array) as usize;
-        if let Some((weak, id)) = self.by_address.get(&address)
-            && weak.strong_count() > 0
-        {
-            return *id;
-        }
-        if self.by_address.len() >= self.prune_at {
-            self.by_address.retain(|_, (weak, _)| weak.strong_count() > 0);
-            self.prune_at = (self.by_address.len() * 2).max(64);
-        }
-        let id = allocate();
-        self.by_address.insert(address, (Arc::downgrade(array), id));
-        id
-    }
-}
+pub struct AnnotationRenderer;
 impl AnnotationRenderer {
-    /// `allocate_identity` must use the run's token allocator, including tokens
-    /// used by other replay consumers. Share this renderer across filter trees.
-    pub fn new(
-        hooks: Arc<dyn ReplayHooks>,
-        decoded_null_identity: ObjectIdentity,
-        allocate_identity: Arc<dyn Fn() -> ObjectIdentity + Send + Sync>,
-    ) -> Self {
-        Self {
-            hooks,
-            decoded_null_identity,
-            arrays: Mutex::default(),
-            allocate_identity,
-        }
-    }
     pub fn render(&self, value: &MetaValue) -> OperationResult<String> {
-        Ok(self.value(value)?.render())
+        Ok(Self::value(value).render())
     }
-    fn suffix(&self, label: &'static str, identity: ObjectIdentity) -> OperationResult<String> {
-        self.hooks.identity_suffix(label, identity).map_err(|e| {
-            failure(
-                "java.lang.IllegalStateException",
-                &format!("{}: {}", e.label.to_owned(), e.message.to_owned()),
-            )
-            .into()
-        })
-    }
-    fn value(&self, value: &MetaValue) -> OperationResult<KotlinValue> {
+    fn value(value: &MetaValue) -> KotlinValue {
         use MetaValue::*;
         let text = match value {
-            Null => return Ok(KotlinValue::Null),
+            Null => return KotlinValue::Null,
             Boolean(v) => if *v { "true" } else { "false" }.into(),
             Byte(v) => v.to_string(),
             Short(v) => v.to_string(),
@@ -84,49 +26,19 @@ impl AnnotationRenderer {
             Float(v) => jnum::float_to_string(*v),
             Double(v) => jnum::double_to_string(*v),
             String(v) => v.clone(),
-            List(values) => {
-                return Ok(KotlinValue::List(
-                    values.iter().map(|v| self.value(v)).collect::<OperationResult<_>>()?,
-                ));
-            }
+            List(values) => return KotlinValue::List(values.iter().map(Self::value).collect()),
             Map(map) => {
-                return Ok(KotlinValue::Map(
+                return KotlinValue::Map(
                     map.entries()
                         .iter()
-                        .map(|(key, value)| Ok((KotlinValue::Text(key.clone()), self.value(value)?)))
-                        .collect::<OperationResult<_>>()?,
-                ));
+                        .map(|(key, value)| (KotlinValue::Text(key.clone()), Self::value(value)))
+                        .collect(),
+                );
             }
-            Decoded(wrapper) => {
-                // Avoid consuming the identity replay tape for ordinary wrappers.
-                fn needs_null(v: &crate::model::DecodedWrapper) -> bool {
-                    use crate::model::DecodedWrapper::*;
-                    match v {
-                        DecodedNull => true,
-                        DecodedArrayValue(v) => v.iter().any(needs_null),
-                        _ => false,
-                    }
-                }
-                let suffix = if needs_null(wrapper) {
-                    self.suffix("metadata.decoded_null.identity", self.decoded_null_identity)?
-                } else {
-                    std::string::String::default()
-                };
-                return Ok(wrapper.kotlin_value(&suffix));
-            }
-            Array(array) => {
-                let identity = self
-                    .arrays
-                    .lock()
-                    .map_err(|_| failure("java.lang.IllegalStateException", "metadata identity registry poisoned"))?
-                    .identity(array, &*self.allocate_identity);
-                let mut text = array.jvm_class.clone();
-                text.push('@');
-                text.push_str(&self.suffix("metadata.array.identity", identity)?);
-                text
-            }
+            Decoded(wrapper) => return wrapper.kotlin_value(),
+            Array(array) => return KotlinValue::List(array.elements.iter().map(Self::value).collect()),
         };
-        Ok(KotlinValue::Text(text))
+        KotlinValue::Text(text)
     }
 }
 
@@ -146,8 +58,6 @@ pub(super) fn matches(
         match data {
             MetaValue::Null => {}
             MetaValue::Array(array) => {
-                // Kotlin maps the whole array before any(regex): even a
-                // later unmatched element consumes its identity rendering.
                 let rendered = array
                     .elements
                     .iter()

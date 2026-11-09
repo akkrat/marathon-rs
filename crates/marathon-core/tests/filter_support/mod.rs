@@ -8,14 +8,13 @@ use jcompat::{JavaRegex, logging::Level};
 use marathon_config::schema::{RegexValuesFileFilter, TestFilterConfiguration as C};
 use marathon_core::{
     error::{Failure, OperationResult},
-    executor::{CoreExecutor, hooks::RuntimeHooks},
+    executor::CoreExecutor,
     filter::{
         AnnotationRenderer, FilterDependencies, TestFilter,
         allure::{AllurePlanSupplier, TestPlan},
         values::{FileValuesReader, FilterLogger},
     },
     model::{MetaArray, MetaMap, MetaProperty, MetaValue, Test},
-    time::ObjectIdentity,
 };
 use std::{
     path::{Path, PathBuf},
@@ -94,14 +93,7 @@ pub fn deps(plan: Option<TestPlan>, logs: Arc<Logs>) -> FilterDependencies {
     FilterDependencies {
         values: Arc::new(FileValuesReader { logger: logs }),
         allure: Arc::new(Plan(plan)),
-        rendering: Arc::new(AnnotationRenderer::new(
-            RuntimeHooks::live(),
-            ObjectIdentity(0),
-            Arc::new({
-                let next = AtomicUsize::new(1);
-                move || ObjectIdentity(next.fetch_add(1, Ordering::SeqCst) as u64)
-            }),
-        )),
+        rendering: Arc::new(AnnotationRenderer),
     }
 }
 pub fn filter(config: &C) -> TestFilter {

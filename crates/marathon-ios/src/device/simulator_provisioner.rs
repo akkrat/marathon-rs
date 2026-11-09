@@ -4,7 +4,7 @@ use super::{
     error::{ProvisioningError, ProvisioningFuture, ProvisioningResult, SetupError, clock_error},
     provisioning_plan::ProvisioningPlan,
     simulator_factory::{ConstructedSimulator, SimulatorCreating},
-    timing::{local_transport_identity, profile_text, transport_text},
+    timing::{profile_text, transport_text},
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use futures_util::future::join_all;
@@ -176,7 +176,6 @@ pub struct SimulatorProvisioner<H> {
     permits: Mutex<HashMap<String, Arc<Semaphore>>>,
     logging: SshLogging,
     logger: Logger,
-    local_identity: String,
 }
 impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
     pub fn new(
@@ -185,7 +184,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
         register: Registration<H>,
         concurrency: i32,
         logging: SshLogging,
-        hooks: &dyn ReplayHooks,
+        _hooks: &dyn ReplayHooks,
     ) -> ProvisioningResult<Self> {
         if concurrency <= 0 {
             return Err(VendorError::Other(failure(
@@ -195,8 +194,6 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             .into());
         }
         let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.SimulatorProvisioner");
-        // Kotlin Local is a singleton. A stable token preserves its alias across services in one run.
-        let local_identity = local_transport_identity(hooks)?;
         Ok(Self {
             commands: Arc::new(SimctlCommands),
             connections,
@@ -206,7 +203,6 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
             permits: Mutex::default(),
             logging,
             logger,
-            local_identity,
         })
     }
     pub fn with_simulator_commands(mut self, commands: Arc<dyn SimulatorCommands>) -> Self {
@@ -314,7 +310,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                         if let Some(reason) = error.cancellation() { siblings.cancel(reason); }
                         Err(error)
                     },
-                    Err(error) => { self.log(Level::Error, || format!("Failed to set up simulator on {}", transport_text(&transport, &self.local_identity)), Some(&error)); Ok(Some(failure)) },
+                    Err(error) => { self.log(Level::Error, || format!("Failed to set up simulator on {}", transport_text(&transport, "Local")), Some(&error)); Ok(Some(failure)) },
                     result => result,
                 }
             }
@@ -355,7 +351,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     || {
                         format!(
                             "Failed to connect to {} to set up simulator {udid}",
-                            transport_text(transport, &self.local_identity)
+                            transport_text(transport, "Local")
                         )
                     },
                     Some(&error),
@@ -409,7 +405,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     || {
                         format!(
                             "Lost the connection to {} while setting up simulator {udid}",
-                            transport_text(transport, &self.local_identity)
+                            transport_text(transport, "Local")
                         )
                     },
                     Some(&error),
@@ -456,7 +452,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     format!(
                         "Simulator profile {} is not available at {}",
                         profile_text(profile),
-                        transport_text(transport, &self.local_identity)
+                        transport_text(transport, "Local")
                     )
                 },
                 None,
@@ -510,7 +506,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     || {
                         format!(
                             "Failed to delete partially provisioned simulator {udid} on {}",
-                            transport_text(transport, &self.local_identity)
+                            transport_text(transport, "Local")
                         )
                     },
                     error.as_ref(),

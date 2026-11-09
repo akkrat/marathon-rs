@@ -382,12 +382,6 @@ impl ReplayHooks for Hooks {
         *ids += 1;
         Ok(format!("batch-{ids}"))
     }
-    fn identity_suffix(&self, label: &'static str, _identity: ObjectIdentity) -> ClockResult<String> {
-        Err(ReplayError {
-            label: label.into(),
-            message: "unused".into(),
-        })
-    }
     fn verify_consumed(&self) -> ClockResult<()> {
         Ok(())
     }

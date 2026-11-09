@@ -5,7 +5,6 @@ use indexmap::IndexMap;
 use jcompat::{
     file_manager::absolute_file_path,
     logging::{Level, Logger},
-    writers::KotlinValue,
 };
 use marathon_apple::{
     apple_device::AppleDevice,
@@ -206,12 +205,9 @@ impl AppleMacosProvider {
             .unwrap_or_else(|e| e.into_inner())
             .insert(device.info().serial_number, device.clone());
         if let Some(previous) = previous {
-            let identity = KotlinValue::object("com.malinskiy.marathon.apple.macos.MacosDevice")
-                .render()
-                .to_owned();
             self.log(
                 Level::Error,
-                format!("replaced existing device {identity} with new {identity}."),
+                "replaced existing device MacosDevice with new MacosDevice.".into(),
             );
             previous.dispose().await?;
             self.registry.remove(&DeviceRef(previous));
@@ -258,14 +254,14 @@ impl DeviceProvider for AppleMacosProvider {
                 hosts.insert(worker.transport, worker.devices);
             }
             if self.options.logging.enabled(&self.logger, Level::Debug) {
-                let local = KotlinValue::object("com.malinskiy.marathon.apple.configuration.Transport$Local").render();
+                let local = "Local";
                 self.log(
                     Level::Debug,
                     format!(
                         "Establishing communication with [{}]",
                         hosts
                             .keys()
-                            .map(|t| transport_text(t, &local))
+                            .map(|t| transport_text(t, local))
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),

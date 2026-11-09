@@ -53,7 +53,7 @@ fn wall_instant_and_scheduler_time_remain_separate() {
     });
 }
 #[test]
-fn signed_draws_key_selection_and_identity_aliases_consume_exact_entries() {
+fn signed_draws_and_key_selection_consume_exact_entries() {
     run(|core, driver| {
         Box::pin(async move {
             let tape = Tape {
@@ -64,10 +64,6 @@ fn signed_draws_key_selection_and_identity_aliases_consume_exact_entries() {
                         vec![Draw::Key("serial".into())],
                     ),
                 ]),
-                ids: HashMap::from([(
-                    "config.Configuration.identities".into(),
-                    Ids::Values(vec!["one".into(), "two".into()]),
-                )]),
                 ..Tape::default()
             };
             let hooks = RuntimeHooks::taped(tape, core.clock().as_ref());
@@ -75,15 +71,6 @@ fn signed_draws_key_selection_and_identity_aliases_consume_exact_entries() {
             assert_eq!(
                 replay(hooks.choose_key("android.AdamDeviceProvider.borrow", &["serial".into()])),
                 "serial".to_owned()
-            );
-            let first = replay(hooks.identity_suffix("config.Configuration.identities", ObjectIdentity(1)));
-            assert_eq!(
-                first,
-                replay(hooks.identity_suffix("config.Configuration.identities", ObjectIdentity(1)))
-            );
-            assert_ne!(
-                first,
-                replay(hooks.identity_suffix("config.Configuration.identities", ObjectIdentity(2)))
             );
             driver.set_hooks(hooks);
             replay(driver.finish());
@@ -241,18 +228,13 @@ fn live_hooks_share_seams_without_tape_state() {
     assert_eq!(key, "only".to_owned());
     let id = replay(hooks.allocate_id("core.TestBatch.id"));
     assert_eq!(id.len(), 36);
-    let identity = ObjectIdentity(7);
-    assert_eq!(
-        replay(hooks.identity_suffix("config.Configuration.identities", identity)),
-        replay(hooks.identity_suffix("config.Configuration.identities", identity))
-    );
     let _ = replay(hooks.draw_int("core.RandomOrderSortingStrategy.key"));
     replay(hooks.verify_consumed());
 }
 #[path = "support/tape.rs"]
 mod tape;
 #[test]
-fn checked_in_scenario_tape_drives_clock_ids_and_aliases() {
+fn checked_in_scenario_tape_drives_clock_and_ids() {
     run(|core, driver| {
         Box::pin(async move {
             let hooks = RuntimeHooks::taped(tape::scenario_tape(), core.clock().as_ref());
@@ -265,10 +247,6 @@ fn checked_in_scenario_tape_drives_clock_ids_and_aliases() {
             assert_eq!(
                 replay(hooks.allocate_id("core.TestBatch.id")),
                 "00000000-0000-0000-0000-000000000001".to_owned()
-            );
-            assert_eq!(
-                replay(hooks.identity_suffix("core.RawJsonReporter.identities", ObjectIdentity(1))),
-                "00002000".to_owned()
             );
             driver.set_hooks(hooks);
             replay(driver.finish());

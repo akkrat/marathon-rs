@@ -105,9 +105,6 @@ impl ReplayHooks for Time {
     fn allocate_id(&self, l: &'static str) -> ClockResult<String> {
         self.clock.allocate_id(l)
     }
-    fn identity_suffix(&self, l: &'static str, id: ObjectIdentity) -> ClockResult<String> {
-        self.clock.identity_suffix(l, id)
-    }
     fn verify_consumed(&self) -> ClockResult<()> {
         Ok(())
     }

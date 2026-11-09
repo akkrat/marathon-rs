@@ -218,23 +218,6 @@ fn environment_failure_is_caught_but_result_write_failure_propagates() {
     }));
     assert_eq!(errors.lock().unwrap().len(), 1);
 }
-/// Replaces the JVM identity hash in `Class@1a2b3c</value>` with a fixed token (F29).
-fn without_identities(xml: &str) -> String {
-    let mut out = String::new();
-    let mut rest = xml;
-    while let Some(at) = rest.find('@') {
-        let hex = rest[at + 1..].chars().take_while(char::is_ascii_hexdigit).count();
-        out.push_str(&rest[..at]);
-        if hex > 0 && rest[at + 1 + hex..].starts_with("</value>") {
-            out.push_str("@ID");
-        } else {
-            out.push_str(&rest[at..at + 1 + hex]);
-        }
-        rest = &rest[at + 1 + hex..];
-    }
-    out.push_str(rest);
-    out
-}
 #[test]
 fn complete_environment_matches_jvm_keys_order_and_values() {
     let root = std::path::PathBuf::from(include_str!(
@@ -247,7 +230,14 @@ fn complete_environment_matches_jvm_keys_order_and_values() {
     )));
     assert_eq!(entries.len(), 23);
     assert!(expected.matches("@").count() >= 7);
-    assert_eq!(without_identities(&actual), without_identities(&expected));
+    let expected = jcompat::JavaRegex::compile(
+        r"(?:[A-Za-z0-9_]+[.$])+([A-Za-z0-9_]+)@[0-9a-f]+",
+        "historical config objects",
+    )
+    .expect("supported regex")
+    .replace(&expected, "$1")
+    .expect("capture replacement");
+    assert_eq!(actual, expected);
 }
 /// The values written by the JVM `environment-case-*` rows.
 fn environment_cases() -> Vec<String> {

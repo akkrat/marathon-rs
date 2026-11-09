@@ -3,7 +3,7 @@
 
 use super::{
     error::ProvisioningResult,
-    timing::{ProvisioningTiming, local_transport_identity, transport_text},
+    timing::{ProvisioningTiming, transport_text},
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use indexmap::{IndexMap, IndexSet};
@@ -31,20 +31,18 @@ pub struct PlanCalculator {
     logging: SshLogging,
     logger: Logger,
     timing: ProvisioningTiming,
-    local_identity: String,
 }
 impl PlanCalculator {
     pub fn new(
         logging: SshLogging,
         timing: ProvisioningTiming,
-        hooks: &dyn marathon_core::time::ReplayHooks,
+        _hooks: &dyn marathon_core::time::ReplayHooks,
     ) -> ProvisioningResult<Self> {
         let logger = logging.logger("com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider");
         Ok(Self {
             logging,
             logger,
             timing,
-            local_identity: local_transport_identity(hooks)?,
         })
     }
     #[allow(clippy::too_many_arguments)]
@@ -94,12 +92,7 @@ impl PlanCalculator {
                 self.logging.log(
                     &self.logger,
                     Level::Error,
-                    || {
-                        format!(
-                            "udid {udid} is not available at {}",
-                            transport_text(transport, &self.local_identity)
-                        )
-                    },
+                    || format!("udid {udid} is not available at {}", transport_text(transport, "Local")),
                     None,
                 );
             }

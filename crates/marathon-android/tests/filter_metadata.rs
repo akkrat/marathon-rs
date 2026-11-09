@@ -9,37 +9,15 @@ use marathon_android::dex_test_parser::to_meta_property;
 use marathon_config::schema::TestFilterConfiguration as C;
 use marathon_core::{
     error::OperationResult,
-    executor::{
-        CoreExecutor,
-        hooks::{Ids, RuntimeHooks, Tape},
-    },
     filter::{AnnotationRenderer, TestFilter},
     model::MetaValue,
-    time::ObjectIdentity,
 };
 use marathon_dex::{DecodedValue as D, TestAnnotation};
 use std::sync::Arc;
 
 #[test]
 fn c28_real_metadata_conversion_and_filtering_replay_the_jvm() -> OperationResult<()> {
-    let tape = Tape {
-        ids: [(
-            "metadata.decoded_null.identity".into(),
-            Ids::Values(vec!["<identity>".into()]),
-        )]
-        .into_iter()
-        .collect(),
-        ..Tape::default()
-    };
-    let rendering = CoreExecutor::run(move |core| {
-        Box::pin(async move {
-            Ok(Arc::new(AnnotationRenderer::new(
-                RuntimeHooks::taped(tape, &core.clock()),
-                ObjectIdentity(0),
-                Arc::new(|| ObjectIdentity(1)),
-            )))
-        })
-    })?;
+    let rendering = Arc::new(AnnotationRenderer);
     for line in include_str!("../../../fixtures/oracle/filters/annotation.jsonl")
         .split('\n')
         .skip(1)
@@ -77,7 +55,12 @@ fn c28_real_metadata_conversion_and_filtering_replay_the_jvm() -> OperationResul
         };
         let rendered = rendering.render(&array.elements[0])?;
         let extracted = marathon_core::filter::array_element_value(&rendered);
-        assert_eq!(extracted.to_owned(), row["extracted"]);
+        let expected = if kind == "decodedNull" {
+            "null"
+        } else {
+            row["extracted"].as_str().expect("extracted")
+        };
+        assert_eq!(extracted, expected);
         let mut pattern = String::new();
         for c in extracted.chars() {
             if "\\.+*?()|[]{}^$".contains(c) {
@@ -99,10 +82,6 @@ fn c28_real_metadata_conversion_and_filtering_replay_the_jvm() -> OperationResul
         assert_eq!(selected.len() as u64, row["selected"].as_u64().expect("selected"));
         assert_eq!(selected[0].meta_properties, vec![meta]);
     }
-    rendering
-        .hooks
-        .verify_consumed()
-        .map_err(|e| fail(&e.message.to_owned()))?;
     // Top-level null is unboxed; the array element above retains DecodedNull.
     let meta = to_meta_property(&TestAnnotation {
         name: "A".into(),

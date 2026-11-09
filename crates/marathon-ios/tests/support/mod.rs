@@ -7,7 +7,7 @@ use marathon_core::{
     runtime::{
         CancellationSignal, VendorClock, VendorFuture, VendorRuntime, VendorTask, VendorTaskBody, VendorTimeoutBody,
     },
-    time::{ClockResult, MonotonicClock, ObjectIdentity, ReplayHooks, WallClock},
+    time::{ClockResult, MonotonicClock, ReplayHooks, WallClock},
     vendor::VendorContext,
 };
 use std::sync::{
@@ -185,9 +185,6 @@ impl ReplayHooks for Clock {
             "00000000-0000-0000-0000-{:012}",
             IDS.fetch_add(1, Ordering::SeqCst)
         ))
-    }
-    fn identity_suffix(&self, _: &'static str, _: ObjectIdentity) -> ClockResult<String> {
-        Ok("abc".into())
     }
     fn verify_consumed(&self) -> ClockResult<()> {
         Ok(())

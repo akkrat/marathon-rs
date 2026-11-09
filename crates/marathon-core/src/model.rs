@@ -129,7 +129,7 @@ impl PartialEq for MetaMap {
 }
 impl Eq for MetaMap {}
 /// Do not stringify annotation values at discovery. DEX arrays use identity
-/// equality and JVM array toString in raw reports (C19), but JSON arrays in Gson.
+/// equality (C19); rendering retains their elements (D58).
 #[derive(Clone, Debug)]
 pub enum MetaValue {
     Null,
@@ -167,8 +167,8 @@ pub enum DecodedWrapper {
 }
 impl DecodedWrapper {
     /// Project the pinned data-class toString, including Arrays.toString for
-    /// nested arrays. Supply the singleton's replay identity suffix, not Debug.
-    pub fn kotlin_value(&self, null_identity_suffix: &str) -> KotlinValue {
+    /// nested arrays; decoded null renders as null (D58).
+    pub fn kotlin_value(&self) -> KotlinValue {
         use DecodedWrapper::*;
         let (name, value) = match self {
             DecodedByte(v) => ("DecodedByte", v.to_string()),
@@ -182,17 +182,13 @@ impl DecodedWrapper {
             DecodedString(v) => ("DecodedString", v.clone()),
             DecodedType(v) => ("DecodedType", v.clone()),
             DecodedEnum(v) => ("DecodedEnum", v.clone()),
-            DecodedNull => {
-                let mut text = String::from("com.linkedin.dex.parser.DecodedValue$DecodedNull@");
-                text.push_str(null_identity_suffix);
-                return KotlinValue::Text(text);
-            }
+            DecodedNull => return KotlinValue::Null,
             DecodedArrayValue(values) => {
                 return KotlinValue::DataClass {
                     name: "DecodedArrayValue".into(),
                     fields: vec![(
                         "values".into(),
-                        KotlinValue::List(values.iter().map(|v| v.kotlin_value(null_identity_suffix)).collect()),
+                        KotlinValue::List(values.iter().map(Self::kotlin_value).collect()),
                     )],
                 };
             }

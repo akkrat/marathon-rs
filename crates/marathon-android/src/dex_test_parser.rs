@@ -173,7 +173,7 @@ fn concat(prefix: &str, rest: &str) -> String {
 /// TestAnnotation.toMetaProperty (DexTestParser.kt:47-67) plus the frozen
 /// DecodedWrapper representation of model-contract.md (C28). The caches
 /// keep the JVM's array sharing: marathon-dex shares one backing array
-/// wherever the JVM shares one DecodedValue[], and the array identity is
+/// wherever the JVM shares one DecodedValue[], and the array reference equality is
 /// what MetaValue::Array equality (and C19 raw reports) key on — so one
 /// converter serves all of a bundle's tests. Entries are keyed by the
 /// source array's address and hold that array, so an address cannot be

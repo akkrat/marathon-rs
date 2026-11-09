@@ -76,17 +76,3 @@ pub fn profile_text(profile: &SimulatorProfile) -> String {
     .to_owned()
 }
 pub use marathon_apple::device::connection_factory::transport_text;
-
-pub fn local_transport_identity(
-    hooks: &dyn marathon_core::time::ReplayHooks,
-) -> super::error::ProvisioningResult<String> {
-    let suffix = hooks
-        .identity_suffix(
-            "config.Configuration.identities",
-            marathon_core::time::ObjectIdentity(u64::MAX - 1),
-        )
-        .map_err(clock_error)?;
-    let mut value: String = "com.malinskiy.marathon.apple.configuration.Transport$Local@".into();
-    value.push_str(&suffix);
-    Ok(value)
-}

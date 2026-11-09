@@ -6,10 +6,7 @@ use jcompat::logging::Level;
 use marathon_config::schema::{CompositionOperation as Op, TestFilterConfiguration as C, TestPackageFilter};
 use marathon_core::{
     error::{Cancellation, OperationError, OperationResult},
-    executor::{
-        CoreExecutor,
-        hooks::{Ids, RuntimeHooks, Tape},
-    },
+    executor::CoreExecutor,
     filter::{
         AnnotationRenderer, TestFilter,
         allure::{AllurePlanSupplier, FileTestPlanSupplier, PlanEnvironment, PlanTest, TestPlan},
@@ -17,7 +14,6 @@ use marathon_core::{
         values::{FilterValuesReader, parse_values},
     },
     model::{DecodedWrapper as D, MetaValue as M, Test},
-    time::ObjectIdentity,
 };
 use serde_json::{Value as J, json};
 use std::path::PathBuf;
@@ -214,20 +210,7 @@ fn wrapper(kind: &str) -> M {
 }
 #[test]
 fn c28_wrapper_and_scalar_rendering_replays_the_jvm() -> OperationResult<()> {
-    let mut tape = Tape::default();
-    tape.ids.insert(
-        "metadata.decoded_null.identity".into(),
-        Ids::Values(vec!["<identity>".into()]),
-    );
-    let render = CoreExecutor::run(move |core| {
-        Box::pin(async move {
-            Ok(Arc::new(AnnotationRenderer::new(
-                RuntimeHooks::taped(tape, &core.clock()),
-                ObjectIdentity(0),
-                Arc::new(|| ObjectIdentity(1)),
-            )))
-        })
-    })?;
+    let render = Arc::new(AnnotationRenderer);
     for row in rows("annotation")
         .into_iter()
         .filter(|row| row.get("producer").is_none() && row.get("eagerRendering").is_none())
@@ -242,14 +225,24 @@ fn c28_wrapper_and_scalar_rendering_replays_the_jvm() -> OperationResult<()> {
             _ => wrapper(kind),
         };
         let rendered = render.render(&value)?;
-        assert_eq!(rendered.to_owned(), row["rendered"]);
+        let expected = match kind {
+            "decodedNull" => "null",
+            "nested" => "DecodedArrayValue(values=[DecodedString(value=a)b), null])",
+            _ => row["rendered"].as_str().expect("rendered"),
+        };
+        assert_eq!(rendered, expected);
         let extracted = if row.get("extracted").is_some() {
             array_element_value(&rendered)
         } else {
             rendered
         };
         if row.get("extracted").is_some() {
-            assert_eq!(extracted.to_owned(), row["extracted"]);
+            let expected = if kind == "decodedNull" {
+                "null"
+            } else {
+                row["extracted"].as_str().expect("extracted")
+            };
+            assert_eq!(extracted, expected);
         }
         // Exact literals here contain metacharacters; use a full-match supported
         // pattern synthesized by escaping every punctuation byte.
@@ -273,10 +266,6 @@ fn c28_wrapper_and_scalar_rendering_replays_the_jvm() -> OperationResult<()> {
         )?;
         assert_eq!(selected.len() as u64, row["selected"].as_u64().expect("selected"));
     }
-    render
-        .hooks
-        .verify_consumed()
-        .map_err(|e| fail(&e.message.to_owned()))?;
     Ok(())
 }
 fn escape(s: &str) -> String {
@@ -743,41 +732,41 @@ fn p2_plans_jackson_accepts_warn_and_become_absent() -> OperationResult<()> {
     Ok(())
 }
 #[test]
-fn array_identity_registry_scales_and_survives_address_reuse() -> OperationResult<()> {
-    // Count identity allocations rather than compare rendered text: without a tape the
-    // live suffix is a random u32, so 40k renders can collide by chance (birthday bound).
-    let allocated = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let render = AnnotationRenderer::new(
-        RuntimeHooks::live(),
-        ObjectIdentity(0),
-        Arc::new({
-            let allocated = allocated.clone();
-            move || ObjectIdentity(allocated.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
-        }),
-    );
-    let allocations = || allocated.load(std::sync::atomic::Ordering::SeqCst);
-    let arrays: Vec<_> = (0..20_000).map(|_| array(vec![])).collect();
-    let start = std::time::Instant::now();
-    let first = arrays
-        .iter()
-        .map(|a| render.render(a))
-        .collect::<OperationResult<Vec<_>>>()?;
-    assert_eq!(allocations(), 20_000);
-    for (a, text) in arrays.iter().zip(&first) {
-        assert_eq!(&render.render(a)?, text);
-    }
-    // A live array keeps its identity: re-rendering allocates nothing.
-    assert_eq!(allocations(), 20_000);
-    assert!(
-        start.elapsed() < std::time::Duration::from_secs(10),
-        "{:?}",
-        start.elapsed()
-    );
-    drop(arrays);
-    // Freed addresses are reused by fresh arrays, which must get fresh identities.
-    for i in 1..=20_000 {
-        render.render(&array(vec![]))?;
-        assert_eq!(allocations(), 20_000 + i);
+fn annotation_arrays_render_values_and_filters_match_nested_contents() -> OperationResult<()> {
+    let rendering = AnnotationRenderer;
+    let values = array(vec![
+        M::String("a".into()),
+        M::Decoded(D::DecodedNull),
+        array(vec![M::Int(7)]),
+        M::List(vec![M::Boolean(true)]),
+    ]);
+    assert_eq!(rendering.render(&values)?, "[a, null, [7], [true]]");
+    assert_eq!(rendering.render(&array(vec![]))?, "[]");
+    assert_eq!(rendering.render(&values.clone())?, rendering.render(&values)?);
+    let null_filter = C::AnnotationData {
+        name_regex: regex("A"),
+        value_regex: regex("null"),
+        enabled: true,
+    };
+    let nulls = vec![annotated("A", M::Null), annotated("A", M::Decoded(D::DecodedNull))];
+    let selected = apply(filter(&null_filter), nulls.clone(), false)?;
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].meta_properties, nulls[1].meta_properties);
+
+    for (pattern, count) in [
+        (r"\[7\]", 1),
+        ("null", 1),
+        (r"\[Ljava.*@.*", 0),
+        (".*DecodedNull@.*", 0),
+    ] {
+        let c = C::AnnotationData {
+            name_regex: regex("A"),
+            value_regex: regex(pattern),
+            enabled: true,
+        };
+        let input = vec![annotated("A", values.clone())];
+        assert_eq!(apply(filter(&c), input.clone(), false)?.len(), count);
+        assert_eq!(apply(filter(&c), input, true)?.len(), 1 - count);
     }
     Ok(())
 }
@@ -930,25 +919,8 @@ fn annotation_data_disabled_null_and_scalar_types_keep_kotlin_semantics() -> Ope
 }
 
 #[test]
-fn annotation_arrays_render_every_element_before_any_match() -> OperationResult<()> {
-    let tape = Tape {
-        ids: [(
-            "metadata.decoded_null.identity".into(),
-            Ids::Values(vec!["<identity>".into()]),
-        )]
-        .into_iter()
-        .collect(),
-        ..Tape::default()
-    };
-    let rendering = CoreExecutor::run(move |core| {
-        Box::pin(async move {
-            Ok(Arc::new(AnnotationRenderer::new(
-                RuntimeHooks::taped(tape, &core.clock()),
-                ObjectIdentity(0),
-                Arc::new(|| ObjectIdentity(1)),
-            )))
-        })
-    })?;
+fn annotation_arrays_match_elements_with_decoded_null() -> OperationResult<()> {
+    let rendering = Arc::new(AnnotationRenderer);
     let row = rows("annotation")
         .into_iter()
         .find(|row| row.get("eagerRendering").is_some())
@@ -971,9 +943,5 @@ fn annotation_arrays_render_every_element_before_any_match() -> OperationResult<
         false,
     )?;
     assert_eq!(selected.len() as u64, row["selected"].as_u64().expect("selected"));
-    rendering
-        .hooks
-        .verify_consumed()
-        .map_err(|e| fail(&e.message.to_owned()))?;
     Ok(())
 }

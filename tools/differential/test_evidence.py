@@ -132,6 +132,22 @@ class EvidenceTests(unittest.TestCase):
         real = pretty.replace(b'com.malinskiy.marathon.config.Foo@abc', b'analytics enabled')
         self.assertNotEqual(first, e.xml_value(vendor_reports.environment(real, identities, 'native', [])))
 
+    def test_native_environment_keeps_identity_suffix_and_class_exact(self):
+        import vendor_reports
+        identities = {'sandbox': '/sandbox', 'port': '22'}
+        for key, value in [
+            ('analyticsConfiguration', 'com.malinskiy.marathon.config.Foo@abc'),
+            ('vendorConfiguration', 'testParserConfiguration=com.malinskiy.marathon.config.vendor.android.TestParserConfiguration$LocalTestParserConfiguration@abc, '),
+        ]:
+            data = f'<environment><parameter><key>{key}</key><value>{value}</value></parameter></environment>'.encode()
+            native = vendor_reports.environment(data, identities, 'native', [], native=True)
+            self.assertIn(value.encode(), native)
+            self.assertNotIn(b'{class-identity}', native)
+            self.assertNotEqual(e.xml_value(native), e.xml_value(vendor_reports.environment(
+                data.replace(b'@abc', b'@def'), identities, 'native', [], native=True)))
+            historical = vendor_reports.environment(data, identities, 'jvm', ['com.malinskiy.marathon.config.Foo@abc', value.split('=', 1)[-1].removesuffix(', ')])
+            self.assertIn(b'{class-identity}', historical)
+
     def test_native_state_json_compares_parsed_data(self):
         self.artifacts['state.json'] = b'{"devices":[1.0e10],"ready":true}'
         expected = e.normalized(self.record('state-baseline'), self.contract, native=True)

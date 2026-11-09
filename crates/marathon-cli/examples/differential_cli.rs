@@ -43,8 +43,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (label, prefix, width, hex, start) in [
         ("core.TestBatch.id", "00000000-0000-0000-0000-", 12, false, 1),
         ("core.AllureReporter.uuid", "10000000-0000-0000-0000-", 12, false, 1),
-        ("config.Configuration.identities", "", 8, true, 1),
-        ("core.RawJsonReporter.identities", "", 8, true, 8192),
     ] {
         tape.ids.insert(
             label.into(),

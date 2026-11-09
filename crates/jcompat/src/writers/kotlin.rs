@@ -22,14 +22,6 @@ impl From<&str> for KotlinValue {
     }
 }
 impl KotlinValue {
-    /// D12/F29: plain JVM objects use the class-name hash in external text.
-    pub fn object(class: &str) -> Self {
-        let hash = class
-            .encode_utf16()
-            .fold(0_i32, |h, c| h.wrapping_mul(31).wrapping_add(i32::from(c)));
-        Self::Text(format!("{class}@{:x}", hash as u32))
-    }
-
     pub fn render(&self) -> String {
         let mut out = String::default();
         self.append(&mut out);

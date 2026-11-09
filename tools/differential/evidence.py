@@ -670,7 +670,7 @@ def normalized(directory, contract, native=False):
             data = payload(directory,row,record)
             if contract.get('scenario') == 'vendor' and name.startswith('reports/'):
                 import vendor_reports
-                data = vendor_reports.normalize(name, data, record['identities'], record['implementation'], contract)
+                data = vendor_reports.normalize(name, data, record['identities'], record['implementation'], contract, native=native)
             spec = rules.get(name, {'rules': [], 'mode': 'bytes'})
             if name in rules:
                 used.add(name)

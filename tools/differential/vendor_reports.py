@@ -65,7 +65,7 @@ def omit_delegate(data, pointer, implementation):
     return (text[:start] + text[end:]).encode()
 
 
-def environment(data, identities, implementation, expected):
+def environment(data, identities, implementation, expected, native=False):
     e.xml_value(data)  # Apply the same entity restrictions as the comparator.
     root = ET.fromstring(data)
     allowed_objects = {'analyticsConfiguration','pooling','sharding','sorting','flakiness','retry','executionStrategy','batching','ciConfiguration'}
@@ -89,17 +89,18 @@ def environment(data, identities, implementation, expected):
             value = value.replace('port=' + identities['port'] + ')', 'port={port})')
             value = value.replace('port=' + identities['port'] + ',', 'port={port},')
             pattern = r'(?<=testParserConfiguration=)(?:com\.malinskiy\.marathon\.config\.vendor\.(?:android\.TestParserConfiguration\$LocalTestParserConfiguration|apple\.TestParserConfiguration\$XCTestParserConfiguration))@[0-9a-f]+(?=, )'
-            value = re.sub(pattern, lambda m: object_identity(m[0]), value)
-        elif key in allowed_objects and identity.fullmatch(value):
+            if not native:
+                value = re.sub(pattern, lambda m: object_identity(m[0]), value)
+        elif not native and key in allowed_objects and identity.fullmatch(value):
             value = object_identity(value)
         value_node.text = value
     return ET.tostring(root, encoding='utf-8')
 
 
-def normalize(path, data, identities, implementation, contract):
+def normalize(path, data, identities, implementation, contract, native=False):
     relative = path.removeprefix('reports/')
     if relative == 'allure-results/environment.xml':
-        return environment(data, identities, implementation, contract['jvm_config_identities'])
+        return environment(data, identities, implementation, contract['jvm_config_identities'], native=native)
     if relative.startswith('devices/') and relative.endswith('.json'):
         data = omit_delegate(data, '', implementation)
     elif (relative.startswith('bill/') or (relative.startswith('test_result/') and relative != 'test_result/raw.json')) and relative.endswith('.json'):

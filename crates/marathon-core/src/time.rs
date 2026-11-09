@@ -18,15 +18,10 @@ pub trait WallClock: Send + Sync {
 pub trait MonotonicClock: Send + Sync {
     fn nanos(&self, label: &'static str) -> ClockResult<i64>;
 }
-/// Identity token is internal, allocated per object, never a serialized address.
-/// WP 3.1 keeps a token registry so repeated object references reuse an ID suffix.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ObjectIdentity(pub u64);
 pub trait ReplayHooks: WallClock + MonotonicClock {
     fn draw_int(&self, label: &'static str) -> ClockResult<i32>;
     fn choose_key(&self, label: &'static str, candidates: &[String]) -> ClockResult<String>;
     fn allocate_id(&self, label: &'static str) -> ClockResult<String>;
-    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<String>;
     /// Records accumulated failures and unused explicit tape entries; failures
     /// remain observable even if a caller catches the original error.
     fn verify_consumed(&self) -> ClockResult<()>;

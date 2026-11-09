@@ -30,13 +30,6 @@ fn normalise(text: &str, sandbox: &[String]) -> String {
             {
                 line = format!("<TIME>{}", &line[12..]);
             }
-            if let Some(at) = line.find("VersionCommandCliConfiguration@") {
-                let start = at + "VersionCommandCliConfiguration@".len();
-                let end = line[start..]
-                    .find(|c: char| !c.is_ascii_hexdigit())
-                    .map_or(line.len(), |e| start + e);
-                line.replace_range(start..end, "<HASH>");
-            }
             line = line.replace(&format!("Starting marathon v{VERSION},"), "Starting marathon v<VERSION>,");
             if line == VERSION {
                 line = "<VERSION>".into();
@@ -132,7 +125,10 @@ fn cli_matrix_matches_the_reference_build() {
             i64::from(out.exit),
         );
         let expected = (
-            support::jackson_classes_only(want["stdout"].as_str().unwrap()),
+            support::jackson_classes_only(&want["stdout"].as_str().unwrap().replace(
+                "com.malinskiy.marathon.cli.args.VersionCommandCliConfiguration@<HASH>",
+                "VersionCommandCliConfiguration",
+            )),
             support::jackson_classes_only(want["stderr"].as_str().unwrap()),
             want["exit"].as_i64().unwrap(),
         );

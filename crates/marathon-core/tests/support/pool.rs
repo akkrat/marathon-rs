@@ -588,9 +588,6 @@ impl ReplayHooks for VirtualWallHooks {
     fn allocate_id(&self, label: &'static str) -> ClockResult<String> {
         self.live.allocate_id(label)
     }
-    fn identity_suffix(&self, label: &'static str, identity: ObjectIdentity) -> ClockResult<String> {
-        self.live.identity_suffix(label, identity)
-    }
     fn verify_consumed(&self) -> ClockResult<()> {
         Ok(())
     }

@@ -129,9 +129,9 @@ fn mask_between(text: &str, start: &str, end: &str, with: &str) -> String {
 }
 
 /// Allure/HTML text: random UUIDs, the HTML footer's wall-clock date, the epoch-millisecond
-/// times of lost devices' results (as in raw.json), the outputDir path in environment.xml and
-/// the identity hashes of the configuration objects there (both runs use their own temporary
-/// directory and objects). Only those fields are masked; any other text compares literally.
+/// times of lost devices' results (as in raw.json), and the outputDir path in environment.xml
+/// (both runs use their own temporary directory). Only those
+/// fields are masked; any other text compares literally.
 fn mask_report(path: &str, text: &str) -> String {
     let text = mask_uuids(text);
     let text = mask_between(&text, "by Juno at ", "</div>", "<date>");
@@ -141,36 +141,19 @@ fn mask_report(path: &str, text: &str) -> String {
     if !path.ends_with("allure-results/environment.xml") {
         return text;
     }
-    let text = mask_between(&text, "<key>outputDir</key><value>", "</value>", "<outputDir>");
-    IDENTITY_KEYS.iter().fold(text, |text, key| {
-        let start = format!("<key>{key}</key><value>");
-        let Some(at) = text.find(&start) else { return text };
-        let from = at + start.len();
-        let Some(len) = text[from..].find("</value>") else {
-            return text;
-        };
-        let value = &text[from..from + len];
-        match value.rfind('@') {
-            Some(hash) if hash + 1 < value.len() && value[hash + 1..].bytes().all(|b| b.is_ascii_hexdigit()) => {
-                format!("{}<id>{}", &text[..from + hash + 1], &text[from + len..])
-            }
-            _ => text,
-        }
-    })
+    mask_between(&text, "<key>outputDir</key><value>", "</value>", "<outputDir>")
 }
 
-/// environment.xml values that print a configuration object's default `toString` (`Class@hash`).
-const IDENTITY_KEYS: [&str; 9] = [
-    "analyticsConfiguration",
-    "pooling",
-    "sharding",
-    "sorting",
-    "batching",
-    "flakiness",
-    "retry",
-    "vendorConfiguration",
-    "ciConfiguration",
-];
+/// D58 adapts only historical configuration identities; actual output stays exact.
+fn native_environment(text: &str) -> String {
+    jcompat::JavaRegex::compile(
+        r"(?:[A-Za-z0-9_]+[.$])+([A-Za-z0-9_]+)@[0-9a-f]+",
+        "historical config objects",
+    )
+    .expect("supported regex")
+    .replace(text, "$1")
+    .expect("capture replacement")
+}
 /// Allure result `start`/`stop` and HTML `startDate`/`endDate`: a lost device's result carries
 /// the host wall clock there.
 const EPOCH_FIELDS: [&str; 4] = ["start", "stop", "startDate", "endDate"];
@@ -322,7 +305,19 @@ fn check_with(name: &str, d48: bool) {
         .as_object()
         .unwrap()
         .iter()
-        .map(|(path, text)| (mask_uuids(path), mask_report(path, text.as_str().unwrap())))
+        .map(|(path, text)| {
+            (
+                mask_uuids(path),
+                mask_report(
+                    path,
+                    &if path.ends_with("allure-results/environment.xml") {
+                        native_environment(text.as_str().unwrap())
+                    } else {
+                        text.as_str().unwrap().to_owned()
+                    },
+                ),
+            )
+        })
         .collect();
     jvm_reports.sort();
     let rust_reports = rust_manifest.map_or_else(Vec::new, |m| reporter_files(&rust.output_dir, &m));
@@ -432,7 +427,7 @@ fn report_masks_keep_ordinary_data_literal() {
         mask_report("html/index.html", "contact.foo@deadbeef</value>"),
         mask_report("html/index.html", "contact.foo@cafebabe</value>")
     );
-    assert_eq!(
+    assert_ne!(
         mask_report(env, "<key>pooling</key><value>Omni@1a2b</value>"),
         mask_report(env, "<key>pooling</key><value>Omni@3c4d</value>")
     );

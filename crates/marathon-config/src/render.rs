@@ -6,7 +6,7 @@
 //! Two projections of the same model. `to_map` renders Kotlin `toString()`s
 //! through `jcompat::writers::KotlinValue` (data classes in constructor order
 //! with Kotlin property names, the two secret-masking overrides, plain
-//! `object`s as `Class@hash`); WP 2.4 P3 pins it with the JVM witnesses in
+//! `object`s as simple class names (D58)); WP 2.4 P3 pins it with the JVM witnesses in
 //! `fixtures/oracle/config-validation-corpus.jsonl`. `serialize` projects into
 //! `WriterValue` for 1.5's `JacksonYamlWriter` in Jackson's order and names
 //! (`type` first, constructor order, `@JsonProperty` names, nulls omitted as
@@ -172,16 +172,6 @@ fn data(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
         fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
     }
 }
-/// A plain Kotlin `object` (or class) without a `toString()` override:
-/// `Object.toString()`, the binary class name and the identity hash. The JVM
-/// hash differs on every run, so any value is as faithful as another; the
-/// Java `String.hashCode()` of the class name keeps ours stable (F29).
-fn object(class: &str) -> KotlinValue {
-    let hash = class
-        .encode_utf16()
-        .fold(0_i32, |h, c| h.wrapping_mul(31).wrapping_add(i32::from(c)));
-    KotlinValue::Text(format!("{class}@{:x}", hash as u32))
-}
 fn text(s: &str) -> KotlinValue {
     KotlinValue::Text(s.to_string())
 }
@@ -280,7 +270,7 @@ impl Kotlin for AnalyticsConfiguration {
     fn kotlin(&self) -> KotlinValue {
         let masked = || KotlinValue::Text("'*****'".into());
         match self {
-            Self::Disabled => object("com.malinskiy.marathon.config.AnalyticsConfiguration$DisabledAnalytics"),
+            Self::Disabled => text("DisabledAnalytics"),
             // The two `toString()` overrides hide credentials and omit
             // `defaults`/`readOnly` (AnalyticsConfiguration.kt:44-46,67-69).
             Self::InfluxDb(c) => data(
@@ -323,8 +313,6 @@ impl Kotlin for AnalyticsConfiguration {
     }
 }
 
-const STRATEGY: &str = "com.malinskiy.marathon.config.strategy.";
-
 impl Kotlin for PoolingStrategyConfiguration {
     fn kotlin(&self) -> KotlinValue {
         let simple = match self {
@@ -340,16 +328,14 @@ impl Kotlin for PoolingStrategyConfiguration {
                 );
             }
         };
-        object(&format!("{STRATEGY}PoolingStrategyConfiguration${simple}"))
+        text(simple)
     }
 }
 impl Kotlin for ShardingStrategyConfiguration {
     fn kotlin(&self) -> KotlinValue {
         match self {
             Self::Count { count } => data("CountShardingStrategyConfiguration", vec![("count", number(count))]),
-            Self::Parallel => object(&format!(
-                "{STRATEGY}ShardingStrategyConfiguration$ParallelShardingStrategyConfiguration"
-            )),
+            Self::Parallel => text("ParallelShardingStrategyConfiguration"),
         }
     }
 }
@@ -360,12 +346,8 @@ impl Kotlin for SortingStrategyConfiguration {
                 "ExecutionTimeSortingStrategyConfiguration",
                 vec![("percentile", double(*percentile)), ("timeLimit", instant(time_limit))],
             ),
-            Self::NoSorting => object(&format!(
-                "{STRATEGY}SortingStrategyConfiguration$NoSortingStrategyConfiguration"
-            )),
-            Self::RandomOrder => object(&format!(
-                "{STRATEGY}SortingStrategyConfiguration$RandomOrderStrategyConfiguration"
-            )),
+            Self::NoSorting => text("NoSortingStrategyConfiguration"),
+            Self::RandomOrder => text("RandomOrderStrategyConfiguration"),
             Self::SuccessRate { time_limit, ascending } => data(
                 "SuccessRateSortingStrategyConfiguration",
                 vec![("timeLimit", instant(time_limit)), ("ascending", boolean(*ascending))],
@@ -392,21 +374,15 @@ impl Kotlin for BatchingStrategyConfiguration {
                     ("lastMileLength", number(last_mile_length)),
                 ],
             ),
-            Self::ClassName => object(&format!(
-                "{STRATEGY}BatchingStrategyConfiguration$ClassNameBatchingStrategyConfiguration"
-            )),
-            Self::Isolate => object(&format!(
-                "{STRATEGY}BatchingStrategyConfiguration$IsolateBatchingStrategyConfiguration"
-            )),
+            Self::ClassName => text("ClassNameBatchingStrategyConfiguration"),
+            Self::Isolate => text("IsolateBatchingStrategyConfiguration"),
         }
     }
 }
 impl Kotlin for FlakinessStrategyConfiguration {
     fn kotlin(&self) -> KotlinValue {
         match self {
-            Self::Ignore => object(&format!(
-                "{STRATEGY}FlakinessStrategyConfiguration$IgnoreFlakinessStrategyConfiguration"
-            )),
+            Self::Ignore => text("IgnoreFlakinessStrategyConfiguration"),
             Self::Probability {
                 min_success_rate,
                 max_count,
@@ -435,9 +411,7 @@ impl Kotlin for RetryStrategyConfiguration {
                     ("retryPerTestQuota", number(retry_per_test_quota)),
                 ],
             ),
-            Self::NoRetry => object(&format!(
-                "{STRATEGY}RetryStrategyConfiguration$NoRetryStrategyConfiguration"
-            )),
+            Self::NoRetry => text("NoRetryStrategyConfiguration"),
         }
     }
 }
@@ -532,10 +506,10 @@ impl Kotlin for TestFilterConfiguration {
 }
 impl Kotlin for CiConfiguration {
     fn kotlin(&self) -> KotlinValue {
-        object(match self {
-            Self::Auto => "com.malinskiy.marathon.config.CIConfiguration$Auto",
-            Self::None => "com.malinskiy.marathon.config.CIConfiguration$None",
-            Self::Teamcity => "com.malinskiy.marathon.config.CIConfiguration$Teamcity",
+        text(match self {
+            Self::Auto => "Auto",
+            Self::None => "None",
+            Self::Teamcity => "Teamcity",
         })
     }
 }
@@ -546,8 +520,8 @@ impl Kotlin for VendorConfiguration {
             Self::Android(c) => c.kotlin(),
             Self::Ios(c) => c.kotlin(),
             Self::Macos(c) => c.kotlin(),
-            Self::Stub => object("com.malinskiy.marathon.config.vendor.VendorConfiguration$StubVendorConfiguration"),
-            Self::Empty => object("com.malinskiy.marathon.config.vendor.VendorConfiguration$EmptyVendorConfiguration"),
+            Self::Stub => text("StubVendorConfiguration"),
+            Self::Empty => text("EmptyVendorConfiguration"),
         }
     }
 }
@@ -723,9 +697,7 @@ impl Kotlin for AndroidThreadingConfiguration {
 impl Kotlin for AndroidTestParserConfiguration {
     fn kotlin(&self) -> KotlinValue {
         match self {
-            Self::Local => object(
-                "com.malinskiy.marathon.config.vendor.android.TestParserConfiguration$LocalTestParserConfiguration",
-            ),
+            Self::Local => text("LocalTestParserConfiguration"),
             Self::Remote { instrumentation_args } => data(
                 "RemoteTestParserConfiguration",
                 vec![("instrumentationArgs", string_map(instrumentation_args))],
@@ -1095,9 +1067,7 @@ impl Kotlin for AppleTestParserConfiguration {
                 "NmTestParserConfiguration",
                 vec![("testClassRegexes", list(test_class_regexes, |r| r.pattern().into()))],
             ),
-            Self::Xctest => {
-                object("com.malinskiy.marathon.config.vendor.apple.TestParserConfiguration$XCTestParserConfiguration")
-            }
+            Self::Xctest => text("XCTestParserConfiguration"),
         }
     }
 }

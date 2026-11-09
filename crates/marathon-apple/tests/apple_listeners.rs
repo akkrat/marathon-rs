@@ -973,7 +973,7 @@ async fn enrichment_appends_summary_messages_and_urls_in_source_order() {
 }
 
 #[tokio::test]
-async fn disabled_debug_listener_does_not_consume_metadata_identities() {
+async fn disabled_debug_listener_does_not_log_decoded_null_metadata() {
     let h = harness(vec![], ok(""), vec![], None, None);
     h.logging
         .registry
@@ -988,7 +988,6 @@ async fn disabled_debug_listener_does_not_consume_metadata_identities() {
             .into_iter()
             .collect(),
     });
-    // The support hooks deliberately reject identity allocations; a disabled lazy log never reaches them.
     debug.test_started(&t).await.unwrap();
     assert!(h.messages.lock().unwrap().is_empty());
 }

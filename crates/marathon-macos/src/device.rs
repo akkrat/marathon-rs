@@ -514,12 +514,8 @@ fn lost(cause: Failure) -> VendorError {
     } else if cause.class == "kotlinx.coroutines.JobCancellationException"
         && cause.message == Some("LazyDeferredCoroutine was cancelled".into())
     {
-        let object = jcompat::writers::KotlinValue::object("kotlinx.coroutines.LazyDeferredCoroutine")
-            .render()
-            .to_owned();
-        let identity = object.rsplit_once('@').map_or("", |(_, hash)| hash);
         format!(
-            "{}; job=LazyDeferredCoroutine{{Cancelled}}@{identity}",
+            "{}; job=LazyDeferredCoroutine{{Cancelled}}",
             cause.to_java_string().to_owned()
         )
     } else {

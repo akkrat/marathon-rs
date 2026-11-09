@@ -7,7 +7,7 @@ use marathon_core::{
     runtime::{
         CancellationSignal, VendorClock, VendorFuture, VendorRuntime, VendorTask, VendorTaskBody, VendorTimeoutBody,
     },
-    time::{ClockResult, MonotonicClock, ObjectIdentity, ReplayHooks, WallClock},
+    time::{ClockResult, MonotonicClock, ReplayHooks, WallClock},
     vendor::VendorContext,
 };
 use std::sync::{
@@ -179,9 +179,6 @@ impl ReplayHooks for Clock {
         unreachable!()
     }
     fn allocate_id(&self, _: &'static str) -> ClockResult<String> {
-        unreachable!()
-    }
-    fn identity_suffix(&self, _: &'static str, _: ObjectIdentity) -> ClockResult<String> {
         unreachable!()
     }
     fn verify_consumed(&self) -> ClockResult<()> {

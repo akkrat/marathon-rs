@@ -2,12 +2,7 @@
 //! test/MetaProperty.kt, device/DeviceInfo.kt, execution/TestResult.kt,
 //! execution/Attachment.kt and json/FileSerializer.kt.
 
-use crate::{
-    artifact_io::clock_error,
-    error::VendorResult,
-    model::*,
-    time::{ObjectIdentity, ReplayHooks},
-};
+use crate::{error::VendorResult, model::*, time::ReplayHooks};
 use WriterValue as V;
 use jcompat::{
     jnum,
@@ -137,47 +132,24 @@ pub fn parse_results(tests: &[Test], flaky_tests: &[Test]) -> String {
     jcompat::writers::JacksonYamlWriter.write(&object(fields))
 }
 
-pub fn kotlin_meta(value: &MetaValue, hooks: &dyn ReplayHooks) -> VendorResult<KotlinValue> {
+pub fn kotlin_meta(value: &MetaValue, _hooks: &dyn ReplayHooks) -> VendorResult<KotlinValue> {
     use MetaValue::*;
     Ok(match value {
         Null => KotlinValue::Null,
-        List(v) => KotlinValue::List(v.iter().map(|v| kotlin_meta(v, hooks)).collect::<VendorResult<_>>()?),
+        List(v) => KotlinValue::List(v.iter().map(|v| kotlin_meta(v, _hooks)).collect::<VendorResult<_>>()?),
         Map(v) => KotlinValue::Map(
             v.entries()
                 .iter()
-                .map(|(k, v)| Ok((KotlinValue::Text(k.clone()), kotlin_meta(v, hooks)?)))
+                .map(|(k, v)| Ok((KotlinValue::Text(k.clone()), kotlin_meta(v, _hooks)?)))
                 .collect::<VendorResult<_>>()?,
         ),
-        Array(v) => {
-            let suffix = hooks
-                .identity_suffix(
-                    "core.RawJsonReporter.identities",
-                    ObjectIdentity(std::sync::Arc::as_ptr(v) as usize as u64),
-                )
-                .map_err(clock_error)?;
-            let mut text = v.jvm_class.clone();
-            text.push('@');
-            text.push_str(&suffix);
-            KotlinValue::Text(text)
-        }
-        Decoded(v) => {
-            // DecodedNull has Object.toString even inside generated data classes.
-            fn has_null(v: &DecodedWrapper) -> bool {
-                match v {
-                    DecodedWrapper::DecodedNull => true,
-                    DecodedWrapper::DecodedArrayValue(v) => v.iter().any(has_null),
-                    _ => false,
-                }
-            }
-            let suffix = if has_null(v) {
-                hooks
-                    .identity_suffix("core.RawJsonReporter.identities", ObjectIdentity(u64::MAX))
-                    .map_err(clock_error)?
-            } else {
-                std::string::String::default()
-            };
-            v.kotlin_value(&suffix)
-        }
+        Array(v) => KotlinValue::List(
+            v.elements
+                .iter()
+                .map(|v| kotlin_meta(v, _hooks))
+                .collect::<VendorResult<_>>()?,
+        ),
+        Decoded(v) => v.kotlin_value(),
         _ => KotlinValue::Text(match meta(value) {
             V::String(v) => v,
             V::Bool(v) => if v { "true" } else { "false" }.into(),

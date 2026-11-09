@@ -11,7 +11,7 @@ use super::{
     provisioning_plan::{CurrentDevices, PlanCalculator},
     simulator_factory::{BinaryFactory, ConstructedSimulator, SimulatorCreating},
     simulator_provisioner::{FailedSetup, ProvisioningConnections, SimulatorProvisioner},
-    timing::{ProvisioningTiming, local_transport_identity, profile_text, transport_text},
+    timing::{ProvisioningTiming, profile_text, transport_text},
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use crate::apple_simulator_device::AppleSimulatorDevice;
@@ -182,7 +182,6 @@ struct State {
     exhausted: IndexSet<String>,
     replaced: Vec<Simulator>,
     initialized: bool,
-    identities: Vec<(Weak<AppleSimulatorDevice>, marathon_core::time::ObjectIdentity)>,
     monitoring: Option<Arc<dyn VendorTask>>,
     termination: Option<Arc<SharedDeferred<()>>>,
 }
@@ -209,7 +208,6 @@ pub struct AppleSimulatorProvider {
     me: Weak<Self>,
     services: ProviderServices,
     logger: Logger,
-    local_identity: String,
     state: Mutex<State>,
     tracker: Mutex<Option<DeviceTracker>>,
     updates: tokio::sync::Mutex<()>,
@@ -242,7 +240,6 @@ impl AppleSimulatorProvider {
             analytics_tracking: binding.analytics_tracking,
             bugsnag_reporting: binding.bugsnag_reporting,
         });
-        let local_identity = local_transport_identity(services.context.hooks.as_ref())?;
         let planner = PlanCalculator::new(
             services.logging.clone(),
             services.timing.clone(),
@@ -274,7 +271,6 @@ impl AppleSimulatorProvider {
             logger: services.logging.logger("AppleSimulatorProvider"),
             tracker: Mutex::new(Some(DeviceTracker::new(services.logging.clone()))),
             services: services.clone(),
-            local_identity,
             state: Mutex::default(),
             updates: tokio::sync::Mutex::new(()),
             lifecycle: tokio::sync::Mutex::new(()),
@@ -432,11 +428,9 @@ impl AppleSimulatorProvider {
         let replaced: ProvisioningResult<()> = async {
             self.services.registry.remove(&previous.device);
             if self.services.logging.enabled(&self.logger, Level::Error) {
-                let previous_text = self.object_text(&previous.handle)?;
-                let current_text = self.object_text(&device.handle)?;
                 self.log(
                     Level::Error,
-                    || format!("replaced existing device {previous_text} with new {current_text}."),
+                    || "replaced existing device AppleSimulatorDevice with new AppleSimulatorDevice.".into(),
                     None,
                 );
             }
@@ -473,35 +467,6 @@ impl AppleSimulatorProvider {
         }
         replaced
     }
-    fn object_text(&self, device: &Simulator) -> ProvisioningResult<String> {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 62);
-        let token = {
-            let mut state = self.state();
-            state.identities.retain(|(weak, _)| weak.strong_count() > 0);
-            match state
-                .identities
-                .iter()
-                .find(|(weak, _)| weak.ptr_eq(&Arc::downgrade(device)))
-            {
-                Some((_, token)) => *token,
-                None => {
-                    let token =
-                        marathon_core::time::ObjectIdentity(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
-                    state.identities.push((Arc::downgrade(device), token));
-                    token
-                }
-            }
-        };
-        let suffix = self
-            .services
-            .context
-            .hooks
-            .identity_suffix("ios.AppleSimulatorProvider.identities", token)
-            .map_err(clock_error)?;
-        let mut text: String = "com.malinskiy.marathon.apple.ios.AppleSimulatorDevice@".into();
-        text.push_str(&suffix);
-        Ok(text.to_owned())
-    }
     async fn process(&self, snapshot: MarathonDevices, caller: VendorContext) -> ProvisioningResult<()> {
         let _serial = tokio::select! { biased;
             reason = caller.cancellation.cancelled() => return Err(VendorError::Cancelled(reason).into()),
@@ -530,7 +495,7 @@ impl AppleSimulatorProvider {
                         .join("\n");
                     format!(
                         "Processing updates from {}:\n- {lines}",
-                        transport_text(&transport, &self.local_identity)
+                        transport_text(&transport, "Local")
                     )
                 },
                 None,
@@ -611,10 +576,7 @@ impl AppleSimulatorProvider {
                     siblings.cancel(reason);
                 }
                 self.isolate(result, || {
-                    format!(
-                        "Failed to initialize worker {}",
-                        transport_text(&transport, &self.local_identity)
-                    )
+                    format!("Failed to initialize worker {}", transport_text(&transport, "Local"))
                 })
             }
         });

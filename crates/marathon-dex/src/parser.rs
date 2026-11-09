@@ -69,7 +69,7 @@ pub struct TestMethod {
 
 /// DecodedValue (parser/DecodedValue.kt). Equality mirrors the Kotlin
 /// data classes: Float/Double use Java compare semantics (NaNs equal,
-/// signed zeros distinct); arrays compare by backing-array identity —
+/// signed zeros distinct); arrays compare by backing-array reference —
 /// probed on the pinned JAR (a fresh equal-content array is NOT equal).
 /// That identity rule is why JUnit3 discovery can emit duplicates.
 #[derive(Clone, Debug)]
@@ -733,7 +733,7 @@ const DEFAULT_DESCRIPTORS: [&str; 15] = [
 /// findJUnit3Tests. WP 6.4 approved P4 (iterative fixpoint) on the
 /// premise that the result SET is identical — a JVM probe disproved it:
 /// TestMethods are re-created on every re-scan, DecodedArrayValue
-/// equality is array identity, so the drop-last recursion emits
+/// equality is array reference equality, so the drop-last recursion emits
 /// duplicates for any test carrying an array-valued annotation (8
 /// duplicated tests in abstract-class-in-second-dex.apk). The recursion
 /// shape is therefore replicated exactly; see docs/wp/6.4-findings.md.

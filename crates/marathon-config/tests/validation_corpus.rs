@@ -40,29 +40,12 @@ fn rows() -> Vec<Json> {
     rows
 }
 
-/// The generator's `@<hash>` normalisation: an `@` and up to eight hex
-/// digits right after a class-name character, ending the token.
-fn normalize_hashes(s: &str) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    let mut out = String::new();
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i] == '@' && i > 0 && (chars[i - 1].is_ascii_alphanumeric() || matches!(chars[i - 1], '_' | '$')) {
-            let digits = chars[i + 1..]
-                .iter()
-                .take_while(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-                .count();
-            let next = chars.get(i + 1 + digits);
-            if (1..=8).contains(&digits) && !next.is_some_and(|c| c.is_ascii_alphanumeric()) {
-                out.push_str("@<hash>");
-                i += 1 + digits;
-                continue;
-            }
-        }
-        out.push(chars[i]);
-        i += 1;
-    }
-    out
+/// D58 replaces only the historical corpus's object identities.
+fn native_objects(s: &str) -> String {
+    jcompat::JavaRegex::compile(r"(?:[A-Za-z0-9_]+[.$])+([A-Za-z0-9_]+)@<hash>", "historical objects")
+        .expect("supported regex")
+        .replace(s, "$1")
+        .expect("capture replacement")
 }
 
 struct Cleaner {
@@ -75,7 +58,7 @@ impl Cleaner {
         if let Some(home) = &self.home {
             s = s.replace(home, "/home/");
         }
-        normalize_hashes(&s)
+        s
     }
     fn java(&self, s: &str) -> String {
         self.clean(s)
@@ -174,7 +157,7 @@ fn validation_corpus_matches_jvm() {
             .iter()
             .map(|pair| {
                 let key = pair[0].as_str().unwrap().to_owned();
-                let mut value = pair[1].as_str().unwrap().to_owned();
+                let mut value = native_objects(pair[1].as_str().unwrap());
                 // D9 (WP 2.2 S4 narrowed): a null filter `values` element is
                 // dropped at bind, so Rust cannot show the `null` Kotlin prints.
                 if id == "m-filter-null-value" && key == "filtering" {

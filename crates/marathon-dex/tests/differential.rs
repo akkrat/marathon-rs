@@ -2,7 +2,7 @@
 //! the pinned dex-test-parser 2.3.4 JAR and the reference ApkParser on
 //! the reference JDK over every fixture APK, compared exactly against
 //! the Rust output — ordered test names, per-annotation ordered values
-//! with wrapper kinds, Java scalar rendering and array identity, both ApkParser
+//! with wrapper kinds, Java scalar rendering and array reference equality, both ApkParser
 //! results, and JVM failure classes where they surface.
 //!
 //! Regenerate with tools/oracle/dex/dex-oracle.sh (never hand-edit the

@@ -32,7 +32,7 @@ use crate::{
     },
     reporters::{allure::AllureReporter, html::HtmlSummaryReporter, timeline::TimelineReporter},
     runtime::*,
-    time::{MonotonicClock, ObjectIdentity, ReplayBarriers, ReplayHooks, SystemTimer, Timer, WallClock},
+    time::{MonotonicClock, ReplayBarriers, ReplayHooks, SystemTimer, Timer, WallClock},
     vendor::VendorServices,
     wiring::{RunDependencies, UsageLifecycle, VendorDependencies},
 };
@@ -44,10 +44,7 @@ use marathon_config::{AnalyticsConfiguration, Configuration};
 use std::path::PathBuf;
 use std::{
     rc::Rc,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 
 pub type VendorFactoryFn = Box<dyn FnOnce(VendorDependencies) -> VendorFuture<'static, VendorServices> + Send>;
@@ -232,18 +229,13 @@ pub async fn construct(core: Rc<CoreExecutor>, inputs: RunInputs) -> Result<Rc<M
         logs: core.log_queue().sender(),
         stamp,
     };
-    let tokens = Arc::new(AtomicU64::new(1));
     let filters = FilterDependencies {
         values: Arc::new(FileValuesReader { logger: record.clone() }),
         allure: Arc::new(FileTestPlanSupplier {
             environment: Arc::new(ProcessEnvironment),
             logger: record.clone(),
         }),
-        rendering: Arc::new(AnnotationRenderer::new(
-            inputs.hooks.clone(),
-            ObjectIdentity(0),
-            Arc::new(move || ObjectIdentity(tokens.fetch_add(1, Ordering::SeqCst))),
-        )),
+        rendering: Arc::new(AnnotationRenderer),
     };
     let ci = Ci::from_config(inputs.configuration.ci_configuration, &inputs.environment);
     let signals = match (inputs.exit.clone(), inputs.signal_trigger.clone()) {
