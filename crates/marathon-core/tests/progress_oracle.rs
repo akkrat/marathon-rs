@@ -516,9 +516,7 @@ fn progress_line_contract_for_each_status() {
                 h.end(result(&t, &d, "1", status, 0, 1), false).await;
                 assert_eq!(
                     h.raw(),
-                    vec![JavaString::from(format!(
-                        "00% | [test]-[1] com.example.Class#method {label}\n"
-                    ))]
+                    vec![format!("00% | [test]-[1] com.example.Class#method {label}\n")]
                 );
             }
             Ok(())
