@@ -194,11 +194,6 @@ impl<M: 'static> Actor<M> for RuntimeActor<M> {
     fn send(&self, message: M) -> LocalFuture<'_, Result<(), SendError<M>>> {
         Box::pin(async move { self.try_send(message) })
     }
-    fn safe_send(&self, message: M) -> LocalFuture<'_, Result<(), SendError<M>>> {
-        // Check at call time, send when polled: closure between them can fail.
-        let closed = self.is_closed_for_send();
-        Box::pin(async move { if closed { Ok(()) } else { self.send(message).await } })
-    }
     fn close(&self) {
         self.closed.set(true);
         self.queue.borrow_mut().clear();

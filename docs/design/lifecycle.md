@@ -117,8 +117,7 @@ exceptions do not count as ordinary child failures. Detached jobs have no
 parent. A job is completed only after its body and children finish; cancel
 requests are idempotent and may precede completion by arbitrarily long I/O.
 
-`cancel_and_join` requests cancellation and suspends until completion.
-`join`, `cancel_and_join` and `join_observed_children` are protected waits:
+`join` and `join_observed_children` are protected waits:
 they do not infer a caller or rethrow the joined job's failure. Ordinary
 cancellable callers use `join_in(context.job.clone())`, preserving the caller's
 cancellation reason through its explicit `cancellation_signal`. A cancellable
@@ -183,10 +182,9 @@ termination cancels/joins prepare, then execute, notifies, then closes
 
 Actor mailboxes are unbounded and FIFO in enqueue order (`Actor.kt:29–35`).
 There is no global order across independent senders, vendors, or pools.
-`send` can fail on closure; `try_send` returns the rejected message;
-`safe_send` skips a mailbox already closed. Kotlin's check followed by send
-(`actor/extensions.kt:8–10`) can race with close: it is not an unconditional
-swallow-all-errors primitive. The pool uses atomic try-send instead
+`send` can fail on closure; `try_send` returns the rejected message.
+The unused `safe_send` wrapper and `cancel_and_join` convenience method were
+removed in WP 8.14; callers cancel explicitly before joining. The pool uses atomic try-send
 (`DevicePoolActor.kt:231–241`).
 
 Actor close **cancels** the job and discards unread messages (`Actor.kt:50–52`),

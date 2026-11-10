@@ -463,9 +463,6 @@ impl Actor<DevicePoolMessage> for RecordingPool {
     fn send(&self, message: DevicePoolMessage) -> LocalFuture<'_, Result<(), SendError<DevicePoolMessage>>> {
         Box::pin(async move { self.try_send(message) })
     }
-    fn safe_send(&self, message: DevicePoolMessage) -> LocalFuture<'_, Result<(), SendError<DevicePoolMessage>>> {
-        self.send(message)
-    }
     fn close(&self) {}
 }
 

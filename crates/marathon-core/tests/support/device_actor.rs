@@ -461,15 +461,6 @@ impl Actor<DevicePoolMessage> for RecordingPool {
             }
         })
     }
-    fn safe_send(&self, message: DevicePoolMessage) -> LocalFuture<'_, Result<(), SendError<DevicePoolMessage>>> {
-        Box::pin(async move {
-            if self.is_closed_for_send() {
-                Ok(())
-            } else {
-                self.send(message).await
-            }
-        })
-    }
     fn close(&self) {
         self.mode.set(PoolMode::Cancelled);
     }

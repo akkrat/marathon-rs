@@ -67,7 +67,6 @@ pub trait Job {
     fn cancel(&self, reason: Cancellation);
     fn complete(&self) -> bool;
     fn join(&self) -> LocalFuture<'_, Result<(), Cancellation>>;
-    fn cancel_and_join(&self, reason: Cancellation) -> LocalFuture<'_, Result<(), Cancellation>>;
     fn children_snapshot(&self) -> Vec<JobRef>;
     /// Kotlin job.children traversal, joining each observed child. Not a fixed
     /// point over future children. Preserve the pinned single-node/list traversal
@@ -109,8 +108,6 @@ pub trait Actor<M> {
     fn is_closed_for_send(&self) -> bool;
     fn try_send(&self, message: M) -> Result<(), SendError<M>>;
     fn send(&self, message: M) -> LocalFuture<'_, Result<(), SendError<M>>>;
-    /// Skip if already closed; a subsequent send/close race can still fail.
-    fn safe_send(&self, message: M) -> LocalFuture<'_, Result<(), SendError<M>>>;
     /// Cancel immediately and discard queued messages, including on repeat close.
     fn close(&self);
 }

@@ -432,10 +432,6 @@ impl Job for RuntimeJob {
             }
         })
     }
-    fn cancel_and_join(&self, reason: Cancellation) -> LocalFuture<'_, Result<(), Cancellation>> {
-        self.cancel(reason);
-        self.join()
-    }
     fn children_snapshot(&self) -> Vec<JobRef> {
         let mut children = Vec::new();
         let mut node = self.inner.borrow().head.clone();

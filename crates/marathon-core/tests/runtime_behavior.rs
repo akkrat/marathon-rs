@@ -117,7 +117,8 @@ fn join_ignores_joined_failure_and_join_in_observes_caller() {
             let reason = cancelled("caller");
             caller.cancel(reason.clone());
             assert_eq!(waiting.join_in(caller).await, Err(reason));
-            waiting.cancel_and_join(cancelled("done")).await?;
+            waiting.cancel(cancelled("done"));
+            waiting.join().await?;
             replay(driver.drain_current().await);
             parent.complete();
             Ok(())
@@ -330,28 +331,6 @@ fn actor_close_interrupts_handler_and_discards_queue() {
             assert_eq!(*seen.borrow(), [1]);
             assert!(matches!(completed(&actor.job()), Completion::Cancelled(_)));
             replay(driver.assert_quiescent());
-            parent.complete();
-            Ok(())
-        })
-    });
-}
-#[test]
-fn actor_safe_send_keeps_check_then_send_race() {
-    run(|core, driver| {
-        Box::pin(async move {
-            let parent = core.job(JobKind::Supervisor, None);
-            let actor = RuntimeActor::new(
-                core.clone(),
-                parent.clone(),
-                core.clock(),
-                handler(false, false),
-                "core.Actor.mailbox",
-            );
-            let racing = actor.safe_send(1);
-            actor.close();
-            assert!(racing.await.is_err());
-            assert!(actor.safe_send(2).await.is_ok());
-            replay(driver.drain_current().await);
             parent.complete();
             Ok(())
         })
