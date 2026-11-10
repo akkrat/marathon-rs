@@ -713,6 +713,7 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.9 | A maintained serde YAML library instead of the Jackson YAML emulation (docs/wp/8.9.md) | M | 8.8 |
 | 8.10 | clap instead of the Clikt emulation (docs/wp/8.10.md) | M | 8.9 |
 | 8.11 | Native rendering instead of Kotlin toString (docs/wp/8.11.md) | M | 8.10 |
+| 8.13 | Design: Tokio tasks and cancellation instead of the coroutine emulation (docs/wp/8.13.md) | M | 8.11 |
 
 Later candidates:
 
