@@ -707,11 +707,13 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.6b | Plain error wording instead of Java class names (docs/wp/8.6b.md) | M | 8.6a |
 | 8.7 | An ordered test queue instead of the Java PriorityQueue port (docs/wp/8.7.md) | M | 8.6b |
 | 8.8 | `tracing` instead of the logback emulation (docs/wp/8.8.md) | H | 8.7 |
+| 8.9 | A maintained serde YAML library instead of the Jackson YAML emulation (docs/wp/8.9.md) | M | 8.8 |
 
 Later candidates:
 
 - `jnum` and `jtime` (numbers and time; their parsers are the input syntax and stay)
 - Serde YAML writer instead of the Jackson YAML emulation.
+- `tracing` instead of logback emulation.
 - Plain async reads instead of Apple polling readers.
 - `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
 - `Display`/serde instead of Kotlin `toString` rendering.
