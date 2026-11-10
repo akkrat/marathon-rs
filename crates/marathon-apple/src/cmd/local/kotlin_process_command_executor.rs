@@ -6,7 +6,7 @@ use super::super::{
     failure, io_error, millis,
 };
 use super::KotlinProcessHost;
-use crate::extensions::reader::{current_time_millis, produce_lines_manually};
+use crate::extensions::reader::{OutputActivity, ReaderInput, produce_lines};
 use marathon_core::{
     error::{VendorError, VendorResult},
     runtime::{VendorFuture, VendorRuntime},
@@ -23,7 +23,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicI64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
 };
@@ -33,23 +33,21 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 
-// The manual reader polls on its own backoff. Tokio readiness can still be
-// Pending after the child exits with bytes in the pipe; that is not Java's
-// available()==0 and would let can_read discard those bytes. The child pipes
-// are nonblocking, so query the kernel directly without waiting for the reactor.
-// Pending registers no waker: only valid under produce_lines_manually, which polls on a timer.
-struct PollingPipe<R>(R);
-impl<R: AsFd + Unpin> AsyncRead for PollingPipe<R> {
-    fn poll_read(self: Pin<&mut Self>, _: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+// Normal reads use Tokio readiness; terminal/idle-boundary probes bypass its cache (D19).
+struct CommandPipe<R>(R);
+impl<R: AsyncRead + Unpin> AsyncRead for CommandPipe<R> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+impl<R: AsyncRead + AsFd + Unpin> ReaderInput for CommandPipe<R> {
+    fn read_buffered(&mut self, bytes: &mut [u8]) -> std::io::Result<Option<usize>> {
         loop {
-            match nix::unistd::read(&self.0, buf.initialize_unfilled()) {
-                Ok(count) => {
-                    buf.advance(count);
-                    return Poll::Ready(Ok(()));
-                }
+            match nix::unistd::read(&self.0, bytes) {
+                Ok(count) => return Ok(Some(count)),
                 Err(nix::errno::Errno::EINTR) => continue,
-                Err(nix::errno::Errno::EAGAIN) => return Poll::Pending,
-                Err(error) => return Poll::Ready(Err(std::io::Error::from_raw_os_error(error as i32))),
+                Err(nix::errno::Errno::EAGAIN) => return Ok(None),
+                Err(error) => return Err(std::io::Error::from_raw_os_error(error as i32)),
             }
         }
     }
@@ -187,14 +185,7 @@ async fn execute(
         actual.complete(result);
         Ok(())
     }));
-    let initial = match current_time_millis(&context) {
-        Ok(value) => value,
-        Err(error) => {
-            let _ = signals.send((Signal::SIGTERM, None));
-            return Err(error);
-        }
-    };
-    let last_output = Arc::new(AtomicI64::new(initial));
+    let last_output = OutputActivity::new(context.clock.now_millis());
     let own_context = VendorContext {
         cancellation: base.scope.clone(),
         ..context.clone()
@@ -203,6 +194,7 @@ async fn execute(
     let clock = own_context.clock.clone();
     let scope = base.scope.clone();
     let timeout = request.timeout;
+    let reader_exit = actual_exit.clone();
     base.scope.track(runtime.spawn(Box::pin(async move {
         let result_exit = exit.clone();
         let timeout_millis = match millis(timeout) {
@@ -240,20 +232,22 @@ async fn execute(
     })));
     macro_rules! reader {
         ($stream:expr, $output:expr) => {{
-            let live = alive.clone();
+            let actual = reader_exit.clone();
             let exit = base.exit_code.clone();
             let output = $output.clone();
             let last = last_output.clone();
             let reader_context = own_context.clone();
             let idle_timeout = request.idle_timeout;
             base.scope.track(runtime.spawn(Box::pin(async move {
-                produce_lines_manually(
-                    PollingPipe($stream),
+                produce_lines(
+                    CommandPipe($stream),
                     output,
                     last,
                     idle_timeout,
                     reader_context,
-                    move || live.load(Ordering::SeqCst) && !exit.is_completed(),
+                    async move {
+                        tokio::select! { _ = actual.wait() => {}, _ = exit.wait() => {} }
+                    },
                 )
                 .await
             })));
@@ -369,43 +363,32 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn exited_child_pipes_are_drained_before_the_reactor_delivers_readiness() {
+    async fn exited_child_pipes_are_drained_before_the_reactor_delivers_readiness()
+    -> Result<(), Box<dyn std::error::Error>> {
         let mut child = std::process::Command::new("sh")
             .args(["-c", "printf 'stdout tail'; printf 'Hello world\\n' >&2"])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .spawn()
-            .unwrap();
-        assert!(child.wait().unwrap().success());
-        let stdout = tokio::process::ChildStdout::from_std(child.stdout.take().unwrap()).unwrap();
-        let stderr = tokio::process::ChildStderr::from_std(child.stderr.take().unwrap()).unwrap();
-        // No await or runtime turn between registration and these polls: the
-        // kernel has bytes, but Tokio has not received the readiness events.
-        fn check(mut pipe: impl AsyncRead + Unpin, expected: &[u8]) {
+            .spawn()?;
+        assert!(child.wait()?.success());
+        let stdout = tokio::process::ChildStdout::from_std(child.stdout.take().ok_or("missing stdout")?)?;
+        let stderr = tokio::process::ChildStderr::from_std(child.stderr.take().ok_or("missing stderr")?)?;
+        // No await between reactor registration and the drain. A readiness-only
+        // final read here can be Pending despite bytes already being in the kernel.
+        fn check(mut pipe: CommandPipe<impl AsyncRead + AsFd + Unpin>, expected: &[u8]) -> std::io::Result<()> {
             let mut bytes = [0; 64];
-            let mut buf = ReadBuf::new(&mut bytes);
             let mut cx = Context::from_waker(std::task::Waker::noop());
-            assert!(matches!(
-                Pin::new(&mut pipe).poll_read(&mut cx, &mut buf),
-                Poll::Ready(Ok(()))
-            ));
-            assert_eq!(buf.filled(), expected);
-            buf.clear();
-            // EOF needs every write end closed. A process that another test in this binary forks at this moment
-            // holds a copy until it execs, so the read can be Pending for that long (once in 28 Linux runs).
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
-            loop {
-                match Pin::new(&mut pipe).poll_read(&mut cx, &mut buf) {
-                    Poll::Ready(Ok(())) => break,
-                    Poll::Pending if std::time::Instant::now() < deadline => {
-                        std::thread::sleep(std::time::Duration::from_millis(1))
-                    }
-                    other => panic!("no EOF: {other:?}"),
-                }
-            }
-            assert!(buf.filled().is_empty());
+            assert!(
+                Pin::new(&mut pipe)
+                    .poll_read(&mut cx, &mut ReadBuf::new(&mut bytes))
+                    .is_pending()
+            );
+            assert_eq!(pipe.read_buffered(&mut bytes)?, Some(expected.len()));
+            assert_eq!(&bytes[..expected.len()], expected);
+            Ok(())
         }
-        check(PollingPipe(stdout), b"stdout tail");
-        check(PollingPipe(stderr), b"Hello world\n");
+        check(CommandPipe(stdout), b"stdout tail")?;
+        check(CommandPipe(stderr), b"Hello world\n")?;
+        Ok(())
     }
 }

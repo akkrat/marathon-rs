@@ -35,6 +35,7 @@ impl CliRunner for Probe {
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    marathon_apple::xcodebuild_session::settle_event_lines_for_differential();
     let mut tape = Tape {
         wall: ClockMode::Frozen(WALL),
         monotonic: ClockMode::Frozen(0),

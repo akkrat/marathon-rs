@@ -9,7 +9,7 @@ use super::client::{
     ConnectionShared, HandleRef, MAX_PACKET_SIZE, SshConnection, TIMEOUT_MILLIS, TIMEOUT_TEXT, WINDOW_SIZE, within,
 };
 use super::error::{CIRCULAR_BUFFER_EXCEPTION, CONNECTION_EXCEPTION, DisconnectReason, SshFailure};
-use crate::cmd::SessionScope;
+use crate::{cmd::SessionScope, extensions::reader::ReaderInput};
 use marathon_core::runtime::{VendorClock, VendorRuntime};
 use russh::{ChannelId, ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Sig, client};
 use std::{
@@ -17,7 +17,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 use tokio::{
     io::{AsyncRead, ReadBuf},
@@ -48,6 +48,8 @@ const CLOSE_WAIT_MILLIS: i64 = TIMEOUT_MILLIS - TERM_WAIT_MILLIS;
 struct State {
     stdout: VecDeque<u8>,
     stderr: VecDeque<u8>,
+    stdout_waker: Option<Waker>,
+    stderr_waker: Option<Waker>,
     eof: bool,
     close_requested: bool,
     /// D30: a [`ExecChannel::close_escalating`] has begun; later callers wait for it instead of repeating it.
@@ -118,8 +120,15 @@ impl ExecChannel {
         this
     }
     fn update<T>(&self, f: impl FnOnce(&mut State) -> T) -> T {
-        let value = f(&mut self.state.lock().unwrap_or_else(|e| e.into_inner()));
+        let (value, wakers) = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            let value = f(&mut state);
+            (value, [state.stdout_waker.take(), state.stderr_waker.take()])
+        };
         self.changed.send_modify(|version| *version += 1);
+        for waker in wakers.into_iter().flatten() {
+            waker.wake();
+        }
         value
     }
     fn read<T>(&self, f: impl FnOnce(&State) -> T) -> T {
@@ -139,6 +148,10 @@ impl ExecChannel {
     /// `isOpen()`: open, no CLOSE received or failure delivered, no CLOSE requested.
     pub fn is_open(&self) -> bool {
         self.read(|s| s.closed.is_none() && !s.close_requested)
+    }
+    pub async fn read_ended(&self) {
+        self.wait_for(|s| (s.eof || s.close_requested || s.closed.is_some()).then_some(()))
+            .await;
     }
     pub fn is_eof(&self) -> bool {
         self.read(|s| s.eof)
@@ -513,18 +526,42 @@ async fn writer(
     Ok(())
 }
 
-/// One stream for 4.1's `produce_lines_manually`. An empty buffer is "available() == 0": no data, no EOF;
-/// the reader's `can_read` predicate (`isOpen && !isEOF`) ends it.
+/// A waiting stream over the pump's buffer. Buffered bytes always precede EOF.
 pub struct ChannelReader {
     channel: Arc<ExecChannel>,
     stream: Stream,
 }
 impl AsyncRead for ChannelReader {
-    fn poll_read(self: Pin<&mut Self>, _: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
-        if self.channel.take(self.stream, buf) == 0 {
-            return Poll::Pending;
+    fn poll_read(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
         }
-        Poll::Ready(Ok(()))
+        // Register before inspecting data/end, so an update between the two cannot be missed.
+        {
+            let mut state = self.channel.state.lock().unwrap_or_else(|e| e.into_inner());
+            let waker = match self.stream {
+                Stream::Stdout => &mut state.stdout_waker,
+                Stream::Stderr => &mut state.stderr_waker,
+            };
+            *waker = Some(cx.waker().clone());
+        }
+        if self.channel.take(self.stream, buf) > 0
+            || self.channel.read(|s| {
+                let empty = match self.stream {
+                    Stream::Stdout => s.stdout.is_empty(),
+                    Stream::Stderr => s.stderr.is_empty(),
+                };
+                empty && (s.eof || s.close_requested || s.closed.is_some())
+            })
+        {
+            return Poll::Ready(Ok(()));
+        }
+        Poll::Pending
+    }
+}
+impl ReaderInput for ChannelReader {
+    fn read_buffered(&mut self, bytes: &mut [u8]) -> std::io::Result<Option<usize>> {
+        Ok(Some(self.channel.take(self.stream, &mut ReadBuf::new(bytes))))
     }
 }
 
@@ -613,6 +650,145 @@ mod tests {
             _: VendorTimeoutBody<'a>,
         ) -> VendorFuture<'a, Option<()>> {
             Box::pin(std::future::pending())
+        }
+    }
+
+    fn reader_test_channel() -> Arc<ExecChannel> {
+        let logging = SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {}));
+        Arc::new(ExecChannel {
+            number: 0,
+            state: Mutex::new(State {
+                window: WINDOW_SIZE,
+                ..Default::default()
+            }),
+            changed: watch::channel(0).0,
+            ops: mpsc::unbounded_channel().0,
+            shared: ConnectionShared::new(PerformanceDefaultConfig::new(false, logging).loggers()),
+            clock: Arc::new(NoClock),
+            scope: Arc::new(SessionScope::default()),
+        })
+    }
+
+    fn end_reader(channel: &ExecChannel, event: usize) {
+        match event {
+            0 => {
+                channel.deliver(ChannelMsg::Eof);
+            }
+            1 => {
+                channel.deliver(ChannelMsg::Close);
+            }
+            2 => channel.request_close(),
+            _ => channel.finish(Err(SshFailure::new(CONNECTION_EXCEPTION, "transport lost"))),
+        }
+    }
+
+    #[test]
+    fn ssh_readers_wake_for_data_eof_close_requested_close_and_transport_loss() -> std::io::Result<()> {
+        use std::{
+            sync::atomic::{AtomicUsize, Ordering},
+            task::Wake,
+        };
+        struct Wakes(AtomicUsize);
+        impl Wake for Wakes {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        for event in 0..4 {
+            let channel = reader_test_channel();
+            let mut out = channel.reader(Stream::Stdout);
+            let mut err = channel.reader(Stream::Stderr);
+            let wakes = Arc::new(Wakes(AtomicUsize::new(0)));
+            let waker = Waker::from(wakes.clone());
+            let mut cx = Context::from_waker(&waker);
+            let mut bytes = [0; 64];
+            for reader in [&mut out, &mut err] {
+                assert!(
+                    Pin::new(reader)
+                        .poll_read(&mut cx, &mut ReadBuf::new(&mut bytes))
+                        .is_pending()
+                );
+            }
+            channel.receive(Stream::Stdout, b"stdout");
+            assert_eq!(wakes.0.load(Ordering::SeqCst), 2);
+            channel.receive(Stream::Stderr, b"stderr");
+            // Drain data, then suspend both readers again before the terminal transition.
+            for (reader, expected) in [(&mut out, b"stdout"), (&mut err, b"stderr")] {
+                let mut buf = ReadBuf::new(&mut bytes);
+                assert!(matches!(
+                    Pin::new(&mut *reader).poll_read(&mut cx, &mut buf),
+                    Poll::Ready(Ok(()))
+                ));
+                assert_eq!(buf.filled(), expected);
+                assert!(
+                    Pin::new(reader)
+                        .poll_read(&mut cx, &mut ReadBuf::new(&mut bytes))
+                        .is_pending()
+                );
+            }
+            let before = wakes.0.load(Ordering::SeqCst);
+            end_reader(&channel, event);
+            assert_eq!(wakes.0.load(Ordering::SeqCst), before + 2);
+            for reader in [&mut out, &mut err] {
+                let mut buf = ReadBuf::new(&mut bytes);
+                assert!(matches!(
+                    Pin::new(reader).poll_read(&mut cx, &mut buf),
+                    Poll::Ready(Ok(()))
+                ));
+                assert!(buf.filled().is_empty());
+            }
+            // The terminal signal is latched even when subscribed after delivery.
+            let mut end = std::pin::pin!(channel.read_ended());
+            assert!(end.as_mut().poll(&mut cx).is_ready());
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn terminal_ssh_data_precedes_eof_close_and_transport_loss_without_idle_ticks() {
+        use crate::{
+            cmd::channel::LineChannel,
+            extensions::reader::{OutputActivity, produce_lines},
+        };
+        use marathon_core::{executor::hooks::RuntimeHooks, vendor::VendorContext};
+        for event in 0..4 {
+            let channel = reader_test_channel();
+            let output = LineChannel::new(4);
+            let ctx = VendorContext {
+                clock: Arc::new(NoClock),
+                hooks: RuntimeHooks::live(),
+                cancellation: Arc::new(SessionScope::default()),
+            };
+            let ended = channel.clone();
+            let mut reader = Box::pin(produce_lines(
+                channel.reader(Stream::Stdout),
+                output.clone(),
+                OutputActivity::new(0),
+                jcompat::jtime::duration_of(i64::MAX / 1000, (i64::MAX % 1000) * 1_000_000).unwrap(),
+                ctx,
+                async move { ended.read_ended().await },
+            ));
+            assert!(
+                std::future::poll_fn(|cx| Poll::Ready(reader.as_mut().poll(cx)))
+                    .await
+                    .is_pending()
+            );
+            // Gate the pump between the reader's Pending and its continuation.
+            channel.receive(Stream::Stdout, b"first\npartial");
+            end_reader(&channel, event);
+            assert_eq!(reader.await, Ok(()));
+            assert_eq!(output.receive().await, Ok(Some("first".into())));
+            assert_eq!(output.receive().await, Ok(Some("partial".into())));
+            assert_eq!(output.receive().await, Ok(None));
+            if event != 2 {
+                channel.receive(Stream::Stdout, b"after end");
+                assert_eq!(channel.available(Stream::Stdout), 0);
+            }
+            let mut empty = [];
+            assert_eq!(
+                channel.reader(Stream::Stdout).read_buffered(&mut empty).ok(),
+                Some(Some(0))
+            );
         }
     }
 

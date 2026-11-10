@@ -248,6 +248,8 @@ impl<'a> XCTestParser<'a> {
                             }
                         }
                     }
+                    #[cfg(feature = "test-support")]
+                    channel.processed();
                 }
             }
             log(

@@ -97,6 +97,8 @@ impl RuntimeHooks {
         for label in ["metadata.array.identity", "metadata.decoded_null.identity"] {
             tape.ids.remove(label);
         }
+        // D62 retires the polling reader clock; historical tapes stay unchanged on disk.
+        tape.reads.remove("apple.Reader.currentTimeMillis");
         Self::build(Some(tape), Some(clock.timeline.clone()))
     }
     fn build(tape: Option<Tape>, timeline: Option<Arc<Timeline>>) -> Arc<Self> {

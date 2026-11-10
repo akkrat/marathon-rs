@@ -2,6 +2,11 @@
 
 > WP 8.5 / D58: native rendering no longer allocates object or metadata identity suffixes. The identity tape format below is historical; checked-in oracle tapes remain unchanged.
 
+> WP 8.12 / D62: Apple command idle deadlines use the vendor scheduler clock.
+> The retired `reads["apple.Reader.currentTimeMillis"]` key is removed only from
+> the in-memory native tape. Historical/copied tapes and evidence stay unchanged;
+> every other explicit read, draw, ID and barrier retains strict verification.
+
 WP 0.2b defines the inputs shared with the future Rust seams (WP 3.1). These are oracle inputs, not Marathonfile extensions.
 No goldens are produced here. The reference is commit `e47352f2`.
 

@@ -1,6 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/extensions/Reader.kt
 
-use super::poll_backoff::PollBackoff;
 use crate::cmd::{channel::LineChannel, failure, line_buffer::LineBuffer, millis};
 use jcompat::jtime::Duration;
 use marathon_core::{
@@ -8,36 +7,51 @@ use marathon_core::{
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
-use std::{
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicI64, Ordering},
-    },
-    task::Poll,
+use std::{future::Future, io};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    sync::watch,
 };
-use tokio::io::{AsyncRead, ReadBuf};
 
-pub fn current_time_millis(context: &VendorContext) -> VendorResult<i64> {
-    context
-        .hooks
-        .millis("apple.Reader.currentTimeMillis")
-        .map_err(|e| VendorError::Other(failure(FailureKind::ReplayClock, e.message)))
+/// The last positive read on either stream, in the command's vendor-clock domain.
+#[derive(Clone)]
+pub struct OutputActivity(watch::Sender<i64>);
+impl OutputActivity {
+    pub fn new(now: i64) -> Self {
+        Self(watch::channel(now).0)
+    }
+    fn record(&self, now: i64) {
+        // Notify even when two reads have the same millisecond timestamp.
+        self.0.send_replace(now);
+    }
 }
 
-/// Polls an async stream once per backoff tick. A pending read never delays the
-/// idle check, and available data wins over both idle expiry and can_read=false.
-pub async fn produce_lines_manually<R, C>(
+/// Running reads register readiness; terminal drains and idle-boundary probes
+/// must also see bytes buffered before the reactor delivers readiness (D19).
+pub trait ReaderInput: AsyncRead + Unpin {
+    fn read_buffered(&mut self, bytes: &mut [u8]) -> io::Result<Option<usize>>;
+}
+
+fn remaining(last: i64, now: i64, limit: i64) -> i64 {
+    if limit <= 0 {
+        return 0;
+    }
+    (i128::from(last) + i128::from(limit) - i128::from(now)).clamp(0, i128::from(i64::MAX)) as i64
+}
+
+/// D62: readiness, a shared vendor-clock idle deadline and a latched backend end
+/// replace polling. Ready bytes retain precedence over idle expiry and end.
+pub async fn produce_lines<R, E>(
     mut input: R,
     output: LineChannel,
-    last_output: Arc<AtomicI64>,
+    activity: OutputActivity,
     idle_timeout: Duration,
     context: VendorContext,
-    can_read: C,
+    ended: E,
 ) -> VendorResult<()>
 where
-    R: AsyncRead + Unpin,
-    C: Fn() -> bool,
+    R: ReaderInput,
+    E: Future<Output = ()>,
 {
     let sink = output.clone();
     let buffer = LineBuffer::new(move |line| {
@@ -45,59 +59,101 @@ where
         Box::pin(async move { sink.send(line).await })
     });
     let result = async {
-        let mut backoff = PollBackoff::default();
+        let limit = millis(idle_timeout);
+        let mut last = activity.0.subscribe();
         let mut bytes = [0; 16_384];
+        let mut eof = false;
+        let mut chunks = 0_u32;
+        tokio::pin!(ended);
         loop {
-            if context.cancellation.reason().is_some() || output.is_closed() {
+            if let Some(reason) = context.cancellation.reason() {
+                return Err(VendorError::Cancelled(reason));
+            }
+            if output.is_closed() {
                 break;
             }
-            let count = match read_now(&mut input, &mut bytes).await {
-                Ok(count) => count,
-                Err(_) => break,
-            };
-            if let Some(count) = count.filter(|count| *count > 0) {
-                buffer.append(&bytes[..count]);
-                last_output.store(current_time_millis(&context)?, Ordering::SeqCst);
-                backoff.reset();
-                buffer.flush().await?;
-                continue;
-            }
-            let elapsed = current_time_millis(&context)?.wrapping_sub(last_output.load(Ordering::SeqCst));
-            if elapsed.wrapping_sub(backoff.max_millis) > millis(idle_timeout)? {
-                let cause = failure(FailureKind::Timeout, format!("idle timeout {idle_timeout} reached"));
-                output.close(Some(cause.clone()));
-                return Err(VendorError::Other(cause));
-            }
-            // Kotlin never reads when available()==0, including pipe EOF.
-            // Only can_read ends that polling while the process is alive (A25).
-            if !can_read() {
-                // D19: output that arrived together with EOF after this poll's empty read is still buffered.
-                // Kotlin stops here without reading it (U145); read it before the drain below.
-                while context.cancellation.reason().is_none() && !output.is_closed() {
-                    match read_now(&mut input, &mut bytes).await {
-                        Ok(Some(count)) if count > 0 => {
+            let timestamp = *last.borrow_and_update();
+            let wait = limit
+                .as_ref()
+                .map_or(0, |limit| remaining(timestamp, context.clock.now_millis(), *limit));
+            tokio::select! {
+                biased;
+                read = input.read(&mut bytes), if !eof => {
+                    match read {
+                        Ok(0) => eof = true, // A25: keep output open without repeatedly reading EOF.
+                        Ok(count) => {
                             buffer.append(&bytes[..count]);
+                            activity.record(context.clock.now_millis());
                             buffer.flush().await?;
+                            chunks += 1;
                         }
-                        _ => break,
+                        Err(_) => break,
                     }
                 }
-                break;
+                _ = last.changed() => {}
+                result = async {
+                    // Keep conversion failure behind a ready read/error, as in Reader.kt.
+                    match &limit {
+                        Ok(_) => context.clock.delay(wait, context.cancellation.clone()).await,
+                        Err(error) => Err(error.clone()),
+                    }
+                }, if !matches!(limit, Ok(i64::MAX)) => {
+                    // Reactor readiness can lag behind bytes in a local pipe. A single
+                    // boundary probe keeps readable bytes ahead of timeout, too (D19).
+                    if !eof {
+                        match input.read_buffered(&mut bytes) {
+                            Ok(Some(count)) if count > 0 => {
+                                buffer.append(&bytes[..count]);
+                                activity.record(context.clock.now_millis());
+                                buffer.flush().await?;
+                                chunks += 1;
+                                if chunks >= 32 { tokio::task::yield_now().await; chunks = 0; }
+                                continue;
+                            }
+                            Err(_) => break,
+                            _ => {}
+                        }
+                    }
+                    result?;
+                    let limit = *limit.as_ref().map_err(Clone::clone)?;
+                    // The sibling may have read while this deadline was becoming ready.
+                    if remaining(*last.borrow(), context.clock.now_millis(), limit) == 0 {
+                        let cause = failure(FailureKind::Timeout, format!("idle timeout {idle_timeout} reached"));
+                        output.close(Some(cause.clone()));
+                        return Err(VendorError::Other(cause));
+                    }
+                }
+                _ = &mut ended => {
+                    // D19/U145: never wait for inherited write ends, or trust stale
+                    // reactor readiness. These reads neither refresh activity nor check idle.
+                    loop {
+                        if let Some(reason) = context.cancellation.reason() { return Err(VendorError::Cancelled(reason)); }
+                        if output.is_closed() { break; }
+                        let Ok(Some(count)) = input.read_buffered(&mut bytes) else { break; };
+                        if count == 0 { break; }
+                        buffer.append(&bytes[..count]);
+                        buffer.flush().await?;
+                        chunks += 1;
+                        if chunks >= 32 { tokio::task::yield_now().await; chunks = 0; }
+                    }
+                    break;
+                }
             }
-            context
-                .clock
-                .delay(backoff.next_millis(), context.cancellation.clone())
-                .await?;
+            // In-memory SSH buffers and final drains need not yield on their own.
+            if chunks >= 32 {
+                tokio::task::yield_now().await;
+                chunks = 0;
+            }
         }
         Ok(())
     };
     let result = tokio::select! {
         biased;
         reason = context.cancellation.cancelled() => Err(VendorError::Cancelled(reason)),
+        _ = output.closed() => Ok(()),
         result = result => result,
     };
-    // Kotlin closes with the timeout before LineBuffer.drain tries to send its
-    // tail. The closed channel rejects that tail (A24).
+    // A24: timeout closes before the tail drain; the closed channel rejects it.
     let drain = tokio::select! {
         biased;
         _ = context.cancellation.cancelled() => Ok(()),
@@ -118,17 +174,4 @@ where
         }
         Err(error) => Err(error),
     }
-}
-
-/// One non-waiting read: `Some(0)` at EOF, `None` while nothing is available.
-async fn read_now<R: AsyncRead + Unpin>(input: &mut R, bytes: &mut [u8]) -> std::io::Result<Option<usize>> {
-    std::future::poll_fn(|cx| {
-        let mut buf = ReadBuf::new(bytes);
-        Poll::Ready(match Pin::new(&mut *input).poll_read(cx, &mut buf) {
-            Poll::Ready(Ok(())) => Ok(Some(buf.filled().len())),
-            Poll::Ready(Err(error)) => Err(error),
-            Poll::Pending => Ok(None),
-        })
-    })
-    .await
 }

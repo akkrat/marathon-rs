@@ -1646,6 +1646,7 @@ dependencies = [
  "marathon-adb",
  "marathon-analytics",
  "marathon-android",
+ "marathon-apple",
  "marathon-cli",
  "marathon-config",
  "marathon-core",

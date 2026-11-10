@@ -41,6 +41,17 @@ impl LineChannel {
     pub fn is_closed(&self) -> bool {
         !matches!(self.0.state.lock().unwrap_or_else(|e| e.into_inner()).end, End::Open)
     }
+    pub async fn closed(&self) {
+        loop {
+            let changed = self.0.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.is_closed() {
+                return;
+            }
+            changed.await;
+        }
+    }
     pub fn close(&self, cause: Option<Failure>) {
         let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
         if matches!(state.end, End::Open) {

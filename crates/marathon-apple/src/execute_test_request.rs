@@ -89,11 +89,12 @@ pub fn execute_test_request(
                             .await
                             .process(&line)
                             .map_err(|e| VendorError::Other(e.to_failure()))?;
-                        // A20: an event is visible before its line reaches the listeners.
+                        // A20 in production; the differential probe gates its pinned interleaving.
                         if let Some(events) = events {
-                            sender.send(events).await?;
+                            sender.send_line(events, listeners.on_line(&line)).await
+                        } else {
+                            listeners.on_line(&line).await
                         }
-                        listeners.on_line(&line).await
                     }
                 },
                 |line| {

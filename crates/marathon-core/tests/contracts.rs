@@ -128,7 +128,7 @@ pub async fn reports_and_listeners(
 pub fn transport_contract(context: &VendorContext) -> ClockResult<(i64, i64)> {
     let _cancelled = context.cancellation.reason();
     Ok((
-        context.hooks.millis("apple.Reader.currentTimeMillis")?,
+        context.clock.now_millis(),
         context.hooks.nanos("ios.AppleSimulatorDevice.nanoTime")?,
     ))
 }

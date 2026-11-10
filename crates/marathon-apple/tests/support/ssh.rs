@@ -366,6 +366,9 @@ impl GatedTimeoutClock {
     }
 }
 impl marathon_core::runtime::VendorClock for GatedTimeoutClock {
+    fn now_millis(&self) -> i64 {
+        self.inner.now()
+    }
     fn delay(
         &self,
         millis: i64,

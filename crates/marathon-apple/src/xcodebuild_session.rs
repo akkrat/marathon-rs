@@ -28,10 +28,34 @@ struct Events {
     end: Option<VendorResult<()>>,
     cancelled: bool,
 }
-#[derive(Default)]
+#[cfg(feature = "test-support")]
+static SETTLE_EVENT_LINES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Select a valid A20 interleaving for the hermetic differential probe only.
+#[cfg(feature = "test-support")]
+pub fn settle_event_lines_for_differential() {
+    SETTLE_EVENT_LINES.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg_attr(not(feature = "test-support"), derive(Default))]
 struct Channel {
     state: Mutex<Events>,
     changed: Notify,
+    #[cfg(feature = "test-support")]
+    settled: Option<tokio::sync::Semaphore>,
+}
+#[cfg(feature = "test-support")]
+impl Default for Channel {
+    fn default() -> Self {
+        Self {
+            state: Mutex::default(),
+            changed: Notify::new(),
+            #[cfg(feature = "test-support")]
+            settled: SETTLE_EVENT_LINES
+                .load(std::sync::atomic::Ordering::Relaxed)
+                .then(|| tokio::sync::Semaphore::new(0)),
+        }
+    }
 }
 #[derive(Clone)]
 pub struct EventSender(Arc<Channel>);
@@ -55,6 +79,36 @@ impl EventSender {
             changed.await;
         }
     }
+    pub async fn send_line<F>(&self, events: Vec<TestEvent>, line: F) -> VendorResult<()>
+    where
+        F: Future<Output = VendorResult<()>>,
+    {
+        #[cfg(feature = "test-support")]
+        if let Some(handled) = &self.0.settled {
+            // The native golden pins line-before-handler, one valid A20 ordering.
+            // Acknowledgement replaces elapsed-time guesses between event handlers.
+            line.await?;
+            self.send(events).await?;
+            loop {
+                let changed = self.0.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if self.0.state.lock().unwrap_or_else(|e| e.into_inner()).cancelled {
+                    return Err(VendorError::Cancelled(cancelled("Channel was cancelled")));
+                }
+                tokio::select! {
+                    permit = handled.acquire() => {
+                        if let Ok(permit) = permit { permit.forget(); }
+                        return Ok(());
+                    }
+                    _ = changed => {}
+                }
+            }
+        }
+        // Production retains A20's event-before-line ordering.
+        self.send(events).await?;
+        line.await
+    }
     fn finish(&self, result: VendorResult<()>) -> bool {
         let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
         if state.cancelled || state.end.is_some() {
@@ -66,6 +120,12 @@ impl EventSender {
     }
 }
 impl EventReceiver {
+    #[cfg(feature = "test-support")]
+    pub fn processed(&self) {
+        if let Some(handled) = &self.0.settled {
+            handled.add_permits(1);
+        }
+    }
     pub async fn receive(&self, context: &VendorContext) -> VendorResult<Option<Vec<TestEvent>>> {
         loop {
             let changed = self.0.changed.notified();
@@ -291,4 +351,63 @@ pub(crate) fn device_lost(cause: Failure) -> VendorError {
     let mut detail = failure(FailureKind::DeviceLost, cause.to_string());
     detail.cause = Some(Box::new(cause));
     VendorError::DeviceLost(detail)
+}
+
+#[cfg(all(test, feature = "test-support"))]
+mod line_order_tests {
+    use super::*;
+    use std::task::Poll;
+
+    async fn once<F: Future>(future: std::pin::Pin<&mut F>) -> Poll<F::Output> {
+        let mut future = future;
+        std::future::poll_fn(|cx| Poll::Ready(future.as_mut().poll(cx))).await
+    }
+
+    #[tokio::test]
+    async fn differential_line_gate_waits_for_line_then_handler_and_cancel_releases_it() {
+        let channel = Arc::new(Channel {
+            settled: Some(tokio::sync::Semaphore::new(0)),
+            ..Channel::default()
+        });
+        let sender = EventSender(channel.clone());
+        let receiver = EventReceiver(channel.clone());
+        let (line, delivered) = tokio::sync::oneshot::channel();
+        let mut send = Box::pin(sender.send_line(vec![TestEvent::TestRunStartedEvent], async move {
+            assert!(delivered.await.is_ok());
+            Ok(())
+        }));
+        assert!(once(send.as_mut()).await.is_pending());
+        assert!(channel.state.lock().unwrap().queue.is_empty());
+        assert!(line.send(()).is_ok());
+        assert!(once(send.as_mut()).await.is_pending());
+        assert_eq!(channel.state.lock().unwrap().queue.len(), 1);
+        // Receiving alone is not the acknowledgement: callbacks must finish first.
+        assert!(channel.state.lock().unwrap().queue.pop_front().is_some());
+        assert!(once(send.as_mut()).await.is_pending());
+        receiver.processed();
+        assert_eq!(send.await, Ok(()));
+        let mut send = Box::pin(sender.send_line(vec![TestEvent::TestRunEnded], async { Ok(()) }));
+        assert!(once(send.as_mut()).await.is_pending());
+        receiver.cancel();
+        assert!(matches!(send.await, Err(VendorError::Cancelled(_))));
+    }
+
+    #[tokio::test]
+    async fn production_line_delivery_keeps_event_before_line_without_acknowledgement() {
+        let channel = Arc::new(Channel {
+            settled: None,
+            ..Channel::default()
+        });
+        let sender = EventSender(channel.clone());
+        let seen = channel.clone();
+        assert_eq!(
+            sender
+                .send_line(vec![TestEvent::TestRunStartedEvent], async move {
+                    assert_eq!(seen.state.lock().unwrap().queue.len(), 1);
+                    Ok(())
+                })
+                .await,
+            Ok(())
+        );
+    }
 }

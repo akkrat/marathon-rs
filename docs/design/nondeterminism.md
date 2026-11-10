@@ -35,6 +35,12 @@ the DEX array identity leak (C19). The library rows include ordinary value forma
 This is a reproducible audit of the frozen code, not a proof that the regexes can discover every future library behavior.
 Source changes require re-review, especially new executors and serialization dependencies.
 
+WP 8.12 / D62 retires native calls to `apple.Reader.currentTimeMillis`.
+Apple command idle deadlines use `VendorClock::now_millis` and `delay` on the
+same replay-controlled scheduler timeline. The frozen Kotlin inventory and
+oracle hook patch remain historical witnesses. Only the retired explicit
+read key is ignored in memory; active-key verification stays strict.
+
 ## Controls and boundaries
 
 | Kind | Control |

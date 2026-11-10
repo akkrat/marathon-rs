@@ -9,7 +9,7 @@ use super::session::session_control;
 use crate::cmd::{BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, millis};
 use crate::extensions::{
     poll_backoff::PollBackoff,
-    reader::{current_time_millis, produce_lines_manually},
+    reader::{OutputActivity, produce_lines},
 };
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
@@ -21,7 +21,7 @@ use marathon_logging::{Component, Level};
 use russh::Sig;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicI64, Ordering},
+    atomic::{AtomicBool, Ordering},
 };
 use tokio::sync::oneshot;
 
@@ -141,6 +141,7 @@ pub async fn suspend_for<C: ExitState + ?Sized>(
     clock: &dyn VendorClock,
     cancellation: Arc<dyn CancellationSignal>,
 ) -> Result<Option<i32>, ExitWaitError> {
+    // WP 8.12: PollBackoff remains only for this SSH exit waiter; output reads await readiness.
     let mut backoff = PollBackoff::default();
     loop {
         if !command.is_open() {
@@ -196,15 +197,7 @@ async fn execute(
     );
     channel.exec(command).await.map_err(SshFailure::into_vendor)?;
     let base = BaseCommand::new(capacity, runtime.clone());
-    let initial = match current_time_millis(&context) {
-        Ok(value) => value,
-        Err(error) => {
-            let _ = channel.signal(Sig::TERM);
-            let _ = channel.close_escalating().await;
-            return Err(error);
-        }
-    };
-    let last_output = Arc::new(AtomicI64::new(initial));
+    let last_output = OutputActivity::new(context.clock.now_millis());
     let own_context = VendorContext {
         cancellation: base.scope.clone(),
         ..context.clone()
@@ -219,8 +212,8 @@ async fn execute(
         let reader_context = own_context.clone();
         let idle_timeout = request.idle_timeout;
         base.scope.track(runtime.spawn(Box::pin(async move {
-            produce_lines_manually(reader, output, last, idle_timeout, reader_context, move || {
-                readable.is_open() && !readable.is_eof()
+            produce_lines(reader, output, last, idle_timeout, reader_context, async move {
+                readable.read_ended().await;
             })
             .await
         })));

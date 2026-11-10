@@ -77,6 +77,9 @@ impl Clock {
 }
 static SCOPE: AtomicU64 = AtomicU64::new(1);
 impl VendorClock for Clock {
+    fn now_millis(&self) -> i64 {
+        self.now()
+    }
     fn delay(&self, millis: i64, cancellation: Arc<dyn CancellationSignal>) -> VendorFuture<'_, ()> {
         Box::pin(async move {
             if let Some(reason) = cancellation.reason() {

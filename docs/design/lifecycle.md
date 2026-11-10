@@ -483,6 +483,14 @@ CLI failures. NoTests preserves the typo “No tests cases were found” (`:162`
 
 ## Controlled replay seams
 
+WP 8.12 / D62 replaces the Apple command reader's wall-clock idle arithmetic
+with exact vendor scheduler deadlines, shared between stdout and stderr. Its
+retired `apple.Reader.currentTimeMillis` key is ignored only in the in-memory
+native tape. Other wall/monotonic hooks remain independent and strict. Local
+EOF while the process lives keeps output open until end, idle expiry,
+cancellation or consumer closure; terminal drains never wait for inherited
+pipe write ends. `PollBackoff` remains only in the SSH exit waiter.
+
 The exact formats and labels in `replay-tapes.md` and
 `nondeterminism-sites.csv` are the contract; do not invent replacement labels.
 `ReplayHooks` supplies wall millis/Instant, monotonic nanos, signed i32 draws,

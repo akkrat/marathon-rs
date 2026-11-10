@@ -158,7 +158,10 @@ impl AppleDeviceTestRunner {
             );
             if let Some(channel) = &channel {
                 while let Some(events) = channel.receive(context).await? {
-                    process_events(&events, listener).await?;
+                    let processed = process_events(&events, listener).await;
+                    #[cfg(feature = "test-support")]
+                    channel.processed();
+                    processed?;
                 }
             }
             self.log(Level::DEBUG, "Execution finished", None);

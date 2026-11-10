@@ -325,3 +325,62 @@ fn unused_active_id_entries_still_fail_with_obsolete_metadata_entries() {
         })
     });
 }
+
+#[test]
+fn retired_apple_reader_reads_do_not_require_consumption_d62() {
+    run(|core, driver| {
+        Box::pin(async move {
+            let tape = Tape {
+                reads: HashMap::from([("apple.Reader.currentTimeMillis".into(), vec![1, 2, 3])]),
+                ..Tape::default()
+            };
+            let hooks = RuntimeHooks::taped(tape, core.clock().as_ref());
+            replay(hooks.verify_consumed());
+            driver.set_hooks(hooks);
+            replay(driver.finish());
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn unexpected_active_read_still_fails_beside_retired_reader_reads_d62() {
+    run(|core, _| {
+        Box::pin(async move {
+            let tape = Tape {
+                reads: HashMap::from([
+                    ("apple.Reader.currentTimeMillis".into(), vec![1, 2]),
+                    ("core.di.Clock".into(), vec![42]),
+                ]),
+                ..Tape::default()
+            };
+            let hooks = RuntimeHooks::taped(tape, core.clock().as_ref());
+            let error = hooks.verify_consumed().expect_err("unexpected active read");
+            assert_eq!(error.label, "core.di.Clock");
+            assert_eq!(error.message, "unused read entries");
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn exhausted_active_read_remains_sticky_beside_retired_reader_reads_d62() {
+    run(|core, _| {
+        Box::pin(async move {
+            let tape = Tape {
+                reads: HashMap::from([
+                    ("apple.Reader.currentTimeMillis".into(), vec![1, 2]),
+                    ("core.di.Clock".into(), vec![42]),
+                ]),
+                ..Tape::default()
+            };
+            let hooks = RuntimeHooks::taped(tape, core.clock().as_ref());
+            assert_eq!(replay(hooks.millis("core.di.Clock")), 42);
+            let error = hooks.millis("core.di.Clock").expect_err("exhausted active read");
+            assert_eq!(error.label, "core.di.Clock");
+            assert_eq!(error.message, "read tape exhausted");
+            assert_eq!(hooks.verify_consumed(), Err(error));
+            Ok(())
+        })
+    });
+}

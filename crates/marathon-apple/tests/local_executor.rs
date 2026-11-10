@@ -455,3 +455,73 @@ async fn drain_returns_immediately_before_idle_failure_in_its_detached_collector
     })
     .await;
 }
+
+fn pipe_test_io(error: std::io::Error) -> VendorError {
+    VendorError::Other(marathon_apple::cmd::failure(FailureKind::Io, error.to_string()))
+}
+async fn pipe_test_marker(path: &std::path::Path) -> marathon_core::error::VendorResult<()> {
+    while !tokio::fs::try_exists(path).await.map_err(pipe_test_io)? {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn local_stdout_eof_waits_for_exit_or_idle_with_a_gated_live_process() -> marathon_core::error::VendorResult<()> {
+    support::watchdog(async {
+        for idle_first in [false, true] {
+            let root = tempfile::tempdir().map_err(pipe_test_io)?;
+            let path = root.path().to_string_lossy();
+            let script = "printf tail; exec 1>&-; printf ready > \"$1/ready\"; while ! test -f \"$1/release\"; do sleep 0.01; done; exit 7";
+            let mut request = CommandRequest::new(["sh", "-c", script, "gate", &path], duration(60_000));
+            request.idle_timeout = duration(if idle_first { 20 } else { 60_000 });
+            let executor = executor();
+            let session = executor.execute(request, context()).await?;
+            pipe_test_marker(&root.path().join("ready")).await?;
+            let alive = session.is_alive();
+            let before_release = session.base.stdout.is_closed();
+            if idle_first {
+                let first = session.base.stdout.receive().await;
+                let still_alive = session.is_alive();
+                tokio::fs::write(root.path().join("release"), b"").await.map_err(pipe_test_io)?;
+                session.close().await?;
+                assert!(alive && still_alive);
+                assert_eq!(first, Err(VendorError::Other(marathon_apple::cmd::failure(
+                    FailureKind::Timeout, "idle timeout PT0.02S reached"))));
+            } else {
+                tokio::fs::write(root.path().join("release"), b"").await.map_err(pipe_test_io)?;
+                let result = session.await_result(&context()).await;
+                session.close().await?;
+                let result = result?;
+                assert!(alive);
+                assert!(!before_release, "EOF must not close output while the process is gated");
+                assert_eq!(result.stdout, ["tail"]);
+                assert_eq!(result.exit_code, Some(7));
+            }
+        }
+        Ok(())
+    }).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn exited_parent_drains_output_without_waiting_for_a_descendants_pipe_eof()
+-> marathon_core::error::VendorResult<()> {
+    support::watchdog(async {
+        let root = tempfile::tempdir().map_err(pipe_test_io)?;
+        let path = root.path().to_string_lossy();
+        let script = "(while ! test -f \"$1/release\"; do sleep 0.01; done; printf done > \"$1/done\") & printf inherited-tail; exit 0";
+        let executor = executor();
+        let mut request = CommandRequest::new(["sh", "-c", script, "gate", &path], duration(60_000));
+        request.idle_timeout = duration(60_000);
+        let session = executor.execute(request, context()).await?;
+        // The descendant cannot close its inherited write ends until this wait finishes.
+        let result = session.await_result(&context()).await;
+        tokio::fs::write(root.path().join("release"), b"").await.map_err(pipe_test_io)?;
+        pipe_test_marker(&root.path().join("done")).await?;
+        session.close().await?;
+        let result = result?;
+        assert_eq!(result.stdout, ["inherited-tail"]);
+        assert_eq!(result.exit_code, Some(0));
+        Ok(())
+    }).await
+}
