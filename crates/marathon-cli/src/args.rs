@@ -170,6 +170,7 @@ fn compatibility_args(command: &clap::Command, args: &[String]) -> Vec<String> {
                     } else {
                         help = true;
                     }
+                    continue;
                 } else if value.is_none()
                     && let Some(value) = args.get(i)
                 {
@@ -190,10 +191,10 @@ fn compatibility_args(command: &clap::Command, args: &[String]) -> Vec<String> {
                     group_help = false;
                     break;
                 };
-                group.push(format!("-{short}"));
                 if matches!(option.get_action(), clap::ArgAction::Help) {
                     group_help = true;
                 } else {
+                    group.push(format!("-{short}"));
                     let rest = &token[at + short.len_utf8()..];
                     if !rest.is_empty() {
                         group.push(rest.to_owned());

@@ -33,6 +33,17 @@ pub fn run(cwd: &Path, home: &Path, tmp: &Path, args: &[String], env: &[(String,
     }
 }
 
+/// Compare the command named by help without pinning option notation or wrapping.
+pub fn help_target(text: &str) -> Option<Vec<&str>> {
+    let usage = text.lines().find_map(|line| line.strip_prefix("Usage: "))?;
+    Some(
+        usage
+            .split_whitespace()
+            .take_while(|token| !token.starts_with('['))
+            .collect(),
+    )
+}
+
 /// D59 changes only the generated error slot; all bytes outside it stay pinned.
 pub fn config_error_comparison(actual: &str, expected: &str) -> (String, String) {
     use marathon_error::{ConfigKind, FailureKind};

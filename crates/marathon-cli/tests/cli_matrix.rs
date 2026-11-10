@@ -188,8 +188,13 @@ fn cli_matrix_matches_the_reference_build() -> Result<(), Box<dyn std::error::Er
             continue;
         }
         if expected_stdout.starts_with("Usage:") {
-            if !out.stdout.contains("Usage:") || !out.stdout.contains("--help") {
-                failures.push(format!("{id}: missing help fragments: {:?}", out.stdout));
+            let expected_target = support::help_target(expected_stdout);
+            let actual_target = support::help_target(&out.stdout);
+            if expected_target.is_none() || actual_target != expected_target || !out.stdout.contains("--help") {
+                failures.push(format!(
+                    "{id}: expected help for {expected_target:?}, got {actual_target:?}: {:?}",
+                    out.stdout
+                ));
             }
             continue;
         }

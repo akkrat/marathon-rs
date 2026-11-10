@@ -1,3 +1,5 @@
+mod support;
+
 use marathon_cli::args::{CliConfiguration, Invocation, parse};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
@@ -22,14 +24,21 @@ fn invocation(args: &[&str]) -> TestResult<Invocation> {
 
 #[test]
 fn cli_syntax_and_effects() -> TestResult {
-    for args in [
-        &["--help"][..],
-        &["-h"],
-        &["run", "--help"],
-        &["parse", "--help"],
-        &["version", "--help"],
+    for (args, target) in [
+        (&["--help"][..], &["marathon"][..]),
+        (&["-h"][..], &["marathon"][..]),
+        (&["run", "--help"][..], &["marathon", "run"][..]),
+        (&["run", "-h"][..], &["marathon", "run"][..]),
+        (&["parse", "--help"][..], &["marathon", "parse"][..]),
+        (&["parse", "-h"][..], &["marathon", "parse"][..]),
+        (&["version", "--help"][..], &["marathon", "version"][..]),
+        (&["version", "-h"][..], &["marathon", "version"][..]),
     ] {
-        assert!(matches!(invocation(args)?, Invocation::Help(_)), "{args:?}");
+        let Invocation::Help(help) = invocation(args)? else {
+            panic!("expected help for {args:?}");
+        };
+        assert_eq!(support::help_target(&help).as_deref(), Some(target), "{args:?}: {help}");
+        assert!(help.contains("--help"), "{args:?}: {help}");
     }
     assert_eq!(
         invocation(&["version"])?,
