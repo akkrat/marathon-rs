@@ -375,7 +375,55 @@ impl marathon_core::runtime::CancellationSignal for LinkedSignal {
         &self,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = marathon_core::error::Cancellation> + Send + '_>> {
         Box::pin(async move {
-            tokio::select! { reason = self.parent.cancelled() => reason, reason = self.local.cancelled() => reason }
+            tokio::select! {
+                biased;
+                reason = self.parent.cancelled() => reason,
+                reason = self.local.cancelled() => reason,
+            }
         })
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::LinkedSignal;
+    use marathon_core::{
+        executor::{Signal, shared::requested},
+        runtime::CancellationSignal,
+    };
+
+    #[tokio::test]
+    async fn linked_signal_parent_reason_wins_when_both_sources_are_ready() {
+        let parent = Signal::new();
+        let local = Signal::new();
+        let parent_reason = requested("parent");
+        parent.cancel(parent_reason.clone());
+        local.cancel(requested("local"));
+        let signal = LinkedSignal { parent, local };
+        assert_eq!(signal.reason(), Some(parent_reason.clone()));
+        for _ in 0..256 {
+            assert_eq!(
+                signal.cancelled().await,
+                parent_reason,
+                "cancelled() must agree with reason() when both sources are ready"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn linked_signal_observes_either_source_when_it_alone_is_ready() {
+        for cancel_parent in [false, true] {
+            let parent = Signal::new();
+            let local = Signal::new();
+            let reason = requested("only ready source");
+            if cancel_parent {
+                parent.cancel(reason.clone());
+            } else {
+                local.cancel(reason.clone());
+            }
+            let signal = LinkedSignal { parent, local };
+            assert_eq!(signal.reason(), Some(reason.clone()));
+            assert_eq!(signal.cancelled().await, reason);
+        }
     }
 }
