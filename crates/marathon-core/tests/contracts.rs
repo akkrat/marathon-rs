@@ -9,6 +9,7 @@ use marathon_config::{
 use marathon_core::strategy::queue::OrderedQueue;
 use marathon_core::{
     error::{OperationError, OperationResult, VendorError, VendorResult},
+    executor::CoreExecutor,
     listener::*,
     model::*,
     runtime::*,
@@ -45,7 +46,7 @@ pub fn compile_filter(pattern: &str, field: &str) -> Result<JavaRegex, jcompat::
     JavaRegex::compile(pattern, field)
 }
 // WP 3.1: child ownership and receiver cancellation do not depend on Send.
-pub fn runtime_contract(runtime: &dyn CoreRuntime, actor: Rc<dyn Actor<Test>>) -> JobRef {
+pub fn runtime_contract(runtime: &CoreExecutor, actor: Rc<dyn Actor<Test>>) -> JobRef {
     let detached = runtime.job(JobKind::Ordinary, None);
     let supervisor = runtime.job(JobKind::Supervisor, Some(detached.clone()));
     runtime.spawn(
@@ -263,7 +264,7 @@ impl ActorHandler<Test> for ContextHandler {
 }
 
 // R1-sol-1: cleanup also propagates cancellation, without encoding it as Failure.
-pub fn cleanup_contract(runtime: &dyn CoreRuntime, awaited: JobRef) -> JobRef {
+pub fn cleanup_contract(runtime: &CoreExecutor, awaited: JobRef) -> JobRef {
     runtime.spawn_cleanup(Box::new(move |_| {
         Box::pin(async move {
             awaited.join().await?;

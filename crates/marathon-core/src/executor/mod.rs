@@ -231,16 +231,18 @@ impl CoreExecutor {
         );
     }
 }
-impl CoreRuntime for CoreExecutor {
-    fn job(&self, kind: JobKind, parent: Option<JobRef>) -> JobRef {
+impl CoreExecutor {
+    pub fn job(&self, kind: JobKind, parent: Option<JobRef>) -> JobRef {
         self.new_job(kind, parent, false)
     }
-    fn spawn(&self, parent: JobRef, body: TaskBody<'static>) -> JobRef {
+    pub fn spawn(&self, parent: JobRef, body: TaskBody<'static>) -> JobRef {
         let job = self.new_job(JobKind::Ordinary, Some(parent), true);
         self.launch(job.clone(), body);
         job
     }
-    fn spawn_cleanup(&self, body: TaskBody<'static>) -> JobRef {
+    /// Cleanup must finish even under parent cancellation. Retain the returned
+    /// job until joined; dropping the waiting future must not abort cleanup.
+    pub fn spawn_cleanup(&self, body: TaskBody<'static>) -> JobRef {
         let job = self.new_job(JobKind::Ordinary, None, true);
         self.launch(job.clone(), body);
         job

@@ -19,7 +19,7 @@ use marathon_core::{
     },
     model::TestShard,
     output::OutputDriver,
-    runtime::{CoreRuntime, Deferred, JobKind},
+    runtime::{Deferred, JobKind},
     vendor::DeviceProvider,
 };
 use marathon_ios::device::simulator_provider::{AppleSimulatorProvider, recovery::SimulatorRecovery};

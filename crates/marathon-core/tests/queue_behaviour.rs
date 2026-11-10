@@ -13,7 +13,7 @@ use marathon_core::{
     },
     executor::Signal,
     model::*,
-    runtime::{Actor, CoreRuntime},
+    runtime::Actor,
 };
 use std::sync::{Arc, atomic::Ordering};
 use support::*;

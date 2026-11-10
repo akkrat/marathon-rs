@@ -215,7 +215,6 @@ fn already_cancelled_prepare_rejects_even_an_empty_prefetch() {
 /// D34: a live pool queue keeps its initial history, and the next pool takes the refresh.
 #[test]
 fn a_queue_keeps_the_history_it_was_built_on_and_the_next_pools_queue_gets_the_refresh() {
-    use marathon_core::runtime::CoreRuntime;
     use marathon_core::{
         execution::FromQueue,
         execution::queue::PreparedQueue,

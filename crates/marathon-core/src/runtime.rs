@@ -5,6 +5,7 @@
 //! method. See lifecycle.md for cancellation, ordering and replay requirements.
 
 use crate::error::{Cancellation, Failure, OperationResult, VendorResult};
+use crate::executor::CoreExecutor;
 use crate::time::SchedulerClock;
 use std::{future::Future, pin::Pin, rc::Rc, sync::Arc};
 
@@ -19,7 +20,7 @@ pub type VendorTimeoutBody<'a> = Box<dyn FnOnce(Arc<dyn CancellationSignal>) -> 
 #[derive(Clone)]
 pub struct TaskContext {
     pub job: JobRef,
-    pub core: Rc<dyn CoreRuntime>,
+    pub core: Rc<CoreExecutor>,
     pub clock: Rc<dyn SchedulerClock>,
 }
 pub struct ActorContext<M> {
@@ -34,7 +35,7 @@ pub struct ActorContext<M> {
 ///
 /// A job cannot be captured by another run's factory:
 /// ```compile_fail,E0277
-/// use marathon_core::{executor::CoreExecutor, runtime::{CoreRuntime, JobKind}};
+/// use marathon_core::{executor::CoreExecutor, runtime::JobKind};
 /// let _ = CoreExecutor::run(|core| {
 ///     let job = core.job(JobKind::Ordinary, None);
 ///     let _ = CoreExecutor::run(move |other| {
@@ -46,7 +47,7 @@ pub struct ActorContext<M> {
 /// ```
 /// Nor can it escape a run as its result:
 /// ```compile_fail,E0277
-/// use marathon_core::{executor::CoreExecutor, runtime::{CoreRuntime, JobKind}};
+/// use marathon_core::{executor::CoreExecutor, runtime::JobKind};
 /// let _ = CoreExecutor::run(|core| {
 ///     Box::pin(async move { Ok(core.job(JobKind::Ordinary, None)) })
 /// });
@@ -124,13 +125,6 @@ pub struct MailboxState {
 pub trait MailboxProbe {
     fn state(&self) -> MailboxState;
 }
-pub trait CoreRuntime {
-    fn job(&self, kind: JobKind, parent: Option<JobRef>) -> JobRef;
-    fn spawn(&self, parent: JobRef, body: TaskBody<'static>) -> JobRef;
-    /// Cleanup must finish even under parent cancellation. Retain the returned
-    /// job until joined; dropping the waiting future must not abort cleanup.
-    fn spawn_cleanup(&self, body: TaskBody<'static>) -> JobRef;
-}
 /// Erased worker tasks keep the runtime object-safe. Typed results travel in
 /// Deferred<T>; a Send task must be started here, not polled on the core thread.
 pub trait VendorRuntime: Send + Sync {
@@ -146,7 +140,7 @@ pub trait VendorTask: Send + Sync {
 }
 
 /// Object-safe timeout runner. Typed values travel in captured cells/Deferreds,
-/// as with CoreRuntime's erased tasks. WP 3.1 supplies concrete constructors for
+/// as with CoreExecutor's unit tasks. WP 3.1 supplies concrete constructors for
 /// Deferred<T>, EventChannel<T> and actors; no unwired generic factory traits.
 pub trait TimeoutScope {
     /// The body receives the scope's child job. Join its cleanup before returning.

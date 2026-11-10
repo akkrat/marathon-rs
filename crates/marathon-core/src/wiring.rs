@@ -7,8 +7,9 @@
 use marathon_logging::LogSettings;
 
 use crate::{
+    executor::CoreExecutor,
     model::{DeviceInfo, DevicePoolId, Test, TestResult},
-    runtime::{CoreRuntime, ServiceFuture, TimeoutScope, VendorClock, VendorFuture, VendorRuntime},
+    runtime::{ServiceFuture, TimeoutScope, VendorClock, VendorFuture, VendorRuntime},
     time::{ReplayBarriers, ReplayHooks, SchedulerClock, Timer},
     vendor::{DeviceProvider, LogConfigurator, TestBundleIdentifier, TestParser},
 };
@@ -103,7 +104,7 @@ pub struct RunDependencies {
     pub reports: Arc<dyn ReportLifecycle>,
     pub usage: Arc<dyn UsageLifecycle>,
     pub parse_output: Arc<dyn ParseOutput>,
-    pub core: Rc<dyn CoreRuntime>,
+    pub core: Rc<CoreExecutor>,
     pub scheduler_clock: Rc<dyn SchedulerClock>,
     pub timeouts: Rc<dyn TimeoutScope>,
 }

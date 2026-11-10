@@ -19,7 +19,7 @@ use marathon_core::{
     executor::{CoreExecutor, hooks::RuntimeHooks, shared::requested},
     model::TestShard,
     output::OutputDriver,
-    runtime::{CoreRuntime, JobKind},
+    runtime::JobKind,
     vendor::DeviceProvider,
 };
 use marathon_ios::device::simulator_provider::{AppleSimulatorProvider, recovery::SimulatorRecovery};
