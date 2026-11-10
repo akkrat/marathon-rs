@@ -52,6 +52,28 @@ fn parse_string_properties_match_source_data_in_both_readers() -> Result {
 }
 
 #[test]
+fn nel_metadata_key_round_trips_without_folding() -> Result {
+    let key = "a\u{85}b";
+    let model = Test {
+        meta_properties: vec![MetaProperty {
+            name: "ann".into(),
+            values: [(key.into(), MetaValue::String("v".into()))].into_iter().collect(),
+        }],
+        ..test(MetaValue::Null)
+    };
+    let mut values = serde_json::Map::new();
+    values.insert(key.into(), json!("v"));
+    let source = json!({"tests": [{"pkg": "p", "clazz": "C", "method": "m", "metaProperties": [{"name": "ann", "values": values}]}]});
+    let document = parse_results(&[model], &[])?;
+    assert_eq!(loader_data(&document)?, expected_loader_data(&source));
+    assert_eq!(
+        yaml::independent_documents(&[document])?,
+        [json!([expected_data(&source)])]
+    );
+    Ok(())
+}
+
+#[test]
 fn parse_numeric_edges_retain_legacy_decimal_data_and_scalar_types() -> Result {
     // Captured from the old command projection before removing it, including its shortest subnormal spellings.
     let doubles = [

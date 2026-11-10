@@ -1,5 +1,6 @@
 """Versioned differential evidence. Harness serialization only; product bytes stay opaque."""
 import base64
+import binascii
 import decimal
 import subprocess
 import hashlib
@@ -592,12 +593,12 @@ def structured_yaml(data):
             if len(value) == 5 and value[0] == 'scalar-source':
                 _, tag, style, raw, implicit = value
                 base = 'tag:yaml.org,2002:'
-                known = {base + kind for kind in ('str', 'int', 'float', 'bool', 'null')}
+                known = {base + kind for kind in ('str', 'int', 'float', 'bool', 'null', 'binary')}
                 if tag in (None, '!'):
                     kind = implicit if style == 'plain' or tag == '!' else 'str'
                 elif tag in known:
                     kind = tag.removeprefix(base)
-                    if kind not in ('str', 'null') and implicit != kind and not (kind == 'float' and implicit == 'int'):
+                    if kind not in ('str', 'null', 'binary') and implicit != kind and not (kind == 'float' and implicit == 'int'):
                         raise Invalid('invalid YAML scalar tag value')
                 else:
                     kind = 'str'
@@ -608,6 +609,12 @@ def structured_yaml(data):
                     scalar = None
                 elif kind == 'int':
                     scalar = yaml_integer(raw)
+                elif kind == 'binary':
+                    # Base64 wrapping/chomping is presentation; the decoded bytes are the data.
+                    try:
+                        scalar = list(base64.b64decode(''.join(raw.split()), validate=True))
+                    except (ValueError, binascii.Error) as error:
+                        raise Invalid('invalid YAML binary scalar') from error
                 elif kind == 'float':
                     clean = raw.replace('_', '')
                     special = clean.lower()

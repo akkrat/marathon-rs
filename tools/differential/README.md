@@ -19,6 +19,13 @@ Changes to the contract require a D-row in PLAN.md §3.11. Before running the
 harness directly, build its YAML parser helper with `cargo build -q -p
 snakeyaml --example yaml_tree`; the gate builds it automatically.
 
+Native YAML comparison canonicalizes `tag:yaml.org,2002:binary` scalars as
+lists of decoded bytes. Base64 whitespace, 76-character wrapping and block
+chomping do not change the comparison; a changed byte or removal of the binary
+tag does. Untagged strings retain their text and string type. Invalid base64 is
+rejected. This changes comparison only; writer output and stored goldens stay
+unchanged.
+
 Console comparison (WP 8.8): the native contract view of stdout/stderr keeps only
 the per-test progress lines and the end-of-run summary block (`contract_console`),
 byte-exact. In `vendor_console.py`, a complete native diagnostic prefix

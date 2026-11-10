@@ -13,6 +13,8 @@ pub fn include_entry(is_null: bool) -> bool {
     !(OMIT_NULL_MAPPING_ENTRIES && is_null)
 }
 
+// empty_as_braces is the setting most likely to break on the next serde-saphyr upgrade.
+// If a replacement is documented, pin its explicit []/{} mode and keep the compatibility test.
 #[allow(deprecated)] // Pin explicit empty collections even though the option is deprecated.
 fn options() -> serde_saphyr::SerializerOptions {
     serde_saphyr::ser_options! {

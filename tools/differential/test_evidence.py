@@ -92,6 +92,38 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotEqual(value('-.inf'), value('.inf'))
         self.assertEqual(value('.NaN'), value('.nan'))
 
+    def test_native_yaml_binary_accepts_wrapped_and_unwrapped_bytes(self):
+        target = self.tree / 'result.yml'
+        for size in [0, 57, 58, 114]:
+            encoded = base64.b64encode(bytes(range(size)))
+            wrapped = b'data: !!binary |\n' + b''.join(
+                b'  ' + encoded[i:i + 76] + b'\n' for i in range(0, len(encoded), 76))
+            target.write_bytes(wrapped)
+            expected = e.normalized(self.record(f'binary-wrapped-{size}'), self.contract, native=True)
+            target.write_bytes(b'data: !!binary ' + (encoded or b'""') + b'\n')
+            e.compare_native_views(expected, e.normalized(
+                self.record(f'binary-unwrapped-{size}'), self.contract, native=True))
+            target.write_bytes(b'data: !!binary "' + b' \\t'.join(
+                encoded[i:i + 76] for i in range(0, len(encoded), 76)) + b'"\n')
+            e.compare_native_views(expected, e.normalized(
+                self.record(f'binary-whitespace-{size}'), self.contract, native=True))
+
+    def test_native_yaml_binary_rejects_changed_byte(self):
+        original = bytes(range(58))
+        changed = bytes([original[0] ^ 255]) + original[1:]
+        self.reject_changed_yaml(b'data: !!binary ' + base64.b64encode(original) + b'\n',
+                                 b'data: !!binary ' + base64.b64encode(changed) + b'\n')
+
+    def test_native_yaml_binary_is_distinct_from_untagged_string(self):
+        encoded = base64.b64encode(bytes(range(58)))
+        self.reject_changed_yaml(b'data: !!binary "' + encoded + b'"\n',
+                                 b'data: "' + encoded + b'"\n')
+
+    def test_native_yaml_binary_rejects_invalid_base64(self):
+        for invalid in ['@@@', 'AA=A', 'A']:
+            with self.subTest(invalid=invalid), self.assertRaises(e.Invalid):
+                e.structured_yaml(('data: !!binary "' + invalid + '"\n').encode())
+
     def test_missing_yaml_helper_reports_build_command(self):
         with mock.patch.dict(os.environ, {'CARGO_TARGET_DIR': str(self.root / 'missing-target')}):
             with self.assertRaisesRegex(e.Invalid, 'cargo build -q -p snakeyaml --example yaml_tree'):
