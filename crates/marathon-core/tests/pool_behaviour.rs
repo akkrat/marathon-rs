@@ -366,7 +366,12 @@ fn all_devices_terminated_error_is_logged_even_after_the_last_result_passed() {
                 .unwrap()
                 .iter()
                 .filter(|e| e["level"] == "ERROR")
-                .map(|e| e["message"].as_str().unwrap().to_owned())
+                .map(|e| match e["message"].as_str().unwrap() {
+                    "pool DevicePoolId(name=B4): all devices terminated, remaining tests will not run" => {
+                        "pool B4: all devices terminated, remaining tests will not run".into()
+                    }
+                    other => other.to_owned(),
+                })
                 .collect::<Vec<_>>();
             assert_eq!(actual, errors);
             assert_eq!(actual.len(), 1);

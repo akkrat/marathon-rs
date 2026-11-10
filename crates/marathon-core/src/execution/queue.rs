@@ -315,8 +315,7 @@ impl QueueActor {
         parent: JobRef,
         hooks: Arc<dyn ReplayHooks>,
     ) -> QueueHandle {
-        // "QueueActor[$poolId]" with the data class toString.
-        let logger = format!("QueueActor[DevicePoolId(name={})]", pool_id.name.to_owned());
+        let logger = format!("QueueActor[{}]", pool_id.name);
         #[allow(unused_mut)]
         let mut key = prepared.sorting.process(prepared.lookup.clone(), hooks.clone());
         #[cfg(feature = "test-support")]

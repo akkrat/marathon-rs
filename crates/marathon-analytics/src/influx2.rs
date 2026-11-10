@@ -106,7 +106,7 @@ impl Influx2Client {
                 "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
                 Level::INFO,
                 format!(
-                    "Creating InfluxDB 2 bucket: orgId = {id}, bucket = {bucket}, retention: RetentionPolicyConfiguration(everySeconds={}, shardGroupDurationSeconds={})",
+                    "Creating InfluxDB 2 bucket: orgId = {id}, bucket = {bucket}, retention: everySeconds={} shardGroupDurationSeconds={}",
                     rp.every_seconds, rp.shard_group_duration_seconds
                 ),
                 None,

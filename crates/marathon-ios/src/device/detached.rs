@@ -64,6 +64,9 @@ impl DetachedConnections {
     }
 }
 impl ProvisioningConnections for DetachedConnections {
+    fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
+        self.inner.transport_log_text(transport, local)
+    }
     fn connect(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, (Option<Executor>, Bridge)> {
         let inner = self.inner.clone();
         let protected = VendorContext {
@@ -97,6 +100,9 @@ impl ProvisioningConnections for DetachedConnections {
 /// `createOrThrow`, so authentication is not flattened into a missing executor.
 pub struct ProviderConnections(pub Arc<ConnectionFactory>);
 impl ProvisioningConnections for ProviderConnections {
+    fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
+        self.0.transport_log_text(transport, local)
+    }
     fn connect(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, (Option<Executor>, Bridge)> {
         Box::pin(async move {
             self.0

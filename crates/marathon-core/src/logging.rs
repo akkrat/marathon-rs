@@ -235,7 +235,7 @@ impl LogRecord {
         }
     }
     pub fn emit(&self) {
-        let cause = self.cause.as_ref().map(Failure::stack_trace);
+        let cause = self.cause.as_ref().map(|failure| failure.for_log().stack_trace());
         marathon_logging::emit(
             self.target(),
             self.level,

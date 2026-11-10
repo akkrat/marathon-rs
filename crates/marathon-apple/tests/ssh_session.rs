@@ -1730,3 +1730,45 @@ async fn executor_close_disconnects_and_fails_live_channels() {
     let ends = fake.events_at_least("connection_end", 1).await;
     assert_eq!(ends.len(), 1);
 }
+
+#[test]
+fn timeout_logs_use_plain_units_and_keep_failure_data_x56() {
+    use marathon_apple::cmd::remote::ssh::sshj::config::{PerformanceDefaultConfig, SshLogging};
+    use std::sync::Mutex;
+    let logs = Arc::new(Mutex::new(vec![]));
+    let captured = logs.clone();
+    let logging = SshLogging::new(
+        Arc::new(Mutex::new(marathon_logging::LogSettings::default())),
+        Arc::new(move |_, _, message, _| captured.lock().unwrap().push(message)),
+    );
+    let logger = PerformanceDefaultConfig { verbose: true, logging }.loggers();
+    for (timeout, expected) in [("30000 MILLISECONDS", "30 s"), ("1 NANOSECONDS", "1 ns")] {
+        let error = SshFailure::timeout_expired(CONNECTION_EXCEPTION, timeout);
+        let original = error.clone();
+        logger.woke_to("close", &error);
+        logger.dying(&error);
+        let diagnostic = error.to_failure().for_log().stack_trace();
+        assert!(diagnostic.contains(&format!("no response after {expected}")));
+        assert!(!diagnostic.contains("Timeout expired") && !diagnostic.contains("SECONDS"));
+        assert_eq!(error, original);
+        assert!(
+            error
+                .to_failure()
+                .stack_trace()
+                .contains(&format!("Timeout expired: {timeout}"))
+        );
+    }
+    let logs = logs.lock().unwrap();
+    assert_eq!(logs.len(), 4);
+    assert!(
+        logs.iter()
+            .all(|text| !text.contains("MILLISECONDS") && !text.contains("NANOSECONDS"))
+    );
+    assert_eq!(
+        logs[0],
+        "<<close>> woke to: SSH connection failure: no response after 30 s"
+    );
+    assert_eq!(logs[1], "Dying because - no response after 30 s");
+    let external = SshFailure::new(IO_EXCEPTION, "external Timeout expired: 30000 MILLISECONDS");
+    assert_eq!(external.for_log(), external);
+}

@@ -249,6 +249,13 @@ impl SshFailure {
         projected.cause = self.cause.as_ref().map(|cause| Box::new(cause.to_failure()));
         projected
     }
+    /// Keep SSH reason codes in diagnostics while projecting only generated failure wording.
+    pub fn for_log(&self) -> Self {
+        let mut diagnostic = self.clone();
+        diagnostic.message = self.to_failure().for_log().message;
+        diagnostic.cause = self.cause.as_deref().map(|cause| Box::new(cause.for_log()));
+        diagnostic
+    }
     pub fn into_vendor(self) -> VendorError {
         VendorError::Other(self.to_failure())
     }

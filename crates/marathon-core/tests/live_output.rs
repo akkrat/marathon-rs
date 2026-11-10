@@ -109,7 +109,7 @@ fn replay_run_keeps_its_flush_points() {
     // dropped request. That line is not a flush point, so it is not counted.
     let dropped = |line: &marathon_test_support::console::Line| {
         matches!(line, marathon_test_support::console::Line::Log { message, .. }
-            if message == "pool DevicePoolId(name=omni): queue is closed, RequestBatch is dropped")
+            if message == "pool omni: queue is closed, RequestBatch is dropped")
     };
     assert!(outcome.lines.iter().filter(|line| dropped(line)).count() <= 1);
     let mut start = 0;

@@ -73,9 +73,14 @@ impl DevicePool {
         for device in devices.iter() {
             *counts.entry(device.diagnostic_state()).or_default() += 1;
         }
+        let counts = counts
+            .iter()
+            .map(|(state, count)| format!("{state}={count}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let _ = writeln!(
             out,
-            "  actor={} supervisor={} devices={} states={counts:?}",
+            "  actor={} supervisor={} devices={} states=[{counts}]",
             crate::diagnostics::job(&self.actor.job()),
             crate::diagnostics::job(&self.supervisor),
             devices.len()
@@ -301,8 +306,7 @@ impl DevicePoolActor {
         self.log(Level::DEBUG, text(parts));
     }
     fn pool(&self) -> String {
-        // "$poolId" with the data class toString.
-        text(&[S("DevicePoolId(name="), J(&self.pool_id.name), S(")")])
+        self.pool_id.name.to_owned()
     }
     fn queue(&self) -> &QueueHandle {
         match &self.queue {

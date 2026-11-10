@@ -181,7 +181,7 @@ impl AdamDeviceProvider {
                 {
                     this.log(
                         Level::ERROR,
-                        "CoroutineContext closing due to unrecoverable error",
+                        "Task stopped due to unrecoverable error",
                         Some(e.failure()),
                     );
                 }
@@ -323,7 +323,7 @@ impl AdamDeviceProvider {
                                         {
                                             connected.log(
                                                 Level::ERROR,
-                                                "CoroutineContext closing due to unrecoverable error",
+                                                "Task stopped due to unrecoverable error",
                                                 Some(e.failure()),
                                             );
                                         }
@@ -471,11 +471,8 @@ impl AdamDeviceProvider {
             if client.socket_factory().is_closed() {
                 return Ok(());
             }
-            self.log(
-                Level::WARN,
-                &format!("Lost device tracking on adb server {name}; reconnecting"),
-                cause.as_ref().map(VendorError::failure),
-            );
+            let (message, diagnostic) = tracking_warning(&name, cause.as_ref());
+            self.log(Level::WARN, &message, diagnostic);
             tracker.server_lost(clock.now_millis());
             // D41: the outage's own bound now covers a device in its grace period, and the server gate holds its batches.
             blips.abandon();
@@ -1039,9 +1036,53 @@ pub async fn start_adb(sdk: Option<&std::path::Path>, port: u16, context: Vendor
     }
 }
 
+// The empty header is EOF in track-devices, not a rejection sent by the server.
+fn tracking_warning<'a>(name: &str, cause: Option<&'a VendorError>) -> (String, Option<&'a Failure>) {
+    let failure = cause.map(VendorError::failure);
+    if failure.is_some_and(|failure| {
+        failure.kind == FailureKind::Adb(AdbKind::RequestRejected)
+            && failure.message.as_deref() == Some("Unexpected string length: ")
+    }) {
+        (
+            format!("Lost device tracking on adb server {name}: the adb server closed the connection; reconnecting"),
+            None,
+        )
+    } else {
+        (
+            format!("Lost device tracking on adb server {name}; reconnecting"),
+            failure,
+        )
+    }
+}
+
 #[cfg(test)]
 mod kind_tests {
     use super::*;
+    #[test]
+    fn tracking_eof_diagnostic_does_not_rewrite_other_errors_or_data_x56() {
+        let original = other(FailureKind::Adb(AdbKind::RequestRejected), "Unexpected string length: ");
+        let (message, cause) = tracking_warning("local", Some(&original));
+        assert_eq!(
+            message,
+            "Lost device tracking on adb server local: the adb server closed the connection; reconnecting"
+        );
+        assert!(cause.is_none());
+        assert_eq!(
+            original.failure().message.as_deref(),
+            Some("Unexpected string length: ")
+        );
+        for error in [
+            other(
+                FailureKind::Adb(AdbKind::RequestRejected),
+                "Unexpected string length: x",
+            ),
+            other(FailureKind::Io, "Unexpected string length: "),
+        ] {
+            let (message, cause) = tracking_warning("local", Some(&error));
+            assert_eq!(message, "Lost device tracking on adb server local; reconnecting");
+            assert_eq!(cause, Some(error.failure()));
+        }
+    }
     #[test]
     fn connect_retry_membership_is_the_exact_existing_set() {
         for kind in [

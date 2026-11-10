@@ -13,18 +13,18 @@ pub struct CompletionLog {
     pub message: &'static str,
     pub exception: Option<Failure>,
 }
-pub const UNRECOVERABLE: &str = "CoroutineContext closing due to unrecoverable error";
+pub const UNRECOVERABLE: &str = "Task stopped due to unrecoverable error";
 #[cfg(any(test, feature = "test-support"))]
 pub fn completion_log(completion: Completion) -> CompletionLog {
     match completion {
         Completion::Success => CompletionLog {
             level: Level::DEBUG,
-            message: "CoroutineContext finished",
+            message: "Task finished",
             exception: None,
         },
         Completion::Cancelled(reason) => CompletionLog {
             level: Level::DEBUG,
-            message: "CoroutineContext cancelled",
+            message: "Task cancelled",
             exception: Some(match reason {
                 Cancellation::Requested(f) | Cancellation::Timeout { detail: f, .. } => f,
             }),

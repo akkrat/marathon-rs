@@ -302,6 +302,27 @@ const NATIVE_VARIANTS: &str = r#"[
 ]"#;
 
 fn native_expected(mut row: Value) -> Value {
+    // x56 changes exactly the handler's diagnostic name/message, not queue data.
+    for step in row["steps"].as_array_mut().unwrap() {
+        for event in step["events"].as_array_mut().unwrap() {
+            if *event
+                == json!([
+                    "handler",
+                    "ERROR",
+                    "QueueActor[DevicePoolId(name=pool)]",
+                    "CoroutineContext closing due to unrecoverable error"
+                ])
+            {
+                *event = json!([
+                    "handler",
+                    "ERROR",
+                    "QueueActor[pool]",
+                    "Task stopped due to unrecoverable error"
+                ]);
+            }
+        }
+    }
+
     let variants: Value = serde_json::from_str(NATIVE_VARIANTS).unwrap();
     let variant = variants
         .as_array()

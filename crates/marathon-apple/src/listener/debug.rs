@@ -118,6 +118,22 @@ impl AppleTestRunListener for DebugTestRunListener {
             Ok(())
         })
     }
+    fn test_run_cancelled<'a>(&'a self, _report_message: &'a str, diagnostic: &'a str) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            self.logging.log(
+                &self.logger,
+                Level::DEBUG,
+                || {
+                    format!(
+                        "testRunCancelled {} reason = {diagnostic}",
+                        self.device.0.info().serial_number
+                    )
+                },
+                None,
+            );
+            Ok(())
+        })
+    }
     fn after_test_run<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             if !self.logging.enabled(&self.logger, Level::INFO) {

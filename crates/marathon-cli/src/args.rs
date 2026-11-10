@@ -22,15 +22,15 @@ pub enum CliConfiguration {
 }
 
 impl CliConfiguration {
-    /// Data classes retain their Kotlin rendering; objects use simple names (D58).
-    pub fn to_kotlin_string(&self) -> String {
+    /// Command and relevant fields for the startup diagnostic.
+    pub fn log_description(&self) -> String {
         match self {
             Self::Run {
                 marathonfile,
                 analytics_tracking,
                 bugsnag_reporting,
             } => format!(
-                "MarathonRunCommandCliConfiguration(marathonfile={}, analyticsTracking={analytics_tracking}, bugsnagReporting={bugsnag_reporting})",
+                "run marathonfile={} analyticsTracking={analytics_tracking} bugsnagReporting={bugsnag_reporting}",
                 marathonfile.to_string_lossy().into_owned()
             ),
             Self::Parse {
@@ -38,11 +38,11 @@ impl CliConfiguration {
                 output_file_name,
                 include_flaky_tests,
             } => format!(
-                "ParseCommandCliConfiguration(marathonfile={}, outputFileName={}, includeFlakyTests={include_flaky_tests})",
+                "parse marathonfile={} outputFileName={} includeFlakyTests={include_flaky_tests}",
                 marathonfile.to_string_lossy().into_owned(),
                 output_file_name.as_deref().unwrap_or("null")
             ),
-            Self::Version => "VersionCommandCliConfiguration".into(),
+            Self::Version => "version".into(),
         }
     }
 }
@@ -273,10 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn version_line_uses_the_simple_class_name() {
-        assert_eq!(
-            CliConfiguration::Version.to_kotlin_string(),
-            "VersionCommandCliConfiguration"
-        );
+    fn version_log_names_the_command() {
+        assert_eq!(CliConfiguration::Version.log_description(), "version");
     }
 }

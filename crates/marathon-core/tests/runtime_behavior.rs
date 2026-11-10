@@ -464,9 +464,9 @@ fn completion_logging_has_exact_three_branches() {
     assert_eq!(
         logs.iter().map(|log| log.message).collect::<Vec<_>>(),
         [
-            "CoroutineContext finished",
-            "CoroutineContext cancelled",
-            "CoroutineContext closing due to unrecoverable error",
+            "Task finished",
+            "Task cancelled",
+            "Task stopped due to unrecoverable error",
         ]
     );
     assert_eq!(logs[0].level, marathon_logging::Level::DEBUG);
@@ -618,7 +618,7 @@ fn actor_panic_retains_handler_until_completion_callbacks() {
 fn completion_events_keep_their_level_message_and_cause() {
     let log = marathon_core::executor::completion_logging::completion_log(Completion::Success);
     assert_eq!(log.level, marathon_logging::Level::DEBUG);
-    assert_eq!(log.message, "CoroutineContext finished");
+    assert_eq!(log.message, "Task finished");
     assert!(log.exception.is_none());
 }
 

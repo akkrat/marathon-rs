@@ -13,7 +13,7 @@ mod support;
 use device_actor_scenarios::{SCENARIOS, run_scenario};
 use serde_json::Value;
 
-const HANDLER: &str = "CoroutineContext closing due to unrecoverable error";
+const HANDLER: &str = "Task stopped due to unrecoverable error";
 
 fn corpus() -> Vec<Value> {
     include_str!("../../../fixtures/oracle/device-actor/device-actor.jsonl")
@@ -31,9 +31,7 @@ fn accepted(row: &mut Value) {
         "execute at an unclosed terminated actor" => {
             for entry in trace.iter_mut() {
                 if entry["log"]["level"] == "ERROR" {
-                    entry["log"]["message"] =
-                        "Invalid transition from DeviceState.Terminated event DeviceEvent.Execute(batch=<batch>)"
-                            .into();
+                    entry["log"]["message"] = "Invalid transition from terminated event execute batch=<batch>".into();
                 }
             }
         }
@@ -75,6 +73,16 @@ fn accepted(row: &mut Value) {
             );
         }
         _ => {}
+    }
+    // x56 changes only the recorded diagnostic wording, never throwable data.
+    for entry in trace.iter_mut() {
+        match entry["log"]["message"].as_str() {
+            Some("CoroutineContext closing due to unrecoverable error") => entry["log"]["message"] = HANDLER.into(),
+            Some("Error DeferredCoroutine was cancelled") => {
+                entry["log"]["message"] = "Error task was cancelled".into()
+            }
+            _ => {}
+        }
     }
 }
 

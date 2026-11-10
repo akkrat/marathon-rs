@@ -298,7 +298,17 @@ fn track_eof_resumes_tracking_and_keeps_a_listed_device_d22() {
                     .contains("completed=true|cancelled=true|subscriptions=1")
             );
             let mut server = server(base_script(27, vec![])).await;
-            let provider = AdamDeviceProvider::new(change_runtime(&runtime, &[server.port()]))?;
+            let logs = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+            let captured = logs.clone();
+            let mut runtime = change_runtime(&runtime, &[server.port()]);
+            std::sync::Arc::get_mut(&mut runtime).unwrap().log =
+                std::sync::Arc::new(move |_, level, message, cause| {
+                    captured
+                        .lock()
+                        .unwrap()
+                        .push((level, message.to_owned(), cause.cloned()))
+                });
+            let provider = AdamDeviceProvider::new(runtime)?;
             provider.initialize(context).await?;
             let DeviceEvent::Connected(first) = event(&provider).await else {
                 panic!("connection")
@@ -310,6 +320,20 @@ fn track_eof_resumes_tracking_and_keeps_a_listed_device_d22() {
             logcat_streams(&[(&server, 2)]).await;
             assert!(pending_event(&provider).await.is_none());
             assert!(first.0.info().healthy);
+            let logs = logs.lock().unwrap().clone();
+            let warnings = logs
+                .iter()
+                .filter(|(_, message, _)| message.starts_with("Lost device tracking on adb server "))
+                .collect::<Vec<_>>();
+            assert_eq!(warnings.len(), 1);
+            assert!(
+                warnings[0]
+                    .1
+                    .ends_with(": the adb server closed the connection; reconnecting")
+            );
+            assert_eq!(warnings[0].0, marathon_logging::Level::WARN);
+            assert!(warnings[0].2.is_none());
+            assert!(!warnings[0].1.contains('\n'));
             // The new stream really drives events, with the same device object.
             checked(server.disconnect_device("emulator-5554"));
             let DeviceEvent::Disconnected(gone) = event(&provider).await else {

@@ -262,14 +262,24 @@ impl<'a> XCTestParser<'a> {
             Ok(())
         }
         .await;
-        if let Err(error @ VendorError::Cancelled(_)) = &result {
-            log(
-                &self.logging,
-                &self.logger,
-                Level::ERROR,
-                "Test parsing got stuck. You can increase the timeout in settings if it's too strict".into(),
-                Some(error),
-            );
+        if let Err(error @ VendorError::Cancelled(reason)) = &result {
+            if matches!(reason, marathon_core::error::Cancellation::Timeout { .. }) {
+                log(
+                    &self.logging,
+                    &self.logger,
+                    Level::ERROR,
+                    "Test parsing got stuck. You can increase the timeout in settings if it's too strict".into(),
+                    Some(error),
+                );
+            } else {
+                log(
+                    &self.logging,
+                    &self.logger,
+                    Level::DEBUG,
+                    format!("Test parsing cancelled: {}", reason.failure().for_log()),
+                    None,
+                );
+            }
             result = Ok(());
         }
         if let Some(channel) = channel {

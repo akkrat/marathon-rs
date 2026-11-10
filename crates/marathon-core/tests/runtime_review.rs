@@ -228,7 +228,7 @@ fn exception_handler_only_records_unhandled_failure() {
             replay(driver.drain_current().await);
             let logs = core.take_completion_logs();
             assert_eq!(logs.len().to_string(), expected("exception-handler:calls"));
-            assert_eq!(logs[0].message, "CoroutineContext closing due to unrecoverable error");
+            assert_eq!(logs[0].message, "Task stopped due to unrecoverable error");
             assert_eq!(logs[0].exception, Some(failed("failure")));
             let queued = core.log_queue().take();
             assert_eq!(queued.len(), 1);

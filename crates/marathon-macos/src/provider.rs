@@ -29,10 +29,16 @@ use std::sync::{Arc, Mutex};
 
 /// The production implementation owns ConnectionFactory leases. Recording worlds replace only transport I/O.
 pub trait MacosConnections: Send + Sync {
+    fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
+        transport_text(transport, local)
+    }
     fn create(&self, transport: Transport, context: VendorContext) -> VendorFuture<'_, (Option<Executor>, Bridge)>;
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()>;
 }
 impl MacosConnections for Arc<ConnectionFactory> {
+    fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
+        ConnectionFactory::transport_log_text(self, transport, local)
+    }
     fn create(&self, transport: Transport, context: VendorContext) -> VendorFuture<'_, (Option<Executor>, Bridge)> {
         Box::pin(async move {
             ConnectionFactory::create(self, transport, context)
@@ -259,7 +265,7 @@ impl DeviceProvider for AppleMacosProvider {
                         "Establishing communication with [{}]",
                         hosts
                             .keys()
-                            .map(|t| transport_text(t, local))
+                            .map(|t| self.connections.transport_log_text(t, local))
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),

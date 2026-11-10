@@ -178,8 +178,21 @@ impl AppleDeviceTestRunner {
                 .join(", ");
             let message =
                 format!("Tests [{names}] got stuck. You can increase the timeout in settings if it's too strict");
-            self.log(Level::ERROR, message.to_owned(), Some(error.error.failure().clone()));
-            if let Err(error) = listener.test_run_failed(&message, DeviceFailureReason::Unknown).await {
+            let diagnostic = error.error.failure().for_log();
+            let timeout = matches!(
+                error.error,
+                VendorError::Cancelled(marathon_core::error::Cancellation::Timeout { .. })
+            );
+            let notified = if timeout {
+                self.log(Level::ERROR, message.to_owned(), Some(diagnostic));
+                listener.test_run_failed(&message, DeviceFailureReason::Unknown).await
+            } else {
+                let diagnostic = diagnostic.to_string();
+                self.log(Level::DEBUG, format!("Batch cancelled: {diagnostic}"), None);
+                // The default callback preserves report data; the debug listener uses only the diagnostic.
+                listener.test_run_cancelled(&message, &diagnostic).await
+            };
+            if let Err(error) = notified {
                 result = Err(error.into());
                 run_failure = None;
             }

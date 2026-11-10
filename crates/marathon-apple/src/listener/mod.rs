@@ -49,6 +49,10 @@ pub trait AppleTestRunListener: Send + Sync {
     fn test_run_failed<'a>(&'a self, _error_message: &'a str, _reason: DeviceFailureReason) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }
+    /// Keep the failure callback's report data while allowing diagnostics to name cancellation.
+    fn test_run_cancelled<'a>(&'a self, report_message: &'a str, _diagnostic: &'a str) -> VendorFuture<'a, ()> {
+        self.test_run_failed(report_message, DeviceFailureReason::Unknown)
+    }
     fn after_test_run<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })
     }

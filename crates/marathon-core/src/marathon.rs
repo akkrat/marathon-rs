@@ -1065,11 +1065,11 @@ impl Marathon {
         let mapped = match outcome {
             Ok(value) => value,
             Err(error) => {
-                // `log.error(th) {}`: the empty lambda's Unit is the message.
+                // Diagnostic wording is independent of the failure stored in results.
                 self.log(
                     LOGGER,
                     Level::ERROR,
-                    "kotlin.Unit".into(),
+                    "Marathon run failed".into(),
                     Some(error.failure().clone()),
                 );
                 match error {

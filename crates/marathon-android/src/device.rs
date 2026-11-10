@@ -590,7 +590,7 @@ impl AndroidDevice {
                         device.log_named(
                             "marathon_android::device",
                             Level::ERROR,
-                            "CoroutineContext closing due to unrecoverable error",
+                            "Task stopped due to unrecoverable error",
                             Some(e.failure()),
                         );
                     }

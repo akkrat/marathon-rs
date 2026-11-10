@@ -159,17 +159,17 @@ fn invalid_transitions_log_an_error_and_have_no_side_effect() {
         .filter(|t| t.contains("Invalid transition"))
         .collect();
     let expected = [
-        "Connected event DeviceEvent.Complete".to_owned(),
-        format!("Connected event DeviceEvent.Execute(batch={id})"),
-        "Initializing event DeviceEvent.Initialize".to_owned(),
-        format!("Initializing event DeviceEvent.Execute(batch={id})"),
-        "Ready event DeviceEvent.Initialize".to_owned(),
-        "Ready event DeviceEvent.Complete".to_owned(),
-        format!("Running(batch={id}) event DeviceEvent.Initialize"),
-        format!("Running(batch={id}) event DeviceEvent.Execute(batch={id})"),
-        "Terminated event DeviceEvent.Initialize".to_owned(),
+        "connected event complete".to_owned(),
+        format!("connected event execute batch={id}"),
+        "initializing event initialize".to_owned(),
+        format!("initializing event execute batch={id}"),
+        "ready event initialize".to_owned(),
+        "ready event complete".to_owned(),
+        format!("running batch={id} event initialize"),
+        format!("running batch={id} event execute batch={id}"),
+        "terminated event initialize".to_owned(),
     ]
-    .map(|cell| format!("Error Invalid transition from DeviceState.{cell}"));
+    .map(|cell| format!("Error Invalid transition from {cell}"));
     assert_eq!(invalid, expected);
     assert_eq!(outcome.calls, (1, 1));
     assert_eq!(
@@ -648,7 +648,7 @@ fn cancellation_before_barrier_admission_leaves_the_token_unconsumed() {
         [
             "Debug initialize serial-1",
             "Debug terminate serial-1",
-            "Error Error DeferredCoroutine was cancelled"
+            "Error Error task was cancelled"
         ]
     );
     assert_eq!(outcome.describe(), ["Terminated"]);
@@ -668,7 +668,7 @@ fn terminate_during_preparation_logs_the_task_cancellation_as_an_error() {
         [
             "Debug initialize serial-1",
             "Debug terminate serial-1",
-            "Error Error DeferredCoroutine was cancelled"
+            "Error Error task was cancelled"
         ]
     );
 }

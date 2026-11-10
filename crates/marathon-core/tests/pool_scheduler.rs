@@ -1661,7 +1661,7 @@ fn state_dump_summarizes_a_large_farm_without_sending_work_d66() {
             let before = run.snapshot(&h);
             let dump = run.scheduler.state_dump();
             assert!(dump.contains("pools=1"), "{dump}");
-            assert!(dump.contains("devices=126 states={\"preparing\": 126}"), "{dump}");
+            assert!(dump.contains("devices=126 states=[preparing=126]"), "{dump}");
             assert!(
                 dump.contains("tests_left=500 worker_retry_tests_pending=0 active_batches=0"),
                 "{dump}"

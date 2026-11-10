@@ -4,6 +4,8 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
+- Diagnostic logs use plain values: run failures no longer say `kotlin.Unit`, cancellations are no longer reported as stuck tests, and Kotlin class renderings are removed from log lines.
+
 - **SIGQUIT no longer ends a run** (D66). It logs a bounded dump of the run's state, at WARN on `marathon_core::diagnostics`:
   the scheduler's phase, each pool's queue and devices, and the tests each device is running and for how long. The run then
   carries on. A wrapper that sends SIGQUIT, waits and then sends SIGTERM gets the dump, then D52's reports and exit status;

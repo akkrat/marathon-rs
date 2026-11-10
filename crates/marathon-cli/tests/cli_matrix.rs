@@ -211,7 +211,7 @@ fn cli_matrix_matches_the_reference_build() -> Result<(), Box<dyn std::error::Er
             .unwrap()
             .replace(
                 "com.malinskiy.marathon.cli.args.VersionCommandCliConfiguration@<HASH>",
-                "VersionCommandCliConfiguration",
+                "version",
             )
             .replace(
                 "[main] INFO  c.m.marathon.cli.ApplicationView - ",
@@ -222,6 +222,44 @@ fn cli_matrix_matches_the_reference_build() -> Result<(), Box<dyn std::error::Er
                 "ERROR marathon_cli::application: ",
             )
             .replace("[main] INFO  <D1>", "INFO <D1>");
+        let expected_stdout = expected_stdout
+            .split_inclusive('\n')
+            .map(|line| {
+                let Some((prefix, config)) = line.split_once(", CliConfiguration: ") else {
+                    return line.to_owned();
+                };
+                let (command, fields) = if let Some(fields) = config
+                    .trim_end()
+                    .strip_prefix("MarathonRunCommandCliConfiguration(")
+                    .and_then(|s| s.strip_suffix(')'))
+                {
+                    (
+                        "run",
+                        fields
+                            .replace(", analyticsTracking=", " analyticsTracking=")
+                            .replace(", bugsnagReporting=", " bugsnagReporting="),
+                    )
+                } else if let Some(fields) = config
+                    .trim_end()
+                    .strip_prefix("ParseCommandCliConfiguration(")
+                    .and_then(|s| s.strip_suffix(')'))
+                {
+                    (
+                        "parse",
+                        fields
+                            .replace(", outputFileName=", " outputFileName=")
+                            .replace(", includeFlakyTests=", " includeFlakyTests="),
+                    )
+                } else {
+                    ("version", String::new())
+                };
+                format!(
+                    "{prefix}, command: {command}{}{fields}{}",
+                    if fields.is_empty() { "" } else { " " },
+                    if line.ends_with('\n') { "\n" } else { "" }
+                )
+            })
+            .collect::<String>();
         // These closed matrix rows record exactly one generated cause. Other messages stay opaque.
         let generated_cause = matches!(
             id,

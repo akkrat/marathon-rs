@@ -143,7 +143,7 @@ impl AndroidDeviceTestRunner<'_> {
         self.device.log_named(
             "AndroidDeviceTestRunner",
             Level::DEBUG,
-            &format!("tests = {tests:?}"),
+            &format!("tests = [{}]", tests.join(", ")),
             None,
         );
         let mut request = TestRunnerRequest::new(

@@ -197,6 +197,10 @@ impl ConnectionFactory {
             tasks: RetainedTasks::default(),
         }))
     }
+    /// Resolve authentication only for diagnostics; transport keys and connection inputs stay unchanged.
+    pub fn transport_log_text(&self, transport: &Transport, local_text: &str) -> String {
+        transport_log_text(transport, self.ssh.authentication.as_ref(), local_text)
+    }
     /// Every acquire belongs to a retained vendor task. A dropped/cancelled awaiter cannot strand a lease or permit.
     pub async fn create_or_throw(
         self: &Arc<Self>,
@@ -660,6 +664,17 @@ pub fn transport_text(transport: &Transport, local_text: &str) -> String {
             format!("ssh {addr}:{port} (authentication={auth}, check_reachability={check_reachability})")
         }
     }
+}
+
+/// The same transport-before-vendor precedence used by ProductionConnector::prepare.
+pub fn transport_log_text(transport: &Transport, default_auth: Option<&SshAuthentication>, local_text: &str) -> String {
+    let mut effective = transport.clone();
+    if let Transport::Ssh { authentication, .. } = &mut effective
+        && authentication.is_none()
+    {
+        *authentication = default_auth.cloned();
+    }
+    transport_text(&effective, local_text)
 }
 
 fn check_address(transport: Transport, timeout: Duration) -> ConnectionResult<()> {

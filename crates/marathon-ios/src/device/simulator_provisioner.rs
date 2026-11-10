@@ -33,6 +33,9 @@ use tokio::sync::Semaphore;
 
 pub const DEFAULT_CONCURRENCY: i32 = 2;
 pub trait ProvisioningConnections: Send + Sync {
+    fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
+        transport_text(transport, local)
+    }
     fn connect(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, (Option<Executor>, Bridge)>;
     fn connect_worker(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, Executor> {
         Box::pin(async move {
@@ -45,6 +48,9 @@ pub trait ProvisioningConnections: Send + Sync {
     fn release(&self, executor: Executor) -> VendorFuture<'_, ()>;
 }
 impl ProvisioningConnections for Arc<ConnectionFactory> {
+    fn transport_log_text(&self, transport: &Transport, local: &str) -> String {
+        ConnectionFactory::transport_log_text(self, transport, local)
+    }
     fn connect(&self, transport: Transport, caller: VendorContext) -> ConnectionFuture<'_, (Option<Executor>, Bridge)> {
         Box::pin(async move { self.create(transport, caller).await })
     }
@@ -310,7 +316,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                         if let Some(reason) = error.cancellation() { siblings.cancel(reason); }
                         Err(error)
                     },
-                    Err(error) => { self.log(Level::ERROR, || format!("Failed to set up simulator on {}", transport_text(&transport, "Local")), Some(&error)); Ok(Some(failure)) },
+                    Err(error) => { self.log(Level::ERROR, || format!("Failed to set up simulator on {}", self.connections.transport_log_text(&transport, "Local")), Some(&error)); Ok(Some(failure)) },
                     result => result,
                 }
             }
@@ -351,7 +357,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     || {
                         format!(
                             "Failed to connect to {} to set up simulator {udid}",
-                            transport_text(transport, "Local")
+                            self.connections.transport_log_text(transport, "Local")
                         )
                     },
                     Some(&error),
@@ -405,7 +411,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     || {
                         format!(
                             "Lost the connection to {} while setting up simulator {udid}",
-                            transport_text(transport, "Local")
+                            self.connections.transport_log_text(transport, "Local")
                         )
                     },
                     Some(&error),
@@ -452,7 +458,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     format!(
                         "Simulator profile {} is not available at {}",
                         profile_text(profile),
-                        transport_text(transport, "Local")
+                        self.connections.transport_log_text(transport, "Local")
                     )
                 },
                 None,
@@ -506,7 +512,7 @@ impl<H: Clone + Send + Sync + 'static> SimulatorProvisioner<H> {
                     || {
                         format!(
                             "Failed to delete partially provisioned simulator {udid} on {}",
-                            transport_text(transport, "Local")
+                            self.connections.transport_log_text(transport, "Local")
                         )
                     },
                     error.as_ref(),

@@ -447,7 +447,11 @@ fn jvm_events(row: &Value, logger: &str) -> Vec<(String, String, Option<String>)
         .map(|e| {
             (
                 e["level"].as_str().unwrap().to_owned(),
-                normalize(e["message"].as_str().unwrap()),
+                if logger == LOGGER && e["level"] == "ERROR" && e["message"] == "kotlin.Unit" {
+                    "Marathon run failed".into()
+                } else {
+                    normalize(e["message"].as_str().unwrap())
+                },
                 e["throwable"]
                     .as_str()
                     .map(|class| marathon_test_support::recorded_errors::kind(class).to_string()),
@@ -728,7 +732,12 @@ fn run_maps_no_tests_to_ignore_failures_after_the_protected_finish() {
             ignore_failures,
             ..Options::default()
         };
-        check(case, &run(o, Entry::Run, ExecutionCommand::Run));
+        let result = run(o, Entry::Run, ExecutionCommand::Run);
+        let logs = rust_events(&result.outcome.lines, LOGGER);
+        assert!(logs.iter().any(|(level, text, kind)| level == "ERROR"
+            && text == "Marathon run failed"
+            && kind.as_deref() == Some("no tests found")));
+        check(case, &result);
     }
 }
 

@@ -1024,3 +1024,35 @@ fn diagnostic_transport_text_redacts_passwords_and_keeps_authentication_details(
         "ssh worker.invalid:2222 (authentication=public key (user=runner, key=/keys/test-key), check_reachability=true)"
     );
 }
+
+#[test]
+fn transport_log_uses_effective_authentication_without_changing_transport_x56() {
+    let transport = worker("worker.invalid");
+    let key = SshAuthentication::PublicKey {
+        username: "runner".into(),
+        key: "/keys/test-key".into(),
+    };
+    let original = transport.clone();
+    assert_eq!(
+        transport_log_text(&transport, Some(&key), "Local"),
+        "ssh worker.invalid:22 (authentication=public key (user=runner, key=/keys/test-key), check_reachability=false)"
+    );
+    assert_eq!(transport, original);
+    let password = SshAuthentication::Password {
+        username: "other".into(),
+        password: "secret-do-not-print".into(),
+    };
+    let overridden = Transport::Ssh {
+        addr: "worker.invalid".into(),
+        port: 22,
+        authentication: Some(password.clone()),
+        check_reachability: false,
+    };
+    let text = transport_log_text(&overridden, Some(&key), "Local");
+    assert!(text.contains("authentication=password (user='other')"));
+    assert!(!text.contains("public key") && !text.contains("secret-do-not-print"));
+    let text = transport_log_text(&transport, Some(&password), "Local");
+    assert!(text.contains("authentication=password (user='other')"));
+    assert!(!text.contains("secret-do-not-print"));
+    assert_eq!(transport_log_text(&Transport::Local, Some(&key), "Local"), "Local");
+}

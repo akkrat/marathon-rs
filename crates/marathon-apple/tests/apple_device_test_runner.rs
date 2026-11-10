@@ -457,3 +457,60 @@ async fn cancellation_branch_keeps_the_exact_unquoted_message_in_missing_test_re
     v(device.dispose().await)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn cancellation_logs_plain_debug_and_timeout_still_logs_stuck_x56() -> TestResult {
+    use marathon_core::error::Cancellation;
+    use marathon_logging::Level;
+    for (reason, expected_level, expected_text) in [
+        (
+            Cancellation::Requested(failure(
+                FailureKind::JobCancelled,
+                "LazyDeferredCoroutine was cancelled",
+            )),
+            Level::DEBUG,
+            "Batch cancelled: job cancelled: task was cancelled",
+        ),
+        (
+            Cancellation::Timeout {
+                scope: 1,
+                detail: failure(FailureKind::TimeoutCancelled, "Timed out waiting for test output"),
+            },
+            Level::ERROR,
+            "Tests [] got stuck. You can increase the timeout in settings if it's too strict",
+        ),
+    ] {
+        let (device, mut runner) = setup(Plan {
+            output_failure: Some(VendorError::Cancelled(reason.clone())),
+            ..Default::default()
+        });
+        let logs = Arc::new(Mutex::new(vec![]));
+        let captured = logs.clone();
+        runner.logging = marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
+            runner.logging.registry.clone(),
+            Arc::new(move |_, level, message, cause| captured.lock().unwrap().push((level, message, cause))),
+        );
+        let listeners = CompositeTestRunListener::new(vec![
+            Arc::new(Listener::new(device.calls.clone(), "one")),
+            Arc::new(marathon_apple::listener::DebugTestRunListener::new(
+                marathon_core::vendor::DeviceRef(device.clone()),
+                runner.logging.clone(),
+            )),
+        ]);
+        let result = execute(&runner, &listeners).await.unwrap_err();
+        assert_eq!(result.error, VendorError::Cancelled(reason));
+        v(device.dispose().await)?;
+        let logs = logs.lock().unwrap();
+        assert!(
+            logs.iter()
+                .any(|(level, text, _)| *level == expected_level && text == expected_text),
+            "{logs:?}"
+        );
+        if expected_level == Level::DEBUG {
+            assert!(logs.iter().all(|(_, text, cause)| !text.contains("got stuck")
+                && !text.contains("Coroutine")
+                && cause.as_ref().is_none_or(|f| !f.stack_trace().contains("Coroutine"))));
+        }
+    }
+    Ok(())
+}

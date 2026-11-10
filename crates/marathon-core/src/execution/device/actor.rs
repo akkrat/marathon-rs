@@ -469,7 +469,7 @@ impl Shared {
                         OperationError::Cancelled(reason) => reason.failure().clone(),
                         OperationError::Failed(failure) => failure,
                     };
-                    let message = failure.message.to_owned().unwrap_or_else(|| "null".into());
+                    let message = failure.for_log().message.unwrap_or_else(|| "null".into());
                     shared.log(Level::ERROR, text(&[&"Error ", &message]), Some(failure));
                     shared.transition(DeviceEvent::Terminate);
                 }

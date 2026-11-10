@@ -182,6 +182,17 @@ async fn silent_batches_with_progress_keep_the_simulator_d39() -> TestResult {
 #[tokio::test(start_paused = true)]
 async fn a_cancelled_batch_doesn_t_lose_the_simulator() -> TestResult {
     let h = Harness::new(|_| {})?;
+    for target in [
+        "marathon_apple::apple_device_test_runner",
+        "marathon_apple::listener::debug",
+    ] {
+        h.services
+            .logging
+            .registry
+            .lock()
+            .unwrap()
+            .set_level(target, marathon_logging::Level::DEBUG);
+    }
     let (d, s) = prepared(&h).await?;
     s.plan.lock().unwrap().hang = true;
     let signal = Signal::new();
@@ -201,6 +212,16 @@ async fn a_cancelled_batch_doesn_t_lose_the_simulator() -> TestResult {
     assert!(!d.lost());
     assert!(!d.retired());
     h.finish(std::slice::from_ref(&d)).await;
+    let logs = h.logs.lock().unwrap();
+    assert!(
+        logs.iter()
+            .any(|(_, level, message, _)| *level == marathon_logging::Level::DEBUG
+                && message.starts_with("Batch cancelled: "))
+    );
+    assert!(
+        logs.iter()
+            .all(|(_, _, message, _)| !message.contains("got stuck") && !message.contains("DeferredCoroutine"))
+    );
     Ok(())
 }
 #[tokio::test(start_paused = true)]

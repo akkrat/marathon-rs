@@ -455,3 +455,50 @@ fn sigquit_installation_failure_warns_once_and_remains_visible_with_debug_off() 
     assert!(text.contains("continuing without SIGQUIT diagnostics"), "{text}");
     Ok(())
 }
+
+#[test]
+fn cancellation_diagnostics_keep_stored_failure_data_x56() -> Result<(), Box<dyn std::error::Error>> {
+    use marathon_core::{
+        error::{Failure, FailureKind},
+        logging::LogRecord,
+    };
+    let cause = Failure::from_kind(
+        FailureKind::JobCancelled,
+        Some("LazyDeferredCoroutine was cancelled".into()),
+    );
+    let mut failure = Failure::from_kind(
+        FailureKind::DeviceLost,
+        Some(format!("{cause}; job=LazyDeferredCoroutine{{Cancelled}}")),
+    );
+    failure.cause = Some(Box::new(cause));
+    let record = LogRecord {
+        target: "marathon_core::execution::device::actor".into(),
+        logger: "marathon_core::execution::device::actor".into(),
+        at_millis: 0,
+        wall_millis: 0,
+        level: marathon_logging::Level::ERROR,
+        message: "Critical error during execution".into(),
+        cause: Some(failure.clone()),
+    };
+    let buffer = Buffer::default();
+    let (output, guard) = setup(buffer.clone(), false)?;
+    tracing::dispatcher::with_default(&output.dispatch(), || record.emit());
+    guard.shutdown()?;
+    let text = buffer.text()?;
+    assert!(
+        text.contains("error=device lost: job cancelled: task was cancelled"),
+        "{text}"
+    );
+    assert!(text.contains("Caused by: job cancelled: task was cancelled"));
+    assert!(!text.contains("Coroutine"));
+    assert_eq!(record.cause, Some(failure));
+    assert!(
+        record
+            .cause
+            .as_ref()
+            .ok_or("cause")?
+            .stack_trace()
+            .contains("LazyDeferredCoroutine")
+    );
+    Ok(())
+}

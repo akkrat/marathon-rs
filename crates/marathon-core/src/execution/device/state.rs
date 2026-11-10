@@ -35,27 +35,25 @@ pub enum DeviceAction {
     NotifyIsReady(Option<Running>),
 }
 
-// `DeviceState.Connected` and the like come from the sealed classes' toString.
-// The data classes Running and Execute generate their own, with the whole test
-// list and a Deferred identity hash; S1 logs the batch id instead.
+// Used by invalid-transition diagnostics; the batch id identifies the work.
 impl fmt::Display for DeviceState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Connected => f.write_str("DeviceState.Connected"),
-            Self::Ready => f.write_str("DeviceState.Ready"),
-            Self::Initializing => f.write_str("DeviceState.Initializing"),
-            Self::Running(r) => write!(f, "DeviceState.Running(batch={})", r.test_batch.id.to_owned()),
-            Self::Terminated => f.write_str("DeviceState.Terminated"),
+            Self::Connected => f.write_str("connected"),
+            Self::Ready => f.write_str("ready"),
+            Self::Initializing => f.write_str("initializing"),
+            Self::Running(r) => write!(f, "running batch={}", r.test_batch.id.to_owned()),
+            Self::Terminated => f.write_str("terminated"),
         }
     }
 }
 impl fmt::Display for DeviceEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Execute(batch) => write!(f, "DeviceEvent.Execute(batch={})", batch.id.to_owned()),
-            Self::Complete => f.write_str("DeviceEvent.Complete"),
-            Self::Initialize => f.write_str("DeviceEvent.Initialize"),
-            Self::Terminate => f.write_str("DeviceEvent.Terminate"),
+            Self::Execute(batch) => write!(f, "execute batch={}", batch.id.to_owned()),
+            Self::Complete => f.write_str("complete"),
+            Self::Initialize => f.write_str("initialize"),
+            Self::Terminate => f.write_str("terminate"),
         }
     }
 }

@@ -89,7 +89,12 @@ impl SshComponents {
         self.logging.log(
             &self.transport,
             Level::ERROR,
-            || format!("Dying because - {}", cause.message().unwrap_or_else(|| "null".into())),
+            || {
+                format!(
+                    "Dying because - {}",
+                    cause.for_log().message().unwrap_or_else(|| "null".into())
+                )
+            },
             Some(cause),
         );
     }
@@ -98,7 +103,7 @@ impl SshComponents {
         self.logging.log(
             &self.promise,
             Level::ERROR,
-            || format!("<<{promise}>> woke to: {error}"),
+            || format!("<<{promise}>> woke to: {}", error.for_log()),
             None,
         );
     }

@@ -1900,3 +1900,45 @@ fn io_error_branch_keeps_the_exact_unquoted_message_in_missing_test_results() {
         })
     });
 }
+
+#[test]
+fn debug_listener_uses_android_target_and_plain_test_name_x56() {
+    run(configuration(), |runtime, _| {
+        Box::pin(async move {
+            let mut server = server(base_script(27, vec![])).await;
+            let logs = Arc::new(Mutex::new(vec![]));
+            let captured = logs.clone();
+            let mut runtime = change_runtime(&runtime, &[server.port()]);
+            Arc::get_mut(&mut runtime).unwrap().log = Arc::new(move |logger, level, message, _| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push((logger.name().to_owned(), level, message.to_owned()))
+            });
+            let listener = DebugTestRunListener {
+                device: device(&server, runtime),
+            };
+            let id = marathon_adb::testrunner::TestIdentifier {
+                class_name: "pkg.Tests".into(),
+                test_name: "testOne".into(),
+            };
+            listener.on_event(&E::TestStarted { id: id.clone() }).await?;
+            listener
+                .on_event(&E::TestFailed {
+                    id,
+                    stack_trace: "java.lang.AssertionError: external".into(),
+                })
+                .await?;
+            let logs = logs.lock().unwrap().clone();
+            assert_eq!(logs.len(), 2);
+            assert!(
+                logs.iter()
+                    .all(|(target, level, _)| target == "marathon_android::listeners" && *level == Level::INFO)
+            );
+            assert!(logs[0].2.ends_with("test = pkg.Tests#testOne"));
+            assert!(logs[1].2.ends_with("trace = java.lang.AssertionError: external"));
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}

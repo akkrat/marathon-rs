@@ -223,7 +223,7 @@ fn level_name(level: Level) -> &'static str {
     }
 }
 pub fn logger_name(pool: &str) -> String {
-    format!("QueueActor[DevicePoolId(name={pool})]")
+    format!("QueueActor[{pool}]")
 }
 
 // ---- recording doubles --------------------------------------------------------------------------------------

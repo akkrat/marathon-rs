@@ -33,6 +33,48 @@ impl Failure {
         }
     }
 
+    /// Diagnostic projection only: stored failures and report text retain their bytes.
+    pub fn for_log(&self) -> Self {
+        let mut rendered = self.clone();
+        rendered.cause = self.cause.as_deref().map(|cause| Box::new(cause.for_log()));
+        if self.kind == FailureKind::JobCancelled
+            && matches!(
+                self.message.as_deref(),
+                Some("DeferredCoroutine was cancelled" | "LazyDeferredCoroutine was cancelled")
+            )
+        {
+            rendered.message = Some("task was cancelled".into());
+        }
+        if self.kind == FailureKind::Timeout {
+            rendered.message = match self.message.as_deref() {
+                Some("Timeout expired: 30000 MILLISECONDS") => Some("no response after 30 s".into()),
+                Some("Timeout expired: 1 NANOSECONDS") => Some("no response after 1 ns".into()),
+                _ => self.message.clone(),
+            };
+        }
+        if matches!(self.kind, FailureKind::Ssh(_))
+            && let (Some(cause), Some(diagnostic)) = (self.cause.as_deref(), rendered.cause.as_deref())
+            && self.message == cause.message
+        {
+            rendered.message = diagnostic.message.clone();
+        }
+        if self.kind == FailureKind::DeviceLost
+            && let (Some(cause), Some(diagnostic)) = (self.cause.as_deref(), rendered.cause.as_deref())
+            && self.message.as_deref() == Some(cause.to_string().as_str())
+        {
+            rendered.message = Some(diagnostic.to_string());
+        }
+        if self.kind == FailureKind::DeviceLost
+            && let (Some(cause), Some(diagnostic)) = (self.cause.as_deref(), rendered.cause.as_deref())
+            && cause.kind == FailureKind::JobCancelled
+            && cause.message.as_deref() == Some("LazyDeferredCoroutine was cancelled")
+            && self.message.as_deref() == Some(format!("{cause}; job=LazyDeferredCoroutine{{Cancelled}}").as_str())
+        {
+            rendered.message = Some(diagnostic.to_string());
+        }
+        rendered
+    }
+
     /// `Throwable.stackTraceToString()` over the causal chain. JVM frames are not
     /// recorded (PLAN §3.10); `stacktrace` holds frame lines kept from the source.
     pub fn stack_trace(&self) -> String {
@@ -172,6 +214,54 @@ mod tests {
             format!("{:?}", VendorError::Other(failure)),
             "Other(Failure { kind: IllegalState, message: Some(\"outer\"), cause: Some(Failure { kind: Io, message: None, cause: None, stacktrace: None }), stacktrace: None })"
         );
+    }
+
+    #[test]
+    fn diagnostic_cancellation_is_plain_without_changing_stored_data() {
+        let cause = Failure::from_kind(
+            FailureKind::JobCancelled,
+            Some("LazyDeferredCoroutine was cancelled".into()),
+        );
+        let mut loss = Failure::from_kind(
+            FailureKind::DeviceLost,
+            Some(format!("{cause}; job=LazyDeferredCoroutine{{Cancelled}}")),
+        );
+        loss.cause = Some(Box::new(cause.clone()));
+        let original = loss.clone();
+        assert_eq!(
+            loss.for_log().stack_trace(),
+            "device lost: job cancelled: task was cancelled\nCaused by: job cancelled: task was cancelled\n"
+        );
+        assert_eq!(loss, original);
+        assert!(loss.stack_trace().contains("LazyDeferredCoroutine"));
+        let mut ios_loss = loss.clone();
+        ios_loss.message = Some(cause.to_string());
+        assert_eq!(
+            ios_loss.for_log().message.as_deref(),
+            Some("job cancelled: task was cancelled")
+        );
+        assert_eq!(
+            ios_loss.message.as_deref(),
+            Some("job cancelled: LazyDeferredCoroutine was cancelled")
+        );
+        let deferred = Failure::from_kind(
+            FailureKind::JobCancelled,
+            Some("DeferredCoroutine was cancelled".into()),
+        );
+        assert_eq!(deferred.for_log().to_string(), "job cancelled: task was cancelled");
+        // Class-looking user/tool text is opaque, even inside a cancellation.
+        for kind in [FailureKind::Io, FailureKind::External("runner.CustomFailure".into())] {
+            let external = Failure::from_kind(kind, cause.message.clone());
+            assert_eq!(external.for_log(), external);
+        }
+        let external = Failure::from_kind(
+            FailureKind::JobCancelled,
+            Some("external LazyDeferredCoroutine was cancelled".into()),
+        );
+        assert_eq!(external.for_log(), external);
+        let mut wrapper = loss.clone();
+        wrapper.message = Some("external LazyDeferredCoroutine".into());
+        assert_eq!(wrapper.for_log().message, wrapper.message);
     }
 
     #[test]

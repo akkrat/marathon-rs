@@ -188,7 +188,7 @@ impl AndroidTestRunListener for ProfilingRunListener {
                                             "perfetto process finished: {}",
                                             r.as_ref()
                                                 .map(|r| format!(
-                                                    "ShellCommandResult(output={}, exitCode={})",
+                                                    "output={} exitCode={}",
                                                     r.output.to_owned(),
                                                     r.exit_code
                                                 ))

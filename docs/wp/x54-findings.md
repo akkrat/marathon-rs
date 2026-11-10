@@ -154,6 +154,7 @@ not require the host to complete within a tighter wall-time margin.
   or renamed. There are no ranges ending at D65 at this base to replace. After x53 is
   merged, the orchestrator must advance its new ranges to D1–D66 and add the D66
   bullet to its top 0.13.0 section. D66's section and plan row are additive.
+- S-x54-7 closure: rebasing onto `9a968887` and commit `bbb9594a` superseded the old `Base: 65c70cd8` notes, added the Unreleased entry and advanced the documentation ranges to D1–D66.
 - No migration table row is needed: wrappers need no action; the D66 guide says so.
 
 A wrapper that signals the process group also ends local child commands such as
@@ -185,7 +186,9 @@ logging and negative witnesses, and requested the following refinements on top o
   are unchanged. Remote SSH commands and adb traffic remain unaffected.
 - **S-x54-2:** unwind isolation covers the entire dump construction, including
   header, scheduler/device observation and bounds. An unwinding panic becomes a
-  WARN on the same diagnostic target; its payload is not formatted. The listener
+  WARN on the same diagnostic target; its payload is not included in that WARN.
+  The default panic hook still prints `thread '…' panicked at …` (including the
+  payload) to stderr before the unwind is caught; no hook is changed. The listener
   continues and cannot fail its core job or cancel the run through this panic.
   An injected-panic test runs a second dump on the same task and confirms that
   borrowed state was released during unwinding.

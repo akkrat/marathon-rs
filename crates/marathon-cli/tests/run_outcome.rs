@@ -180,7 +180,7 @@ fn invoke(args: &[&str], cwd: &Path, runner: &dyn CliRunner, stdout: &Buffer, st
     run_cli(&args, &process, runner, &output)
 }
 
-const START: &str = "12:34:56.789 INFO marathon_cli::application: Starting marathon v0.10.1, CliConfiguration: MarathonRunCommandCliConfiguration(marathonfile=Marathonfile, analyticsTracking=true, bugsnagReporting=true)\n\
+const START: &str = "12:34:56.789 INFO marathon_cli::application: Starting marathon v0.10.1, command: run marathonfile=Marathonfile analyticsTracking=true bugsnagReporting=true\n\
 12:34:56.789 INFO marathon_cli::application: Checking Marathonfile config\n\
 12:34:56.789 INFO marathon_cli::application: Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored\n";
 
@@ -218,7 +218,7 @@ fn run_failures_exit_1() {
 }
 
 #[test]
-fn run_crash_logs_kotlin_unit_and_the_throwable() {
+fn run_crash_logs_plain_message_and_the_throwable() {
     let e = failure(
         FailureKind::IllegalState,
         "boom",
@@ -228,7 +228,7 @@ fn run_crash_logs_kotlin_unit_and_the_throwable() {
     assert_eq!(
         r.stdout,
         format!(
-            "{}12:34:56.789 ERROR marathon_cli::application: kotlin.Unit error=\
+            "{}12:34:56.789 ERROR marathon_cli::application: Marathon execution crashed error=\
              invalid state: boom\nCaused by: I/O error: inner\n\n",
             start()
         )
@@ -244,7 +244,7 @@ fn run_crash_after_configure_logging_uses_the_runtime_layout() {
     assert_eq!(
         r.stdout,
         format!(
-            "{}12:34:56.789 ERROR marathon_cli::application: kotlin.Unit error=runtime failure: late\n\n",
+            "{}12:34:56.789 ERROR marathon_cli::application: Marathon execution crashed error=runtime failure: late\n\n",
             start()
         )
     );
@@ -259,7 +259,7 @@ fn run_events_and_the_crash_log_share_the_console() {
         r.stdout,
         format!(
             "{}12:34:56.789 INFO marathon_core::marathon: from the run\n\
-             12:34:56.789 ERROR marathon_cli::application: kotlin.Unit error=runtime failure: late\n\n",
+             12:34:56.789 ERROR marathon_cli::application: Marathon execution crashed error=runtime failure: late\n\n",
             start()
         )
     );
@@ -345,9 +345,10 @@ fn parse_forces_tracking_off_and_passes_the_parse_command() {
             )
         ]
     );
-    assert!(r.stdout.contains(
-        "CliConfiguration: ParseCommandCliConfiguration(marathonfile=Marathonfile, outputFileName=tests, includeFlakyTests=true)\n"
-    ));
+    assert!(
+        r.stdout
+            .contains("command: parse marathonfile=Marathonfile outputFileName=tests includeFlakyTests=true\n")
+    );
     assert_eq!(r.exit, 0);
 }
 

@@ -83,6 +83,14 @@ impl AppleTestRunListener for CompositeTestRunListener {
             Ok(())
         })
     }
+    fn test_run_cancelled<'a>(&'a self, report_message: &'a str, diagnostic: &'a str) -> VendorFuture<'a, ()> {
+        Box::pin(async move {
+            for listener in &self.listeners {
+                listener.test_run_cancelled(report_message, diagnostic).await?;
+            }
+            Ok(())
+        })
+    }
     fn after_test_run<'a>(&'a self) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             for listener in &self.listeners {

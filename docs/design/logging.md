@@ -105,6 +105,22 @@ Two registry details matter:
   capture one component's records while the rest of a run stays at its
   configured level (the old explicit per-logger registrations in tests).
 
+## Cancellation diagnostics (WP x56)
+
+Expected batch and discovery cancellation is DEBUG, as in task-completion logging.
+An actual timeout still logs ERROR with the timeout advice. The signal notice
+remains ERROR so D52 reaches a CI log with debug off. Device-loss and failure
+levels retain their existing meanings.
+
+`Failure::for_log` projects only the known Marathon-generated job-cancellation
+messages, generated SSH timeout units and the exact generated device-loss
+wrappers, recursively through typed causes. `LogRecord::emit` uses that projection; ordinary `Display`, stored
+failures, frames and external tool text keep their bytes. Apple listeners have a
+cancellation callback whose default forwards the original report message to
+`test_run_failed`; the composite preserves callback order and the debug listener
+uses the separate diagnostic. Thus a cancellation cannot echo the report's
+historical timeout wording back into the log.
+
 ## Queue bound
 
 Finding (old code, `a830d106`): the core queue was **unbounded and

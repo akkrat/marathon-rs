@@ -271,7 +271,12 @@ impl Shared {
             None,
         );
         if let (MetricsKey::ExecutionTime { .. }, Ok(rows)) = (key, &fetched) {
-            let message = format!("{rows:?}");
+            let rows = rows
+                .iter()
+                .map(|(test, millis)| format!("{test}={millis} ms"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let message = format!("Execution time history: [{rows}]");
             self.context
                 .log("marathon_core::analytics::provider", Level::DEBUG, message, None);
         }

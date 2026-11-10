@@ -12,7 +12,7 @@ use super::{
     provisioning_plan::{CurrentDevices, PlanCalculator},
     simulator_factory::{BinaryFactory, ConstructedSimulator, SimulatorCreating},
     simulator_provisioner::{FailedSetup, ProvisioningConnections, SimulatorProvisioner},
-    timing::{ProvisioningTiming, profile_text, transport_text},
+    timing::{ProvisioningTiming, profile_text},
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use crate::apple_simulator_device::AppleSimulatorDevice;
@@ -481,7 +481,7 @@ impl AppleSimulatorProvider {
                         .join("\n");
                     format!(
                         "Processing updates from {}:\n- {lines}",
-                        transport_text(&transport, "Local")
+                        self.services.connections.transport_log_text(&transport, "Local")
                     )
                 },
                 None,
@@ -562,7 +562,10 @@ impl AppleSimulatorProvider {
                     siblings.cancel(reason);
                 }
                 self.isolate(result, || {
-                    format!("Failed to initialize worker {}", transport_text(&transport, "Local"))
+                    format!(
+                        "Failed to initialize worker {}",
+                        self.services.connections.transport_log_text(&transport, "Local")
+                    )
                 })
             }
         });
@@ -1127,12 +1130,7 @@ impl AppleSimulatorProvider {
         {
             self.log(
                 Level::DEBUG,
-                || {
-                    format!(
-                        "Using dynamic device provider at Dynamic(host={}, port={port})",
-                        host.to_owned()
-                    )
-                },
+                || format!("Using dynamic device provider at {}:{port}", host.to_owned()),
                 None,
             );
         }

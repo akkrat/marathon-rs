@@ -425,13 +425,7 @@ impl AndroidTestRunListener for DebugTestRunListener {
     fn on_event<'a>(&'a self, event: &'a TestEvent) -> VendorFuture<'a, ()> {
         Box::pin(async move {
             let serial = self.device.serial_number();
-            let identifier = |id: &AdamIdentifier| {
-                format!(
-                    "TestIdentifier(className={}, testName={})",
-                    id.class_name.to_owned(),
-                    id.test_name.to_owned()
-                )
-            };
+            let identifier = |id: &AdamIdentifier| format!("{}#{}", id.class_name.to_owned(), id.test_name.to_owned());
             let s = match event {
                 TestEvent::TestRunStartedEvent { .. } => format!("testRunStarted {}", serial.to_owned()),
                 TestEvent::TestStarted { id } => {
@@ -475,7 +469,7 @@ impl AndroidTestRunListener for DebugTestRunListener {
                 } => format!("testRunEnded elapsedTime {elapsed_time_millis}"),
             };
             self.device
-                .log_named("marathon_apple::listener::debug", Level::INFO, &s, None);
+                .log_named("marathon_android::listeners", Level::INFO, &s, None);
             Ok(())
         })
     }

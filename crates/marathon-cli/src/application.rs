@@ -342,8 +342,8 @@ pub fn execute(configuration: CliConfiguration, process: &Process, runner: &dyn 
     output.log(
         Level::INFO,
         &format!(
-            "Starting marathon v{VERSION}, CliConfiguration: {}",
-            configuration.to_kotlin_string()
+            "Starting marathon v{VERSION}, command: {}",
+            configuration.log_description()
         ),
         "",
     );
@@ -447,8 +447,11 @@ fn run(
     // Outcome messages and streams stay pinned independently of parser diagnostics (PLAN §3.1).
     match marathon.run(start.command) {
         Err(e) => {
-            // `logger.error(e) {}`: the empty lambda's `Unit` is the message (C34).
-            output.log(Level::ERROR, "kotlin.Unit", &render_throwable(&e));
+            output.log(
+                Level::ERROR,
+                "Marathon execution crashed",
+                &render_throwable(&e.for_log()),
+            );
             output.err("Marathon execution crashed\n");
             Ok(1)
         }

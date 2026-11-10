@@ -220,7 +220,7 @@ impl AndroidTestRunListener for FileSyncTestRunListener {
                             AggregationMode::DeviceAndPool => "DEVICE_AND_POOL",
                             AggregationMode::TestRun => "TEST_RUN",
                         };
-                        device.log_named("FileSyncTestRunListener",Level::WARN,&format!("Unable to pull FileSyncEntry(relativePath={relative}, pathRoot=APP_DATA, aggregationMode={aggregation}): application package is unknown"),None);
+                        device.log_named("FileSyncTestRunListener",Level::WARN,&format!("Unable to pull {relative} from APP_DATA (aggregation {aggregation}): application package is unknown"),None);
                         continue;
                     }
                 }

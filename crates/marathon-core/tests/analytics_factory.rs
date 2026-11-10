@@ -356,12 +356,15 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
                     serde_json::json!([e.logger, e.level.as_str(), m])
                 })
                 .collect::<Vec<_>>();
-            assert_eq!(
-                serde_json::json!(events),
-                marathon_test_support::recorded_logs::native_logs(&serde_json::json!(
-                    row["events"].as_array().unwrap()[6..]
-                ))
-            );
+            let mut expected = marathon_test_support::recorded_logs::native_logs(&serde_json::json!(
+                row["events"].as_array().unwrap()[6..]
+            ));
+            for event in expected.as_array_mut().unwrap() {
+                if event[0] == "marathon_core::analytics::provider" && event[1] == "DEBUG" && event[2] == "[]" {
+                    event[2] = "Execution time history: []".into();
+                }
+            }
+            assert_eq!(serde_json::json!(events), expected);
         }
     });
 }
