@@ -390,3 +390,58 @@ Questions requiring implementation evidence or a later contract decision:
 No prototype or runtime modification is retained by WP 8.13. The only plan change
 is the design row; the later-candidates bullet stays until concrete implementation
 briefs and their numbered rows exist.
+
+## 7. Review outcome (orchestrator decision)
+
+Two independent critiques reviewed this design. Both agreed with its central
+conclusion: no Job-to-JoinSet rewrite, no CancellationToken tree, and keep the
+core `LocalSet`, the reasoned cancellation signals, `SharedDeferred`,
+`SharedChannel`, the retry loops and the replay `Timeline`. They differed from it
+on scope, and those points are adopted:
+
+1. **Merge single-implementation layers.** `Job`, `CoreRuntime` and
+   `TimeoutScope` each have exactly one implementation. Using the concrete types
+   (`Rc<RuntimeJob>` behind a `JobHandle`, a concrete `CoreExecutor` in
+   `TaskContext`) deletes the pointer-keyed job registry, its sweep and the
+   panicking `resolve()` without touching scheduling. `VendorRuntime`,
+   `VendorClock` and `CancellationSignal` stay traits (they have many
+   implementations). This replaces C and D as the substantive simplification.
+2. **B uses `try_recv` after the protected join.** The producer has already sent
+   the payload when the join completes; awaiting a oneshot adds a suspension point
+   (Tokio's cooperative budget can return `Pending` with a value present) where
+   none exists today.
+3. **Delete dead surface:** the unused timeout overloads (A), `Actor::safe_send`
+   and `Job::cancel_and_join` (no production callers), and the production path of
+   `completion_logging`, whose loggerless failures accumulate in a vector nothing
+   drains: route them to the log queue instead.
+4. **Fix defects the critiques found** (separately from the refactors, each with a
+   witness test):
+   - a vendor future that panics on its first poll leaves its cancellation gate
+     unarmed, so a retained child holding the gate can wait for ever
+     (`bridge.rs`);
+   - `Tracked` releases its replay ticket only in `poll`, with no `Drop`, so any
+     abort leaks the busy count;
+   - iOS `apple_simulator_device::LinkedSignal::cancelled()` uses an unbiased
+     `select!` while `reason()` prefers the parent, so the two can disagree when
+     both sources are ready;
+   - `timeout_panics_surface_as_failures_without_leaving_children_live` spawns no
+     child; add a witness that a panicking timeout body cancels and cleans up a
+     live descendant.
+   The precedence where a cancelled vendor task that panics reports cancellation
+   rather than the panic (`IoRuntime`) is kept and documented, not changed.
+5. **Not commissioned:** D (actor mailbox to mpsc: tokio's receiver drains rather
+   than discards on close and adds cooperative-budget yields, so it is at best
+   line-neutral with scheduling risk), E (the retention code it targets is about
+   120 lines and already uses repeatable protected joins), F, a token backend.
+   C only as a spike whose first commit shows a net-negative diff with the sleep
+   future pinned outside any loop.
+6. **Kotlin quirks are a separate decision.** Retiring the single-child traversal
+   distinction, disposable completion registrations and the `Parent`/`Requested`
+   tag needs its own design-only brief that classifies each as production
+   dependency, integration witness or synthetic coroutine witness, and prices a
+   D-row and any golden movement (including the D48 interaction).
+
+Resulting work packages, in order: **8.14** runtime cleanup (A, B with
+`try_recv`, dead surface, `completion_logging` routing, and the four defect fixes
+above; S–M); **8.15** concrete core handles (M); then, only on request, a
+design-only brief for retiring the coroutine quirks.

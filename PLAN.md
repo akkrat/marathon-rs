@@ -714,13 +714,15 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.10 | clap instead of the Clikt emulation (docs/wp/8.10.md) | M | 8.9 |
 | 8.11 | Native rendering instead of Kotlin toString (docs/wp/8.11.md) | M | 8.10 |
 | 8.13 | Design: Tokio tasks and cancellation instead of the coroutine emulation (docs/wp/8.13.md) | M | 8.11 |
+| 8.14 | Runtime cleanup: dead coroutine surface, bridge payload, defect fixes (docs/design/tokio-tasks.md §7) | M | 8.13 |
+| 8.15 | Concrete core runtime handles instead of single-implementation traits (docs/design/tokio-tasks.md §7) | M | 8.14 |
 
 Later candidates:
 
 - `jnum` and `jtime` (numbers and time; their parsers are the input syntax and stay)
 - Plain async reads instead of Apple polling readers.
 - `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
-- Tokio `JoinSet`/`CancellationToken` instead of coroutine emulation.
+- Retiring the Kotlin coroutine quirks (traversal, completion registrations, cancellation tags): design-only, see docs/design/tokio-tasks.md §7.
 - A YAML library with a small YAML 1.1 scalar layer instead of the SnakeYAML port, last because input risk is highest.
 
 **Critical path**, effort-weighted and computed by `scripts/check_plan_dag.py` (which also fails on unknown dependencies and cycles):
