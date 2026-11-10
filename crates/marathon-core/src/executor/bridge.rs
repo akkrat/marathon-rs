@@ -111,6 +111,7 @@ struct ArmGate<'a>(&'a Gated);
 impl Drop for ArmGate<'_> {
     fn drop(&mut self) {
         if !self.0.armed.swap(true, Ordering::AcqRel) {
+            // Unwinding assumes Tokio/replay wakers do not panic; a panicking waker here aborts.
             self.0.changed.notify_waiters();
         }
     }

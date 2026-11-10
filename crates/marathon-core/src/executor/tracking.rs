@@ -79,14 +79,14 @@ impl Ticket {
     }
 }
 pub(crate) struct Tracked<F> {
-    future: Pin<Box<F>>,
+    future: Option<Pin<Box<F>>>,
     ticket: Arc<Ticket>,
 }
 impl<F> Tracked<F> {
     pub fn new(future: F, tracker: Arc<Tracker>) -> Self {
         tracker.acquire();
         Self {
-            future: Box::pin(future),
+            future: Some(Box::pin(future)),
             ticket: Arc::new(Ticket {
                 tracker,
                 state: AtomicU8::new(1),
@@ -97,18 +97,30 @@ impl<F> Tracked<F> {
 }
 impl<F> Drop for Tracked<F> {
     fn drop(&mut self) {
-        // Retire the ticket before dropping the future, which may retain wakers.
-        if self.ticket.state.swap(2, Ordering::SeqCst) == 1 {
-            self.ticket.tracker.release();
-        }
-        self.ticket.tracker.changed.notify_waiters();
+        // Even a suspended future's destructor can hand work to another task.
+        self.ticket.tracker.acquire();
+        let _dropping = Running(&self.ticket);
+        // Retire before destruction so retained wakers cannot revive this task.
+        let _queued = (self.ticket.state.swap(2, Ordering::SeqCst) == 1).then(|| Running(&self.ticket));
+        drop(self.future.take());
     }
 }
-struct Running<'a>(&'a Tracker);
+struct Running<'a>(&'a Ticket);
 impl Drop for Running<'_> {
     fn drop(&mut self) {
-        self.0.release();
-        self.0.changed.notify_waiters();
+        // On unwind, transfer this unit to a ticket until Tracked drops its future.
+        // An already-woken ticket supplies that unit instead; retired tickets release.
+        if !std::thread::panicking()
+            || self
+                .0
+                .state
+                .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
+            self.0.tracker.release();
+        }
+        // Unwinding assumes Tokio/replay wakers do not panic; a panicking waker here aborts.
+        self.0.tracker.changed.notify_waiters();
     }
 }
 impl<F: Future> Future for Tracked<F> {
@@ -118,12 +130,17 @@ impl<F: Future> Future for Tracked<F> {
         ticket.outer.register(cx.waker());
         ticket.tracker.acquire();
         // A poll can unwind before the executor drops this tracked future.
-        let _running = Running(&ticket.tracker);
+        let _running = Running(&ticket);
         if ticket.state.swap(0, Ordering::SeqCst) == 1 {
             ticket.tracker.release();
         }
         let waker = Waker::from(ticket.clone());
-        let result = self.future.as_mut().poll(&mut Context::from_waker(&waker));
+        let result = self
+            .future
+            .as_mut()
+            .expect("tracked future is only removed during drop")
+            .as_mut()
+            .poll(&mut Context::from_waker(&waker));
         if result.is_ready() && ticket.state.swap(2, Ordering::SeqCst) == 1 {
             ticket.tracker.release();
         }
@@ -138,6 +155,79 @@ mod tests {
         sync::{Barrier, Mutex, atomic::AtomicBool},
         thread,
     };
+
+    struct DropHandOff {
+        tracker: Arc<Tracker>,
+        idle_during_drop: Arc<AtomicBool>,
+        next: Waker,
+        panic_on_poll: bool,
+    }
+    impl Future for DropHandOff {
+        type Output = ();
+        fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<()> {
+            assert!(!self.panic_on_poll, "hand-off poll panic");
+            Poll::Pending
+        }
+    }
+    impl Drop for DropHandOff {
+        fn drop(&mut self) {
+            self.idle_during_drop.store(self.tracker.idle(), Ordering::SeqCst);
+            self.next.wake_by_ref();
+        }
+    }
+    fn drop_hand_off(panic_on_poll: bool, wake_before_drop: bool) {
+        let tracker = Arc::new(Tracker::default());
+        let idle_during_drop = Arc::new(AtomicBool::new(false));
+        let waker = futures_util::task::noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut next = Box::pin(Tracked::new(std::future::pending::<()>(), tracker.clone()));
+        assert!(next.as_mut().poll(&mut cx).is_pending());
+        let mut task = Box::pin(Tracked::new(
+            DropHandOff {
+                tracker: tracker.clone(),
+                idle_during_drop: idle_during_drop.clone(),
+                next: Waker::from(next.ticket.clone()),
+                panic_on_poll,
+            },
+            tracker.clone(),
+        ));
+        let idle_after_unwind = if panic_on_poll {
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { task.as_mut().poll(&mut cx) })).is_err()
+            );
+            tracker.idle()
+        } else {
+            assert!(task.as_mut().poll(&mut cx).is_pending());
+            false
+        };
+        if wake_before_drop {
+            task.ticket.wake_by_ref();
+        }
+        drop(task);
+        assert!(!tracker.idle(), "the destructor must wake the next tracked task");
+        drop(next);
+        assert!(tracker.idle(), "the hand-off must release all work after both drops");
+        assert!(
+            !idle_during_drop.load(Ordering::SeqCst),
+            "busy hit zero during pending-drop hand-off"
+        );
+        assert!(!idle_after_unwind, "busy hit zero before unwound future destruction");
+    }
+
+    #[test]
+    fn pending_drop_hand_off_never_reads_as_idle() {
+        drop_hand_off(false, true);
+    }
+
+    #[test]
+    fn suspended_drop_hand_off_never_reads_as_idle() {
+        drop_hand_off(false, false);
+    }
+
+    #[test]
+    fn unwinding_drop_hand_off_never_reads_as_idle() {
+        drop_hand_off(true, false);
+    }
 
     #[test]
     fn dropping_an_unpolled_tracked_future_releases_its_ticket() {
