@@ -155,40 +155,42 @@ fn mask(length: u32) -> Result<u32, AdbError> {
     }
 }
 // The old Java 8-length shift erased RGB10 samples (U190); normalize their full range.
-fn component(value: u32, offset: u32, length: u32) -> Result<u32, AdbError> {
+fn component(value: u32, offset: u32, length: u32, pixel_width: u32) -> Result<u32, AdbError> {
     let maximum = mask(length)?;
-    if offset >= 32 || length > 32 - offset {
+    if offset >= pixel_width || length > pixel_width - offset {
         return Err(malformed());
     }
-    Ok((((value >> offset) & maximum) * 255 + maximum / 2) / maximum)
+    // Keep the established 16-bit floor scaling; 32-bit channels round to nearest (D63).
+    let rounding = if pixel_width == 16 { 0 } else { maximum / 2 };
+    Ok((((value >> offset) & maximum) * 255 + rounding) / maximum)
 }
 impl RawImage {
     pub fn get_argb(&self, index: usize) -> Result<u32, AdbError> {
         let b = self.buffer.get(index..).ok_or_else(malformed)?;
-        match self.bits_per_pixel {
-            16 if b.len() >= 2 => {
-                let v = u32::from(u16::from_le_bytes([b[0], b[1]]));
-                Ok(0xff000000
-                    | (((v >> 11) & 31) * 255 / 31) << 16
-                    | (((v >> 5) & 63) * 255 / 63) << 8
-                    | ((v & 31) * 255 / 31))
+        let value = match self.bits_per_pixel {
+            16 if b.len() >= 2 => u32::from(u16::from_le_bytes([b[0], b[1]])),
+            32 if b.len() >= 4 => word(b, 0),
+            _ => {
+                return Err(AdbError::UnsupportedOperation(
+                    "RawImage.getARGB(int) only works in 16 and 32 bit mode.".into(),
+                ));
             }
-            32 if b.len() >= 4 => {
-                let v = word(b, 0);
-                let alpha = if self.alpha_length == 0 {
-                    255
-                } else {
-                    component(v, self.alpha_offset, self.alpha_length)?
-                };
-                Ok(alpha << 24
-                    | component(v, self.red_offset, self.red_length)? << 16
-                    | component(v, self.green_offset, self.green_length)? << 8
-                    | component(v, self.blue_offset, self.blue_length)?)
-            }
-            _ => Err(AdbError::UnsupportedOperation(
-                "RawImage.getARGB(int) only works in 16 and 32 bit mode.".into(),
-            )),
-        }
+        };
+        // The layout-less legacy image is RGB565. Wire compatibility value 16
+        // already gets these defaults when its three-word header is read.
+        let (red, green, blue, alpha) = if self.version == 0 && self.bits_per_pixel == 16 {
+            ((11, 5), (5, 6), (0, 5), (0, 0))
+        } else {
+            (
+                (self.red_offset, self.red_length),
+                (self.green_offset, self.green_length),
+                (self.blue_offset, self.blue_length),
+                (self.alpha_offset, self.alpha_length),
+            )
+        };
+        let channel = |(offset, length)| component(value, offset, length, self.bits_per_pixel);
+        let alpha = if alpha.1 == 0 { 255 } else { channel(alpha)? };
+        Ok(alpha << 24 | channel(red)? << 16 | channel(green)? << 8 | channel(blue)?)
     }
     pub fn to_buffered_image(&self) -> Result<FramebufferImage, AdbError> {
         if !matches!(self.bits_per_pixel, 16 | 32) {

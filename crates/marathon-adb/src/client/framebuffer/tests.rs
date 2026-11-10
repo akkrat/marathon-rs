@@ -434,6 +434,14 @@ fn rgb565_colors_are_little_endian_for_both_adapters_d63() -> Result<(), Box<dyn
     let mut raw = packed_pixel(vec![0, 248, 224, 7, 31, 0, 255, 255]);
     raw.bits_per_pixel = 16;
     raw.width = 4;
+    raw.red_offset = 11;
+    raw.red_length = 5;
+    raw.green_offset = 5;
+    raw.green_length = 6;
+    raw.blue_offset = 0;
+    raw.blue_length = 5;
+    raw.alpha_offset = 0;
+    raw.alpha_length = 0;
     let expected = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
     for color in [None, Some(ColorSpace::Srgb), Some(ColorSpace::Unknown)] {
         raw.color_space = color;
@@ -479,4 +487,153 @@ fn malformed_decode_inputs_return_errors_d63() {
         assert!(raw.to_buffered_image().is_err(), "case {case}");
         assert!(BufferedImageScreenCaptureAdapter.decode(&raw).is_err(), "case {case}");
     }
+}
+
+async fn capture_sixteen_bit_header(
+    version: u32,
+    channels: [u32; 8],
+    pixels: Vec<u8>,
+) -> Result<RawImage, Box<dyn std::error::Error>> {
+    let mut header = vec![version];
+    if version == 16 {
+        header.extend([pixels.len() as u32, (pixels.len() / 2) as u32, 1]);
+    } else {
+        header.push(16);
+        if version == 2 {
+            header.push(0);
+        }
+        header.extend([pixels.len() as u32, (pixels.len() / 2) as u32, 1]);
+        header.extend(channels);
+    }
+    let bytes: Vec<u8> = header.into_iter().flat_map(u32::to_le_bytes).collect();
+    let session = stub::session(move |mut socket| async move {
+        socket.expect_cmd("framebuffer:").await;
+        socket.accept().await;
+        socket.respond(&bytes).await;
+        socket.expect_bytes(&[0]).await;
+        socket.respond(&pixels).await;
+    })
+    .await;
+    let result = session.client().execute(ScreenCaptureRequest, None).await;
+    session.finish().await;
+    Ok(result?)
+}
+
+#[tokio::test]
+async fn bgr565_header_decodes_blue_u191() -> Result<(), Box<dyn std::error::Error>> {
+    for version in [1, 2] {
+        // Header order is R, B, G, A. 0xf800 is blue in this BGR565 layout.
+        let raw = capture_sixteen_bit_header(version, [0, 5, 11, 5, 5, 6, 0, 0], vec![0, 248]).await?;
+        assert_eq!(raw.get_argb(0)?, 0xff0000ff);
+        let image = raw.to_buffered_image()?;
+        assert_eq!(image.rgba, [0, 0, 255, 255]);
+        assert_eq!(image, BufferedImageScreenCaptureAdapter.decode(&raw)?);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn impossible_sixteen_bit_channel_headers_are_rejected_u191() -> Result<(), Box<dyn std::error::Error>> {
+    for version in [1, 2] {
+        for channels in [
+            [16, 5, 0, 5, 5, 6, 0, 0],
+            [12, 5, 0, 5, 5, 6, 0, 0],
+            [u32::MAX, 5, 0, 5, 5, 6, 0, 0],
+            [11, 5, 0, 5, 5, 6, 15, 2],
+        ] {
+            let raw = capture_sixteen_bit_header(version, channels, vec![0, 248]).await?;
+            assert_eq!(raw.get_argb(0), Err(malformed()));
+            assert_eq!(raw.to_buffered_image(), Err(malformed()));
+            assert_eq!(BufferedImageScreenCaptureAdapter.decode(&raw), Err(malformed()));
+        }
+        for length in [0, 11, u32::MAX] {
+            let raw = capture_sixteen_bit_header(version, [0, length, 11, 5, 5, 6, 0, 0], vec![0, 248]).await?;
+            let expected = Err(AdbError::Runtime(format!("Unexpected mask length {length}")));
+            assert_eq!(raw.get_argb(0), expected);
+            assert!(raw.to_buffered_image().is_err());
+            assert!(BufferedImageScreenCaptureAdapter.decode(&raw).is_err());
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn sixteen_bit_layouts_keep_floor_scaling_alpha_and_png_bytes_u191() -> Result<(), Box<dyn std::error::Error>> {
+    // Midtones separate floor from nearest rounding, unlike the old all-black fixture.
+    let pixels: Vec<u8> = [0xf800u16, 0x07e0, 0x001f, 0xffff, 0x7bf0, 0x0821]
+        .into_iter()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    for (channels, expected, hash) in [
+        (
+            [11, 5, 0, 5, 5, 6, 0, 0],
+            vec![
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255, 123, 125, 131, 255, 8, 4, 8, 255,
+            ],
+            "33f55ca5933ff22db670c9515b3bdcb50ca46b311242ae55a9e22daa6d634076",
+        ),
+        (
+            [0, 5, 11, 5, 5, 6, 0, 0],
+            vec![
+                0, 0, 255, 255, 0, 255, 0, 255, 255, 0, 0, 255, 255, 255, 255, 255, 131, 125, 123, 255, 8, 4, 8, 255,
+            ],
+            "65bd58c1c74b210dd51d5f688776940f23b3bb55270d4447246654a6b8c22cfc",
+        ),
+    ] {
+        for version in [1, 2] {
+            let raw = capture_sixteen_bit_header(version, channels, pixels.clone()).await?;
+            let image = raw.to_buffered_image()?;
+            assert_eq!(image.rgba, expected);
+            assert_eq!(image, BufferedImageScreenCaptureAdapter.decode(&raw)?);
+            assert_eq!(format!("{:x}", Sha256::digest(image.encode_png()?)), hash);
+        }
+    }
+    // ARGB4444 proves a declared alpha channel is read, rather than forced opaque.
+    let raw = capture_sixteen_bit_header(2, [8, 4, 0, 4, 4, 4, 12, 4], vec![0x23, 0x81]).await?;
+    assert_eq!(raw.to_buffered_image()?.rgba, [17, 34, 51, 136]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn legacy_layoutless_images_remain_rgb565_u191() -> Result<(), Box<dyn std::error::Error>> {
+    let legacy = capture_sixteen_bit_header(16, [0; 8], vec![0, 248]).await?;
+    assert_eq!(
+        (
+            legacy.red_offset,
+            legacy.red_length,
+            legacy.green_offset,
+            legacy.green_length,
+            legacy.blue_offset,
+            legacy.blue_length,
+            legacy.alpha_length
+        ),
+        (11, 5, 5, 6, 0, 5, 0)
+    );
+    assert_eq!(legacy.to_buffered_image()?.rgba, [255, 0, 0, 255]);
+    let mut version_zero = legacy;
+    version_zero.version = 0;
+    version_zero.red_offset = 0;
+    version_zero.red_length = 0;
+    version_zero.green_offset = 0;
+    version_zero.green_length = 0;
+    version_zero.blue_offset = 0;
+    version_zero.blue_length = 0;
+    assert_eq!(version_zero.to_buffered_image()?.rgba, [255, 0, 0, 255]);
+    assert_eq!(
+        version_zero.to_buffered_image()?,
+        BufferedImageScreenCaptureAdapter.decode(&version_zero)?
+    );
+    let session = stub::session(|mut socket| async move {
+        socket.expect_cmd("framebuffer:").await;
+        socket.accept().await;
+        socket.respond(&0u32.to_le_bytes()).await;
+    })
+    .await;
+    let result = session.client().execute(ScreenCaptureRequest, None).await;
+    session.finish().await;
+    assert_eq!(
+        result,
+        Err(AdbError::UnsupportedImageProtocol("Unsupported version 0".into()))
+    );
+    Ok(())
 }
