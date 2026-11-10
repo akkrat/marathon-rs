@@ -400,6 +400,61 @@ fn packed_pixel(bytes: Vec<u8>) -> RawImage {
 }
 
 #[test]
+fn rgba8888_copy_honors_all_channel_layout_fields_d63() -> Result<(), Box<dyn std::error::Error>> {
+    let canonical = packed_pixel(vec![0x12, 0x34, 0x56, 0x78]);
+    for case in 0..10 {
+        let mut raw = canonical.clone();
+        let mut expected = [0x12, 0x34, 0x56, 0x78];
+        match case {
+            0 => {}
+            1 => {
+                raw.red_offset = 8;
+                expected[0] = 0x34;
+            }
+            2 => {
+                raw.green_offset = 16;
+                expected[1] = 0x56;
+            }
+            3 => {
+                raw.blue_offset = 24;
+                expected[2] = 0x78;
+            }
+            4 => {
+                raw.alpha_offset = 0;
+                expected[3] = 0x12;
+            }
+            5 => {
+                raw.red_length = 4;
+                expected[0] = 34;
+            }
+            6 => {
+                raw.green_length = 4;
+                expected[1] = 68;
+            }
+            7 => {
+                raw.blue_length = 4;
+                expected[2] = 102;
+            }
+            8 => {
+                raw.alpha_length = 4;
+                expected[3] = 136;
+            }
+            _ => {
+                raw.alpha_length = 0;
+                expected[3] = 255;
+            }
+        }
+        assert_eq!(raw.to_buffered_image()?.rgba, expected, "case {case}");
+        assert_eq!(
+            BufferedImageScreenCaptureAdapter.decode(&raw)?.rgba,
+            expected,
+            "case {case}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn straight_alpha_channel_widths_and_missing_alpha_d63() -> Result<(), Box<dyn std::error::Error>> {
     let mut raw = packed_pixel(vec![90, 130, 170, 0, 90, 130, 170, 128, 90, 130, 170, 255]);
     assert_eq!(raw.to_buffered_image()?.rgba, raw.buffer);

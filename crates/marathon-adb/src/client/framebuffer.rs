@@ -210,11 +210,22 @@ impl RawImage {
         {
             return Err(malformed());
         }
-        let mut rgba = Vec::with_capacity(self.width as usize * self.height as usize * 4);
-        for i in (0..self.buffer.len()).step_by((self.bits_per_pixel / 8) as usize) {
-            let v = self.get_argb(i)?;
-            rgba.extend_from_slice(&[(v >> 16) as u8, (v >> 8) as u8, v as u8, (v >> 24) as u8]);
-        }
+        // These samples are already straight RGBA. Revalidating and rescaling every
+        // channel of a full-size frame can consume the 300 ms capture deadline in
+        // debug builds; copying also preserves partial alpha without arithmetic.
+        let mut rgba = if self.bits_per_pixel == 32
+            && [self.red_offset, self.green_offset, self.blue_offset, self.alpha_offset] == [0, 8, 16, 24]
+            && [self.red_length, self.green_length, self.blue_length, self.alpha_length] == [8; 4]
+        {
+            self.buffer.clone()
+        } else {
+            let mut rgba = Vec::with_capacity(self.width as usize * self.height as usize * 4);
+            for i in (0..self.buffer.len()).step_by((self.bits_per_pixel / 8) as usize) {
+                let v = self.get_argb(i)?;
+                rgba.extend_from_slice(&[(v >> 16) as u8, (v >> 8) as u8, v as u8, (v >> 24) as u8]);
+            }
+            rgba
+        };
         if self.color_space == Some(ColorSpace::P3) {
             convert_p3_to_srgb(&mut rgba)?;
         }
