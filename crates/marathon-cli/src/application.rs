@@ -444,7 +444,7 @@ fn run(
     let ignore_failures = configuration.ignore_failures;
     let marathon = runner.construct(Arc::new(configuration), output.logging(), output.console())?;
 
-    // The final message is Clikt's `PrintMessage`: stdout for exit 0 without `printError`, stderr otherwise.
+    // Outcome messages and streams stay pinned independently of parser diagnostics (PLAN §3.1).
     match marathon.run(start.command) {
         Err(e) => {
             // `logger.error(e) {}`: the empty lambda's `Unit` is the message (C34).

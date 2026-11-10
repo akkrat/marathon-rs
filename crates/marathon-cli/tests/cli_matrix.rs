@@ -1,7 +1,8 @@
 //! WP 2.5: the built `marathon` against the reference CLI matrix (`fixtures/oracle/cli-matrix.jsonl`,
 //! `tools/oracle/cli-matrix/generate.py`): stdout, stderr and exit status for every recorded invocation, after the
 //! header's normalisation. Rows changed by an approved deviation (D1, D12) or a recorded simplification are compared
-//! with their `rust` expectation; `config-dump` rows run `marathon config-dump`.
+//! with their `rust` expectation; `config-dump` rows run `marathon config-dump`. D61 compares parser
+//! messages by stable fragments while retaining every exit code and stream.
 
 mod support;
 
@@ -86,10 +87,62 @@ fn prepare(root: &Path, row: &Json) -> std::io::Result<()> {
     Ok(())
 }
 
+/// D61: these fragments describe the rejected input without pinning a parser's prose or layout.
+fn parser_error_fragment(id: &str) -> &str {
+    match id {
+        "help-after-root-error-not-reached"
+        | "help-short-equals-is-a-group"
+        | "error-unknown-long-suggestion"
+        | "error-unknown-long-two"
+        | "error-unknown-long-equals"
+        | "error-unknown-run"
+        | "error-unknown-parse"
+        | "error-unknown-version"
+        | "error-unknown-version-extra"
+        | "error-missing-value-after-unknown" => "--bogus",
+        "help-unknown-short-in-group"
+        | "error-unknown-short"
+        | "error-unknown-short-run"
+        | "error-unknown-short-group" => "-x",
+        "help-with-value" | "help-with-value-run" => "--help",
+        "error-unknown-long-no-suggestion" | "error-option-then-subcommand" | "error-run-extra-after-unknown" => {
+            "--frob"
+        }
+        "error-version-root-option" | "error-missing-value-root" => "-m",
+        "error-short-single-dash-long" => "-b",
+        "error-unknown-triple-dash" => "---x",
+        "error-partial-long-name" => "--marathon",
+        "error-partial-help" => "--hel",
+        "error-missing-value-long" => "--analyticsTracking",
+        "error-missing-value-parse-o" => "--output",
+        "error-missing-value-parse-f" => "--include-flaky-tests",
+        "error-missing-value-run-bugsnag" => "--bugsnag",
+        "error-no-such-subcommand" | "error-subcommand-and-option" => "frob",
+        "error-no-such-subcommand-typo" => "rnu",
+        "error-no-such-subcommand-near" => "parsee",
+        "error-no-such-subcommand-dash" => "'-'",
+        "error-root-extra-two" => "'a'",
+        "error-version-flag" => "--version",
+        "error-version-short-flag" => "-V",
+        "error-plus-prefix-equals" => "+a=b",
+        "error-double-dash-options-become-arguments" => "-m",
+        "error-double-dash-then-unknown-subcommand" => "'b'",
+        "argfile-not-expanded" => "@args.txt",
+        "error-unknown-short-supplementary" => "-😀",
+        "error-run-extra"
+        | "error-run-extra-many"
+        | "error-parse-extra-two"
+        | "error-parse-extra-four"
+        | "error-version-extra"
+        | "error-run-double-dash-extra" => "unexpected argument",
+        _ => panic!("parser error case missing a stable fragment: {id}"),
+    }
+}
+
 #[test]
-fn cli_matrix_matches_the_reference_build() {
+fn cli_matrix_matches_the_reference_build() -> Result<(), Box<dyn std::error::Error>> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/oracle/cli-matrix.jsonl");
-    let text = fs::read_to_string(path).unwrap();
+    let text = fs::read_to_string(path)?;
     let mut lines = text.lines();
     let header: Json = serde_json::from_str(lines.next().unwrap()).unwrap();
     let rows: Vec<Json> = lines.map(|l| serde_json::from_str(l).unwrap()).collect();
@@ -98,8 +151,8 @@ fn cli_matrix_matches_the_reference_build() {
     let mut failures = Vec::new();
     for row in &rows {
         let id = row["id"].as_str().unwrap();
-        let tmp = tempfile::tempdir().unwrap();
-        prepare(tmp.path(), row).unwrap();
+        let tmp = tempfile::tempdir()?;
+        prepare(tmp.path(), row)?;
         let input = tmp.path().join("in");
         let mut argv = strings(&row["argv"]);
         if row["program"] == "config-dump" {
@@ -113,14 +166,40 @@ fn cli_matrix_matches_the_reference_build() {
             &pairs(&row["env"]),
         );
         for path in pairs(&row["modes"]).into_iter().map(|(p, _)| p) {
-            fs::set_permissions(input.join(path), fs::Permissions::from_mode(0o644)).unwrap();
+            fs::set_permissions(input.join(path), fs::Permissions::from_mode(0o644))?;
         }
         let mut sandbox = vec![
             input.to_string_lossy().into_owned(),
-            input.canonicalize().unwrap().to_string_lossy().into_owned(),
+            input.canonicalize()?.to_string_lossy().into_owned(),
         ];
         sandbox.sort_by_key(|s| std::cmp::Reverse(s.len()));
         let want = if row["rust"].is_null() { row } else { &row["rust"] };
+        let expected_exit = want["exit"].as_i64().unwrap();
+        let expected_stdout = want["stdout"].as_str().unwrap();
+        let expected_stderr = want["stderr"].as_str().unwrap();
+        if i64::from(out.exit) != expected_exit
+            || out.stdout.is_empty() != expected_stdout.is_empty()
+            || out.stderr.is_empty() != expected_stderr.is_empty()
+        {
+            failures.push(format!(
+                "{id}: exit/stream mismatch: exit {}, stdout {:?}, stderr {:?}",
+                out.exit, out.stdout, out.stderr
+            ));
+            continue;
+        }
+        if expected_stdout.starts_with("Usage:") {
+            if !out.stdout.contains("Usage:") || !out.stdout.contains("--help") {
+                failures.push(format!("{id}: missing help fragments: {:?}", out.stdout));
+            }
+            continue;
+        }
+        if expected_stderr.starts_with("Usage:") {
+            let fragment = parser_error_fragment(id);
+            if !out.stderr.contains("error:") || !out.stderr.contains(fragment) {
+                failures.push(format!("{id}: missing error fragment {fragment:?}: {:?}", out.stderr));
+            }
+            continue;
+        }
         // §3.12.5: the recorded JVM startup prefix is the native one now (WP 8.8).
         let expected_stdout = want["stdout"]
             .as_str()
@@ -163,6 +242,7 @@ fn cli_matrix_matches_the_reference_build() {
     }
     eprintln!("cli matrix: {}/{} rows pass", rows.len() - failures.len(), rows.len());
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
 }
 
 #[test]

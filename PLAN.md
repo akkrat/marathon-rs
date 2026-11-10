@@ -53,7 +53,7 @@ The surface:
 Parsing rules:
 - Root options are **not** passed down to subcommands.
 - Booleans use Kotlin `String.toBoolean()`, so only `true` (any case) is true.
-- The parser is hand-written to reproduce Clikt 5 behaviour and texts where the matrix shows it (decided in WP 2.5: every visible text is custom, so clap adds nothing).
+- The parser is hand-written to reproduce Clikt 5 behaviour and texts where the matrix shows it (decided in WP 2.5: every visible text is custom, so clap adds nothing). Superseded by D61 in WP 8.10.
 
 The matrix records stdout, stderr and the exit status separately for each case:
 - help and `-h`;
@@ -293,6 +293,8 @@ Feature negotiation must match adam: shell v2, sync v2, `cmd` and `abb_exec` cho
 | D59 | rc.1 prints Java exception class names in generated failure messages and stack traces, log lines and the hidden `config-dump` error JSON | WP 8.6b prints each typed kind's plain description, with normal acronym and proper-name spelling, as `<description>: <message>` or `<description>` for an absent message. Cause order, frame text, empty messages and exit codes stay unchanged; external tool text remains verbatim. `config-dump` replaces `error.class` with `error.kind`, a stable identifier independent of wording (for example `config.rejected`), and replaces class prefixes in its cause strings with descriptions, preserving its existing `: null` convention. JVM oracle expectations are decoded through the recorded-input whitelist; native goldens retain exact failure wording. The reviewed native update replaces six EOF class-name occurrences in four report files; the configuration corpus data is unchanged |
 
 | D60 | rc.1 breaks priority ties, iterates tests and lazily extracts sorting keys in JDK heap/comparator order | WP 8.7 stores insertion-time keys in `OrderedQueue`, orders equal keys FIFO and iterates in priority order. Duration remains descending, success rate keeps its configured direction, and all NaNs tie above infinity before direction reversal, with signed zero retained. Each entry computes its key once on insertion; backend history remains pinned at queue construction (D34), while re-added entries can use newer run-local observed-duration fallback and survivors retain their stored keys. RandomOrder draws through the existing hook on the first insertion of each distinct Test, in insertion order, retaining its strategy-owned cache across copies, retries and queues; a seed can therefore assign different keys and execution order than rc.1. Equal-priority execution order, ClassName batch order, retry bookkeeping/restoration order and queue/batch listings change. With unchanged keys, batch membership changes only where ties meet a batch boundary, and the resulting grouping can change the number of batch launches; different seeded key assignments or updated observations on re-add can also move tests across boundaries. The only worker-command change is queue-derived test-selector order/grouping: the adb `-e class` list and xcodebuild `-only-testing` selectors; command construction, executables, flags and all non-test operands stay unchanged. In the native goldens, batch membership never changes: six views reorder the same selector multisets, and every report file is unchanged. Real-device report order follows execution order. The configuration corpus is unchanged. See `docs/wp/8.7-golden-diff.md` and `docs/wp/8.7-test-changes.md`. |
+
+| D61 | rc.1 prints Clikt help, usage and error texts, including the 79-column layout, Jaro-Winkler suggestions and grouped errors | WP 8.10 prints clap help, usage and error texts instead. Commands, flags, defaults, boolean meaning and exit codes are unchanged; help stays on stdout and usage errors on stderr |
 
 ### 3.12 Phase 8 contract
 
@@ -709,6 +711,7 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.7 | An ordered test queue instead of the Java PriorityQueue port (docs/wp/8.7.md) | M | 8.6b |
 | 8.8 | `tracing` instead of the logback emulation (docs/wp/8.8.md) | H | 8.7 |
 | 8.9 | A maintained serde YAML library instead of the Jackson YAML emulation (docs/wp/8.9.md) | M | 8.8 |
+| 8.10 | clap instead of the Clikt emulation (docs/wp/8.10.md) | M | 8.9 |
 
 Later candidates:
 
@@ -717,7 +720,6 @@ Later candidates:
 - `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
 - `Display`/serde instead of Kotlin `toString` rendering.
 - Tokio `JoinSet`/`CancellationToken` instead of coroutine emulation.
-- `clap` instead of Clikt emulation.
 - A YAML library with a small YAML 1.1 scalar layer instead of the SnakeYAML port, last because input risk is highest.
 
 **Critical path**, effort-weighted and computed by `scripts/check_plan_dag.py` (which also fails on unknown dependencies and cycles):
