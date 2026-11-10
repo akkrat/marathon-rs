@@ -9,12 +9,12 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
 };
-use tokio::sync::Notify;
+use tokio::sync::{Notify, oneshot};
 
 /// Runs a vendor call off core as Kotlin's suspending call does on its dispatcher.
 /// `cancellation` is the calling core task's signal, which the vendor observes
@@ -36,8 +36,7 @@ pub async fn call_vendor<T: Send + 'static>(
     cancellation: Arc<dyn CancellationSignal>,
     call: impl FnOnce(Arc<dyn CancellationSignal>) -> VendorFuture<'static, T> + Send + 'static,
 ) -> VendorResult<T> {
-    let cell = Arc::new(Mutex::new(None));
-    let output = cell.clone();
+    let (output, mut payload) = oneshot::channel();
     let gate = Arc::new(Gated {
         // A caller already cancelled at the call sees it at entry, as in Kotlin.
         armed: AtomicBool::new(cancellation.reason().is_some()),
@@ -48,17 +47,14 @@ pub async fn call_vendor<T: Send + 'static>(
     let task = vendor.spawn(Box::pin(ArmAfterFirstPoll {
         body: Box::pin(async move {
             let value = call(signal).await?;
-            if let Ok(mut slot) = output.lock() {
-                *slot = Some(value);
-            }
+            let _ = output.send(value);
             Ok(())
         }),
         gate,
     }));
     // Protected join: the vendor task's own result, never the waiter's cancellation.
     task.join().await?;
-    let value = cell.lock().ok().and_then(|mut slot| slot.take());
-    value.ok_or_else(|| {
+    payload.try_recv().map_err(|_| {
         VendorError::Other(super::shared::failure(
             FailureKind::IllegalState,
             "vendor call finished without a result",
@@ -110,5 +106,132 @@ impl Future for ArmAfterFirstPoll {
             self.gate.changed.notify_waiters();
         }
         poll
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        executor::{SharedDeferred, shared::requested},
+        runtime::{Deferred, VendorTask, VendorTaskBody},
+    };
+    use futures_util::{FutureExt, task::noop_waker};
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct ManualVendor {
+        body: Mutex<Option<VendorFuture<'static, ()>>>,
+        done: Arc<SharedDeferred<()>>,
+    }
+    struct ManualTask(Arc<SharedDeferred<()>>);
+    impl VendorTask for ManualTask {
+        fn cancel(&self, reason: Cancellation) {
+            self.0.cancel(reason);
+        }
+        fn join(&self) -> VendorFuture<'_, ()> {
+            Box::pin(async { self.0.wait().await.map(|_| ()) })
+        }
+    }
+    impl VendorRuntime for ManualVendor {
+        fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
+            *self.body.lock().unwrap() = Some(body);
+            Arc::new(ManualTask(self.done.clone()))
+        }
+        fn spawn_cancellable(&self, _: VendorTaskBody) -> Arc<dyn VendorTask> {
+            unreachable!()
+        }
+        fn spawn_blocking(&self, _: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
+            unreachable!()
+        }
+    }
+    impl ManualVendor {
+        fn poll_body(&self) -> Poll<VendorResult<()>> {
+            let waker = noop_waker();
+            self.body
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .as_mut()
+                .poll(&mut Context::from_waker(&waker))
+        }
+    }
+
+    #[test]
+    fn bridge_hides_new_cancellation_until_the_first_poll_returns() {
+        let vendor = ManualVendor::default();
+        let signal = super::super::Signal::new();
+        let reason = requested("during dispatch");
+        let expected = reason.clone();
+        let mut call = Box::pin(call_vendor(&vendor, signal.clone(), move |signal| {
+            Box::pin(async move {
+                assert_eq!(signal.reason(), None);
+                assert_eq!(signal.cancelled().await, expected);
+                Ok(42)
+            })
+        }));
+        assert!(call.as_mut().now_or_never().is_none());
+        signal.cancel(reason);
+        assert!(vendor.poll_body().is_pending());
+        assert_eq!(vendor.poll_body(), Poll::Ready(Ok(())));
+        // Sending the payload alone must not bypass the protected join.
+        assert!(call.as_mut().now_or_never().is_none());
+        vendor.done.complete(Ok(()));
+        assert_eq!(call.as_mut().now_or_never(), Some(Ok(42)));
+    }
+
+    #[test]
+    fn bridge_exposes_cancellation_already_present_at_entry() {
+        let vendor = ManualVendor::default();
+        let signal = super::super::Signal::new();
+        let reason = requested("before dispatch");
+        signal.cancel(reason.clone());
+        let mut call = Box::pin(call_vendor(&vendor, signal, move |signal| {
+            Box::pin(async move {
+                assert_eq!(signal.reason(), Some(reason));
+                Ok(7)
+            })
+        }));
+        assert!(call.as_mut().now_or_never().is_none());
+        assert_eq!(vendor.poll_body(), Poll::Ready(Ok(())));
+        vendor.done.complete(Ok(()));
+        assert_eq!(call.as_mut().now_or_never(), Some(Ok(7)));
+    }
+
+    #[test]
+    fn bridge_rejects_successful_join_without_a_payload() {
+        let vendor = ManualVendor::default();
+        let mut call = Box::pin(call_vendor(&vendor, super::super::Signal::new(), |_| {
+            Box::pin(async { Ok(7) })
+        }));
+        assert!(call.as_mut().now_or_never().is_none());
+        vendor.body.lock().unwrap().take();
+        vendor.done.complete(Ok(()));
+        assert_eq!(
+            call.as_mut().now_or_never(),
+            Some(Err(VendorError::Other(super::super::shared::failure(
+                FailureKind::IllegalState,
+                "vendor call finished without a result",
+            ))))
+        );
+    }
+
+    #[test]
+    fn bridge_preserves_failed_and_cancelled_joins_without_a_payload() {
+        for error in [
+            VendorError::Cancelled(requested("cancelled")),
+            VendorError::Other(super::super::shared::failure(FailureKind::Runtime, "failed")),
+        ] {
+            let vendor = ManualVendor::default();
+            let outcome = error.clone();
+            let mut call = Box::pin(call_vendor::<()>(&vendor, super::super::Signal::new(), move |_| {
+                Box::pin(async move { Err(outcome) })
+            }));
+            assert!(call.as_mut().now_or_never().is_none());
+            assert_eq!(vendor.poll_body(), Poll::Ready(Err(error.clone())));
+            vendor.done.complete(Err(error.clone()));
+            assert_eq!(call.as_mut().now_or_never(), Some(Err(error)));
+        }
     }
 }
