@@ -65,7 +65,7 @@ fn main() -> ExitCode {
         Box::new(io::stdout()),
         Box::new(io::stderr()),
         stdout_target(),
-        Box::new(|| chrono::Local::now().naive_local().and_utc().timestamp_millis()),
+        Box::new(marathon_cli::application::local_stamp),
     ) {
         Ok(output) => output,
         Err(error) => return failure_exit(FailureKind::Io, &error.to_string()),
@@ -78,6 +78,7 @@ fn main() -> ExitCode {
         cwd: process.cwd.clone(),
         environment: process.environment.clone(),
         signal_hooks: Default::default(),
+        exit_prepare: None,
     };
     let code = run_cli(&args, &process, &runner, &output);
     ExitCode::from(u8::try_from(code).unwrap_or(1))

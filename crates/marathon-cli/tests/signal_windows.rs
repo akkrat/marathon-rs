@@ -186,18 +186,36 @@ fn signal_child() {
     let Ok(mode) = std::env::var(MODE) else { return };
     let mut factory = ConfigurationFactory::new();
     factory.configuration.debug = mode == "run-debug";
-    let stdout: Box<dyn Write + Send> = if mode == "stuck-console" {
+    let stdout: Box<dyn Write + Send> = if mode.starts_with("stuck-console") {
         Box::new(StuckConsole)
     } else {
         Box::new(std::io::sink())
     };
-    let cli = CliOutput::new(stdout, Box::new(std::io::sink()), OutputTarget::Pipe, Box::new(|| 0))
-        .unwrap_or_else(|error| panic!("test console: {error}"));
+    let stamp = Box::new(|wall: Option<i64>| marathon_cli::application::day_stamp(wall.unwrap_or(0)));
+    let cli = if mode == "stuck-console-long-watchdog" {
+        // Holds the first signal's watchdog open far beyond the test: only the
+        // second signal's immediate exit can end this child, at any host speed.
+        CliOutput::new_with_exit_flush(
+            stdout,
+            Box::new(std::io::sink()),
+            OutputTarget::Pipe,
+            stamp,
+            Duration::from_secs(3600),
+        )
+    } else {
+        CliOutput::new(stdout, Box::new(std::io::sink()), OutputTarget::Pipe, stamp)
+    }
+    .unwrap_or_else(|error| panic!("test console: {error}"));
     let runner = ProductionRunner {
         factories: Arc::new(factories(&mode)),
         cwd: std::env::current_dir().unwrap(),
         environment: vec![],
         signal_hooks: hooks(&mode),
+        exit_prepare: (mode == "slow-exit-prepare").then(|| {
+            // Preparation never finishes (it runs on the exit-output thread):
+            // the process can only end through the exit watchdog.
+            Arc::new(|| std::thread::sleep(Duration::from_secs(3600))) as Arc<dyn Fn() + Send + Sync>
+        }),
     };
     let marathon = runner
         .construct(Arc::new(factory.configuration.clone()), cli.logging(), cli.console())
@@ -446,20 +464,43 @@ fn a_stuck_console_does_not_hold_a_cancel_d52() {
     assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
 }
 
-/// WP 8.8: with the console sink blocked, the first signal's exit flush runs to its off-core
-/// deadline and exits 143; a second signal in that window exits at once with its own status,
-/// without waiting for the blocked writer or the flush deadline.
+/// WP 8.8: with the console sink blocked and the first signal's exit watchdog held
+/// open for an hour (test seam), a second signal exits at once with its own status,
+/// without waiting for the blocked writer or the flush deadline. No outcome
+/// depends on how fast the host delivers the signals: the watchdog cannot win.
 #[test]
 fn a_second_signal_exits_at_once_during_a_blocked_sink() {
     if inherited_ignored(Signal::SIGTERM) || inherited_ignored(Signal::SIGINT) {
         return;
     }
-    let (mut child, stderr) = started_with_stderr("stuck-console", None);
+    let (mut child, stderr) = started_with_stderr("stuck-console-long-watchdog", None);
     kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
     assert!(stderr.saw("MARKER terminate"));
     kill(Pid::from_raw(child.id() as i32), Signal::SIGINT).unwrap();
     let status = signalled_wait(&mut child, PATIENCE);
     assert_eq!(status.and_then(|s| s.code()), Some(130), "{status:?}");
+}
+
+/// WP 8.8 review (P1): exit preparation that never finishes must not let the run
+/// return ahead of the queued exit. Before the fix, `Marathon::run` raced past
+/// `await_signal_exit` to its failure return (exit 1 and "Marathon execution
+/// failed" in the binary; in this child, the run returning at all). The hook
+/// now never completes after queueing the exit, so the exit watchdog ends the
+/// process with the signal's status and the run never returns.
+#[test]
+fn a_slow_exit_preparation_still_exits_with_the_signal_status() {
+    if inherited_ignored(Signal::SIGTERM) {
+        return;
+    }
+    let (mut child, stderr) = started_with_stderr("slow-exit-prepare", None);
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    assert!(stderr.saw("MARKER terminate"));
+    let status = signalled_wait(&mut child, PATIENCE);
+    assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
+    assert!(
+        !stderr.saw("the run finished"),
+        "the run returned before the queued exit"
+    );
 }
 
 /// D52: a second signal doesn't wait for the cleanup, or run it again. The status tells the two apart without a timing:

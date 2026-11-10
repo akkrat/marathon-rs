@@ -77,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cwd,
             environment: process.environment.clone(),
             signal_hooks: Default::default(),
+            exit_prepare: None,
         },
         hooks: hooks.clone(),
     };
@@ -84,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Box::new(std::io::stdout()),
         Box::new(std::io::stderr()),
         OutputTarget::File,
-        Box::new(|| WALL),
+        Box::new(|wall| marathon_cli::application::day_stamp(wall.unwrap_or(WALL))),
     )?;
     let args: Vec<_> = std::env::args().skip(1).collect();
     let code = marathon_cli::run_cli(&args, &process, &probe, &output);

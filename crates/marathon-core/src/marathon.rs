@@ -990,7 +990,11 @@ impl Marathon {
     ) -> OperationResult<bool> {
         let core = self.services.core.clone();
         let root = core.job(JobKind::Ordinary, parent);
-        let relay = self.services.signals.clone().map(|relay| self.start_relay(relay));
+        let relay = self
+            .services
+            .signals
+            .clone()
+            .map(|relay| self.start_relay(relay, &root));
         let pump = self.services.live_output.then(|| self.start_output_pump(&root));
         let supervisor = core.job(JobKind::Supervisor, Some(root.clone()));
         let result: Rc<RefCell<Option<VendorResult<bool>>>> = Rc::new(RefCell::new(None));
@@ -1145,9 +1149,11 @@ impl Marathon {
         job
     }
     /// The hook's `runBlocking { onFinish() }` on core, in D52's order and bounded, then the JVM's exit status.
-    fn start_relay(self: &Rc<Self>, relay: Rc<SignalRelay>) -> RunningRelay {
+    fn start_relay(self: &Rc<Self>, relay: Rc<SignalRelay>, root: &JobRef) -> RunningRelay {
         let core = self.services.core.clone();
-        let job = core.job(JobKind::Ordinary, None);
+        // Under the run root, so tearing the run down (a harness, never the
+        // production path after a signal) also ends the hook's final wait.
+        let job = core.job(JobKind::Ordinary, Some(root.clone()));
         let marathon = self.clone();
         let waiting = relay.clone();
         relay.listen();
@@ -1181,6 +1187,14 @@ impl Marathon {
                     )
                     .await;
                     (waiting.exit)(128 + number);
+                    // `exit` owns the process's end from here: it queues the final
+                    // flush and the process exits from the console's writer/watchdog
+                    // thread. This hook must never complete — if it did, `run` would
+                    // proceed past `await_signal_exit` to its own cleanup and result,
+                    // racing that exit with an ordinary failure return. A far-future
+                    // delay on this job parks the task without blocking core; only
+                    // cancelling the job (a harness tearing the run down) ends it.
+                    let _ = task.clock.delay(i64::MAX, task.job.clone()).await;
                     Ok(())
                 })
             }),
@@ -1188,7 +1202,8 @@ impl Marathon {
         (relay, job, hook)
     }
     /// After a signal the process's end is the hook's, so the run neither stops the relay under it nor returns a result
-    /// of its own. In production this does not return.
+    /// of its own. Once the hook has queued the exit it never completes, so in production this does not return; the
+    /// process ends from the exit path the hook queued (or a second signal's immediate exit).
     async fn await_signal_exit(relay: &Option<RunningRelay>) {
         if let Some((relay, _, hook)) = relay
             && relay.fired()

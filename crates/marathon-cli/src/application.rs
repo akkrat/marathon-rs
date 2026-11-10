@@ -79,17 +79,43 @@ pub type Sink = Box<dyn Write + Send>;
 /// Raw output and diagnostic events share one non-blocking stdout writer.
 pub struct Console {
     pub(crate) tracing: TracingOutput,
-    target: OutputTarget,
 }
 fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
+
+/// Local `HH:mm:ss.SSS` for a record's UTC wall millis, or for now (`None`).
+pub fn local_stamp(wall_millis: Option<i64>) -> String {
+    use chrono::TimeZone;
+    let time = wall_millis
+        .and_then(|millis| chrono::Local.timestamp_millis_opt(millis).single())
+        .unwrap_or_else(chrono::Local::now);
+    time.format("%H:%M:%S%.3f").to_string()
+}
+
+/// Millis within the day as `HH:mm:ss.SSS` (frozen stamps in tests and probes).
+pub fn day_stamp(millis: i64) -> String {
+    let millis = millis.rem_euclid(86_400_000);
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        millis / 3_600_000,
+        millis / 60_000 % 60,
+        millis / 1000 % 60,
+        millis % 1000
+    )
+}
 impl Console {
     pub fn new(stdout: Sink, target: OutputTarget) -> io::Result<(Self, OutputGuard)> {
-        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, || {
-            chrono::Local::now().format("%H:%M:%S%.3f").to_string()
-        })?;
-        Ok((Self { tracing, target }, guard))
+        Self::new_with_exit_flush(stdout, target, crate::tracing_output::EXIT_FLUSH)
+    }
+    pub fn new_with_exit_flush(
+        stdout: Sink,
+        target: OutputTarget,
+        exit_flush: std::time::Duration,
+    ) -> io::Result<(Self, OutputGuard)> {
+        let (tracing, guard) =
+            TracingOutput::new_with_exit_flush(stdout, target == OutputTarget::Terminal, local_stamp, exit_flush)?;
+        Ok((Self { tracing }, guard))
     }
     pub fn exit_after_preparing(&self, status: i32, prepare: Box<dyn FnOnce() + Send>) -> io::Result<()> {
         self.tracing.exit_after_preparing(status, prepare)
@@ -99,9 +125,6 @@ impl Console {
     }
     pub fn tracing_dispatch(&self) -> tracing::Dispatch {
         self.tracing.dispatch()
-    }
-    pub fn target(&self) -> OutputTarget {
-        self.target
     }
     pub fn write_text(&self, text: &str) {
         let _ = self.tracing.writer().write_all(text.as_bytes());
@@ -118,22 +141,25 @@ pub struct CliOutput {
     guard: Mutex<Option<OutputGuard>>,
 }
 impl CliOutput {
+    /// `stamp` renders the line prefix: `Some(wall_millis)` is a queued
+    /// record's own wall time; `None` asks for now.
     pub fn new(
         stdout: Sink,
         stderr: Sink,
         target: OutputTarget,
-        clock: Box<dyn Fn() -> i64 + Send + Sync>,
+        stamp: Box<dyn Fn(Option<i64>) -> String + Send + Sync>,
     ) -> io::Result<Self> {
-        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, move || {
-            let millis = clock().rem_euclid(86_400_000);
-            format!(
-                "{:02}:{:02}:{:02}.{:03}",
-                millis / 3_600_000,
-                millis / 60_000 % 60,
-                millis / 1000 % 60,
-                millis % 1000
-            )
-        })?;
+        Self::new_with_exit_flush(stdout, stderr, target, stamp, crate::tracing_output::EXIT_FLUSH)
+    }
+    pub fn new_with_exit_flush(
+        stdout: Sink,
+        stderr: Sink,
+        target: OutputTarget,
+        stamp: Box<dyn Fn(Option<i64>) -> String + Send + Sync>,
+        exit_flush: std::time::Duration,
+    ) -> io::Result<Self> {
+        let (tracing, guard) =
+            TracingOutput::new_with_exit_flush(stdout, target == OutputTarget::Terminal, stamp, exit_flush)?;
         let output = Self::traced(tracing, stderr);
         *lock(&output.guard) = Some(guard);
         Ok(output)
@@ -144,10 +170,7 @@ impl CliOutput {
             let _ = configure.configure(vendor, debug);
         }));
         Self {
-            console: Arc::new(Console {
-                tracing,
-                target: OutputTarget::Pipe,
-            }),
+            console: Arc::new(Console { tracing }),
             stderr: Mutex::new(stderr),
             logging: Arc::new(Mutex::new(logging)),
             guard: Mutex::new(None),

@@ -1,6 +1,7 @@
 //! Port of cli/src/main/resources/logback.xml and core/src/main/kotlin/com/malinskiy/marathon/log/MarathonLogging.kt.
 //!
-//! WP 8.8's design pilot. Producers enqueue bytes; only the owned writer thread touches the sink.
+//! WP 8.8's console: one fmt layer (with a compact flag) over one queue writer.
+//! Producers enqueue bytes; only the owned writer thread touches the sink.
 
 use std::{
     fmt,
@@ -23,7 +24,7 @@ use tracing_subscriber::{
 
 pub use marathon_logging::{Vendor as Configurator, filter};
 
-const EXIT_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
+pub(crate) const EXIT_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
 const OPEN: u8 = 0;
 const DRAINING: u8 = 1;
 const CLOSED: u8 = 2;
@@ -90,10 +91,11 @@ pub struct OutputGuard {
     writer: QueueWriter,
     thread: Option<JoinHandle<io::Result<()>>>,
     done: mpsc::Receiver<()>,
+    exit_flush: std::time::Duration,
 }
 impl OutputGuard {
-    pub fn shutdown(self) -> io::Result<()> {
-        self.shutdown_with_timeout(EXIT_FLUSH)
+    pub fn shutdown(mut self) -> io::Result<()> {
+        self.finish(self.exit_flush)
     }
     pub fn shutdown_with_timeout(mut self, timeout: std::time::Duration) -> io::Result<()> {
         self.finish(timeout)
@@ -119,7 +121,7 @@ impl OutputGuard {
 }
 impl Drop for OutputGuard {
     fn drop(&mut self) {
-        let _ = self.finish(EXIT_FLUSH);
+        let _ = self.finish(self.exit_flush);
     }
 }
 
@@ -134,6 +136,7 @@ pub struct TracingOutput {
     writer: QueueWriter,
     exit: mpsc::Sender<ExitRequest>,
     prepare_exit: mpsc::Sender<ExitWork>,
+    exit_flush: std::time::Duration,
 }
 fn copy_error(error: &Option<io::Error>) -> io::Result<()> {
     error
@@ -151,10 +154,20 @@ fn write_bytes(sink: &mut dyn Write, bytes: &[u8], queue: &Queue, failure: &mut 
     }
 }
 impl TracingOutput {
+    /// `stamp` renders the prefix time: `Some(wall_millis)` is the queued
+    /// record's own wall time, `None` asks for now.
     pub fn new(
         sink: impl Write + Send + 'static,
         terminal: bool,
-        clock: impl Fn() -> String + Send + Sync + 'static,
+        stamp: impl Fn(Option<i64>) -> String + Send + Sync + 'static,
+    ) -> io::Result<(Self, OutputGuard)> {
+        Self::new_with_exit_flush(sink, terminal, stamp, EXIT_FLUSH)
+    }
+    pub fn new_with_exit_flush(
+        sink: impl Write + Send + 'static,
+        terminal: bool,
+        stamp: impl Fn(Option<i64>) -> String + Send + Sync + 'static,
+        exit_flush: std::time::Duration,
     ) -> io::Result<(Self, OutputGuard)> {
         let (send, receive) = mpsc::channel();
         let writer = QueueWriter(Arc::new(Queue {
@@ -170,7 +183,7 @@ impl TracingOutput {
             .name("marathon-exit".into())
             .spawn(move || {
                 if let Ok((status, drained)) = requests.recv()
-                    && drained.recv_timeout(EXIT_FLUSH).is_err()
+                    && drained.recv_timeout(exit_flush).is_err()
                 {
                     std::process::exit(status);
                 }
@@ -229,12 +242,13 @@ impl TracingOutput {
         let (layer, filter) = reload::Layer::new(filter(Configurator::Startup, true));
         let event_format = LineFormat {
             compact: compact.clone(),
-            clock: Arc::new(clock),
+            stamp: Arc::new(stamp),
         };
         let output_writer = writer.clone();
         let subscriber = tracing_subscriber::registry().with(layer).with(
             tracing_subscriber::fmt::layer()
                 .event_format(event_format)
+                .fmt_fields(NativeFields)
                 .with_ansi(terminal)
                 .with_writer(move || output_writer.clone()),
         );
@@ -246,11 +260,13 @@ impl TracingOutput {
                 writer: writer.clone(),
                 exit,
                 prepare_exit,
+                exit_flush,
             },
             OutputGuard {
                 writer,
                 thread: Some(thread),
                 done: completed,
+                exit_flush,
             },
         ))
     }
@@ -268,9 +284,12 @@ impl TracingOutput {
             .send(Command::Flush(send))
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "console writer stopped"))?;
         receive
-            .recv_timeout(EXIT_FLUSH)
+            .recv_timeout(self.exit_flush)
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "console flush deadline elapsed"))?
     }
+    /// Exits with `status` once everything queued is written. If the writer
+    /// has already closed (the guard finished first), nothing can drain, so
+    /// the exit watchdog fires after the exit-flush deadline (1 s) instead.
     pub fn exit_after_flush(&self, status: i32) -> io::Result<()> {
         self.exit_after_preparing(status, Box::new(|| {}))
     }
@@ -294,9 +313,69 @@ impl TracingOutput {
     }
 }
 
+/// Field formatting for the native lines: values print raw (never
+/// Debug-quoted), so a multi-line message or stack trace keeps its bytes and
+/// whitespace on its continuation lines. The `message` field prints without
+/// its name, every other field as `name=value`, in declaration order. The
+/// `wall_millis` field of a queued record is the line's timestamp, not output.
+struct NativeFields;
+struct NativeVisitor<'a> {
+    writer: Writer<'a>,
+    first: bool,
+    result: fmt::Result,
+}
+impl NativeVisitor<'_> {
+    fn write_field(&mut self, field: &tracing::field::Field, value: fmt::Arguments<'_>) {
+        if self.result.is_err() || field.name() == "wall_millis" {
+            return;
+        }
+        self.result = (|| {
+            if !self.first {
+                write!(self.writer, " ")?;
+            }
+            self.first = false;
+            if field.name() != "message" {
+                write!(self.writer, "{}=", field.name())?;
+            }
+            write!(self.writer, "{value}")
+        })();
+    }
+}
+impl tracing::field::Visit for NativeVisitor<'_> {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        self.write_field(field, format_args!("{value}"));
+    }
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn fmt::Debug) {
+        self.write_field(field, format_args!("{value:?}"));
+    }
+}
+impl<'a> FormatFields<'a> for NativeFields {
+    fn format_fields<R: tracing_subscriber::field::RecordFields>(&self, writer: Writer<'_>, fields: R) -> fmt::Result {
+        let mut visitor = NativeVisitor {
+            writer,
+            first: true,
+            result: Ok(()),
+        };
+        fields.record(&mut visitor);
+        visitor.result
+    }
+}
+
+/// Reads a queued record's own wall time off the event, so the line is
+/// stamped when the record was created, however late it drains.
+struct WallVisitor(Option<i64>);
+impl tracing::field::Visit for WallVisitor {
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        if field.name() == "wall_millis" {
+            self.0 = Some(value);
+        }
+    }
+    fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn fmt::Debug) {}
+}
+
 struct LineFormat {
     compact: Arc<AtomicBool>,
-    clock: Arc<dyn Fn() -> String + Send + Sync>,
+    stamp: Arc<dyn Fn(Option<i64>) -> String + Send + Sync>,
 }
 impl<S, N> FormatEvent<S, N> for LineFormat
 where
@@ -305,7 +384,9 @@ where
 {
     fn format_event(&self, context: &FmtContext<'_, S, N>, mut writer: Writer<'_>, event: &Event<'_>) -> fmt::Result {
         if !self.compact.load(Ordering::Relaxed) {
-            write!(writer, "{} ", (self.clock)())?;
+            let mut wall = WallVisitor(None);
+            event.record(&mut wall);
+            write!(writer, "{} ", (self.stamp)(wall.0))?;
         }
         let level = event.metadata().level();
         if writer.has_ansi_escapes() {

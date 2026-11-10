@@ -209,7 +209,10 @@ impl LogSettings {
 
 /// Bridges owned records drained by an I/O task into native tracing events.
 /// Metadata is interned off core; targets are Rust module paths supplied by producers.
-pub fn emit(target: &str, level: Level, message: &str, error: Option<&str>, component: Option<&str>) {
+/// Values are `Display`-wrapped so a multi-line message or stack trace prints
+/// raw (never Debug-quoted) under any subscriber. `wall_millis` is the record's
+/// own creation time; the CLI formatter stamps the line from it.
+pub fn emit(target: &str, level: Level, message: &str, error: Option<&str>, component: Option<&str>, wall_millis: i64) {
     use std::{
         collections::HashMap,
         sync::{Mutex, OnceLock},
@@ -238,7 +241,7 @@ pub fn emit(target: &str, level: Level, message: &str, error: Option<&str>, comp
         *sites.entry((target.to_owned(), level)).or_insert_with(|| {
             let site: &'static Site = Box::leak(Box::new(Site(OnceLock::new())));
             let target = Box::leak(target.to_owned().into_boxed_str());
-            let fields = FieldSet::new(&["message", "error", "component"], Identifier(site));
+            let fields = FieldSet::new(&["message", "error", "component", "wall_millis"], Identifier(site));
             let metadata = Metadata::new(
                 "queued event",
                 target,
@@ -259,10 +262,14 @@ pub fn emit(target: &str, level: Level, message: &str, error: Option<&str>, comp
             return;
         }
         let fields = metadata.fields();
-        let values: [Option<&dyn Value>; 3] = [
+        let message = tracing::field::display(message);
+        let error = error.map(tracing::field::display);
+        let component = component.map(tracing::field::display);
+        let values: [Option<&dyn Value>; 4] = [
             Some(&message),
             error.as_ref().map(|v| v as &dyn Value),
             component.as_ref().map(|v| v as &dyn Value),
+            Some(&wall_millis),
         ];
         let values = fields.value_set_all(&values);
         let event = tracing::Event::new(metadata, &values);

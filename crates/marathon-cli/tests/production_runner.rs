@@ -68,7 +68,7 @@ fn output(stdout: &Buffer) -> CliOutput {
         Box::new(stdout.clone()),
         Box::new(Buffer::default()),
         OutputTarget::Pipe,
-        Box::new(|| 0),
+        Box::new(|wall| marathon_cli::application::day_stamp(wall.unwrap_or(0))),
     )
     .unwrap_or_else(|error| panic!("test console: {error}"))
 }
@@ -84,6 +84,7 @@ fn stub_parse_runs_end_to_end_through_the_production_runner() {
         cwd: std::env::current_dir().unwrap(),
         environment: vec![],
         signal_hooks: Default::default(),
+        exit_prepare: None,
     };
     let marathon = runner
         .construct(Arc::new(factory.configuration.clone()), cli.logging(), cli.console())
@@ -120,6 +121,7 @@ fn a_missing_vendor_factory_fails_construction() {
         cwd: std::env::current_dir().unwrap(),
         environment: vec![],
         signal_hooks: Default::default(),
+        exit_prepare: None,
     };
     let error = match runner.construct(Arc::new(factory.configuration.clone()), cli.logging(), cli.console()) {
         Ok(_) => panic!("construction succeeded"),

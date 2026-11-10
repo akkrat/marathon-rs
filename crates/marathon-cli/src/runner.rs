@@ -35,6 +35,9 @@ pub struct ProductionRunner {
     pub environment: Vec<(String, String)>,
     /// Test seams for the signal relay; `main` leaves them empty.
     pub signal_hooks: marathon_core::marathon::SignalHooks,
+    /// Test seam run at the start of exit preparation, on the exit-output
+    /// thread (never core); `main` leaves it empty.
+    pub exit_prepare: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// Production vendor slots; vendors whose WPs have not landed fail construction.
@@ -139,6 +142,7 @@ impl ProductionRunner {
         let publish_tail = exit_tail.clone();
         let mut signal_hooks = self.signal_hooks.clone();
         signal_hooks.immediate_exit = Some(Arc::new(|status| std::process::exit(status)));
+        let exit_prepare = self.exit_prepare.clone();
         let inputs = RunInputs {
             configuration,
             logging: logging.clone(),
@@ -173,10 +177,14 @@ impl ProductionRunner {
             exit: Some(Arc::new(move |status| {
                 let tail = exit_tail.get().cloned();
                 let console = exit_console.clone();
+                let exit_prepare = exit_prepare.clone();
                 if exit_console
                     .exit_after_preparing(
                         status,
                         Box::new(move || {
+                            if let Some(prepare) = &exit_prepare {
+                                prepare();
+                            }
                             if let Some(tail) = tail {
                                 let _ = tail.close(Arc::new(move |record| match record {
                                     marathon_core::logging::OutputRecord::Raw(text) => console.write_text(&text),

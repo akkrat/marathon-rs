@@ -32,7 +32,7 @@ impl Buffer {
     }
 }
 fn setup(buffer: Buffer, terminal: bool) -> io::Result<(TracingOutput, marathon_cli::tracing_output::OutputGuard)> {
-    TracingOutput::new(buffer, terminal, || "12:34:56.789".into())
+    TracingOutput::new(buffer, terminal, |_| "12:34:56.789".into())
 }
 
 #[test]
@@ -160,7 +160,7 @@ fn a_blocked_sink_never_blocks_or_drops_producers() -> Result<(), Box<dyn std::e
             buffer: buffer.clone(),
         },
         false,
-        || "time".into(),
+        |_| "time".into(),
     )?;
     let mut writer = output.writer();
     writer.write_all(b"first\n")?;
@@ -205,7 +205,7 @@ fn writes_after_close_are_rejected_not_lost_silently() -> Result<(), Box<dyn std
 
 #[test]
 fn shutdown_reports_sink_failure() -> io::Result<()> {
-    let (output, guard) = TracingOutput::new(Broken, false, || "time".into())?;
+    let (output, guard) = TracingOutput::new(Broken, false, |_| "time".into())?;
     output.writer().write_all(b"line\n")?;
     assert_eq!(
         guard.shutdown().err().map(|e| e.to_string()).as_deref(),
@@ -223,7 +223,7 @@ fn cancellation_flushes_even_when_process_exit_skips_guards() -> Result<(), Box<
         } else {
             Box::new(io::stdout())
         };
-        let (output, _guard) = TracingOutput::new(sink, false, || "12:34:56.789".into())?;
+        let (output, _guard) = TracingOutput::new(sink, false, |_| "12:34:56.789".into())?;
         tracing::dispatcher::with_default(
             &output.dispatch(),
             || tracing::warn!(target: "marathon_cli::pilot", "cancelled"),

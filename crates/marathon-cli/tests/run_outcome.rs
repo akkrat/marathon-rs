@@ -173,7 +173,7 @@ fn invoke(args: &[&str], cwd: &Path, runner: &dyn CliRunner, stdout: &Buffer, st
         Box::new(stdout.clone()),
         Box::new(stderr.clone()),
         OutputTarget::Pipe,
-        Box::new(|| 45_296_789),
+        Box::new(|wall| marathon_cli::application::day_stamp(wall.unwrap_or(45_296_789))),
     )
     .unwrap_or_else(|error| panic!("test console: {error}"));
     let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();

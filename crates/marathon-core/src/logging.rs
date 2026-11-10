@@ -72,10 +72,13 @@ impl LogQueue {
             self.late.head.push(pending);
         }
     }
+    #[track_caller]
     pub fn log(&self, logger: &str, at_millis: i64, level: Level, message: String, cause: Option<Failure>) {
         let wall_millis = (self.wall.borrow())();
         self.late.push(OutputRecord::Log(LogRecord {
-            target: module_path!().into(),
+            // The producing module, not this queue's: a record whose logger is
+            // not itself a module path is filtered and printed by its caller.
+            target: marathon_logging::module_target(std::panic::Location::caller().file()),
             logger: logger.to_owned(),
             at_millis,
             wall_millis,
@@ -213,9 +216,14 @@ impl LogSender {
 }
 
 impl LogRecord {
+    /// The event target: the logger itself when it is a module path, the owning
+    /// module for the remaining named loggers, else the construction site's
+    /// module (see `LogQueue::log`).
     pub fn target(&self) -> &str {
         if self.logger.starts_with("marathon_") {
             &self.logger
+        } else if self.logger == "FilterValuesFileReader" {
+            "marathon_core::filter::values"
         } else if self.logger.contains("DeviceActor[") {
             "marathon_core::execution::device::actor"
         } else if self.logger.starts_with("DevicePoolActor[") {
@@ -234,6 +242,7 @@ impl LogRecord {
             &self.message,
             cause.as_deref(),
             (self.target() != self.logger).then_some(self.logger.as_str()),
+            self.wall_millis,
         );
     }
 }
