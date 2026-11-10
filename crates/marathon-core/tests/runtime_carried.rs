@@ -302,3 +302,42 @@ fn wide_children_keep_order_and_release_after_completion_d65() {
         })
     });
 }
+
+#[test]
+fn dropping_root_only_incomplete_deep_chain_is_iterative_u193() {
+    run(|core, _| {
+        Box::pin(async move {
+            let root = core.job(JobKind::Ordinary, None);
+            let mut tail = root.clone();
+            for _ in 1..DEPTH {
+                tail = core.job(JobKind::Ordinary, Some(tail));
+            }
+            let leaf = Rc::downgrade(&tail);
+            drop(tail);
+            assert_eq!(Rc::strong_count(&root), 1);
+            assert_eq!(root.state(), JobState::Active);
+            drop(root);
+            assert!(leaf.upgrade().is_none());
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn dropping_parent_keeps_shared_child_tree_intact_u193() {
+    run(|core, _| {
+        Box::pin(async move {
+            let parent = core.job(JobKind::Ordinary, None);
+            let child = core.job(JobKind::Ordinary, Some(parent.clone()));
+            let grandchild = core.job(JobKind::Ordinary, Some(child.clone()));
+            let weak = Rc::downgrade(&grandchild);
+            drop(parent);
+            assert_eq!(child.state(), JobState::Active);
+            assert!(Rc::ptr_eq(&child.children_snapshot()[0], &grandchild));
+            drop(grandchild);
+            drop(child);
+            assert!(weak.upgrade().is_none());
+            Ok(())
+        })
+    });
+}

@@ -335,6 +335,11 @@ impl Marathon {
     pub fn services(&self) -> &RunServices {
         &self.services
     }
+    /// The retained Scheduler owner, for gated run-level admission witnesses.
+    #[cfg(feature = "test-support")]
+    pub fn scheduler_job(&self) -> Option<JobRef> {
+        self.scheduler_job.borrow().clone()
+    }
     /// Whether the shutdown hook is currently installed (D52, C10).
     pub fn hook_installed(&self) -> bool {
         self.hook_installed.get()

@@ -142,8 +142,10 @@ the caller's explicit cancellation signal even for an already-completed target.
 WP 8.19 / D65 removes both observed-child cursor APIs; Scheduler uses its pool
 index instead. `children_snapshot` clones the plain ordered strong child storage.
 Callbacks live in a separate FIFO collection and do not affect child membership.
-Completion callbacks run exactly once,
-also when registered after completion, with late registration invoked immediately.
+Completion callbacks run exactly once, also when registered after completion.
+Registrations on sealed jobs awaiting dispatch append to that packet's FIFO,
+including while callbacks are running. Fully dispatched jobs invoke late
+registrations immediately.
 WP 8.18 / D64 removes the public `CompletionRegistration` API and its handles;
 `invoke_on_completion` returns no handle and callbacks cannot be withdrawn.
 DeviceActor retains its weak capture and accounting-before-Terminated order.
@@ -165,7 +167,12 @@ iteratively before dispatch. Completion packets detach and seal every ready
 ancestor before any user code, so a sealed child awaiting callback dispatch never
 counts as pending work. Packets dispatch child before parent: exception handler,
 waiter notification, then FIFO user callbacks, with no inner borrow across user
-code. Late registration remains immediate and callback panics are isolated.
+code. Failure handlers and user callbacks are panic-isolated so a panic cannot
+abandon later callbacks or ready packets. The whole synchronous transition
+cascade, siblings included, is prepared before dispatch: a callback observes,
+and cannot change, a sibling's prepared outcome. Dropping an incomplete tree
+releases uniquely owned descendants iteratively (U193); shared children retain
+their own descendants.
 Parent/child callback and diagnostic ordering can move; the old parent
 continuation registration between child callbacks is retired. D65 preserves the
 exit-code policy; a corrected run outcome can select a different existing status.

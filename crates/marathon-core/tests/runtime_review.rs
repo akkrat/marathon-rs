@@ -580,3 +580,79 @@ fn reentrant_cancellation_waits_for_other_child_cleanup_d65() {
         })
     });
 }
+
+#[test]
+fn sealed_pending_registrations_preserve_fifo_in_both_orders_d65() {
+    for parent_first in [false, true] {
+        for before_complete in [false, true] {
+            run(move |core, _| {
+                Box::pin(async move {
+                    let parent = core.job(JobKind::Ordinary, None);
+                    let child = core.job(JobKind::Ordinary, Some(parent.clone()));
+                    let seen = Rc::new(RefCell::new(Vec::new()));
+                    let register_parent = || {
+                        let recorded = seen.clone();
+                        let target = parent.clone();
+                        parent.invoke_on_completion(Box::new(move |_| {
+                            recorded.borrow_mut().push("p-early");
+                            let recorded = recorded.clone();
+                            target.invoke_on_completion(Box::new(move |_| recorded.borrow_mut().push("p-during")));
+                        }));
+                    };
+                    let register_child = || {
+                        let target = parent.clone();
+                        let recorded = seen.clone();
+                        child.invoke_on_completion(Box::new(move |_| {
+                            recorded.borrow_mut().push("cbC");
+                            let recorded = recorded.clone();
+                            target.invoke_on_completion(Box::new(move |_| recorded.borrow_mut().push("p-late")));
+                        }));
+                    };
+                    let (first, second): (&dyn Fn(), &dyn Fn()) = if parent_first {
+                        (&register_parent, &register_child)
+                    } else {
+                        (&register_child, &register_parent)
+                    };
+                    first();
+                    if before_complete {
+                        second();
+                    }
+                    parent.complete();
+                    if !before_complete {
+                        second();
+                    }
+                    child.complete();
+                    assert_eq!(*seen.borrow(), ["cbC", "p-early", "p-late", "p-during"]);
+                    let recorded = seen.clone();
+                    parent.invoke_on_completion(Box::new(move |_| recorded.borrow_mut().push("p-after")));
+                    assert_eq!(*seen.borrow(), ["cbC", "p-early", "p-late", "p-during", "p-after"]);
+                    Ok(())
+                })
+            });
+        }
+    }
+}
+
+#[test]
+fn sibling_outcome_is_prepared_before_callbacks_d65() {
+    run(|core, _| {
+        Box::pin(async move {
+            let parent = core.job(JobKind::Ordinary, None);
+            let a = core.job(JobKind::Ordinary, Some(parent.clone()));
+            let b = core.job(JobKind::Ordinary, Some(parent.clone()));
+            let observed = Rc::new(RefCell::new(None));
+            let recorded = observed.clone();
+            let sibling = b.clone();
+            a.invoke_on_completion(Box::new(move |_| {
+                let before = sibling.state();
+                let changed = sibling.complete();
+                *recorded.borrow_mut() = Some((before, changed, sibling.state()));
+            }));
+            parent.cancel(cancelled("parent stopped"));
+            let outcome = JobState::Completed(Completion::Cancelled(cancelled("parent stopped")));
+            assert_eq!(*observed.borrow(), Some((outcome.clone(), false, outcome.clone())));
+            assert_eq!(parent.state(), outcome);
+            Ok(())
+        })
+    });
+}

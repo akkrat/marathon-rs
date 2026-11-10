@@ -22,6 +22,7 @@ use marathon_core::{
     logging::host_millis,
     marathon::Marathon,
     model::Test,
+    output::ConsoleSink,
     runtime::*,
     time::{ClockResult, Timer},
     vendor::{LocalTestParser, LogConfigurator, TestParser, VendorContext, VendorServices},
@@ -203,6 +204,8 @@ pub struct MarathonFactory {
     pub logging: Arc<Mutex<LogSettings>>,
     /// Prompt console output, as the CLI's live run has it; the oracle runs leave it off.
     pub live_output: bool,
+    /// Use the actual CLI console for run-level output/status witnesses.
+    pub console_sink: Option<Arc<dyn ConsoleSink>>,
 }
 impl Default for MarathonFactory {
     fn default() -> Self {
@@ -234,6 +237,7 @@ impl MarathonFactory {
             reporters: vec![],
             logging: Arc::new(Mutex::new(LogSettings::default())),
             live_output: false,
+            console_sink: None,
         }
     }
     /// `MarathonFactory.build()`: Koin's graph, here the production construction with the
@@ -267,7 +271,7 @@ impl MarathonFactory {
         let inputs = RunInputs {
             configuration: Arc::new(self.configuration.configuration.clone()),
             logging: self.logging.clone(),
-            console: console.clone(),
+            console: self.console_sink.clone().unwrap_or_else(|| console.clone()),
             stderr: Arc::new(|_| {}),
             cwd: PathBuf::from(
                 &std::env::current_dir()

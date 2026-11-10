@@ -4,12 +4,14 @@ use super::shared::*;
 use crate::{error::*, runtime::*};
 use std::{
     cell::{Cell, RefCell},
+    collections::VecDeque,
     rc::{Rc, Weak},
     sync::Arc,
 };
 use tokio::sync::Notify;
 
 type Callback = Box<dyn FnOnce(Completion)>;
+type CallbackQueue = Rc<RefCell<VecDeque<Callback>>>;
 pub(crate) type FailureHandler = Box<dyn FnOnce(Failure)>;
 
 /// A sealed outcome and its taken FIFO callbacks. Membership is removed through
@@ -17,7 +19,7 @@ pub(crate) type FailureHandler = Box<dyn FnOnce(Failure)>;
 struct CompletionPacket {
     job: Rc<RuntimeJob>,
     outcome: Completion,
-    callbacks: Vec<Callback>,
+    callbacks: CallbackQueue,
 }
 /// Explicit stacks bound executor stack use even for very deep job trees.
 /// User callbacks may reenter through public methods, without any inner borrow.
@@ -71,12 +73,15 @@ fn run_stack(mut stack: Vec<Step>) {
         if let (Some(handler), Completion::Failed(failure)) = (handler, &packet.outcome)
             && packet.job.reports_failure()
         {
-            handler(failure.clone());
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(failure.clone())));
         }
         packet.job.changed.notify_waiters();
-        for callback in packet.callbacks {
+        loop {
+            let callback = packet.callbacks.borrow_mut().pop_front();
+            let Some(callback) = callback else { break };
             invoke(callback, packet.outcome.clone());
         }
+        packet.job.inner.borrow_mut().pending_callbacks = None;
     }
 }
 
@@ -85,7 +90,8 @@ struct Inner {
     outcome: Completion,
     completed: bool,
     children: Vec<Rc<RuntimeJob>>,
-    callbacks: Vec<Callback>,
+    callbacks: VecDeque<Callback>,
+    pending_callbacks: Option<CallbackQueue>,
 }
 impl Inner {
     fn seal(&mut self, job: Rc<RuntimeJob>) -> Option<CompletionPacket> {
@@ -93,10 +99,12 @@ impl Inner {
             return None;
         }
         self.completed = true;
+        let callbacks = Rc::new(RefCell::new(std::mem::take(&mut self.callbacks)));
+        self.pending_callbacks = Some(callbacks.clone());
         Some(CompletionPacket {
             job,
             outcome: self.outcome.clone(),
-            callbacks: std::mem::take(&mut self.callbacks),
+            callbacks,
         })
     }
 }
@@ -114,6 +122,18 @@ pub struct RuntimeJob {
     pub(crate) handler_logger: RefCell<Option<Rc<str>>>,
     /// A launched task's handler runs before its own completion callbacks.
     pub(crate) handler: RefCell<Option<FailureHandler>>,
+}
+// An abandoned active tree has no completion cascade to release its ownership.
+// Drain uniquely owned descendants before dropping each job, bounding Drop depth.
+impl Drop for RuntimeJob {
+    fn drop(&mut self) {
+        let mut children = std::mem::take(&mut self.inner.get_mut().children);
+        while let Some(child) = children.pop() {
+            if let Ok(mut child) = Rc::try_unwrap(child) {
+                children.append(&mut child.inner.get_mut().children);
+            }
+        }
+    }
 }
 impl RuntimeJob {
     pub(super) fn new(kind: JobKind, parent: Option<Rc<Self>>, task: bool) -> Rc<Self> {
@@ -140,7 +160,8 @@ impl RuntimeJob {
                 outcome: Completion::Success,
                 completed: false,
                 children: Vec::new(),
-                callbacks: Vec::new(),
+                callbacks: VecDeque::new(),
+                pending_callbacks: None,
             }),
         });
         if let Some(parent) = parent {
@@ -295,20 +316,54 @@ impl RuntimeJob {
     pub fn children_snapshot(&self) -> Vec<JobRef> {
         self.inner.borrow().children.clone()
     }
-    /// Retains callbacks until exactly-once completion, with immediate invocation
-    /// after the seal. Registrations cannot be withdrawn (D64).
+    /// Registrations join the pending FIFO through dispatch, including after the
+    /// seal. Only fully dispatched jobs invoke immediately (D64, D65).
     pub fn invoke_on_completion(&self, callback: Callback) {
         let immediate = {
             let mut inner = self.inner.borrow_mut();
-            if inner.completed {
+            if let Some(pending) = &inner.pending_callbacks {
+                pending.borrow_mut().push_back(callback);
+                None
+            } else if inner.completed {
                 Some((callback, inner.outcome.clone()))
             } else {
-                inner.callbacks.push(callback);
+                inner.callbacks.push_back(callback);
                 None
             }
         };
         if let Some((callback, outcome)) = immediate {
             invoke(callback, outcome);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failure_handler_panic_does_not_abandon_ready_packets_d65() {
+        let parent = RuntimeJob::new(JobKind::Ordinary, None, false);
+        let child = RuntimeJob::new(JobKind::Ordinary, Some(parent.clone()), true);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let handler_called = Rc::new(Cell::new(false));
+        let called = handler_called.clone();
+        *child.handler.borrow_mut() = Some(Box::new(move |_| {
+            called.set(true);
+            panic!("handler probe");
+        }));
+        let recorded = seen.clone();
+        child.invoke_on_completion(Box::new(move |_| recorded.borrow_mut().push("child")));
+        let recorded = seen.clone();
+        parent.invoke_on_completion(Box::new(move |_| recorded.borrow_mut().push("parent")));
+        parent.complete();
+        let cause = failure(marathon_error::FailureKind::IllegalState, "failed child");
+        child.finish_body(Err(cause.clone().into()));
+        assert!(handler_called.get());
+        assert_eq!(*seen.borrow(), ["child", "parent"]);
+        assert_eq!(child.state(), JobState::Completed(Completion::Failed(cause.clone())));
+        assert_eq!(parent.state(), JobState::Completed(Completion::Failed(cause)));
+        assert!(parent.inner.borrow().pending_callbacks.is_none());
+        assert!(child.inner.borrow().pending_callbacks.is_none());
     }
 }

@@ -410,3 +410,23 @@ DAG, the 507-file source inventory, the 1,166-row parity matrix and 143 copied
 fixtures. Prototype A's independent native check and exact timing results are
 recorded above. All scratch source worktrees and build artifacts were removed.
 Only this design revision is committed; runtime code and fixtures are unchanged.
+
+## 7. WP 8.19 implementation review
+
+D65 keeps a sealed completion packet's FIFO reachable until dispatch finishes.
+A child callback registering on a sealed parent appends after its earlier
+registrations; registration during that parent's own dispatch also appends.
+Only registration on a fully dispatched job invokes immediately. The seal and
+attachment rejection remain atomic; dispatch state does not reopen admission.
+Failure handlers, like callbacks, are panic-isolated so later packets still run.
+
+The whole synchronous transition cascade, siblings included, is prepared before
+callbacks are dispatched. A callback observes, and cannot change, a sibling's
+prepared outcome. For example, cancellation prepares both A and B as Cancelled
+before A's callback tries B.complete; B stays Cancelled, whereas rc.1 could let
+that callback complete B successfully first. This outcome change is accepted in
+D65, beyond the parent/child callback and diagnostic ordering changes.
+
+U193 records the pre-existing incomplete-tree destruction overflow. An iterative
+RuntimeJob drop drains the children of uniquely owned jobs without completing,
+cancelling or invoking callbacks; externally shared children keep their trees.
