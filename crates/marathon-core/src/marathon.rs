@@ -284,6 +284,7 @@ pub struct Marathon {
     /// D52: what a signal stops, as soon as there is something to stop.
     run_job: RefCell<Option<JobRef>>,
     scheduler_job: RefCell<Option<JobRef>>,
+    diagnostic_scheduler: RefCell<Option<Scheduler>>,
     /// First failure of a live pump's write, left for the next serial flush to report.
     pump_error: PumpErrors,
 }
@@ -326,6 +327,7 @@ impl Marathon {
             output_ready: Cell::new(false),
             run_job: RefCell::new(None),
             scheduler_job: RefCell::new(None),
+            diagnostic_scheduler: RefCell::new(None),
             pump_error: PumpErrors::default(),
         })
     }
@@ -592,6 +594,7 @@ impl Marathon {
             context: task.clone(),
         });
         *self.scheduler_job.borrow_mut() = Some(scheduler.job());
+        *self.diagnostic_scheduler.borrow_mut() = Some(scheduler.clone());
 
         // D52: a signal may have stopped this run while it was in a call that ignores cancellation, and the wipe would
         // take the last run's reports with it for nothing.
@@ -1000,6 +1003,8 @@ impl Marathon {
             .signals
             .clone()
             .map(|relay| self.start_relay(relay, &root));
+        #[cfg(unix)]
+        let diagnostics = self.start_diagnostics(&root);
         let pump = self.services.live_output.then(|| self.start_output_pump(&root));
         let supervisor = core.job(JobKind::Supervisor, Some(root.clone()));
         let result: Rc<RefCell<Option<VendorResult<bool>>>> = Rc::new(RefCell::new(None));
@@ -1093,12 +1098,55 @@ impl Marathon {
             job.cancel(requested("run finished"));
             let _ = job.join().await;
         }
+        #[cfg(unix)]
+        if let Some(diagnostics) = diagnostics {
+            diagnostics.cancel(requested("run finished"));
+            let _ = diagnostics.join().await;
+        }
+        self.diagnostic_scheduler.borrow_mut().take();
         root.complete();
         flushed.map_err(|e| match e {
             VendorError::Cancelled(reason) => OperationError::Cancelled(reason),
             other => OperationError::Failed(other.failure().clone()),
         })?;
         Ok(mapped)
+    }
+
+    #[cfg(unix)]
+    fn start_diagnostics(self: &Rc<Self>, root: &JobRef) -> Option<JobRef> {
+        let requests = crate::diagnostics::requests()?;
+        // Configuration-time and previous-run signals need no deferred snapshot.
+        requests.discard();
+        let marathon = self.clone();
+        Some(self.services.core.spawn(
+            root.clone(),
+            Box::new(move |task| {
+                Box::pin(async move {
+                    let signal = task.job.cancellation_signal();
+                    loop {
+                        if let futures_util::future::Either::Left(_) = race(signal.cancelled(), requests.next()).await {
+                            break;
+                        }
+                        let mut dump = crate::diagnostics::header();
+                        dump.push_str(if marathon.cleaned_up.get() {
+                            "run=finishing\n"
+                        } else {
+                            "run=active\n"
+                        });
+                        if let Some(scheduler) = marathon.diagnostic_scheduler.borrow().as_ref() {
+                            scheduler.diagnostic(&mut dump);
+                        } else {
+                            dump.push_str("scheduler=not-started (configuration, preparation or parsing)\n");
+                        }
+                        crate::diagnostics::bound(&mut dump);
+                        marathon.log(crate::diagnostics::TARGET, Level::WARN, dump, None);
+                        // A burst of diagnostic requests must let execution and D52's timer run.
+                        tokio::task::yield_now().await;
+                    }
+                    Ok(())
+                })
+            }),
+        ))
     }
 
     /// Live runs only. Kotlin's console appender prints each record as it is logged; here

@@ -32,6 +32,7 @@ use indexmap::IndexMap;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
 use std::{
+    cell::Cell,
     collections::HashMap,
     rc::{Rc, Weak},
     sync::Arc,
@@ -71,8 +72,29 @@ pub enum QueueMessage {
 #[derive(Clone)]
 pub struct QueueHandle {
     actor: Rc<RuntimeActor<QueueMessage>>,
+    diagnostics: Rc<Cell<QueueCounts>>,
+    busy: Rc<Cell<bool>>,
+}
+#[derive(Clone, Copy, Default)]
+struct QueueCounts {
+    pending: usize,
+    retries: usize,
+    active: usize,
 }
 impl QueueHandle {
+    pub(crate) fn diagnostic(&self, out: &mut String) {
+        use std::fmt::Write;
+        let counts = self.diagnostics.get();
+        let _ = writeln!(
+            out,
+            "  queue={} tests_left={} worker_retry_tests_pending={} active_batches={} handling_message={} (counts at last queue boundary)",
+            crate::diagnostics::job(&self.job()),
+            counts.pending,
+            counts.retries,
+            counts.active,
+            self.busy.get()
+        );
+    }
     /// `trySend(..).isSuccess`: false once the queue has closed itself.
     pub fn try_send(&self, message: QueueMessage) -> bool {
         self.actor.try_send(message).is_ok()
@@ -173,6 +195,8 @@ pub struct QueueActor {
     clock: Rc<dyn SchedulerClock>,
 
     queue: TestQueue,
+    diagnostics: Rc<Cell<QueueCounts>>,
+    busy: Rc<Cell<bool>>,
     batching: BatchingStrategy,
     retry: RetryStrategy,
     lookup: Arc<dyn MetricsLookup>,
@@ -302,6 +326,11 @@ impl QueueActor {
         let mut queue = TestQueue::new(key);
         queue.add_all(shard.tests.iter().chain(&shard.flaky_tests).cloned());
         let clock: Rc<dyn SchedulerClock> = core.clock();
+        let diagnostics = Rc::new(Cell::new(QueueCounts {
+            pending: queue.len(),
+            ..QueueCounts::default()
+        }));
+        let busy = Rc::new(Cell::new(false));
         let handler = QueueActor {
             pool: Rc::downgrade(&pool),
             pool_id,
@@ -315,6 +344,8 @@ impl QueueActor {
             log: core.log_queue(),
             clock: clock.clone(),
             queue,
+            diagnostics: diagnostics.clone(),
+            busy: busy.clone(),
             batching: prepared.batching,
             // One strategy, so one retry quota, per pool (C30).
             retry: RetryStrategy::from_config(&configuration.retry_strategy),
@@ -333,7 +364,11 @@ impl QueueActor {
             before_execute: prepared.before_execute,
         };
         let actor = RuntimeActor::with_logger(core, parent, clock, handler, "QueueActor", &logger);
-        QueueHandle { actor }
+        QueueHandle {
+            actor,
+            diagnostics,
+            busy,
+        }
     }
 
     fn log(&self, level: Level, message: String) {
@@ -344,7 +379,15 @@ impl QueueActor {
         self.log(Level::DEBUG, text(&[&|m| m.push_str(prefix), &|m| m.push_str(serial)]));
     }
 
+    fn diagnostic_counts(&self) {
+        self.diagnostics.set(QueueCounts {
+            pending: self.queue.len(),
+            retries: self.retry_workers.len(),
+            active: self.active_batches.len(),
+        });
+    }
     async fn send_pool(&self, message: FromQueue) -> OperationResult<()> {
+        self.diagnostic_counts();
         // A closed pool fails the send as `pool.send` throws: a cancellation, or the close cause.
         let Some(pool) = self.pool.upgrade() else {
             return Err(crate::executor::shared::requested("Channel was cancelled").into());
@@ -627,6 +670,7 @@ impl QueueActor {
         if let Some(worker) = self.workers.get(&device.serial_number) {
             self.retry_workers.entry(test.clone()).or_default().push(worker.clone());
         }
+        self.diagnostic_counts();
     }
 
     fn on_terminate(&mut self) {
@@ -676,6 +720,7 @@ impl QueueActor {
             if diff >= 0 {
                 progress.remove_test(&result.test, diff);
             }
+            self.diagnostic_counts();
         }
     }
 
@@ -792,7 +837,10 @@ impl ActorHandler<QueueMessage> for QueueActor {
         Box::pin(async move {
             // The queue job's signal (3.5 handoff): close() cancels the tracker delivery too.
             let signal = context.task.job.cancellation_signal();
+            self.busy.set(true);
             let result = self.handle(message, signal).await;
+            self.diagnostic_counts();
+            self.busy.set(false);
             #[cfg(feature = "test-support")]
             self.observe();
             result

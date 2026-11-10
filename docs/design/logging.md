@@ -80,6 +80,7 @@ inherits the root level, which no configurator resets),
 `marathon_core::analytics::provider=debug`,
 `marathon_core::analytics::noop=debug` (the analytics loggers, whose WARN
 diagnostics therefore print with debug off, as before),
+`marathon_core::diagnostics=warn` (D66 SIGQUIT dumps, visible with debug off),
 `marathon_core::timing=info`, `marathon_ios::device::timing=info`,
 `marathon_apple::xcodebuild_stderr=warn`,
 `marathon_core::reporters::timeline` per the table,
@@ -128,7 +129,12 @@ The production signal path (`ProductionRunner` in
 `marathon-cli/src/runner.rs`, `Console` drop in `application.rs`) keeps
 D52's behaviour:
 
-- **First signal:** cancel and write what can be written (reports, then the
+- **SIGQUIT (D66):** a separate process-lifetime Unix listener is installed before
+  config loading. During a run it notifies a core snapshot task, which queues one
+  bounded WARN event on `marathon_core::diagnostics` through the same writer. The
+  explicit header timestamp remains in compact output. It never enters the
+  shutdown relay; before/after a run it may be silent.
+- **First SIGINT/SIGTERM:** cancel and write what can be written (reports, then the
   summary), bounded by the existing cancel limit. The exit path runs off
   core: `exit_after_preparing` does the final queue forwarding on the
   `marathon-exit-output` thread and a `marathon-exit` watchdog thread exits

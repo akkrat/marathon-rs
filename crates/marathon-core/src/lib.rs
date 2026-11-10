@@ -5,6 +5,7 @@
 
 pub mod analytics;
 pub mod construction;
+pub mod diagnostics;
 pub mod error;
 pub mod filter;
 pub mod listener;

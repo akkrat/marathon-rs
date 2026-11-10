@@ -63,8 +63,31 @@ pub struct DevicePool {
     pub queue: QueueHandle,
     /// The `SupervisorJob` of the queue and the device actors.
     pub supervisor: JobRef,
+    diagnostics: Rc<RefCell<Vec<DeviceActorRef>>>,
 }
 impl DevicePool {
+    pub(crate) fn diagnostic(&self, out: &mut String, budget: &mut usize) {
+        use std::fmt::Write;
+        let devices = self.diagnostics.borrow();
+        let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+        for device in devices.iter() {
+            *counts.entry(device.diagnostic_state()).or_default() += 1;
+        }
+        let _ = writeln!(
+            out,
+            "  actor={} supervisor={} devices={} states={counts:?}",
+            crate::diagnostics::job(&self.actor.job()),
+            crate::diagnostics::job(&self.supervisor),
+            devices.len()
+        );
+        self.queue.diagnostic(out);
+        let shown = devices.len().min(*budget);
+        for device in devices.iter().take(shown) {
+            device.diagnostic(out);
+        }
+        *budget -= shown;
+        crate::diagnostics::omitted(out, devices.len() - shown, "devices");
+    }
     /// `actor.coroutineContext.job.isCompleted`.
     pub fn terminated(&self) -> bool {
         matches!(Actor::job(self.actor.as_ref()).state(), JobState::Completed(_))
@@ -100,6 +123,7 @@ pub struct DevicePoolActor {
 
     // LinkedHashMap: onQueueTerminated terminates the devices in insertion order.
     devices: IndexMap<String, DeviceActorRef>,
+    diagnostics: Rc<RefCell<Vec<DeviceActorRef>>>,
     /// Removed devices whose Terminated has not been received yet. A device sends its batch outcome before Terminated,
     /// so the pool must not shut down while any of them is pending
     terminating_devices: Vec<DeviceRef>,
@@ -217,6 +241,7 @@ impl DevicePoolActor {
         let logger = format!("DevicePoolActor[{}]", parts.pool_id.name.to_owned());
         let clock: Rc<dyn SchedulerClock> = parts.core.clock();
         let built = Rc::new(RefCell::new(None));
+        let diagnostics = Rc::new(RefCell::new(Vec::new()));
         let handler = DevicePoolActor {
             core: parts.core.clone(),
             pool_id: parts.pool_id,
@@ -239,6 +264,7 @@ impl DevicePoolActor {
             supervisor: None,
             myself: None,
             devices: IndexMap::new(),
+            diagnostics: diagnostics.clone(),
             terminating_devices: Vec::new(),
             requests: HashMap::new(),
             assignments: HashMap::new(),
@@ -263,6 +289,7 @@ impl DevicePoolActor {
             actor,
             queue,
             supervisor,
+            diagnostics,
         }
     }
 
@@ -344,6 +371,7 @@ impl DevicePoolActor {
             self.departing(&device);
         }
         self.terminating_devices.retain(|it| *it != device);
+        self.diagnostics.borrow_mut().retain(|actor| actor.device != device);
         self.release_device(&device);
         // A device accounts for a batch it has started before it reports Terminated, so this batch has never started
         if let Some(batch) = self.release_assignment(&device) {
@@ -858,6 +886,7 @@ impl DevicePoolActor {
         if let Some(observer) = &self.device_observer {
             observer(&actor);
         }
+        self.diagnostics.borrow_mut().push(actor.clone());
         self.devices.insert(serial, actor.clone());
         let _ = actor.actor.try_send(DeviceEvent::Initialize);
     }

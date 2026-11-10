@@ -56,6 +56,7 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
             "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
             if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
         )
+        .with_target("marathon_core::diagnostics", LevelFilter::WARN)
         .with_target("marathon_core::timing", LevelFilter::INFO)
         .with_target("marathon_ios::device::timing", LevelFilter::INFO)
         .with_target("marathon_apple::xcodebuild_stderr", LevelFilter::WARN);
@@ -333,6 +334,7 @@ mod tests {
                 "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
                 if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
             ),
+            ("marathon_core::diagnostics", LevelFilter::WARN),
             ("marathon_core::timing", LevelFilter::INFO),
             ("marathon_ios::device::timing", LevelFilter::INFO),
             ("marathon_apple::xcodebuild_stderr", LevelFilter::WARN),

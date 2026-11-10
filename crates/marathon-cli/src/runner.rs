@@ -131,6 +131,13 @@ impl ProductionRunner {
         hooks: Arc<RuntimeHooks>,
         wall: marathon_core::logging::WallSource,
     ) -> Result<Box<dyn MarathonRun>, Failure> {
+        #[cfg(unix)]
+        if let Err(error) = marathon_core::diagnostics::install_quit_handler() {
+            return Err(marathon_core::executor::shared::failure(
+                marathon_error::FailureKind::Io,
+                &error.to_string(),
+            ));
+        }
         let factories = self.factories.clone();
         let analytics = configuration.analytics_configuration.clone();
         let debug = configuration.debug;

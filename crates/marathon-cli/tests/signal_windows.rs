@@ -146,7 +146,7 @@ fn factories(mode: &str) -> VendorFactories {
             let provider = StubDeviceProvider::new(SharedChannel::new());
             on_terminate(&provider, &mode);
             let parser: Arc<dyn LocalTestParser> = match mode.as_str() {
-                "blocked-thread" => Arc::new(NoTests),
+                "blocked-thread" | "after-run" => Arc::new(NoTests),
                 "slow-exit-prepare" => Arc::new(HeldParser),
                 _ => Arc::new(Suspended),
             };
@@ -251,6 +251,15 @@ fn signal_child() {
         output_file_name: None,
         include_flaky_tests: false,
     });
+    if mode == "after-run" {
+        let _ = writeln!(std::io::stderr(), "MARKER finished");
+        let mut input = String::new();
+        if let Err(error) = std::io::stdin().read_line(&mut input) {
+            panic!("post-run gate: {error}");
+        }
+        let _ = writeln!(std::io::stderr(), "MARKER alive");
+        std::process::exit(RETURNED);
+    }
     if mode == "blocked-thread" {
         std::process::exit(RETURNED);
     }
@@ -348,6 +357,7 @@ fn started_with_stderr(mode: &str, ignored: Option<&str>) -> (Running, Stderr) {
     let mut child = Running(
         command
             .env(MODE, mode)
+            .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
@@ -355,7 +365,9 @@ fn started_with_stderr(mode: &str, ignored: Option<&str>) -> (Running, Stderr) {
     );
     // Construction is announced by the vendor; the run window by the parser and, as both
     // registrations have been attempted, by the relay.
-    let awaited: &[&str] = if mode == "construction" {
+    let awaited: &[&str] = if mode == "after-run" {
+        &["MARKER finished"]
+    } else if mode == "construction" {
         &["MARKER construction"]
     } else {
         &["MARKER run", "MARKER ready"]
@@ -643,4 +655,31 @@ fn a_signal_ignored_at_start_stays_ignored_during_the_run() {
             .unwrap_or_else(|| panic!("{ignored}: the child survived {other}"));
         assert_eq!(status.code(), Some(code), "{ignored} then {other}: {status:?}");
     }
+}
+
+#[test]
+fn sigquit_before_the_run_starts_does_not_end_the_process_d66() -> Result<(), Box<dyn std::error::Error>> {
+    if inherited_ignored(Signal::SIGTERM) {
+        return Ok(());
+    }
+    let mut child = started("construction", None);
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGQUIT)?;
+    let status = signalled(&mut child, Signal::SIGTERM, PATIENCE).ok_or("SIGTERM should end construction")?;
+    assert_eq!(
+        status.signal(),
+        Some(Signal::SIGTERM as i32),
+        "SIGQUIT must survive the pre-run window: {status:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn sigquit_after_the_run_finishes_does_not_end_the_process_d66() -> Result<(), Box<dyn std::error::Error>> {
+    let (mut child, stderr) = started_with_stderr("after-run", None);
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGQUIT)?;
+    child.stdin.take().ok_or("child stdin")?.write_all(b"continue\n")?;
+    assert!(stderr.saw("MARKER alive"));
+    let status = signalled_wait(&mut child, PATIENCE).ok_or("post-run child never returned")?;
+    assert_eq!(status.code(), Some(RETURNED), "{status:?}");
+    Ok(())
 }

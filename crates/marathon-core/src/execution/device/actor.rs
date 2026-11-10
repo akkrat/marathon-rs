@@ -35,9 +35,72 @@ const EXECUTE: &str = "core.DeviceActor.execute";
 pub struct DeviceActorRef {
     pub actor: Rc<RuntimeActor<DeviceEvent>>,
     pub device: DeviceRef,
-    /// Only the test-support accessors below read it.
-    #[cfg(feature = "test-support")]
     shared: Weak<Shared>,
+}
+impl DeviceActorRef {
+    pub(crate) fn diagnostic_state(&self) -> &'static str {
+        if matches!(self.actor.job().state(), JobState::Completed(_)) {
+            return "terminated";
+        }
+        if matches!(self.actor.job().state(), JobState::Cancelling(_)) {
+            return "terminating";
+        }
+        if self.device.0.info().network_state == crate::model::NetworkState::Disconnected {
+            return "lost/terminating";
+        }
+        let Some(shared) = self.shared.upgrade() else {
+            return "terminated";
+        };
+        match shared.machine.borrow().state() {
+            DeviceState::Connected => "connected",
+            DeviceState::Ready => "idle",
+            DeviceState::Initializing => "preparing",
+            DeviceState::Running(_) => "running",
+            DeviceState::Terminated => "terminating",
+        }
+    }
+    pub(crate) fn diagnostic(&self, out: &mut String) {
+        use crate::diagnostics::{MAX_TESTS, name, omitted};
+        use std::fmt::Write;
+        let state = self.diagnostic_state();
+        let _ = write!(
+            out,
+            "    device={} state={state}",
+            name(&self.device.0.info().serial_number)
+        );
+        if let Some(shared) = self.shared.upgrade() {
+            let _ = write!(out, " since_ms_ago={}", shared.state_since.get().elapsed().as_millis());
+            for (label, job) in [
+                ("prepare_task", shared.initialize_job.borrow().clone()),
+                ("execute_task", shared.execute_job.borrow().clone()),
+            ] {
+                if let Some(job) = job {
+                    let _ = write!(out, " {label}={}", crate::diagnostics::job(&job));
+                }
+            }
+            if let DeviceState::Running(running) = shared.machine.borrow().state() {
+                let _ = write!(
+                    out,
+                    " batch={} tests={}",
+                    name(&running.test_batch.id),
+                    running.test_batch.tests.len()
+                );
+                for test in running.test_batch.tests.iter().take(MAX_TESTS) {
+                    let _ = write!(
+                        out,
+                        "\n      {}.{}#{}",
+                        name(&test.pkg),
+                        name(&test.clazz),
+                        name(&test.method)
+                    );
+                }
+                out.push('\n');
+                omitted(out, running.test_batch.tests.len().saturating_sub(MAX_TESTS), "tests");
+                return;
+            }
+        }
+        out.push('\n');
+    }
 }
 #[cfg(feature = "test-support")]
 impl DeviceActorRef {
@@ -76,6 +139,7 @@ struct Shared {
     hooks: Arc<dyn ReplayHooks>,
     barriers: Arc<dyn ReplayBarriers>,
     machine: RefCell<Machine>,
+    state_since: Cell<std::time::Instant>,
     initialize_job: RefCell<Option<JobRef>>,
     execute_job: RefCell<Option<JobRef>>,
     terminated_notified: Cell<bool>,
@@ -121,6 +185,7 @@ impl DeviceActor {
             hooks,
             barriers,
             machine: RefCell::new(machine()),
+            state_since: Cell::new(std::time::Instant::now()),
             initialize_job: RefCell::new(None),
             execute_job: RefCell::new(None),
             terminated_notified: Cell::new(false),
@@ -128,13 +193,11 @@ impl DeviceActor {
             actor: RefCell::new(None),
         });
         let clock: Rc<dyn SchedulerClock> = core.clock();
-        #[cfg(feature = "test-support")]
         let weak = Rc::downgrade(&shared);
         let actor = RuntimeActor::with_logger(core, parent, clock, DeviceActor { shared }, "DeviceActor", &logger);
         DeviceActorRef {
             actor,
             device,
-            #[cfg(feature = "test-support")]
             shared: weak,
         }
     }
@@ -278,6 +341,9 @@ impl Shared {
     /// a job they cancel can complete and re-enter here synchronously.
     fn transition(self: &Rc<Self>, event: DeviceEvent) {
         let transition = self.machine.borrow_mut().transition(event);
+        if matches!(transition, Ok(Transition::Valid { .. })) {
+            self.state_since.set(std::time::Instant::now());
+        }
         match transition {
             Ok(Transition::Valid {
                 side_effect: Some(effect),

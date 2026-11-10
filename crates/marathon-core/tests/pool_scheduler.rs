@@ -1639,3 +1639,79 @@ fn real_pool_supervisor_and_scheduler_seal_before_last_child_callback_d65() {
         })
     });
 }
+
+#[test]
+fn state_dump_summarizes_a_large_farm_without_sending_work_d66() {
+    let c = configured(1000, false);
+    scheduling_test(move |h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(500, "Example"));
+            let gate = Gate::default();
+            for i in 0..126 {
+                run.connect(&TestDevice::new(
+                    &format!("device-{i}"),
+                    None,
+                    Some(prepare_on(&gate)),
+                    report_passed(),
+                ));
+            }
+            h.run_current().await;
+            let before = run.snapshot(&h);
+            let dump = run.scheduler.state_dump();
+            assert!(dump.contains("pools=1"), "{dump}");
+            assert!(dump.contains("devices=126 states={\"preparing\": 126}"), "{dump}");
+            assert!(
+                dump.contains("tests_left=500 worker_retry_tests_pending=0 active_batches=0"),
+                "{dump}"
+            );
+            assert_eq!(dump.matches("    device=").count(), 32);
+            assert!(dump.contains("94 devices omitted"), "{dump}");
+            assert!(dump.len() <= 65536);
+            assert_eq!(before, run.snapshot(&h), "diagnostics must not mutate execution");
+            run.finish(&h).await;
+        })
+    });
+}
+
+#[test]
+fn state_dump_bounds_the_number_of_pools_d66() {
+    let c = configured(1000, true);
+    scheduling_test(move |h| {
+        Box::pin(async move {
+            let run = Run::new(&h, c);
+            for i in 0..40 {
+                run.connect(&device(&format!("device-{i}"), &format!("model-{i}"), 0, true));
+            }
+            h.run_current().await;
+            let dump = run.scheduler.state_dump();
+            assert!(dump.contains("pools=40"), "{dump}");
+            assert_eq!(dump.matches("\npool=").count(), 16);
+            assert!(dump.contains("24 pools omitted"), "{dump}");
+            run.finish(&h).await;
+        })
+    });
+}
+
+#[test]
+fn state_dump_bounds_running_test_names_and_reads_suspended_devices_d66() {
+    let mut c = configured(1000, false);
+    c.batching_strategy = fixed_size(50);
+    scheduling_test(move |h| {
+        Box::pin(async move {
+            let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(50, "Example"));
+            let gate = Gate::default();
+            run.connect(&TestDevice::new("running", None, None, fail_on(&gate)));
+            h.run_current().await;
+            let dump = run.scheduler.state_dump();
+            assert!(dump.contains("state=running since_ms_ago="), "{dump}");
+            assert!(dump.contains("tests=50"), "{dump}");
+            assert_eq!(dump.matches("      pkg.Example#test").count(), 8);
+            assert!(dump.contains("42 tests omitted"), "{dump}");
+            assert!(
+                dump.contains("tests_left=0 worker_retry_tests_pending=0 active_batches=1"),
+                "{dump}"
+            );
+            run.finish(&h).await;
+        })
+    });
+}

@@ -49,6 +49,7 @@ pub struct SchedulerParts {
     pub context: TaskContext,
 }
 
+#[derive(Clone)]
 pub struct Scheduler {
     inner: Rc<Inner>,
 }
@@ -59,6 +60,7 @@ struct Inner {
     pools: RefCell<IndexMap<DevicePoolId, DevicePool>>,
     results: RefCell<IndexMap<DevicePoolId, SharedProgress>>,
     pooling: PoolingStrategy,
+    phase: std::cell::Cell<&'static str>,
 }
 
 fn operation_to_vendor(error: OperationError) -> VendorError {
@@ -85,11 +87,37 @@ impl Scheduler {
                 pools: RefCell::new(IndexMap::new()),
                 results: RefCell::new(IndexMap::new()),
                 pooling,
+                phase: std::cell::Cell::new("not-started"),
             }),
         }
     }
 
     /// The detached job, the Kotlin `job` field: cancelling it stops every pool, queue and device actor.
+    /// Bounded, synchronous view of existing core state; sends no actor or worker commands.
+    pub fn state_dump(&self) -> String {
+        let mut out = String::new();
+        self.diagnostic(&mut out);
+        crate::diagnostics::bound(&mut out);
+        out
+    }
+    pub(crate) fn diagnostic(&self, out: &mut String) {
+        use crate::diagnostics::{MAX_DEVICES, MAX_POOLS, job, name, omitted};
+        use std::fmt::Write;
+        let pools = self.inner.pools.borrow();
+        let _ = writeln!(
+            out,
+            "scheduler={} phase={} pools={}",
+            job(&self.inner.job),
+            self.inner.phase.get(),
+            pools.len()
+        );
+        let mut budget = MAX_DEVICES;
+        for (id, pool) in pools.iter().take(MAX_POOLS) {
+            let _ = writeln!(out, "pool={}", name(&id.name));
+            pool.diagnostic(out, &mut budget);
+        }
+        omitted(out, pools.len().saturating_sub(MAX_POOLS), "pools");
+    }
     pub fn job(&self) -> JobRef {
         self.inner.job.clone()
     }
@@ -110,6 +138,7 @@ impl Scheduler {
         let inner = &self.inner;
         let context = inner.parts.context.clone();
         Inner::subscribe_on_devices(inner.clone());
+        inner.phase.set("waiting-for-pools");
         let timeouts = inner.parts.core.timeouts();
         let waiting = inner.clone();
         let waited = timeouts
@@ -141,6 +170,7 @@ impl Scheduler {
         }
         // D65: retained pool indices cannot disconnect when a joined job detaches.
         // The first absent index closes admission, even if aggregation later suspends.
+        inner.phase.set("joining-pools");
         let mut results = Vec::new();
         loop {
             let next = inner
@@ -167,11 +197,14 @@ impl Scheduler {
             results.push(progress);
         }
         // Preserve short-circuiting, but exclude accumulators still awaiting publication.
+        inner.phase.set("aggregating-results");
         for progress in results {
             if !progress.lock().await.aggregate_result()? {
+                inner.phase.set("finished");
                 return Ok(false);
             }
         }
+        inner.phase.set("finished");
         Ok(true)
     }
 }

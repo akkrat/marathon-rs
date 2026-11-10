@@ -70,6 +70,22 @@ fn signal(child: &tokio::process::Child, signal: Signal) -> Result {
     Ok(())
 }
 
+async fn dumped(child: &mut tokio::process::Child, log: &Path, count: usize) -> Result {
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        if std::fs::read_to_string(log).is_ok_and(|s| s.matches("SIGQUIT state dump at unix_ms=").count() == count) {
+            return Ok(());
+        }
+        if let Some(status) = child.try_wait()? {
+            return Err(format!("exited before dump: {status}").into());
+        }
+        if Instant::now() >= deadline {
+            return Err("timed out waiting for state dump".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 fn marathon(cwd: &Path, stdout: &Path, stderr: &Path) -> Result<tokio::process::Child> {
     Ok(tokio::process::Command::new(env!("CARGO_BIN_EXE_marathon"))
         .current_dir(cwd)
@@ -103,6 +119,7 @@ fn files(dir: &Path) -> Vec<String> {
 enum HangingEnds {
     After(u64),
     AtGate(&'static str),
+    PassedAtGate(&'static str),
 }
 
 /// The devices' script from the runner fixture, with `FINISHED` passing and `HANGING` starting and ending much later with
@@ -110,7 +127,7 @@ enum HangingEnds {
 fn adb_script(hanging: HangingEnds) -> Result<marathon_adb::server::CompiledScript> {
     let end = match hanging {
         HangingEnds::After(millis) => serde_json::json!({"sleep_ms": millis}),
-        HangingEnds::AtGate(name) => serde_json::json!({"gate": name}),
+        HangingEnds::AtGate(name) | HangingEnds::PassedAtGate(name) => serde_json::json!({"gate": name}),
     };
     let dir = repo().join("fixtures/fake-adb/android-runner-cli/script");
     let mut script: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("devices.yaml"))?)?;
@@ -122,12 +139,16 @@ fn adb_script(hanging: HangingEnds) -> Result<marathon_adb::server::CompiledScri
     let passed = started("com.example.MainActivityAllureTest", "testFailure")
         + "INSTRUMENTATION_STATUS: class=com.example.MainActivityAllureTest\nINSTRUMENTATION_STATUS: test=testFailure\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n";
     let rules = script["shell"].as_array_mut().ok_or("no shell rules")?;
+    let mut output = vec![
+        serde_json::json!({"stdout": started("com.example.MainActivityTest", "testText")}),
+        end,
+    ];
+    if matches!(hanging, HangingEnds::PassedAtGate(_)) {
+        output.push(serde_json::json!({"stdout": "INSTRUMENTATION_STATUS: class=com.example.MainActivityTest\nINSTRUMENTATION_STATUS: test=testText\nINSTRUMENTATION_STATUS_CODE: 0\nINSTRUMENTATION_CODE: -1\n"}));
+    }
     rules.insert(
         0,
-        serde_json::json!({
-            "regex": "^am instrument.*MainActivityTest",
-            "output": [{"stdout": started("com.example.MainActivityTest", "testText")}, end],
-        }),
+        serde_json::json!({"regex": "^am instrument.*MainActivityTest", "output": output}),
     );
     rules.insert(
         0,
@@ -420,6 +441,9 @@ async fn a_cancel_writes_reports_first_and_stops_a_slow_worker_process_d52() -> 
             !worker.saw("signal", "signal", "KILL"),
             "debug={debug}: reports should come first"
         );
+        signal(&child, Signal::SIGQUIT)?;
+        dumped(&mut child, &worker.stdout, 1).await?;
+        assert!(worker.logs().contains("run=finishing"), "{}", worker.logs());
         let status = exited(&mut child).await?;
         assert_eq!(status.code(), Some(143), "debug={debug}\n{}", worker.logs());
         // D30 got to the end within the limit: the process ignored TERM and was sent KILL.
@@ -606,6 +630,88 @@ async fn a_test_that_ends_during_the_cleanup_is_not_started_again_u161() -> Resu
     let raw = std::fs::read_to_string(root.join("output/test_result/raw.json"))?;
     let rows: Vec<Value> = serde_json::from_str(&raw)?;
     assert_eq!(rows.len(), 1, "only the finished test is in the reports\n{raw}");
+    server.shutdown().await?;
+    Ok(())
+}
+
+/// Each signal is ordered by its observed dump, avoiding the OS's ordinary signal coalescing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sigquit_dumps_each_time_and_the_run_finishes_normally_d66() -> Result {
+    for debug in [false, true] {
+        let dir = tempfile::tempdir()?;
+        let root = dir.path();
+        let mut server = FakeAdbServer::start(
+            adb_script(HangingEnds::PassedAtGate("finish"))?,
+            ServerOptions::default(),
+        )
+        .await?;
+        android_run(root, debug, server.port(), "")?;
+        let (stdout, stderr) = (root.join("stdout"), root.join("stderr"));
+        let mut child = marathon(root, &stdout, &stderr)?;
+        until("running batch", || instruments(&server, HANGING) == 1).await?;
+        for count in 1..=2 {
+            signal(&child, Signal::SIGQUIT)?;
+            dumped(&mut child, &stdout, count).await?;
+            assert!(child.try_wait()?.is_none());
+        }
+        let dump = std::fs::read_to_string(&stdout)?;
+        assert!(dump.contains("WARN marathon_core::diagnostics:"), "{dump}");
+        assert!(dump.contains("scheduler=active phase=joining-pools pools=1"), "{dump}");
+        assert!(dump.contains("state=running since_ms_ago="), "{dump}");
+        assert!(dump.contains(HANGING), "{dump}");
+        assert!(
+            dump.contains("tests_left=0 worker_retry_tests_pending=0 active_batches=1"),
+            "{dump}"
+        );
+        server.open_gate("finish");
+        let status = exited(&mut child).await?;
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "{}\n{}",
+            std::fs::read_to_string(&stdout)?,
+            std::fs::read_to_string(&stderr)?
+        );
+        let rows: Vec<Value> =
+            serde_json::from_str(&std::fs::read_to_string(root.join("output/test_result/raw.json"))?)?;
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row["status"] == "PASSED"));
+        assert!(root.join("output/html/index.html").is_file());
+        assert_eq!(instruments(&server, HANGING), 1);
+        assert!(std::fs::read_to_string(&stdout)?.contains("Raw: 2 passed, 0 failed, 0 ignored, 0 incomplete tests"));
+        server.shutdown().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sigquit_then_sigterm_keeps_d52_reports_and_status_d66() -> Result {
+    let dir = tempfile::tempdir()?;
+    let root = dir.path();
+    let mut server = FakeAdbServer::start(adb_script(HangingEnds::AtGate("finish"))?, ServerOptions::default()).await?;
+    android_run(root, false, server.port(), "")?;
+    let (stdout, stderr) = (root.join("stdout"), root.join("stderr"));
+    let mut child = marathon(root, &stdout, &stderr)?;
+    until("running batch", || instruments(&server, HANGING) == 1).await?;
+    signal(&child, Signal::SIGQUIT)?;
+    dumped(&mut child, &stdout, 1).await?;
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    signal(&child, Signal::SIGTERM)?;
+    let status = exited(&mut child).await?;
+    // The production limit is 25 s; PATIENCE only catches a hang on a loaded host.
+    assert_eq!(
+        status.code(),
+        Some(143),
+        "{}\n{}",
+        std::fs::read_to_string(&stdout)?,
+        std::fs::read_to_string(&stderr)?
+    );
+    let rows: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(root.join("output/test_result/raw.json"))?)?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["method"], "testFailure");
+    assert_eq!(rows[0]["status"], "PASSED");
+    assert!(root.join("output/html/index.html").is_file());
+    assert_eq!(instruments(&server, HANGING), 1);
     server.shutdown().await?;
     Ok(())
 }

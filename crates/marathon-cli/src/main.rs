@@ -37,6 +37,10 @@ fn stdout_target() -> OutputTarget {
 }
 
 fn main() -> ExitCode {
+    #[cfg(unix)]
+    if let Err(error) = marathon_core::diagnostics::install_quit_handler() {
+        return failure_exit(FailureKind::Io, &error.to_string());
+    }
     let args: Vec<String> = std::env::args_os()
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())
