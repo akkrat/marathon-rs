@@ -1,0 +1,19 @@
+[package]
+name = "yaml-writer-prototype"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-2.0-only"
+
+[workspace]
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde-saphyr = { version = "=2.1.1", default-features = false, features = ["serialize"] }
+yaml_serde = "=0.10.7"
+jcompat = { path = "../../crates/jcompat" }
+marathon-config = { path = "../../crates/marathon-config" }
+marathon-error = { path = "../../crates/marathon-error" }
+snakeyaml = { path = "../../crates/snakeyaml" }
+serde_json = { version = "=1.0.154", features = ["preserve_order", "float_roundtrip"] }
+tempfile = "3"
