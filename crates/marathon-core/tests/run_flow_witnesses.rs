@@ -187,6 +187,8 @@ struct Options {
 }
 /// Exit statuses with the trace as it stood when the process would have ended.
 type Exits = Arc<Mutex<Vec<(i32, Vec<String>)>>>;
+/// The virtual clock read by the fake exit, installed once the run is built.
+type ExitClock = Arc<Mutex<Option<Arc<dyn Fn() -> i64 + Send + Sync>>>>;
 
 struct Result {
     exits: Vec<(i32, Vec<String>)>,
@@ -294,7 +296,7 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
     factory.timer = Some(Arc::new(FakeTimer(Arc::new(|| 0))));
     let exits: Exits = Arc::default();
     let exit_at: Arc<Mutex<Vec<i64>>> = Arc::default();
-    let exit_clock: Arc<Mutex<Option<Arc<dyn Fn() -> i64 + Send + Sync>>>> = Arc::default();
+    let exit_clock: ExitClock = Arc::default();
     if o.signal.is_some() {
         let (recorded, times, clock, at_exit, released) = (
             exits.clone(),
