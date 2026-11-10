@@ -1191,10 +1191,13 @@ impl Marathon {
                     // flush and the process exits from the console's writer/watchdog
                     // thread. This hook must never complete — if it did, `run` would
                     // proceed past `await_signal_exit` to its own cleanup and result,
-                    // racing that exit with an ordinary failure return. A far-future
-                    // delay on this job parks the task without blocking core; only
-                    // cancelling the job (a harness tearing the run down) ends it.
-                    let _ = task.clock.delay(i64::MAX, task.job.clone()).await;
+                    // racing that exit with an ordinary failure return. Waiting on a
+                    // deferred nobody completes parks the task without blocking core
+                    // and without a timer (so it holds on every clock, driven or
+                    // not); only cancelling this job — a harness tearing the run
+                    // down — ends it.
+                    let never = SharedDeferred::<()>::new();
+                    let _ = never.wait_in(task.job.cancellation_signal()).await;
                     Ok(())
                 })
             }),

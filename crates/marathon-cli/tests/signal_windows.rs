@@ -16,10 +16,10 @@ use marathon_cli::{
     runner::{ProductionRunner, missing_vendors},
 };
 use marathon_core::{
-    executor::SharedChannel,
+    executor::{SharedChannel, SharedDeferred},
     marathon::{SignalHooks, SignalStream, signal_ignored, tokio_registration},
     model::{ExecutionCommand, Test},
-    runtime::VendorFuture,
+    runtime::{Deferred, VendorFuture},
     vendor::{LocalTestParser, TestParser, VendorContext, VendorServices},
 };
 use marathon_logging::OutputTarget;
@@ -80,6 +80,29 @@ impl LocalTestParser for Suspended {
     }
 }
 
+/// The `slow-exit-prepare` run's parse, held until the provider terminates:
+/// a run that *would* return right after the signal hook, as the production
+/// binary's does, instead of suspending for ever like `Suspended`.
+static PARSE_RELEASE: std::sync::OnceLock<Arc<SharedDeferred<()>>> = std::sync::OnceLock::new();
+fn parse_release() -> Arc<SharedDeferred<()>> {
+    PARSE_RELEASE.get_or_init(SharedDeferred::new).clone()
+}
+struct HeldParser;
+impl LocalTestParser for HeldParser {
+    fn extract(&self, _: VendorContext) -> VendorFuture<'_, Vec<Test>> {
+        Box::pin(async {
+            let _ = writeln!(std::io::stderr(), "MARKER run");
+            let _ = Deferred::wait(parse_release().as_ref()).await;
+            Ok(vec![Test {
+                pkg: "com.example".into(),
+                clazz: "SimpleTest".into(),
+                method: "method1".into(),
+                meta_properties: vec![],
+            }])
+        })
+    }
+}
+
 /// Finds no tests, so the run ends by itself.
 struct NoTests;
 impl LocalTestParser for NoTests {
@@ -92,8 +115,12 @@ impl LocalTestParser for NoTests {
 /// blocking call behind, as a stuck name lookup would.
 fn on_terminate(provider: &StubDeviceProvider, mode: &str) {
     let (stuck, blocked) = (matches!(mode, "run-stuck" | "run-repeat"), mode == "blocked-thread");
+    let release_parse = mode == "slow-exit-prepare";
     *provider.on_terminate.lock().unwrap() = Some(Arc::new(move || {
         let _ = writeln!(std::io::stderr(), "MARKER terminate");
+        if release_parse {
+            Deferred::complete(parse_release().as_ref(), Ok(()));
+        }
         Box::pin(async move {
             if blocked {
                 tokio::task::spawn_blocking(|| std::thread::sleep(Duration::from_secs(3600)));
@@ -118,10 +145,10 @@ fn factories(mode: &str) -> VendorFactories {
             }
             let provider = StubDeviceProvider::new(SharedChannel::new());
             on_terminate(&provider, &mode);
-            let parser: Arc<dyn LocalTestParser> = if mode == "blocked-thread" {
-                Arc::new(NoTests)
-            } else {
-                Arc::new(Suspended)
+            let parser: Arc<dyn LocalTestParser> = match mode.as_str() {
+                "blocked-thread" => Arc::new(NoTests),
+                "slow-exit-prepare" => Arc::new(HeldParser),
+                _ => Arc::new(Suspended),
             };
             Ok(VendorServices {
                 provider,
@@ -482,10 +509,11 @@ fn a_second_signal_exits_at_once_during_a_blocked_sink() {
 }
 
 /// WP 8.8 review (P1): exit preparation that never finishes must not let the run
-/// return ahead of the queued exit. Before the fix, `Marathon::run` raced past
-/// `await_signal_exit` to its failure return (exit 1 and "Marathon execution
-/// failed" in the binary; in this child, the run returning at all). The hook
-/// now never completes after queueing the exit, so the exit watchdog ends the
+/// return ahead of the queued exit. The child's parse is released when the
+/// provider terminates (inside the hook's finish), so absent the fix the run
+/// completes and returns at once — the "run finished" panic below, or exit 1 in
+/// the real binary — well before the blocked exit's watchdog fires. The hook
+/// now never completes after queueing the exit, so the watchdog ends the
 /// process with the signal's status and the run never returns.
 #[test]
 fn a_slow_exit_preparation_still_exits_with_the_signal_status() {

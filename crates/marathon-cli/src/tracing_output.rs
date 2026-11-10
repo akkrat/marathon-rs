@@ -161,9 +161,18 @@ impl TracingOutput {
         terminal: bool,
         stamp: impl Fn(Option<i64>) -> String + Send + Sync + 'static,
     ) -> io::Result<(Self, OutputGuard)> {
-        Self::new_with_exit_flush(sink, terminal, stamp, EXIT_FLUSH)
+        Self::new_impl(sink, terminal, stamp, EXIT_FLUSH)
     }
+    #[cfg(feature = "test-seams")]
     pub fn new_with_exit_flush(
+        sink: impl Write + Send + 'static,
+        terminal: bool,
+        stamp: impl Fn(Option<i64>) -> String + Send + Sync + 'static,
+        exit_flush: std::time::Duration,
+    ) -> io::Result<(Self, OutputGuard)> {
+        Self::new_impl(sink, terminal, stamp, exit_flush)
+    }
+    fn new_impl(
         sink: impl Write + Send + 'static,
         terminal: bool,
         stamp: impl Fn(Option<i64>) -> String + Send + Sync + 'static,

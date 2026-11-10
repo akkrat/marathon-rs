@@ -77,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cwd,
             environment: process.environment.clone(),
             signal_hooks: Default::default(),
+            #[cfg(feature = "test-seams")]
             exit_prepare: None,
         },
         hooks: hooks.clone(),

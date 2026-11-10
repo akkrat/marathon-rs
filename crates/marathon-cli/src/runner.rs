@@ -37,6 +37,7 @@ pub struct ProductionRunner {
     pub signal_hooks: marathon_core::marathon::SignalHooks,
     /// Test seam run at the start of exit preparation, on the exit-output
     /// thread (never core); `main` leaves it empty.
+    #[cfg(feature = "test-seams")]
     pub exit_prepare: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -142,7 +143,10 @@ impl ProductionRunner {
         let publish_tail = exit_tail.clone();
         let mut signal_hooks = self.signal_hooks.clone();
         signal_hooks.immediate_exit = Some(Arc::new(|status| std::process::exit(status)));
+        #[cfg(feature = "test-seams")]
         let exit_prepare = self.exit_prepare.clone();
+        #[cfg(not(feature = "test-seams"))]
+        let exit_prepare: Option<Arc<dyn Fn() + Send + Sync>> = None;
         let inputs = RunInputs {
             configuration,
             logging: logging.clone(),

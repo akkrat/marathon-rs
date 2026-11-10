@@ -78,6 +78,7 @@ fn main() -> ExitCode {
         cwd: process.cwd.clone(),
         environment: process.environment.clone(),
         signal_hooks: Default::default(),
+        #[cfg(feature = "test-seams")]
         exit_prepare: None,
     };
     let code = run_cli(&args, &process, &runner, &output);

@@ -190,6 +190,12 @@ type Exits = Arc<Mutex<Vec<(i32, Vec<String>)>>>;
 
 struct Result {
     exits: Vec<(i32, Vec<String>)>,
+    /// Virtual time of each exit call, in order. The fake exit below models the
+    /// process ending there: since the 8.8 review the signal hook never
+    /// completes after queueing the exit, so the run itself ends only at
+    /// scenario teardown and `outcome.completed_at` no longer says when the
+    /// exit happened — the exit event does.
+    exit_at: Vec<i64>,
     /// D53: the serial number of each device a remote parse ran on, in order.
     extracted: Vec<String>,
     outcome: scenario::Outcome,
@@ -287,11 +293,21 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
     }];
     factory.timer = Some(Arc::new(FakeTimer(Arc::new(|| 0))));
     let exits: Exits = Arc::default();
+    let exit_at: Arc<Mutex<Vec<i64>>> = Arc::default();
+    let exit_clock: Arc<Mutex<Option<Arc<dyn Fn() -> i64 + Send + Sync>>>> = Arc::default();
     if o.signal.is_some() {
-        let (recorded, at_exit, released) = (exits.clone(), trace.clone(), hold.clone());
+        let (recorded, times, clock, at_exit, released) = (
+            exits.clone(),
+            exit_at.clone(),
+            exit_clock.clone(),
+            trace.clone(),
+            hold.clone(),
+        );
         factory.exit = Some(Arc::new(move |status| {
             let trace = at_exit.lock().unwrap().clone();
             recorded.lock().unwrap().push((status, trace));
+            let at = clock.lock().unwrap().as_ref().map_or(-1, |now| now());
+            times.lock().unwrap().push(at);
             Deferred::complete(released.as_ref(), Ok(()));
         }));
         factory.signal_trigger = Some(trigger.clone());
@@ -314,6 +330,7 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
         script,
         None,
         Some(Box::new(move |built| {
+            *exit_clock.lock().unwrap() = Some(built.marathon.services().core.clock().now_source());
             let (t1, t2, t3) = (hooks_trace.clone(), hooks_trace.clone(), hooks_trace);
             *built.provider.on_initialize.lock().unwrap() = Some(Arc::new(move |_| {
                 t1.lock().unwrap().push("initialize".into());
@@ -365,9 +382,11 @@ fn run(o: Options, entry: Entry, command: ExecutionCommand) -> Result {
     );
     let trace = trace.lock().unwrap().clone();
     let exits = exits.lock().unwrap().clone();
+    let exit_at = exit_at.lock().unwrap().clone();
     let extracted = extracted.lock().unwrap().clone();
     Result {
         exits,
+        exit_at,
         extracted,
         outcome,
         trace,
@@ -1031,10 +1050,15 @@ fn a_provider_that_never_ends_cannot_hold_a_cancel_past_its_limit_d52() {
     assert_eq!(*status, 130);
     assert_eq!(finish_calls(trace)[0], "tracker.close");
     assert!(trace.contains(&"terminate".to_owned()), "{trace:?}");
+    // The exit itself is the end of the process: it must happen at the cancel
+    // limit on the virtual clock (from a signal at 0), however long the
+    // provider then takes. The run returning is not the witness any more —
+    // since the 8.8 review the hook never completes after queueing the exit,
+    // so in this harness the run only ends at scenario teardown.
     assert_eq!(
-        r.outcome.completed_at,
-        Some(marathon_core::marathon::CANCEL_LIMIT_MILLIS),
-        "on the virtual clock, from a signal at 0: the exit releases the provider, and the run ends with it"
+        r.exit_at,
+        [marathon_core::marathon::CANCEL_LIMIT_MILLIS],
+        "the exit fires at the limit, not when the provider eventually ends"
     );
 }
 

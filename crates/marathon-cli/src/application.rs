@@ -106,8 +106,10 @@ pub fn day_stamp(millis: i64) -> String {
 }
 impl Console {
     pub fn new(stdout: Sink, target: OutputTarget) -> io::Result<(Self, OutputGuard)> {
-        Self::new_with_exit_flush(stdout, target, crate::tracing_output::EXIT_FLUSH)
+        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, local_stamp)?;
+        Ok((Self { tracing }, guard))
     }
+    #[cfg(feature = "test-seams")]
     pub fn new_with_exit_flush(
         stdout: Sink,
         target: OutputTarget,
@@ -149,8 +151,12 @@ impl CliOutput {
         target: OutputTarget,
         stamp: Box<dyn Fn(Option<i64>) -> String + Send + Sync>,
     ) -> io::Result<Self> {
-        Self::new_with_exit_flush(stdout, stderr, target, stamp, crate::tracing_output::EXIT_FLUSH)
+        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, stamp)?;
+        let output = Self::traced(tracing, stderr);
+        *lock(&output.guard) = Some(guard);
+        Ok(output)
     }
+    #[cfg(feature = "test-seams")]
     pub fn new_with_exit_flush(
         stdout: Sink,
         stderr: Sink,

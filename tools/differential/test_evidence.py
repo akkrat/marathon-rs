@@ -955,7 +955,7 @@ class VendorEvidenceTests(unittest.TestCase):
         values = record['identities']
         raw = e.payload(changed, next(r for r in record['entries'] if r['path'] == 'stdout'), record)
         facts = dict(record['provenance'], **{vc.SSHPASS_FACT: False})
-        native = raw.replace(b'23:59:59.999 INFO ', b'23:59:59.999 INFO ', 1)
+        native = raw
         later = native.replace(b'23:59:59.999', b'12:00:00.000', 1)
         self.assertEqual(vc.normalize(native, values, 'native', 'stdout', facts),
                          vc.normalize(later, values, 'native', 'stdout', facts))
