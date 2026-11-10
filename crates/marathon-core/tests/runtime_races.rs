@@ -736,13 +736,50 @@ fn timeout_panics_surface_as_failures_without_leaving_children_live() {
             let timeouts = core.timeouts();
             let outcome = Rc::new(RefCell::new(None));
             let out = outcome.clone();
+            let descendant = Rc::new(RefCell::new(None));
+            let child_out = descendant.clone();
+            let cleaned = Rc::new(Cell::new(false));
+            let flag = cleaned.clone();
             core.spawn(
                 parent.clone(),
                 Box::new(move |ctx| {
                     Box::pin(async move {
                         *out.borrow_mut() = Some(
                             timeouts
-                                .with_timeout(ctx, 5, Box::new(|_| Box::pin(async { panic!("timeout body") })))
+                                .with_timeout(
+                                    ctx,
+                                    100,
+                                    Box::new(move |ctx| {
+                                        Box::pin(async move {
+                                            let entered = SharedDeferred::new();
+                                            let started = entered.clone();
+                                            let child = ctx.core.spawn(
+                                                ctx.job,
+                                                Box::new(move |ctx| {
+                                                    Box::pin(async move {
+                                                        started.complete(Ok(()));
+                                                        let cancelled =
+                                                            ctx.clock.delay(i64::MAX, ctx.job.clone()).await;
+                                                        let cleanup = ctx.core.spawn_cleanup(Box::new(move |ctx| {
+                                                            Box::pin(async move {
+                                                                ctx.clock.delay(5, ctx.job).await?;
+                                                                flag.set(true);
+                                                                Ok(())
+                                                            })
+                                                        }));
+                                                        cleanup.join().await?;
+                                                        cancelled?;
+                                                        Ok(())
+                                                    })
+                                                }),
+                                            );
+                                            *child_out.borrow_mut() = Some(child);
+                                            // The descendant must be live before the timeout body panics.
+                                            assert!(entered.wait().await.is_ok());
+                                            panic!("timeout body");
+                                        })
+                                    }),
+                                )
                                 .await,
                         );
                         Ok(())
@@ -750,8 +787,26 @@ fn timeout_panics_surface_as_failures_without_leaving_children_live() {
                 }),
             );
             replay(driver.drain_current().await);
-            assert!(matches!(&*outcome.borrow(), Some(Err(OperationError::Failed(_)))));
+            let child = descendant
+                .borrow()
+                .clone()
+                .unwrap_or_else(|| panic!("descendant never started"));
+            let failure =
+                marathon_core::executor::shared::failure(marathon_error::FailureKind::Runtime, "timeout body");
+            let cancellation = Cancellation::Parent(failure.clone());
+            assert_eq!(child.state(), JobState::Cancelling(cancellation.clone()));
+            assert!(outcome.borrow().is_none());
+            assert!(!cleaned.get());
+            replay(driver.advance_to(4).await);
+            assert!(outcome.borrow().is_none());
+            assert!(!cleaned.get());
+            replay(driver.advance_to(5).await);
+            assert!(cleaned.get());
+            assert_eq!(completed(&child), Completion::Cancelled(cancellation));
+            assert_eq!(*outcome.borrow(), Some(Err(OperationError::Failed(failure))));
             assert!(parent.children_snapshot().is_empty());
+            assert_eq!(parent.state(), JobState::Active);
+            replay(driver.assert_quiescent());
             parent.complete();
             Ok(())
         })
