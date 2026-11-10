@@ -126,8 +126,13 @@ is retained by awaiting off-core work at the original source boundary.
 states; `JobKind` distinguishes ordinary and supervisor parents. Ordinary
 child failure cancels its parent and siblings. Supervisor child failure is
 isolated; cancelling the supervisor still cancels its children. Cancellation
-exceptions do not count as ordinary child failures. Detached jobs have no
-parent. A job is completed only after its body and children finish; cancel
+exceptions do not count as ordinary child failures. WP 8.18 / D64 uses
+`Cancellation::Requested(Failure)` for all ordinary cancellation, retaining the
+failure payload; timeout cancellation retains its scope identity. The retired
+Parent/Requested tags never reliably identified origin: a job signalled its own
+failure with Parent, and children inherited Requested unchanged. Failure
+precedence, propagation and supervisor isolation remain unchanged. Detached jobs
+have no parent. A job is completed only after its body and children finish; cancel
 requests are idempotent and may precede completion by arbitrarily long I/O.
 
 `join` and `join_observed_children` are protected waits:

@@ -59,7 +59,7 @@ impl Cancellation {
     /// The CancellationException Kotlin throws for this cancellation.
     pub fn failure(&self) -> &Failure {
         match self {
-            Self::Requested(f) | Self::Parent(f) | Self::Timeout { detail: f, .. } => f,
+            Self::Requested(f) | Self::Timeout { detail: f, .. } => f,
         }
     }
 }
@@ -71,7 +71,6 @@ pub enum Cancellation {
         scope: u64,
         detail: Failure,
     },
-    Parent(Failure),
 }
 /// Task and service failures never encode cancellation in an exception class name.
 #[derive(Clone, Debug, PartialEq, Eq)]

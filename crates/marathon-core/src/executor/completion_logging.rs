@@ -26,7 +26,7 @@ pub fn completion_log(completion: Completion) -> CompletionLog {
             level: Level::DEBUG,
             message: "CoroutineContext cancelled",
             exception: Some(match reason {
-                Cancellation::Requested(f) | Cancellation::Parent(f) | Cancellation::Timeout { detail: f, .. } => f,
+                Cancellation::Requested(f) | Cancellation::Timeout { detail: f, .. } => f,
             }),
         },
         Completion::Failed(f) => CompletionLog {

@@ -793,7 +793,7 @@ fn timeout_panics_surface_as_failures_without_leaving_children_live() {
                 .unwrap_or_else(|| panic!("descendant never started"));
             let failure =
                 marathon_core::executor::shared::failure(marathon_error::FailureKind::Runtime, "timeout body");
-            let cancellation = Cancellation::Parent(failure.clone());
+            let cancellation = Cancellation::Requested(failure.clone());
             assert_eq!(child.state(), JobState::Cancelling(cancellation.clone()));
             assert!(outcome.borrow().is_none());
             assert!(!cleaned.get());

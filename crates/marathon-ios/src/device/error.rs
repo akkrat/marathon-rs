@@ -66,7 +66,6 @@ impl ProvisioningError {
         match original {
             VendorError::Cancelled(reason) => VendorError::Cancelled(match reason {
                 Cancellation::Requested(_) => Cancellation::Requested(detail),
-                Cancellation::Parent(_) => Cancellation::Parent(detail),
                 Cancellation::Timeout { scope, .. } => Cancellation::Timeout { scope, detail },
             }),
             VendorError::LeavePool { reason, .. } => VendorError::LeavePool { reason, detail },

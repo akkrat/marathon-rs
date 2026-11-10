@@ -42,7 +42,6 @@ impl RunError {
         let detail = match &mut self.error {
             VendorError::Cancelled(reason) => match reason {
                 marathon_core::error::Cancellation::Requested(f)
-                | marathon_core::error::Cancellation::Parent(f)
                 | marathon_core::error::Cancellation::Timeout { detail: f, .. } => f,
             },
             VendorError::DeviceLost(f) => match f.cause {

@@ -298,6 +298,8 @@ Feature negotiation must match adam: shell v2, sync v2, `cmd` and `abb_exec` cho
 
 | D62 | rc.1's Apple command reader effectively adds the 20 ms backoff maximum to the configured idle limit and checks only on polling ticks, so a 200 ms limit behaves as 221–240 ms | WP 8.12 expires at exactly the configured idle limit on the vendor clock, with no backoff margin or polling quantization. Output arriving within the removed margin now gets the same idle-timeout failure; already-readable bytes still win over expiry. Idle time follows the vendor scheduler timeline, independent of wall-clock jumps, frozen wall hooks and per-read step tapes. The retired `apple.Reader.currentTimeMillis` read key is ignored only in memory; copied tapes and historical evidence stay unchanged and active-key verification stays strict. EOF while a local process lives retains its channel lifetime and idle failure (A25); D19 terminal draining and A24 close-before-tail behavior remain. Tests: `crates/marathon-apple/tests/reader.rs::exact_idle_boundary_and_removed_margin_fail_d62`, `idle_output_is_closed_with_an_idle_timeout`, `vendor_replay_deadline_is_exact_independent_of_wall_hooks_and_runs_off_core`, and `crates/marathon-core/tests/replay_hooks.rs::unexpected_active_read_still_fails_beside_retired_reader_reads_d62`. See `docs/wp/8.12-design.md` and `docs/wp/8.12-test-changes.md`. |
 
+| D64 | rc.1's coroutine adapter carries an unused Parent/Requested ordinary-cancellation distinction and disposable completion registrations. The tags never reliably identified origin: a job signals its own failure with Parent, while children inherit Requested unchanged | WP 8.18 uses one ordinary cancellation, Requested, with the same Failure payload. Timeout scope identity, failure precedence, propagation and supervisor isolation remain unchanged; internal enum/debug tags can show Requested where they showed Parent. Completion callbacks are retained until exactly-once completion, cannot be withdrawn and still invoke immediately for late registration. The public CompletionRegistration API and its handles are removed; all workspace callers migrate (`publish = false`, no supported external consumers). DeviceActor retains its weak callback and accounting/termination order. Configuration, results, worker commands, pinned output (including progress and summary), CLI exit codes and their mapping are unchanged. Native goldens and the configuration corpus remain unchanged. See `docs/wp/8.18-test-changes.md`. |
+
 ### 3.12 Phase 8 contract
 
 `0.12.0-rc.1` is the JVM-parity baseline described by §3.1–3.11. From Phase 8, §3.12 supersedes those sections wherever they conflict. Phase 8 preserves:
@@ -720,6 +722,8 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.14 | Runtime cleanup: dead coroutine surface, bridge payload, defect fixes (docs/design/tokio-tasks.md §7) | M | 8.13 |
 | 8.15 | Concrete core runtime handles instead of single-implementation traits (docs/design/tokio-tasks.md §7) | M | 8.14 |
 | 8.17 | Design: retire the remaining Kotlin coroutine quirks (docs/wp/8.17.md) | M | 8.15 |
+| 8.18 | Remove the unused cancellation tags and disposable completion registrations (docs/wp/8.18.md) | L | 8.17 |
+| 8.19 | Scheduler pool index, plain job storage and sealed completion (docs/design/coroutine-quirks.md) | M | 8.18 |
 
 Later candidates:
 

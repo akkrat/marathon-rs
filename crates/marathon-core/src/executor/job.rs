@@ -202,7 +202,7 @@ impl RuntimeJob {
         match outcome {
             Completion::Cancelled(reason) => stack.push(Step::Cancel(this, reason)),
             Completion::Failed(f) => {
-                stack.push(Step::Cancel(this, Cancellation::Parent(f.clone())));
+                stack.push(Step::Cancel(this, Cancellation::Requested(f.clone())));
                 if !self.scoped.get()
                     && let Some(parent) = self.parent.as_ref().and_then(Weak::upgrade)
                 {
@@ -226,7 +226,7 @@ impl RuntimeJob {
                 inner.outcome = Completion::Failed(failure.clone());
             }
         }
-        stack.push(Step::Cancel(self.rc(), Cancellation::Parent(failure.clone())));
+        stack.push(Step::Cancel(self.rc(), Cancellation::Requested(failure.clone())));
         if !self.scoped.get()
             && let Some(parent) = self.parent.as_ref().and_then(Weak::upgrade)
         {

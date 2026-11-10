@@ -166,7 +166,7 @@ fn cancelling_a_prepare_waiter_keeps_the_other_pools_single_flight_fetch() {
                 std::task::Poll::Ready(())
             })
             .await;
-            let reason = Cancellation::Parent(failure(
+            let reason = Cancellation::Requested(failure(
                 FailureKind::Injected(InjectedKind::Cancelled),
                 "waiter parent cancelled",
             ));

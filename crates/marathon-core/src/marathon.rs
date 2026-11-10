@@ -1017,7 +1017,7 @@ impl Marathon {
                         // outlives a NoDevices timeout) before it completes.
                         Err(error) => {
                             for child in task.job.children_snapshot() {
-                                child.cancel(Cancellation::Parent(error.failure().clone()));
+                                child.cancel(Cancellation::Requested(error.failure().clone()));
                             }
                         }
                     }
