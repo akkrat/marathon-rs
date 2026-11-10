@@ -12,7 +12,6 @@ pub mod retry;
 pub mod shared;
 #[cfg(feature = "test-support")]
 pub mod test_support;
-pub mod timeout;
 mod tracking;
 use crate::{error::*, runtime::*};
 pub use actor::RuntimeActor;
