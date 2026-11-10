@@ -139,14 +139,34 @@ impl Scheduler {
             }
             Err(error) => return Err(operation_to_vendor(error)),
         }
-        // `for (child in job.children) child.join()`: the lazy traversal, which can miss a pool created late.
-        inner
-            .job
-            .join_observed_children_in(context.job.clone())
-            .await
-            .map_err(VendorError::Cancelled)?;
-        // `results.all { aggregateResult() }` stops at the first failing pool.
-        let results: Vec<SharedProgress> = inner.results.borrow().values().cloned().collect();
+        // D65: retained pool indices cannot disconnect when a joined job detaches.
+        // The first absent index closes admission, even if aggregation later suspends.
+        let mut results = Vec::new();
+        loop {
+            let next = inner
+                .pools
+                .borrow()
+                .get_index(results.len())
+                .map(|(id, pool)| (id.clone(), pool.clone()));
+            let Some((id, pool)) = next else { break };
+            pool.actor
+                .job()
+                .join_in(context.job.clone())
+                .await
+                .map_err(VendorError::Cancelled)?;
+            pool.supervisor
+                .join_in(context.job.clone())
+                .await
+                .map_err(VendorError::Cancelled)?;
+            let progress = inner.results.borrow().get(&id).cloned().ok_or_else(|| {
+                VendorError::Other(failure(
+                    FailureKind::IllegalState,
+                    "Published pool has no progress accumulator",
+                ))
+            })?;
+            results.push(progress);
+        }
+        // Preserve short-circuiting, but exclude accumulators still awaiting publication.
         for progress in results {
             if !progress.lock().await.aggregate_result()? {
                 return Ok(false);

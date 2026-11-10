@@ -160,21 +160,20 @@ without completing the owner. Cancelling only the receiver also interrupts a
 handler's delay through its receiver task context, preserving cleanup and leaving
 actor-scoped siblings active. Mailbox closure is independent of owner completion.
 
-Scheduler executes `for (child in job.children) child.join()`
-(`Scheduler.kt:67–69`), not `job.join()` and not a wait-until-no-children loop.
-The runtime offers a children-at-observation snapshot, but Scheduler must use
-the lazy observed-child traversal. In the pinned kotlinx-coroutines-core-jvm
-1.8.1, `JobSupport$children$1.invokeSuspend` reads state once: a single
-ChildHandleNode yields one child then stops; a NodeList retains its head/current
-node and obtains current.nextNode **after** each yielded child is joined. Thus
-newly attached list nodes can be observed, but later children are not universally
-joined. Completed/removing nodes follow that library's traversal semantics.
-This was checked with the reference JDK's `javap -c -p` on the pinned jar:
-state read at bytecode 48–55, single child 56–98, list yield 180–218, successor
-read 262–269. WP 3.1 ports this traversal, not a fixed snapshot or fixed point.
-The snapshot API is for callers requiring a snapshot; Scheduler must use the
-separate observed-child traversal contract. Do not reparent the subscription,
-join all future pools, or terminate the provider here to “fix” this race.
+WP 8.19 / D65 observes Scheduler's retained insertion-ordered pool index. Clone
+pool i and release the map borrow, join its actor and supervisor with the caller's
+cancellation, retain its progress, then read index i+1. The first absent index is
+the admission boundary: every pool published before it is joined. Publication is
+the insertion after successful history prefetch and synchronous pool construction;
+Connected receipt and early accumulator creation are insufficient. Aggregate only
+that joined prefix, preserving short-circuiting and holding no map borrow across
+an await. A missing accumulator for a published pool is an invariant error.
+This is neither an initial snapshot nor a job-tree fixed point. No grace period
+is added; aggregation does not reopen admission. A later publication stays outside
+the captured result. Subscription ownership and provider cleanup are unchanged.
+Retaining pools after termination prevents the old detached-tail cursor miss;
+correctly joining a late pool can end the run later and correct its outcome.
+D48 per-pool waits and D52 caller cancellation bounds remain independent.
 
 `runtime::Deferred<T>` is a concrete alias for `SharedDeferred<T>` (WP 8.15).
 It is shared and first-writer-wins: successful value,

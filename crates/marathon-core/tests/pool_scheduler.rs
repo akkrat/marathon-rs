@@ -60,6 +60,35 @@ impl Run {
         tracker: Arc<dyn marathon_core::wiring::Tracker>,
         shard: Vec<Test>,
     ) -> Self {
+        let run = Self::manual(
+            h,
+            c,
+            tracker,
+            shard,
+            Arc::new(Analytics::from_lookup(Arc::new(NoMetrics))),
+        );
+        let output = run.result.clone();
+        let running = run.scheduler.clone();
+        let clock = h.core.clock();
+        h.core.spawn(
+            run.parent.clone(),
+            Box::new(move |_| {
+                Box::pin(async move {
+                    let value = running.execute().await;
+                    *output.borrow_mut() = Some((clock.now_millis(), value));
+                    Ok(())
+                })
+            }),
+        );
+        run
+    }
+    fn manual(
+        h: &Harness,
+        c: Configuration,
+        tracker: Arc<dyn marathon_core::wiring::Tracker>,
+        shard: Vec<Test>,
+        analytics: Arc<Analytics>,
+    ) -> Self {
         let parent = h.core.job(JobKind::Supervisor, None);
         let provider = Arc::new(Provider {
             channel: h.core.event_channel("core.Scheduler.deviceEvents"),
@@ -67,7 +96,7 @@ impl Run {
         let scheduler = Rc::new(Scheduler::new(SchedulerParts {
             core: h.core.clone(),
             provider: provider.clone(),
-            analytics: Arc::new(Analytics::from_lookup(Arc::new(NoMetrics))),
+            analytics,
             configuration: Arc::new(c),
             shard: TestShard {
                 tests: shard,
@@ -86,19 +115,6 @@ impl Run {
             context: h.core.context(parent.clone()),
         }));
         let result = Rc::new(RefCell::new(None));
-        let output = result.clone();
-        let running = scheduler.clone();
-        let clock = h.core.clock();
-        h.core.spawn(
-            parent.clone(),
-            Box::new(move |_| {
-                Box::pin(async move {
-                    let value = running.execute().await;
-                    *output.borrow_mut() = Some((clock.now_millis(), value));
-                    Ok(())
-                })
-            }),
-        );
         Self {
             scheduler,
             provider,
@@ -1312,4 +1328,200 @@ fn review_completed_result_must_not_move_deadline_to_cleanup_end() {
             run.finish(&h).await;
         })
     });
+}
+
+// Manual polling is the traversal gate: drains can complete/detach pool jobs
+// without letting execute read its next index.
+#[test]
+fn tail_join_observes_late_pool_with_or_without_completion_marker_d65() {
+    for marker in [false, true] {
+        scheduling_test(move |h| {
+            Box::pin(async move {
+                let run = Run::manual(
+                    &h,
+                    configured(1000, true),
+                    h.tracker.clone(),
+                    tests(1, "admission"),
+                    Arc::new(Analytics::from_lookup(Arc::new(NoMetrics))),
+                );
+                let mut execute = Box::pin(run.scheduler.execute());
+                assert!(futures_util::poll!(execute.as_mut()).is_pending());
+                let a_done = Gate::default();
+                let a_gate = a_done.clone();
+                let a = TestDevice::new_with_model(
+                    "a",
+                    "A",
+                    None,
+                    None,
+                    on_execute(move |e| {
+                        let gate = a_gate.clone();
+                        async move {
+                            gate.wait().await;
+                            e.result.complete(Ok(e.device.report(&e.batch, TestStatus::Passed)));
+                            Ok(())
+                        }
+                    }),
+                );
+                run.connect(&a);
+                h.run_current().await;
+                advance(&h, 100).await;
+                assert!(futures_util::poll!(execute.as_mut()).is_pending());
+                let pool = run.scheduler.pools()[0].1.clone();
+                let cleanup = Gate::default();
+                let held = cleanup.clone();
+                let child = h.core.spawn(
+                    pool.supervisor.clone(),
+                    Box::new(move |_| {
+                        Box::pin(async move {
+                            held.wait().await;
+                            Ok(())
+                        })
+                    }),
+                );
+                if marker {
+                    run.scheduler.job().invoke_on_completion(Box::new(|_| {}));
+                }
+                h.run_current().await;
+                a_done.open();
+                h.run_current().await;
+                assert!(pool.terminated());
+                assert!(!matches!(child.state(), JobState::Completed(_)));
+                assert!(
+                    futures_util::poll!(execute.as_mut()).is_pending(),
+                    "joining supervisor cleanup"
+                );
+                cleanup.open();
+                h.run_current().await;
+                assert!(matches!(pool.supervisor.state(), JobState::Completed(_)));
+                let b = device("b", "B", 400, false);
+                run.connect(&b);
+                h.run_current().await;
+                assert_eq!(
+                    run.scheduler.pools().len(),
+                    2,
+                    "publication acknowledged before resuming traversal"
+                );
+                assert!(
+                    futures_util::poll!(execute.as_mut()).is_pending(),
+                    "late pool must be joined"
+                );
+                h.advance_until_idle().await;
+                assert!(execute.await.unwrap());
+                assert_eq!(b.batches().len(), 1);
+                assert_eq!(logged(&h, "but no events received"), 0);
+                run.finish(&h).await;
+            })
+        });
+    }
+}
+
+#[test]
+fn publication_and_final_completion_have_an_explicit_admission_boundary_d65() {
+    for publication_first in [false, true] {
+        scheduling_test(move |h| {
+            Box::pin(async move {
+                let run = Run::manual(
+                    &h,
+                    configured(1000, true),
+                    h.tracker.clone(),
+                    tests(1, "admission"),
+                    Arc::new(Analytics::from_lookup(Arc::new(NoMetrics))),
+                );
+                let mut execute = Box::pin(run.scheduler.execute());
+                assert!(futures_util::poll!(execute.as_mut()).is_pending());
+                run.connect(&device("a", "A", 200, false));
+                h.run_current().await;
+                advance(&h, 100).await;
+                assert!(futures_util::poll!(execute.as_mut()).is_pending());
+                let b = device("b", "B", 400, false);
+                if publication_first {
+                    run.connect(&b);
+                    h.run_current().await;
+                    assert_eq!(run.scheduler.pools().len(), 2);
+                }
+                advance(&h, 200).await;
+                if publication_first {
+                    assert!(futures_util::poll!(execute.as_mut()).is_pending());
+                    h.advance_until_idle().await;
+                    assert!(execute.await.unwrap());
+                    assert_eq!(b.batches().len(), 1);
+                } else {
+                    assert!(execute.await.unwrap(), "absent index read before Connected");
+                    run.connect(&b);
+                    h.run_current().await;
+                    assert_eq!(run.scheduler.pools().len(), 2);
+                    assert!(
+                        !run.scheduler.pools()[1].1.terminated(),
+                        "later publication does not reopen the returned result"
+                    );
+                }
+                run.finish(&h).await;
+            })
+        });
+    }
+}
+
+#[test]
+fn unpublished_prefetch_is_excluded_even_after_connected_d65() {
+    for outcome in 0..3 {
+        scheduling_test(move |h| {
+            Box::pin(async move {
+                use std::sync::atomic::{AtomicUsize, Ordering};
+                let entered = Gate::default();
+                let release = Gate::default();
+                let calls = Arc::new(AtomicUsize::new(0));
+                let prefetch = {
+                    let entered = entered.clone();
+                    let release = release.clone();
+                    Arc::new(move || -> ServiceFuture<'static, ()> {
+                        let second = calls.fetch_add(1, Ordering::SeqCst) == 1;
+                        let entered = entered.clone();
+                        let release = release.clone();
+                        Box::pin(async move {
+                            if second {
+                                entered.open();
+                                release.wait().await;
+                                match outcome {
+                                    1 => return Err(ise("prefetch failed").into()),
+                                    2 => return Err(job_was_cancelled().into()),
+                                    _ => {}
+                                }
+                            }
+                            Ok(())
+                        })
+                    })
+                };
+                let run = Run::manual(
+                    &h,
+                    configured(1000, true),
+                    h.tracker.clone(),
+                    tests(1, "admission"),
+                    Arc::new(Analytics::from_gated_lookup(Arc::new(NoMetrics), prefetch)),
+                );
+                let mut execute = Box::pin(run.scheduler.execute());
+                assert!(futures_util::poll!(execute.as_mut()).is_pending());
+                run.connect(&device("a", "A", 200, false));
+                h.run_current().await;
+                advance(&h, 100).await;
+                assert!(futures_util::poll!(execute.as_mut()).is_pending());
+                run.connect(&device("b", "B", 400, false));
+                h.run_current().await;
+                assert!(
+                    entered.is_open(),
+                    "Connected created its accumulator and reached prefetch"
+                );
+                assert_eq!(run.scheduler.pools().len(), 1);
+                advance(&h, 200).await;
+                assert!(
+                    execute.await.unwrap(),
+                    "unpublished accumulator must not cause a no-events failure"
+                );
+                assert_eq!(logged(&h, "but no events received"), 0);
+                release.open();
+                h.run_current().await;
+                assert_eq!(run.scheduler.pools().len(), if outcome == 0 { 2 } else { 1 });
+                run.finish(&h).await;
+            })
+        });
+    }
 }

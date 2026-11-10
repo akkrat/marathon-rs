@@ -82,6 +82,11 @@ enum Backend {
     NoOp(Arc<NoOpMetricsProvider>),
     #[cfg(feature = "test-support")]
     Lookup(Arc<dyn MetricsLookup>),
+    #[cfg(feature = "test-support")]
+    GatedLookup(
+        Arc<dyn MetricsLookup>,
+        Arc<dyn Fn() -> ServiceFuture<'static, ()> + Send + Sync>,
+    ),
 }
 impl Analytics {
     pub fn new(provider: MetricsProviderImpl) -> Self {
@@ -100,6 +105,17 @@ impl Analytics {
             backend: Backend::Lookup(lookup),
         }
     }
+    /// A controlled history adapter for admission tests: publication still awaits
+    /// the real queue prefetch bridge, without adding a replay event or timer.
+    #[cfg(feature = "test-support")]
+    pub fn from_gated_lookup(
+        lookup: Arc<dyn MetricsLookup>,
+        prefetch: Arc<dyn Fn() -> ServiceFuture<'static, ()> + Send + Sync>,
+    ) -> Self {
+        Self {
+            backend: Backend::GatedLookup(lookup, prefetch),
+        }
+    }
     #[cfg(feature = "test-support")]
     pub fn is_noop(&self) -> bool {
         matches!(self.backend, Backend::NoOp(_))
@@ -107,6 +123,8 @@ impl Analytics {
     pub async fn prefetch(&self, keys: &[MetricsKey]) -> OperationResult<()> {
         match &self.backend {
             Backend::Remote(provider) => provider.prefetch(keys).await,
+            #[cfg(feature = "test-support")]
+            Backend::GatedLookup(_, prefetch) => prefetch().await,
             _ => Ok(()),
         }
     }
@@ -115,7 +133,7 @@ impl Analytics {
             Backend::Remote(provider) => provider.clone(),
             Backend::NoOp(provider) => provider.clone(),
             #[cfg(feature = "test-support")]
-            Backend::Lookup(provider) => provider.clone(),
+            Backend::Lookup(provider) | Backend::GatedLookup(provider, _) => provider.clone(),
         }
     }
 }
@@ -131,7 +149,9 @@ impl MetricsProvider for Analytics {
             Backend::Remote(provider) => MetricsProvider::execution_time(provider.as_ref(), test, percentile, limit),
             Backend::NoOp(provider) => MetricsProvider::execution_time(provider.as_ref(), test, percentile, limit),
             #[cfg(feature = "test-support")]
-            Backend::Lookup(provider) => Box::pin(async move { Ok(provider.execution_time(test, percentile, limit)) }),
+            Backend::Lookup(provider) | Backend::GatedLookup(provider, _) => {
+                Box::pin(async move { Ok(provider.execution_time(test, percentile, limit)) })
+            }
         }
     }
     fn observe_execution_times<'a>(&'a self, results: &'a [TestResult]) -> ServiceFuture<'a, ()> {
@@ -151,7 +171,7 @@ impl MetricsProvider for Analytics {
             Backend::Remote(provider) => provider.report_execution_time_coverage(tests, percentile, limit, usage),
             Backend::NoOp(provider) => provider.report_execution_time_coverage(tests, percentile, limit, usage),
             #[cfg(feature = "test-support")]
-            Backend::Lookup(_) => Box::pin(async { Ok(()) }),
+            Backend::Lookup(_) | Backend::GatedLookup(_, _) => Box::pin(async { Ok(()) }),
         }
     }
     fn close(&self) -> ServiceFuture<'_, ()> {
