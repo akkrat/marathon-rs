@@ -18,71 +18,7 @@ use std::{
 use support::*;
 
 #[test]
-fn single_child_traversal_misses_later_attachment() {
-    run(|core, driver| {
-        Box::pin(async move {
-            let owner = core.job(JobKind::Ordinary, None);
-            let first = core.job(JobKind::Ordinary, Some(owner.clone()));
-            let parent = core.job(JobKind::Supervisor, None);
-            let observed = owner.clone();
-            let traversal = core.spawn(
-                parent.clone(),
-                Box::new(move |_| {
-                    Box::pin(async move {
-                        observed.join_observed_children().await?;
-                        Ok(())
-                    })
-                }),
-            );
-            replay(driver.drain_current().await);
-            let late = core.job(JobKind::Ordinary, Some(owner.clone()));
-            first.complete();
-            replay(driver.drain_current().await);
-            assert_eq!(completed(&traversal), Completion::Success);
-            assert_eq!(late.state(), JobState::Active);
-            late.complete();
-            owner.complete();
-            parent.complete();
-            Ok(())
-        })
-    });
-}
-#[test]
-fn list_traversal_reads_successor_after_each_join() {
-    run(|core, driver| {
-        Box::pin(async move {
-            let owner = core.job(JobKind::Ordinary, None);
-            let first = core.job(JobKind::Ordinary, Some(owner.clone()));
-            let second = core.job(JobKind::Ordinary, Some(owner.clone()));
-            let parent = core.job(JobKind::Supervisor, None);
-            let observed = owner.clone();
-            let traversal = core.spawn(
-                parent.clone(),
-                Box::new(move |_| {
-                    Box::pin(async move {
-                        observed.join_observed_children().await?;
-                        Ok(())
-                    })
-                }),
-            );
-            replay(driver.drain_current().await);
-            let late = core.job(JobKind::Ordinary, Some(owner.clone()));
-            first.complete();
-            replay(driver.drain_current().await);
-            second.complete();
-            replay(driver.drain_current().await);
-            assert_eq!(traversal.state(), JobState::Active);
-            late.complete();
-            replay(driver.drain_current().await);
-            assert_eq!(completed(&traversal), Completion::Success);
-            owner.complete();
-            parent.complete();
-            Ok(())
-        })
-    });
-}
-#[test]
-fn snapshot_does_not_observe_attachment_during_list_join() {
+fn snapshot_does_not_observe_attachment_during_join_d65() {
     run(|core, driver| {
         Box::pin(async move {
             let owner = core.job(JobKind::Ordinary, None);

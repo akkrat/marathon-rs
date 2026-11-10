@@ -1525,3 +1525,117 @@ fn unpublished_prefetch_is_excluded_even_after_connected_d65() {
         });
     }
 }
+
+#[test]
+fn late_admitted_failure_is_aggregated_d65() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::manual(
+                &h,
+                configured(1000, true),
+                h.tracker.clone(),
+                tests(1, "admission"),
+                Arc::new(Analytics::from_lookup(Arc::new(NoMetrics))),
+            );
+            let mut execute = Box::pin(run.scheduler.execute());
+            assert!(futures_util::poll!(execute.as_mut()).is_pending());
+            run.connect(&device("a", "A", 200, false));
+            h.run_current().await;
+            advance(&h, 100).await;
+            assert!(futures_util::poll!(execute.as_mut()).is_pending());
+            advance(&h, 200).await;
+            let b = TestDevice::new_with_model(
+                "b",
+                "B",
+                None,
+                None,
+                on_execute(|e| async move {
+                    e.context.clock.delay(400, e.context.cancellation.clone()).await?;
+                    e.result.complete(Ok(e.device.report(&e.batch, TestStatus::Failure)));
+                    Ok(())
+                }),
+            );
+            run.connect(&b);
+            h.run_current().await;
+            assert_eq!(run.scheduler.pools().len(), 2);
+            assert!(futures_util::poll!(execute.as_mut()).is_pending());
+            h.advance_until_idle().await;
+            assert!(
+                !execute.await.unwrap(),
+                "the newly admitted failure must affect the outcome"
+            );
+            assert!(!b.batches().is_empty());
+            assert_eq!(logged(&h, "but no events received"), 0);
+            run.finish(&h).await;
+        })
+    });
+}
+
+#[test]
+fn real_pool_supervisor_and_scheduler_seal_before_last_child_callback_d65() {
+    scheduling_test(|h| {
+        Box::pin(async move {
+            let run = Run::new(&h, configured(1000, false));
+            h.run_current().await;
+            run.connect(&device("a", "A", 200, false));
+            h.run_current().await;
+            let pool = run.scheduler.pools()[0].1.clone();
+            let release = Gate::default();
+            let held = release.clone();
+            let last = h.core.spawn(
+                pool.supervisor.clone(),
+                Box::new(move |_| {
+                    Box::pin(async move {
+                        held.wait().await;
+                        Ok(())
+                    })
+                }),
+            );
+            h.run_current().await;
+            let scheduler_job = run.scheduler.job();
+            scheduler_job.complete();
+            let supervisor = pool.supervisor.clone();
+            let parent = scheduler_job.clone();
+            let core = h.core.clone();
+            let entered = Rc::new(std::cell::Cell::new(0));
+            let count = entered.clone();
+            let callback_calls = Rc::new(std::cell::Cell::new(0));
+            let calls = callback_calls.clone();
+            last.invoke_on_completion(Box::new(move |_| {
+                assert_eq!(parent.state(), JobState::Completed(Completion::Success));
+                assert!(matches!(
+                    supervisor.state(),
+                    JobState::Completed(Completion::Cancelled(_))
+                ));
+                for sealed in [parent, supervisor] {
+                    let count = count.clone();
+                    core.spawn(
+                        sealed,
+                        Box::new(move |_| {
+                            count.set(count.get() + 1);
+                            Box::pin(async { Err(ise("rejected pool work").into()) })
+                        }),
+                    );
+                }
+                calls.set(calls.get() + 1);
+            }));
+            advance(&h, 200).await;
+            assert!(pool.terminated());
+            assert!(!matches!(pool.supervisor.state(), JobState::Completed(_)));
+            assert_eq!(scheduler_job.state(), JobState::Completing);
+            assert!(run.result.borrow().is_none());
+            release.open();
+            h.run_current().await;
+            assert_eq!(scheduler_job.state(), JobState::Completed(Completion::Success));
+            assert_eq!(entered.get(), 0);
+            assert_eq!(
+                callback_calls.get(),
+                1,
+                "callback seal assertions must not be swallowed"
+            );
+            assert!(passed(&run));
+            scheduler_job.join().await.unwrap();
+            run.finish(&h).await;
+        })
+    });
+}

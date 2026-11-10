@@ -136,13 +136,13 @@ precedence, propagation and supervisor isolation remain unchanged. Detached jobs
 have no parent. A job is completed only after its body and children finish; cancel
 requests are idempotent and may precede completion by arbitrarily long I/O.
 
-`join` and `join_observed_children` are protected waits:
-they do not infer a caller or rethrow the joined job's failure. Ordinary
-cancellable callers use `join_in(context.job.clone())`, preserving the caller's
-cancellation reason through its explicit `cancellation_signal`. A cancellable
-observed-child traversal, `join_observed_children_in(caller)` (WP 3.6 carried
-item C3), races the protected traversal with
-that same explicit signal. Completion callbacks run exactly once,
+`join` is a protected wait: it does not infer a caller or rethrow the joined
+job's failure. Cancellable callers use `join_in(context.job.clone())`, preserving
+the caller's explicit cancellation signal even for an already-completed target.
+WP 8.19 / D65 removes both observed-child cursor APIs; Scheduler uses its pool
+index instead. `children_snapshot` clones the plain ordered strong child storage.
+Callbacks live in a separate FIFO collection and do not affect child membership.
+Completion callbacks run exactly once,
 also when registered after completion, with late registration invoked immediately.
 WP 8.18 / D64 removes the public `CompletionRegistration` API and its handles;
 `invoke_on_completion` returns no handle and callbacks cannot be withdrawn.
@@ -151,9 +151,25 @@ Callbacks mutate core state on core; an I/O thread
 may only enqueue a wakeup. Normal completion of an ordinary stand-alone Job
 requires explicit completion; finishing its children alone does not complete
 it. A body returning cancellation signals its own job and cancels its children,
-without failing its parent. When a completing parent waits on a child, its
-completion continuation occupies that registration position among the child's
-callbacks (early-child → parent → late-child in the pinned JVM probe).
+without failing its parent.
+
+WP 8.19 / D65 completes by child count. In the same mutable borrow that removes
+the last child (or finishes a childless body), a body-finished job marks itself
+completed, freezes its outcome and takes its callbacks. This seal rejects new
+children using completed-parent cancellation; a spawned TaskBody never enters.
+A parent with genuine pending children remains unsealed, including while
+Cancelling, and inherited-cancelled attachments cannot remove another child's
+membership. Ordinary failure still outranks cancellation and supervisors isolate
+child failure. Failure propagation and cancellation transitions are prepared
+iteratively before dispatch. Completion packets detach and seal every ready
+ancestor before any user code, so a sealed child awaiting callback dispatch never
+counts as pending work. Packets dispatch child before parent: exception handler,
+waiter notification, then FIFO user callbacks, with no inner borrow across user
+code. Late registration remains immediate and callback panics are isolated.
+Parent/child callback and diagnostic ordering can move; the old parent
+continuation registration between child callbacks is retired. D65 preserves the
+exit-code policy; a corrected run outcome can select a different existing status.
+
 The actor's close path cancels its owner job; the receiver is a separate child.
 A receive that throws cancellation closes the mailbox and completes the receiver
 without completing the owner. Cancelling only the receiver also interrupts a

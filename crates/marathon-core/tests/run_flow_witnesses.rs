@@ -1113,3 +1113,24 @@ fn a_signal_before_the_output_directory_is_wiped_writes_no_reports_d52() {
         assert!(r.out.join("old.txt").exists(), "the last run's files stay");
     }
 }
+
+#[test]
+fn scheduler_cancellation_still_exits_at_24000_d52() {
+    for reports_hang in [false, true] {
+        let r = run(
+            Options {
+                signal: Some(15),
+                terminate_hangs: true,
+                reports_hang,
+                device_initialization_timeout_millis: Some(600_000),
+                ..Options::default()
+            },
+            Entry::Run,
+            ExecutionCommand::Run,
+        );
+        assert_eq!(r.exits.len(), 1);
+        assert_eq!(r.exits[0].0, 143);
+        assert_eq!(r.exit_at, [24_000]);
+        eprintln!("D52 reports_hang={reports_hang}: exit_at={:?}", r.exit_at);
+    }
+}

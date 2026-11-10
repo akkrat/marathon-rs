@@ -8,7 +8,6 @@ use marathon_core::{
     time::*,
 };
 use std::{
-    collections::BTreeMap,
     pin::Pin,
     rc::Rc,
     sync::{
@@ -95,162 +94,42 @@ fn deep_chain_failure_propagates_iteratively() {
     });
 }
 
-// C3: a cancelled caller ends its traversal with its own reason; the observed jobs are unaffected.
+// C3 / D65: a cancelled caller ends its join with its own reason; the target is unaffected.
 #[test]
-fn caller_cancellation_ends_observed_children_traversal() {
+fn caller_cancellation_ends_join_without_cancelling_the_joined_job_d65() {
     run(|core, driver| {
         Box::pin(async move {
             let owner = core.job(JobKind::Ordinary, None);
             let child = core.job(JobKind::Ordinary, Some(owner.clone()));
             let caller = core.job(JobKind::Supervisor, None);
-            let observed = owner.clone();
-            let traversal = core.spawn(
+            let observed = child.clone();
+            let waiter = core.spawn(
                 caller.clone(),
                 Box::new(move |context| {
                     Box::pin(async move {
-                        observed.join_observed_children_in(context.job.clone()).await?;
+                        observed.join_in(context.job.clone()).await?;
                         Ok(())
                     })
                 }),
             );
             replay(driver.drain_current().await);
-            assert_eq!(traversal.state(), JobState::Active);
-            traversal.cancel(cancelled("caller stopped"));
+            assert_eq!(waiter.state(), JobState::Active);
+            waiter.cancel(cancelled("caller stopped"));
             replay(driver.drain_current().await);
-            assert_eq!(
-                completed(&traversal),
-                Completion::Cancelled(cancelled("caller stopped"))
-            );
+            assert_eq!(completed(&waiter), Completion::Cancelled(cancelled("caller stopped")));
             assert_eq!(child.state(), JobState::Active);
-            // Like join_in, an already-cancelled caller is checked even with nothing to join.
+            // Even an already-completed target checks the caller cancellation first.
             let done = core.job(JobKind::Ordinary, None);
             done.complete();
             let stopped = core.job(JobKind::Ordinary, None);
             stopped.cancel(cancelled("stopped"));
-            assert_eq!(done.join_observed_children_in(stopped).await, Err(cancelled("stopped")));
+            assert_eq!(done.join_in(stopped).await, Err(cancelled("stopped")));
             child.complete();
             owner.complete();
             caller.complete();
             Ok(())
         })
     });
-}
-
-fn traversal_rows(cancellable: bool) -> BTreeMap<String, String> {
-    fn observe(core: &Rc<CoreExecutor>, parent: &JobRef, owner: &JobRef, cancellable: bool) -> JobRef {
-        let observed = owner.clone();
-        core.spawn(
-            parent.clone(),
-            Box::new(move |context| {
-                Box::pin(async move {
-                    if cancellable {
-                        observed.join_observed_children_in(context.job.clone()).await?;
-                    } else {
-                        observed.join_observed_children().await?;
-                    }
-                    Ok(())
-                })
-            }),
-        )
-    }
-    CoreExecutor::run_virtual(move |core, driver| {
-        Box::pin(async move {
-            let parent = core.job(JobKind::Supervisor, None);
-            let mut rows = BTreeMap::new();
-            let owner = core.job(JobKind::Ordinary, None);
-            let a = core.job(JobKind::Ordinary, Some(owner.clone()));
-            let traversal = observe(&core, &parent, &owner, cancellable);
-            replay(driver.drain_current().await);
-            let b = core.job(JobKind::Ordinary, Some(owner.clone()));
-            a.complete();
-            replay(driver.drain_current().await);
-            rows.insert(
-                "single:attached-observed".into(),
-                (!matches!(traversal.state(), JobState::Completed(_))).to_string(),
-            );
-            b.complete();
-            owner.complete();
-            let owner = core.job(JobKind::Ordinary, None);
-            let c = core.job(JobKind::Ordinary, Some(owner.clone()));
-            let d = core.job(JobKind::Ordinary, Some(owner.clone()));
-            let traversal = observe(&core, &parent, &owner, cancellable);
-            replay(driver.drain_current().await);
-            let e = core.job(JobKind::Ordinary, Some(owner.clone()));
-            c.complete();
-            replay(driver.drain_current().await);
-            rows.insert(
-                "list:second".into(),
-                (Rc::ptr_eq(&owner.children_snapshot()[0], &d) && matches!(traversal.state(), JobState::Active))
-                    .to_string(),
-            );
-            d.complete();
-            replay(driver.drain_current().await);
-            rows.insert(
-                "list:attached-observed".into(),
-                matches!(traversal.state(), JobState::Active).to_string(),
-            );
-            e.complete();
-            owner.complete();
-            for callbacks in [false, true] {
-                let owner = core.job(JobKind::Ordinary, None);
-                let first = core.job(JobKind::Ordinary, Some(owner.clone()));
-                if callbacks {
-                    owner.invoke_on_completion(Box::new(|_| {}));
-                } else {
-                    core.job(JobKind::Ordinary, Some(owner.clone())).complete();
-                }
-                let traversal = observe(&core, &parent, &owner, cancellable);
-                replay(driver.drain_current().await);
-                let late = core.job(JobKind::Ordinary, Some(owner.clone()));
-                first.complete();
-                replay(driver.drain_current().await);
-                rows.insert(
-                    if callbacks {
-                        "list:callback-promotes"
-                    } else {
-                        "list:promotion-survives-removal"
-                    }
-                    .into(),
-                    matches!(traversal.state(), JobState::Active).to_string(),
-                );
-                late.complete();
-                owner.complete();
-                replay(driver.drain_current().await);
-            }
-            parent.complete();
-            Ok(rows)
-        })
-    })
-    .unwrap()
-}
-
-#[test]
-fn cancellable_traversal_matches_jvm_traversal_rows() {
-    let keys = [
-        "single:attached-observed",
-        "list:second",
-        "list:attached-observed",
-        "list:callback-promotes",
-        "list:promotion-survives-removal",
-    ];
-    let expected: BTreeMap<String, String> = [
-        include_str!("../../../fixtures/oracle/runtime/coroutines-1.8.1.jsonl"),
-        include_str!("../../../fixtures/oracle/runtime/coroutines-1.8.1-traversal.jsonl"),
-    ]
-    .iter()
-    .flat_map(|corpus| corpus.lines())
-    .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
-    .filter(|row| keys.contains(&row["case"].as_str().unwrap()))
-    .map(|row| {
-        (
-            row["case"].as_str().unwrap().to_owned(),
-            row["value"].as_str().unwrap().to_owned(),
-        )
-    })
-    .collect();
-    assert_eq!(expected.len(), keys.len());
-    assert_eq!(traversal_rows(false), expected);
-    assert_eq!(traversal_rows(true), expected);
 }
 
 /// A waiter signal whose first poll lands a completion just before reporting
@@ -384,4 +263,42 @@ fn watchdog_fails_a_scenario_blocked_inside_poll() {
         other => panic!("expected the watchdog failure, got {other:?}"),
     }
     assert!(started.elapsed() < std::time::Duration::from_secs(10));
+}
+
+#[test]
+fn wide_children_keep_order_and_release_after_completion_d65() {
+    run(|core, _| {
+        Box::pin(async move {
+            const WIDTH: usize = 10_000;
+            let parent = core.job(JobKind::Ordinary, None);
+            let children: Vec<_> = (0..WIDTH)
+                .map(|_| core.job(JobKind::Ordinary, Some(parent.clone())))
+                .collect();
+            let weak: Vec<_> = children.iter().map(Rc::downgrade).collect();
+            parent.invoke_on_completion(Box::new(|_| {}));
+            assert_eq!(parent.children_snapshot().len(), WIDTH, "callbacks are not children");
+            for child in children.iter().skip(1).step_by(2) {
+                child.complete();
+            }
+            let snapshot = parent.children_snapshot();
+            assert_eq!(snapshot.len(), WIDTH / 2);
+            for (actual, expected) in snapshot.iter().zip(children.iter().step_by(2)) {
+                assert!(
+                    Rc::ptr_eq(actual, expected),
+                    "stable removal preserves attachment order"
+                );
+            }
+            parent.complete();
+            assert_eq!(parent.state(), JobState::Completing);
+            for child in children.iter().step_by(2) {
+                child.complete();
+            }
+            assert_eq!(completed(&parent), Completion::Success);
+            assert!(parent.children_snapshot().is_empty());
+            drop(snapshot);
+            drop(children);
+            assert!(weak.iter().all(|child| child.upgrade().is_none()));
+            Ok(())
+        })
+    });
 }
