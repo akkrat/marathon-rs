@@ -288,8 +288,9 @@ impl TracingOutput {
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "console flush deadline elapsed"))?
     }
     /// Exits with `status` once everything queued is written. If the writer
-    /// has already closed (the guard finished first), nothing can drain, so
-    /// the exit watchdog fires after the exit-flush deadline (1 s) instead.
+    /// has already closed (the guard finished first), the `Exit` command has
+    /// nowhere to go: its acknowledgement disconnects at once, so the exit
+    /// watchdog fires immediately rather than after the flush deadline.
     pub fn exit_after_flush(&self, status: i32) -> io::Result<()> {
         self.exit_after_preparing(status, Box::new(|| {}))
     }
