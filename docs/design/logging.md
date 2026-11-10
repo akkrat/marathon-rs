@@ -140,9 +140,12 @@ D52's behaviour:
   failure ahead of it (the one `process::exit` comes from the writer or the
   watchdog, or from a second signal); `exit_after_flush` after the writer
   has already closed exits at once through the watchdog, because the `Exit`
-  acknowledgement disconnects.
-- **Second signal:** `SignalHooks.immediate_exit` is `std::process::exit`
-  with the second signal's status (130/143). It does not wait for cleanup,
+  acknowledgement disconnects. Every exit in the CLI goes through
+  `tracing_output::exit_once`: the writer, the watchdog and a second signal can
+  reach it at nearly the same time, libc `exit` must not run on two threads at
+  once, so the first caller exits and a later one parks.
+- **Second signal:** `SignalHooks.immediate_exit` is `exit_once` with the
+  second signal's status (130/143). It does not wait for cleanup,
   reports, the writer thread, or the flush deadline.
 - **Late vendor events:** vendor tasks that outlive the run task push
   through `LogSender`/`LateOutput`. `LateOutput::close` is a fence:

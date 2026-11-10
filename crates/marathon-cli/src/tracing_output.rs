@@ -22,6 +22,21 @@ use tracing_subscriber::{
     reload,
 };
 
+static EXITING: AtomicBool = AtomicBool::new(false);
+
+/// Ends the process once. The exit watchdog, the console writer and a second signal can each
+/// reach `process::exit` at nearly the same time, and libc `exit` must not run on two threads
+/// at once (exit handlers would run twice, or the process can hang). The first caller exits;
+/// a later one parks until that exit completes.
+pub fn exit_once(status: i32) -> ! {
+    if EXITING.swap(true, Ordering::SeqCst) {
+        loop {
+            thread::park();
+        }
+    }
+    std::process::exit(status)
+}
+
 pub use marathon_logging::{Vendor as Configurator, filter};
 
 pub(crate) const EXIT_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
@@ -194,7 +209,7 @@ impl TracingOutput {
                 if let Ok((status, drained)) = requests.recv()
                     && drained.recv_timeout(exit_flush).is_err()
                 {
-                    std::process::exit(status);
+                    exit_once(status);
                 }
             })?;
         let (prepare_exit, preparation) = mpsc::channel::<ExitWork>();
@@ -243,7 +258,7 @@ impl TracingOutput {
             let _ = done.send(());
             if let Some((status, ack)) = exit {
                 let _ = ack.send(());
-                std::process::exit(status);
+                exit_once(status);
             }
             failure.map_or(Ok(()), Err)
         })?;

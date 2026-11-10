@@ -142,7 +142,7 @@ impl ProductionRunner {
         let exit_tail = Arc::new(std::sync::OnceLock::<marathon_core::logging::LateOutput>::new());
         let publish_tail = exit_tail.clone();
         let mut signal_hooks = self.signal_hooks.clone();
-        signal_hooks.immediate_exit = Some(Arc::new(|status| std::process::exit(status)));
+        signal_hooks.immediate_exit = Some(Arc::new(|status| crate::tracing_output::exit_once(status)));
         #[cfg(feature = "test-seams")]
         let exit_prepare = self.exit_prepare.clone();
         #[cfg(not(feature = "test-seams"))]
@@ -199,7 +199,7 @@ impl ProductionRunner {
                     )
                     .is_err()
                 {
-                    std::process::exit(status);
+                    crate::tracing_output::exit_once(status);
                 }
             })),
             signal_trigger: None,
