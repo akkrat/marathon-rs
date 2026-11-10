@@ -9,7 +9,6 @@ use crate::{
     models::*,
     support::*,
 };
-use jcompat::writers::KotlinValue;
 use marathon_adb::{
     instrument_request::{InstrumentOptions, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent, TestIdentifier},
@@ -144,12 +143,7 @@ impl AndroidDeviceTestRunner<'_> {
         self.device.log_named(
             "AndroidDeviceTestRunner",
             Level::DEBUG,
-            &format!(
-                "tests = {}",
-                KotlinValue::List(tests.iter().cloned().map(KotlinValue::Text).collect())
-                    .render()
-                    .to_owned()
-            ),
+            &format!("tests = {tests:?}"),
             None,
         );
         let mut request = TestRunnerRequest::new(
@@ -452,17 +446,13 @@ impl AndroidDeviceTestRunner<'_> {
                     None => Ok(()),
                 },
                 Err(error) if is_io_exception(&error) => {
-                    let mut message = String::from("adb error while running tests ");
-                    message.push_str(
-                        &KotlinValue::List(
-                            batch
-                                .tests
-                                .iter()
-                                .map(|t| KotlinValue::Text(t.to_test_name('.', '#')))
-                                .collect(),
-                        )
-                        .render(),
-                    );
+                    let names = batch
+                        .tests
+                        .iter()
+                        .map(|t| t.to_test_name('.', '#'))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let message = format!("adb error while running tests [{names}]");
                     self.device.log_named(
                         "AndroidDeviceTestRunner",
                         Level::ERROR,

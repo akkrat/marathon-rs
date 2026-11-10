@@ -279,7 +279,7 @@ fn stdout_awaits_async_sink_off_core_without_using_the_blocking_pool() {
 
 #[test]
 fn malformed_primitive_array_metadata_falls_back_to_generic_projection() {
-    use marathon_core::report::projection::{kotlin_meta, parse_results};
+    use marathon_core::report::projection::{metadata_text, parse_results};
     for class in ["[B", "[C"] {
         let values = vec![
             MetaValue::Byte(-1),
@@ -291,7 +291,7 @@ fn malformed_primitive_array_metadata_falls_back_to_generic_projection() {
             elements: values.clone(),
         }));
         let list = MetaValue::List(values);
-        assert_eq!(kotlin_meta(&array), kotlin_meta(&list));
+        assert_eq!(metadata_text(&array), metadata_text(&list));
         let make = |value| Test {
             pkg: "p".into(),
             clazz: "C".into(),
@@ -312,4 +312,54 @@ fn malformed_primitive_array_metadata_falls_back_to_generic_projection() {
 fn stdout_summary_contract() {
     let (_, output, _) = generate("failed");
     assert_eq!(output, b"Marathon run finished:\nDevice pool myPool:\n\t0 passed, 3 failed, 0 ignored tests\n\tFailed tests:\n\t\tcom.example#test1\n\t\tcom.example#test2\n\t\tcom.example#test3\n\tFlakiness overhead: 0H 00m 11s\n\tRaw: 0 passed, 3 failed, 0 ignored, 1 incomplete tests\n\tFailed tests:\n\t\tcom.example#test1 failed 1 time(s)\n\t\tcom.example#test2 failed 1 time(s)\n\t\tcom.example#test3 failed 1 time(s)\n\tIncomplete tests:\n\t\tcom.example#test2 incomplete 1 time(s)\nTotal time: 0H 00m 00s\n\n");
+}
+
+#[test]
+fn raw_metadata_strings_keep_null_distinctions_and_unescaped_contents() -> Result<(), Box<dyn std::error::Error>> {
+    use marathon_core::{
+        executor::CoreExecutor,
+        model::*,
+        report::{ExecutionReport, RawJsonReporter, Reporter},
+    };
+    use std::sync::Arc;
+    let mut event = report(&row("passed")["input"]).test_events()[0].clone();
+    let result = Arc::make_mut(&mut event.test_result);
+    result.test.meta_properties = vec![MetaProperty {
+        name: "A".into(),
+        values: [
+            ("rawNull".into(), MetaValue::Null),
+            ("decodedNull".into(), MetaValue::Decoded(DecodedWrapper::DecodedNull)),
+            ("text".into(), MetaValue::String("a\nb, c=(d)".into())),
+            (
+                "nested".into(),
+                MetaValue::List(vec![
+                    MetaValue::Null,
+                    MetaValue::Decoded(DecodedWrapper::DecodedString("a)b".into())),
+                ]),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    }];
+    let report = ExecutionReport::new(vec![], vec![], vec![], vec![], vec![event]);
+    let tmp = tempfile::tempdir()?;
+    let path = tmp.path().to_owned();
+    CoreExecutor::run(move |core| {
+        Box::pin(async move {
+            RawJsonReporter {
+                output: files(core.vendor(), path, 0),
+            }
+            .generate(&report)
+            .await
+        })
+    })
+    .map_err(|e| format!("{e:?}"))?;
+    let bytes = std::fs::read(tmp.path().join("test_result/raw.json"))?;
+    let actual: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let values = &actual[0]["metaProperties"][0]["values"];
+    assert_eq!(
+        serde_json::to_string(values)?,
+        r#"{"rawNull":"","decodedNull":"null","text":"a\nb, c=(d)","nested":"[null, DecodedString(value=a)b)]"}"#
+    );
+    Ok(())
 }

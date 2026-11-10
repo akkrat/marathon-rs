@@ -98,12 +98,26 @@ fn provider_sequences_match_jvm_bits_calls_and_ordered_logs() {
                         json!([e.logger, e.level.as_str(), message])
                     })
                     .collect::<Vec<_>>();
-                assert_eq!(
-                    json!(events),
-                    marathon_test_support::recorded_logs::native_logs(&step["logs"]),
-                    "{} {op}",
-                    row["name"]
-                );
+                let mut expected = marathon_test_support::recorded_logs::native_logs(&step["logs"]);
+                for event in expected.as_array_mut().unwrap() {
+                    if event[0] == "marathon_core::analytics::provider" && event[1] == "DEBUG" {
+                        // Only these two historical diagnostic witnesses change (8.11).
+                        // Measurement bits and backend calls remain checked separately.
+                        let text = match event[2].as_str().unwrap() {
+                            "[ExecutionTime(testName=pkg0.clazz0.method0, percentile=7000.0)]" => {
+                                Some(r#"[("pkg0.clazz0.method0", 7000.0)]"#)
+                            }
+                            "[ExecutionTime(testName=pkg0.clazz0.method0, percentile=100.5), ExecutionTime(testName=pkg0.clazz0.method0, percentile=7000.0)]" => {
+                                Some(r#"[("pkg0.clazz0.method0", 100.5), ("pkg0.clazz0.method0", 7000.0)]"#)
+                            }
+                            _ => None,
+                        };
+                        if let Some(text) = text {
+                            event[2] = text.into();
+                        }
+                    }
+                }
+                assert_eq!(json!(events), expected, "{} {op}", row["name"]);
                 let calls = std::mem::take(&mut *source.calls.lock().unwrap())
                     .iter()
                     .map(|key| match key {

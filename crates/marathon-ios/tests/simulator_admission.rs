@@ -88,7 +88,7 @@ async fn omitted_worker_connection_defaults_retry_at_0_10_30_90_150_seconds_with
     assert_eq!(
         messages,
         [
-            "Processing updates from Local:\n- Connected(target=Simulator(udid=a))",
+            "Processing updates from Local:\n- connected simulator a",
             "Failed to connect to worker local (No route to host), retrying",
             "Providing 0 devices",
             "Connecting to worker local, attempt 2",

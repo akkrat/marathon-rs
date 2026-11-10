@@ -344,7 +344,7 @@ async fn execute_builds_the_request_and_logs_remote_path_and_tests() -> TestResu
             (
                 "marathon_apple::apple_device_test_runner".into(),
                 Level::DEBUG,
-                "Tests = [Test(pkg=UITests, clazz=SampleTests, method=testSample, metaProperties=[])]".into()
+                "Tests = [UITests.SampleTests#testSample]".into()
             ),
         ]
     );
@@ -379,5 +379,81 @@ async fn after_run_error_replaces_failure_but_exception_named_error_is_suppresse
             assert_eq!(result.suppressed[0].kind.description(), class.description().to_owned());
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancellation_branch_keeps_the_exact_unquoted_message_in_missing_test_results() -> TestResult {
+    use marathon_core::{
+        execution::result::TestRunResultsAccumulator,
+        model::{Test, TestBatch},
+    };
+    struct Capture(Mutex<TestRunResultsAccumulator>);
+    impl AppleTestRunListener for Capture {
+        fn test_run_failed<'a>(&'a self, message: &'a str, _: DeviceFailureReason) -> VendorFuture<'a, ()> {
+            Box::pin(async move {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .test_run_failed(message.into())
+                    .map_err(|e| VendorError::Other(failure(FailureKind::ReplayClock, e.message)))
+            })
+        }
+    }
+    let (device, mut runner) = setup(Plan {
+        output_failure: Some(VendorError::Cancelled(cancelled("injected"))),
+        ..Default::default()
+    });
+    runner.session_close_timeout = support::duration(60_000);
+    let tests = ["testSample", "quoted\"name, a)b"]
+        .into_iter()
+        .map(|method| Test {
+            pkg: "UITests".into(),
+            clazz: "SampleTests".into(),
+            method: method.into(),
+            meta_properties: vec![],
+        })
+        .collect::<Vec<_>>();
+    let accumulator = TestRunResultsAccumulator::new(
+        Arc::new(marathon_test_support::factory::FakeTimer(Arc::new(|| 1))),
+        Arc::new(|| 1),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let listener = Capture(Mutex::new(accumulator));
+    let result = runner
+        .execute_request(
+            TestRequest::new("/tmp", "test", false),
+            &tests,
+            &listener,
+            &support::context(),
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(RunError {
+            error: VendorError::Cancelled(_),
+            ..
+        })
+    ));
+    let batch = TestBatch {
+        tests: tests.clone(),
+        id: "batch".into(),
+    };
+    let results = listener
+        .0
+        .lock()
+        .unwrap()
+        .create_uncompleted_test_results(&tests, &batch, &device.info())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(results.len(), 2);
+    for result in results {
+        assert_eq!(
+            result.stacktrace.as_deref(),
+            Some(
+                "Tests [UITests.SampleTests#testSample, UITests.SampleTests#quoted\"name, a)b] got stuck. You can increase the timeout in settings if it's too strict"
+            )
+        );
+    }
+    v(device.dispose().await)?;
     Ok(())
 }

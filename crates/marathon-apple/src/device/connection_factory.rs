@@ -19,7 +19,7 @@ use crate::{
     },
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
-use jcompat::{jtime::Duration, writers::KotlinValue};
+use jcompat::jtime::Duration;
 use marathon_config::{
     devices::Transport,
     vendor::{RsyncConfiguration, SshAuthentication, SshConfiguration},
@@ -640,17 +640,10 @@ impl AddressProbe for EchoAddressProbe {
         })
     }
 }
-fn data(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
-    KotlinValue::DataClass {
-        name: name.into(),
-        fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-    }
-}
-/// Kotlin's generated data-class string, with the existing explicit authentication masking.
-/// The singleton Local identity string uses the run's replay identity allocation at its caller.
-pub fn transport_text(transport: &Transport, local_identity: &str) -> String {
-    let value = match transport {
-        Transport::Local => return local_identity.to_owned(),
+/// Diagnostic transport text omits passwords, including on reachability failures.
+pub fn transport_text(transport: &Transport, local_text: &str) -> String {
+    match transport {
+        Transport::Local => local_text.to_owned(),
         Transport::Ssh {
             addr,
             port,
@@ -658,30 +651,15 @@ pub fn transport_text(transport: &Transport, local_identity: &str) -> String {
             check_reachability,
         } => {
             let auth = match authentication {
-                None => KotlinValue::Null,
-                Some(SshAuthentication::Password { username, .. }) => {
-                    KotlinValue::Text(format!("PasswordAuthentication(username='{}')", username.to_owned()))
+                None => "none".into(),
+                Some(SshAuthentication::Password { username, .. }) => format!("password (user='{username}')"),
+                Some(SshAuthentication::PublicKey { username, key }) => {
+                    format!("public key (user={username}, key={})", key.display())
                 }
-                Some(SshAuthentication::PublicKey { username, key }) => data(
-                    "PublicKeyAuthentication",
-                    vec![
-                        ("username", KotlinValue::Text(username.clone())),
-                        ("key", KotlinValue::Text(key.to_string_lossy().into_owned())),
-                    ],
-                ),
             };
-            data(
-                "Ssh",
-                vec![
-                    ("addr", KotlinValue::Text(addr.clone())),
-                    ("port", KotlinValue::Text(port.to_string())),
-                    ("authentication", auth),
-                    ("checkReachability", KotlinValue::Text(check_reachability.to_string())),
-                ],
-            )
+            format!("ssh {addr}:{port} (authentication={auth}, check_reachability={check_reachability})")
         }
-    };
-    value.render().to_owned()
+    }
 }
 
 fn check_address(transport: Transport, timeout: Duration) -> ConnectionResult<()> {

@@ -4,7 +4,6 @@
 use marathon_logging::{Component, Level};
 
 use super::error::clock_error;
-use jcompat::writers::KotlinValue;
 use marathon_apple::cmd::remote::ssh::sshj::config::SshLogging;
 use marathon_config::devices::{SimulatorProfile, Transport};
 use marathon_core::{error::VendorResult, time::Timer};
@@ -53,25 +52,12 @@ impl ProvisioningTiming {
         self.info(|| Ok(format!("Worker {}: connected in {connected} ms, planned {count} simulators in {planned} ms, provisioned them in {} ms", worker.id().to_owned(), self.elapsed()?.wrapping_sub(started_provisioning))))
     }
 }
-fn data(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
-    KotlinValue::DataClass {
-        name: name.into(),
-        fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-    }
-}
 pub fn profile_text(profile: &SimulatorProfile) -> String {
-    data(
-        "SimulatorProfile",
-        vec![
-            ("deviceTypeId", KotlinValue::Text(profile.device_type_id.clone())),
-            (
-                "runtimeId",
-                profile.runtime_id.clone().map_or(KotlinValue::Null, KotlinValue::Text),
-            ),
-            ("newNamePrefix", KotlinValue::Text(profile.new_name_prefix.clone())),
-        ],
+    format!(
+        "simulator profile {} (runtime={}, name_prefix={})",
+        profile.device_type_id,
+        profile.runtime_id.as_deref().unwrap_or("null"),
+        profile.new_name_prefix
     )
-    .render()
-    .to_owned()
 }
 pub use marathon_apple::device::connection_factory::transport_text;

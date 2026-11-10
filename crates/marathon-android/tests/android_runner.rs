@@ -1824,3 +1824,79 @@ fn external_storage_pull_grants_legacy_storage_only_at_api29() {
         });
     }
 }
+
+#[test]
+fn io_error_branch_keeps_the_exact_unquoted_message_in_missing_test_results() {
+    struct BeforeIo;
+    impl AndroidTestRunListener for BeforeIo {
+        fn before_test_run<'a>(
+            &'a self,
+            _: Option<&'a marathon_dex::apk_parser::InstrumentationInfo>,
+        ) -> VendorFuture<'a, ()> {
+            Box::pin(async {
+                Err(VendorError::Other(Failure {
+                    kind: FailureKind::Io,
+                    message: Some("injected".into()),
+                    cause: None,
+                    stacktrace: None,
+                }))
+            })
+        }
+    }
+    let mut c = config();
+    c.test_batch_timeout_millis = 60_000;
+    c.test_output_timeout_millis = 60_000;
+    run(c, |runtime, context| {
+        Box::pin(async move {
+            let mut server = server(base_script(30, vec![])).await;
+            let d = device(&server, runtime.clone());
+            d.setup(context.clone()).await?;
+            let batch = Arc::new(TestBatch {
+                tests: vec![test("method"), test("quoted\"name, a)b")],
+                id: "batch".into(),
+            });
+            register(&runtime, &batch.tests);
+            let deferred = Arc::new(SharedDeferred::default());
+            let accumulator = marathon_core::execution::result::TestRunResultsAccumulator::new(
+                runtime.dependencies.timer.clone(),
+                Arc::new(marathon_core::logging::host_millis),
+            )
+            .map_err(|e| {
+                VendorError::Other(Failure {
+                    kind: FailureKind::ReplayClock,
+                    message: Some(e.message),
+                    cause: None,
+                    stacktrace: None,
+                })
+            })?;
+            let results = Arc::new(TestResultsListener {
+                accumulator: AccumulatingResultTestRunListener {
+                    result: Mutex::new(accumulator),
+                    logs: Arc::new(|_| {}),
+                },
+                batch: batch.clone(),
+                device: d.reference(),
+                deferred: deferred.clone(),
+                attachments: TestResultsListener::collector(&[])?,
+                log: Arc::new(|_, _| {}),
+            });
+            let listener = CompositeTestRunListener {
+                listeners: vec![Arc::new(BeforeIo), results],
+            };
+            AndroidDeviceTestRunner { device: &d }
+                .execute(runtime.dependencies.configuration.clone(), batch, &listener, context)
+                .await?;
+            let results = deferred.completed().expect("result completed")?;
+            assert_eq!(results.uncompleted.len(), 2);
+            for result in &results.uncompleted {
+                assert_eq!(
+                    result.stacktrace.as_deref(),
+                    Some("adb error while running tests [pkg.Clazz#method, pkg.Clazz#quoted\"name, a)b]")
+                );
+            }
+            d.dispose().await?;
+            checked(server.shutdown().await);
+            Ok(())
+        })
+    });
+}

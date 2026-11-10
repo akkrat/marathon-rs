@@ -176,12 +176,12 @@ pub async fn output_contract(
 pub fn writer_contract(
     json: &impl serde::Serialize,
     yaml: &impl serde::Serialize,
-    raw: &jcompat::writers::KotlinValue,
+    raw: &MetaValue,
 ) -> Result<[String; 3], Box<dyn std::error::Error>> {
     Ok([
         serde_json::to_string(json)?,
         marathon_config::yaml::to_string(yaml)?,
-        raw.render(),
+        marathon_core::report::projection::metadata_text(raw),
     ])
 }
 // WP 1.2/2.1/3.9: time and number output uses merged formatters; default

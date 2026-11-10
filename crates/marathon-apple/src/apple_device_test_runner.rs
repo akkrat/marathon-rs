@@ -10,7 +10,7 @@ use crate::{
     test::{TestEvent, TestRequest},
     xcodebuild_session::{CLOSE_TIMEOUT, XcodebuildSession, device_lost},
 };
-use jcompat::{jtime::Duration, writers::KotlinValue};
+use jcompat::jtime::Duration;
 use marathon_config::Configuration;
 use marathon_core::{
     error::{Failure, VendorError},
@@ -122,12 +122,13 @@ impl AppleDeviceTestRunner {
         let fm = self.device.remote_file_manager();
         let remote = fm.remote_xctestrun_file();
         self.log(Level::DEBUG, format!("Remote xctestrun = {remote}"), None);
-        let tests = batch.tests.iter().map(|t| t.kotlin_value()).collect();
-        self.log(
-            Level::DEBUG,
-            format!("Tests = {}", KotlinValue::List(tests).render().to_owned()),
-            None,
-        );
+        let tests = batch
+            .tests
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.log(Level::DEBUG, format!("Tests = [{tests}]"), None);
         let mut request = TestRequest::new(
             fm.parent_of(&remote).to_owned(),
             remote,
@@ -168,17 +169,13 @@ impl AppleDeviceTestRunner {
         if let Err(error) = &result
             && matches!(error.error, VendorError::Cancelled(_))
         {
-            let names = KotlinValue::List(
-                tests
-                    .iter()
-                    .map(|t| KotlinValue::Text(t.to_test_name('.', '#')))
-                    .collect(),
-            )
-            .render();
-            let message = format!(
-                "Tests {} got stuck. You can increase the timeout in settings if it's too strict",
-                names.to_owned()
-            );
+            let names = tests
+                .iter()
+                .map(|t| t.to_test_name('.', '#'))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let message =
+                format!("Tests [{names}] got stuck. You can increase the timeout in settings if it's too strict");
             self.log(Level::ERROR, message.to_owned(), Some(error.error.failure().clone()));
             if let Err(error) = listener.test_run_failed(&message, DeviceFailureReason::Unknown).await {
                 result = Err(error.into());

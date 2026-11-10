@@ -4,7 +4,7 @@
 //! including execution/queue/TestAction.kt.
 
 use crate::vendor::DeviceRef;
-use jcompat::{jnum, jstring, writers::KotlinValue};
+use jcompat::jstring;
 use std::path::PathBuf;
 use std::{
     hash::{Hash, Hasher},
@@ -35,32 +35,6 @@ impl Hash for Test {
 /// Test.kt name extensions. Kotlin's `pkg.isNotBlank()` decides the package
 /// prefix, so a whitespace-only package is dropped, not printed.
 impl Test {
-    /// Renders the Kotlin data-class toString.
-    pub fn kotlin_value(&self) -> KotlinValue {
-        let properties = self
-            .meta_properties
-            .iter()
-            .map(|p| KotlinValue::DataClass {
-                name: "MetaProperty".into(),
-                fields: vec![
-                    ("name".into(), KotlinValue::Text(p.name.clone())),
-                    (
-                        "values".into(),
-                        crate::report::projection::kotlin_meta(&MetaValue::Map(p.values.clone())),
-                    ),
-                ],
-            })
-            .collect();
-        KotlinValue::DataClass {
-            name: "Test".into(),
-            fields: vec![
-                ("pkg".into(), KotlinValue::Text(self.pkg.clone())),
-                ("clazz".into(), KotlinValue::Text(self.clazz.clone())),
-                ("method".into(), KotlinValue::Text(self.method.clone())),
-                ("metaProperties".into(), KotlinValue::List(properties)),
-            ],
-        }
-    }
     pub fn to_class_name(&self, separator: char) -> String {
         let mut name = String::default();
         if !self.pkg.chars().all(jstring::is_whitespace) {
@@ -85,6 +59,11 @@ impl Test {
         name.push(method_separator);
         name.push_str(&self.method);
         name
+    }
+}
+impl std::fmt::Display for Test {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.to_test_name('.', '#'))
     }
 }
 /// Map iteration order is retained separately from Kotlin map equality.
@@ -162,40 +141,6 @@ pub enum DecodedWrapper {
     DecodedEnum(String),
     DecodedNull,
     DecodedArrayValue(Arc<[DecodedWrapper]>),
-}
-impl DecodedWrapper {
-    /// Project the pinned data-class toString, including Arrays.toString for
-    /// nested arrays; decoded null renders as null (D58).
-    pub fn kotlin_value(&self) -> KotlinValue {
-        use DecodedWrapper::*;
-        let (name, value) = match self {
-            DecodedByte(v) => ("DecodedByte", v.to_string()),
-            DecodedShort(v) => ("DecodedShort", v.to_string()),
-            DecodedInt(v) => ("DecodedInt", v.to_string()),
-            DecodedLong(v) => ("DecodedLong", v.to_string()),
-            DecodedFloat(v) => ("DecodedFloat", jnum::float_to_string(*v)),
-            DecodedDouble(v) => ("DecodedDouble", jnum::double_to_string(*v)),
-            DecodedChar(v) => ("DecodedChar", String::from_utf16_lossy(&[*v])),
-            DecodedBoolean(v) => ("DecodedBoolean", if *v { "true" } else { "false" }.into()),
-            DecodedString(v) => ("DecodedString", v.clone()),
-            DecodedType(v) => ("DecodedType", v.clone()),
-            DecodedEnum(v) => ("DecodedEnum", v.clone()),
-            DecodedNull => return KotlinValue::Null,
-            DecodedArrayValue(values) => {
-                return KotlinValue::DataClass {
-                    name: "DecodedArrayValue".into(),
-                    fields: vec![(
-                        "values".into(),
-                        KotlinValue::List(values.iter().map(Self::kotlin_value).collect()),
-                    )],
-                };
-            }
-        };
-        KotlinValue::DataClass {
-            name: name.into(),
-            fields: vec![("value".into(), KotlinValue::Text(value))],
-        }
-    }
 }
 impl PartialEq for DecodedWrapper {
     fn eq(&self, other: &Self) -> bool {

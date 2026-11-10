@@ -4,7 +4,6 @@
 
 pub use super::yaml::parse_results;
 use crate::model::*;
-use jcompat::{jnum, writers::KotlinValue};
 
 pub fn status(status: TestStatus) -> &'static str {
     match status {
@@ -15,27 +14,8 @@ pub fn status(status: TestStatus) -> &'static str {
         TestStatus::AssumptionFailure => "ASSUMPTION_FAILURE",
     }
 }
-pub fn kotlin_meta(value: &MetaValue) -> KotlinValue {
-    use MetaValue::*;
-    match value {
-        Null => KotlinValue::Null,
-        List(v) => KotlinValue::List(v.iter().map(kotlin_meta).collect()),
-        Map(v) => KotlinValue::Map(
-            v.entries()
-                .iter()
-                .map(|(k, v)| (KotlinValue::Text(k.clone()), kotlin_meta(v)))
-                .collect(),
-        ),
-        Array(v) => KotlinValue::List(v.elements.iter().map(kotlin_meta).collect()),
-        Decoded(v) => v.kotlin_value(),
-        Boolean(v) => KotlinValue::Text(v.to_string()),
-        Byte(v) => KotlinValue::Text(v.to_string()),
-        Short(v) => KotlinValue::Text(v.to_string()),
-        Int(v) => KotlinValue::Text(v.to_string()),
-        Long(v) => KotlinValue::Text(v.to_string()),
-        Char(v) => KotlinValue::Text(std::string::String::from_utf16_lossy(&[*v])),
-        Float(v) => KotlinValue::Text(jnum::float_to_string(*v)),
-        Double(v) => KotlinValue::Text(jnum::double_to_string(*v)),
-        String(v) => KotlinValue::Text(v.clone()),
-    }
+/// Raw metadata retains the annotation text contract; the raw reporter handles
+/// its top-level unboxed-null-to-empty-string exception separately.
+pub fn metadata_text(value: &MetaValue) -> String {
+    crate::filter::annotation_text(value)
 }

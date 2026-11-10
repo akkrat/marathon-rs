@@ -146,7 +146,7 @@ impl Reporter for RawJsonReporter {
                         let text = if matches!(value, MetaValue::Null) {
                             String::default()
                         } else {
-                            p::kotlin_meta(value).render()
+                            p::metadata_text(value)
                         };
                         entries.push((key.as_str(), text));
                     }

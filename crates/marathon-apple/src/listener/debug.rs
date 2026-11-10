@@ -45,7 +45,7 @@ impl AppleTestRunListener for DebugTestRunListener {
             self.log(format!(
                 "testStarted {} test = {}",
                 self.device.0.info().serial_number.to_owned(),
-                test.kotlin_value().render().to_owned()
+                test
             ));
             Ok(())
         })
@@ -64,7 +64,7 @@ impl AppleTestRunListener for DebugTestRunListener {
             self.log(format!(
                 "testFailed {} test = {}, timespan = [{start_time},{end_time}], trace = \n{}",
                 self.device.0.info().serial_number.to_owned(),
-                test.kotlin_value().render().to_owned(),
+                test,
                 trace.map_or_else(|| "null".into(), str::to_owned)
             ));
             Ok(())
@@ -78,7 +78,7 @@ impl AppleTestRunListener for DebugTestRunListener {
             self.log(format!(
                 "testPassed {} test = {}, timespan = [{start_time},{end_time}]",
                 self.device.0.info().serial_number.to_owned(),
-                test.kotlin_value().render().to_owned()
+                test
             ));
             Ok(())
         })
@@ -91,7 +91,7 @@ impl AppleTestRunListener for DebugTestRunListener {
             self.log(format!(
                 "testIgnored {} test = {}, timespan = [{start_time},{end_time}]",
                 self.device.0.info().serial_number.to_owned(),
-                test.kotlin_value().render().to_owned()
+                test
             ));
             Ok(())
         })

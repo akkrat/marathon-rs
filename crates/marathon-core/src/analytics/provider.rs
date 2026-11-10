@@ -271,19 +271,7 @@ impl Shared {
             None,
         );
         if let (MetricsKey::ExecutionTime { .. }, Ok(rows)) = (key, &fetched) {
-            use jcompat::writers::KotlinValue;
-            let message = KotlinValue::List(
-                rows.iter()
-                    .map(|(name, value)| KotlinValue::DataClass {
-                        name: "ExecutionTime".into(),
-                        fields: vec![
-                            ("testName".into(), KotlinValue::Text(name.clone())),
-                            ("percentile".into(), KotlinValue::Text(double_to_string(*value))),
-                        ],
-                    })
-                    .collect(),
-            )
-            .render();
+            let message = format!("{rows:?}");
             self.context
                 .log("marathon_core::analytics::provider", Level::DEBUG, message, None);
         }

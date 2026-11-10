@@ -109,54 +109,6 @@ fn duplicate_metadata_keys_replace_values_and_preserve_lawful_equality() {
 }
 
 #[test]
-fn decoded_array_elements_keep_pinned_wrapper_rendering() {
-    use DecodedWrapper::*;
-    let cases = [
-        (DecodedByte(1), "DecodedByte(value=1)", "1"),
-        (DecodedShort(2), "DecodedShort(value=2)", "2"),
-        (DecodedInt(7), "DecodedInt(value=7)", "7"),
-        (DecodedLong(8), "DecodedLong(value=8)", "8"),
-        (DecodedFloat(-0.0), "DecodedFloat(value=-0.0)", "-0.0"),
-        (DecodedDouble(2.5), "DecodedDouble(value=2.5)", "2.5"),
-        (DecodedChar(b'x' as u16), "DecodedChar(value=x)", "x"),
-        (DecodedBoolean(true), "DecodedBoolean(value=true)", "true"),
-        (DecodedString("a)b".into()), "DecodedString(value=a)b)", "a"),
-        (
-            DecodedType("Ltest/C;".into()),
-            "DecodedType(value=Ltest/C;)",
-            "Ltest/C;",
-        ),
-        (DecodedEnum("CHOICE".into()), "DecodedEnum(value=CHOICE)", "CHOICE"),
-        (DecodedNull, "null", "null"),
-        (
-            DecodedArrayValue(Arc::from([DecodedInt(7), DecodedInt(8)])),
-            "DecodedArrayValue(values=[DecodedInt(value=7), DecodedInt(value=8)])",
-            "7",
-        ),
-        (
-            DecodedArrayValue(Arc::from([])),
-            "DecodedArrayValue(values=[])",
-            "DecodedArrayValue(values=[]",
-        ),
-    ];
-    for (wrapper, expected, filter_value) in cases {
-        let rendered = wrapper.kotlin_value().render();
-        assert_eq!(rendered, String::from(expected));
-        // Witness the filter's first-delimiter extraction; WP 3.3 owns it.
-        let after = expected.split_once("(value=").map_or(expected, |(_, after)| after);
-        assert_eq!(after.split_once(')').map_or(after, |(before, _)| before), filter_value);
-        let element = MetaValue::Decoded(wrapper);
-        assert_eq!(element, element.clone());
-    }
-    assert_eq!(DecodedChar(0xd800).kotlin_value().render(), {
-        let mut text = String::from("DecodedChar(value=");
-        text.push('\u{fffd}');
-        text.push(')');
-        text
-    });
-}
-
-#[test]
 fn decoded_wrapper_equality_keeps_kind_singleton_and_array_aliases() {
     use DecodedWrapper::*;
     assert_ne!(DecodedInt(7), DecodedLong(7));

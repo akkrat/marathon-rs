@@ -10,7 +10,7 @@
 use marathon_error::FailureKind;
 pub mod allure;
 mod annotation;
-pub use annotation::{AnnotationRenderer, array_element_value};
+pub use annotation::{AnnotationRenderer, annotation_text, array_element_value, decoded_text};
 mod single;
 pub mod values;
 

@@ -4,7 +4,7 @@
 //! configuration/src/main/kotlin/com/malinskiy/marathon/config/serialization/ConfigurationFactory.kt (`serialize`).
 //!
 //! Two projections of the same model. `to_map` renders Kotlin `toString()`s
-//! through `jcompat::writers::KotlinValue` (data classes in constructor order
+//! directly into result text (data classes in constructor order
 //! with Kotlin property names, the two secret-masking overrides, plain
 //! `object`s as simple class names (D58)); WP 2.4 P3 pins it with the JVM witnesses in
 //! `fixtures/oracle/config-validation-corpus.jsonl`. `serialize` projects into
@@ -23,7 +23,6 @@ use jcompat::{
     file_manager::absolute_file_path,
     jnum::double_to_string,
     jtime::{Duration, Instant},
-    writers::KotlinValue,
 };
 use std::path::PathBuf;
 
@@ -121,100 +120,104 @@ impl Configuration {
             ("name", text(&self.name)),
             (
                 "outputDir",
-                KotlinValue::Text(
-                    absolute_file_path(&self.output_dir.to_string_lossy(), &process_dir.to_string_lossy())
-                        .to_string_lossy()
-                        .into_owned(),
-                ),
+                absolute_file_path(&self.output_dir.to_string_lossy(), &process_dir.to_string_lossy())
+                    .to_string_lossy()
+                    .into_owned(),
             ),
-            ("outputConfiguration", self.output_configuration.kotlin()),
-            ("analyticsConfiguration", self.analytics_configuration.kotlin()),
-            ("pooling", self.pooling_strategy.kotlin()),
-            ("sharding", self.sharding_strategy.kotlin()),
-            ("sorting", self.sorting_strategy.kotlin()),
-            ("batching", self.batching_strategy.kotlin()),
-            ("flakiness", self.flakiness_strategy.kotlin()),
-            ("retry", self.retry_strategy.kotlin()),
-            ("filtering", self.filtering_configuration.kotlin()),
+            ("outputConfiguration", self.output_configuration.result_text()),
+            ("analyticsConfiguration", self.analytics_configuration.result_text()),
+            ("pooling", self.pooling_strategy.result_text()),
+            ("sharding", self.sharding_strategy.result_text()),
+            ("sorting", self.sorting_strategy.result_text()),
+            ("batching", self.batching_strategy.result_text()),
+            ("flakiness", self.flakiness_strategy.result_text()),
+            ("retry", self.retry_strategy.result_text()),
+            ("filtering", self.filtering_configuration.result_text()),
             ("ignoreFailures", boolean(self.ignore_failures)),
             ("isCodeCoverageEnabled", boolean(self.is_code_coverage_enabled)),
-            ("executionStrategy", self.execution_strategy.kotlin()),
+            ("executionStrategy", self.execution_strategy.result_text()),
             ("includeSerialRegexes", list(&self.include_serial_regexes, regex)),
             ("excludeSerialRegexes", list(&self.exclude_serial_regexes, regex)),
             ("testBatchTimeoutMillis", number(self.test_batch_timeout_millis)),
             ("testOutputTimeoutMillis", number(self.test_output_timeout_millis)),
             ("debug", boolean(self.debug)),
             ("screenRecordingPolicy", enumeration(self.screen_recording_policy)),
-            ("vendorConfiguration", self.vendor_configuration.kotlin()),
+            ("vendorConfiguration", self.vendor_configuration.result_text()),
             (
                 "deviceInitializationTimeoutMillis",
                 number(self.device_initialization_timeout_millis),
             ),
-            ("ciConfiguration", self.ci_configuration.kotlin()),
+            ("ciConfiguration", self.ci_configuration.result_text()),
         ];
-        entries
-            .into_iter()
-            .map(|(key, value)| (key.into(), value.render()))
-            .collect()
+        entries.into_iter().map(|(key, value)| (key.into(), value)).collect()
     }
 }
 
-/// The `toString()` of a configuration value.
-trait Kotlin {
-    fn kotlin(&self) -> KotlinValue;
+/// The pinned text of a configuration value stored in Allure environment data.
+trait ResultText {
+    fn result_text(&self) -> String;
 }
 
-fn data(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
-    KotlinValue::DataClass {
-        name: name.into(),
-        fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-    }
+fn data(name: &str, fields: Vec<(&str, String)>) -> String {
+    let fields = fields
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{name}({fields})")
 }
-fn text(s: &str) -> KotlinValue {
-    KotlinValue::Text(s.to_string())
+fn text(s: &str) -> String {
+    s.to_owned()
 }
-fn quoted(s: &str) -> KotlinValue {
-    let mut out = String::from("'");
-    out.push_str(s);
-    out.push('\'');
-    KotlinValue::Text(out)
+fn quoted(s: &str) -> String {
+    format!("'{s}'")
 }
-fn path(p: &std::path::Path) -> KotlinValue {
-    KotlinValue::Text(p.to_string_lossy().into_owned())
+fn path(p: &std::path::Path) -> String {
+    p.to_string_lossy().into_owned()
 }
-fn regex(r: &JavaRegex) -> KotlinValue {
+fn regex(r: &JavaRegex) -> String {
     r.pattern().into()
 }
-fn boolean(b: bool) -> KotlinValue {
-    if b { "true" } else { "false" }.into()
+fn boolean(b: bool) -> String {
+    b.to_string()
 }
-fn number(n: impl ToString) -> KotlinValue {
-    KotlinValue::Text(n.to_string())
+fn number(n: impl ToString) -> String {
+    n.to_string()
 }
-fn double(d: f64) -> KotlinValue {
-    KotlinValue::Text(double_to_string(d))
+fn double(d: f64) -> String {
+    double_to_string(d)
 }
-fn duration(d: &Duration) -> KotlinValue {
+fn duration(d: &Duration) -> String {
     number(d)
 }
-fn instant(i: &Instant) -> KotlinValue {
+fn instant(i: &Instant) -> String {
     number(i)
 }
-fn enumeration(e: impl Names) -> KotlinValue {
+fn enumeration(e: impl Names) -> String {
     e.kotlin().into()
 }
-fn opt<T>(v: Option<&T>, f: impl FnOnce(&T) -> KotlinValue) -> KotlinValue {
-    v.map_or(KotlinValue::Null, f)
+fn opt<T>(v: Option<&T>, f: impl FnOnce(&T) -> String) -> String {
+    v.map_or_else(|| "null".into(), f)
 }
-fn list<T>(v: &[T], f: impl FnMut(&T) -> KotlinValue) -> KotlinValue {
-    KotlinValue::List(v.iter().map(f).collect())
+fn list<T>(v: &[T], f: impl FnMut(&T) -> String) -> String {
+    format!("[{}]", v.iter().map(f).collect::<Vec<_>>().join(", "))
 }
-fn string_map(v: &[(String, String)]) -> KotlinValue {
-    KotlinValue::Map(v.iter().map(|(k, v)| (k.as_str().into(), text(v))).collect())
+fn map(entries: Vec<(String, String)>) -> String {
+    format!(
+        "{{{}}}",
+        entries
+            .into_iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+fn string_map(v: &[(String, String)]) -> String {
+    map(v.to_vec())
 }
 
-impl Kotlin for OutputConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for OutputConfiguration {
+    fn result_text(&self) -> String {
         data(
             "OutputConfiguration",
             vec![
@@ -224,8 +227,8 @@ impl Kotlin for OutputConfiguration {
         )
     }
 }
-impl Kotlin for Defaults {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for Defaults {
+    fn result_text(&self) -> String {
         data(
             "Defaults",
             vec![
@@ -239,8 +242,8 @@ impl Kotlin for Defaults {
         )
     }
 }
-impl Kotlin for RetentionPolicyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for RetentionPolicyConfiguration {
+    fn result_text(&self) -> String {
         data(
             "RetentionPolicyConfiguration",
             vec![
@@ -253,8 +256,8 @@ impl Kotlin for RetentionPolicyConfiguration {
         )
     }
 }
-impl Kotlin for InfluxDb2RetentionPolicyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for InfluxDb2RetentionPolicyConfiguration {
+    fn result_text(&self) -> String {
         data(
             "RetentionPolicyConfiguration",
             vec![
@@ -264,9 +267,9 @@ impl Kotlin for InfluxDb2RetentionPolicyConfiguration {
         )
     }
 }
-impl Kotlin for AnalyticsConfiguration {
-    fn kotlin(&self) -> KotlinValue {
-        let masked = || KotlinValue::Text("'*****'".into());
+impl ResultText for AnalyticsConfiguration {
+    fn result_text(&self) -> String {
+        let masked = || "'*****'".to_owned();
         match self {
             Self::Disabled => text("DisabledAnalytics"),
             // The two `toString()` overrides hide credentials and omit
@@ -280,7 +283,7 @@ impl Kotlin for AnalyticsConfiguration {
                     ("dbName", quoted(&c.db_name)),
                     (
                         "retentionPolicyConfiguration",
-                        c.retention_policy_configuration.kotlin(),
+                        c.retention_policy_configuration.result_text(),
                     ),
                 ],
             ),
@@ -293,7 +296,7 @@ impl Kotlin for AnalyticsConfiguration {
                     ("bucket", quoted(&c.bucket)),
                     (
                         "retentionPolicyConfiguration",
-                        c.retention_policy_configuration.kotlin(),
+                        c.retention_policy_configuration.result_text(),
                     ),
                 ],
             ),
@@ -303,7 +306,7 @@ impl Kotlin for AnalyticsConfiguration {
                     ("host", text(&c.host)),
                     ("port", opt(c.port.as_ref(), |n| number(n))),
                     ("prefix", opt(c.prefix.as_ref(), |s| text(s))),
-                    ("defaults", c.defaults.kotlin()),
+                    ("defaults", c.defaults.result_text()),
                     ("readOnly", boolean(c.read_only)),
                 ],
             ),
@@ -311,8 +314,8 @@ impl Kotlin for AnalyticsConfiguration {
     }
 }
 
-impl Kotlin for PoolingStrategyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for PoolingStrategyConfiguration {
+    fn result_text(&self) -> String {
         let simple = match self {
             Self::Omni => "OmniPoolingStrategyConfiguration",
             Self::Abi => "AbiPoolingStrategyConfiguration",
@@ -322,23 +325,23 @@ impl Kotlin for PoolingStrategyConfiguration {
             Self::Combo(items) => {
                 return data(
                     "ComboPoolingStrategyConfiguration",
-                    vec![("list", list(items, Self::kotlin))],
+                    vec![("list", list(items, Self::result_text))],
                 );
             }
         };
         text(simple)
     }
 }
-impl Kotlin for ShardingStrategyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for ShardingStrategyConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::Count { count } => data("CountShardingStrategyConfiguration", vec![("count", number(count))]),
             Self::Parallel => text("ParallelShardingStrategyConfiguration"),
         }
     }
 }
-impl Kotlin for SortingStrategyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for SortingStrategyConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::ExecutionTime { percentile, time_limit } => data(
                 "ExecutionTimeSortingStrategyConfiguration",
@@ -353,8 +356,8 @@ impl Kotlin for SortingStrategyConfiguration {
         }
     }
 }
-impl Kotlin for BatchingStrategyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for BatchingStrategyConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::FixedSize {
                 size,
@@ -377,8 +380,8 @@ impl Kotlin for BatchingStrategyConfiguration {
         }
     }
 }
-impl Kotlin for FlakinessStrategyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for FlakinessStrategyConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::Ignore => text("IgnoreFlakinessStrategyConfiguration"),
             Self::Probability {
@@ -396,8 +399,8 @@ impl Kotlin for FlakinessStrategyConfiguration {
         }
     }
 }
-impl Kotlin for RetryStrategyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for RetryStrategyConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::FixedQuota {
                 total_allowed_retry_quota,
@@ -413,26 +416,26 @@ impl Kotlin for RetryStrategyConfiguration {
         }
     }
 }
-impl Kotlin for ExecutionStrategyConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for ExecutionStrategyConfiguration {
+    fn result_text(&self) -> String {
         data(
             "ExecutionStrategyConfiguration",
             vec![("mode", enumeration(self.mode)), ("fast", boolean(self.fast))],
         )
     }
 }
-impl Kotlin for FilteringConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for FilteringConfiguration {
+    fn result_text(&self) -> String {
         data(
             "FilteringConfiguration",
             vec![
-                ("allowlist", list(&self.allowlist, Kotlin::kotlin)),
-                ("blocklist", list(&self.blocklist, Kotlin::kotlin)),
+                ("allowlist", list(&self.allowlist, ResultText::result_text)),
+                ("blocklist", list(&self.blocklist, ResultText::result_text)),
             ],
         )
     }
 }
-fn values_filter(name: &str, f: &RegexValuesFileFilter) -> KotlinValue {
+fn values_filter(name: &str, f: &RegexValuesFileFilter) -> String {
     // Null `values` elements were dropped at bind (D9), so they cannot
     // show here, where Kotlin prints `null`.
     data(
@@ -445,8 +448,8 @@ fn values_filter(name: &str, f: &RegexValuesFileFilter) -> KotlinValue {
         ],
     )
 }
-impl Kotlin for TestFilterConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for TestFilterConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::SimpleClassname(f) => values_filter("SimpleClassnameFilterConfiguration", f),
             Self::SimpleTestname(f) => values_filter("SimpleTestnameFilterConfiguration", f),
@@ -493,7 +496,7 @@ impl Kotlin for TestFilterConfiguration {
             Self::Composition { filters, op, enabled } => data(
                 "CompositionFilterConfiguration",
                 vec![
-                    ("filters", list(filters, Self::kotlin)),
+                    ("filters", list(filters, Self::result_text)),
                     ("op", enumeration(*op)),
                     ("enabled", boolean(*enabled)),
                 ],
@@ -502,8 +505,8 @@ impl Kotlin for TestFilterConfiguration {
         }
     }
 }
-impl Kotlin for CiConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for CiConfiguration {
+    fn result_text(&self) -> String {
         text(match self {
             Self::Auto => "Auto",
             Self::None => "None",
@@ -512,22 +515,22 @@ impl Kotlin for CiConfiguration {
     }
 }
 
-impl Kotlin for VendorConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for VendorConfiguration {
+    fn result_text(&self) -> String {
         match self {
-            Self::Android(c) => c.kotlin(),
-            Self::Ios(c) => c.kotlin(),
-            Self::Macos(c) => c.kotlin(),
+            Self::Android(c) => c.result_text(),
+            Self::Ios(c) => c.result_text(),
+            Self::Macos(c) => c.result_text(),
             Self::Stub => text("StubVendorConfiguration"),
             Self::Empty => text("EmptyVendorConfiguration"),
         }
     }
 }
-fn paths(v: Option<&Vec<PathBuf>>) -> KotlinValue {
+fn paths(v: Option<&Vec<PathBuf>>) -> String {
     opt(v, |v| list(v, |p| path(p)))
 }
-impl Kotlin for AndroidConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AndroidConfiguration {
+    fn result_text(&self) -> String {
         data(
             "AndroidConfiguration",
             vec![
@@ -542,7 +545,10 @@ impl Kotlin for AndroidConfiguration {
                     "extraApplicationsOutput",
                     paths(self.extra_applications_output.as_ref()),
                 ),
-                ("outputs", opt(self.outputs.as_ref(), |v| list(v, Kotlin::kotlin))),
+                (
+                    "outputs",
+                    opt(self.outputs.as_ref(), |v| list(v, ResultText::result_text)),
+                ),
                 ("autoGrantPermission", boolean(self.auto_grant_permission)),
                 ("instrumentationArgs", string_map(&self.instrumentation_args)),
                 ("applicationPmClear", boolean(self.application_pm_clear)),
@@ -550,27 +556,30 @@ impl Kotlin for AndroidConfiguration {
                 ("adbInitTimeoutMillis", number(self.adb_init_timeout_millis)),
                 ("installOptions", text(&self.install_options)),
                 ("serialStrategy", enumeration(self.serial_strategy)),
-                ("screenRecordConfiguration", self.screen_record_configuration.kotlin()),
+                (
+                    "screenRecordConfiguration",
+                    self.screen_record_configuration.result_text(),
+                ),
                 (
                     "waitForDevicesTimeoutMillis",
                     number(self.wait_for_devices_timeout_millis),
                 ),
-                ("allureConfiguration", self.allure_configuration.kotlin()),
-                ("timeoutConfiguration", self.timeout_configuration.kotlin()),
-                ("fileSyncConfiguration", self.file_sync_configuration.kotlin()),
-                ("threadingConfiguration", self.threading_configuration.kotlin()),
-                ("testParserConfiguration", self.test_parser_configuration.kotlin()),
-                ("testAccessConfiguration", self.test_access_configuration.kotlin()),
-                ("adbServers", list(&self.adb_servers, Kotlin::kotlin)),
+                ("allureConfiguration", self.allure_configuration.result_text()),
+                ("timeoutConfiguration", self.timeout_configuration.result_text()),
+                ("fileSyncConfiguration", self.file_sync_configuration.result_text()),
+                ("threadingConfiguration", self.threading_configuration.result_text()),
+                ("testParserConfiguration", self.test_parser_configuration.result_text()),
+                ("testAccessConfiguration", self.test_access_configuration.result_text()),
+                ("adbServers", list(&self.adb_servers, ResultText::result_text)),
                 ("disableWindowAnimation", boolean(self.disable_window_animation)),
-                ("profilingConfiguration", self.profiling_configuration.kotlin()),
+                ("profilingConfiguration", self.profiling_configuration.result_text()),
                 ("mockLocation", boolean(self.mock_location)),
             ],
         )
     }
 }
-impl Kotlin for AndroidTestBundleConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AndroidTestBundleConfiguration {
+    fn result_text(&self) -> String {
         data(
             "AndroidTestBundleConfiguration",
             vec![
@@ -582,8 +591,8 @@ impl Kotlin for AndroidTestBundleConfiguration {
         )
     }
 }
-impl Kotlin for AndroidScreenRecordConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AndroidScreenRecordConfiguration {
+    fn result_text(&self) -> String {
         let video = &self.video_configuration;
         let screenshot = &self.screenshot_configuration;
         data(
@@ -623,8 +632,8 @@ impl Kotlin for AndroidScreenRecordConfiguration {
         )
     }
 }
-impl Kotlin for AllureConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AllureConfiguration {
+    fn result_text(&self) -> String {
         data(
             "AllureConfiguration",
             vec![
@@ -635,8 +644,8 @@ impl Kotlin for AllureConfiguration {
         )
     }
 }
-impl Kotlin for AndroidTimeoutConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AndroidTimeoutConfiguration {
+    fn result_text(&self) -> String {
         data(
             "TimeoutConfiguration",
             vec![
@@ -656,8 +665,8 @@ impl Kotlin for AndroidTimeoutConfiguration {
         )
     }
 }
-impl Kotlin for FileSyncConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for FileSyncConfiguration {
+    fn result_text(&self) -> String {
         let pull = |e: &FileSyncEntry| {
             data(
                 "FileSyncEntry",
@@ -680,8 +689,8 @@ impl Kotlin for FileSyncConfiguration {
         )
     }
 }
-impl Kotlin for AndroidThreadingConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AndroidThreadingConfiguration {
+    fn result_text(&self) -> String {
         data(
             "ThreadingConfiguration",
             vec![
@@ -692,8 +701,8 @@ impl Kotlin for AndroidThreadingConfiguration {
         )
     }
 }
-impl Kotlin for AndroidTestParserConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AndroidTestParserConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::Local => text("LocalTestParserConfiguration"),
             Self::Remote { instrumentation_args } => data(
@@ -703,8 +712,8 @@ impl Kotlin for AndroidTestParserConfiguration {
         }
     }
 }
-impl Kotlin for TestAccessConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for TestAccessConfiguration {
+    fn result_text(&self) -> String {
         data(
             "TestAccessConfiguration",
             vec![
@@ -716,16 +725,16 @@ impl Kotlin for TestAccessConfiguration {
         )
     }
 }
-impl Kotlin for AdbEndpoint {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AdbEndpoint {
+    fn result_text(&self) -> String {
         data(
             "AdbEndpoint",
             vec![("host", text(&self.host)), ("port", number(self.port))],
         )
     }
 }
-impl Kotlin for ProfilingConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for ProfilingConfiguration {
+    fn result_text(&self) -> String {
         data(
             "ProfilingConfiguration",
             vec![
@@ -737,30 +746,33 @@ impl Kotlin for ProfilingConfiguration {
     }
 }
 
-impl Kotlin for IosConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for IosConfiguration {
+    fn result_text(&self) -> String {
         data(
             "IOSConfiguration",
             vec![
-                ("bundle", opt(self.bundle.as_ref(), Kotlin::kotlin)),
-                ("deviceProvider", self.device_provider.kotlin()),
+                ("bundle", opt(self.bundle.as_ref(), ResultText::result_text)),
+                ("deviceProvider", self.device_provider.result_text()),
                 ("devicesFile", opt(self.devices_file.as_ref(), |p| path(p))),
-                ("ssh", self.ssh.kotlin()),
-                ("workerConnection", self.worker_connection.kotlin()),
-                ("xcresult", self.xcresult.kotlin()),
-                ("screenRecordConfiguration", self.screen_record_configuration.kotlin()),
-                ("xctestrunEnv", self.xctestrun_env.kotlin()),
-                ("lifecycleConfiguration", self.lifecycle_configuration.kotlin()),
-                ("permissions", self.permissions.kotlin()),
+                ("ssh", self.ssh.result_text()),
+                ("workerConnection", self.worker_connection.result_text()),
+                ("xcresult", self.xcresult.result_text()),
+                (
+                    "screenRecordConfiguration",
+                    self.screen_record_configuration.result_text(),
+                ),
+                ("xctestrunEnv", self.xctestrun_env.result_text()),
+                ("lifecycleConfiguration", self.lifecycle_configuration.result_text()),
+                ("permissions", self.permissions.result_text()),
                 ("mediaFiles", paths(self.media_files.as_ref())),
-                ("timeoutConfiguration", self.timeout_configuration.kotlin()),
-                ("threadingConfiguration", self.threading_configuration.kotlin()),
+                ("timeoutConfiguration", self.timeout_configuration.result_text()),
+                ("threadingConfiguration", self.threading_configuration.result_text()),
                 ("hideRunnerOutput", boolean(self.hide_runner_output)),
                 ("compactOutput", boolean(self.compact_output)),
-                ("rsync", self.rsync.kotlin()),
+                ("rsync", self.rsync.result_text()),
                 ("xcodebuildTestArgs", string_map(&self.xcodebuild_test_args)),
                 ("dataContainerClear", boolean(self.data_container_clear)),
-                ("testParserConfiguration", self.test_parser_configuration.kotlin()),
+                ("testParserConfiguration", self.test_parser_configuration.result_text()),
                 ("deviceLog", boolean(self.device_log)),
                 (
                     "signing",
@@ -778,37 +790,36 @@ impl Kotlin for IosConfiguration {
         )
     }
 }
-impl Kotlin for MacosConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for MacosConfiguration {
+    fn result_text(&self) -> String {
         data(
             "MacosConfiguration",
             vec![
-                ("bundle", opt(self.bundle.as_ref(), Kotlin::kotlin)),
-                ("deviceProvider", self.device_provider.kotlin()),
+                ("bundle", opt(self.bundle.as_ref(), ResultText::result_text)),
+                ("deviceProvider", self.device_provider.result_text()),
                 ("devicesFile", opt(self.devices_file.as_ref(), |p| path(p))),
-                ("ssh", self.ssh.kotlin()),
-                ("xcresult", self.xcresult.kotlin()),
-                ("xctestrunEnv", self.xctestrun_env.kotlin()),
-                ("timeoutConfiguration", self.timeout_configuration.kotlin()),
-                ("threadingConfiguration", self.threading_configuration.kotlin()),
+                ("ssh", self.ssh.result_text()),
+                ("xcresult", self.xcresult.result_text()),
+                ("xctestrunEnv", self.xctestrun_env.result_text()),
+                ("timeoutConfiguration", self.timeout_configuration.result_text()),
+                ("threadingConfiguration", self.threading_configuration.result_text()),
                 ("hideRunnerOutput", boolean(self.hide_runner_output)),
                 ("compactOutput", boolean(self.compact_output)),
-                ("rsync", self.rsync.kotlin()),
+                ("rsync", self.rsync.result_text()),
                 ("xcodebuildTestArgs", string_map(&self.xcodebuild_test_args)),
-                ("testParserConfiguration", self.test_parser_configuration.kotlin()),
+                ("testParserConfiguration", self.test_parser_configuration.result_text()),
                 (
                     "permissions",
                     data(
                         "PermissionsConfiguration",
                         vec![(
                             "grant",
-                            KotlinValue::Map(
-                                self.permissions
-                                    .grant
-                                    .iter()
-                                    .map(|(k, v)| (k.as_str().into(), list(v, |p| enumeration(*p))))
-                                    .collect(),
-                            ),
+                            map(self
+                                .permissions
+                                .grant
+                                .iter()
+                                .map(|(k, v)| (k.as_str().into(), list(v, |p| enumeration(*p))))
+                                .collect()),
                         )],
                     ),
                 ),
@@ -816,8 +827,8 @@ impl Kotlin for MacosConfiguration {
         )
     }
 }
-impl Kotlin for AppleTestBundleConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AppleTestBundleConfiguration {
+    fn result_text(&self) -> String {
         // `app`/`testApp`/`xctest` are body properties, outside the data
         // class `toString()`; the constructor's `tempDirFor` lambda is in it.
         data(
@@ -834,26 +845,29 @@ impl Kotlin for AppleTestBundleConfiguration {
         )
     }
 }
-impl Kotlin for DeviceProvider {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for DeviceProvider {
+    fn result_text(&self) -> String {
         match self {
             Self::Static { path: p } => data("Static", vec![("path", opt(p.as_ref(), |p| path(p)))]),
             Self::Dynamic { host, port } => data("Dynamic", vec![("host", text(host)), ("port", number(port))]),
         }
     }
 }
-impl Kotlin for SshConfiguration {
-    fn kotlin(&self) -> KotlinValue {
-        let authentication = self.authentication.as_ref().map_or(KotlinValue::Null, |a| match a {
-            // `PasswordAuthentication.toString()` hides the password (SshConfiguration.kt:58-60).
-            SshAuthentication::Password { username, .. } => {
-                data("PasswordAuthentication", vec![("username", quoted(username))])
-            }
-            SshAuthentication::PublicKey { username, key } => data(
-                "PublicKeyAuthentication",
-                vec![("username", text(username)), ("key", path(key))],
-            ),
-        });
+impl ResultText for SshConfiguration {
+    fn result_text(&self) -> String {
+        let authentication = self.authentication.as_ref().map_or_else(
+            || "null".into(),
+            |a| match a {
+                // `PasswordAuthentication.toString()` hides the password (SshConfiguration.kt:58-60).
+                SshAuthentication::Password { username, .. } => {
+                    data("PasswordAuthentication", vec![("username", quoted(username))])
+                }
+                SshAuthentication::PublicKey { username, key } => data(
+                    "PublicKeyAuthentication",
+                    vec![("username", text(username)), ("key", path(key))],
+                ),
+            },
+        );
         data(
             "SshConfiguration",
             vec![
@@ -867,8 +881,8 @@ impl Kotlin for SshConfiguration {
         )
     }
 }
-impl Kotlin for WorkerConnectionConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for WorkerConnectionConfiguration {
+    fn result_text(&self) -> String {
         data(
             "WorkerConnectionConfiguration",
             vec![
@@ -881,8 +895,8 @@ impl Kotlin for WorkerConnectionConfiguration {
         )
     }
 }
-impl Kotlin for XcresultConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for XcresultConfiguration {
+    fn result_text(&self) -> String {
         data(
             "XcresultConfiguration",
             vec![
@@ -927,8 +941,8 @@ impl Kotlin for XcresultConfiguration {
         )
     }
 }
-impl Kotlin for IosScreenRecordConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for IosScreenRecordConfiguration {
+    fn result_text(&self) -> String {
         let video = &self.video_configuration;
         let screenshot = &self.screenshot_configuration;
         data(
@@ -980,8 +994,8 @@ impl Kotlin for IosScreenRecordConfiguration {
         )
     }
 }
-impl Kotlin for XctestrunEnvConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for XctestrunEnvConfiguration {
+    fn result_text(&self) -> String {
         data(
             "XctestrunEnvConfiguration",
             vec![
@@ -991,8 +1005,8 @@ impl Kotlin for XctestrunEnvConfiguration {
         )
     }
 }
-impl Kotlin for LifecycleConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for LifecycleConfiguration {
+    fn result_text(&self) -> String {
         // Kotlin sets are HashSets with no defined order; ours keep
         // first-seen order (WP 2.3a P7).
         data(
@@ -1005,8 +1019,8 @@ impl Kotlin for LifecycleConfiguration {
         )
     }
 }
-impl Kotlin for IosPermissionsConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for IosPermissionsConfiguration {
+    fn result_text(&self) -> String {
         data(
             "PermissionsConfiguration",
             vec![
@@ -1016,8 +1030,8 @@ impl Kotlin for IosPermissionsConfiguration {
         )
     }
 }
-impl Kotlin for AppleTimeoutConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AppleTimeoutConfiguration {
+    fn result_text(&self) -> String {
         data(
             "TimeoutConfiguration",
             vec![
@@ -1041,8 +1055,8 @@ impl Kotlin for AppleTimeoutConfiguration {
         )
     }
 }
-impl Kotlin for AppleThreadingConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AppleThreadingConfiguration {
+    fn result_text(&self) -> String {
         data(
             "ThreadingConfiguration",
             vec![
@@ -1053,13 +1067,13 @@ impl Kotlin for AppleThreadingConfiguration {
         )
     }
 }
-impl Kotlin for RsyncConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for RsyncConfiguration {
+    fn result_text(&self) -> String {
         data("RsyncConfiguration", vec![("remotePath", text(&self.remote_path))])
     }
 }
-impl Kotlin for AppleTestParserConfiguration {
-    fn kotlin(&self) -> KotlinValue {
+impl ResultText for AppleTestParserConfiguration {
+    fn result_text(&self) -> String {
         match self {
             Self::Nm { test_class_regexes } => data(
                 "NmTestParserConfiguration",
@@ -1076,4 +1090,65 @@ where
     for<'a> crate::yaml_views::View<'a, T>: serde::Serialize,
 {
     crate::yaml::to_string(&crate::yaml_views::View(configuration))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::InfluxDb2Configuration;
+    use serde_json::Value;
+
+    // Moved from jcompat's generic writer models: exercise the actual result
+    // projection, retaining the historical configuration/masking expectations.
+    #[test]
+    fn recorded_configuration_text_and_masking_stay_exact() -> Result<(), Box<dyn std::error::Error>> {
+        let rows = include_str!("../../../fixtures/oracle/jcompat/kotlin_to_string.jsonl")
+            .lines()
+            .skip(1)
+            .map(serde_json::from_str::<Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        let row = |id: &str| &rows.iter().find(|r| r["id"] == id).unwrap()["toString"];
+        let output = OutputConfiguration {
+            max_path: 0,
+            max_filename: 255,
+        };
+        for id in ["toMap-default", "toMap-full"] {
+            assert_eq!(output.result_text(), row(id)["outputConfiguration"].as_str().unwrap());
+        }
+        let analytics = AnalyticsConfiguration::InfluxDb2(InfluxDb2Configuration {
+            url: "u".into(),
+            token: "t".into(),
+            organization: "o".into(),
+            bucket: "b".into(),
+            retention_policy_configuration: InfluxDb2RetentionPolicyConfiguration::default_policy(),
+            defaults: Defaults {
+                success_rate: 0.0,
+                duration: jcompat::jtime::duration_of(300, 0).unwrap(),
+                observed_duration_min_tests: None,
+            },
+            read_only: false,
+        });
+        assert_eq!(analytics.result_text(), row("Duration-Instant-File").as_str().unwrap());
+        let historical = row("object").as_str().unwrap();
+        assert_eq!(
+            SortingStrategyConfiguration::NoSorting.result_text(),
+            historical.rsplit('$').next().unwrap().split('@').next().unwrap()
+        );
+        let ssh = SshConfiguration {
+            authentication: Some(SshAuthentication::Password {
+                username: "runner".into(),
+                password: "secret-do-not-print".into(),
+            }),
+            known_hosts_path: None,
+            keep_alive_interval: jcompat::jtime::duration_of(1, 0).unwrap(),
+            keep_alive_max_count: 4,
+            debug: false,
+            share_worker_connection: true,
+        };
+        assert_eq!(
+            ssh.result_text(),
+            "SshConfiguration(authentication=PasswordAuthentication(username='runner'), knownHostsPath=null, keepAliveInterval=PT1S, keepAliveMaxCount=4, debug=false, shareWorkerConnection=true)"
+        );
+        Ok(())
+    }
 }

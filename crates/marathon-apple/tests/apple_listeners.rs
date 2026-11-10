@@ -640,7 +640,7 @@ fn oracle_rows() -> Vec<Value> {
         .collect()
 }
 fn projection(results: &[TestResult]) -> Value {
-    json!(results.iter().map(|r|json!({"test":r.test.kotlin_value().render().to_owned(),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.clone()})).collect::<Vec<_>>())
+    json!(results.iter().map(|r|json!({"test":support::rendering::test_text(&r.test),"status":match r.status {TestStatus::Passed=>"PASSED",TestStatus::Failure=>"FAILURE",TestStatus::Ignored=>"IGNORED",TestStatus::Incomplete=>"INCOMPLETE",TestStatus::AssumptionFailure=>"ASSUMPTION_FAILURE"},"start":r.start_time,"end":r.end_time,"trace":r.stacktrace.clone()})).collect::<Vec<_>>())
 }
 #[tokio::test]
 async fn jvm_listener_production_and_test_sequences_keep_a6_and_incomplete_zero_end() {
@@ -724,7 +724,6 @@ async fn jvm_debug_lines_and_approved_artifact_order() {
         .unwrap();
     debug.test_run_ended().await.unwrap();
     debug.after_test_run().await.unwrap();
-    let row = oracle_rows().into_iter().find(|r| r["kind"] == "debug").unwrap();
     let actual: Vec<_> = h
         .messages
         .lock()
@@ -733,13 +732,21 @@ async fn jvm_debug_lines_and_approved_artifact_order() {
         .filter(|(n, _)| n == "marathon_apple::listener::debug")
         .map(|(_, m)| m.clone())
         .collect();
-    let expected: Vec<_> = marathon_test_support::recorded_logs::native_logs(&row["logs"])
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|r| r["message"].as_str().unwrap().to_owned())
-        .collect();
-    assert_eq!(actual, expected);
+    assert_eq!(
+        actual,
+        [
+            "testRunStarted serial",
+            "testStarted serial test = p.C#m",
+            "testStarted serial test = p.C#m",
+            "testFailed serial test = p.C#m, timespan = [10,20], trace = \nnull",
+            "testFailed serial test = p.C#m, timespan = [10,20], trace = \nfirst\nsecond",
+            "testPassed serial test = p.C#m, timespan = [10,20]",
+            "testIgnored serial test = p.C#m, timespan = [10,20]",
+            "testRunFailed serial errorMessage = error",
+            "testRunEnded",
+            "afterTestRun",
+        ]
+    );
     for row in oracle_rows().into_iter().filter(|r| r["kind"] == "artifact") {
         let finder = SessionResultsPathFinder::new(logging.clone());
         h.messages.lock().unwrap().clear();

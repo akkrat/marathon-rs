@@ -852,9 +852,7 @@ async fn reachability_reports_immediate_broadcast_and_multicast_failures_as_unre
         };
         assert_eq!(
             error.message,
-            format!(
-                "Ssh(addr={host}, port=22, authentication=null, checkReachability=true) is not reachable within 150 ms"
-            )
+            format!("ssh {host}:22 (authentication=none, check_reachability=true) is not reachable within 150 ms")
         );
     }
 }
@@ -988,4 +986,41 @@ async fn zero_budget_reachability_observes_the_nonblocking_connect_race() {
             );
         }
     }
+}
+
+#[test]
+fn diagnostic_transport_text_redacts_passwords_and_keeps_authentication_details() {
+    let transport = |authentication| Transport::Ssh {
+        addr: "worker.invalid".into(),
+        port: 2222,
+        authentication,
+        check_reachability: true,
+    };
+    assert_eq!(transport_text(&Transport::Local, "Local"), "Local");
+    assert_eq!(
+        transport_text(&transport(None), "Local"),
+        "ssh worker.invalid:2222 (authentication=none, check_reachability=true)"
+    );
+    let text = transport_text(
+        &transport(Some(SshAuthentication::Password {
+            username: "runner".into(),
+            password: "secret-do-not-print".into(),
+        })),
+        "Local",
+    );
+    assert_eq!(
+        text,
+        "ssh worker.invalid:2222 (authentication=password (user='runner'), check_reachability=true)"
+    );
+    assert!(!text.contains("secret-do-not-print"));
+    assert_eq!(
+        transport_text(
+            &transport(Some(SshAuthentication::PublicKey {
+                username: "runner".into(),
+                key: "/keys/test-key".into()
+            })),
+            "Local"
+        ),
+        "ssh worker.invalid:2222 (authentication=public key (user=runner, key=/keys/test-key), check_reachability=true)"
+    );
 }

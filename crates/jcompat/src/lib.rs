@@ -12,7 +12,6 @@ pub mod jackson;
 pub mod jnum;
 pub mod jstring;
 pub mod jtime;
-pub mod writers;
 
 mod regex;
 pub use regex::{JavaRegex, RegexCompileError, RegexOperationError};

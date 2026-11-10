@@ -447,34 +447,43 @@ fn to_map(lines: &[String], delimiter: &str) -> Result<MetricMap, Instrumentatio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jcompat::writers::KotlinValue;
 
     // Port of adam 0.5.8 InstrumentationResponseTransformerTest: the Kotlin
     // tests compare event data-class toString() lines against .expected
-    // files, so events are rendered with jcompat's KotlinValue (PLAN §6.2).
+    // files. This test-only adapter preserves those historical witnesses.
 
-    fn text(value: &str) -> KotlinValue {
-        KotlinValue::Text(value.to_string())
+    fn text(value: &str) -> String {
+        value.to_owned()
     }
-    fn number(value: &str) -> KotlinValue {
-        KotlinValue::Text(value.into())
+    fn number(value: &str) -> String {
+        value.to_owned()
     }
-    fn data_class(name: &str, fields: Vec<(&str, KotlinValue)>) -> KotlinValue {
-        KotlinValue::DataClass {
-            name: name.into(),
-            fields: fields.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-        }
+    fn data_class(name: &str, fields: Vec<(&str, String)>) -> String {
+        let fields = fields
+            .into_iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{name}({fields})")
     }
-    fn id_value(id: &TestIdentifier) -> KotlinValue {
+    fn id_value(id: &TestIdentifier) -> String {
         data_class(
             "TestIdentifier",
             vec![("className", text(&id.class_name)), ("testName", text(&id.test_name))],
         )
     }
-    fn metrics_value(metrics: &MetricMap) -> KotlinValue {
-        KotlinValue::Map(metrics.entries().iter().map(|(k, v)| (text(k), text(v))).collect())
+    fn metrics_value(metrics: &MetricMap) -> String {
+        format!(
+            "{{{}}}",
+            metrics
+                .entries()
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
-    fn event_value(event: &TestEvent) -> KotlinValue {
+    fn event_value(event: &TestEvent) -> String {
         match event {
             TestEvent::TestRunStartedEvent { test_count } => data_class(
                 "TestRunStartedEvent",
@@ -517,11 +526,7 @@ mod tests {
     }
 
     fn rendered(events: &[TestEvent]) -> String {
-        events
-            .iter()
-            .map(|e| event_value(e).render())
-            .collect::<Vec<_>>()
-            .join("\n")
+        events.iter().map(event_value).collect::<Vec<_>>().join("\n")
     }
 
     fn feed_line_by_line(

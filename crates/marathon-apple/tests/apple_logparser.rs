@@ -127,7 +127,7 @@ fn test() -> Result<(), Box<dyn std::error::Error>> {
         let mut actual = vec![];
         for line in input.lines() {
             for event in parser.process(line)?.into_iter().flatten() {
-                actual.push(event.to_kotlin_string().to_owned());
+                actual.push(support::rendering::event_text(&event));
             }
         }
         // D45: Kotlin's expectation holds except that a hang now reports its line as the trace.
@@ -671,7 +671,7 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 Ok(events) => {
                     let thrown = text.contains(D45_MARKER) && d45.is_some();
                     assert_eq!(entry["exception"].is_null(), !thrown, "{}: {text:?}", row["case"]);
-                    let events = events.map(|v| v.iter().map(|e| e.to_kotlin_string().to_owned()).collect::<Vec<_>>());
+                    let events = events.map(|v| v.iter().map(support::rendering::event_text).collect::<Vec<_>>());
                     // D39: the JVM aborts on this name, recorded as TestRunFailed; here the test starts.
                     let expected = if row["case"] == "failure-literals" && text == D39_WITNESS {
                         assert_eq!(
