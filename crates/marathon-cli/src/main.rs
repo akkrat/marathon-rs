@@ -9,7 +9,7 @@ use jcompat::jtime::instant_of;
 use marathon_cli::{
     application::{CliOutput, Process, failure_exit},
     run_cli,
-    runner::{ProductionRunner, missing_vendors},
+    runner::{ProductionRunner, missing_vendors, warn_quit_installation},
 };
 use marathon_error::FailureKind;
 use std::{
@@ -38,13 +38,17 @@ fn stdout_target() -> OutputTarget {
 
 fn main() -> ExitCode {
     #[cfg(unix)]
-    if let Err(error) = marathon_core::diagnostics::install_quit_handler() {
-        return failure_exit(FailureKind::Io, &error.to_string());
-    }
+    let quit_error = marathon_core::diagnostics::install_quit_handler().err();
+    #[cfg(not(unix))]
+    let quit_error = None;
     let args: Vec<String> = std::env::args_os()
         .skip(1)
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
+    run(args, quit_error)
+}
+
+fn run(args: Vec<String>, quit_error: Option<io::Error>) -> ExitCode {
     let cwd = match std::env::current_dir() {
         Ok(cwd) => cwd,
         Err(e) => return failure_exit(FailureKind::Io, &e.to_string()),
@@ -77,6 +81,9 @@ fn main() -> ExitCode {
     if let Err(error) = tracing::dispatcher::set_global_default(output.console().tracing_dispatch()) {
         return failure_exit(FailureKind::IllegalState, &error.to_string());
     }
+    if let Some(error) = quit_error {
+        warn_quit_installation(&error, &output.console());
+    }
     let runner = ProductionRunner {
         factories: std::sync::Arc::new(missing_vendors()),
         cwd: process.cwd.clone(),
@@ -87,4 +94,16 @@ fn main() -> ExitCode {
     };
     let code = run_cli(&args, &process, &runner, &output);
     ExitCode::from(u8::try_from(code).unwrap_or(1))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn sigquit_installation_failure_does_not_fail_help() {
+        let status = super::run(
+            vec!["--help".into()],
+            Some(std::io::Error::other("injected registration failure")),
+        );
+        assert_eq!(status, std::process::ExitCode::SUCCESS);
+    }
 }

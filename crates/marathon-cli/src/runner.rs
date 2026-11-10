@@ -27,6 +27,17 @@ use std::{
     thread::JoinHandle,
 };
 
+/// SIGQUIT diagnostics are optional; failure must not prevent even help or vendor construction.
+/// The startup entry point and embedded runners share one warning per process.
+pub fn warn_quit_installation(error: &std::io::Error, console: &Console) {
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::dispatcher::with_default(&console.tracing_dispatch(), || {
+            tracing::warn!(target: "marathon_core::diagnostics", "SIGQUIT state dumps unavailable: {error}; continuing without SIGQUIT diagnostics");
+        });
+    }
+}
+
 /// The process facts a run needs beyond the configuration.
 pub struct ProductionRunner {
     pub factories: Arc<VendorFactories>,
@@ -133,10 +144,7 @@ impl ProductionRunner {
     ) -> Result<Box<dyn MarathonRun>, Failure> {
         #[cfg(unix)]
         if let Err(error) = marathon_core::diagnostics::install_quit_handler() {
-            return Err(marathon_core::executor::shared::failure(
-                marathon_error::FailureKind::Io,
-                &error.to_string(),
-            ));
+            warn_quit_installation(&error, &console);
         }
         let factories = self.factories.clone();
         let analytics = configuration.analytics_configuration.clone();

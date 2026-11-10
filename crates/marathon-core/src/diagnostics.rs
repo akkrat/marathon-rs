@@ -58,6 +58,18 @@ pub(crate) fn omitted(out: &mut String, count: usize, kind: &str) {
     }
 }
 
+/// A broken diagnostic must not fail its owning core job and cancel execution.
+#[cfg(unix)]
+pub(crate) fn capture(build: impl FnOnce() -> String) -> String {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(dump) => dump,
+        Err(_) => "SIGQUIT state dump unavailable: construction panicked; run continues".into(),
+    }
+}
+
+#[cfg(unix)]
+static INSTALLATION: std::sync::OnceLock<Result<(), (std::io::ErrorKind, String)>> = std::sync::OnceLock::new();
+
 #[cfg(unix)]
 static REQUESTS: std::sync::OnceLock<QuitRequests> = std::sync::OnceLock::new();
 
@@ -106,40 +118,88 @@ impl QuitRequests {
 /// of D52 cancellation and of the run's vendor runtime. Before/after a run no dump is needed.
 #[cfg(unix)]
 pub fn install_quit_handler() -> std::io::Result<()> {
-    static INSTALLED: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
-    let mut installed = INSTALLED
-        .lock()
-        .map_err(|_| std::io::Error::other("SIGQUIT installation lock poisoned"))?;
-    if *installed {
-        return Ok(());
+    // Remember both failure and inherited ignore: main and embedded runners share
+    // one attempt, and a later disposition change must not override initial SIG_IGN.
+    let result = INSTALLATION.get_or_init(|| {
+        if crate::marathon::signal_ignored(nix::libc::SIGQUIT) {
+            return Ok(());
+        }
+        install().map_err(|error| (error.kind(), error.to_string()))
+    });
+    match result {
+        Ok(()) => Ok(()),
+        Err((kind, message)) => Err(std::io::Error::new(*kind, message.clone())),
     }
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_io().build()?;
-    let stream = {
-        let _entered = runtime.enter();
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::quit())?
-    };
+}
+
+#[cfg(unix)]
+fn install() -> std::io::Result<()> {
     let requests = REQUESTS.get_or_init(QuitRequests::default);
+    let (ready, installed) = std::sync::mpsc::sync_channel(1);
     std::thread::Builder::new()
         .name("marathon-diagnostics".into())
         .spawn(move || {
-            runtime.block_on(async move {
-                let mut stream = stream;
-                while stream.recv().await.is_some() {
-                    requests.signal();
+            // Build/register on the driver's own thread so failed setup can also
+            // drop its runtime safely when an embedded caller is already async.
+            let setup = (|| -> std::io::Result<_> {
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_io().build()?;
+                let stream = {
+                    let _entered = runtime.enter();
+                    tokio::signal::unix::signal(tokio::signal::unix::SignalKind::quit())?
+                };
+                Ok((runtime, stream))
+            })();
+            match setup {
+                Err(error) => {
+                    let _ = ready.send(Err(error));
                 }
-            });
+                Ok((runtime, mut stream)) => {
+                    if ready.send(Ok(())).is_err() {
+                        return;
+                    }
+                    runtime.block_on(async move {
+                        while stream.recv().await.is_some() {
+                            requests.signal();
+                        }
+                    });
+                }
+            }
         })?;
-    *installed = true;
-    Ok(())
+    installed
+        .recv()
+        .map_err(|_| std::io::Error::other("SIGQUIT driver stopped during installation"))?
 }
 
 #[cfg(unix)]
 pub(crate) fn requests() -> Option<&'static QuitRequests> {
+    INSTALLATION.get()?.as_ref().ok()?;
     REQUESTS.get()
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_panicking_dump_does_not_end_the_listener_task() {
+        let listener = tokio::spawn(async {
+            let state = std::cell::RefCell::new(0);
+            let warning = super::capture(|| {
+                let _borrow = state.borrow_mut();
+                panic!("injected snapshot panic");
+            });
+            let next = super::capture(|| {
+                *state.borrow_mut() += 1;
+                "next SIGQUIT dump".into()
+            });
+            (warning, next)
+        });
+        let result = listener.await;
+        assert!(result.is_ok(), "dump panic escaped the listener: {result:?}");
+        let (warning, next) = result.unwrap();
+        assert!(warning.contains("construction panicked; run continues"));
+        assert_eq!(next, "next SIGQUIT dump");
+    }
+
     #[cfg(unix)]
     #[test]
     fn observed_signals_are_retained_until_the_core_takes_each_one() {

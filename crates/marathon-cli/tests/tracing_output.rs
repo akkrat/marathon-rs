@@ -432,3 +432,26 @@ fn crash_events_preserve_external_trace_whitespace() -> Result<(), Box<dyn std::
     assert!(text.contains("external frame \t\n"), "{text:?}");
     Ok(())
 }
+
+#[test]
+fn sigquit_installation_failure_warns_once_and_remains_visible_with_debug_off() -> Result<(), Box<dyn std::error::Error>>
+{
+    let buffer = Buffer::default();
+    let (tracing, guard) = setup(buffer.clone(), false)?;
+    tracing.configure(Configurator::Android, false)?;
+    let output = CliOutput::traced(tracing, Box::new(io::sink()));
+    let error = io::Error::other("injected SIGQUIT registration failure");
+    for _ in 0..2 {
+        marathon_cli::runner::warn_quit_installation(&error, &output.console());
+    }
+    guard.shutdown()?;
+    let text = buffer.text()?;
+    assert_eq!(
+        text.matches("WARN marathon_core::diagnostics: SIGQUIT state dumps unavailable:")
+            .count(),
+        1,
+        "{text}"
+    );
+    assert!(text.contains("continuing without SIGQUIT diagnostics"), "{text}");
+    Ok(())
+}

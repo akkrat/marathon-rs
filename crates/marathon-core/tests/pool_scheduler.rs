@@ -243,6 +243,7 @@ fn no_devices_timeouts_keep_subscription_alive() {
                 let run = Run::new(&h, c);
                 h.advance_until_idle().await;
                 compare(&format!("timeout-{timeout}"), run.snapshot(&h));
+                assert!(run.scheduler.state_dump().contains("phase=finished"));
                 run.finish(&h).await;
             })
         });
@@ -416,6 +417,7 @@ fn external_timeout_preserves_caller_reason_and_cancels_detached_job() {
             run.parent.cancel(reason.clone());
             h.run_current().await;
             assert_eq!(*run.result.borrow(), Some((0, Err(VendorError::Cancelled(reason)))));
+            assert!(run.scheduler.state_dump().contains("phase=finished"));
             assert_eq!(
                 run.scheduler.job().state(),
                 JobState::Completed(Completion::Cancelled(job_was_cancelled()))
@@ -1710,6 +1712,40 @@ fn state_dump_bounds_running_test_names_and_reads_suspended_devices_d66() {
             assert!(
                 dump.contains("tests_left=0 worker_retry_tests_pending=0 active_batches=1"),
                 "{dump}"
+            );
+            run.finish(&h).await;
+        })
+    });
+}
+
+#[test]
+fn state_dump_does_not_date_derived_termination_from_prepare_d66() {
+    let c = configured(1000, false);
+    scheduling_test(move |h| {
+        Box::pin(async move {
+            let run = Run::new(&h, c);
+            let gate = Gate::default();
+            run.connect(&TestDevice::new(
+                "preparing",
+                None,
+                Some(prepare_on(&gate)),
+                report_passed(),
+            ));
+            h.run_current().await;
+            assert!(run.scheduler.state_dump().contains("state=preparing since_ms_ago="));
+            run.scheduler.job().cancel(job_was_cancelled());
+            let dump = run.scheduler.state_dump();
+            let device = dump
+                .lines()
+                .find(|line| line.contains("device=preparing "))
+                .expect("retained device");
+            assert!(
+                device.contains("state=terminating") || device.contains("state=terminated"),
+                "{dump}"
+            );
+            assert!(
+                !device.contains("since_ms_ago="),
+                "prepare's timestamp must not date termination: {dump}"
             );
             run.finish(&h).await;
         })

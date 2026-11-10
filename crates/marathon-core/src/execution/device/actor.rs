@@ -69,7 +69,11 @@ impl DeviceActorRef {
             name(&self.device.0.info().serial_number)
         );
         if let Some(shared) = self.shared.upgrade() {
-            let _ = write!(out, " since_ms_ago={}", shared.state_since.get().elapsed().as_millis());
+            // Lost/cancelling/completed job states can precede the machine transition.
+            // Its timestamp does not date those derived states.
+            if matches!(state, "connected" | "idle" | "preparing" | "running") {
+                let _ = write!(out, " since_ms_ago={}", shared.state_since.get().elapsed().as_millis());
+            }
             for (label, job) in [
                 ("prepare_task", shared.initialize_job.borrow().clone()),
                 ("execute_task", shared.execute_job.borrow().clone()),

@@ -92,7 +92,6 @@ impl Scheduler {
         }
     }
 
-    /// The detached job, the Kotlin `job` field: cancelling it stops every pool, queue and device actor.
     /// Bounded, synchronous view of existing core state; sends no actor or worker commands.
     pub fn state_dump(&self) -> String {
         let mut out = String::new();
@@ -118,6 +117,7 @@ impl Scheduler {
         }
         omitted(out, pools.len().saturating_sub(MAX_POOLS), "pools");
     }
+    /// The detached job, the Kotlin `job` field: cancelling it stops every pool, queue and device actor.
     pub fn job(&self) -> JobRef {
         self.inner.job.clone()
     }
@@ -135,6 +135,12 @@ impl Scheduler {
     /// `true` if the scheduled tests passed. Without a pool before
     /// `deviceInitializationTimeoutMillis`, NoDevices with an empty message.
     pub async fn execute(&self) -> VendorResult<bool> {
+        let result = self.execute_inner().await;
+        self.inner.phase.set("finished");
+        result
+    }
+
+    async fn execute_inner(&self) -> VendorResult<bool> {
         let inner = &self.inner;
         let context = inner.parts.context.clone();
         Inner::subscribe_on_devices(inner.clone());
@@ -200,11 +206,9 @@ impl Scheduler {
         inner.phase.set("aggregating-results");
         for progress in results {
             if !progress.lock().await.aggregate_result()? {
-                inner.phase.set("finished");
                 return Ok(false);
             }
         }
-        inner.phase.set("finished");
         Ok(true)
     }
 }

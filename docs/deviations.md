@@ -1440,8 +1440,12 @@ The JVM handles Unix SIGQUIT by writing a thread dump and continuing. The native
 runner previously kept the OS default: SIGQUIT killed it immediately, before a
 CI wrapper's later SIGTERM could write reports through D52.
 
-Native builds install a separate SIGQUIT listener before configuration loading.
-Each observed delivery during a run queues one bounded diagnostic at WARN on
+Native builds attempt to install a separate SIGQUIT listener before configuration
+loading, unless SIGQUIT was inherited as ignored. An inherited ignore remains
+ignored, as with D52's SIGINT/SIGTERM relay. If installation fails, the CLI logs
+one WARN and continues with the previous OS behavior, including for `--help`.
+With a handler installed, each observed delivery during a run queues one bounded
+diagnostic at WARN on
 `marathon_core::diagnostics`, visible with either debug setting. It uses the normal
 console writer (stdout), including compact formatting, with an explicit Unix
 millisecond timestamp in its header. Execution continues; SIGQUIT never requests
@@ -1450,7 +1454,10 @@ shutdown or counts as D52's first or second SIGINT/SIGTERM.
 The dump shows scheduler phase and job state, pool and device-state totals,
 queue counts, and devices preparing, idle, running a named batch, lost or
 terminating. Running batches include elapsed state time and a bounded test list.
-It reads existing core state without sending worker commands. Queue counts are
+State ages are printed only for states dated by the device state machine, not for derived
+lost, cancelling or completed states. Scheduler phase becomes `finished` on error
+returns too. A panic while constructing a dump produces a WARN instead; the dump
+task stays alive and execution is not cancelled. It reads existing core state without sending worker commands. Queue counts are
 labelled as the last queue boundary; worker-affinity retry counts cover only
 retries already represented in the existing worker map. Other pending retries
 remain included in `tests_left`, without a separately tracked count.
@@ -1460,8 +1467,16 @@ per running device, 160 bytes per identifier and 64 KiB per dump. Omitted counts
 are printed. This is a state snapshot, not a native stack trace or worker-command
 trace. Before a run and after it finishes, no dump is required; the handler stays
 installed. During D52 shutdown it remains independent and cannot accelerate or
-restart cleanup. Ordinary Unix signal coalescing still applies. Non-Unix builds
-have no SIGQUIT listener.
+restart cleanup. Dumps are unthrottled; ordinary Unix signal coalescing still
+applies. Non-Unix builds have no SIGQUIT listener.
+
+A wrapper that signals the process group also ends local child commands such as
+xcodebuild, as with the JVM build; remote commands over SSH and adb traffic are
+unaffected. Local simctl commands and short-lived `adb start-server` processes
+also inherit the process group and default SIGQUIT disposition. Their loss can
+fail or retry a batch through the existing paths before the later SIGTERM.
+Kotlin's `ProcessBuilder` children have the same behavior. Moving children into
+their own process groups is out of scope.
 
 Approved 2026-11-11 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the

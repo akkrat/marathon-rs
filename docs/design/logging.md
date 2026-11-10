@@ -130,10 +130,13 @@ The production signal path (`ProductionRunner` in
 D52's behaviour:
 
 - **SIGQUIT (D66):** a separate process-lifetime Unix listener is installed before
-  config loading. During a run it notifies a core snapshot task, which queues one
+  config loading unless the signal was inherited as ignored. Setup failure warns
+  once and lets every command continue with previous OS behavior. During a run
+  the listener notifies a core snapshot task, which queues one
   bounded WARN event on `marathon_core::diagnostics` through the same writer. The
   explicit header timestamp remains in compact output. It never enters the
-  shutdown relay; before/after a run it may be silent.
+  shutdown relay; before/after a run it may be silent. Dump construction panics
+  become WARN events and leave the task running. Dumps remain unthrottled.
 - **First SIGINT/SIGTERM:** cancel and write what can be written (reports, then the
   summary), bounded by the existing cancel limit. The exit path runs off
   core: `exit_after_preparing` does the final queue forwarding on the

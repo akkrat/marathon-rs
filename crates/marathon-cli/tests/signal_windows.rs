@@ -247,6 +247,12 @@ fn signal_child() {
     let marathon = runner
         .construct(Arc::new(factory.configuration.clone()), cli.logging(), cli.console())
         .unwrap_or_else(|e| panic!("{e:?}"));
+    if mode == "ignored-quit" {
+        assert!(
+            signal_ignored(Signal::SIGQUIT as i32),
+            "inherited SIGQUIT ignore was replaced"
+        );
+    }
     let _ = marathon.run(ExecutionCommand::Parse {
         output_file_name: None,
         include_flaky_tests: false,
@@ -681,5 +687,17 @@ fn sigquit_after_the_run_finishes_does_not_end_the_process_d66() -> Result<(), B
     assert!(stderr.saw("MARKER alive"));
     let status = signalled_wait(&mut child, PATIENCE).ok_or("post-run child never returned")?;
     assert_eq!(status.code(), Some(RETURNED), "{status:?}");
+    Ok(())
+}
+
+#[test]
+fn inherited_ignored_sigquit_stays_ignored_d66() -> Result<(), Box<dyn std::error::Error>> {
+    if inherited_ignored(Signal::SIGTERM) {
+        return Ok(());
+    }
+    let mut child = started("ignored-quit", Some("QUIT"));
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGQUIT)?;
+    let status = signalled(&mut child, Signal::SIGTERM, PATIENCE).ok_or("SIGTERM should still exit")?;
+    assert_eq!(status.code(), Some(143), "{status:?}");
     Ok(())
 }

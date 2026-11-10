@@ -1127,18 +1127,21 @@ impl Marathon {
                         if let futures_util::future::Either::Left(_) = race(signal.cancelled(), requests.next()).await {
                             break;
                         }
-                        let mut dump = crate::diagnostics::header();
-                        dump.push_str(if marathon.cleaned_up.get() {
-                            "run=finishing\n"
-                        } else {
-                            "run=active\n"
+                        let dump = crate::diagnostics::capture(|| {
+                            let mut dump = crate::diagnostics::header();
+                            dump.push_str(if marathon.cleaned_up.get() {
+                                "run=finishing\n"
+                            } else {
+                                "run=active\n"
+                            });
+                            if let Some(scheduler) = marathon.diagnostic_scheduler.borrow().as_ref() {
+                                scheduler.diagnostic(&mut dump);
+                            } else {
+                                dump.push_str("scheduler=not-started (configuration, preparation or parsing)\n");
+                            }
+                            crate::diagnostics::bound(&mut dump);
+                            dump
                         });
-                        if let Some(scheduler) = marathon.diagnostic_scheduler.borrow().as_ref() {
-                            scheduler.diagnostic(&mut dump);
-                        } else {
-                            dump.push_str("scheduler=not-started (configuration, preparation or parsing)\n");
-                        }
-                        crate::diagnostics::bound(&mut dump);
                         marathon.log(crate::diagnostics::TARGET, Level::WARN, dump, None);
                         // A burst of diagnostic requests must let execution and D52's timer run.
                         tokio::task::yield_now().await;

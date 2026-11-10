@@ -5,8 +5,11 @@ Approved 2026-11-11 (project owner's decision). Base: `65c70cd8`.
 ## Design
 
 Unix SIGQUIT is independent of D52's SIGINT/SIGTERM relay. The CLI installs its
-handler before reading configuration; `ProductionRunner` also installs it
-idempotently before vendor construction for embedded callers. A named process-life
+handler before reading configuration when SIGQUIT was not inherited as ignored;
+`ProductionRunner` also attempts setup idempotently before vendor construction
+for embedded callers. Success, inherited ignore and installation failure are
+remembered across those entry points. Failure warns once and never prevents the
+command, including `--help`, from continuing. A named process-life
 thread owns a small Tokio signal driver. An atomic counter retains every observed
 delivery until the core consumes it; notification adds no extra coalescing. It does no
 console I/O and never calls an exit function. The handler stays installed during
@@ -28,7 +31,10 @@ The retained scheduler view exposes its job and phase, and the existing pool
 index. Pools keep a small device-handle view, including devices waiting for
 termination acknowledgement. Device handles weakly observe their existing state
 machines. A monotonic timestamp records each state transition; `since_ms_ago`
-measures state age, including running-batch age. Existing prepare/execute job states are included. Queue counters are copied at
+measures age only for the connected, idle, preparing and running machine states,
+including running-batch age. Derived lost, terminating and completed states omit
+that age. Scheduler phase is `finished` after every returned result, including
+errors. Existing prepare/execute job states are included. Queue counters are copied at
 message/send and requeue boundaries, with an explicit `handling_message` flag so
 a blocked result/tracker delivery does not prevent inspection. No diagnostic
 callback is sent through the potentially suspended actor mailbox.
@@ -132,9 +138,11 @@ not require the host to complete within a tighter wall-time margin.
   Adding such a distinction would duplicate scheduling bookkeeping solely for
   diagnostics. Worker commands and their start times have no shared cheap registry;
   they are not newly tracked. Device preparation/execution state is shown instead.
-- Ordinary Unix signals can coalesce before the OS driver observes them.
-- Installation failure is an ordinary CLI I/O failure before execution, rather
-  than continuing with a default SIGQUIT disposition.
+- Ordinary Unix signals can coalesce before the OS driver observes them. Dumps
+  remain unthrottled: every observed delivery during a run is retained and handled.
+- Inherited SIGQUIT ignore is preserved. Installation failure emits one WARN and
+  continues with the previous OS behavior; it does not change the command's exit
+  status or prevent help, config loading or vendor construction.
 - Config loading is protected by installation at the start of `main`; the gated
   pre-run integration witness holds vendor construction. No filesystem loader
   test seam was added. Post-run protection is the same process-life listener;
@@ -148,6 +156,15 @@ not require the host to complete within a tighter wall-time margin.
   bullet to its top 0.13.0 section. D66's section and plan row are additive.
 - No migration table row is needed: wrappers need no action; the D66 guide says so.
 
+A wrapper that signals the process group also ends local child commands such as
+xcodebuild, as with the JVM build; remote commands over SSH and adb traffic are
+unaffected. The local command executor's `Command::spawn` inherits marathon's
+process group and resets its caught SIGQUIT disposition on exec; this also affects
+local simctl commands and short-lived `adb start-server` children. Kotlin uses
+`ProcessBuilder` at the same local execution boundary and has the same behavior.
+Such a child can fail its command/batch and enter the existing retry path before
+SIGTERM. No child process-group isolation is introduced by D66.
+
 ## Incidental bugs
 
 U194: the macOS Carbon connect-deadline witness can successfully connect after its
@@ -155,3 +172,68 @@ accept-queue probe timed out. The gate saw a panic at the former line 839; six o
 six reruns passed. A successful send now takes the existing unsaturated-queue skip
 path. A blocked or refused connection still checks the real production deadline
 and diagnostic. This is a test-harness fix only, in its own commit.
+
+
+## Review round 1
+
+The owner accepted the review's verified phase matrix, wrapper sequence, bounds,
+logging and negative witnesses, and requested the following refinements on top of
+`92f558c5`:
+
+- **S-x54-1:** document process-group child behavior and the `ProcessBuilder`
+  parity argument above and in D66. The local command executor and child groups
+  are unchanged. Remote SSH commands and adb traffic remain unaffected.
+- **S-x54-2:** unwind isolation covers the entire dump construction, including
+  header, scheduler/device observation and bounds. An unwinding panic becomes a
+  WARN on the same diagnostic target; its payload is not formatted. The listener
+  continues and cannot fail its core job or cancel the run through this panic.
+  An injected-panic test runs a second dump on the same task and confirms that
+  borrowed state was released during unwinding.
+- **S-x54-3:** print `since_ms_ago` only for the four state-machine states whose
+  start it measures. Derived termination/loss does not reuse the preparing or
+  running timestamp. An integration witness cancels a preparing device and checks
+  its retained terminating view. Scheduler's outer `execute` wrapper sets phase
+  `finished` for every returned result; timeout and external-cancellation tests
+  check error returns too.
+- **S-x54-4:** installation failure is nonfatal and cached, so main and embedded
+  construction do not repeatedly attempt setup. The CLI warns once through its
+  console's tracing dispatch, including with debug off. Main defers the warning
+  until logging is available and continues all command paths. An injected failure
+  takes the normal `--help` path and exits 0; a console test verifies one WARN for
+  repeated reports of the same failure. Runtime construction and registration
+  happen on the diagnostic thread, which reports readiness/error before config
+  I/O; failed runtime setup is dropped on that thread, safe for async callers too.
+- **S-x54-5:** the first setup attempt checks `signal_ignored` before installing
+  anything and preserves inherited ignore. A real child process started through
+  `sh` with ignored QUIT asserts that disposition remains ignored, survives QUIT
+  and still exits 143 on TERM. Dumps remain unthrottled.
+
+The five temporary regression checks all failed as expected, then their source
+mutations were restored before positive validation:
+
+| Removed behavior | Failing witness |
+|---|---|
+| Dump unwind guard | `a_panicking_dump_does_not_end_the_listener_task` fails because the task returns a panic instead of its second dump |
+| Derived-state age guard | `state_dump_does_not_date_derived_termination_from_prepare_d66` rejects the reused preparation age |
+| Finished phase on error | Both `no_devices_timeouts_keep_subscription_alive` and `external_timeout_preserves_caller_reason_and_cancels_detached_job` reject the stale phase |
+| Nonfatal startup error handling | `sigquit_installation_failure_does_not_fail_help` observes exit 1 instead of 0 |
+| Inherited-ignore check | `inherited_ignored_sigquit_stays_ignored_d66` fails because construction replaces the inherited disposition |
+
+Validation:
+
+- `cargo test -p marathon-core -p marathon-cli -p marathon-logging
+  -p marathon-analytics`: 970 passed, seven ignored, no failures. The ignored
+  cases remain the existing opt-in multi-minute stall scenarios. This includes
+  the original D66 wrapper sequence, repeated dumps, reports and shutdown tests.
+- After simplifying the installation-result conversion for Clippy,
+  `cargo test -p marathon-core --lib --test pool_scheduler`: 80 passed; focused
+  CLI binary/signal/console tests filtered by `sigquit`: five passed.
+- `cargo clippy -p marathon-core -p marathon-cli -p marathon-logging
+  -p marathon-analytics --all-targets -- -D warnings` and `cargo fmt --check`: pass.
+- Plan DAG and differential registry checks: pass. No fixture, command transcript
+  or comparator allowance was changed.
+- The first full attempt stopped at the missing YAML comparator helper after
+  target cleanup; rebuilding `snakeyaml`'s `yaml_tree` example supplied that
+  prerequisite. No product code change was needed for that setup failure.
+- Full-workspace and remote gates remain the orchestrator's checks under the
+  implementation brief. No Linux or real-device checks were added in this round.
