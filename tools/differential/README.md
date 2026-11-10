@@ -19,6 +19,14 @@ Changes to the contract require a D-row in PLAN.md §3.11. Before running the
 harness directly, build its YAML parser helper with `cargo build -q -p
 snakeyaml --example yaml_tree`; the gate builds it automatically.
 
+Console comparison (WP 8.8): the native contract view of stdout/stderr keeps only
+the per-test progress lines and the end-of-run summary block (`contract_console`),
+byte-exact. In `vendor_console.py`, a complete native diagnostic prefix
+(`HH:mm:ss.SSS LEVEL marathon_<crate>::<module>: `) has only its time token
+normalized; level, target, message, fields and continuation lines stay exact,
+compact (timeless) lines are untouched, and the rule never applies to raw
+progress or summary lines. Historical JVM prefix handling is unchanged.
+
 Native comparison parses the JSON values of line-start `window.<name> = <json>`
 assignments inside script elements in `reports/html/**/*.html`, including
 `var dataset = <json>` in

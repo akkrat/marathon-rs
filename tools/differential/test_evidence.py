@@ -318,6 +318,56 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(e.contract_console(first, values), e.contract_console(second, values))
         self.assertNotEqual(e.contract_console(first, values), e.contract_console(second.replace(b'passed', b'failed'), values))
 
+    def test_native_console_rejects_changed_missing_duplicated_and_reordered_pinned_lines(self):
+        values = {'serial': 'device-1'}
+        pinned = (b'diagnostic\n00% | [omni]-[device-1] C#t passed\n'
+                  b'Marathon run finished:\nDevice pool omni:\n\tRaw: 1 passed, 0 failed, 0 ignored, 0 incomplete tests\nTotal time: 0s\n')
+        variants = [
+            pinned.replace(b'Raw: 1 passed', b'Raw: 0 passed'),
+            pinned.replace(b'00% | [omni]-[device-1] C#t passed\n', b''),
+            pinned.replace(b'00% |', b'00% | [omni]-[device-1] C#t passed\n00% |', 1),
+            pinned.replace(b'Marathon run finished:\nDevice pool omni:', b'Device pool omni:\nMarathon run finished:'),
+        ]
+        for variant in variants:
+            with self.subTest(variant=variant):
+                self.assertNotEqual(e.contract_console(pinned, values), e.contract_console(variant, values))
+
+    def test_vendor_console_native_prefix_normalizes_only_the_time_token(self):
+        import vendor_console as vc
+        values = dict(sandbox='/sandbox', safe_serial='SAFE', serial='SERIAL', port='42')
+        line = '12:34:56.789 INFO marathon_core::marathon: hello SERIAL port=42, /sandbox/x\n'
+        later = '23:59:59.999 INFO marathon_core::marathon: hello SERIAL port=42, /sandbox/x\n'
+        self.assertEqual(vc.normalize(line.encode(), values, 'native', 'stdout'),
+                         vc.normalize(later.encode(), values, 'native', 'stdout'))
+        for changed in [line.replace('INFO', 'WARN'), line.replace('marathon_core::marathon', 'marathon_core::other'),
+                        line.replace('hello', 'goodbye'), line.replace(': hello', ':  hello')]:
+            with self.subTest(changed=changed):
+                self.assertNotEqual(vc.normalize(line.encode(), values, 'native', 'stdout'),
+                                    vc.normalize(changed.encode(), values, 'native', 'stdout'))
+        # An incomplete prefix is not a native diagnostic: its time token stays exact,
+        # and compact (timeless) lines and pinned raw lines are never rewritten.
+        for raw in ['12:34:56.789 INFO other_crate::main: hello\n',
+                    '12:34:56.789 INFO marathon_core::marathon hello\n',
+                    '1:34:56.789 INFO marathon_core::marathon: hello\n',
+                    'INFO marathon_core::marathon: hello\n',
+                    '00% | [omni]-[SERIAL] C#t passed\n',
+                    'Marathon run finished:\n']:
+            with self.subTest(raw=raw):
+                self.assertNotIn(b'<time>', vc.normalize(raw.encode(), values, 'native', 'stdout'))
+        self.assertNotEqual(
+            vc.normalize(b'12:34:56.789 INFO other_crate::main: hello\n', values, 'native', 'stdout'),
+            vc.normalize(b'23:59:59.999 INFO other_crate::main: hello\n', values, 'native', 'stdout'))
+        # The declared artifact reorder window applies in the native spelling too.
+        p = '00:00:00.000 DEBUG marathon_apple::artifact_processor: '
+        admission = p + 'Artifact admission for SERIAL, batch B took 0 ms; outstanding=1, on worker 127.0.0.1:42=1\n'
+        wait = p + 'Artifact queue wait for SERIAL, batch B: 0 ms\n'
+        final = p + 'Artifact finalization took 0 ms\n'
+        progress = '00% | [omni]-[SERIAL] a.B#c passed\n'
+        canonical = vc.normalize((admission + wait + progress + final).encode(), values, 'native', 'stdout')
+        self.assertEqual(vc.normalize((wait + admission + progress + final).encode(), values, 'native', 'stdout'), canonical)
+        with self.assertRaisesRegex(e.Invalid, 'admission window'):
+            vc.normalize((admission + progress + final + wait).encode(), values, 'native', 'stdout')
+
     def test_native_structured_and_command_adversaries(self):
         self.contract['paths'].remove('reports/log')
         baseline = self.record('native-baseline')
