@@ -139,28 +139,6 @@ pub trait VendorTask: Send + Sync {
     fn join(&self) -> VendorFuture<'_, ()>;
 }
 
-/// Object-safe timeout runner. Typed values travel in captured cells/Deferreds,
-/// as with CoreExecutor's unit tasks. WP 3.1 supplies concrete constructors for
-/// Deferred<T>, EventChannel<T> and actors; no unwired generic factory traits.
-pub trait TimeoutScope {
-    /// The body receives the scope's child job. Join its cleanup before returning.
-    /// Own expiry returns Err(OperationError::Cancelled(Cancellation::Timeout {
-    /// scope, .. })); inner/external cancellation and failures propagate unchanged.
-    fn with_timeout<'a>(
-        &'a self,
-        parent: TaskContext,
-        millis: i64,
-        body: TaskBody<'a>,
-    ) -> LocalFuture<'a, OperationResult<()>>;
-    /// Only this invocation's expiry becomes None; inner/external cancellation
-    /// and ordinary failure propagate unchanged. Signed Java millis are retained.
-    fn with_timeout_or_null<'a>(
-        &'a self,
-        parent: TaskContext,
-        millis: i64,
-        body: TaskBody<'a>,
-    ) -> LocalFuture<'a, OperationResult<Option<()>>>;
-}
 /// Send scheduler-time seam, sharing ReplayDriver's timer timeline with core.
 /// Own expiry is VendorError::Cancelled(Cancellation::Timeout { scope, .. }).
 /// Inner timeouts propagate unchanged: with_timeout_or_null catches only its

@@ -131,6 +131,7 @@ impl SchedulerClock for RuntimeClock {
         })
     }
 }
+/// Core timeout runner; typed results travel in captured cells or Deferreds.
 pub struct RuntimeTimeouts {
     core: Weak<CoreExecutor>,
 }
@@ -206,8 +207,11 @@ fn preserve_failure(result: OperationResult<()>, reason: Cancellation) -> Operat
         _ => Err(reason.into()),
     }
 }
-impl TimeoutScope for RuntimeTimeouts {
-    fn with_timeout<'a>(
+impl RuntimeTimeouts {
+    /// The body receives the scope's child job. Join its cleanup before returning.
+    /// Own expiry is Cancelled(Timeout); inner/external cancellation and failures
+    /// propagate unchanged, including the original timeout scope identity.
+    pub fn with_timeout<'a>(
         &'a self,
         parent: TaskContext,
         millis: i64,
@@ -215,7 +219,9 @@ impl TimeoutScope for RuntimeTimeouts {
     ) -> LocalFuture<'a, OperationResult<()>> {
         Box::pin(self.run(parent, millis, timeout(millis), body))
     }
-    fn with_timeout_or_null<'a>(
+    /// Only this invocation's expiry becomes None; inner/external cancellation
+    /// and ordinary failure propagate unchanged. Signed Java millis are retained.
+    pub fn with_timeout_or_null<'a>(
         &'a self,
         parent: TaskContext,
         millis: i64,
