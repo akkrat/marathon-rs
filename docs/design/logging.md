@@ -12,7 +12,7 @@ names, parses ANSI, fakes threads, or keeps per-logger mutable levels.
 |---|---|---|
 | `Level`, `Component`, `LogSettings`, `Vendor`, `filter()`, `emit()` | `marathon-logging` | The filter and the bridge from owned records to `tracing` events. No I/O. |
 | `LogQueue`, `LogRecord`, `LateOutput` | `marathon-core::logging` | Core's non-blocking record queue: call order, scheduler/wall stamps for replay, raw+log single order. |
-| `TracingOutput`, `QueueWriter`, `RawWriter` | `marathon-cli::tracing_output` | The only subscriber and the only stdout writer. Two fmt layers (regular/compact) over one queue writer. |
+| `TracingOutput`, `QueueWriter` | `marathon-cli::tracing_output` | The only subscriber and the only stdout writer. One fmt layer with a compact flag, over one queue writer. |
 | `Console`, `CliOutput` | `marathon-cli::application` | Shared console for startup, run and crash output; wires `LogSettings::configure` to the subscriber reload. |
 
 Libraries never install a subscriber, never format, and never write to a
@@ -31,7 +31,7 @@ use `tracing` macros directly against the same filter.
 
 ## Format
 
-Regular (local `HH:mm:ss.SSS` from the subscriber's clock):
+Regular (local `HH:mm:ss.SSS`; a queued record is stamped from its own `wall_millis`, however late it drains, and a direct event from the subscriber's clock):
 
 ```text
 13:24:21.123 INFO marathon_cli::application: Starting marathon v0.10.1, CliConfiguration: ...
@@ -51,7 +51,7 @@ bytes and whitespace; a stack trace gets the same `\tat frame` prefix rule
 the Kotlin layout had (external frames in crash output keep theirs).
 
 Raw output (progress, summary, test lists, YAML, exception text, worker
-output forwarding) goes through `RawWriter` to the same `QueueWriter`, so a
+output forwarding) goes through the same `QueueWriter` (`Console::write_text`), so a
 formatted record and the raw bytes around it never interleave. Lossy UTF-8
 replacement for worker output and post-progress summary flushing are
 unchanged.
@@ -70,8 +70,8 @@ plus `configurators_preserve_levels_and_compact_output` in
 |---|---|---|---|
 | Startup (before config) | `marathon_*=debug`, other=`error`, timeline=`debug` | same | Before the Marathonfile is read only the startup logger exists and the root level is DEBUG; unrelated dependencies stay at `error`. |
 | Android | `marathon_*=error`, other=`error`, timeline=`debug` | `marathon_*=debug`, other=`error`, timeline=`debug` | The ordinary level is chosen at `debug` and absolute; nothing sets it later. |
-| Apple, regular output | `marathon_*=error`, other=`error`, timeline=`error` | `marathon_*=debug`, other=`error`, timeline=`debug` | Only the `Timeline` suppression of the six Kotlin suppressions has a Rust target; the five sshj class names do not. |
-| Apple, compact output | `marathon_*=error`, other=`error`, timeline=`error` | `marathon_*=debug`, other=`error`, timeline=`error` | The compact branch explicitly disables `Timeline`. |
+| Apple, regular output | `marathon_*=error`, other=`error`, timeline=`error` | `marathon_*=debug`, other=`error`, timeline=`error` | Only the `Timeline` suppression of the six Kotlin suppressions has a Rust target; the five sshj class names do not. The Apple configurator suppresses the timeline in both debug settings. |
+| Apple, compact output | `marathon_*=error`, other=`error`, timeline=`error` | `marathon_*=debug`, other=`error`, timeline=`error` | Same suppression; compact only drops the timestamp from the format. |
 
 Specific-target exceptions in every row: `marathon_cli::application=debug`
 (the startup logger, never widened to the crate), `marathon_adb=debug` (it
@@ -82,10 +82,12 @@ inherits the root level, which no configurator resets),
 diagnostics therefore print with debug off, as before),
 `marathon_core::timing=info`, `marathon_ios::device::timing=info`,
 `marathon_apple::xcodebuild_stderr=warn`,
-`marathon_ios::xcresult::timeline` per the table, and
+`marathon_core::reporters::timeline` per the table,
+`marathon_apple::cmd::remote::ssh::sshj::known_hosts=warn` with debug off (`debug` with debug on — a floor, not a cap; host-key
+warnings are security-relevant and stay visible; its matcher
+component uses the same target), and
 `marathon_apple::cmd::remote::ssh::sshj::wire=debug` gated additionally by
-`ssh.debug` on the `Component` (DEBUG only with ssh debug on; WARN/ERROR
-always). iOS provisioning timing records are emitted on
+`ssh.debug` on the `Component` (with ssh debug off, only ERROR shows). iOS provisioning timing records are emitted on
 `marathon_core::timing` today; the `marathon_ios::device::timing` directive
 is kept for that module's own records.
 
@@ -133,7 +135,12 @@ D52's behaviour:
   the process after one second if the flush has not drained — a blocked
   stdout (full pipe, stopped reader) cannot hang exit. Dropping the
   `Console` on the ordinary path flushes with the same one-second deadline.
-  After the deadline the process exits anyway.
+  After the deadline the process exits anyway. The signal hook never
+  completes after queueing that exit, so `Marathon::run` cannot return a
+  failure ahead of it (the one `process::exit` comes from the writer or the
+  watchdog, or from a second signal); `exit_after_flush` after the writer
+  has already closed exits at once through the watchdog, because the `Exit`
+  acknowledgement disconnects.
 - **Second signal:** `SignalHooks.immediate_exit` is `std::process::exit`
   with the second signal's status (130/143). It does not wait for cleanup,
   reports, the writer thread, or the flush deadline.
@@ -150,10 +157,13 @@ Tests: `shutdown_reports.rs::a_cancel_mid_test_writes_the_reports_and_does_not_b
 (a real SIGTERM/SIGINT through the built binary; the summary block is in
 stdout), `signal_windows.rs::a_second_signal_exits_at_once_during_a_blocked_sink`
 and `a_stuck_console_does_not_hold_a_cancel_d52` (blocked sink, first vs
-second signal), `log_queue_output.rs::late_output_forwards_records_pushed_before_and_after_the_close_fence`,
+second signal), `a_slow_exit_preparation_still_exits_with_the_signal_status`
+(exit preparation that never finishes cannot let the run return first),
+`log_queue_output.rs::late_output_forwards_records_pushed_before_and_after_the_close_fence`,
 `tracing_output.rs::writes_after_close_are_rejected_not_lost_silently`,
-`blocked_sink_does_not_block_producers_or_shutdown` and
-`cancellation_flushes_before_exit_and_blocked_sink_obeys_deadline`.
+`a_blocked_sink_never_blocks_or_drops_producers` and
+`cancellation_flushes_even_when_process_exit_skips_guards` (including
+`exit_after_flush` after the writer has closed).
 
 ## Construction-time level audit
 
@@ -171,7 +181,7 @@ old construction sites, per crate, and the new treatment:
 | `marathon-core` | `Timings` (explicit INFO on first use, not construction) | Retained: `marathon_core::timing=info`. |
 | `marathon-adb` | adam's loggers (never registered; inherited ROOT) | Retained: `marathon_adb=debug`. |
 | `marathon-android` | `AdamDeviceProvider` (provider `new` in services construction), `AmInstrumentTestParser` (Kotlin constructs it before debug is set) | Ordinary level. |
-| `marathon-apple` | loggers created during services construction; sshj loggers are created per lookup at run time | Ordinary level; the wire keeps its `ssh.debug` gate; `xcodebuild` stderr keeps its explicit WARN as `marathon_apple::xcodebuild_stderr=warn`; of the six Apple ERROR suppressions only `Timeline` maps (`marathon_ios::xcresult::timeline`), the sshj class names have no Rust target and are dropped. |
+| `marathon-apple` | loggers created during services construction; sshj loggers are created per lookup at run time | Ordinary level; the wire keeps its `ssh.debug` gate; `xcodebuild` stderr keeps its explicit WARN as `marathon_apple::xcodebuild_stderr=warn`; of the six Apple ERROR suppressions only `Timeline` maps (`marathon_core::reporters::timeline`), the sshj class names have no Rust target and are dropped. The sshj `known_hosts` logger and its matchers (one target) retain a WARN floor in every configurator. |
 | `marathon-ios` | `AppleSimulatorProvider`/`provisioner` (constructed in `ios_vendor::construct`) | Ordinary level (test harnesses pin these targets with `set_level` to capture their records). |
 | `marathon-macos` | `AppleMacosProvider` (constructed in `vendor::construct`) | Ordinary level. |
 | `marathon-analytics` | no loggers of its own at construction (records flow through core analytics) | — |
@@ -182,14 +192,34 @@ above — the level a logger created after `configure` always had. The level
 a run gets no longer depends on whether a handle happened to be created
 before configuration, and recreating a `Component` can never change it.
 
+### Debug-off visibility (C18 superseded)
+
+Dropping C18 is deliberate: one consistent rule (ordinary is ERROR with
+`debug: false`) replaces creation-order luck. The cost is that, with debug
+off, WARN/INFO lines from the components Kotlin happened to construct
+before `configureLogging` no longer show. They are: `AdamDeviceProvider`
+(`marathon_android::provider`); the construction-time loggers in
+`marathon-core` (`FileManager`, `BillingReporter`, `TrackerFactory`, today
+all on `marathon_core::construction`); the iOS simulator provider
+(`marathon_ios::device::simulator_provider`); and the macOS provider
+(`marathon_macos::provider`). Their ERROR lines still show, and everything
+shows with `debug: true`, as for every other ordinary logger.
+
+One exception is kept on purpose: `marathon_apple::cmd::remote::ssh::sshj::known_hosts`
+has a WARN floor in every configurator, because unknown- or changed-host-key
+warnings are security-relevant and must not hide behind a debug flag. It is
+pinned by `marathon-logging`'s
+`known_hosts_warns_in_every_configurator_with_debug_off` and by the
+directive inventories.
+
 ## What is gone
 
 - `jcompat::logging` (layout, `%logger{N}` abbreviation, Jansi handling of
   event text, mutable per-logger levels and laziness side effects) and its
   oracle tests. C18, C20 and C24 in `docs/known-kotlin-bugs.md` are
   superseded.
-- The `library.logback.wall` scenario-tape read: production stamps come from
-  the subscriber's clock; no Rust code reads that key. (The key still
+- The `library.logback.wall` scenario-tape read: record stamps come from
+  each record's `wall_millis`; no Rust code reads that key. (The key still
   exists in the frozen JVM oracle hooks under `tools/oracle`, which replay
   historical captures.)
 - The thread column: records keep only scheduler/wall stamps internally

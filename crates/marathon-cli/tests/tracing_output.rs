@@ -203,6 +203,69 @@ fn writes_after_close_are_rejected_not_lost_silently() -> Result<(), Box<dyn std
     Ok(())
 }
 
+/// WP 8.8 review: queued core and vendor records render their stack traces raw
+/// (continuation lines keep their bytes, nothing Debug-quoted on one line) and
+/// each line is stamped from the record's own `wall_millis`, not drain time.
+#[test]
+fn queued_records_render_raw_traces_at_their_own_time() -> Result<(), Box<dyn std::error::Error>> {
+    use marathon_core::logging::LogRecord;
+    let buffer = Buffer::default();
+    let (output, guard) = TracingOutput::new(buffer.clone(), false, |wall: Option<i64>| {
+        marathon_cli::application::day_stamp(wall.unwrap_or(0))
+    })?;
+    let mut failure =
+        marathon_core::error::Failure::from_kind(marathon_error::FailureKind::Runtime, Some("boom: x".into()));
+    failure.stacktrace = Some("\tat first\n\tat second\n".into());
+    let trace = failure.stack_trace();
+    // A core record and a vendor-shaped record (logger carries the device identity).
+    let core_record = LogRecord {
+        target: "marathon_core::logging".into(),
+        logger: "marathon_core::marathon".into(),
+        at_millis: 0,
+        wall_millis: 45_296_789,
+        level: marathon_logging::Level::ERROR,
+        message: "run failed".into(),
+        cause: Some(failure.clone()),
+    };
+    let vendor_record = LogRecord {
+        target: "marathon_core::execution::device::actor".into(),
+        logger: "DevicePool[omni]_DeviceActor[emulator-5554]".into(),
+        at_millis: 0,
+        wall_millis: 45_296_790,
+        level: marathon_logging::Level::ERROR,
+        message: "device failed".into(),
+        cause: Some(failure),
+    };
+    tracing::dispatcher::with_default(&output.dispatch(), || {
+        // A macro event has no record time: the stamp asks for now (0 here).
+        tracing::info!(target: "marathon_cli::application", "macro event");
+        core_record.emit();
+        vendor_record.emit();
+    });
+    guard.shutdown()?;
+    let text = buffer.text()?;
+    assert!(
+        text.contains("00:00:00.000 INFO marathon_cli::application: macro event\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "12:34:56.789 ERROR marathon_core::marathon: run failed error={trace}"
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "12:34:56.790 ERROR marathon_core::execution::device::actor: device failed error={trace} \
+             component=DevicePool[omni]_DeviceActor[emulator-5554]"
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("\\n"), "escaped trace in {text:?}");
+    assert!(!text.contains("error=\""), "quoted trace in {text:?}");
+    Ok(())
+}
+
 #[test]
 fn shutdown_reports_sink_failure() -> io::Result<()> {
     let (output, guard) = TracingOutput::new(Broken, false, |_| "time".into())?;
@@ -223,7 +286,16 @@ fn cancellation_flushes_even_when_process_exit_skips_guards() -> Result<(), Box<
         } else {
             Box::new(io::stdout())
         };
-        let (output, _guard) = TracingOutput::new(sink, false, |_| "12:34:56.789".into())?;
+        let (output, guard) = TracingOutput::new(sink, false, |_| "12:34:56.789".into())?;
+        if mode == "closed" {
+            // The writer has already finished: the Exit command has nowhere to
+            // go, its acknowledgement disconnects, and the watchdog exits at once.
+            guard.shutdown()?;
+            output.exit_after_flush(130)?;
+            loop {
+                std::thread::park();
+            }
+        }
         tracing::dispatcher::with_default(
             &output.dispatch(),
             || tracing::warn!(target: "marathon_cli::pilot", "cancelled"),
@@ -256,6 +328,15 @@ fn cancellation_flushes_even_when_process_exit_skips_guards() -> Result<(), Box<
         .env(CHILD, "broken")
         .output()?;
     assert_eq!(broken.status.code(), Some(130));
+    let closed = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "cancellation_flushes_even_when_process_exit_skips_guards",
+            "--nocapture",
+        ])
+        .env(CHILD, "closed")
+        .output()?;
+    assert_eq!(closed.status.code(), Some(130));
     Ok(())
 }
 

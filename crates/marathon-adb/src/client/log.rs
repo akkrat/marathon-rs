@@ -19,18 +19,13 @@ pub const REQUEST_LOGGER: &str = "marathon_adb::client::log";
 /// The `com.malinskiy.adam.AndroidDebugBridgeClient` logger (`AndroidDebugBridgeClient.kt:138`).
 pub const CLIENT_LOGGER: &str = "marathon_adb::client::log";
 
-#[derive(Clone)]
-pub struct AdamLogging {
-    backend: Backend,
-}
+/// The one event path: the enabled check and the delivery, keeping mu's
+/// laziness (the message closure runs only if the level is enabled).
+type LogFn = dyn Fn(&str, Level, Option<&AdbError>, &mut dyn FnMut() -> String) + Send + Sync;
 
 #[derive(Clone)]
-enum Backend {
-    Legacy {
-        logging: Arc<Mutex<LogSettings>>,
-        sink: Arc<LogSink>,
-    },
-    Tracing(tracing::Dispatch),
+pub struct AdamLogging {
+    log: Arc<LogFn>,
 }
 
 impl AdamLogging {
@@ -39,25 +34,23 @@ impl AdamLogging {
         sink: impl Fn(&str, Level, String, Option<&AdbError>) + Send + Sync + 'static,
     ) -> Self {
         Self {
-            backend: Backend::Legacy {
-                logging,
-                sink: Arc::new(sink),
-            },
+            log: Arc::new(move |logger, level, error, message| {
+                let enabled = {
+                    let logging = logging.lock().unwrap_or_else(|e| e.into_inner());
+                    logging.enabled_target(logger, level)
+                };
+                if enabled {
+                    sink(logger, level, message(), error);
+                }
+            }),
         }
     }
 
     /// Explicit dispatch also reaches ADB tasks running outside the CLI thread.
     pub fn traced(dispatch: tracing::Dispatch) -> Self {
         Self {
-            backend: Backend::Tracing(dispatch),
-        }
-    }
-
-    /// mu's lazy `log.<level> { message }`: the message is built only if the level is enabled.
-    pub(crate) fn log(&self, logger: &str, level: Level, error: Option<&AdbError>, message: impl FnOnce() -> String) {
-        let Backend::Legacy { logging, sink } = &self.backend else {
-            if let Backend::Tracing(dispatch) = &self.backend {
-                tracing::dispatcher::with_default(dispatch, || {
+            log: Arc::new(move |_, level, error, message| {
+                tracing::dispatcher::with_default(&dispatch, || {
                     macro_rules! emit {
                         ($macro:ident) => {
                             if let Some(error) = error {
@@ -75,16 +68,16 @@ impl AdamLogging {
                         Level::ERROR => emit!(error),
                     }
                 });
-            }
-            return;
-        };
-        let enabled = {
-            let logging = logging.lock().unwrap_or_else(|e| e.into_inner());
-            logging.enabled_target(logger, level)
-        };
-        if enabled {
-            sink(logger, level, message(), error);
+            }),
         }
+    }
+
+    /// mu's lazy `log.<level> { message }`: the message is built only if the level is enabled.
+    pub(crate) fn log(&self, logger: &str, level: Level, error: Option<&AdbError>, message: impl FnOnce() -> String) {
+        let mut message = Some(message);
+        (self.log)(logger, level, error, &mut move || {
+            message.take().map_or_else(String::new, |message| message())
+        });
     }
 }
 

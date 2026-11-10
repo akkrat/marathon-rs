@@ -894,6 +894,75 @@ class VendorEvidenceTests(unittest.TestCase):
             if blob.name not in needed: blob.unlink()
         (self.actual/'evidence.json').write_bytes(e.encoded(record))
 
+    def console_record(self, name):
+        """A copy of the recorded live ios-smoke native run, as today's code sends it."""
+        destination = self.root / name
+        shutil.copytree(ROOT / 'fixtures/differential/vendor-verification-c95b2128/ios-smoke/native', destination)
+        record = e.load(destination / 'evidence.json')
+        self.as_live_native(destination, record)
+        (destination / 'evidence.json').write_bytes(e.encoded(record))
+        return destination
+
+    def console_mutate(self, directory, update):
+        record = e.load(directory / 'evidence.json')
+        row = next(r for r in record['entries'] if r['path'] == 'stdout')
+        data = update(e.payload(directory, row, record))
+        (directory / 'blobs' / row['sha256']).unlink()
+        row.update(size=len(data), sha256=e.sha(data))
+        e.save_payload(directory, row['sha256'], data, record)
+        (directory / 'evidence.json').write_bytes(e.encoded(record))
+
+    def test_native_golden_console_comparison_end_to_end(self):
+        # The production native-vendors path: write/validate a record,
+        # normalized(native=True), then compare_native_views against the
+        # committed ios-smoke golden's stdout entry (its pinned progress and
+        # summary bytes). By design (§3.12.5) that view keeps only the pinned
+        # lines, so diagnostic lines are not compared there at all.
+        contract = DRIVER['contract']('ios-smoke')
+        golden = e.loads(gzip.decompress((ROOT / 'fixtures/contract/native-v1/ios-smoke.json.gz').read_bytes()))
+        actual = self.console_record('console-actual')
+        view = e.normalized(actual, contract, native=True)
+        # Reports data in the old record predates later WPs; the console
+        # comparison is the stdout entry, held to the golden's entry exactly.
+        self.assertEqual(view['stdout'], golden['stdout'])
+        expected = {'stdout': golden['stdout']}
+        e.compare_native_views(expected, {'stdout': view['stdout']})
+        # A changed pinned line in the golden fails the comparison.
+        mutated = {'stdout': dict(golden['stdout'])}
+        pinned = base64.b64decode(mutated['stdout']['content'])
+        self.assertIn(b'Raw: 1 passed', pinned)
+        mutated['stdout']['content'] = base64.b64encode(pinned.replace(b'Raw: 1 passed', b'Raw: 0 passed', 1)).decode()
+        with self.assertRaisesRegex(e.Invalid, 'native golden differs'):
+            e.compare_native_views(mutated, {'stdout': view['stdout']})
+        mutated['stdout']['content'] = base64.b64encode(pinned.replace(b'testPassing passed', b'testPassing failed', 1)).decode()
+        with self.assertRaisesRegex(e.Invalid, 'native golden differs'):
+            e.compare_native_views(mutated, {'stdout': view['stdout']})
+        # A changed diagnostic timestamp and a changed diagnostic text both
+        # pass: the native contract view drops diagnostic lines entirely.
+        changed = self.console_record('console-diagnostic')
+        def restamp(data):
+            self.assertIn(b'00:00:00.000 [main] INFO ', data)
+            return data.replace(b'Starting marathon', b'A different diagnostic', 1).replace(
+                b'00:00:00.000 [main] INFO ', b'23:59:59.999 INFO marathon_cli::application: ', 1)
+        self.console_mutate(changed, restamp)
+        changed_view = e.normalized(changed, contract, native=True)
+        self.assertEqual(changed_view['stdout'], golden['stdout'])
+        e.compare_native_views(expected, {'stdout': changed_view['stdout']})
+        # Through the full-console comparator instead, only the changed
+        # timestamp passes; changed diagnostic text stays exact and fails.
+        import vendor_console as vc
+        record = e.load(changed / 'evidence.json')
+        values = record['identities']
+        raw = e.payload(changed, next(r for r in record['entries'] if r['path'] == 'stdout'), record)
+        facts = dict(record['provenance'], **{vc.SSHPASS_FACT: False})
+        native = raw.replace(b'23:59:59.999 INFO ', b'23:59:59.999 INFO ', 1)
+        later = native.replace(b'23:59:59.999', b'12:00:00.000', 1)
+        self.assertEqual(vc.normalize(native, values, 'native', 'stdout', facts),
+                         vc.normalize(later, values, 'native', 'stdout', facts))
+        other = native.replace(b'A different diagnostic', b'Yet another diagnostic', 1)
+        self.assertNotEqual(vc.normalize(native, values, 'native', 'stdout', facts),
+                            vc.normalize(other, values, 'native', 'stdout', facts))
+
     def test_whole_vendor_commands_and_host_flags_reject_rehashed_mutations(self):
         for n,(path,old,new) in enumerate([('host-argv.jsonl',b'--links',b'--no-links'),
                 ('host-argv.jsonl',b'--rsh',b'--rshX'),('transcript.jsonl',b'-destination-timeout',b'-destination-timeoutX')]):

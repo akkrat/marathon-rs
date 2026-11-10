@@ -360,7 +360,7 @@ but core may neither do I/O nor take the registry lock. They therefore append a
 |---|---|
 | `logger: String` | the diagnostic logger name, e.g. `DevicePool[<pool>]_DeviceActor[<serial>]`; the event target derives from it (see logging.md) |
 | `at_millis: i64` | scheduler time of the call: replay order and timelines only |
-| `wall_millis: i64` | wall time (epoch ms) when the record is created; replay order only — the rendered stamp comes from the subscriber's clock at drain time |
+| `wall_millis: i64` | wall time (epoch ms) when the record is created; the rendered stamp comes from it, however late the record drains |
 | `level: marathon_logging::Level` | as called; the configurator filter decides whether it is enabled |
 | `message: String` | already interpolated (core's lazy message lambdas have no side effects) |
 | `cause: Option<Failure>` | the throwable, rendered as `Failure::stack_trace()` (§3.10 frames) |

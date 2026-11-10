@@ -50,6 +50,12 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
         .with_target("marathon_core::analytics::noop", LevelFilter::DEBUG)
         .with_target("marathon_core::reporters::timeline", LevelFilter::DEBUG)
         .with_target("marathon_apple::cmd::remote::ssh::sshj::wire", LevelFilter::DEBUG)
+        // Security-relevant: unknown/changed host keys warn even with debug off
+        // (a floor, not a cap: with debug on the target gets DEBUG as ordinary).
+        .with_target(
+            "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
+            if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+        )
         .with_target("marathon_core::timing", LevelFilter::INFO)
         .with_target("marathon_ios::device::timing", LevelFilter::INFO)
         .with_target("marathon_apple::xcodebuild_stderr", LevelFilter::WARN);
@@ -323,6 +329,10 @@ mod tests {
             ("marathon_core::analytics::noop", LevelFilter::DEBUG),
             ("marathon_core::reporters::timeline", timeline),
             ("marathon_apple::cmd::remote::ssh::sshj::wire", LevelFilter::DEBUG),
+            (
+                "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
+                if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+            ),
             ("marathon_core::timing", LevelFilter::INFO),
             ("marathon_ios::device::timing", LevelFilter::INFO),
             ("marathon_apple::xcodebuild_stderr", LevelFilter::WARN),
@@ -391,6 +401,22 @@ mod tests {
             LevelFilter::DEBUG,
             LevelFilter::ERROR,
         );
+    }
+    #[test]
+    fn known_hosts_warns_in_every_configurator_with_debug_off() {
+        for vendor in [
+            Vendor::Startup,
+            Vendor::Android,
+            Vendor::Apple { compact_output: false },
+            Vendor::Apple { compact_output: true },
+        ] {
+            let filter = filter(vendor, false);
+            let target = "marathon_apple::cmd::remote::ssh::sshj::known_hosts";
+            assert!(filter.would_enable(target, &Level::WARN), "{vendor:?}");
+            assert!(filter.would_enable(target, &Level::ERROR), "{vendor:?}");
+            assert!(!filter.would_enable(target, &Level::INFO), "{vendor:?}");
+            assert!(!filter.would_enable(target, &Level::DEBUG), "{vendor:?}");
+        }
     }
     #[test]
     fn enabled_target_honours_debug_before_a_vendor_configures_and_pins() {
