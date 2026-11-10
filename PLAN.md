@@ -712,13 +712,13 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.8 | `tracing` instead of the logback emulation (docs/wp/8.8.md) | H | 8.7 |
 | 8.9 | A maintained serde YAML library instead of the Jackson YAML emulation (docs/wp/8.9.md) | M | 8.8 |
 | 8.10 | clap instead of the Clikt emulation (docs/wp/8.10.md) | M | 8.9 |
+| 8.11 | Native rendering instead of Kotlin toString (docs/wp/8.11.md) | M | 8.10 |
 
 Later candidates:
 
 - `jnum` and `jtime` (numbers and time; their parsers are the input syntax and stay)
 - Plain async reads instead of Apple polling readers.
 - `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
-- `Display`/serde instead of Kotlin `toString` rendering.
 - Tokio `JoinSet`/`CancellationToken` instead of coroutine emulation.
 - A YAML library with a small YAML 1.1 scalar layer instead of the SnakeYAML port, last because input risk is highest.
 
