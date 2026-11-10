@@ -132,8 +132,10 @@ Gson rejects their JSON serialization. Null wrappers serialize as `{}`, never
 JSON null, even when nested. Nested array wrappers project recursively to an
 object with the sole `values` array field, including for empty arrays. There
 is no class discriminator, enum tag, identity field or Rust variant name in
-JSON. WP 3.9 projects these exact fields to WriterValue and GsonWriter; the
-wrappers must not be flattened or serialized through a blanket derive.
+JSON. The typed serde report views (WP 8.4 JSON, WP 8.9 YAML) preserve these
+exact wrapper fields; they must not be flattened or serialized through a
+blanket derive of the discovery enum. YAML also retains undotted non-finite
+values as strings and uses explicit float tags to preserve finite decimal data.
 Top-level DecodedNull is still unboxed to MetaValue::Null (and default Gson
 omits a null map entry); a top-level decoded array serializes as a bare JSON
 array **of wrapper objects**, e.g. `[{"value":7},{}, {"values":[]}]` (spacing
@@ -168,12 +170,11 @@ respectively.
   as described in D55.
 - `StringSubstitutor` receives the binder's explicit environment lookup.
   Substitution errors keep their source-defined exception boundary.
-- `writers::{WriterValue, GsonWriter, JacksonYamlWriter, KotlinValue}` are the
-  only output value trees/writers. `MetaValue` is discovery data with boxed
-  types and object identity; it is not a second serialization value tree.
-  WP 3.9 projects it and other models into WriterValue for Gson/YAML, and
-  KotlinValue for raw strings, using jnum/jtime text and replay identity hooks
-  where C19 requires them. Model field selection remains WP 3.9 work.
+- `writers::KotlinValue` retains Kotlin text rendering. JSON and YAML use typed
+  serde views (WP 8.4/8.9), with ordered metadata adapters. `MetaValue` remains
+  discovery data with boxed types and object identity; it is not another
+  serialization value tree. Output views retain the WP 3.9 field selection;
+  jnum/jtime text and replay identity hooks remain where their contracts require them.
 - `logging::{Logger, MarathonLogging}` own logger handles, registry levels and
   layouts. `Device::logger` returns that handle. Domain LogProducer/LogWriter
   handle test log files and listeners, not a second console logging facade.

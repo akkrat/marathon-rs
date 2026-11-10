@@ -61,11 +61,9 @@ fn parse_results_match_actual_command_emission() {
             vec![],
         ),
     ] {
-        assert_eq!(
-            parse_results(&tests, &flaky).as_bytes().to_vec(),
-            bytes(&expected["files"][format!("{id}.yml")]),
-            "{id}"
-        );
+        let actual = parse_results(&tests, &flaky).expect("typed parse result serializes");
+        let expected = String::from_utf8(bytes(&expected["files"][format!("{id}.yml")])).expect("UTF-8 YAML");
+        checked(marathon_test_support::yaml::same_data(&actual, &expected));
     }
 }
 
@@ -281,7 +279,7 @@ fn stdout_awaits_async_sink_off_core_without_using_the_blocking_pool() {
 
 #[test]
 fn malformed_primitive_array_metadata_falls_back_to_generic_projection() {
-    use marathon_core::report::projection::{meta, parse_results};
+    use marathon_core::report::projection::{kotlin_meta, parse_results};
     for class in ["[B", "[C"] {
         let values = vec![
             MetaValue::Byte(-1),
@@ -293,7 +291,7 @@ fn malformed_primitive_array_metadata_falls_back_to_generic_projection() {
             elements: values.clone(),
         }));
         let list = MetaValue::List(values);
-        assert_eq!(meta(&array), meta(&list));
+        assert_eq!(kotlin_meta(&array), kotlin_meta(&list));
         let make = |value| Test {
             pkg: "p".into(),
             clazz: "C".into(),
@@ -303,7 +301,10 @@ fn malformed_primitive_array_metadata_falls_back_to_generic_projection() {
                 values: [("value".into(), value)].into_iter().collect(),
             }],
         };
-        assert_eq!(parse_results(&[make(array)], &[]), parse_results(&[make(list)], &[]));
+        assert_eq!(
+            parse_results(&[make(array)], &[]).expect("array serializes"),
+            parse_results(&[make(list)], &[]).expect("list serializes")
+        );
     }
 }
 

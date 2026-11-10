@@ -10,9 +10,7 @@
 #[path = "support/load.rs"]
 mod load;
 
-use jcompat::writers::JacksonYamlWriter;
 use marathon_config::{
-    WriterProjection,
     bind_vendor::bind_xcresult_configuration,
     pipeline::bind_bytes,
     serialize,
@@ -29,7 +27,7 @@ fn test_simple(path: &str) {
     let context = load::context(&file, file.parent().unwrap(), Some("/android-sdk"));
     let parsed = load::parse(&file, &context).unwrap();
 
-    let serialized = serialize(&parsed);
+    let serialized = serialize(&parsed).expect("typed configuration serializes");
     let (_temp, temp_dir) = load::temp().unwrap();
     let temp_file = temp_dir.join("temp");
     fs::write(&temp_file, serialized.as_bytes()).unwrap();
@@ -123,7 +121,7 @@ fn timeout_round_trip(vendor_type: &str, timeout: &str) {
         format!("name: test\noutputDir: out\nvendorConfiguration:\n  type: {vendor_type}\n  timeoutConfiguration:\n    {timeout}\n")
             .as_bytes(),
     );
-    let serialized = serialize(&parsed);
+    let serialized = serialize(&parsed).expect("typed configuration serializes");
     assert_eq!(parse(serialized.as_bytes()), parsed);
 }
 
@@ -163,7 +161,7 @@ fn overrides_survive_a_serialization_round_trip_without_derived_values() {
             worker_capacity: Some(8),
         },
     };
-    let yaml = JacksonYamlWriter.write(&xcresult.writer_value()).to_owned();
+    let yaml = serialize(&xcresult).expect("typed Xcresult section serializes");
     assert!(yaml.contains("workerCapacity: 8"), "{yaml}");
     assert!(!yaml.contains("effectiveWorkerCapacity"), "{yaml}");
     let (_temp, dir) = load::temp().unwrap();
@@ -179,32 +177,42 @@ fn overrides_survive_a_serialization_round_trip_without_derived_values() {
 /// `serialize` → parse printed `NAN_ROUNDTRIP_EQUAL true`), while 0.0 and
 /// -0.0 differ.
 #[test]
-fn a_nan_success_rate_survives_a_serialization_round_trip() {
-    let (_temp, dir) = load::temp().unwrap();
+fn a_nan_success_rate_survives_a_serialization_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    let (_temp, dir) = load::temp()?;
     let file = dir.join("Marathonfile");
     fs::write(
         &file,
         "name: test\noutputDir: out\nvendorConfiguration: {type: stub}\nanalyticsConfiguration:\n  type: graphite\n  host: localhost\n  defaults:\n    successRate: \"NaN\"\n",
-    )
-    .unwrap();
+    )?;
     let context = load::context(&file, &dir, None);
-    let parsed = load::parse(&file, &context).unwrap();
+    let parsed = load::parse(&file, &context).map_err(|e| format!("{e:?}"))?;
     let marathon_config::AnalyticsConfiguration::Graphite(graphite) = &parsed.analytics_configuration else {
         panic!("expected graphite");
     };
     assert!(graphite.defaults.success_rate.is_nan());
-    let serialized = serialize(&parsed);
-    // Jackson's text (same probe): a plain scalar, not a quoted string.
-    assert!(serialized.to_owned().contains("\n    successRate: NaN\n"));
+    let serialized = serialize(&parsed)?;
+    let mut documents = marathon_test_support::yaml::independent_documents(std::slice::from_ref(&serialized))?;
+    let data = &mut documents[0][0];
+    let defaults = marathon_test_support::yaml::field(
+        marathon_test_support::yaml::field(data, "analyticsConfiguration"),
+        "defaults",
+    );
+    assert_eq!(
+        *marathon_test_support::yaml::field(defaults, "successRate"),
+        marathon_test_support::yaml::expected_data(&serde_json::json!("NaN"))
+    );
     let again = dir.join("again");
-    fs::write(&again, serialized.as_bytes()).unwrap();
+    fs::write(&again, serialized.as_bytes())?;
     let mut again_context = load::context(&again, &dir, None);
     again_context.now = context.now;
-    assert_eq!(parsed, load::parse(&again, &again_context).unwrap());
-
+    assert_eq!(
+        parsed,
+        load::parse(&again, &again_context).map_err(|e| format!("{e:?}"))?
+    );
     let mut negative_zero = graphite.defaults;
     negative_zero.success_rate = -0.0;
     let mut zero = graphite.defaults;
     zero.success_rate = 0.0;
     assert_ne!(zero, negative_zero);
+    Ok(())
 }

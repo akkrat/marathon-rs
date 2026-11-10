@@ -584,15 +584,23 @@ fn check(case: &str, r: &Result) {
         .collect();
     assert_eq!(r.trace, d51_trace(case, expected_trace), "{case}: trace");
     for logger in [LOGGER, PARSE, TIMINGS] {
-        assert_eq!(
-            if logger == LOGGER {
-                without_d51_records(case, rust_events(&r.outcome.lines, logger))
-            } else {
-                rust_events(&r.outcome.lines, logger)
-            },
-            jvm_events(&row, logger),
-            "{case}: {logger} records"
-        );
+        let mut actual = if logger == LOGGER {
+            without_d51_records(case, rust_events(&r.outcome.lines, logger))
+        } else {
+            rust_events(&r.outcome.lines, logger)
+        };
+        let expected = jvm_events(&row, logger);
+        if logger == PARSE {
+            for (actual, expected) in actual.iter_mut().zip(&expected) {
+                if expected.1.starts_with("---\n") {
+                    if let Err(error) = marathon_test_support::yaml::same_data(&actual.1, &expected.1) {
+                        panic!("{case}: parse YAML: {error}");
+                    }
+                    actual.1.clone_from(&expected.1);
+                }
+            }
+        }
+        assert_eq!(actual, expected, "{case}: {logger} records");
     }
     let jvm_files: Option<Vec<String>> = row["manifest"].as_array().map(|m| {
         FILES
@@ -650,7 +658,7 @@ fn wipe_removes_a_directory_symlink_without_following_it() {
 }
 
 #[test]
-fn named_parse_keeps_existing_files_and_writes_yml() {
+fn named_parse_keeps_existing_files_and_writes_yml() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let o = Options {
         debug: true,
         markers: true,
@@ -659,10 +667,11 @@ fn named_parse_keeps_existing_files_and_writes_yml() {
     };
     let r = run(o, Entry::RunAsync, parse(Some("named")));
     check("wipe-parse-named", &r);
-    assert_eq!(
-        std::fs::read_to_string(r.out.join("named.yml")).unwrap(),
-        row("wipe-parse-named")["named.yml"].as_str().unwrap()
-    );
+    marathon_test_support::yaml::same_data(
+        &std::fs::read_to_string(r.out.join("named.yml"))?,
+        row("wipe-parse-named")["named.yml"].as_str().expect("oracle YAML"),
+    )?;
+    Ok(())
 }
 
 #[test]

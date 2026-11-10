@@ -81,7 +81,12 @@ impl ParseOutput for MarathonTestParseCommand {
         output_file_name: Option<&'a str>,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
-            let result = parse_results(tests, flaky_tests);
+            let result = parse_results(tests, flaky_tests).map_err(|e| {
+                crate::error::VendorError::Other(crate::error::Failure::from_kind(
+                    marathon_error::FailureKind::IllegalArgument,
+                    Some(e.to_string()),
+                ))
+            })?;
             self.info("Parse execute mode. Result".into());
             match output_file_name {
                 Some(name) => {

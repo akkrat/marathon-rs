@@ -343,6 +343,7 @@ Each choice is confirmed or replaced by the Phase 0 spikes.
 | Async runtime | `tokio`: multi-thread for I/O plus a dedicated single-thread core executor (§5) | – |
 | CLI | Hand-written parser (WP 2.5) | Matrix-tested against Clikt (§3.1) |
 | YAML | A function-by-function Rust port of SnakeYAML 2.2's reader, scanner and parser (Apache-2.0, chosen by spike 0.3b over `saphyr-parser`, whose scanner diverged), feeding our own `Node` tree. The tree keeps raw spelling as Rust strings (with UTF-16 counting retained where required by D55), scalar style, tags, anchors, duplicate entries and positions | Our own binding layer reproduces Jackson. Alias expansion has a size cap. Input is decoded from bytes as Kotlin `readText()` does. See `docs/research/yaml-spike-results.md` and the binding cases carried to WP 2.1 in `docs/wp/0.3b-findings.md` |
+| YAML output | `serde-saphyr =2.1.1`, serialization feature only (WP 8.9) | Typed serde views, YAML 1.1 quoting, explicit empty collections, no block scalars; Marathonfile input stays on the SnakeYAML port |
 | Regex | The Rust `regex` crate (D6), wrapped in `jcompat` to give Kotlin's `matches`/`find`/`split`/`replace` semantics and errors that name the config field | Spike 0.3c (fancy-regex behind a Java translator) is kept only as research |
 | SSH | `russh` 0.64.x (exec channel per command, `signal`, keep-alive, password and public-key auth, our own known_hosts verifier and accept-any verifier), pinned | A vendored, patched russh. `ssh2`/libssh2 is ruled out: it has no channel-signal API, its keep-alive never waits for replies, and it only blocks (`docs/research/ssh.md`). Open question for spike 0.3a: sshj loads PuTTY `.ppk` keys and russh does not, which may need a deviation |
 | rsync | System `rsync`, plus `sshpass` for password auth, with rsync4j's exact argv | – |
@@ -365,7 +366,7 @@ The pieces of Java and Kotlin behaviour we reproduce. All tables are generated b
 - **Substitution.** The commons-text `StringSubstitutor`.
 - **Regex.** `JavaRegex`.
 - **Hashing and names.** The signed-`BigInteger` md5 fragment hash, `escape()` and FileManager truncation.
-- **Serialization.** The Gson writer, and the Jackson YAML emitter used for P3.
+- **Serialization.** JSON output uses serde (WP 8.4); YAML output uses serde-saphyr (WP 8.9). Only Kotlin text rendering remains under `jcompat::writers`.
 - **Logging.** logback's pattern layout, `%logger{N}` abbreviation and `%highlight`.
 - **Kotlin `toString`.** The data-class format, used by `Configuration.toMap()` and by the `.expected` fixtures.
 

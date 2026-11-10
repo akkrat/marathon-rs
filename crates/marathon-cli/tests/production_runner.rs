@@ -74,32 +74,32 @@ fn output(stdout: &Buffer) -> CliOutput {
 }
 
 #[test]
-fn stub_parse_runs_end_to_end_through_the_production_runner() {
+fn stub_parse_runs_end_to_end_through_the_production_runner() -> Result<(), Box<dyn std::error::Error>> {
     let factory = ConfigurationFactory::new();
     let out = factory.output_dir();
     let stdout = Buffer::default();
     let cli = output(&stdout);
     let runner = ProductionRunner {
         factories: Arc::new(stub_factories()),
-        cwd: std::env::current_dir().unwrap(),
+        cwd: std::env::current_dir()?,
         environment: vec![],
         signal_hooks: Default::default(),
         exit_prepare: None,
     };
     let marathon = runner
         .construct(Arc::new(factory.configuration.clone()), cli.logging(), cli.console())
-        .unwrap_or_else(|e| panic!("{e:?}"));
+        .map_err(|e| format!("{e:?}"))?;
     let result = marathon
         .run(ExecutionCommand::Parse {
             output_file_name: Some("parsed".into()),
             include_flaky_tests: false,
         })
-        .unwrap();
+        .map_err(|e| format!("{e:?}"))?;
     assert!(result);
-    assert_eq!(
-        std::fs::read_to_string(out.join("parsed.yml")).unwrap(),
-        "---\ntests:\n- pkg: \"test\"\n  clazz: \"SimpleTest\"\n  method: \"test\"\n  metaProperties: []\n"
-    );
+    marathon_test_support::yaml::same_data(
+        &std::fs::read_to_string(out.join("parsed.yml"))?,
+        "---\ntests:\n- pkg: \"test\"\n  clazz: \"SimpleTest\"\n  method: \"test\"\n  metaProperties: []\n",
+    )?;
     let text = stdout.text();
     assert!(text.contains("System Information:"), "{text}");
     assert!(text.contains("marathon.version: "), "{text}");
@@ -109,6 +109,7 @@ fn stub_parse_runs_end_to_end_through_the_production_runner() {
     );
     assert!(text.contains("Parsed 1 tests in "), "{text}");
     assert!(text.contains("Parse execute mode. Result"), "{text}");
+    Ok(())
 }
 
 #[test]

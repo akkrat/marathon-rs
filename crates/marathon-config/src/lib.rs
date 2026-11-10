@@ -22,8 +22,10 @@ pub use vendor::*;
 pub mod loader;
 pub mod pipeline;
 pub mod render;
-pub use render::{WriterProjection, serialize};
+pub use render::serialize;
 mod scalar;
+pub mod yaml;
+pub mod yaml_views;
 pub use snakeyaml::{node, tokens};
 
 pub mod tree;

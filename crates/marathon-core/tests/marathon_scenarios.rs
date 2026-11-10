@@ -33,16 +33,22 @@ fn one_healthy_device_execution_of_one_test_should_pass() {
 }
 
 #[test]
-fn one_healthy_device_execution_of_the_parse_command_should_pass() {
+fn one_healthy_device_execution_of_the_parse_command_should_pass() -> Result<(), Box<dyn std::error::Error>> {
     let outcome = scenario::run("parse.json", |_| {});
     assert!(outcome.completed);
     assert!(matches!(outcome.value, Some(Ok(true))));
     let content = outcome.read("parse_result.yml");
-    assert_eq!(
-        content.trim_end(),
-        "---\ntests:\n- pkg: \"test\"\n  clazz: \"SimpleTest\"\n  method: \"test\"\n  metaProperties: []"
-    );
-    assert_eq!(outcome.expect["files"]["parse_result.yml"], content.trim_end());
+    marathon_test_support::yaml::same_data(
+        &content,
+        "---\ntests:\n- pkg: \"test\"\n  clazz: \"SimpleTest\"\n  method: \"test\"\n  metaProperties: []",
+    )?;
+    marathon_test_support::yaml::same_data(
+        &content,
+        outcome.expect["files"]["parse_result.yml"]
+            .as_str()
+            .expect("oracle YAML"),
+    )?;
+    Ok(())
 }
 
 #[test]

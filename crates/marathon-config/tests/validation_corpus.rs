@@ -181,9 +181,9 @@ fn validation_corpus_matches_jvm() {
             // whose lookahead the regex crate cannot compile; omitting the key
             // rebinds the same default. Otherwise the text is Jackson's.
             let want = want.replace("\n    testClassRegexes:\n    - \"^((?!Abstract).)*Test[s]*$\"", "");
-            let got = cleaner.java(&serialize(config));
-            if got != want {
-                failures.push(format!("{id}: serialized\n--- got\n{got}\n--- want\n{want}"));
+            let got = cleaner.java(&serialize(config).expect("typed configuration serializes"));
+            if let Err(error) = marathon_test_support::yaml::same_data(&got, &want) {
+                failures.push(format!("{id}: serialized data: {error}"));
             }
         }
     }

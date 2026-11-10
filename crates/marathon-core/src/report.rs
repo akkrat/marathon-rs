@@ -197,5 +197,6 @@ pub mod json;
 mod junit;
 pub mod projection;
 mod reporters;
+pub mod yaml;
 pub use junit::{JUnitReporter, junit_xml};
 pub use reporters::*;

@@ -175,12 +175,12 @@ pub async fn output_contract(
 // MetaValue is discovery data (boxed types/identity), not another writer tree.
 pub fn writer_contract(
     json: &impl serde::Serialize,
-    yaml: &jcompat::writers::WriterValue,
+    yaml: &impl serde::Serialize,
     raw: &jcompat::writers::KotlinValue,
-) -> Result<[String; 3], serde_json::Error> {
+) -> Result<[String; 3], Box<dyn std::error::Error>> {
     Ok([
         serde_json::to_string(json)?,
-        jcompat::writers::JacksonYamlWriter.write(yaml),
+        marathon_config::yaml::to_string(yaml)?,
         raw.render(),
     ])
 }

@@ -65,8 +65,9 @@ pub fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
         if family == "emit" {
             // These are emitter checks over explicit bound-model projections;
             // ConfigurationFactory binding/defaults remain WP 2.1's contract.
-            let actual = emit_case(id);
-            let ok = Some(actual.as_str()) == row["emit"]["ok"].as_str();
+            let actual = emit_case(id)?;
+            let expected = row["emit"]["ok"].as_str().ok_or("emitter oracle output")?;
+            let ok = marathon_test_support::yaml::same_data(&actual, expected).is_ok();
             let entry = stats.entry(family).or_insert((0, 0));
             entry.0 += 1;
             if ok {
@@ -448,42 +449,69 @@ fn error_positions(message: &str) -> Vec<(usize, usize)> {
     out
 }
 
-fn emit_case(id: &str) -> String {
-    use jcompat::writers::{JavaNumber, WriterValue};
+fn emit_case(id: &str) -> Result<String, Box<dyn std::error::Error>> {
+    use marathon_config::yaml;
+    use serde::{
+        Serialize, Serializer,
+        ser::{Error, SerializeMap},
+    };
     fn units(v: &serde_json::Value) -> String {
         String::from_utf16_lossy(
             &v.as_array()
-                .unwrap()
+                .expect("UTF-16 units")
                 .iter()
-                .map(|c| c.as_u64().unwrap() as u16)
+                .map(|c| c.as_u64().expect("code unit") as u16)
                 .collect::<Vec<_>>(),
         )
     }
-    fn input(v: &serde_json::Value) -> WriterValue {
-        match v["kind"].as_str().unwrap() {
-            "null" => WriterValue::Null,
-            "bool" => WriterValue::Bool(v["value"].as_bool().unwrap()),
-            "number" => WriterValue::Number(JavaNumber::new(v["value"].as_str().unwrap()).unwrap()),
-            "string" => WriterValue::String(units(&v["units"])),
-            "array" => WriterValue::Array(v["items"].as_array().unwrap().iter().map(input).collect()),
-            "object" => WriterValue::Object(
-                v["entries"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|e| (units(&e[0]), input(&e[1])))
-                    .collect(),
-            ),
-            _ => panic!("invalid writer projection"),
+    struct Oracle<'a>(&'a serde_json::Value);
+    impl Serialize for Oracle<'_> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let v = self.0;
+            match v["kind"].as_str().ok_or_else(|| S::Error::custom("projection kind"))? {
+                "null" => serializer.serialize_none(),
+                "bool" => v["value"]
+                    .as_bool()
+                    .ok_or_else(|| S::Error::custom("bool"))?
+                    .serialize(serializer),
+                "number" => {
+                    let text = v["value"].as_str().ok_or_else(|| S::Error::custom("number"))?;
+                    if text.contains(['.', 'e', 'E']) || matches!(text, "NaN" | "Infinity" | "-Infinity") {
+                        yaml::Float(text.parse().map_err(S::Error::custom)?).serialize(serializer)
+                    } else {
+                        serializer.serialize_i64(text.parse().map_err(S::Error::custom)?)
+                    }
+                }
+                "string" => units(&v["units"]).serialize(serializer),
+                "array" => serializer.collect_seq(
+                    v["items"]
+                        .as_array()
+                        .ok_or_else(|| S::Error::custom("items"))?
+                        .iter()
+                        .map(Oracle),
+                ),
+                "object" => {
+                    let mut map = serializer.serialize_map(None)?;
+                    for entry in v["entries"].as_array().ok_or_else(|| S::Error::custom("entries"))? {
+                        if yaml::include_entry(entry[1]["kind"] == "null") {
+                            map.serialize_entry(&units(&entry[0]), &Oracle(&entry[1]))?;
+                        }
+                    }
+                    map.end()
+                }
+                _ => Err(S::Error::custom("projection kind")),
+            }
         }
     }
     let row = include_str!("../../../fixtures/oracle/jcompat/writer_models.jsonl")
         .lines()
         .skip(1)
-        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+        .map(serde_json::from_str::<serde_json::Value>)
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
         .find(|r| r["id"] == id)
-        .expect("emitter projection exists");
-    jcompat::writers::JacksonYamlWriter.write(&input(&row["input"]))
+        .ok_or("emitter projection")?;
+    Ok(yaml::to_string(&Oracle(&row["input"]))?)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

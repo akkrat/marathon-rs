@@ -3,7 +3,7 @@
 //! Every scenario input is compared with the reference build's replay transcript
 //! (fixtures/oracle/run-flow/scenarios.jsonl, tools/oracle/run-flow-probes): the outcome and
 //! its scheduler time, every event and device call with its time, batch and tests, raw.json
-//! byte for byte, the parse output files and the outputDir manifest. Batch UUIDs are renamed
+//! byte for byte, ordered YAML data for parse output files, and the outputDir manifest. Batch UUIDs are renamed
 //! by their execute call's (time, device); calls at one scheduler time are compared as a set,
 //! since devices run concurrently on the vendor runtime. The Allure and HTML reporter outputs
 //! are compared as text with random UUIDs, wall-clock dates, the temporary outputDir and
@@ -301,7 +301,15 @@ fn check_with(name: &str, d48: bool) {
         "{name}: raw.json"
     );
     for (file, content) in row["files"].as_object().unwrap() {
-        assert_eq!(rust.read(file), content.as_str().unwrap(), "{name}: {file}");
+        if file.ends_with(".yml") {
+            if let Err(error) =
+                marathon_test_support::yaml::same_data(&rust.read(file), content.as_str().expect("oracle YAML"))
+            {
+                panic!("{name}: {file}: {error}");
+            }
+        } else {
+            assert_eq!(rust.read(file), content.as_str().unwrap(), "{name}: {file}");
+        }
     }
     let jvm_manifest: Option<Vec<String>> = row["manifest"]
         .as_array()

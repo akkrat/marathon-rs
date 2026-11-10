@@ -1,37 +1,5 @@
-//! Port of core/src/main/kotlin/com/malinskiy/marathon/report/bill/BillingReporter.kt
-//! and execution/command/parse/MarathonTestParseCommand.kt (Java leaf semantics).
-use jcompat::{
-    jtime::{instant_duration_millis, instant_of, instant_to_epoch_milli},
-    writers::{JacksonYamlWriter, WriterValue},
-};
-use serde_json::Value;
-#[test]
-fn jackson_binary_scalars_match_the_command_mapper() {
-    for line in include_str!("../../../fixtures/oracle/reporters/binary.jsonl").lines() {
-        let r: Value = serde_json::from_str(line).unwrap();
-        let size = r["size"].as_u64().unwrap() as usize;
-        let value = WriterValue::Binary((0..size).map(|i| i as u8).collect());
-        let value = if r["list"] == true {
-            WriterValue::Array(vec![value])
-        } else {
-            WriterValue::Object(vec![("binary".into(), value)])
-        };
-        let bytes = |key: &str| {
-            r[key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_u64().unwrap() as u8)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            JacksonYamlWriter.write(&value).as_bytes().to_vec(),
-            bytes("yaml"),
-            "YAML size {size}, list {}",
-            r["list"]
-        );
-    }
-}
+//! Port of core/src/main/kotlin/com/malinskiy/marathon/report/bill/BillingReporter.kt (Java leaf semantics).
+use jcompat::jtime::{instant_duration_millis, instant_of, instant_to_epoch_milli};
 #[test]
 fn billing_fractional_millis_keep_java_rounding_and_overflow() {
     let start = instant_of(1, 1).unwrap();

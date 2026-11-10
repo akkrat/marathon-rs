@@ -65,6 +65,31 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<(
     Ok(())
 }
 
+fn round_trip_if_parseable(
+    input: &Path,
+    process_dir: &Path,
+    environment: Vec<(String, String)>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let context = BindingContext {
+        profile: Profile::Marathonfile,
+        marathonfile: input.to_path_buf(),
+        marathonfile_dir: input.parent().ok_or("Marathonfile parent")?.canonicalize()?,
+        process_dir: process_dir.to_path_buf(),
+        environment,
+        now: instant_of(1_000_000, 0).ok_or("reference instant")?,
+        analytics_tracking: true,
+        bugsnag_reporting: true,
+    };
+    if let Ok(config) = MarathonConfigurationLoader.parse_sync(&fs::read(input)?, &context) {
+        let serialized = marathon_config::serialize(&config)?;
+        let recreated = MarathonConfigurationLoader
+            .parse_sync(serialized.as_bytes(), &context)
+            .map_err(|e| format!("{e:?}"))?;
+        assert_eq!(config, recreated, "{}", input.display());
+    }
+    Ok(())
+}
+
 const PLATFORM_CASES: [&str; 2] = ["a-devices-symlink-loop", "a-known-hosts-symlink-loop"];
 
 fn platform_rows(
@@ -162,6 +187,7 @@ fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::err
                 Err(_) => json!({"accepted": false}),
             }
         } else {
+            round_trip_if_parseable(&input, &copy, vec![("ANDROID_HOME".into(), "/android-sdk".into())])?;
             let env_file = work.join("env");
             fs::write(&env_file, "ANDROID_HOME=/android-sdk\n")?;
             let output = Command::new(env!("CARGO_BIN_EXE_marathon"))
@@ -238,6 +264,11 @@ fn configuration_corpus_matches_explicit_golden() -> Result<(), Box<dyn std::err
             "ANDROID_HOME=/android-sdk\n"
         };
         fs::write(&env_file, format!("{sdk}A=${{B}}\nB=${{A}}\n"))?;
+        let mut environment = vec![("A".into(), "${B}".into()), ("B".into(), "${A}".into())];
+        if case["noSdk"] != true {
+            environment.push(("ANDROID_HOME".into(), "/android-sdk".into()));
+        }
+        round_trip_if_parseable(&input, &work, environment)?;
         let output = Command::new(env!("CARGO_BIN_EXE_marathon"))
             .current_dir(&work)
             .env_clear()

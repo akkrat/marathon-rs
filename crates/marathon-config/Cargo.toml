@@ -9,6 +9,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde-saphyr = { version = "=2.1.1", default-features = false, features = ["serialize"] }
 marathon-error = { path = "../marathon-error" }
 jcompat = { path = "../jcompat" }
 snakeyaml = { path = "../snakeyaml" }
