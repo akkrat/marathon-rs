@@ -2,6 +2,7 @@
 //! (shared core/Send producer queue with ordered raw output).
 use marathon_core::logging::{LogQueue, LogRecord, OutputRecord};
 use marathon_logging::Level;
+use std::sync::{Arc, Mutex};
 
 fn sent(message: &str) -> LogRecord {
     LogRecord {
@@ -35,6 +36,28 @@ fn sender_records_drain_in_push_order_with_core_logs_and_raw_text() {
         ["raw:a", "log:b", "log:c", "log:d", "raw:e"]
     );
     assert!(q.take_output().is_empty());
+}
+
+/// WP 8.8: vendor records pushed while final shutdown is already forwarding the queue are
+/// not lost and do not panic: everything pushed before a close fence is sunk in order, and a
+/// record pushed after the fence is forwarded by the same task (a second fence proves it).
+#[test]
+fn late_output_forwards_records_pushed_before_and_after_the_close_fence() {
+    let q = LogQueue::default();
+    let late = q.late_output();
+    let sender = q.sender();
+    q.raw("before".into());
+    sender.push(sent("queued"));
+    let seen = Arc::new(Mutex::new(vec![]));
+    let sink = {
+        let seen = seen.clone();
+        Arc::new(move |record: OutputRecord| seen.lock().unwrap().push(text(&record)))
+    };
+    late.close(sink.clone()).unwrap();
+    assert_eq!(*seen.lock().unwrap(), ["raw:before", "log:queued"]);
+    sender.push(sent("late"));
+    late.close(sink).unwrap();
+    assert_eq!(*seen.lock().unwrap(), ["raw:before", "log:queued", "log:late"]);
 }
 
 #[test]

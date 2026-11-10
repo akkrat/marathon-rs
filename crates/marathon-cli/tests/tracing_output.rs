@@ -184,6 +184,25 @@ impl Write for Broken {
         Ok(())
     }
 }
+/// WP 8.8: once the writer has closed, a late write fails explicitly (and is counted)
+/// instead of panicking or silently succeeding; everything written before stays written.
+#[test]
+fn writes_after_close_are_rejected_not_lost_silently() -> Result<(), Box<dyn std::error::Error>> {
+    let buffer = Buffer::default();
+    let (output, guard) = setup(buffer.clone(), false)?;
+    let mut writer = output.writer();
+    writer.write_all(b"before\n")?;
+    guard.shutdown()?;
+    assert_eq!(buffer.text()?, "before\n");
+    let error = writer.write_all(b"too late\n").unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    assert_eq!(writer.stats().accepted, 1);
+    assert_eq!(writer.stats().written, 1);
+    assert_eq!(writer.stats().rejected, 1);
+    assert_eq!(buffer.text()?, "before\n");
+    Ok(())
+}
+
 #[test]
 fn shutdown_reports_sink_failure() -> io::Result<()> {
     let (output, guard) = TracingOutput::new(Broken, false, || "time".into())?;

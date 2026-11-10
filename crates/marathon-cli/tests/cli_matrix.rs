@@ -136,7 +136,8 @@ fn cli_matrix_matches_the_reference_build() {
             .replace(
                 "[main] ERROR c.m.marathon.cli.ApplicationView - ",
                 "ERROR marathon_cli::application: ",
-            );
+            )
+            .replace("[main] INFO  <D1>", "INFO <D1>");
         // These closed matrix rows record exactly one generated cause. Other messages stay opaque.
         let generated_cause = matches!(
             id,

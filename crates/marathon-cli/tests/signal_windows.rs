@@ -446,6 +446,22 @@ fn a_stuck_console_does_not_hold_a_cancel_d52() {
     assert_eq!(status.and_then(|s| s.code()), Some(143), "{status:?}");
 }
 
+/// WP 8.8: with the console sink blocked, the first signal's exit flush runs to its off-core
+/// deadline and exits 143; a second signal in that window exits at once with its own status,
+/// without waiting for the blocked writer or the flush deadline.
+#[test]
+fn a_second_signal_exits_at_once_during_a_blocked_sink() {
+    if inherited_ignored(Signal::SIGTERM) || inherited_ignored(Signal::SIGINT) {
+        return;
+    }
+    let (mut child, stderr) = started_with_stderr("stuck-console", None);
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGTERM).unwrap();
+    assert!(stderr.saw("MARKER terminate"));
+    kill(Pid::from_raw(child.id() as i32), Signal::SIGINT).unwrap();
+    let status = signalled_wait(&mut child, PATIENCE);
+    assert_eq!(status.and_then(|s| s.code()), Some(130), "{status:?}");
+}
+
 /// D52: a second signal doesn't wait for the cleanup, or run it again. The status tells the two apart without a timing:
 /// the first signal's limit would exit with 143.
 #[test]
