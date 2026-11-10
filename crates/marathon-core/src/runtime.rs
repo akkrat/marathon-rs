@@ -28,7 +28,30 @@ pub struct ActorContext<M> {
     /// actor.job() is the owner for actor-scoped launches and bookkeeping.
     pub actor: Rc<dyn Actor<M>>,
 }
-pub type JobRef = Rc<dyn Job>;
+/// Core-thread job handle; construction is private to the executor.
+/// Each executor constructs its jobs on its own dedicated thread. The Send
+/// factory/result boundary prevents a handle from reaching another executor.
+///
+/// A job cannot be captured by another run's factory:
+/// ```compile_fail,E0277
+/// use marathon_core::{executor::CoreExecutor, runtime::{CoreRuntime, JobKind}};
+/// let _ = CoreExecutor::run(|core| {
+///     let job = core.job(JobKind::Ordinary, None);
+///     let _ = CoreExecutor::run(move |other| {
+///         other.job(JobKind::Ordinary, Some(job));
+///         Box::pin(async { Ok(()) })
+///     });
+///     Box::pin(async { Ok(()) })
+/// });
+/// ```
+/// Nor can it escape a run as its result:
+/// ```compile_fail,E0277
+/// use marathon_core::{executor::CoreExecutor, runtime::{CoreRuntime, JobKind}};
+/// let _ = CoreExecutor::run(|core| {
+///     Box::pin(async move { Ok(core.job(JobKind::Ordinary, None)) })
+/// });
+/// ```
+pub type JobRef = Rc<crate::executor::RuntimeJob>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum JobKind {
     Ordinary,
@@ -49,40 +72,6 @@ pub enum Completion {
 }
 pub trait CompletionRegistration {
     fn dispose(&self);
-}
-pub trait Job {
-    /// Explicit cancellation observation, before body/child completion.
-    fn cancellation_signal(&self) -> Arc<dyn CancellationSignal>;
-    /// A cancellable join needs its caller; join() alone is protected.
-    fn join_in(&self, caller: JobRef) -> LocalFuture<'_, Result<(), Cancellation>> {
-        Box::pin(async move {
-            let signal = caller.cancellation_signal();
-            match crate::executor::shared::race(signal.cancelled(), self.join()).await {
-                futures_util::future::Either::Left(reason) => Err(reason),
-                futures_util::future::Either::Right(joined) => joined,
-            }
-        })
-    }
-    fn state(&self) -> JobState;
-    fn cancel(&self, reason: Cancellation);
-    fn complete(&self) -> bool;
-    fn join(&self) -> LocalFuture<'_, Result<(), Cancellation>>;
-    fn children_snapshot(&self) -> Vec<JobRef>;
-    /// Kotlin job.children traversal, joining each observed child. Not a fixed
-    /// point over future children. Preserve the pinned single-node/list traversal
-    /// documented in lifecycle.md, including successor reads after each join.
-    fn join_observed_children(&self) -> LocalFuture<'_, Result<(), Cancellation>>;
-    /// Cancellable traversal for an explicit caller, as join_in is for join (WP 3.6).
-    fn join_observed_children_in(&self, caller: JobRef) -> LocalFuture<'_, Result<(), Cancellation>> {
-        Box::pin(async move {
-            let signal = caller.cancellation_signal();
-            match crate::executor::shared::race(signal.cancelled(), self.join_observed_children()).await {
-                futures_util::future::Either::Left(reason) => Err(reason),
-                futures_util::future::Either::Right(joined) => joined,
-            }
-        })
-    }
-    fn invoke_on_completion(&self, callback: Box<dyn FnOnce(Completion)>) -> Box<dyn CompletionRegistration>;
 }
 /// Thread-safe cancellation observation for a vendor task. Requesting cancellation
 /// is owned by its Job; this handle does not grant the vendor parent ownership.

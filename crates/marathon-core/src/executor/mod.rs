@@ -22,7 +22,6 @@ use shared::*;
 pub use shared::{SharedChannel, SharedDeferred, Signal};
 use std::{
     cell::RefCell,
-    collections::HashMap,
     rc::{Rc, Weak},
     sync::{Arc, Mutex},
 };
@@ -32,9 +31,6 @@ use tracking::{Tracked, Tracker};
 pub struct CoreExecutor {
     myself: Weak<Self>,
     clock: Rc<RuntimeClock>,
-    jobs: RefCell<HashMap<usize, Weak<RuntimeJob>>>,
-    /// Registry size after the last sweep; sweeping on every creation is quadratic.
-    swept: std::cell::Cell<usize>,
     tracker: Arc<Tracker>,
     vendor: Arc<IoRuntime>,
     #[cfg(any(test, feature = "test-support"))]
@@ -94,8 +90,6 @@ impl CoreExecutor {
                 let core = Rc::new_cyclic(|myself| Self {
                     myself: myself.clone(),
                     clock,
-                    jobs: RefCell::new(HashMap::new()),
-                    swept: std::cell::Cell::new(0),
                     tracker: tracker.clone(),
                     vendor: Arc::new(IoRuntime { handle, tracker }),
                     #[cfg(any(test, feature = "test-support"))]
@@ -185,25 +179,7 @@ impl CoreExecutor {
         }
     }
     pub(crate) fn new_job(&self, kind: JobKind, parent: Option<JobRef>, task: bool) -> Rc<RuntimeJob> {
-        let parent = parent.map(|parent| self.resolve(&parent));
-        let job = RuntimeJob::new(kind, parent, task);
-        let key = Rc::as_ptr(&job) as usize;
-        let mut jobs = self.jobs.borrow_mut();
-        if jobs.len() >= 2 * self.swept.get() + 64 {
-            jobs.retain(|_, job| job.strong_count() > 0);
-            self.swept.set(jobs.len());
-        }
-        // A dead entry at a reused address is simply replaced.
-        jobs.insert(key, Rc::downgrade(&job));
-        drop(jobs);
-        job
-    }
-    fn resolve(&self, job: &JobRef) -> Rc<RuntimeJob> {
-        let key = Rc::as_ptr(job) as *const () as usize;
-        match self.jobs.borrow().get(&key).and_then(Weak::upgrade) {
-            Some(job) => job,
-            None => panic!("parent must belong to this CoreExecutor"),
-        }
+        RuntimeJob::new(kind, parent, task)
     }
     pub(crate) fn launch(&self, job: Rc<RuntimeJob>, body: TaskBody<'static>) {
         self.launch_retained(job, body, Box::new(|| {}));

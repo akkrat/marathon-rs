@@ -114,7 +114,7 @@ pub struct RuntimeJob {
     pub(crate) handler: RefCell<Option<FailureHandler>>,
 }
 impl RuntimeJob {
-    pub(crate) fn new(kind: JobKind, parent: Option<Rc<Self>>, task: bool) -> Rc<Self> {
+    pub(super) fn new(kind: JobKind, parent: Option<Rc<Self>>, task: bool) -> Rc<Self> {
         let job = Rc::new_cyclic(|myself| Self {
             myself: myself.clone(),
             kind,
@@ -392,11 +392,32 @@ impl RuntimeJob {
         !self.scoped.get() && !self.parent_handles_failure
     }
 }
-impl Job for RuntimeJob {
-    fn cancellation_signal(&self) -> Arc<dyn CancellationSignal> {
+impl RuntimeJob {
+    /// A cancellable join needs its caller; join() alone is protected.
+    pub fn join_in(&self, caller: JobRef) -> LocalFuture<'_, Result<(), Cancellation>> {
+        Box::pin(async move {
+            let signal = caller.cancellation_signal();
+            match crate::executor::shared::race(signal.cancelled(), self.join()).await {
+                futures_util::future::Either::Left(reason) => Err(reason),
+                futures_util::future::Either::Right(joined) => joined,
+            }
+        })
+    }
+    /// Cancellable traversal for an explicit caller, as join_in is for join (WP 3.6).
+    pub fn join_observed_children_in(&self, caller: JobRef) -> LocalFuture<'_, Result<(), Cancellation>> {
+        Box::pin(async move {
+            let signal = caller.cancellation_signal();
+            match crate::executor::shared::race(signal.cancelled(), self.join_observed_children()).await {
+                futures_util::future::Either::Left(reason) => Err(reason),
+                futures_util::future::Either::Right(joined) => joined,
+            }
+        })
+    }
+    /// Explicit cancellation observation, before body/child completion.
+    pub fn cancellation_signal(&self) -> Arc<dyn CancellationSignal> {
         self.signal.clone()
     }
-    fn state(&self) -> JobState {
+    pub fn state(&self) -> JobState {
         let inner = self.inner.borrow();
         if inner.completed {
             JobState::Completed(inner.outcome.clone())
@@ -408,10 +429,10 @@ impl Job for RuntimeJob {
             JobState::Active
         }
     }
-    fn cancel(&self, reason: Cancellation) {
+    pub fn cancel(&self, reason: Cancellation) {
         cascade(Step::Cancel(self.rc(), reason));
     }
-    fn complete(&self) -> bool {
+    pub fn complete(&self) -> bool {
         if self.task || self.inner.borrow().body_finished {
             return false;
         }
@@ -419,7 +440,7 @@ impl Job for RuntimeJob {
         cascade(Step::TryFinish(self.rc()));
         true
     }
-    fn join(&self) -> LocalFuture<'_, Result<(), Cancellation>> {
+    pub fn join(&self) -> LocalFuture<'_, Result<(), Cancellation>> {
         Box::pin(async move {
             loop {
                 let changed = self.changed.notified();
@@ -432,18 +453,21 @@ impl Job for RuntimeJob {
             }
         })
     }
-    fn children_snapshot(&self) -> Vec<JobRef> {
+    pub fn children_snapshot(&self) -> Vec<JobRef> {
         let mut children = Vec::new();
         let mut node = self.inner.borrow().head.clone();
         while let Some(current) = node {
             if let Some(job) = &current.job {
-                children.push(job.clone() as JobRef);
+                children.push(job.clone());
             }
             node = current.next.borrow().clone();
         }
         children
     }
-    fn join_observed_children(&self) -> LocalFuture<'_, Result<(), Cancellation>> {
+    /// Kotlin job.children traversal, joining each observed child. Not a fixed
+    /// point over future children. Preserve the pinned single-node/list traversal
+    /// documented in lifecycle.md, including successor reads after each join.
+    pub fn join_observed_children(&self) -> LocalFuture<'_, Result<(), Cancellation>> {
         Box::pin(async move {
             let (mut node, single) = {
                 let inner = self.inner.borrow();
@@ -462,7 +486,7 @@ impl Job for RuntimeJob {
             Ok(())
         })
     }
-    fn invoke_on_completion(&self, callback: Box<dyn FnOnce(Completion)>) -> Box<dyn CompletionRegistration> {
+    pub fn invoke_on_completion(&self, callback: Box<dyn FnOnce(Completion)>) -> Box<dyn CompletionRegistration> {
         let (handle, completion) = self.register(Callback::User(callback));
         if let Some(completion) = completion {
             cascade(Step::Callback(handle.registration.clone(), completion));
