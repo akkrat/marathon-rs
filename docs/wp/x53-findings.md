@@ -30,16 +30,38 @@
   six-occurrence audit. The final WP evidence agrees with the sampled code.
 - The older user guide still claimed stable identities, exception class names,
   79-column help, heap tie order and Kotlin logger names as current behaviour.
-  Updated those claims or marked their 0.12.0 scope, linking the replacements.
+  The initial pass updated the overview claims but missed failure examples in
+  D22/D25/D36/D42/D47/D54 and the migration guide. Review round 1 corrects those
+  examples to the current descriptions from `marathon-error`; remaining Java
+  exception names describe Kotlin's old behaviour or D59's before/after example.
 - PLAN §3.11 contains D55–D65 but records **no individual approval dates** for
-  them; §11 also stops at D54. Each new guide entry states this gap instead of
-  treating §3.11's historical 2026-10-12 heading or a commit date as an approval
-  date. Supplying those dates requires the owner's approval record.
+  them; §11 also stops at D54. The guide intro states this gap once and identifies
+  §3.11's 2026-10-12 heading as the section's original approval. Each new entry
+  links its approved D-row without inventing an individual date. Supplying those
+  dates requires the owner's approval record.
 - Audited U184–U193: all are marked fixed. No additional unresolved Phase 8 limit
   comes from those rows. Carried forward the applicable 0.12.0 limits and called
   out the retained Apple event/line log-window race, whose differential-only
   gates do not change production. The image evidence explicitly distinguishes
   unchanged registered goldens from supplemental changed-image tests.
+
+## Review round 1
+
+- S-x53-1: audited Java exception/error class names across both guides and the
+  rc changelog section. Current examples now use `unexpected end of input`,
+  `no devices available`, `SSH connection failure`, `invalid state` and
+  `configuration rejected`, verified against the typed descriptions and call
+  sites. The EOF example matches the WP 8.6b golden diff. Older changelog sections
+  remain byte-identical to the initial x53 commit.
+- S-x53-2: removed the stale `.yaml` help claim for `parse -o`; clap's actual help
+  says `.yml`.
+- S-x53-3: added the late-pool upgrade warning: formerly omitted tests can now
+  run, take longer and select exit 1 under D65.
+- S-x53-4: qualified D58's data-class claim: embedded stateless objects use simple
+  names, as shown in the reviewed environment golden diff.
+- S-x53-5: scoped serde preservation to ordered source data and explicitly noted
+  U184: NEL in a YAML mapping key survives instead of becoming a space.
+- S-x53-6: consolidated the missing approval-date explanation in the guide intro.
 
 ## Verification
 

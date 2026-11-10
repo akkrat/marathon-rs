@@ -106,7 +106,7 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0-rc.1 as well as from Ko
 | use non-ASCII HTTP Basic credentials for analytics ([D57](deviations.md#d57--native-decoding-socket-text-and-basic-credentials)) | Credentials now encode UTF-8 instead of ISO-8859-1 with out-of-range replacement. ASCII stays identical. | Check that the server accepts UTF-8 credentials. |
 | match malformed Unicode or rare supplementary-character sort order ([D55](deviations.md#d55--text-uses-unicode-characters)) | Lone surrogates become U+FFFD at decoding; supplementary/BMP ordering follows Unicode scalar order. Valid-Unicode fragmentation and Allure hashes stay. | Update those edge-case expectations; no change for ordinary valid text. |
 | predict artifact paths cut through an emoji or other supplementary character ([D56](deviations.md#d56--path-limits-keep-complete-characters)) | The cut stops before the whole character, one UTF-16 unit shorter; the path can now be written instead of failing. Empty components still fail. | Allow the shorter complete-character path. |
-| compare serialized YAML or JSON as text ([WP 8.9](wp/8.9.md), [WP 8.4](wp/8.4.md)) | Serde writers preserve ordered data but YAML formatting/quoting and JSON numeric/escape spellings may differ, including JSON embedded in HTML. Input parsing stays. | Compare parsed data for `parse` YAML, serialized configurations and JSON reports. |
+| compare serialized YAML or JSON as text ([WP 8.9](wp/8.9.md), [WP 8.4](wp/8.4.md)) | Serde preserves ordered source data; NEL in a YAML key now survives instead of becoming a space (U184). YAML formatting/quoting and JSON numeric/escape spellings may differ, including embedded report JSON. Input parsing stays. | Compare parsed data for `parse` YAML, serialized configurations and JSON reports. |
 | set an Apple command output idle limit very close to expected silence ([D62](deviations.md#d62--apple-output-idle-limits-have-no-polling-margin)) | Expiry uses the configured limit exactly, without the old 20 ms polling margin; ready bytes still win. | Raise the limit if it relied on that margin. |
 | **have any Marathonfile that doesn't set `uncompletedTestRetryQuota`** ([D47](deviations.md#d47--an-unlimited-uncompletedtestretryquota-is-refused)) | **Breaking.** `marathon run` and `parse` now exit 1 when it is unset or 2147483647, because nothing else ends a run in which a test keeps coming back uncompleted. | Add `uncompletedTestRetryQuota: 5`, or the number of devices + 2 if that is more. [See below](#a-finite-uncompletedtestretryquota-d47). |
 | rely on an empty `/sdcard` ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)) | Prepare no longer runs `rm -r $EXTERNAL_STORAGE`. Videos from an aborted run, or cut short by a lost connection in a run that still exits 0, stay on the device. | Clear what your tests need in the tests or in your device setup. |
@@ -200,8 +200,7 @@ Requesting flaky tests can query history. Even with `-f false`, construction
 can initialize configured analytics backends. Logical validation and provider-time
 validation remain separate from configuration loading.
 
-`parse -o discovered-tests` writes `<outputDir>/discovered-tests.yml`, despite
-the retained help text saying `.yaml`. It does not wipe `outputDir`.
+`parse -o discovered-tests` writes `<outputDir>/discovered-tests.yml`. It does not wipe `outputDir`.
 The normal run path wipes `outputDir` later, after parsing and shard preparation.
 Use a disposable, isolated environment for migration trials; never point both
 implementations at the same active output directory or worker state.
@@ -214,8 +213,9 @@ The complete contract is [PLAN §3.4](../PLAN.md#34-output-directory-complete-ma
 Account for the omitted JSON delegate field (D3), en-US formatting (D8), text
 decoding (D10/D11, D55/D57), complete-character path cuts (D56), object/annotation
 values (D58), generated failure wording (D59), execution-derived order (D60) and
-image changes (D63). Serde JSON/YAML output preserves ordered parsed data rather
-than text spelling. Video parity compares decoded content and metadata, not
+image changes (D63). Serde JSON/YAML output preserves ordered source data rather
+than text spelling; NEL in a YAML key now survives instead of becoming a space
+([U184](found-bugs.md)). Video parity compares decoded content and metadata, not
 identical encoded bytes. Under [PLAN §3.12](../PLAN.md#312-phase-8-contract),
 per-test progress lines and the complete end-of-run summary block, including
 `Marathon run finished` and `\tRaw:`, keep their text format. Other diagnostics
@@ -324,7 +324,7 @@ These fix bugs that Kotlin has, and need no configuration change.
 - **An adb server restart no longer ends device tracking**
   ([D22](deviations.md#d22--a-run-survives-an-adb-server-restart)). A loopback server is started again.
   A server still away after `waitForDevicesTimeoutMillis` (30 s by default) loses its devices. Remote test parsing
-  waits for the server too; if it never returns at that stage, the run fails with `NoDevicesException` when
+  waits for the server too; if it never returns at that stage, the run fails with `no devices available` when
   `deviceInitializationTimeoutMillis` (180 s by default) has passed. An emulator that restarted during an outage is not
   prepared again, so its batches fail on the missing APKs, until `uncompletedTestRetryQuota` runs out
   ([D47](deviations.md#d47--an-unlimited-uncompletedtestretryquota-is-refused)).

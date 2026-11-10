@@ -7,6 +7,8 @@ behavior, native behavior and migration action. Pending proposals are not
 shipped differences. D55–D65 ship in 0.13.0-rc.1 and remove JVM artefacts under
 [the Phase 8 contract](../PLAN.md#312-phase-8-contract), including the behaviour
 changes described below; they are separate from 0.12.0's Kotlin bug fixes.
+PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
+2026-10-12, is the section's original approval date.
 
 ## D1 — Crash and usage telemetry
 
@@ -278,7 +280,7 @@ that does not return within `waitForDevicesTimeoutMillis` has its devices discon
 run ends as it does when devices are lost, after what is left of [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait, and other servers are not affected. If adb restarts
 take longer on your hosts, raise that value.
 Remote test parsing waits in the same way: an outage does not use up its attempts. If the server never
-returns at that stage, the run fails with `NoDevicesException` when `deviceInitializationTimeoutMillis`
+returns at that stage, the run fails with `no devices available` when `deviceInitializationTimeoutMillis`
 (180 s by default) has passed, as no device is left to parse on.
 Approved 2026-11-06 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
@@ -315,7 +317,7 @@ Native builds treat a stream that does not end with a whole `INSTRUMENTATION_COD
 prints last for every instrumentation that ran, crashed or not, as failed too. A stream cut inside that line, after the
 word and before its number, counts as cut. They report a test-run failure with the cause and log it, so
 the unfinished tests are retried and their reports carry the real reason, for example `Instrumentation failed:
-java.io.EOFException: the instrumentation stream ended before a result`. That includes the test in progress. A test
+unexpected end of input: the instrumentation stream ended before a result, with exit code 0`. That includes the test in progress. A test
 that finished before the cut stays finished. A device is retired only for a failure that retires it in any other adb
 request. A remote parsing attempt fails, and is retried, instead of returning the tests listed so far. One cut can't be
 told apart: a stream that stops after other text, before the protocol's first status atom, looks like output that never
@@ -545,10 +547,10 @@ retried. The four immediate connection attempts remain. Approved 2026-11-06 (pro
 
 When a worker drops the connection right after authentication, Kotlin's next command throws
 `IllegalStateException: Not connected`, past the handling that commands which may fail rely on. Native builds report
-a `ConnectionException` with the same text and the reason as its cause, so such a command returns no result, an error
+`SSH connection failure: Not connected` with the reason as its cause, so such a command returns no result, an error
 log says so, and marathon handles the device as it does any lost connection: on iOS it reconnects, and on macOS, which has no reconnect,
 the device leaves the run. Using a live connection after marathon
-closed it is still an `IllegalStateException`.
+closed it still reports `invalid state: Not connected`.
 
 **The iOS reconnect has a limit** since [D44](#d44--a-lost-simulators-reconnect-has-a-limit). A worker that drops each
 connection after login counts as unreachable, so it is tried at `workerConnection`'s pace and for as long as D44 says, not
@@ -704,7 +706,7 @@ whatever it says, unless the text is `Process crashed`. A run can then go on wit
 Native builds treat such a session as a failed attempt. It takes the existing retries, and if it fails the same way each
 time, the run fails with `Unable to parse test list using <serial>: <what the session said>, tests listed: 1 of 20`. All
 bundles and attempts share `deviceInitializationTimeoutMillis` (180 s by default), so a slow parse can end in
-`NoDevicesException` instead, with no such text.
+`no devices available` instead, with no such text.
 
 A session that listed every test its `numtests` announced keeps its list, whatever its code and message: some sessions end
 that way on a whole list, and a retry would only repeat it. A session with no count to reach has shown nothing and fails.
@@ -882,7 +884,7 @@ fails and the simulator is out of the run (D38).
 **This breaks existing Marathonfiles.** In Kotlin, and until now here, the quota defaults to `Integer.MAX_VALUE` and no
 deadline ends a run, so a test that keeps coming back uncompleted repeats until CI kills the job.
 
-Native builds refuse that configuration. `marathon run` and `marathon parse` exit 1 with a `ConfigurationException` when
+Native builds refuse that configuration. `marathon run` and `marathon parse` exit 1 with `configuration rejected` when
 the quota is unset or exactly 2147483647, on Android, iOS and macOS, and name the field, the reason, a suggested value and
 the [migration section](migration.md#a-finite-uncompletedtestretryquota-d47). Any other value passes: 0, a negative value, a literal `null` or an empty value, which bind to 0 or act like it and give a test no second attempt, and 2147483646, which is your choice to make. A test's count of uncompleted returns stops at 2147483647 where Kotlin's wraps, so the largest accepted quota still ends the loop when copies of one test in a batch are charged together. A value from an environment
 substitution such as `${QUOTA}` counts as the value it resolves to. No command-line option sets this field.
@@ -1152,7 +1154,7 @@ Native builds, on iOS and macOS:
   before a 60 s grace for what is still being pulled. A pull runs to its end then, as in Kotlin.
 - **Any transfer ends when its device's own connection is lost**, the same way. That is the connection the provider
   watches, so it is the loss that the provider already acts on (D36, D44): keep-alive's, or the worker closing it. A send
-  fails with `ConnectionException: Lost the connection to <worker> during a transfer`, caused by the loss, which is not a
+  fails with `SSH connection failure: Lost the connection to <worker> during a transfer`, caused by the loss, which is not a
   cancellation, so remote parsing counts the device as tried ([D53](#d53--remote-parsing-tries-another-device-after-a-failed-attempt)).
   A receive returns `false`, which its listener deals with as for [D43](#d43--an-rsync-receive-has-a-limit-on-progress).
   Each logs one ERROR line on the bridge's logger: `send error: the device's connection was lost while sending to
@@ -1201,8 +1203,8 @@ characters. File/path limits still count UTF-16 units (see D56), Kotlin whitespa
 and line splitting stay, and fragmentation hashes and Allure history IDs are unchanged
 for valid Unicode.
 
-Approved as D55 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.2](wp/8.2.md), its
+Approved as D55 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.2](wp/8.2.md), its
 [findings](wp/8.2-findings.md) and [test changes](wp/8.2-test-changes.md).
 
 **Migration action:** if you match malformed text or depend on this rare sort order,
@@ -1218,8 +1220,8 @@ If dropping the character leaves an empty component, it still fails rather than
 using the parent directory. Limits, normalization and directory/diagnostic ordering
 are otherwise unchanged.
 
-Approved as D56 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.3](wp/8.3.md) and its
+Approved as D56 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.3](wp/8.3.md) and its
 [baseline probe and test changes](wp/8.3-test-changes.md).
 
 **Migration action:** if you predict truncated artifact paths, allow the shorter
@@ -1239,8 +1241,8 @@ data keep their old spelling. HTTP Basic authentication now base64-encodes UTF-8
 `user:password`, instead of ISO-8859-1 with `?` for characters outside Latin-1.
 ASCII credentials and URL form/query encoding are unchanged.
 
-Approved as D57 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.3](wp/8.3.md) and its
+Approved as D57 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.3](wp/8.3.md) and its
 [test changes](wp/8.3-test-changes.md), including separate native expectations.
 
 **Migration action:** update socket-message and malformed-text matchers. If you use
@@ -1257,12 +1259,13 @@ use the same values, and cancellation job text drops its identity suffix.
 
 The `annotationData` filter now matches that text: nested array contents and decoded
 null can match; old identity patterns cannot. Existing outer-array element matching,
-wrapper delimiter extraction and skipping unboxed null stay. Data-class values,
-device IDs, report paths and other data are unchanged by D58. This supersedes F29
+wrapper delimiter extraction and skipping unboxed null stay. Data-class rendering
+is unchanged except that embedded stateless objects now use their simple names.
+Device IDs, report paths and other data are unchanged by D58. This supersedes F29
 and the identity part of D12; D59 separately changes exception names.
 
-Approved as D58 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.5](wp/8.5.md), the
+Approved as D58 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.5](wp/8.5.md), the
 [reviewed golden diff](wp/8.5-golden-diff.md) and [test changes](wp/8.5-test-changes.md).
 
 **Migration action:** update `environment.xml` and raw-metadata expectations, and
@@ -1282,8 +1285,8 @@ The hidden developer command `config-dump` replaces `error.class` with `error.ki
 a stable identifier such as `config.rejected`. Cause strings use descriptions and
 keep their existing `: null` convention for an absent message.
 
-Approved as D59 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.6b](wp/8.6b.md), the
+Approved as D59 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.6b](wp/8.6b.md), the
 [reviewed golden diff](wp/8.6b-golden-diff.md) and [test changes](wp/8.6b-test-changes.md).
 
 **Migration action:** update failure-text classifiers and snapshots; use structured
@@ -1310,8 +1313,8 @@ and command construction stay. Real-device report order follows execution order.
 The reviewed native goldens reorder selectors in six views, with the same batch
 members and every report file unchanged; batching limits and configuration stay.
 
-Approved as D60 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.7](wp/8.7.md), the
+Approved as D60 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.7](wp/8.7.md), the
 [reviewed golden diff](wp/8.7-golden-diff.md) and [test changes](wp/8.7-test-changes.md).
 
 **Migration action:** remove dependencies on heap tie order or old seeded sequences;
@@ -1326,8 +1329,8 @@ stay. Root options still do not propagate to subcommands. Help stays on stdout;
 usage errors stay on stderr. Parse help now names the actual `.yml` extension;
 file naming itself is unchanged.
 
-Approved as D61 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.10](wp/8.10.md) and its
+Approved as D61 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.10](wp/8.10.md) and its
 [117-case CLI matrix and test changes](wp/8.10-test-changes.md).
 
 **Migration action:** update help/usage snapshots and scripts matching parser error
@@ -1346,8 +1349,8 @@ stay. A stream that reaches EOF while its process lives still stays open until
 process end or the idle limit (A25); a timeout still discards its partial tail (A24).
 This supersedes the polling and grace-period part of D10.
 
-Approved as D62 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.12](wp/8.12.md), its
+Approved as D62 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.12](wp/8.12.md), its
 [design](wp/8.12-design.md) and [test changes](wp/8.12-test-changes.md).
 
 **Migration action:** if a very small Apple output idle limit relied on the extra
@@ -1376,8 +1379,8 @@ rotations (including C64), delay truncation/validation, loop value, disposal 0 a
 frame order stay. The registered native goldens have no image change; supplemental
 known-pixel, byte-hash and transparency tests cover the changed cases.
 
-Approved as D63 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.16](wp/8.16.md), its
+Approved as D63 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.16](wp/8.16.md), its
 [findings](wp/8.16-findings.md), [golden audit](wp/8.16-golden-diff.md) and
 [test changes](wp/8.16-test-changes.md).
 
@@ -1398,8 +1401,8 @@ Failure payloads, timeout identity, propagation, supervisor isolation and device
 cleanup ordering stay. Configuration, results, worker commands, pinned progress
 and summary output, and exit codes are unchanged.
 
-Approved as D64 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.18](wp/8.18.md) and its
+Approved as D64 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.18](wp/8.18.md) and its
 [test changes](wp/8.18-test-changes.md).
 
 **Migration action:** none needed for CLI users.
@@ -1424,8 +1427,8 @@ and diagnostic ordering can move, and callbacks cannot change a sibling's alread
 prepared outcome. Registered native goldens and the configuration corpus stay
 unchanged; focused CLI tests cover the corrected late-pool reports and status.
 
-Approved as D65 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
-no individual approval date is recorded there. See [WP 8.19](wp/8.19.md) and its
+Approved as D65 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12).
+See [WP 8.19](wp/8.19.md) and its
 [test changes](wp/8.19-test-changes.md).
 
 **Migration action:** none needed. If a late pool adds tests or changes the outcome,
@@ -1440,8 +1443,10 @@ retain their input/validation contract under [PLAN §3.12](../PLAN.md#312-phase-
 their error wording may change, including D59. External xcodebuild, xcresult and
 instrumentation traces remain unchanged. Phase 8 also replaces diagnostic logging
 with `tracing` ([format and visibility](design/logging.md), [reviewed golden audit](wp/8.8-golden-diff.md))
-and uses serde JSON/YAML writers whose text may differ while their ordered data
-stays equal ([WP 8.4](wp/8.4.md), [WP 8.9](wp/8.9.md)). Per-test progress and the complete end-of-run summary
+and uses serde JSON/YAML writers whose text may differ while preserving ordered
+source data ([WP 8.4](wp/8.4.md), [WP 8.9](wp/8.9.md)). One old YAML corruption is
+fixed: NEL (U+0085) in a mapping key now survives instead of becoming a space
+([U184](found-bugs.md)). Per-test progress and the complete end-of-run summary
 block, including `Marathon run finished` and `\tRaw:`, keep their text format.
 These allowances are not additional numbered deviations.
 

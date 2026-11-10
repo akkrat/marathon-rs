@@ -14,6 +14,7 @@ Release candidate of 0.13.0: removes the JVM artefacts required by Kotlin parity
 - **Allure and annotations:** update `environment.xml` and raw-metadata expectations from identities to simple object names, `[elements]` and `null`; update identity-based `annotationData.valueRegex` filters (D58).
 - **Image comparisons:** review screenshot/GIF baselines and refresh affected hashes for colour conversion, channel decoding, resize ties and transparency; multi-frame GIFs have one loop extension (D63). Paths, dimensions, frame timing and report references stay.
 - **Test order:** update tie-order, seeded-order and batch snapshots for FIFO ties and insertion-time keys; selector order/grouping and batch counts can change (D60).
+- **Late pools:** a run whose late-pool tests were silently missing can now run them, take longer and exit 1 (D65).
 - **Serialized text:** compare YAML and JSON as parsed data. Serde writers can change YAML formatting/quoting and JSON numeric/escape spellings, including embedded report JSON (WPs 8.9, 8.4).
 - **Text and paths:** update malformed-Unicode, socket-error and rare Unicode sort expectations (D55, D57); path cuts through a supplementary character now stop before it and can be written (D56).
 - **Non-ASCII Basic credentials:** check that your analytics server accepts UTF-8 credentials (D57). ASCII credentials stay identical.
