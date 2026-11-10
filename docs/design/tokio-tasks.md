@@ -15,6 +15,9 @@ promise to remove `RuntimeJob`.
 
 ## 1. Inventory and the semantics actually used
 
+> Sections 1–6 are the WP 8.13 snapshot. WP 8.15 has since replaced the single-implementation
+> traits `Job`, `CoreRuntime`, `TimeoutScope` and `Deferred` with concrete types; see §7.
+
 ### Size and counting method
 
 The executor contains **12 files, 2,776 physical lines**, including comments,
