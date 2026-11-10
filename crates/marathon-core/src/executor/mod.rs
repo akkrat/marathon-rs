@@ -315,6 +315,7 @@ impl VendorRuntime for IoRuntime {
                     Ok(r) => r,
                     Err(p) => Err(VendorError::Other(panic_failure(p))),
                 };
+                // Keep task cancellation authoritative, including after a caught panic.
                 let result = match output.signal.reason() {
                     Some(reason) => Err(VendorError::Cancelled(reason)),
                     None => result,

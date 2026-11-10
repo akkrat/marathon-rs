@@ -237,6 +237,11 @@ monotonic time controls explicit nanoTime deadlines/cache ages. They are
 separate services. SystemTimer deliberately measures **wall** time and may
 move backwards (`time/SystemTimer.kt:6–19`); arithmetic wraps like Java Long.
 
+A cancelled vendor task that subsequently panics reports its task cancellation,
+not the caught panic (`IoRuntime`); without task cancellation a panic is a Runtime
+failure. The bridge arms its cancellation view on first-poll unwind as well as
+normal return, so retained vendor descendants can still finish.
+
 A timeout owns a child job and cancellation cause. `withTimeout` fails with
 that scope's Timeout; `withTimeoutOrNull` translates only its own timeout,
 not a nested timeout or cancellation from outside. Before returning it waits

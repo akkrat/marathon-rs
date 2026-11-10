@@ -100,12 +100,19 @@ struct ArmAfterFirstPoll {
 }
 impl Future for ArmAfterFirstPoll {
     type Output = VendorResult<()>;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let poll = self.body.as_mut().poll(cx);
-        if !self.gate.armed.swap(true, Ordering::AcqRel) {
-            self.gate.changed.notify_waiters();
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        // Retained children must see cancellation even if the first poll unwinds.
+        let _arm = ArmGate(&this.gate);
+        this.body.as_mut().poll(cx)
+    }
+}
+struct ArmGate<'a>(&'a Gated);
+impl Drop for ArmGate<'_> {
+    fn drop(&mut self) {
+        if !self.0.armed.swap(true, Ordering::AcqRel) {
+            self.0.changed.notify_waiters();
         }
-        poll
     }
 }
 
@@ -156,6 +163,47 @@ mod tests {
                 .as_mut()
                 .poll(&mut Context::from_waker(&waker))
         }
+    }
+
+    #[tokio::test]
+    async fn first_poll_panic_releases_a_retained_childs_cancellation_gate() {
+        let vendor = ManualVendor::default();
+        let signal = super::super::Signal::new();
+        let (child_out, child_in) = oneshot::channel();
+        let mut call = Box::pin(call_vendor::<()>(&vendor, signal.clone(), move |signal| {
+            Box::pin(async move {
+                let child = tokio::spawn(async move { signal.cancelled().await });
+                assert!(child_out.send(child).is_ok());
+                panic!("first vendor poll");
+            })
+        }));
+        assert!(call.as_mut().now_or_never().is_none());
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vendor.poll_body()));
+        assert!(panic.is_err());
+        // A panicked poll poisoned only the test runtime's storage lock.
+        vendor.body.lock().unwrap_or_else(|e| e.into_inner()).take();
+        vendor
+            .done
+            .complete(Err(VendorError::Other(super::super::shared::failure(
+                FailureKind::Runtime,
+                "first vendor poll",
+            ))));
+        assert!(matches!(call.await, Err(VendorError::Other(_))));
+        let mut child = child_in
+            .await
+            .unwrap_or_else(|_| panic!("child handle was not published"));
+        let reason = requested("after panic");
+        signal.cancel(reason.clone());
+        // Bound the hang, then abort and join even on the defective path.
+        let result = tokio::time::timeout(std::time::Duration::from_secs(60), &mut child).await;
+        if result.is_err() {
+            child.abort();
+            let _ = child.await;
+        }
+        assert!(
+            matches!(&result, Ok(Ok(observed)) if *observed == reason),
+            "the retained child must observe cancellation after a first-poll panic: {result:?}"
+        );
     }
 
     #[test]

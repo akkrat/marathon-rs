@@ -621,3 +621,42 @@ fn completion_events_keep_their_level_message_and_cause() {
     assert_eq!(log.message, "CoroutineContext finished");
     assert!(log.exception.is_none());
 }
+
+#[test]
+fn vendor_task_cancellation_takes_precedence_over_a_later_panic() {
+    run(|core, driver| {
+        Box::pin(async move {
+            let task = core.vendor().spawn_cancellable(Box::new(|signal| {
+                Box::pin(async move {
+                    signal.cancelled().await;
+                    panic!("cancelled vendor panic");
+                })
+            }));
+            replay(driver.drain_current().await);
+            let reason = cancelled("vendor cancellation wins");
+            task.cancel(reason.clone());
+            assert_eq!(task.join().await, Err(VendorError::Cancelled(reason)));
+            replay(driver.drain_current().await);
+            Ok(())
+        })
+    });
+}
+
+#[test]
+fn vendor_task_panic_without_cancellation_is_a_failure() {
+    run(|core, _| {
+        Box::pin(async move {
+            let task = core.vendor().spawn(Box::pin(async {
+                panic!("vendor panic");
+            }));
+            match task.join().await {
+                Err(VendorError::Other(failure)) => {
+                    assert_eq!(failure.kind, marathon_error::FailureKind::Runtime);
+                    assert_eq!(failure.message.as_deref(), Some("vendor panic"));
+                }
+                other => panic!("expected vendor panic failure, got {other:?}"),
+            }
+            Ok(())
+        })
+    });
+}
