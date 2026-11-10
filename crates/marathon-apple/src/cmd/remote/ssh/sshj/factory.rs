@@ -3,7 +3,7 @@
 //!
 //! Plain parameters only: mapping `SshConfiguration` onto them is ConnectionFactory's (4.3).
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::auth::SshAuthentication;
 use super::client::{ClientConfig, RusshClient, SshClient};
@@ -13,10 +13,7 @@ use super::executor::SshCommandExecutor;
 use super::host::SshCommandHost;
 use super::keep_alive::KeepAliveRunner;
 use super::known_hosts::{HostKeyVerifier, PromiscuousVerifier};
-use jcompat::{
-    jtime::Duration,
-    
-};
+use jcompat::jtime::Duration;
 use marathon_core::runtime::{VendorClock, VendorRuntime};
 use std::{future::Future, sync::Arc};
 use tokio::sync::oneshot;

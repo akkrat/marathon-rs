@@ -8,7 +8,6 @@
 //! outputDir path in `Output … already exists`, P1's OS facts after `System Information:`, and
 //! D1's usage slot (a no-op here, so its close is absent from the Rust trace).
 
-use marathon_logging::Level;
 use marathon_core::{
     analytics::{
         Analytics, MetricsProviderImpl, ReporterRegistration, ReporterSlot,
@@ -23,6 +22,7 @@ use marathon_core::{
     vendor::{LocalTestParser, LogConfigurator, TestParser, VendorContext},
 };
 use marathon_error::FailureKind;
+use marathon_logging::Level;
 use marathon_test_support::{
     console::Line,
     factory::{FakeTimer, MarathonFactory},
@@ -405,7 +405,7 @@ fn rust_events(lines: &[Line], logger: &str) -> Vec<(String, String, Option<Stri
         .collect()
 }
 fn level_name(level: Level) -> String {
-    format!("{level:?}").to_uppercase()
+    level.as_str().to_owned()
 }
 fn normalize(message: &str) -> String {
     if let Some(rest) = message.strip_prefix("Parsing took ") {
@@ -422,7 +422,7 @@ fn jvm_events(row: &Value, logger: &str) -> Vec<(String, String, Option<String>)
         .as_array()
         .unwrap()
         .iter()
-        .filter(|e| e["logger"] == logger)
+        .filter(|e| marathon_test_support::recorded_logs::target(e["logger"].as_str().unwrap()) == logger)
         .map(|e| {
             (
                 e["level"].as_str().unwrap().to_owned(),

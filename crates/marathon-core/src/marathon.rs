@@ -20,9 +20,9 @@ use crate::{
     vendor::{DeviceRef, TestParser, VendorContext},
     wiring::RunDependencies,
 };
-use marathon_logging::Level;
 use marathon_config::{TestFilterConfiguration, binding::ConfigurationError, loader::LogicalConfigurationValidator};
 use marathon_error::FailureKind;
+use marathon_logging::Level;
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -32,7 +32,7 @@ use std::{
 /// `private val log = LogSettings.logger {}` in Marathon.kt: kotlin-logging drops the `Kt` suffix.
 pub const LOGGER: &str = "marathon_core::marathon";
 /// `TimingLog.LOGGER_NAME`.
-pub const TIMINGS: &str = "marathon_logging";
+pub const TIMINGS: &str = "marathon_core::timing";
 const NO_DEVICES: FailureKind = FailureKind::NoDevices;
 const NO_TESTS: FailureKind = FailureKind::NoTests;
 

@@ -8,7 +8,7 @@ use crate::{
     models::{ShellCommandResult, to_screen_recorder_command},
     support::*,
 };
-use jcompat::{file_manager::escape, jtime::Duration, };
+use jcompat::{file_manager::escape, jtime::Duration};
 use marathon_adb::client::sync::listing::{AndroidFileType, ListFilesRequest};
 use marathon_adb::client::{
     AdbError, Feature, framebuffer::ScreenCaptureRequest, pkg::*, sync::directory::PushRequest, sync::*,

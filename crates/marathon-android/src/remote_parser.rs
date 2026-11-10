@@ -4,7 +4,6 @@ use crate::{
     provider::AdamDeviceProvider, runner::InstrumentationChannel, services::AndroidRuntime, support::*,
     test_annotation_parser::TestAnnotationParser,
 };
-use marathon_logging::Level;
 use marathon_adb::{
     instrument_request::{InstrumentOptions, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent},
@@ -13,6 +12,7 @@ use marathon_config::vendor::AndroidTestParserConfiguration;
 use marathon_config::vendor::CONFIGURATION_EXCEPTION_CLASS;
 use marathon_core::{error::*, executor::bridge::call_vendor, model::Test, runtime::*, vendor::*};
 use marathon_error::{AndroidKind, FailureKind};
+use marathon_logging::Level;
 use std::sync::Arc;
 
 pub const TEST_ANNOTATION_PRODUCER: &str = "com.malinskiy.adam.junit4.android.listener.TestAnnotationProducer";
@@ -36,7 +36,7 @@ impl From<VendorError> for AttemptError {
 impl AmInstrumentTestParser {
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         let logger = {
-            let mut registry = lock(&self.runtime.dependencies.logging);
+            let registry = lock(&self.runtime.dependencies.logging);
             let name = "marathon_android::services";
             registry.component(name)
         };

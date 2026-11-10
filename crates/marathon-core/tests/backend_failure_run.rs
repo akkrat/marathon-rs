@@ -3,7 +3,6 @@
 //!
 //! Each runs the production run graph, including the real scheduler, with the Stub vendor. Without
 //! `BackendGuard` the first test result ends the queue actor, and the run never ends.
-use marathon_logging::Level;
 use marathon_config::{AnalyticsConfiguration, Defaults, GraphiteConfiguration};
 use marathon_core::{
     analytics::{
@@ -15,6 +14,7 @@ use marathon_core::{
     runtime::*,
 };
 use marathon_error::{AnalyticsKind, FailureKind};
+use marathon_logging::Level;
 use marathon_test_support::{
     console::Line,
     factory::MarathonFactory,

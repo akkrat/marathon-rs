@@ -1,12 +1,16 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/log/MarathonLogging.kt (native event configuration).
 
 use std::sync::Arc;
+pub use tracing::Level;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::filter::Targets;
-pub use tracing::Level;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum OutputTarget { Terminal, Pipe, File }
+pub enum OutputTarget {
+    Terminal,
+    Pipe,
+    File,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Vendor {
@@ -57,11 +61,25 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
 
 /// Identifies an event producer; it carries no mutable logger level or formatting state.
 #[derive(Clone, Debug)]
-pub struct Component { name: String, target: String, wire_debug: Option<bool> }
+pub struct Component {
+    name: String,
+    target: String,
+    wire_debug: Option<bool>,
+}
 impl Component {
-    pub fn name(&self) -> &str { &self.name }
-    pub fn target(&self) -> &str { &self.target }
-    pub fn wire(debug: bool) -> Self { Self { name: "marathon_apple::cmd::remote::ssh::sshj::wire".into(), target: "marathon_apple::cmd::remote::ssh::sshj::wire".into(), wire_debug: Some(debug) } }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+    pub fn wire(debug: bool) -> Self {
+        Self {
+            name: "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+            target: "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+            wire_debug: Some(debug),
+        }
+    }
 }
 
 pub type Configure = Arc<dyn Fn(bool, Vendor) + Send + Sync>;
@@ -70,67 +88,182 @@ pub struct LogSettings {
     pub debug: bool,
     vendor: Vendor,
     configure: Option<Configure>,
+    overrides: Vec<(String, Level)>,
 }
 impl Default for LogSettings {
-    fn default() -> Self { Self { debug: true, vendor: Vendor::Startup, configure: None } }
+    fn default() -> Self {
+        Self {
+            debug: true,
+            vendor: Vendor::Startup,
+            configure: None,
+            overrides: Vec::new(),
+        }
+    }
 }
 impl std::fmt::Debug for LogSettings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LogSettings").field("debug", &self.debug).field("vendor", &self.vendor).finish()
+        f.debug_struct("LogSettings")
+            .field("debug", &self.debug)
+            .field("vendor", &self.vendor)
+            .finish()
     }
 }
 impl LogSettings {
-    pub fn with_configure(configure: Configure) -> Self { Self { configure: Some(configure), ..Self::default() } }
+    pub fn with_configure(configure: Configure) -> Self {
+        Self {
+            configure: Some(configure),
+            ..Self::default()
+        }
+    }
     #[track_caller]
     pub fn component(&self, name: impl Into<String>) -> Component {
         let name = name.into();
-        let target = if name.starts_with("marathon_") { name.clone() } else { module_target(std::panic::Location::caller().file()) };
-        Component { name, target, wire_debug: None }
+        let target = if name.starts_with("marathon_") {
+            name.clone()
+        } else {
+            module_target(std::panic::Location::caller().file())
+        };
+        Component {
+            name,
+            target,
+            wire_debug: None,
+        }
     }
     pub fn configure(&mut self, debug: bool, vendor: Vendor) {
-        self.debug = debug; self.vendor = vendor;
-        if let Some(configure) = &self.configure { configure(debug, vendor); }
+        self.debug = debug;
+        self.vendor = vendor;
+        if let Some(configure) = &self.configure {
+            configure(debug, vendor);
+        }
     }
-    pub fn vendor(&self) -> Vendor { self.vendor }
-    pub fn enabled(&self, component: &Component, level: Level) -> bool { component.wire_debug.is_none_or(|debug| debug || level == Level::ERROR) && self.enabled_target(component.target(), level) }
-    pub fn enabled_target(&self, target: &str, level: Level) -> bool { filter(self.vendor, self.debug).would_enable(target, &level) }
-    pub fn timings(&self) -> Component { self.component("marathon_core::timing") }
-    pub fn xcodebuild(&self) -> Component { self.component("marathon_apple::xcodebuild_stderr") }
-    pub fn timing_message(&self, elapsed: impl FnOnce() -> Option<i64>, message: impl FnOnce() -> String) -> Option<String> {
-        self.enabled(&self.timings(), Level::INFO).then(|| { let text = message(); match elapsed() { Some(elapsed) => format!("{text} (+{elapsed} ms since start)"), None => text } })
+    pub fn vendor(&self) -> Vendor {
+        self.vendor
+    }
+    pub fn enabled(&self, component: &Component, level: Level) -> bool {
+        component.wire_debug.is_none_or(|debug| debug || level == Level::ERROR)
+            && self.enabled_target(component.target(), level)
+    }
+    /// Pins one target (and its children) at `level`, ahead of the configurator filter.
+    /// Production code does not call this; the filter exceptions in `filter` are the
+    /// production list. Test harnesses use it to capture one component's records
+    /// while the rest of the run stays at its configured level.
+    pub fn set_level(&mut self, target: impl Into<String>, level: Level) {
+        let target = target.into();
+        match self.overrides.iter_mut().find(|(pinned, _)| *pinned == target) {
+            Some((_, pinned)) => *pinned = level,
+            None => self.overrides.push((target, level)),
+        }
+    }
+    #[track_caller]
+    pub fn component_with_level(&mut self, name: impl Into<String>, level: Level) -> Component {
+        let component = self.component(name);
+        self.set_level(component.target().to_owned(), level);
+        component
+    }
+    pub fn enabled_target(&self, target: &str, level: Level) -> bool {
+        let pinned = self
+            .overrides
+            .iter()
+            .filter(|(pinned, _)| target == pinned || target.starts_with(&format!("{pinned}::")))
+            .max_by_key(|(pinned, _)| pinned.len());
+        match pinned {
+            Some((_, threshold)) => level <= *threshold,
+            None => {
+                // `configure_logging` sets `debug` before the vendor configurator runs, and a
+                // configurator may be inert (the test mock): with no vendor configured yet, the
+                // debug flag alone decides the ordinary level, as the old registry did when a
+                // logger was first rendered. The subscriber filter for Startup is only ever
+                // installed with debug=true, before the Marathonfile is read.
+                let filter = match self.vendor {
+                    Vendor::Startup if !self.debug => filter(Vendor::Android, false),
+                    vendor => filter(vendor, self.debug),
+                };
+                filter.would_enable(target, &level)
+            }
+        }
+    }
+    pub fn timings(&self) -> Component {
+        self.component("marathon_core::timing")
+    }
+    pub fn xcodebuild(&self) -> Component {
+        self.component("marathon_apple::xcodebuild_stderr")
+    }
+    pub fn timing_message(
+        &self,
+        elapsed: impl FnOnce() -> Option<i64>,
+        message: impl FnOnce() -> String,
+    ) -> Option<String> {
+        self.enabled(&self.timings(), Level::INFO).then(|| {
+            let text = message();
+            match elapsed() {
+                Some(elapsed) => format!("{text} (+{elapsed} ms since start)"),
+                None => text,
+            }
+        })
     }
     pub fn xcodebuild_message(&self, device: &str, line: &str) -> Option<String> {
-        self.enabled(&self.xcodebuild(), Level::WARN).then(|| format!("{device}: stderr={line}"))
+        self.enabled(&self.xcodebuild(), Level::WARN)
+            .then(|| format!("{device}: stderr={line}"))
     }
 }
 
 /// Bridges owned records drained by an I/O task into native tracing events.
 /// Metadata is interned off core; targets are Rust module paths supplied by producers.
 pub fn emit(target: &str, level: Level, message: &str, error: Option<&str>, component: Option<&str>) {
-    use std::{collections::HashMap, sync::{Mutex, OnceLock}};
-    use tracing::{Metadata, callsite::{Callsite, Identifier}, field::{FieldSet, Value}, subscriber::Interest};
+    use std::{
+        collections::HashMap,
+        sync::{Mutex, OnceLock},
+    };
+    use tracing::{
+        Metadata,
+        callsite::{Callsite, Identifier},
+        field::{FieldSet, Value},
+        subscriber::Interest,
+    };
     struct Site(OnceLock<Metadata<'static>>);
     impl Callsite for Site {
         fn set_interest(&self, _: Interest) {}
-        fn metadata(&self) -> &Metadata<'_> { self.0.get().unwrap_or_else(|| unreachable!("metadata is initialized before registration")) }
+        fn metadata(&self) -> &Metadata<'_> {
+            self.0
+                .get()
+                .unwrap_or_else(|| unreachable!("metadata is initialized before registration"))
+        }
     }
     static SITES: OnceLock<Mutex<HashMap<(String, Level), &'static Metadata<'static>>>> = OnceLock::new();
     let metadata = {
-        let mut sites = SITES.get_or_init(Mutex::default).lock().unwrap_or_else(|e| e.into_inner());
+        let mut sites = SITES
+            .get_or_init(Mutex::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *sites.entry((target.to_owned(), level)).or_insert_with(|| {
             let site: &'static Site = Box::leak(Box::new(Site(OnceLock::new())));
             let target = Box::leak(target.to_owned().into_boxed_str());
             let fields = FieldSet::new(&["message", "error", "component"], Identifier(site));
-            let metadata = Metadata::new("queued event", target, level, None, None, None, fields, tracing::metadata::Kind::EVENT);
+            let metadata = Metadata::new(
+                "queued event",
+                target,
+                level,
+                None,
+                None,
+                None,
+                fields,
+                tracing::metadata::Kind::EVENT,
+            );
             let _ = site.0.set(metadata);
             tracing::callsite::register(site);
             site.metadata()
         })
     };
     tracing::dispatcher::get_default(|dispatch| {
-        if !dispatch.enabled(metadata) { return; }
+        if !dispatch.enabled(metadata) {
+            return;
+        }
         let fields = metadata.fields();
-        let values: [Option<&dyn Value>; 3] = [Some(&message), error.as_ref().map(|v| v as &dyn Value), component.as_ref().map(|v| v as &dyn Value)];
+        let values: [Option<&dyn Value>; 3] = [
+            Some(&message),
+            error.as_ref().map(|v| v as &dyn Value),
+            component.as_ref().map(|v| v as &dyn Value),
+        ];
         let values = fields.value_set_all(&values);
         let event = tracing::Event::new(metadata, &values);
         dispatch.event(&event);
@@ -139,12 +272,19 @@ pub fn emit(target: &str, level: Level, message: &str, error: Option<&str>, comp
 
 /// Derive a Rust module identity from the compiler's source location, without filesystem access.
 pub fn module_target(file: &str) -> String {
-    let Some((_, relative)) = file.rsplit_once("crates/") else { return "marathon_core::logging".into() };
-    let Some((crate_name, module)) = relative.split_once("/src/") else { return "marathon_core::logging".into() };
+    let Some((_, relative)) = file.rsplit_once("crates/") else {
+        return "marathon_core::logging".into();
+    };
+    let Some((crate_name, module)) = relative.split_once("/src/") else {
+        return "marathon_core::logging".into();
+    };
     let module = module.strip_suffix(".rs").unwrap_or(module);
     let module = module.strip_suffix("/mod").unwrap_or(module);
     let mut target = crate_name.replace('-', "_");
-    if !matches!(module, "lib" | "mod") { target.push_str("::"); target.push_str(&module.replace('/', "::")); }
+    if !matches!(module, "lib" | "mod") {
+        target.push_str("::");
+        target.push_str(&module.replace('/', "::"));
+    }
     target
 }
 
@@ -154,8 +294,20 @@ mod tests {
     use std::collections::BTreeMap;
     fn directives(vendor: Vendor, debug: bool, ordinary: LevelFilter, timeline: LevelFilter) {
         let mut expected: BTreeMap<&str, LevelFilter> = [
-            "marathon_cli", "marathon_core", "marathon_config", "marathon_android", "marathon_apple", "marathon_ios", "marathon_macos", "marathon_analytics", "marathon_dex", "marathon_test_support",
-        ].into_iter().map(|target| (target, ordinary)).collect();
+            "marathon_cli",
+            "marathon_core",
+            "marathon_config",
+            "marathon_android",
+            "marathon_apple",
+            "marathon_ios",
+            "marathon_macos",
+            "marathon_analytics",
+            "marathon_dex",
+            "marathon_test_support",
+        ]
+        .into_iter()
+        .map(|target| (target, ordinary))
+        .collect();
         expected.extend([
             ("marathon_cli::application", LevelFilter::DEBUG),
             ("marathon_adb", LevelFilter::DEBUG),
@@ -173,16 +325,77 @@ mod tests {
         assert_eq!(actual.iter().collect::<BTreeMap<_, _>>(), expected);
         for (target, threshold) in expected {
             for level in [Level::TRACE, Level::DEBUG, Level::INFO, Level::WARN, Level::ERROR] {
-                assert_eq!(actual.would_enable(&format!("{target}::child"), &level), level <= threshold, "{target} {level}");
+                assert_eq!(
+                    actual.would_enable(&format!("{target}::child"), &level),
+                    level <= threshold,
+                    "{target} {level}"
+                );
             }
         }
     }
-    #[test] fn startup_debug_false() { directives(Vendor::Startup, false, LevelFilter::DEBUG, LevelFilter::DEBUG); }
-    #[test] fn startup_debug_true() { directives(Vendor::Startup, true, LevelFilter::DEBUG, LevelFilter::DEBUG); }
-    #[test] fn android_debug_false() { directives(Vendor::Android, false, LevelFilter::ERROR, LevelFilter::DEBUG); }
-    #[test] fn android_debug_true() { directives(Vendor::Android, true, LevelFilter::DEBUG, LevelFilter::DEBUG); }
-    #[test] fn apple_regular_debug_false() { directives(Vendor::Apple { compact_output: false }, false, LevelFilter::ERROR, LevelFilter::ERROR); }
-    #[test] fn apple_regular_debug_true() { directives(Vendor::Apple { compact_output: false }, true, LevelFilter::DEBUG, LevelFilter::ERROR); }
-    #[test] fn apple_compact_debug_false() { directives(Vendor::Apple { compact_output: true }, false, LevelFilter::ERROR, LevelFilter::ERROR); }
-    #[test] fn apple_compact_debug_true() { directives(Vendor::Apple { compact_output: true }, true, LevelFilter::DEBUG, LevelFilter::ERROR); }
+    #[test]
+    fn startup_debug_false() {
+        directives(Vendor::Startup, false, LevelFilter::DEBUG, LevelFilter::DEBUG);
+    }
+    #[test]
+    fn startup_debug_true() {
+        directives(Vendor::Startup, true, LevelFilter::DEBUG, LevelFilter::DEBUG);
+    }
+    #[test]
+    fn android_debug_false() {
+        directives(Vendor::Android, false, LevelFilter::ERROR, LevelFilter::DEBUG);
+    }
+    #[test]
+    fn android_debug_true() {
+        directives(Vendor::Android, true, LevelFilter::DEBUG, LevelFilter::DEBUG);
+    }
+    #[test]
+    fn apple_regular_debug_false() {
+        directives(
+            Vendor::Apple { compact_output: false },
+            false,
+            LevelFilter::ERROR,
+            LevelFilter::ERROR,
+        );
+    }
+    #[test]
+    fn apple_regular_debug_true() {
+        directives(
+            Vendor::Apple { compact_output: false },
+            true,
+            LevelFilter::DEBUG,
+            LevelFilter::ERROR,
+        );
+    }
+    #[test]
+    fn apple_compact_debug_false() {
+        directives(
+            Vendor::Apple { compact_output: true },
+            false,
+            LevelFilter::ERROR,
+            LevelFilter::ERROR,
+        );
+    }
+    #[test]
+    fn apple_compact_debug_true() {
+        directives(
+            Vendor::Apple { compact_output: true },
+            true,
+            LevelFilter::DEBUG,
+            LevelFilter::ERROR,
+        );
+    }
+    #[test]
+    fn enabled_target_honours_debug_before_a_vendor_configures_and_pins() {
+        let mut settings = LogSettings::default();
+        assert!(settings.enabled_target("marathon_core::marathon", Level::INFO));
+        settings.debug = false;
+        assert!(!settings.enabled_target("marathon_core::marathon", Level::INFO));
+        assert!(settings.enabled_target("marathon_core::marathon", Level::ERROR));
+        assert!(settings.enabled_target("marathon_core::timing", Level::INFO));
+        assert!(settings.enabled_target("marathon_adb::client::log", Level::DEBUG));
+        settings.set_level("marathon_core::marathon", Level::DEBUG);
+        assert!(settings.enabled_target("marathon_core::marathon", Level::INFO));
+        assert!(!settings.enabled_target("marathon_core::other", Level::INFO));
+    }
 }

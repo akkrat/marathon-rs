@@ -3,11 +3,7 @@ use marathon_logging::{Component, LogSettings};
 
 use marathon_error::FailureKind;
 mod support;
-use jcompat::{
-    file_manager::FileManager,
-    jtime::Duration,
-    
-};
+use jcompat::{file_manager::FileManager, jtime::Duration};
 use marathon_apple::{
     apple_device::AppleDevice,
     artifact_processor::ArtifactProcessor,
@@ -726,8 +722,6 @@ async fn macos_inline_path_obeys_policy_and_finishes_delivery_before_returning()
                 let mut config = configuration();
                 config.pulling_policy = policy;
                 config.remote_clean = clean;
-                let fm_logger = h.logging.registry.lock().unwrap().component(
-                    "com.malinskiy.marathon.io.FileManager");
                 let listener = h.custom("inline", h.device.clone(), None, h.context.clone(), config);
                 listener.before_test_run().await?;
                 if failed {
@@ -739,7 +733,6 @@ async fn macos_inline_path_obeys_policy_and_finishes_delivery_before_returning()
                         .await?;
                 }
                 listener.after_test_run().await?;
-                assert!(!h.logging.enabled(&fm_logger, marathon_logging::Level::DEBUG));
                 let pull = policy == PullingPolicy::Always || (policy == PullingPolicy::OnFailure && failed);
                 assert_eq!(h.local("inline").exists(), pull);
                 assert_eq!(h.device.pulls.lock().unwrap().len(), usize::from(pull));

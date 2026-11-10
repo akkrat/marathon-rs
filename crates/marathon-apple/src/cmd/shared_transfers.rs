@@ -1,14 +1,11 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/SharedTransfers.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::{
     TransferStop, TransferStopped, blocking, io_error, remote::ssh::sshj::config::SshLogging, stall_record::StallRecord,
 };
-use jcompat::{
-    file_manager::{absolute_file_path, file_path},
-    
-};
+use jcompat::file_manager::{absolute_file_path, file_path};
 use marathon_core::{
     error::{LeavePoolReason, VendorError, VendorResult},
     runtime::VendorRuntime,

@@ -7,13 +7,13 @@ use super::{
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use indexmap::{IndexMap, IndexSet};
-use marathon_logging::{Level, Component};
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, xcrun::simctl::model::SimctlDeviceState},
     cmd::remote::ssh::sshj::config::SshLogging,
 };
 use marathon_config::devices::{AppleTarget, SimulatorProfile, Transport};
 use marathon_core::vendor::VendorContext;
+use marathon_logging::{Component, Level};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProvisioningPlan {

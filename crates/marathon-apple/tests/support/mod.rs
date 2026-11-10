@@ -1,13 +1,10 @@
 #![allow(dead_code)]
-use marathon_logging::LogSettings;
 use marathon_error::{FailureKind, InjectedKind};
+use marathon_logging::LogSettings;
 pub mod executor_suite;
 pub mod exit_state;
 pub mod ssh;
-use jcompat::{
-    jtime::{Duration, Instant, duration_of, instant_of},
-    
-};
+use jcompat::jtime::{Duration, Instant, duration_of, instant_of};
 use marathon_apple::cmd::{BaseCommand, SessionScope, failure};
 use marathon_core::{
     error::{Cancellation, VendorError, VendorResult},

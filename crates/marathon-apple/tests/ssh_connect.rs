@@ -2,7 +2,6 @@
 //! worker, compared with the Kotlin outcomes in `fixtures/fake-worker/evidence` and `fixtures/oracle/ssh`.
 mod support;
 use fake_worker::script::{Disconnect, Faults, Script};
-use marathon_logging::Level;
 use marathon_apple::{
     cmd::{
         CommandExecutor, CommandRequest,
@@ -27,6 +26,7 @@ use marathon_config::{
     vendor::{RsyncConfiguration, SshConfiguration},
 };
 use marathon_core::error::VendorError;
+use marathon_logging::Level;
 use russh::keys::{Algorithm, PrivateKey};
 use std::{path::Path, sync::Arc};
 use support::{context, duration, ssh};
@@ -117,7 +117,11 @@ async fn disconnect_before_kex_is_retried_four_times_with_the_wire_reason() {
         );
         assert_eq!(
             lines[1],
-            ("marathon_apple::cmd::remote::ssh::sshj::wire".into(), Level::ERROR, format!("<<kex done>> woke to: {error}"))
+            (
+                "marathon_apple::cmd::remote::ssh::sshj::wire".into(),
+                Level::ERROR,
+                format!("<<kex done>> woke to: {error}")
+            )
         );
     }
 }
@@ -665,20 +669,23 @@ async fn unknown_host_key_is_rejected_four_times_like_sshj() {
             .iter()
             .filter(|line| line["level"] == "ERROR")
             .map(|line| {
-                (line["logger"].as_str().unwrap().to_owned(), {
-                    let message = localise(line["message"].as_str().unwrap());
-                    if line["logger"] == "marathon_apple::cmd::remote::ssh::sshj::wire" {
-                        let rest = message
-                            .strip_prefix("<<kex done>> woke to: ")
-                            .expect("recorded Promise failure");
-                        format!(
-                            "<<kex done>> woke to: {}",
-                            marathon_test_support::recorded_errors::rendered(rest).unwrap()
-                        )
-                    } else {
-                        message
-                    }
-                })
+                (
+                    marathon_test_support::recorded_logs::target(line["logger"].as_str().unwrap()).to_owned(),
+                    {
+                        let message = localise(line["message"].as_str().unwrap());
+                        if line["logger"] == "Promise" {
+                            let rest = message
+                                .strip_prefix("<<kex done>> woke to: ")
+                                .expect("recorded Promise failure");
+                            format!(
+                                "<<kex done>> woke to: {}",
+                                marathon_test_support::recorded_errors::rendered(rest).unwrap()
+                            )
+                        } else {
+                            message
+                        }
+                    },
+                )
             })
             .collect();
         let actual: Vec<_> = ssh::lines(&events)

@@ -2,8 +2,8 @@
 //! and analytics/internal/sub/ExecutionReportGenerator.kt (off-core service calls).
 
 use crate::{error::*, runtime::*};
-use marathon_logging::{Level, Component};
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level};
 use std::sync::Arc;
 
 /// The run's output task supplies the existing registry/console sink (3.10).

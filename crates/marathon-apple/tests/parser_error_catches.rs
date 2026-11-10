@@ -94,7 +94,14 @@ async fn both_parsers_retry_errors_without_logging_and_log_exceptions_named_erro
             let logs = logs.lock().unwrap();
             assert_eq!(logs.len(), if is_error { 0 } else { 3 });
             for (logger, level, cause) in logs.iter() {
-                assert_eq!(logger, if xctest { "marathon_apple::xctest_parser" } else { "marathon_apple::nm_test_parser" });
+                assert_eq!(
+                    logger,
+                    if xctest {
+                        "marathon_apple::xctest_parser"
+                    } else {
+                        "marathon_apple::nm_test_parser"
+                    }
+                );
                 assert_eq!(*level, marathon_logging::Level::DEBUG);
                 assert_eq!(cause.as_ref(), Some(error.failure()));
             }

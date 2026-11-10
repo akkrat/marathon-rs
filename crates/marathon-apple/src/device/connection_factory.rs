@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/device/ConnectionFactory.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{
     cmd::{
@@ -19,11 +19,7 @@ use crate::{
     },
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
-use jcompat::{
-    jtime::Duration,
-    
-    writers::KotlinValue,
-};
+use jcompat::{jtime::Duration, writers::KotlinValue};
 use marathon_config::{
     devices::Transport,
     vendor::{RsyncConfiguration, SshAuthentication, SshConfiguration},

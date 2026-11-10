@@ -8,7 +8,6 @@ use super::{
     worker_provisioning_context::WorkerProvisioningContext,
 };
 use futures_util::future::join_all;
-use marathon_logging::{Level, Component};
 use marathon_apple::{
     bin::AppleBinaryEnvironment,
     cmd::{failure, remote::ssh::sshj::config::SshLogging},
@@ -25,6 +24,7 @@ use marathon_core::{
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},

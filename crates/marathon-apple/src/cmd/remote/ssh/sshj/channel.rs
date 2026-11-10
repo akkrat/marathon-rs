@@ -533,8 +533,8 @@ mod tests {
     use super::super::config::{PerformanceDefaultConfig, SshLogging};
     use super::super::error::is_instance;
     use super::*;
-    use marathon_logging::LogSettings;
     use marathon_core::runtime::{CancellationSignal, VendorFuture, VendorTimeoutBody};
+    use marathon_logging::LogSettings;
 
     /// sshj's grant, which looked only at the stream just read.
     fn sshj_credit(window: u32, read_stream: usize) -> u32 {
@@ -620,10 +620,7 @@ mod tests {
     fn a_peer_that_ignores_the_window_still_hits_the_cap() {
         // A conforming peer cannot reach this any more, and the fake honours the window, so the channel is driven
         // directly: memory stays bounded and the failure stays sshj's.
-        let logging = SshLogging::new(
-            Arc::new(Mutex::new(LogSettings::default())),
-            Arc::new(|_, _, _, _| {}),
-        );
+        let logging = SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {}));
         let shared = ConnectionShared::new(PerformanceDefaultConfig::new(false, logging).loggers());
         let channel = ExecChannel {
             number: 0,

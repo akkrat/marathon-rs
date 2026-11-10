@@ -2,8 +2,8 @@
 //! sshj logs the command line of every exec at DEBUG through the logger of its channel. Only `ssh.debug` enables
 //! that logger, which is what lets marathon put file contents into commands without them reaching the log.
 mod support;
-use marathon_logging::Level;
 use marathon_apple::cmd::remote::ssh::sshj::config::PerformanceDefaultConfig;
+use marathon_logging::Level;
 use support::ssh;
 
 #[test]
@@ -17,12 +17,23 @@ fn exec_channels_log_commands_only_with_ssh_debug() {
     assert!(!logging.enabled(&quiet, Level::INFO));
 }
 
-/// Ours: `clazz?.simpleName ?: "marathon_apple::cmd::remote::ssh::sshj::wire"`, and a null name is the empty logger name.
+/// Ours: every sshj logger is the one wire target now (§3.12.5); only its ssh.debug gate differs.
 #[test]
 fn logger_names_follow_the_sshj_logger_factory() {
     let (logging, _) = ssh::logging(false);
     let config = PerformanceDefaultConfig::new(false, logging);
-    assert_eq!(config.logger_for_class(None).name(), "marathon_apple::cmd::remote::ssh::sshj::wire");
-    assert_eq!(config.logger_for_name(None).name(), "");
-    assert_eq!(config.logger_for_class(Some("marathon_apple::cmd::remote::ssh::sshj::wire")).name(), "marathon_apple::cmd::remote::ssh::sshj::wire");
+    assert_eq!(
+        config.logger_for_class(None).name(),
+        "marathon_apple::cmd::remote::ssh::sshj::wire"
+    );
+    assert_eq!(
+        config.logger_for_name(None).name(),
+        "marathon_apple::cmd::remote::ssh::sshj::wire"
+    );
+    assert_eq!(
+        config
+            .logger_for_class(Some("marathon_apple::cmd::remote::ssh::sshj::wire"))
+            .name(),
+        "marathon_apple::cmd::remote::ssh::sshj::wire"
+    );
 }

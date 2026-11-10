@@ -1,13 +1,10 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/log/TimingLog.kt
 //! and vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/device/AppleSimulatorProvider.kt:474–476,518–532.
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::error::clock_error;
-use jcompat::{
-    
-    writers::KotlinValue,
-};
+use jcompat::writers::KotlinValue;
 use marathon_apple::cmd::remote::ssh::sshj::config::SshLogging;
 use marathon_config::devices::{SimulatorProfile, Transport};
 use marathon_core::{error::VendorResult, time::Timer};

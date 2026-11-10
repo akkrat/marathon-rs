@@ -7,13 +7,13 @@ use super::super::{
 };
 use super::KotlinProcessHost;
 use crate::extensions::reader::{current_time_millis, produce_lines_manually};
-use marathon_logging::{Component, LogSettings};
 use marathon_core::{
     error::{VendorError, VendorResult},
     runtime::{VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Component, LogSettings};
 use nix::{
     sys::signal::{Signal, kill},
     unistd::Pid,
@@ -72,8 +72,10 @@ impl KotlinProcessCommandExecutor {
         destroy_forcibly: bool,
         capacity: usize,
     ) -> Self {
-        let logger = logging.lock().unwrap_or_else(|e| e.into_inner()).component(
-            "marathon_apple::cmd::local::kotlin_process_command_executor");
+        let logger = logging
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .component("marathon_apple::cmd::local::kotlin_process_command_executor");
         Self {
             runtime,
             host: KotlinProcessHost::host(),

@@ -1,12 +1,11 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ArtifactFinderListener.kt
 //! and logparser/parser/{DiagnosticLogsPathFinder,SessionResultsPathFinder}.kt.
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::AppleTestRunListener;
 use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging};
 use jcompat::{
     JavaRegex,
-    
     regex_patterns::{DIAGNOSTIC_LOGS_PATH, SESSION_RESULTS_PATH, find_artifact},
 };
 use marathon_core::{listener::LineListener, runtime::VendorFuture};

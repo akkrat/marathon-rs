@@ -2,7 +2,6 @@
 //! (derived runner/argument/cleanup integration corpus; this class has no Kotlin tests).
 use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
-use marathon_logging::Level;
 use marathon_adb::testrunner::TestEvent as E;
 use marathon_android::{arguments, device::AndroidBatchExecutor, listener_factory::*, listeners::*, runner::*};
 use marathon_config::vendor::TestAccessConfiguration;
@@ -16,6 +15,7 @@ use marathon_core::{
     runtime::*,
     vendor::*,
 };
+use marathon_logging::Level;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

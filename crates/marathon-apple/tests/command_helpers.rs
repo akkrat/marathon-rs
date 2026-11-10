@@ -2,7 +2,6 @@
 //! Additional contract tests; there are no Kotlin matrix rows for these helpers.
 use marathon_error::{AppleKind, FailureKind, SshKind};
 mod support;
-use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     cmd::{
         BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandResult, CommandSession, SessionControl,
@@ -15,6 +14,7 @@ use marathon_core::{
     runtime::VendorFuture,
     vendor::VendorContext,
 };
+use marathon_logging::{Component, LogSettings};
 use std::sync::{Arc, Mutex};
 use support::*;
 

@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/xcodebuild/XcodebuildTest.kt
 
 mod support;
-use marathon_logging::LogSettings;
 use marathon_apple::{
     bin::{
         Tools,
@@ -12,6 +11,7 @@ use marathon_apple::{
     test::TestRequest,
 };
 use marathon_config::vendor::{AppleTimeoutParameters, apple_timeout_configuration};
+use marathon_logging::LogSettings;
 use std::sync::{Arc, Mutex};
 use support::*;
 
@@ -25,10 +25,7 @@ fn xcodebuild(result: CommandResult) -> (Xcodebuild, Arc<FakeCommandExecutor>) {
         executor: executor.clone(),
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
-        logging: SshLogging::new(
-            Arc::new(Mutex::new(LogSettings::default())),
-            Arc::new(|_, _, _, _| {}),
-        ),
+        logging: SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {})),
     };
     // Configuration.Builder defaults: 30 min batch, 5 min output.
     (Xcodebuild::new(tools, 1_800_000, 300_000), executor)

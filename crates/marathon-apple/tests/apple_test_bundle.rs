@@ -4,7 +4,6 @@
 //! the frozen Kotlin class on them; this test rebuilds them in a temp dir and compares construction failures,
 //! the derived ids, every getter (including a retry after a failed first access) and the warnings.
 mod support;
-use marathon_logging::{Level, Component, LogSettings};
 use marathon_apple::{
     cmd::remote::ssh::sshj::config::SshLogging,
     model::{AppleTestBundle, Sdk},
@@ -14,6 +13,7 @@ use marathon_core::{
     error::{Failure, VendorError, VendorResult},
     vendor::TestBundle,
 };
+use marathon_logging::{Component, Level, LogSettings};
 use serde_json::{Value, json};
 use std::{
     io::Read,
@@ -372,6 +372,9 @@ async fn every_probed_bundle_matches_kotlin() {
             .unwrap()
             .replace(&bundles.display().to_string(), "<bundles>");
         let mut expected = strip(&row["value"]);
+        if let Some(logs) = expected.get_mut("logs") {
+            *logs = marathon_test_support::recorded_logs::native_logs(logs);
+        }
         adjust_for_listing_order(name, &case, &mut expected);
         for field in ["construct", "validate"] {
             if let Some(error) = expected.get_mut(field).filter(|v| v.get("class").is_some()) {

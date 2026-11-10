@@ -104,9 +104,11 @@ async fn handshake_eof_and_its_warning() {
     let events = events.lock().unwrap().clone();
     let (logger, level, message) = &events[0];
     assert_eq!(*level, Level::WARN);
+    // §3.12.5: the recorded Kotlin logger name is the native target now (WP 8.8).
+    assert_eq!(logger, "marathon_adb::client::log");
     assert_eq!(
         format!("WARN {message}"),
-        kotlin[&format!("log:{logger}")],
+        kotlin["log:com.malinskiy.adam.request.Request"],
         "logger {logger}"
     );
     server.finish().await;

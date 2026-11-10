@@ -17,9 +17,9 @@ use crate::{
     vendor::{Device, DeviceRef, VendorContext},
 };
 use futures_util::future::Either;
-use marathon_logging::Level;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
+use marathon_logging::Level;
 use std::{
     cell::{Cell, RefCell},
     future::Future,

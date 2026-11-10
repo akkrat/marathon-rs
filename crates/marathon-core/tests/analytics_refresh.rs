@@ -5,7 +5,7 @@ use marathon_logging::Level;
 use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
-use jcompat::{jtime::Instant, };
+use jcompat::jtime::Instant;
 use marathon_config::schema::{BatchingStrategyConfiguration, SortingStrategyConfiguration};
 use marathon_core::{
     analytics::{Analytics, remote::*},
@@ -40,7 +40,7 @@ fn timings(h: &Harness) -> Vec<String> {
     h.logs
         .records()
         .iter()
-        .filter(|r| r.logger == "marathon_logging")
+        .filter(|r| r.logger == "marathon_core::timing")
         .map(|r| {
             let message = r.message.to_owned();
             message[..message.rfind(" in ").unwrap()].to_owned()
@@ -258,7 +258,14 @@ fn close_ends_a_pending_refresh_without_waiting_and_nothing_queries_after_it() {
         h.clock.release_refreshes(8);
         tokio::task::yield_now().await;
         assert_eq!(source.calls.lock().unwrap().len(), 3);
-        assert_eq!(h.logs.take().iter().filter(|r| r.logger == "marathon_logging").count(), 1);
+        assert_eq!(
+            h.logs
+                .take()
+                .iter()
+                .filter(|r| r.logger == "marathon_core::timing")
+                .count(),
+            1
+        );
         // A query that starts failing after close starts no refresh.
         p.prefetch(&[key(90.0)]).await.unwrap();
         assert_eq!(h.running.load(AtomicOrdering::SeqCst), 0);

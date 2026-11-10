@@ -3,13 +3,13 @@
 use crate::{
     device::AndroidBatchExecutor, dex_test_parser::DexTestParser, models::*, provider::AdamDeviceProvider, support::*,
 };
-use marathon_logging::{Level, Component, LogSettings, Vendor};
 use marathon_config::{
     VendorConfiguration,
     vendor::{AndroidConfiguration, AndroidTestParserConfiguration, FileSyncConfiguration},
 };
 use marathon_core::{ServiceLog, error::*, runtime::*, vendor::*, wiring::VendorDependencies};
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level, LogSettings, Vendor};
 use std::sync::{Arc, Mutex};
 
 pub struct AndroidRuntime {

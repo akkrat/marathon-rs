@@ -3,7 +3,7 @@ use marathon_logging::Level;
 
 use super::*;
 use crate::listeners::{AndroidTestRunListener, to_test};
-use jcompat::{StringSubstitutor, };
+use jcompat::StringSubstitutor;
 use marathon_adb::testrunner::TestEvent;
 use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;

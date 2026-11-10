@@ -2,7 +2,6 @@
 //! (T08, T09, T14-T16, T22-T25), D7, D29, D30, D32, U154, U157, A2, A11, A14, A32, approved P2/P5 and shared-connection flow control.
 mod support;
 use fake_worker::script::{Action, Chunk, Faults, Keepalive};
-use marathon_logging::Level;
 use marathon_apple::cmd::{
     CommandExecutor, CommandRequest, CommandSession, cancelled, consume_output,
     remote::ssh::sshj::{
@@ -17,6 +16,7 @@ use marathon_core::{
     error::{Failure, VendorError},
     vendor::VendorContext,
 };
+use marathon_logging::Level;
 use std::{
     collections::BTreeMap,
     sync::Arc,
@@ -354,7 +354,9 @@ async fn an_exec_with_no_reply_from_a_peer_that_never_answers_close_still_return
     assert_eq!(fake.events_at_least("client_close", 1).await.len(), 1);
     // Neither wait logs a `woke to` line: nothing woke them.
     assert!(
-        !ssh::lines(&events).iter().any(|(logger, ..)| logger == "marathon_apple::cmd::remote::ssh::sshj::wire"),
+        !ssh::lines(&events)
+            .iter()
+            .any(|(logger, ..)| logger == "marathon_apple::cmd::remote::ssh::sshj::wire"),
         "{:?}",
         ssh::lines(&events)
     );
@@ -794,11 +796,9 @@ async fn transport_loss_fails_an_in_flight_await() {
     assert_eq!(chain[0].0, CONNECTION_EXCEPTION.description());
     assert_eq!(chain[1].0, TRANSPORT_EXCEPTION.description());
     assert!(!executor.connected());
-    assert!(
-        ssh::lines(&events)
-            .iter()
-            .any(|(logger, _, message)| logger == "marathon_apple::cmd::remote::ssh::sshj::wire" && message.starts_with("Dying because - "))
-    );
+    assert!(ssh::lines(&events).iter().any(|(logger, _, message)| logger
+        == "marathon_apple::cmd::remote::ssh::sshj::wire"
+        && message.starts_with("Dying because - ")));
     let _ = session.close().await;
 }
 
@@ -1688,7 +1688,7 @@ async fn ssh_debug_logs_the_exec_command_only_when_enabled() {
         let executor = ssh::connect_with(&fake, &ssh::factory(&logging), debug).await.unwrap();
         ssh::run(&executor, &["echo", "Hello world"], 5000).await.unwrap();
         let exec = (
-            "PatchedExecChannel".to_owned(),
+            "marathon_apple::cmd::remote::ssh::sshj::wire".to_owned(),
             Level::DEBUG,
             "Will request to exec `echo 'Hello world'`".to_owned(),
         );

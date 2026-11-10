@@ -90,7 +90,7 @@ fn provider_sequences_match_jvm_bits_calls_and_ordered_logs() {
                     .iter()
                     .map(|e| {
                         let mut message = e.message.to_owned();
-                        if e.logger == "marathon_logging" {
+                        if e.logger == "marathon_core::timing" {
                             let start = message.rfind(" in ").unwrap();
                             message.truncate(start);
                             message.push_str(" in <ms> ms");
@@ -98,7 +98,12 @@ fn provider_sequences_match_jvm_bits_calls_and_ordered_logs() {
                         json!([e.logger, e.level.as_str(), message])
                     })
                     .collect::<Vec<_>>();
-                assert_eq!(json!(events), marathon_test_support::recorded_logs::native_logs(&step["logs"]), "{} {op}", row["name"]);
+                assert_eq!(
+                    json!(events),
+                    marathon_test_support::recorded_logs::native_logs(&step["logs"]),
+                    "{} {op}",
+                    row["name"]
+                );
                 let calls = std::mem::take(&mut *source.calls.lock().unwrap())
                     .iter()
                     .map(|key| match key {

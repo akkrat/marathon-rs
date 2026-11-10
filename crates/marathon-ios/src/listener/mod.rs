@@ -6,7 +6,6 @@ pub mod screenshot;
 pub mod video;
 
 use crate::apple_simulator_device::{AppleSimulatorDevice, SimulatorListenerFactory, SimulatorListeners};
-use marathon_logging::{Level, Component};
 use marathon_apple::bin::kt::trim;
 use marathon_apple::{apple_device::AppleDevice, listener::AppleTestRunListener};
 use marathon_core::{
@@ -18,6 +17,7 @@ use marathon_core::{
     runtime::*,
     vendor::{Device, VendorContext},
 };
+use marathon_logging::{Component, Level};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 

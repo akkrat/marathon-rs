@@ -73,7 +73,6 @@ impl AdamLogging {
                         Level::INFO => emit!(info),
                         Level::WARN => emit!(warn),
                         Level::ERROR => emit!(error),
-                        
                     }
                 });
             }
@@ -105,11 +104,7 @@ pub(crate) mod capture {
     pub fn logging(debug: bool) -> (AdamLogging, Events) {
         let events: Events = Arc::default();
         let mut marathon = LogSettings::default();
-        marathon.debug = debug;
-        if !debug {
-            // What `configure(debug = false)` leaves for adam: an ERROR root.
-            marathon.component("marathon_adb::client::log");
-        }
+        marathon.configure(debug, marathon_logging::Vendor::Android);
         let sink_events = events.clone();
         let logging = AdamLogging::new(Arc::new(Mutex::new(marathon)), move |name, level, message, _| {
             sink_events
@@ -130,10 +125,16 @@ mod tests {
         let (logging, events) = capture::logging(true);
         logging.log(REQUEST_LOGGER, Level::DEBUG, None, || "a".into());
         let (quiet, quiet_events) = capture::logging(false);
-        quiet.log(REQUEST_LOGGER, Level::WARN, None, || {
+        // Adam inherits the DEBUG root, which configure does not reset: WARN is built with debug off.
+        quiet.log(REQUEST_LOGGER, Level::WARN, None, || "b".into());
+        // An ordinary target follows the Android configurator: with debug off its WARN is not built.
+        quiet.log("marathon_android::device", Level::WARN, None, || {
             unreachable!("not built when disabled")
         });
         assert_eq!(events.lock().unwrap().len(), 1);
-        assert!(quiet_events.lock().unwrap().is_empty());
+        assert_eq!(
+            *quiet_events.lock().unwrap(),
+            [(REQUEST_LOGGER.to_owned(), Level::WARN, "b".to_owned())]
+        );
     }
 }

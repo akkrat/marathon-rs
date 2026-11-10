@@ -2,12 +2,12 @@
 
 use super::{Tools, argv, kt};
 use crate::cmd::failure;
-use marathon_logging::{Level, Component};
 use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
 };
 use marathon_error::{AppleKind, FailureKind};
+use marathon_logging::{Component, Level};
 
 pub const MAX_XARGS: i32 = 131072;
 

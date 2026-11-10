@@ -4,10 +4,7 @@ use marathon_logging::Level;
 
 use super::*;
 use crate::{analytics::MetricsContext, error::OperationResult, executor::shared::failure};
-use jcompat::{
-    jnum::{double_to_string, parse_double_with_error},
-    
-};
+use jcompat::jnum::{double_to_string, parse_double_with_error};
 use marathon_error::FailureKind;
 use std::sync::Arc;
 

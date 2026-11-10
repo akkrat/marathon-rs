@@ -2,9 +2,9 @@
 
 use super::SimctlService;
 use crate::{bin::argv, cmd::CommandResult};
-use marathon_logging::{Level, Component};
 use marathon_config::vendor::{Codec, Display, Mask, ScreenshotType};
 use marathon_core::{error::VendorResult, vendor::VendorContext};
+use marathon_logging::{Component, Level};
 
 pub struct IoService {
     service: SimctlService,

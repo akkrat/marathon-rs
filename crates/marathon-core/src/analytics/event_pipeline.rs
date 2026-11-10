@@ -2,7 +2,7 @@
 //! and analytics/MappingTracker.kt, TrackerFactory.kt, internal/sub/DelegatingTrackerInternal.kt,
 //! TrackerInternal.kt, TrackerInternalAdapter.kt and ExecutionReportGenerator.kt.
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{
     artifact_io::*,
@@ -13,10 +13,7 @@ use crate::{
     time::WallClock,
     wiring::{ReportLifecycle, Tracker},
 };
-use jcompat::{
-    jtime::Instant,
-    
-};
+use jcompat::jtime::Instant;
 use marathon_error::FailureKind;
 use std::{
     collections::HashSet,

@@ -24,9 +24,9 @@ use crate::{
 };
 use futures_util::future::Either;
 use indexmap::IndexMap;
-use marathon_logging::Level;
 use marathon_config::Configuration;
 use marathon_error::FailureKind;
+use marathon_logging::Level;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 const LOGGER: &str = "marathon_core::execution::scheduler";

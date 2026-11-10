@@ -1,15 +1,12 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/listener/LogListener.kt
 //! and report/logs/LogWriter.kt, report/attachment/, device/file/FileTransferExtensions.kt.
-use marathon_logging::{Level, Component, LogSettings};
+use marathon_logging::{Component, Level, LogSettings};
 
 use marathon_error::FailureKind;
 mod event_support;
 
 use event_support::*;
-use jcompat::{
-    file_manager::FileManager,
-    
-};
+use jcompat::file_manager::FileManager;
 use marathon_core::{
     artifacts::*,
     error::*,

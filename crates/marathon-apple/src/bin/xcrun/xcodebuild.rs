@@ -7,12 +7,12 @@ use crate::{
     model::{Sdk, XcodeVersion},
     test::TestRequest,
 };
-use marathon_logging::{Level, Component};
 use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level};
 use std::collections::BTreeMap;
 
 pub const COLLECT_TEST_DIAGNOSTICS: &str = "-collect-test-diagnostics";

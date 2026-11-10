@@ -135,9 +135,17 @@ fn every_state_event_mode_and_fast_setting_replays_the_jvm() {
                     order.push(json!({"log":log}));
                     logs.push(log);
                 }
-                assert_eq!(json!(logs), marathon_test_support::recorded_logs::native_logs(&row["logs"]), "{line}");
+                assert_eq!(
+                    json!(logs),
+                    marathon_test_support::recorded_logs::native_logs(&row["logs"]),
+                    "{line}"
+                );
                 assert_eq!(json!(tracks), row["tracks"], "{line}");
-                assert_eq!(json!(order), row["effects"], "{line}");
+                assert_eq!(
+                    json!(order),
+                    marathon_test_support::recorded_logs::native_logs(&row["effects"]),
+                    "{line}"
+                );
             }
             Ok(())
         })

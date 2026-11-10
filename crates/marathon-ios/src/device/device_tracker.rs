@@ -2,11 +2,11 @@
 
 use super::error::ProvisioningResult;
 use indexmap::IndexMap;
-use marathon_logging::{Level, Component};
 use marathon_apple::cmd::{failure, remote::ssh::sshj::config::SshLogging};
 use marathon_config::devices::{AppleTarget, MarathonDevices, Transport};
 use marathon_core::error::VendorError;
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TrackingUpdate {

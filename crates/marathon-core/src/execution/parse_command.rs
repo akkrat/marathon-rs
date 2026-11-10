@@ -12,7 +12,7 @@ use crate::{
     runtime::{VendorFuture, VendorRuntime},
     wiring::ParseOutput,
 };
-use jcompat::{file_manager::absolute_file_path, };
+use jcompat::file_manager::absolute_file_path;
 use std::path::PathBuf;
 use std::{io::Write, sync::Arc};
 
@@ -41,7 +41,8 @@ impl MarathonTestParseCommand {
     }
     fn info(&self, message: String) {
         let (at_millis, wall_millis) = (self.stamp)();
-        self.logs.push(LogRecord { target: module_path!().into(),
+        self.logs.push(LogRecord {
+            target: module_path!().into(),
             logger: LOGGER.into(),
             at_millis,
             wall_millis,

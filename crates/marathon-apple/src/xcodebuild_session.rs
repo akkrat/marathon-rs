@@ -6,7 +6,7 @@ use crate::{
     cmd::{CommandSession, SessionScope, cancelled, failure, millis, remote::ssh::sshj::config::SshLogging},
     test::TestEvent,
 };
-use jcompat::{jtime::Duration, };
+use jcompat::jtime::Duration;
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorRuntime, VendorTask},

@@ -533,7 +533,7 @@ fn probe_config(id: &str, dir: &Path) -> AppleTestBundleConfiguration {
                 dir,
                 "app.ipa",
                 &[
-                    ("Info.plist", Some("marathon_adb::client::log")),
+                    ("Info.plist", Some("ROOT")),
                     ("Payload/Sample.app/", None),
                     ("Payload/Sample.app/empty", Some("")),
                 ],

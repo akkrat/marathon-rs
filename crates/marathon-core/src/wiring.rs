@@ -12,7 +12,7 @@ use crate::{
     time::{ReplayBarriers, ReplayHooks, SchedulerClock, Timer},
     vendor::{DeviceProvider, LogConfigurator, TestBundleIdentifier, TestParser},
 };
-use jcompat::{jtime::Instant, };
+use jcompat::jtime::Instant;
 use marathon_config::Configuration;
 use std::{
     rc::Rc,

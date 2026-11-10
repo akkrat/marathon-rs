@@ -4,7 +4,7 @@ use marathon_logging::Level;
 
 use super::failure;
 use crate::error::{Failure, OperationResult};
-use jcompat::{file_manager::absolute_file_path, jstring, };
+use jcompat::{file_manager::absolute_file_path, jstring};
 use marathon_error::FailureKind;
 use std::{io, sync::Arc};
 

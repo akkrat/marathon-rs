@@ -5,7 +5,7 @@ use marathon_logging::LogSettings;
 use marathon_error::FailureKind;
 mod report_probe_support;
 use image::{Rgba, RgbaImage};
-use jcompat::{jtime::duration_of, };
+use jcompat::jtime::duration_of;
 use marathon_core::{
     error::*,
     executor::{

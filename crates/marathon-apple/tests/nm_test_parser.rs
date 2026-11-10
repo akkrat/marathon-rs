@@ -281,7 +281,7 @@ async fn wrong_device_is_retried_three_times_with_the_jvm_logs() -> TestResult {
     let logging = SshLogging::new(
         device.logging.registry.clone(),
         Arc::new(move |logger, level, message, cause| {
-            captured.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":message,"throwable":cause.map(|f|f.stack_trace().to_owned())}));
+            captured.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":level.as_str(),"message":message,"throwable":cause.map(|f|f.stack_trace().to_owned())}));
         }),
     );
     let parser = NmTestParser::new(

@@ -3,7 +3,7 @@
 use marathon_logging::Component;
 
 use crate::{support, test_root_device::Fake};
-use jcompat::{jtime::Duration, };
+use jcompat::jtime::Duration;
 use marathon_apple::{
     apple_device::AppleDevice,
     bin::AppleBinaryEnvironment,

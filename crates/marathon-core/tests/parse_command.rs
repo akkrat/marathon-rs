@@ -3,7 +3,6 @@
 //! The command alone, not through Marathon's no-tests guard. Besides the source's
 //! `trimIndent()` comparison, each file is checked against the JVM's exact bytes
 //! (fixtures/oracle/run-flow/parse-command.jsonl).
-use marathon_logging::LogSettings;
 use marathon_core::{
     analytics::MetricsContext,
     execution::parse_command::{EXTENSION, MarathonTestParseCommand},
@@ -11,6 +10,7 @@ use marathon_core::{
     model::Test,
     wiring::ParseOutput,
 };
+use marathon_logging::LogSettings;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 

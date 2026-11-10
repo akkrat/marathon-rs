@@ -7,7 +7,6 @@ use fake_worker::{
     processes::Processes,
     router::{Request, Router},
 };
-use marathon_logging::{Component, LogSettings};
 use marathon_apple::cmd::{
     BaseCommand, CommandExecutor, CommandHost, CommandRequest, CommandSession, FileBridge, SessionControl,
     line_buffer::LineBuffer,
@@ -18,6 +17,7 @@ use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
+use marathon_logging::{Component, LogSettings};
 use std::{
     path::{Path, PathBuf},
     sync::{

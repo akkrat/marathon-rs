@@ -4,7 +4,6 @@
 //! The production runner with the Stub vendor injected (never reachable through the CLI, whose
 //! gate rejects the stub vendor): its own core executor thread, the CLI console sink and the
 //! real report pipeline.
-use marathon_logging::OutputTarget;
 use marathon_cli::{
     VendorFactories,
     application::{CliOutput, CliRunner},
@@ -15,6 +14,7 @@ use marathon_core::{
     model::{ExecutionCommand, Test},
     vendor::{TestParser, VendorServices},
 };
+use marathon_logging::OutputTarget;
 use marathon_test_support::{
     factory::{ConfigurationFactory, MockLogConfigurator, StubTestParser},
     stub_bundle::MockTestBundleIdentifier,
@@ -69,7 +69,8 @@ fn output(stdout: &Buffer) -> CliOutput {
         Box::new(Buffer::default()),
         OutputTarget::Pipe,
         Box::new(|| 0),
-    ).unwrap_or_else(|error| panic!("test console: {error}"))
+    )
+    .unwrap_or_else(|error| panic!("test console: {error}"))
 }
 
 #[test]

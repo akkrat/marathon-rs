@@ -63,14 +63,19 @@ pub fn host_millis() -> i64 {
     }
 }
 impl LogQueue {
-    pub fn late_output(&self) -> LateOutput { self.late.clone() }
+    pub fn late_output(&self) -> LateOutput {
+        self.late.clone()
+    }
     pub(crate) fn detach_output(&self) {
         let pending = std::mem::take(&mut *self.records.borrow_mut());
-        if !pending.is_empty() { self.late.head.push(pending); }
+        if !pending.is_empty() {
+            self.late.head.push(pending);
+        }
     }
     pub fn log(&self, logger: &str, at_millis: i64, level: Level, message: String, cause: Option<Failure>) {
         let wall_millis = (self.wall.borrow())();
-        self.late.push(OutputRecord::Log(LogRecord { target: module_path!().into(),
+        self.late.push(OutputRecord::Log(LogRecord {
+            target: module_path!().into(),
             logger: logger.to_owned(),
             at_millis,
             wall_millis,
@@ -209,15 +214,27 @@ impl LogSender {
 
 impl LogRecord {
     pub fn target(&self) -> &str {
-        if self.logger.starts_with("marathon_") { &self.logger }
-        else if self.logger.contains("DeviceActor[") { "marathon_core::execution::device::actor" }
-        else if self.logger.starts_with("DevicePoolActor[") { "marathon_core::execution::pool" }
-        else if self.logger.starts_with("QueueActor[") { "marathon_core::execution::queue" }
-        else { &self.target }
+        if self.logger.starts_with("marathon_") {
+            &self.logger
+        } else if self.logger.contains("DeviceActor[") {
+            "marathon_core::execution::device::actor"
+        } else if self.logger.starts_with("DevicePoolActor[") {
+            "marathon_core::execution::pool"
+        } else if self.logger.starts_with("QueueActor[") {
+            "marathon_core::execution::queue"
+        } else {
+            &self.target
+        }
     }
     pub fn emit(&self) {
         let cause = self.cause.as_ref().map(Failure::stack_trace);
-        marathon_logging::emit(self.target(), self.level, &self.message, cause.as_deref(), (self.target() != self.logger).then_some(self.logger.as_str()));
+        marathon_logging::emit(
+            self.target(),
+            self.level,
+            &self.message,
+            cause.as_deref(),
+            (self.target() != self.logger).then_some(self.logger.as_str()),
+        );
     }
 }
 
@@ -230,16 +247,32 @@ pub struct LateOutput {
     active: Arc<std::sync::atomic::AtomicUsize>,
     setup: Arc<std::sync::Mutex<()>>,
 }
-enum LateRecord { Output(OutputRecord), Fence(std::sync::mpsc::Sender<()>) }
+enum LateRecord {
+    Output(OutputRecord),
+    Fence(std::sync::mpsc::Sender<()>),
+}
 impl LateOutput {
-    fn new(queue: Arc<SegQueue<OutputRecord>>) -> Self { Self { queue, head: Arc::default(), sender: Arc::default(), active: Arc::default(), setup: Arc::default() } }
+    fn new(queue: Arc<SegQueue<OutputRecord>>) -> Self {
+        Self {
+            queue,
+            head: Arc::default(),
+            sender: Arc::default(),
+            active: Arc::default(),
+            setup: Arc::default(),
+        }
+    }
     fn push(&self, record: OutputRecord) {
         use std::sync::atomic::Ordering;
         self.active.fetch_add(1, Ordering::SeqCst);
         if let Some(sender) = self.sender.get() {
             // The forwarder lives for as long as any producer. A failed send is reported explicitly.
-            if sender.send(LateRecord::Output(record)).is_err() { self.active.fetch_sub(1, Ordering::SeqCst); return; }
-        } else { self.queue.push(record); }
+            if sender.send(LateRecord::Output(record)).is_err() {
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                return;
+            }
+        } else {
+            self.queue.push(record);
+        }
         self.active.fetch_sub(1, Ordering::SeqCst);
     }
     /// Off core. The fence includes the buffered tail and all forwarded events submitted before it.
@@ -249,20 +282,47 @@ impl LateOutput {
         if self.sender.get().is_none() {
             let (sender, receive) = mpsc::channel();
             let (start, prefix) = mpsc::channel::<Vec<OutputRecord>>();
-            std::thread::Builder::new().name("marathon-late-output".into()).spawn(move || {
-                if let Ok(records) = prefix.recv() { for record in records { sink(record); } }
-                for record in receive { match record { LateRecord::Output(record) => sink(record), LateRecord::Fence(done) => { let _ = done.send(()); } } }
-            })?;
+            std::thread::Builder::new()
+                .name("marathon-late-output".into())
+                .spawn(move || {
+                    if let Ok(records) = prefix.recv() {
+                        for record in records {
+                            sink(record);
+                        }
+                    }
+                    for record in receive {
+                        match record {
+                            LateRecord::Output(record) => sink(record),
+                            LateRecord::Fence(done) => {
+                                let _ = done.send(());
+                            }
+                        }
+                    }
+                })?;
             let _ = self.sender.set(sender);
-            while self.active.load(Ordering::SeqCst) != 0 { std::thread::park_timeout(std::time::Duration::from_millis(1)); }
+            while self.active.load(Ordering::SeqCst) != 0 {
+                std::thread::park_timeout(std::time::Duration::from_millis(1));
+            }
             let mut records = Vec::new();
-            while let Some(batch) = self.head.pop() { records.extend(batch); }
-            while let Some(record) = self.queue.pop() { records.push(record); }
-            start.send(records).map_err(|_| std::io::Error::other("late output forwarder stopped"))?;
+            while let Some(batch) = self.head.pop() {
+                records.extend(batch);
+            }
+            while let Some(record) = self.queue.pop() {
+                records.push(record);
+            }
+            start
+                .send(records)
+                .map_err(|_| std::io::Error::other("late output forwarder stopped"))?;
         }
         let (send, receive) = mpsc::channel();
-        let Some(sender) = self.sender.get() else { return Err(std::io::Error::other("late output forwarder missing")) };
-        sender.send(LateRecord::Fence(send)).map_err(|_| std::io::Error::other("late output forwarder stopped"))?;
-        receive.recv_timeout(std::time::Duration::from_secs(1)).map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "late output fence deadline elapsed"))
+        let Some(sender) = self.sender.get() else {
+            return Err(std::io::Error::other("late output forwarder missing"));
+        };
+        sender
+            .send(LateRecord::Fence(send))
+            .map_err(|_| std::io::Error::other("late output forwarder stopped"))?;
+        receive
+            .recv_timeout(std::time::Duration::from_secs(1))
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "late output fence deadline elapsed"))
     }
 }

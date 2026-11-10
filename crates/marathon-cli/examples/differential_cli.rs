@@ -1,5 +1,4 @@
 //! Hermetic paired CLI probe; real parsing, construction, vendors and reports.
-use marathon_logging::{LogSettings, OutputTarget};
 use marathon_cli::{
     application::{CliOutput, CliRunner, Console, MarathonRun, Process},
     runner::{ProductionRunner, missing_vendors},
@@ -13,6 +12,7 @@ use marathon_core::{
     },
     time::ReplayHooks,
 };
+use marathon_logging::{LogSettings, OutputTarget};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},

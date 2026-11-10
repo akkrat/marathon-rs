@@ -5,15 +5,11 @@
 //! configuration errors, the vendor gate, construction) are rendered as the JVM's uncaught-exception output, without
 //! stack frames (D12). Exceptions reporting is gone (D1): one INFO line after a successful parse replaces it.
 
-use marathon_logging::{Level, LogSettings, OutputTarget};
 use crate::tracing_output::{OutputGuard, TracingOutput};
+use marathon_logging::{Level, LogSettings, OutputTarget};
 
 use crate::args::CliConfiguration;
-use jcompat::{
-    file_manager::absolute_file_path,
-    jtime::Instant,
-    
-};
+use jcompat::{file_manager::absolute_file_path, jtime::Instant};
 use marathon_config::{
     Configuration, VendorConfiguration,
     binding::{BindingContext, ConfigurationError, Profile},
@@ -85,17 +81,31 @@ pub struct Console {
     pub(crate) tracing: TracingOutput,
     target: OutputTarget,
 }
-fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> { m.lock().unwrap_or_else(PoisonError::into_inner) }
+fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
 impl Console {
     pub fn new(stdout: Sink, target: OutputTarget) -> io::Result<(Self, OutputGuard)> {
-        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, || chrono::Local::now().format("%H:%M:%S%.3f").to_string())?;
+        let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, || {
+            chrono::Local::now().format("%H:%M:%S%.3f").to_string()
+        })?;
         Ok((Self { tracing, target }, guard))
     }
-    pub fn exit_after_preparing(&self, status: i32, prepare: Box<dyn FnOnce() + Send>) -> io::Result<()> { self.tracing.exit_after_preparing(status, prepare) }
-    pub fn exit_after_flush(&self, status: i32) -> io::Result<()> { self.tracing.exit_after_flush(status) }
-    pub fn tracing_dispatch(&self) -> tracing::Dispatch { self.tracing.dispatch() }
-    pub fn target(&self) -> OutputTarget { self.target }
-    pub fn write_text(&self, text: &str) { let _ = self.tracing.writer().write_all(text.as_bytes()); }
+    pub fn exit_after_preparing(&self, status: i32, prepare: Box<dyn FnOnce() + Send>) -> io::Result<()> {
+        self.tracing.exit_after_preparing(status, prepare)
+    }
+    pub fn exit_after_flush(&self, status: i32) -> io::Result<()> {
+        self.tracing.exit_after_flush(status)
+    }
+    pub fn tracing_dispatch(&self) -> tracing::Dispatch {
+        self.tracing.dispatch()
+    }
+    pub fn target(&self) -> OutputTarget {
+        self.target
+    }
+    pub fn write_text(&self, text: &str) {
+        let _ = self.tracing.writer().write_all(text.as_bytes());
+    }
     pub fn write_record(&self, record: &marathon_core::logging::LogRecord) {
         tracing::dispatcher::with_default(&self.tracing.dispatch(), || record.emit());
     }
@@ -108,10 +118,21 @@ pub struct CliOutput {
     guard: Mutex<Option<OutputGuard>>,
 }
 impl CliOutput {
-    pub fn new(stdout: Sink, stderr: Sink, target: OutputTarget, clock: Box<dyn Fn() -> i64 + Send + Sync>) -> io::Result<Self> {
+    pub fn new(
+        stdout: Sink,
+        stderr: Sink,
+        target: OutputTarget,
+        clock: Box<dyn Fn() -> i64 + Send + Sync>,
+    ) -> io::Result<Self> {
         let (tracing, guard) = TracingOutput::new(stdout, target == OutputTarget::Terminal, move || {
             let millis = clock().rem_euclid(86_400_000);
-            format!("{:02}:{:02}:{:02}.{:03}", millis / 3_600_000, millis / 60_000 % 60, millis / 1000 % 60, millis % 1000)
+            format!(
+                "{:02}:{:02}:{:02}.{:03}",
+                millis / 3_600_000,
+                millis / 60_000 % 60,
+                millis / 1000 % 60,
+                millis % 1000
+            )
         })?;
         let output = Self::traced(tracing, stderr);
         *lock(&output.guard) = Some(guard);
@@ -119,23 +140,63 @@ impl CliOutput {
     }
     pub fn traced(tracing: TracingOutput, stderr: Sink) -> Self {
         let configure = tracing.clone();
-        let logging = LogSettings::with_configure(Arc::new(move |debug, vendor| { let _ = configure.configure(vendor, debug); }));
-        Self { console: Arc::new(Console { tracing, target: OutputTarget::Pipe }), stderr: Mutex::new(stderr), logging: Arc::new(Mutex::new(logging)), guard: Mutex::new(None) }
+        let logging = LogSettings::with_configure(Arc::new(move |debug, vendor| {
+            let _ = configure.configure(vendor, debug);
+        }));
+        Self {
+            console: Arc::new(Console {
+                tracing,
+                target: OutputTarget::Pipe,
+            }),
+            stderr: Mutex::new(stderr),
+            logging: Arc::new(Mutex::new(logging)),
+            guard: Mutex::new(None),
+        }
     }
-    pub fn logging(&self) -> Arc<Mutex<LogSettings>> { self.logging.clone() }
-    pub fn console(&self) -> Arc<Console> { self.console.clone() }
-    pub fn out(&self, text: &str) { self.console.write_text(text); }
-    pub fn err(&self, text: &str) { let mut err = lock(&self.stderr); let _ = err.write_all(text.as_bytes()); let _ = err.flush(); }
-    pub fn flush(&self) { if let Err(error) = self.console.tracing.flush() { self.err(&format!("Console flush failed: {error}\n")); } }
-    pub fn shutdown(&self) { if let Some(guard) = lock(&self.guard).take() { if let Err(error) = guard.shutdown() { self.err(&format!("Console shutdown failed: {error}\n")); } } }
+    pub fn logging(&self) -> Arc<Mutex<LogSettings>> {
+        self.logging.clone()
+    }
+    pub fn console(&self) -> Arc<Console> {
+        self.console.clone()
+    }
+    pub fn out(&self, text: &str) {
+        self.console.write_text(text);
+    }
+    pub fn err(&self, text: &str) {
+        let mut err = lock(&self.stderr);
+        let _ = err.write_all(text.as_bytes());
+        let _ = err.flush();
+    }
+    pub fn flush(&self) {
+        if let Err(error) = self.console.tracing.flush() {
+            self.err(&format!("Console flush failed: {error}\n"));
+        }
+    }
+    pub fn shutdown(&self) {
+        if let Some(guard) = lock(&self.guard).take()
+            && let Err(error) = guard.shutdown()
+        {
+            self.err(&format!("Console shutdown failed: {error}\n"));
+        }
+    }
     fn log(&self, level: Level, message: &str, throwable: &str) {
         tracing::dispatcher::with_default(&self.console.tracing.dispatch(), || {
             macro_rules! emit { ($macro:ident) => { if throwable.is_empty() { tracing::$macro!("{message}"); } else { tracing::$macro!(error = %throwable, "{message}"); } }; }
-            match level { Level::TRACE => emit!(trace), Level::DEBUG => emit!(debug), Level::INFO => emit!(info), Level::WARN => emit!(warn), Level::ERROR => emit!(error) }
+            match level {
+                Level::TRACE => emit!(trace),
+                Level::DEBUG => emit!(debug),
+                Level::INFO => emit!(info),
+                Level::WARN => emit!(warn),
+                Level::ERROR => emit!(error),
+            }
         });
     }
 }
-impl Drop for CliOutput { fn drop(&mut self) { self.shutdown(); } }
+impl Drop for CliOutput {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
 
 pub(crate) fn failure(kind: FailureKind, message: &str) -> Failure {
     Failure::from_kind(kind, Some(message.into()))

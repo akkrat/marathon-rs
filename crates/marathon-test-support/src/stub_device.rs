@@ -5,7 +5,6 @@
 //! a batch exception takes precedence over device loss, and only PASSED/FAILURE/INCOMPLETE
 //! results are reported (ignored and assumption statuses are dropped).
 use crate::lock;
-use marathon_logging::{Component, LogSettings};
 use marathon_config::Configuration;
 use marathon_core::{
     error::*,
@@ -15,6 +14,7 @@ use marathon_core::{
     vendor::{Device, DeviceRef, VendorContext},
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Component, LogSettings};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, Weak},

@@ -2,8 +2,8 @@
 //! and StartupTimingsTest.kt (analytics query timings).
 mod metrics_support;
 mod strategy_support;
-use marathon_logging::Level;
 use marathon_core::{model::*, strategy::MetricsKey, wiring::MetricsProvider};
+use marathon_logging::Level;
 use metrics_support::*;
 use std::sync::Arc;
 use strategy_support::*;
@@ -223,7 +223,7 @@ fn analytics_queries_log_their_duration_and_outcome() {
             .unwrap();
         assert_eq!(*h.clock.delays.lock().unwrap(), vec![50, 50, 50, 50]);
         let events = h.logs.take();
-        let timings: Vec<_> = events.iter().filter(|e| e.logger == "marathon_logging").collect();
+        let timings: Vec<_> = events.iter().filter(|e| e.logger == "marathon_core::timing").collect();
         assert_eq!(timings.len(), 2);
         for e in timings {
             assert_eq!(e.level, Level::INFO);

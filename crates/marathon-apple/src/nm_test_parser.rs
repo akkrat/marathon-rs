@@ -8,7 +8,6 @@ use crate::{
     distributed_derived_data::require_distributed_test_bundle,
     model::AppleTestBundle,
 };
-use marathon_logging::{Level, Component};
 use marathon_config::{VendorConfiguration, vendor::TestClassRegex};
 use marathon_core::{
     error::{VendorError, VendorResult},
@@ -17,6 +16,7 @@ use marathon_core::{
     vendor::{DeviceRef, RemoteTestParser, VendorContext},
 };
 use marathon_error::{AppleKind, FailureKind};
+use marathon_logging::{Component, Level};
 use std::sync::Arc;
 
 pub struct NmTestParser {
@@ -196,7 +196,13 @@ pub(crate) fn parsing_error(message: String) -> VendorError {
     detail.message = Some(message);
     VendorError::TestParsing(detail)
 }
-pub(crate) fn log(logging: &SshLogging, logger: &Component, level: Level, message: String, error: Option<&VendorError>) {
+pub(crate) fn log(
+    logging: &SshLogging,
+    logger: &Component,
+    level: Level,
+    message: String,
+    error: Option<&VendorError>,
+) {
     if logging.enabled(logger, level) {
         (logging.sink)(logger, level, message, error.map(|e| e.failure().clone()));
     }

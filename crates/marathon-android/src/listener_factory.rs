@@ -204,12 +204,7 @@ pub fn create(
         log: {
             let device = device.clone();
             Arc::new(move |level, text| {
-                device.log_named(
-                    "marathon_android::listener_factory",
-                    level,
-                    &text.to_owned(),
-                    None,
-                )
+                device.log_named("marathon_android::listener_factory", level, &text.to_owned(), None)
             })
         },
     };

@@ -344,7 +344,14 @@ fn one_malformed_graphite_datapoint_fails_the_whole_query_and_is_cached_for_the_
                 assert_eq!(p.execution_time(test, 80.0, limit()).await.unwrap(), 300000.0);
             }
             assert_eq!(client.targets.lock().unwrap().len(), 6);
-            assert_eq!(h.logs.take().iter().filter(|e| e.logger == "marathon_logging").count(), 2);
+            assert_eq!(
+                h.logs
+                    .take()
+                    .iter()
+                    .filter(|e| e.logger == "marathon_core::timing")
+                    .count(),
+                2
+            );
         }
     });
 }
@@ -463,19 +470,25 @@ fn influx_server_errors_match_jvm_logged_causes_after_retries() {
             for cause in expected_causes.as_array_mut().unwrap() {
                 marathon_test_support::recorded_errors::error_object(cause);
             }
+            let expected_causes = marathon_test_support::recorded_logs::native_logs(&expected_causes);
             assert_eq!(causes, *expected_causes.as_array().unwrap());
             let logs: Vec<_> = events
                 .iter()
                 .map(|e| {
                     let mut message = e.message.to_owned();
-                    if e.logger == "marathon_logging" {
+                    if e.logger == "marathon_core::timing" {
                         message.truncate(message.rfind(" in ").unwrap());
                         message.push_str(" in <ms> ms");
                     }
                     serde_json::json!([e.logger, e.level.as_str(), message])
                 })
                 .collect();
-            assert_eq!(logs, *marathon_test_support::recorded_logs::native_logs(&row["logs"]).as_array().unwrap());
+            assert_eq!(
+                logs,
+                *marathon_test_support::recorded_logs::native_logs(&row["logs"])
+                    .as_array()
+                    .unwrap()
+            );
         }
     });
 }

@@ -320,8 +320,12 @@ async fn wrong_state_type_after_failed_boot_warns_without_sending_shutdown() -> 
     for xml in ["<string>1</string>", "<real>1.0</real>", "<true/>"] {
         let h = Harness::new(|_| {})?;
         let d = h.device().await?;
-        h.services.logging.registry.lock().unwrap().component(
-            "marathon_ios::apple_simulator_device");
+        h.services
+            .logging
+            .registry
+            .lock()
+            .unwrap()
+            .component_with_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
         let reads = Arc::new(AtomicUsize::new(0));
         let count = reads.clone();
         let boot = h.boot.clone();

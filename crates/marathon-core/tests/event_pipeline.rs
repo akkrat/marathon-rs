@@ -5,7 +5,7 @@ use marathon_logging::LogSettings;
 use marathon_error::{FailureKind, InjectedKind};
 mod event_support;
 use event_support::*;
-use jcompat::{jtime::instant_of, };
+use jcompat::jtime::instant_of;
 use marathon_core::{
     analytics::*,
     error::*,

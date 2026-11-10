@@ -11,8 +11,8 @@ use crate::{
     model::XcodeVersion,
     xcresult::{ActionTestPlanRunSummaries, ActionsInvocationRecord},
 };
-use marathon_logging::{Level, Component};
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level};
 
 use marathon_core::{
     artifacts::AttachmentCollector,
@@ -56,9 +56,7 @@ impl TestResultsListener {
         let accumulator =
             AccumulatingTestResultListener::new(config.batch.tests.len() as i32, result, config.logs.clone());
         let attachments = AttachmentCollector::new(&config.attachment_providers)?;
-        let logger = config
-            .logging
-            .component("marathon_apple::listener::results");
+        let logger = config.logging.component("marathon_apple::listener::results");
         Ok(Self {
             accumulator,
             config,

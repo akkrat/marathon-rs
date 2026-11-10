@@ -1,5 +1,4 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/device/FakeSimulatorWorker.kt
-use marathon_logging::{Component, LogSettings};
 use marathon_apple::cmd::{CommandExecutor, CommandHost, CommandRequest, CommandResult, CommandSession, failure};
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
@@ -7,6 +6,7 @@ use marathon_core::{
     vendor::VendorContext,
 };
 use marathon_error::{FailureKind, SshKind};
+use marathon_logging::{Component, LogSettings};
 use serde_json::json;
 use std::{
     collections::BTreeMap,

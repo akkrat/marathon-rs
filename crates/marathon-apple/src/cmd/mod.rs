@@ -19,7 +19,7 @@ pub mod write_file;
 use crate::extensions::Durations;
 pub use base_command::{BaseCommand, CommandSession, ExitCode, SessionControl, SessionScope};
 pub use command_session_output::consume_output;
-use jcompat::{jtime::Duration, };
+use jcompat::jtime::Duration;
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorFuture},

@@ -2,10 +2,7 @@
 mod support;
 use marathon_logging::{Component, LogSettings};
 
-use jcompat::{
-    jtime::Duration,
-    
-};
+use jcompat::jtime::Duration;
 use marathon_apple::{
     apple_device::{AppleDevice, apple_worker_id, storage_path_for},
     apple_device_registry::AppleDeviceRegistry,

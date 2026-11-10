@@ -5,7 +5,7 @@ use marathon_logging::Level;
 
 use marathon_error::{FailureKind, InjectedKind};
 mod support;
-use jcompat::{jtime::Instant, };
+use jcompat::jtime::Instant;
 use marathon_analytics::AnalyticsClients;
 use marathon_config::{AnalyticsConfiguration, GraphiteConfiguration};
 use marathon_core::{

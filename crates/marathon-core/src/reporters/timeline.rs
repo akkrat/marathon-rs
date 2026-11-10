@@ -9,8 +9,8 @@ use crate::{
     report::{ExecutionReport, Reporter},
     runtime::{ServiceFuture, VendorRuntime},
 };
-use marathon_logging::{Component, LogSettings};
 use marathon_error::FailureKind;
+use marathon_logging::{Component, LogSettings};
 use std::path::PathBuf;
 use std::sync::Arc;
 

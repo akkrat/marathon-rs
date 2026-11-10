@@ -11,13 +11,13 @@ use crate::extensions::{
     poll_backoff::PollBackoff,
     reader::{current_time_millis, produce_lines_manually},
 };
-use marathon_logging::{Level, Component};
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
     runtime::{CancellationSignal, VendorClock, VendorFuture, VendorRuntime},
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level};
 use russh::Sig;
 use std::sync::{
     Arc, Mutex,

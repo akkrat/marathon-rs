@@ -3,7 +3,7 @@
 //! D20 (PLAN.md §3.11): Kotlin loads libxctest-parser.dylib from its own resources. This program neither contains nor
 //! ships that third-party library, so an `xctest` run reads a copy the user supplies. What follows the read, the push to
 //! the worker and the fake test run, is the port.
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{
     apple_application_installer::AppleApplicationInstaller,
@@ -16,10 +16,7 @@ use crate::{
     test::{TestEvent, TestRequest},
     xcodebuild_session::{CLOSE_TIMEOUT, XcodebuildSession},
 };
-use jcompat::{
-    jtime::Duration,
-    
-};
+use jcompat::jtime::Duration;
 use marathon_config::VendorConfiguration;
 use marathon_core::{
     error::{VendorError, VendorResult},

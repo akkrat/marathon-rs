@@ -7,8 +7,8 @@ use crate::{
     runtime::{CancellationSignal, Deferred, EventChannel, VendorClock, VendorFuture},
     time::ReplayHooks,
 };
-use marathon_logging::{Component, LogSettings};
 use marathon_config::Configuration;
+use marathon_logging::{Component, LogSettings};
 use std::sync::{Arc, Mutex};
 
 /// One stable allocation per Kotlin Device object; serial reuse is not identity.

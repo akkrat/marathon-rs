@@ -12,7 +12,6 @@
 use marathon_error::{AdbKind, FailureKind, InjectedKind};
 mod support;
 
-use marathon_logging::LogSettings;
 use marathon_adb::server::{FakeAdbServer, Script, ServerOptions};
 use marathon_android::{
     device::{AndroidBatchExecutor, AndroidDevice},
@@ -34,6 +33,7 @@ use marathon_core::{
     time::ReplayDriver,
     vendor::{DeviceEvent, DeviceProvider, DeviceRef, VendorContext, VendorServices},
 };
+use marathon_logging::LogSettings;
 use marathon_test_support::{
     console::{Line, RecordingConsole},
     factory::NoMetricsSetup,

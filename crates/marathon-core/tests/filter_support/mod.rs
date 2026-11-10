@@ -7,7 +7,7 @@ use marathon_error::FailureKind;
 #[path = "../strategy_support/mod.rs"]
 mod strategy_support;
 
-use jcompat::{JavaRegex, };
+use jcompat::JavaRegex;
 use marathon_config::schema::{RegexValuesFileFilter, TestFilterConfiguration as C};
 use marathon_core::{
     error::{Failure, OperationResult},

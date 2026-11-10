@@ -5,14 +5,11 @@
 //! Licensed under Creative Commons Attribution 3.0 Unported:
 //! http://creativecommons.org/licenses/by/3.0/ .
 
-use marathon_logging::{Level, Component, LogSettings};
+use marathon_logging::{Component, Level, LogSettings};
 
 use crate::{artifact_io::*, error::*, executor::shared::failure, model::*, output::*, runtime::*, time::WallClock};
 use image::{RgbaImage, imageops};
-use jcompat::{
-    jtime::Duration,
-    
-};
+use jcompat::jtime::Duration;
 use marathon_error::{FailureKind, ReportKind};
 use std::{
     io::Write,

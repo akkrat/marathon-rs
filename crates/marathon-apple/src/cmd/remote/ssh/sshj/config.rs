@@ -5,8 +5,8 @@
 //! visible at the default ERROR level are reproduced, plus `Will request to exec` under `ssh.debug`.
 
 use super::error::SshFailure;
-use marathon_logging::{Level, Component, LogSettings};
 use marathon_core::error::Failure;
+use marathon_logging::{Component, Level, LogSettings};
 use std::sync::{Arc, Mutex, Weak};
 
 /// Receives every enabled event; the run's output plumbing formats it (throwable as class + message + causes).
@@ -25,10 +25,7 @@ impl SshLogging {
     /// `LogSettings.logger {}`: the registry's default level, set again on every lookup (C18).
     #[track_caller]
     pub fn component(&self, name: &str) -> Component {
-        self.registry
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .component(name)
+        self.registry.lock().unwrap_or_else(|e| e.into_inner()).component(name)
     }
     pub fn enabled(&self, logger: &Component, level: Level) -> bool {
         self.registry
@@ -36,7 +33,13 @@ impl SshLogging {
             .unwrap_or_else(|e| e.into_inner())
             .enabled(logger, level)
     }
-    pub fn log(&self, logger: &Component, level: Level, message: impl FnOnce() -> String, throwable: Option<&SshFailure>) {
+    pub fn log(
+        &self,
+        logger: &Component,
+        level: Level,
+        message: impl FnOnce() -> String,
+        throwable: Option<&SshFailure>,
+    ) {
         if self.enabled(logger, level) {
             (self.sink)(logger, level, message(), throwable.map(SshFailure::to_failure));
         }
@@ -54,8 +57,12 @@ impl PerformanceDefaultConfig {
     pub fn new(verbose: bool, logging: SshLogging) -> Self {
         Self { verbose, logging }
     }
-    pub fn logger_for_class(&self, _: Option<&str>) -> Component { Component::wire(self.verbose) }
-    pub fn logger_for_name(&self, _: Option<&str>) -> Component { Component::wire(self.verbose) }
+    pub fn logger_for_class(&self, _: Option<&str>) -> Component {
+        Component::wire(self.verbose)
+    }
+    pub fn logger_for_name(&self, _: Option<&str>) -> Component {
+        Component::wire(self.verbose)
+    }
     /// The loggers one client uses, looked up when it is created, as sshj's constructors do.
     pub fn loggers(&self) -> SshComponents {
         SshComponents {

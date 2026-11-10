@@ -121,10 +121,22 @@ fn cli_matrix_matches_the_reference_build() {
         ];
         sandbox.sort_by_key(|s| std::cmp::Reverse(s.len()));
         let want = if row["rust"].is_null() { row } else { &row["rust"] };
-        let expected_stdout = want["stdout"].as_str().unwrap().replace(
-            "com.malinskiy.marathon.cli.args.VersionCommandCliConfiguration@<HASH>",
-            "VersionCommandCliConfiguration",
-        );
+        // §3.12.5: the recorded JVM startup prefix is the native one now (WP 8.8).
+        let expected_stdout = want["stdout"]
+            .as_str()
+            .unwrap()
+            .replace(
+                "com.malinskiy.marathon.cli.args.VersionCommandCliConfiguration@<HASH>",
+                "VersionCommandCliConfiguration",
+            )
+            .replace(
+                "[main] INFO  c.m.marathon.cli.ApplicationView - ",
+                "INFO marathon_cli::application: ",
+            )
+            .replace(
+                "[main] ERROR c.m.marathon.cli.ApplicationView - ",
+                "ERROR marathon_cli::application: ",
+            );
         // These closed matrix rows record exactly one generated cause. Other messages stay opaque.
         let generated_cause = matches!(
             id,

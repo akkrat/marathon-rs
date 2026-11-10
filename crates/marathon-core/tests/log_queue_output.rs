@@ -1,10 +1,11 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/log/MarathonLogging.kt
 //! (shared core/Send producer queue with ordered raw output).
-use marathon_logging::Level;
 use marathon_core::logging::{LogQueue, LogRecord, OutputRecord};
+use marathon_logging::Level;
 
 fn sent(message: &str) -> LogRecord {
-    LogRecord { target: module_path!().into(),
+    LogRecord {
+        target: module_path!().into(),
         logger: "provider".into(),
         at_millis: 0,
         wall_millis: 0,

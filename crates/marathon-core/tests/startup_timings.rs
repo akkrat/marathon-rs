@@ -2,10 +2,7 @@
 //! (the fifth method, about analytics query timings, is 3.4a's).
 use marathon_logging::{Level, LogSettings};
 
-use jcompat::{
-    jtime::{duration_of, instant_of},
-    
-};
+use jcompat::jtime::{duration_of, instant_of};
 use marathon_config::{Defaults, schema::SortingStrategyConfiguration};
 use marathon_core::{
     analytics::{
@@ -71,13 +68,14 @@ fn timings_are_logged_at_info_while_other_loggers_only_log_errors_without_debug(
     let registry = Arc::new(Mutex::new(LogSettings::default()));
     let other = {
         let mut registry = registry.lock().unwrap();
-        registry.debug = false;
+        registry.configure(false, marathon_logging::Vendor::Android);
         registry.timings();
         registry.component("StartupTimingsTest-other")
     };
     let line = timing_message("Phase took 5 ms", &FakeTimer(Arc::new(|| 1234))).unwrap();
     let console = RecordingConsole::new(registry.clone());
-    futures_util::FutureExt::now_or_never(console.write(vec![OutputRecord::Log(LogRecord { target: module_path!().into(),
+    futures_util::FutureExt::now_or_never(console.write(vec![OutputRecord::Log(LogRecord {
+        target: module_path!().into(),
         logger: TIMINGS.into(),
         at_millis: 0,
         wall_millis: 0,

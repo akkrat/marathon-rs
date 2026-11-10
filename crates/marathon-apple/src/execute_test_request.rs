@@ -8,13 +8,13 @@ use crate::{
     test::TestRequest,
     xcodebuild_session::{EventReceiver, XcodebuildSession},
 };
-use marathon_logging::Level;
 use marathon_core::{
     error::{VendorError, VendorResult},
     listener::LineListener,
     time::Timer,
     vendor::VendorContext,
 };
+use marathon_logging::Level;
 use std::sync::{Arc, Mutex};
 
 /// One gate serializes stdout/stderr callbacks, including the suspending listeners.
@@ -105,7 +105,7 @@ pub fn execute_test_request(
                             return Ok(());
                         }
                         let (logger, message) = {
-                            let mut registry = logging.registry.lock().unwrap_or_else(|e| e.into_inner());
+                            let registry = logging.registry.lock().unwrap_or_else(|e| e.into_inner());
                             let logger = registry.xcodebuild();
                             (logger, registry.xcodebuild_message(label, &line))
                         };

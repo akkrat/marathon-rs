@@ -1,8 +1,8 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/AndroidAppInstaller.kt
 use crate::{device::AndroidDevice, models::AndroidTestBundle, services::AndroidRuntime, support::*};
-use marathon_logging::Level;
 use marathon_core::{error::*, vendor::VendorContext};
 use marathon_error::{AndroidKind, FailureKind};
+use marathon_logging::Level;
 use std::path::PathBuf;
 use std::sync::Arc;
 pub struct AndroidAppInstaller {
@@ -13,8 +13,12 @@ impl AndroidAppInstaller {
         Self { runtime }
     }
     fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
-        self.runtime
-            .emit(&self.runtime.component("marathon_android::installer"), level, message, error)
+        self.runtime.emit(
+            &self.runtime.component("marathon_android::installer"),
+            level,
+            message,
+            error,
+        )
     }
     pub async fn prepare_installation(&self, device: &AndroidDevice, context: VendorContext) -> VendorResult<()> {
         for bundle in &self.runtime.bundles {

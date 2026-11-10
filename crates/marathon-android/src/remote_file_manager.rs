@@ -2,7 +2,7 @@
 use marathon_logging::Level;
 
 use crate::{device::AndroidDevice, support::*};
-use jcompat::{file_manager::escape, };
+use jcompat::file_manager::escape;
 use marathon_adb::client::sync::directory::bash_escape;
 use marathon_core::{error::VendorResult, model::Test, vendor::VendorContext};
 use marathon_error::{AndroidKind, FailureKind};

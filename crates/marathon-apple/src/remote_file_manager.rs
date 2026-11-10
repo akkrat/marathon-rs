@@ -1,12 +1,9 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/RemoteFileManager.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging, worker_commands::WorkerCommands};
-use jcompat::{
-    file_manager::escape,
-    
-};
+use jcompat::file_manager::escape;
 use marathon_config::vendor::ScreenshotType;
 use marathon_core::{
     error::VendorResult,

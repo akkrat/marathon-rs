@@ -1,10 +1,10 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/screenshot/AdamScreenCaptureTestRunListener.kt
 use super::*;
 use crate::listeners::{AndroidTestRunListener, to_test};
-use marathon_logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_error::FailureKind;
+use marathon_logging::Level;
 use std::path::PathBuf;
 pub const METRIC: &str = "com.malinskiy.adam.junit4.android.screencapture.AdamScreenCaptureProcessor.v1";
 pub struct AdamScreenCaptureTestRunListener {

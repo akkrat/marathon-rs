@@ -164,15 +164,19 @@ fn compare(name: &str, actual: Value) {
             .identifier()
             .into();
     }
-    expected["schedulerLogs"] = Value::Array(
+    expected["schedulerLogs"] = marathon_test_support::recorded_logs::native_logs(&Value::Array(
         expected["events"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|e| e["logger"] == "marathon_core::execution::scheduler")
+            .filter(|e| {
+                e["logger"].as_str().is_some_and(|logger| {
+                    marathon_test_support::recorded_logs::target(logger) == "marathon_core::execution::scheduler"
+                })
+            })
             .cloned()
             .collect(),
-    );
+    ));
     for (key, value) in actual.as_object().unwrap() {
         assert_eq!(value, &expected[key], "{name}.{key}");
     }
@@ -565,7 +569,12 @@ fn order_after_a_takeover(alone: bool) -> Vec<Vec<String>> {
     let output = order.clone();
     scheduling_test(move |h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(4, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(4, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let first = slow("first", 1000);
             run.connect(&first);
@@ -616,7 +625,12 @@ fn a_device_that_returns_carries_on_with_the_tests_in_their_order_d48() {
 fn a_run_ends_when_no_device_returns_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(4, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(4, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let only = slow("only", 1000);
             run.connect(&only);
@@ -637,7 +651,12 @@ fn a_run_ends_when_no_device_returns_d48() {
 fn a_device_after_the_limit_is_dropped_and_still_tracked_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let only = slow("only", 1000);
             run.connect(&only);
@@ -658,7 +677,12 @@ fn a_device_after_the_limit_is_dropped_and_still_tracked_d48() {
 fn a_pool_with_nothing_left_to_run_does_not_wait_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(1, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(1, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             // The test ends at 1000, and the device goes in the same instant as the batch is reported.
             let only = slow("only", 1000);
@@ -697,7 +721,12 @@ fn the_last_test_coming_back_with_no_retries_left_does_not_wait_d48() {
     c.uncompleted_test_retry_quota = 0;
     scheduling_test(move |h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(1, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                c,
+                h.tracker.clone(),
+                tests(1, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let only = slow("only", 1000);
             run.connect(&only);
@@ -720,7 +749,12 @@ fn a_device_that_keeps_returning_without_finishing_a_test_cannot_hold_the_run_op
     c.uncompleted_test_retry_quota = i32::MAX;
     scheduling_test(move |h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                c,
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let mut now = 0;
             let mut cycles = 0;
@@ -754,7 +788,12 @@ fn a_device_that_keeps_returning_without_finishing_a_test_cannot_hold_the_run_op
 fn a_test_that_ends_gives_the_pool_its_whole_wait_again_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(4, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(4, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let first = slow("same", 1000);
             run.connect(&first);
@@ -781,7 +820,12 @@ fn a_test_that_ends_gives_the_pool_its_whole_wait_again_d48() {
 fn a_device_failing_prepare_after_it_returned_uses_what_is_left_of_the_wait_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let first = slow("same", 1000);
             run.connect(&first);
@@ -813,7 +857,12 @@ fn a_device_failing_prepare_after_it_returned_uses_what_is_left_of_the_wait_d48(
 fn a_pool_created_during_a_wait_is_joined_and_the_run_waits_for_both_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting_with_models(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting_with_models(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let a = device("serial-A", "A", 1000, false);
             run.connect(&a);
@@ -839,7 +888,12 @@ fn a_pool_created_during_a_wait_is_joined_and_the_run_waits_for_both_d48() {
 fn pools_wait_on_their_own_and_a_healthy_one_carries_on_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting_with_models(), h.tracker.clone(), tests(3, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting_with_models(),
+                h.tracker.clone(),
+                tests(3, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let a = device("serial-A", "A", 1000, false);
             let b = device("serial-B", "B", 1000, false);
@@ -865,7 +919,12 @@ fn pools_wait_on_their_own_and_a_healthy_one_carries_on_d48() {
 fn another_pools_disconnect_does_not_restart_or_end_a_wait_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting_with_models(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting_with_models(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let a = device("serial-A", "A", 1000, false);
             let b = device("serial-B", "B", 1_000_000, false);
@@ -898,7 +957,12 @@ fn what_the_vendor_already_waited_counts_against_the_limit_d48() {
     ] {
         scheduling_test(move |h| {
             Box::pin(async move {
-                let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+                let run = Run::new_with_shard(
+                    &h,
+                    waiting(),
+                    h.tracker.clone(),
+                    tests(2, "marathon_core::execution::scheduler"),
+                );
                 h.run_current().await;
                 let only = slow("only", 1000);
                 only.set_return_wait_used(used);
@@ -917,7 +981,12 @@ fn what_the_vendor_already_waited_counts_against_the_limit_d48() {
 fn a_cancelled_run_does_not_wait_out_the_limit_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let only = slow("only", 1000);
             run.connect(&only);
@@ -942,7 +1011,12 @@ fn a_cancelled_run_does_not_wait_out_the_limit_d48() {
 fn a_late_return_wait_timer_is_ignored_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(4, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(4, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let first = slow("same", 1000);
             run.connect(&first);
@@ -997,7 +1071,12 @@ fn failed(run: &Run) -> bool {
 fn the_wait_runs_while_the_leaving_device_cleans_up_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let only = TestDevice::new("only", None, None, cleaning_up(20_000));
             run.connect(&only);
@@ -1022,7 +1101,12 @@ fn the_wait_runs_while_the_leaving_device_cleans_up_d48() {
 fn a_cleanup_still_running_at_the_limit_is_waited_for_and_nothing_new_is_taken_d48() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let only = TestDevice::new("only", None, None, cleaning_up(70_000));
             run.connect(&only);
@@ -1060,7 +1144,12 @@ fn replacements_that_never_get_ready_cannot_hold_the_run_open_d48() {
         }
         scheduling_test(move |h| {
             Box::pin(async move {
-                let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+                let run = Run::new_with_shard(
+                    &h,
+                    c,
+                    h.tracker.clone(),
+                    tests(2, "marathon_core::execution::scheduler"),
+                );
                 h.run_current().await;
                 let first = TestDevice::new("first", None, None, cleaning_up(20_000));
                 run.connect(&first);
@@ -1107,7 +1196,12 @@ fn the_pool_lacks_a_device_from_the_last_departure_whatever_the_order_d48() {
         c.batching_strategy = fixed_size(1);
         scheduling_test(move |h| {
             Box::pin(async move {
-                let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(4, "marathon_core::execution::scheduler"));
+                let run = Run::new_with_shard(
+                    &h,
+                    c,
+                    h.tracker.clone(),
+                    tests(4, "marathon_core::execution::scheduler"),
+                );
                 h.run_current().await;
                 let graced = slow("graced", 1_000_000);
                 let healthy = slow("healthy", 1_000_000);
@@ -1166,7 +1260,12 @@ fn review_completed_result_must_not_promote_a_preparing_replacement() {
         }
         scheduling_test(move |h| {
             Box::pin(async move {
-                let run = Run::new_with_shard(&h, c, h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+                let run = Run::new_with_shard(
+                    &h,
+                    c,
+                    h.tracker.clone(),
+                    tests(2, "marathon_core::execution::scheduler"),
+                );
                 h.run_current().await;
                 let first = TestDevice::new("first", None, None, passed_then_cleaning_up(20_000));
                 run.connect(&first);
@@ -1192,7 +1291,12 @@ fn review_completed_result_must_not_promote_a_preparing_replacement() {
 fn review_completed_result_must_not_move_deadline_to_cleanup_end() {
     scheduling_test(|h| {
         Box::pin(async move {
-            let run = Run::new_with_shard(&h, waiting(), h.tracker.clone(), tests(2, "marathon_core::execution::scheduler"));
+            let run = Run::new_with_shard(
+                &h,
+                waiting(),
+                h.tracker.clone(),
+                tests(2, "marathon_core::execution::scheduler"),
+            );
             h.run_current().await;
             let only = TestDevice::new("only", None, None, passed_then_cleaning_up(20_000));
             run.connect(&only);

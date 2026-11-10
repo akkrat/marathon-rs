@@ -304,7 +304,8 @@ fn v2_tracker_leaves_http_and_transport_to_the_guard_and_preserves_cancellation(
             let guard = BackendGuard::new(
                 tracker.clone(),
                 Arc::new(move |_, level, message, cause| {
-                    context.logs.push(marathon_core::logging::LogRecord { target: module_path!().into(),
+                    context.logs.push(marathon_core::logging::LogRecord {
+                        target: module_path!().into(),
                         logger: "guard".into(),
                         at_millis: 0,
                         wall_millis: 0,
@@ -870,7 +871,8 @@ fn a_refused_carbon_is_logged_once_through_the_real_tracker() {
             let guard = BackendGuard::new(
                 tracker,
                 Arc::new(move |_, level, message, cause| {
-                    context.logs.push(marathon_core::logging::LogRecord { target: module_path!().into(),
+                    context.logs.push(marathon_core::logging::LogRecord {
+                        target: module_path!().into(),
                         logger: "guard".into(),
                         at_millis: 0,
                         wall_millis: 0,
@@ -1311,7 +1313,8 @@ fn a_last_flush_to_a_trickling_server_gives_way_at_the_close_limit() {
             let guard = BackendGuard::new(
                 tracker,
                 Arc::new(move |_, level, message, cause| {
-                    context.logs.push(marathon_core::logging::LogRecord { target: module_path!().into(),
+                    context.logs.push(marathon_core::logging::LogRecord {
+                        target: module_path!().into(),
                         logger: "guard".into(),
                         at_millis: 0,
                         wall_millis: 0,

@@ -80,7 +80,14 @@ fn concurrent_pools_share_single_flight_and_first_touch_keys() {
         assert!(matches!(a.await, Ok(Ok(()))));
         assert!(matches!(b.await, Ok(Ok(()))));
         assert_eq!(source.calls.load(Ordering::SeqCst), 3);
-        assert_eq!(h.logs.take().iter().filter(|r| r.logger == "marathon_logging").count(), 3);
+        assert_eq!(
+            h.logs
+                .take()
+                .iter()
+                .filter(|r| r.logger == "marathon_core::timing")
+                .count(),
+            3
+        );
     });
 }
 #[test]
@@ -147,7 +154,14 @@ fn cancellation_is_not_retried_logged_or_cached_and_source_can_be_fetched_again(
         assert!(h.clock.delays.lock().unwrap().is_empty());
         p.prefetch(&[key(80.0)]).await.unwrap();
         assert_eq!(source.calls.lock().unwrap().len(), 2);
-        assert_eq!(h.logs.take().iter().filter(|r| r.logger == "marathon_logging").count(), 1);
+        assert_eq!(
+            h.logs
+                .take()
+                .iter()
+                .filter(|r| r.logger == "marathon_core::timing")
+                .count(),
+            1
+        );
     });
 }
 #[test]
@@ -206,7 +220,8 @@ fn unprefetched_lookup_is_a_debug_contract_violation() {
 fn shared_log_producer_preserves_core_and_vendor_call_order() {
     let q = marathon_core::logging::LogQueue::default();
     q.log("core", 1, marathon_logging::Level::INFO, "before".into(), None);
-    q.sender().push(marathon_core::logging::LogRecord { target: module_path!().into(),
+    q.sender().push(marathon_core::logging::LogRecord {
+        target: module_path!().into(),
         logger: "provider".into(),
         at_millis: 2,
         wall_millis: 3,
@@ -300,7 +315,12 @@ fn n_pools_prefetch_overlapping_keys_once_each_multithread() {
         let calls = source.calls.lock().unwrap().clone();
         assert_eq!(calls.len(), 6, "{calls:?}");
         assert!(calls.values().all(|n| *n == 1), "{calls:?}");
-        let timings = h.logs.take().into_iter().filter(|r| r.logger == "marathon_logging").count();
+        let timings = h
+            .logs
+            .take()
+            .into_iter()
+            .filter(|r| r.logger == "marathon_core::timing")
+            .count();
         assert_eq!(timings, 6);
     });
 }
@@ -328,7 +348,14 @@ fn aborted_holder_mid_fetch_leaves_no_entry_and_next_caller_refetches() {
         source.block.store(false, Ordering::SeqCst);
         p.prefetch(&[key(80.0)]).await.unwrap();
         assert_eq!(source.calls.load(Ordering::SeqCst), 2);
-        assert_eq!(h.logs.take().iter().filter(|r| r.logger == "marathon_logging").count(), 1);
+        assert_eq!(
+            h.logs
+                .take()
+                .iter()
+                .filter(|r| r.logger == "marathon_core::timing")
+                .count(),
+            1
+        );
     });
 }
 

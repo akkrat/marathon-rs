@@ -5,7 +5,6 @@
 //! the configured tests, the bundle identifier and log configurator are inert, and the
 //! graph is the production `construction::construct` with the Stub vendor factory.
 use crate::{console::RecordingConsole, stub_bundle::MockTestBundleIdentifier, stub_provider::StubDeviceProvider};
-use marathon_logging::LogSettings;
 use marathon_config::{
     Configuration, VendorConfiguration,
     binding::{BindingContext, Profile},
@@ -28,6 +27,7 @@ use marathon_core::{
     vendor::{LocalTestParser, LogConfigurator, TestParser, VendorContext, VendorServices},
 };
 use marathon_error::FailureKind;
+use marathon_logging::LogSettings;
 use std::path::PathBuf;
 use std::{
     rc::Rc,

@@ -101,7 +101,16 @@ fn texts(outcome: &Outcome) -> Vec<String> {
     outcome
         .logs()
         .iter()
-        .map(|r| format!("{:?} {}", r.level, r.message.to_owned()))
+        .map(|r| {
+            let level = match r.level {
+                marathon_logging::Level::ERROR => "Error",
+                marathon_logging::Level::WARN => "Warn",
+                marathon_logging::Level::INFO => "Info",
+                marathon_logging::Level::DEBUG => "Debug",
+                marathon_logging::Level::TRACE => "Trace",
+            };
+            format!("{level} {}", r.message.to_owned())
+        })
         .collect()
 }
 fn awaiting_cancellation() -> ExecuteScript {
@@ -679,8 +688,8 @@ fn notify_compares_retry_workers_as_a_set() {
 // Review round 1, decision 4: the rendered time is the wall time of the call, not of the drain.
 #[test]
 fn log_records_carry_wall_time_from_creation() {
-    use marathon_logging::Level;
     use marathon_core::logging::LogQueue;
+    use marathon_logging::Level;
     let queue = LogQueue::default();
     let now = Rc::new(std::cell::Cell::new(45_296_789_i64)); // 12:34:56.789
     let clock = now.clone();

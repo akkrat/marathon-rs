@@ -205,7 +205,10 @@ async fn empty_parse_returns_empty_and_warns_with_the_jvm_text() -> TestResult {
         inner.logging.registry.clone(),
         Arc::new(move |logger, level, message, _| {
             if logger.name() == "marathon_apple::xctest_parser" {
-                captured.lock().unwrap().push(serde_json::json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":message}));
+                captured
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::json!({"logger":logger.name(),"level":level.as_str(),"message":message}));
             }
         }),
     );
@@ -230,7 +233,10 @@ async fn empty_parse_returns_empty_and_warns_with_the_jvm_text() -> TestResult {
         .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
         .find(|r| r["case"] == "xctest-empty")
         .unwrap();
-    assert_eq!(serde_json::json!(*logs.lock().unwrap()), marathon_test_support::recorded_logs::native_logs(&row["logs"]));
+    assert_eq!(
+        serde_json::json!(*logs.lock().unwrap()),
+        marathon_test_support::recorded_logs::native_logs(&row["logs"])
+    );
     Ok(())
 }
 

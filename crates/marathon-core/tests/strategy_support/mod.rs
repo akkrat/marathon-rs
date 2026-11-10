@@ -5,11 +5,7 @@
 
 use marathon_logging::{Component, LogSettings};
 
-use jcompat::{
-    jnum,
-    jtime::Instant,
-    
-};
+use jcompat::{jnum, jtime::Instant};
 use marathon_config::Configuration;
 use marathon_core::{
     error::VendorResult,

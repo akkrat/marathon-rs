@@ -1,7 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/report/timeline/TimelineSummaryProvider.kt.
 mod report_probe_support;
-use marathon_logging::LogSettings;
 use marathon_core::{executor::CoreExecutor, report::Reporter, reporters::timeline::*};
+use marathon_logging::LogSettings;
 use report_probe_support::*;
 #[test]
 fn jvm_timeline_bytes_and_empty_means() {

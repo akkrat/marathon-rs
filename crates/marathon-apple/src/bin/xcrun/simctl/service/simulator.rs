@@ -4,7 +4,7 @@ use marathon_logging::Component;
 
 use super::SimctlService;
 use crate::bin::{argv, kt};
-use jcompat::{ regex_patterns::UDID};
+use jcompat::regex_patterns::UDID;
 use marathon_core::{error::VendorResult, vendor::VendorContext};
 use std::collections::BTreeMap;
 

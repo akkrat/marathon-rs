@@ -3,14 +3,11 @@
 //! tools/oracle/apple-bin-probes ran against the frozen Kotlin wrappers, replayed here. Each case compares the
 //! argv, timeouts, env and workdir of every request (before executor quoting), the return value or error, and
 //! the log events. The few approved differences (P1, P2, D38) are listed in `deviation`.
-use marathon_logging::{Level, Component, LogSettings};
+use marathon_logging::{Component, Level, LogSettings};
 
 use marathon_error::{FailureKind, SshKind};
 mod support;
-use jcompat::{
-    jtime::Duration,
-    
-};
+use jcompat::jtime::Duration;
 use marathon_apple::{
     bin::{
         AppleBinaryEnvironment, Tools,
@@ -665,6 +662,9 @@ fn rows() -> Vec<(String, Value)> {
             }
             if let Some(error) = value.pointer_mut("/outcome/error") {
                 marathon_test_support::recorded_errors::error_object(error);
+            }
+            if let Some(logs) = value.get_mut("logs") {
+                *logs = marathon_test_support::recorded_logs::native_logs(logs);
             }
             (v["case"].as_str().unwrap().to_owned(), value)
         })

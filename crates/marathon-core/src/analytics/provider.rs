@@ -247,8 +247,12 @@ impl Shared {
             return Err(reason.into());
         }
         if let Err(error) = &fetched {
-            self.context
-                .log("marathon_core::analytics::provider", Level::WARN, warning.into(), Some(error.clone()));
+            self.context.log(
+                "marathon_core::analytics::provider",
+                Level::WARN,
+                warning.into(),
+                Some(error.clone()),
+            );
         }
         let elapsed = self
             .context
@@ -261,7 +265,7 @@ impl Shared {
             .as_ref()
             .map_or_else(|_| "failed".to_owned(), |rows| format!("returned {} tests", rows.len()));
         self.context.log(
-            "marathon_logging",
+            "marathon_core::timing",
             Level::INFO,
             format!("{description} {outcome} in {elapsed} ms"),
             None,
@@ -280,7 +284,8 @@ impl Shared {
                     .collect(),
             )
             .render();
-            self.context.log("marathon_core::analytics::provider", Level::DEBUG, message, None);
+            self.context
+                .log("marathon_core::analytics::provider", Level::DEBUG, message, None);
         }
         Ok(fetched)
     }
@@ -466,7 +471,8 @@ impl Shared {
             let mut message = String::from("No execution time found for ");
             message.push_str(&name);
             message.push_str(&format!(". Using {} ms", double_to_string(expected)));
-            self.context.log("marathon_core::analytics::provider", Level::DEBUG, message, None);
+            self.context
+                .log("marathon_core::analytics::provider", Level::DEBUG, message, None);
         }
         Ok(expected)
     }
@@ -487,7 +493,8 @@ impl Shared {
             let mut message = String::from("No success rate found for ");
             message.push_str(&name);
             message.push_str(&format!(". Using {}", double_to_string(self.defaults.success_rate)));
-            self.context.log("marathon_core::analytics::provider", Level::WARN, message, None);
+            self.context
+                .log("marathon_core::analytics::provider", Level::WARN, message, None);
         }
         self.defaults.success_rate
     }
@@ -623,7 +630,9 @@ impl MetricsProvider for MetricsProviderImpl {
                     }
                 }
             }
-            self.shared.context.log("marathon_core::analytics::provider", level, message, None);
+            self.shared
+                .context
+                .log("marathon_core::analytics::provider", level, message, None);
             Ok(())
         })
     }

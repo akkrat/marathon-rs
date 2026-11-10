@@ -1,11 +1,11 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleLogConfigurator.kt
 
 use crate::cmd::blocking;
-use marathon_logging::{LogSettings, Vendor};
 use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::LogConfigurator,
 };
+use marathon_logging::{LogSettings, Vendor};
 use std::sync::{Arc, Mutex};
 
 pub struct AppleLogConfigurator {

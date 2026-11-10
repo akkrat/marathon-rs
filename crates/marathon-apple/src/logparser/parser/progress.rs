@@ -1,12 +1,8 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/TestRunProgressParser.kt
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{bin::kt, cmd::remote::ssh::sshj::config::SshLogging, test::TestEvent};
-use jcompat::{
-    jnum, jtime,
-    
-    regex_patterns::*,
-};
+use jcompat::{jnum, jtime, regex_patterns::*};
 use marathon_core::{
     model::Test,
     time::{ReplayError, Timer},

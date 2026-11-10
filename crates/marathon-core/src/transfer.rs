@@ -1,12 +1,9 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/device/file/FileTransferExtensions.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{artifact_io::*, error::VendorResult, runtime::*, time::WallClock};
-use jcompat::{
-    formatting::format_fixed,
-    
-};
+use jcompat::formatting::format_fixed;
 use std::path::PathBuf;
 use std::{path::Path, sync::Arc};
 

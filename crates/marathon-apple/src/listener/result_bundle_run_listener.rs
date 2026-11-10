@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/listener/ResultBundleRunListener.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::AppleTestRunListener;
 use crate::{
@@ -9,10 +9,7 @@ use crate::{
     cmd::remote::ssh::sshj::config::SshLogging,
     logparser::parser::DeviceFailureReason,
 };
-use jcompat::{
-    file_manager::{FileManager, FolderType},
-    
-};
+use jcompat::file_manager::{FileManager, FolderType};
 use marathon_config::vendor::{PullingPolicy, XcresultConfiguration};
 use marathon_core::{
     error::{Failure, VendorError, VendorResult},
@@ -157,7 +154,7 @@ impl Bundle {
                 .files
                 .plan_folder(FolderType::DeviceFiles, Some(&self.pool.name), Some(&owner));
             let fm_logger = {
-                let mut registry = self.logging.registry.lock().unwrap_or_else(|e| e.into_inner());
+                let registry = self.logging.registry.lock().unwrap_or_else(|e| e.into_inner());
                 let name = "com.malinskiy.marathon.io.FileManager";
                 registry.component(name)
             };

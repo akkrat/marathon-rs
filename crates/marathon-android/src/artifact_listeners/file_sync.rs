@@ -1,10 +1,10 @@
 //! Port of vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/filesync/FileSyncTestRunListener.kt
 use super::*;
 use crate::{listeners::AndroidTestRunListener, remote_file_manager::TMP_PATH};
-use marathon_logging::Level;
 use marathon_config::vendor::{AggregationMode, PathRoot};
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_dex::apk_parser::InstrumentationInfo;
+use marathon_logging::Level;
 use std::path::PathBuf;
 pub struct FileSyncTestRunListener {
     pub artifacts: ArtifactContext,

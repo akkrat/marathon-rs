@@ -2,7 +2,6 @@
 //! Supplemental rule tests: this source has no Kotlin test rows.
 use marathon_error::FailureKind;
 mod support;
-use marathon_logging::{Level, Component, LogSettings};
 use marathon_apple::{
     apple_device::apple_arch,
     cmd::{CommandResult, cancelled, failure, remote::ssh::sshj::config::SshLogging},
@@ -17,6 +16,7 @@ use marathon_core::{
     runtime::VendorFuture,
     vendor::VendorContext,
 };
+use marathon_logging::{Component, Level, LogSettings};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 

@@ -7,7 +7,6 @@ use crate::{
     support::*,
     tracker::{DeviceStateTracker, MultiServerDeviceStateTracker, TrackingUpdate, is_passing},
 };
-use marathon_logging::{Level, Component};
 use marathon_adb::client::{
     AdamLogging, AdbError, AndroidDebugBridgeClient, ChannelStream, SocketFactory,
     device::{AsyncDeviceMonitorRequest, Device as AdbDevice, DeviceState, ListDevicesRequest},
@@ -20,6 +19,7 @@ use marathon_core::{
     vendor::*,
 };
 use marathon_error::{AdbKind, FailureKind};
+use marathon_logging::{Component, Level};
 use std::{
     collections::HashMap,
     net::IpAddr,

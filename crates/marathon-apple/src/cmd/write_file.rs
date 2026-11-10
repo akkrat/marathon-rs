@@ -4,7 +4,7 @@ use marathon_logging::Level;
 
 use super::{CommandExecutor, CommandRequest, remote::ssh::sshj::config::SshLogging};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use jcompat::{jtime::Duration, };
+use jcompat::jtime::Duration;
 use marathon_core::{
     error::{VendorError, VendorResult},
     vendor::VendorContext,
@@ -56,7 +56,12 @@ pub async fn write_file(
                     VendorError::Other(failure) => Some(failure),
                     _ => None,
                 };
-                (logging.sink)(executor.component(), Level::DEBUG, format!("Unable to write {dst}"), cause);
+                (logging.sink)(
+                    executor.component(),
+                    Level::DEBUG,
+                    format!("Unable to write {dst}"),
+                    cause,
+                );
             }
             Ok(false)
         }

@@ -1,13 +1,9 @@
 //! Port of vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/MacosDevice.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::installer::MacosApplicationInstaller;
-use jcompat::{
-    file_manager::FileManager,
-    jtime::Duration,
-    
-};
+use jcompat::{file_manager::FileManager, jtime::Duration};
 use marathon_apple::{
     apple_application_installer::AppleApplicationInstaller,
     apple_device::{AppleDevice, storage_path_for},

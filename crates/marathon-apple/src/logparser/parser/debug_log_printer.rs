@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/logparser/parser/DebugLogPrinter.kt
 use crate::cmd::remote::ssh::sshj::config::SshLogging;
-use marathon_logging::{Level, Component};
 use marathon_core::{listener::LineListener, runtime::VendorFuture};
+use marathon_logging::{Component, Level};
 use std::sync::OnceLock;
 
 pub struct DebugLogPrinter {

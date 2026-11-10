@@ -3,7 +3,6 @@ use marathon_error::{FailureKind, InjectedKind};
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
-use marathon_logging::{Level, Component, LogSettings};
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::{
@@ -21,6 +20,7 @@ use marathon_core::{
     time::{ClockResult, Timer},
     vendor::{Device, VendorContext},
 };
+use marathon_logging::{Component, Level, LogSettings};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -178,13 +178,13 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
     let logs = logs.lock().unwrap();
     let warnings = logs
         .iter()
-        .filter(|(name, _, _)| name == "marathon_logging")
+        .filter(|(name, _, _)| name == "marathon_apple::xcodebuild_stderr")
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1);
     assert_eq!(
         warnings[0],
         &(
-            "marathon_logging".into(),
+            "marathon_apple::xcodebuild_stderr".into(),
             Level::WARN,
             "simulator udid: stderr= warning ".into()
         )
@@ -194,7 +194,10 @@ async fn stderr_drops_blank_lines_warns_with_debug_off_and_serializes_listeners(
         .map(|l| serde_json::from_str::<serde_json::Value>(l).unwrap())
         .find(|r| r["case"] == "stderr")
         .unwrap();
-    assert_eq!(marathon_test_support::recorded_logs::native_logs(&row["logs"])[0]["message"], warnings[0].2);
+    assert_eq!(
+        marathon_test_support::recorded_logs::native_logs(&row["logs"])[0]["message"],
+        warnings[0].2
+    );
     Ok(())
 }
 

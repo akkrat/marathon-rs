@@ -6,7 +6,6 @@ use crate::cmd::{remote::ssh::sshj::config::SshLogging, retained_tasks::Retained
 pub use core::AdmissionStats;
 use core::{AdmissionCore, Effects, Item, Waiter};
 use indexmap::IndexMap;
-use marathon_logging::{Level, Component};
 use marathon_config::vendor::XcresultQueueConfiguration;
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
@@ -15,6 +14,7 @@ use marathon_core::{
     time::MonotonicClock,
     vendor::VendorContext,
 };
+use marathon_logging::{Component, Level};
 use std::sync::{Arc, Mutex, MutexGuard};
 use tokio::sync::Semaphore;
 

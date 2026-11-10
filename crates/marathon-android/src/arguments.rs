@@ -2,7 +2,7 @@
 use marathon_logging::Level;
 
 use crate::{device::AndroidDevice, support::trim};
-use jcompat::{jnum, jstring, };
+use jcompat::{jnum, jstring};
 use marathon_adb::{instrument_request::*, testrunner::MetricMap};
 use marathon_config::vendor::TestAccessConfiguration;
 

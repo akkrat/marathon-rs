@@ -1,7 +1,6 @@
 //! Regression for the live-stdout bug (docs/found-bugs.md U101): vendor log lines reached the
 //! console only at the next core flush, so nothing was printed during a long test. Kotlin's
 //! console appender prints each record as it is logged.
-use marathon_logging::Level;
 use marathon_core::{
     error::VendorError,
     executor::shared::failure,
@@ -14,6 +13,7 @@ use marathon_core::{
     wiring::RunDependencies,
 };
 use marathon_error::FailureKind;
+use marathon_logging::Level;
 use marathon_test_support::{
     factory::MarathonFactory,
     scenario,
@@ -32,7 +32,8 @@ use std::{
 const PROBE: &str = "LiveOutputProbe";
 
 fn probe_record() -> LogRecord {
-    LogRecord { target: module_path!().into(),
+    LogRecord {
+        target: module_path!().into(),
         logger: PROBE.into(),
         at_millis: 0,
         wall_millis: 0,

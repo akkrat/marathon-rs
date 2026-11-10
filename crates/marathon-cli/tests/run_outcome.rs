@@ -4,10 +4,7 @@
 
 use marathon_logging::{Level, LogSettings, OutputTarget, Vendor};
 
-use jcompat::{
-    jtime::instant_of,
-    
-};
+use jcompat::jtime::instant_of;
 use marathon_cli::{
     application::{
         CliOutput, CliRunner, Console, MarathonRun, Process, UnsupportedRunner, configuration_failure,
@@ -121,9 +118,13 @@ impl MarathonRun for StubRun {
             Outcome::LogThenCrash(e) => {
                 self.logging.lock().unwrap().configure(true, Vendor::Android);
                 self.console.write_record(&marathon_core::logging::LogRecord {
-                    target: "marathon_core::marathon".into(), logger: "marathon_core::marathon".into(),
-                    at_millis: 0, wall_millis: 45_296_789, level: Level::INFO,
-                    message: "from the run".into(), cause: None,
+                    target: "marathon_core::marathon".into(),
+                    logger: "marathon_core::marathon".into(),
+                    at_millis: 0,
+                    wall_millis: 45_296_789,
+                    level: Level::INFO,
+                    message: "from the run".into(),
+                    cause: None,
                 });
                 Err(e)
             }
@@ -173,7 +174,8 @@ fn invoke(args: &[&str], cwd: &Path, runner: &dyn CliRunner, stdout: &Buffer, st
         Box::new(stderr.clone()),
         OutputTarget::Pipe,
         Box::new(|| 45_296_789),
-    ).unwrap_or_else(|error| panic!("test console: {error}"));
+    )
+    .unwrap_or_else(|error| panic!("test console: {error}"));
     let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
     run_cli(&args, &process, runner, &output)
 }

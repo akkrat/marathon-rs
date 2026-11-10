@@ -3,7 +3,7 @@
 mod support;
 use marathon_logging::LogSettings;
 
-use jcompat::{jtime::Duration, };
+use jcompat::jtime::Duration;
 use marathon_apple::{
     bin::{
         Tools,
@@ -60,10 +60,7 @@ fn xcresulttool(
         executor: executor.clone(),
         timeouts: Arc::new(apple_timeout_configuration(parameters)),
         runtime: Arc::new(Runtime),
-        logging: SshLogging::new(
-            Arc::new(Mutex::new(LogSettings::default())),
-            Arc::new(|_, _, _, _| {}),
-        ),
+        logging: SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {})),
     };
     (Xcresulttool::new(tools), executor)
 }

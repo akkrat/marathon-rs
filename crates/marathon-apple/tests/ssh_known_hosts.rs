@@ -95,7 +95,11 @@ fn unparseable_lines_are_logged_like_sshj() {
         lines,
         [
             (logger, Level::ERROR, "Error reading entry `   `"),
-            (logger, Level::ERROR, "Error reading entry `[localhost]:2222 ssh-ed25519`"),
+            (
+                logger,
+                Level::ERROR,
+                "Error reading entry `[localhost]:2222 ssh-ed25519`"
+            ),
             (
                 logger,
                 Level::ERROR,

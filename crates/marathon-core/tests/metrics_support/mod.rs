@@ -3,7 +3,7 @@
 use marathon_logging::LogSettings;
 
 use super::strategy_support::*;
-use jcompat::{jtime::duration_of, };
+use jcompat::jtime::duration_of;
 use marathon_config::Defaults;
 use marathon_core::{
     analytics::{remote::*, *},

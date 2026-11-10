@@ -9,7 +9,6 @@ use crate::{
     application::{CliRunner, Console, MarathonRun, VERSION, failure, render_throwable},
     core_output::RunConsoleSink,
 };
-use marathon_logging::LogSettings;
 use marathon_analytics::{AnalyticsClients, BackendClients};
 use marathon_config::{AnalyticsConfiguration, Configuration};
 use marathon_core::{
@@ -21,6 +20,7 @@ use marathon_core::{
     runtime::Deferred,
 };
 use marathon_error::FailureKind;
+use marathon_logging::LogSettings;
 use std::{
     io::Write,
     path::PathBuf,
@@ -173,9 +173,22 @@ impl ProductionRunner {
             exit: Some(Arc::new(move |status| {
                 let tail = exit_tail.get().cloned();
                 let console = exit_console.clone();
-                if exit_console.exit_after_preparing(status, Box::new(move || {
-                    if let Some(tail) = tail { let _ = tail.close(Arc::new(move |record| match record { marathon_core::logging::OutputRecord::Raw(text) => console.write_text(&text), marathon_core::logging::OutputRecord::Log(record) => console.write_record(&record) })); }
-                })).is_err() { std::process::exit(status); }
+                if exit_console
+                    .exit_after_preparing(
+                        status,
+                        Box::new(move || {
+                            if let Some(tail) = tail {
+                                let _ = tail.close(Arc::new(move |record| match record {
+                                    marathon_core::logging::OutputRecord::Raw(text) => console.write_text(&text),
+                                    marathon_core::logging::OutputRecord::Log(record) => console.write_record(&record),
+                                }));
+                            }
+                        }),
+                    )
+                    .is_err()
+                {
+                    std::process::exit(status);
+                }
             })),
             signal_trigger: None,
             signal_hooks,
@@ -184,7 +197,8 @@ impl ProductionRunner {
         };
         let command = SharedDeferred::<ExecutionCommand>::new();
         let waiting = command.clone();
-        let (constructed, outcome) = std::sync::mpsc::channel::<(Result<(), Failure>, marathon_core::logging::LateOutput)>();
+        let (constructed, outcome) =
+            std::sync::mpsc::channel::<(Result<(), Failure>, marathon_core::logging::LateOutput)>();
         let thread = std::thread::Builder::new()
             .name("marathon-run".into())
             .spawn(move || {
@@ -216,7 +230,10 @@ impl ProductionRunner {
             console: late_console,
         };
         match outcome.recv() {
-            Ok((Ok(()), late)) => { run.late = Some(late); Ok(Box::new(run)) },
+            Ok((Ok(()), late)) => {
+                run.late = Some(late);
+                Ok(Box::new(run))
+            }
             Ok((Err(error), late)) => {
                 run.late = Some(late);
                 let _ = run.join();
@@ -240,7 +257,10 @@ impl Run {
         };
         if let Some(late) = self.late.take() {
             let console = self.console.clone();
-            let _ = late.close(Arc::new(move |record| match record { marathon_core::logging::OutputRecord::Raw(text) => console.write_text(&text), marathon_core::logging::OutputRecord::Log(record) => console.write_record(&record) }));
+            let _ = late.close(Arc::new(move |record| match record {
+                marathon_core::logging::OutputRecord::Raw(text) => console.write_text(&text),
+                marathon_core::logging::OutputRecord::Log(record) => console.write_record(&record),
+            }));
         }
         result
     }

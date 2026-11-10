@@ -9,7 +9,6 @@ use crate::{
     tracker::{DeviceStateTracker, is_passing},
     version::AndroidVersion,
 };
-use marathon_logging::{Level, Component};
 use marathon_adb::client::{
     AndroidDebugBridgeClient, AsyncChannelRequest, ChannelStream, ComplexRequest, Feature,
     device::{DeviceState, FetchDeviceFeaturesRequest, ListDevicesRequest},
@@ -29,6 +28,7 @@ use marathon_core::{
     vendor::*,
 };
 use marathon_error::{AdbKind, AndroidKind, FailureKind};
+use marathon_logging::{Component, Level};
 use std::{
     collections::HashMap,
     sync::{
@@ -265,7 +265,8 @@ impl AndroidDevice {
         .into()
     }
     pub(crate) fn log_named(&self, name: &str, level: Level, message: &str, error: Option<&Failure>) {
-        self.runtime().emit(&self.runtime().component(name), level, message, error)
+        self.runtime()
+            .emit(&self.runtime().component(name), level, message, error)
     }
     pub(crate) fn log(&self, level: Level, message: &str, error: Option<&Failure>) {
         self.runtime().emit(&self.inner.logger, level, message, error)

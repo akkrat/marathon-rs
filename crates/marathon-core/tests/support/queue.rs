@@ -8,7 +8,7 @@
 use marathon_logging::Level;
 
 use futures_util::future::{Either, select};
-use jcompat::{jtime::Instant, };
+use jcompat::jtime::Instant;
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},

@@ -18,7 +18,6 @@ use super::{
 use crate::apple_simulator_device::AppleSimulatorDevice;
 use futures_util::future::join_all;
 use indexmap::{IndexMap, IndexSet};
-use marathon_logging::{Level, Component};
 use marathon_apple::{
     apple_device::AppleDevice,
     apple_device_registry::AppleDeviceRegistry,
@@ -37,6 +36,7 @@ use marathon_core::{
     runtime::{Deferred, EventChannel, VendorFuture, VendorRuntime, VendorTask},
     vendor::{DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
 };
+use marathon_logging::{Component, Level};
 use std::{
     collections::VecDeque,
     future::Future,

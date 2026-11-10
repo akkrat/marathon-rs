@@ -4,7 +4,7 @@ use marathon_logging::Level;
 
 use crate::http::query_encode;
 use crate::{http::*, points};
-use jcompat::{jnum, };
+use jcompat::jnum;
 use marathon_config::InfluxDb2Configuration;
 use marathon_core::{
     analytics::{

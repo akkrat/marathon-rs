@@ -5,7 +5,6 @@
 //!
 //! Every scenario runs on `run_virtual`: virtual time, explicit drains, no sleeps.
 #![allow(dead_code)]
-use marathon_logging::{Level, Component, LogSettings};
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},
@@ -31,6 +30,7 @@ use marathon_core::{
     vendor::{Device, DeviceRef, VendorContext},
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level, LogSettings};
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use std::{

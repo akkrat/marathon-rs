@@ -4,7 +4,7 @@
 use marathon_logging::Level;
 
 use crate::{models::TestIdentifier, support::*};
-use jcompat::{ regex_patterns::PARAMETERIZED_METHOD};
+use jcompat::regex_patterns::PARAMETERIZED_METHOD;
 use marathon_adb::testrunner::{TestEvent, TestIdentifier as AdamIdentifier};
 use marathon_core::{
     artifacts::AttachmentCollector,
@@ -474,7 +474,8 @@ impl AndroidTestRunListener for DebugTestRunListener {
                     elapsed_time_millis, ..
                 } => format!("testRunEnded elapsedTime {elapsed_time_millis}"),
             };
-            self.device.log_named("marathon_apple::listener::debug", Level::INFO, &s, None);
+            self.device
+                .log_named("marathon_apple::listener::debug", Level::INFO, &s, None);
             Ok(())
         })
     }

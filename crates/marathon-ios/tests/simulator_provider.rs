@@ -70,7 +70,7 @@ async fn provisioning_and_preparation_log_their_timings_without_debug() -> TestR
     let logs = p.h.logs.lock().unwrap().clone();
     let lines: Vec<_> = logs
         .iter()
-        .filter(|(logger, _, _, _)| logger == "marathon_logging")
+        .filter(|(logger, _, _, _)| logger == "marathon_core::timing")
         .map(|(_, _, s, _)| s.as_str())
         .collect();
     assert!(lines.iter().any(|s| s.starts_with("Worker worker-1:22: connected in ")
@@ -177,27 +177,18 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> TestResult {
         v.timeout_configuration.shell = support::duration(300_000);
         v.timeout_configuration.xcresulttool = support::duration(300_000);
     })?;
-    p.h.services
-        .logging
-        .registry
-        .lock()
-        .unwrap()
-        .component("marathon_ios::device::simulator_provider");
+    p.h.services.logging.registry.lock().unwrap().component_with_level(
+        "marathon_ios::device::simulator_provider",
+        marathon_logging::Level::INFO,
+    );
     let path = p.h.dir.path().join("Marathondevices");
     std::fs::write(path, "workers: []\n")?;
     assert!(p.provider.initialize(p.h.services.context.clone()).await.is_err());
-    assert!(
-        p.h.logs
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(name, level, s, _)| name == "marathon_ios::device::simulator_provider"
-                && *level == marathon_logging::Level::INFO
-                && *s
-                    == marathon_apple::bin::xcrun::xcresulttool::describe_timeout(
-                        &p.h.services.vendor.timeout_configuration
-                    ))
-    );
+    assert!(p.h.logs.lock().unwrap().iter().any(|(name, level, s, _)| name
+        == "marathon_ios::device::simulator_provider"
+        && *level == marathon_logging::Level::INFO
+        && *s
+            == marathon_apple::bin::xcrun::xcresulttool::describe_timeout(&p.h.services.vendor.timeout_configuration)));
     p.finish().await
 }
 #[tokio::test(start_paused = true)]

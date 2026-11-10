@@ -2,7 +2,7 @@
 use super::AppleTestRunListener;
 use crate::cmd::remote::ssh::sshj::config::SshLogging;
 use crate::logparser::parser::DeviceFailureReason;
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use marathon_core::vendor::DeviceRef;
 use marathon_core::{model::Test, runtime::VendorFuture};

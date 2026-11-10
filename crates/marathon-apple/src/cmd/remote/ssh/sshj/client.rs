@@ -11,8 +11,8 @@ use super::error::*;
 use super::keep_alive::{KeepAliveConnection, KeepAliveRunner};
 use super::known_hosts::{HostKeyVerifier, key_type_of, md5_fingerprint};
 use crate::cmd::{SessionScope, cancelled};
-use marathon_logging::Level;
 use marathon_core::runtime::{CancellationSignal, VendorClock, VendorRuntime, VendorTask};
+use marathon_logging::Level;
 use russh::{
     Channel, ChannelId, ChannelMsg, Disconnect, Error as RusshError,
     client::{self, AuthResult, Handle, KeyboardInteractiveAuthResponse},

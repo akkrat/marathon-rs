@@ -7,7 +7,6 @@ use crate::{
     model::{AppleTestBundle, Sdk},
     xctestrun::test_root_factory::{FactoryError, FactoryResult, TestRootFactory},
 };
-use marathon_logging::{Level, Component};
 use marathon_config::{CONFIGURATION_EXCEPTION_CLASS, VendorConfiguration, vendor::TestType};
 use marathon_core::{
     error::{Cancellation, OperationError, VendorError},
@@ -16,6 +15,7 @@ use marathon_core::{
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
+use marathon_logging::{Component, Level};
 use std::{borrow::Cow, future::Future, pin::Pin, sync::Arc};
 
 /// The hook owner captures its concrete device; no core device downcast is needed.

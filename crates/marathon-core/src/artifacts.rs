@@ -3,13 +3,10 @@
 //! report/attachment/AttachmentCollector.kt, AttachmentProviderDelegate.kt,
 //! execution/Attachment.kt and io/FileManager.kt (service adapter).
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{artifact_io::*, error::*, listener::*, model::*, output::*, runtime::*};
-use jcompat::{
-    file_manager::{FileManager, PathPlan},
-    
-};
+use jcompat::file_manager::{FileManager, PathPlan};
 use marathon_error::FailureKind;
 use std::path::PathBuf;
 use std::{

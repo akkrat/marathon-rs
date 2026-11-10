@@ -25,10 +25,7 @@ use crate::{
     time::MonotonicClock,
     wiring::MetricsProvider,
 };
-use jcompat::{
-    jtime::Instant,
-    
-};
+use jcompat::jtime::Instant;
 use std::sync::{Arc, Mutex};
 
 /// Built off core, before configureLogging. Stamp reads must be nonblocking;
@@ -46,7 +43,7 @@ pub struct MetricsContext {
 }
 impl MetricsContext {
     fn register(&self, name: &str) -> OperationResult<()> {
-        let mut registry = self
+        let registry = self
             .registry
             .lock()
             .map_err(|_| failure(FailureKind::IllegalState, "Poisoned logging registry"))?;
@@ -62,7 +59,8 @@ impl MetricsContext {
     }
     fn log(&self, logger: &str, level: Level, message: String, cause: Option<Failure>) {
         let (at_millis, wall_millis) = (self.stamp)();
-        self.logs.push(LogRecord { target: module_path!().into(),
+        self.logs.push(LogRecord {
+            target: module_path!().into(),
             logger: logger.to_owned(),
             at_millis,
             wall_millis,

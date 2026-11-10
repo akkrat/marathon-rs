@@ -3,7 +3,7 @@ use marathon_logging::Component;
 
 use marathon_error::FailureKind;
 mod support;
-use jcompat::{JavaRegex, };
+use jcompat::JavaRegex;
 use marathon_apple::{
     cmd::{
         CommandExecutor, CommandHost, CommandRequest, CommandSession, failure,

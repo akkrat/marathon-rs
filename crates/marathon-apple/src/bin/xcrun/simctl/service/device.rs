@@ -7,8 +7,8 @@ use crate::{
     device::connection_factory::{ConnectionError, ConnectionResult},
     logparser::parser::{DeviceFailureException, DeviceFailureReason},
 };
-use marathon_logging::Component;
 use marathon_core::vendor::VendorContext;
+use marathon_logging::Component;
 
 pub struct DeviceService {
     service: SimctlService,

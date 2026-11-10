@@ -1,13 +1,10 @@
 //! Port of vendor/vendor-apple/macos/src/main/kotlin/com/malinskiy/marathon/apple/macos/AppleMacosProvider.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::device::{MacosDevice, MacosDeviceOptions};
 use indexmap::IndexMap;
-use jcompat::{
-    file_manager::absolute_file_path,
-    
-};
+use jcompat::file_manager::absolute_file_path;
 use marathon_apple::{
     apple_device::AppleDevice,
     apple_device_registry::AppleDeviceRegistry,

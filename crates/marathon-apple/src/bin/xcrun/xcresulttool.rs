@@ -8,9 +8,9 @@ use crate::{
     model::XcodeVersion,
     xcresult::{LegacyDecode, decode_legacy},
 };
-use marathon_logging::{Level, Component};
 use marathon_config::vendor::AppleTimeoutConfiguration;
 use marathon_core::{error::VendorResult, vendor::VendorContext};
+use marathon_logging::{Component, Level};
 
 /// The first Xcode whose `xcresulttool get` reads result bundle objects only with `--legacy` (without it,
 /// exit code 64); earlier versions do not know the option.

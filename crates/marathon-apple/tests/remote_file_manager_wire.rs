@@ -2,7 +2,6 @@
 use marathon_error::FailureKind;
 mod support;
 use base64::{Engine, prelude::BASE64_STANDARD};
-use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     cmd::{
         CommandExecutor, CommandHost, CommandRequest, CommandSession, failure, local::KotlinProcessCommandExecutor,
@@ -17,6 +16,7 @@ use marathon_core::{
     runtime::VendorFuture,
     vendor::VendorContext,
 };
+use marathon_logging::{Component, LogSettings};
 use std::sync::{Arc, Mutex};
 use support::{
     context, executor,
@@ -31,10 +31,7 @@ fn manager(executor: Arc<dyn CommandExecutor>, storage: String) -> RemoteFileMan
             executor,
             timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         }),
-        SshLogging::new(
-            Arc::new(Mutex::new(LogSettings::default())),
-            Arc::new(|_, _, _, _| {}),
-        ),
+        SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {})),
     )
 }
 #[tokio::test(flavor = "multi_thread")]

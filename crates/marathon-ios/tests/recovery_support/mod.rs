@@ -133,13 +133,10 @@ impl RecoveryHarness {
         pause: i64,
     ) -> TestResult<Self> {
         let mut base = ProviderHarness::new(edit)?;
-        base.h
-            .services
-            .logging
-            .registry
-            .lock()
-            .unwrap()
-            .component("marathon_ios::device::simulator_provider");
+        base.h.services.logging.registry.lock().unwrap().component_with_level(
+            "marathon_ios::device::simulator_provider",
+            marathon_logging::Level::DEBUG,
+        );
         let time = Arc::new(Time {
             clock: base.h.clock.clone(),
             wall_offset: 0.into(),
@@ -162,15 +159,14 @@ impl RecoveryHarness {
             connections.clone(),
             recovery.clone(),
         ))?;
-        base.h.services.logging.registry.lock().unwrap().component(
-            "marathon_ios::device::simulator_provisioner");
-        base.h
-            .services
-            .logging
-            .registry
-            .lock()
-            .unwrap()
-            .component("marathon_ios::device::simulator_provider");
+        base.h.services.logging.registry.lock().unwrap().component_with_level(
+            "marathon_ios::device::simulator_provisioner",
+            marathon_logging::Level::INFO,
+        );
+        base.h.services.logging.registry.lock().unwrap().component_with_level(
+            "marathon_ios::device::simulator_provider",
+            marathon_logging::Level::DEBUG,
+        );
         Ok(Self {
             base,
             connections,

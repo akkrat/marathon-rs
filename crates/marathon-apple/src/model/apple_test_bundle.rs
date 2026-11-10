@@ -4,7 +4,7 @@
 //! Info.plists, as Kotlin's `appId`/`testBundleId` initializers force their lazies (decision 4); the binary
 //! getters scan on first use, keep a successful value and retry after a failure, like Kotlin's `lazy`.
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::Sdk;
 use crate::{
@@ -12,10 +12,7 @@ use crate::{
     mach_o::is_apple_binary_reader,
     plist::{PropertyList, bundle::BundleInfo, plist_failure},
 };
-use jcompat::{
-    
-    regex_patterns::BUNDLE_NAME,
-};
+use jcompat::regex_patterns::BUNDLE_NAME;
 use marathon_config::CONFIGURATION_EXCEPTION_CLASS;
 use marathon_core::{
     error::{VendorError, VendorResult},

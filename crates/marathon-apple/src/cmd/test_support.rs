@@ -3,10 +3,7 @@
 use marathon_logging::{Component, LogSettings};
 
 use super::{CommandExecutor, CommandHost, CommandRequest, CommandResult, CommandSession, local::KotlinProcessHost};
-use jcompat::{
-    jtime::Duration,
-    
-};
+use jcompat::jtime::Duration;
 use marathon_core::{
     runtime::{VendorFuture, VendorRuntime},
     vendor::VendorContext,

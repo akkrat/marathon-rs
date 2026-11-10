@@ -1,15 +1,12 @@
 //! Port of cli/src/main/kotlin/com/malinskiy/marathon/cli/ApplicationView.kt (the shared stdout),
 //! as a recording sink for tests.
 //!
-//! Resolves loggers as the CLI's `RunConsoleSink` does: a name already registered keeps its
-//! level; any other name is created at its first rendered record, with the registry's debug
-//! state at that moment (C18).
+//! Filters records as the CLI's subscriber does, through the registry's current
+//! configurator filter (`LogSettings::enabled_target`).
 use crate::lock;
-use marathon_logging::{Level, LogSettings};
 use marathon_core::{error::Failure, logging::OutputRecord, output::ConsoleSink, runtime::VendorFuture};
-use std::{
-    sync::{Arc, Mutex},
-};
+use marathon_logging::{Level, LogSettings};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Line {

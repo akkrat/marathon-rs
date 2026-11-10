@@ -1,17 +1,14 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/XcodebuildSession.kt (state-machine probe replay).
 use marathon_error::FailureKind;
 mod support;
-use marathon_logging::LogSettings;
 use marathon_apple::{
     cmd::{BaseCommand, CommandSession, SessionControl, remote::ssh::sshj::config::SshLogging},
     xcodebuild_session::XcodebuildSession,
 };
+use marathon_logging::LogSettings;
 use std::sync::{Arc, Mutex};
 fn logging() -> SshLogging {
-    SshLogging::new(
-        Arc::new(Mutex::new(LogSettings::default())),
-        Arc::new(|_, _, _, _| {}),
-    )
+    SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {}))
 }
 #[tokio::test]
 async fn stop_before_produce_closes_but_await_never_stops() {

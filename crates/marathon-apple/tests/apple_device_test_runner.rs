@@ -7,7 +7,6 @@ mod runner_device;
 mod support;
 #[path = "support/test_root_device.rs"]
 mod test_root_device;
-use marathon_logging::LogSettings;
 use marathon_apple::{
     apple_device_test_runner::{AppleDeviceTestRunner, RunError},
     cmd::{SessionScope, cancelled, failure},
@@ -16,6 +15,7 @@ use marathon_apple::{
     test::{TestEvent, TestRequest},
 };
 use marathon_core::{error::VendorError, runtime::VendorFuture, vendor::Device};
+use marathon_logging::LogSettings;
 use runner_device::{Plan, RunnerDevice};
 use std::sync::{Arc, Mutex};
 use test_root_device::{Fake, TestResult, v};
@@ -272,9 +272,9 @@ fn unchanged_kotlin_tests_passed() {
 
 #[tokio::test]
 async fn execute_builds_the_request_and_logs_remote_path_and_tests() -> TestResult {
-    use marathon_logging::Level;
     use marathon_apple::{apple_device::AppleDevice, cmd::remote::ssh::sshj::config::SshLogging};
     use marathon_core::model::{Test, TestBatch};
+    use marathon_logging::Level;
     let tmp = tempfile::tempdir()?;
     let input = parser_support::input(false, false);
     test_root_device::prepare(tmp.path(), &input)?;

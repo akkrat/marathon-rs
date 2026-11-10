@@ -35,7 +35,9 @@ pub fn logging(dependencies: &VendorDependencies) -> SshLogging {
     SshLogging::new(
         dependencies.logging.clone(),
         Arc::new(move |logger, level, message, cause| {
-            logs.push(LogRecord { target: logger.target().to_owned(), logger: logger.name().into(),
+            logs.push(LogRecord {
+                target: logger.target().to_owned(),
+                logger: logger.name().into(),
                 at_millis: 0,
                 wall_millis: wall(),
                 level,

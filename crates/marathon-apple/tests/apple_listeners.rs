@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/listener/{CompositeTestRunListenerTest,TestResultsListenerTest}.kt
 use marathon_error::{FailureKind, InjectedKind};
 mod support;
-use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     bin::{Tools, xcrun::xcresulttool::Xcresulttool},
     cmd::{
@@ -25,6 +24,7 @@ use marathon_core::{
     time::{ClockResult, Timer},
     vendor::{Device, DeviceRef, VendorContext},
 };
+use marathon_logging::{Component, LogSettings};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,

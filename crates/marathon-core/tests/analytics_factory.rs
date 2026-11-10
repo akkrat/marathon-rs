@@ -5,7 +5,7 @@ use marathon_logging::Level;
 use marathon_error::FailureKind;
 mod metrics_support;
 mod strategy_support;
-use jcompat::{jtime::Instant, };
+use jcompat::jtime::Instant;
 use marathon_config::*;
 use marathon_core::{
     analytics::{
@@ -327,7 +327,11 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
                 .configure(row["debug"].as_bool().unwrap(), marathon_logging::Vendor::Android);
             {
                 let registry = h.context.registry.lock().unwrap();
-                for name in ["marathon_core::analytics::provider", "marathon_core::analytics::noop", "marathon_core::analytics::factory"] {
+                for name in [
+                    "marathon_core::analytics::provider",
+                    "marathon_core::analytics::noop",
+                    "marathon_core::analytics::factory",
+                ] {
                     let logger = registry.component(name);
                     for level in [Level::DEBUG, Level::WARN] {
                         assert!(registry.enabled(&logger, level));
@@ -345,14 +349,19 @@ fn logger_levels_survive_configuration_as_in_the_jvm_probe() {
                 .iter()
                 .map(|e| {
                     let mut m = e.message.to_owned();
-                    if e.logger == "marathon_logging" {
+                    if e.logger == "marathon_core::timing" {
                         m.truncate(m.rfind(" in ").unwrap());
                         m.push_str(" in <ms> ms");
                     }
                     serde_json::json!([e.logger, e.level.as_str(), m])
                 })
                 .collect::<Vec<_>>();
-            assert_eq!(events, row["events"].as_array().unwrap()[6..]);
+            assert_eq!(
+                serde_json::json!(events),
+                marathon_test_support::recorded_logs::native_logs(&serde_json::json!(
+                    row["events"].as_array().unwrap()[6..]
+                ))
+            );
         }
     });
 }
@@ -383,7 +392,12 @@ fn normalized_surrogates_reach_graphite_setup_and_query_failures_retry() {
                 300000.0
             );
             assert_eq!(*h.clock.delays.lock().unwrap(), vec![50, 50]);
-            assert!(h.logs.take().iter().all(|r| r.logger != "marathon_core::analytics::factory"));
+            assert!(
+                h.logs
+                    .take()
+                    .iter()
+                    .all(|r| r.logger != "marathon_core::analytics::factory")
+            );
         }
     });
 }
@@ -436,8 +450,8 @@ fn factory_rejects_overflowing_default_before_setup_or_noop_fallback() {
 
 #[test]
 fn queued_records_render_with_registered_levels_after_debug_false() {
-    use marathon_logging::Vendor;
     use marathon_core::logging::LogRecord;
+    use marathon_logging::Vendor;
     let h = Harness::new();
     let _provider = h.provider(Arc::new(Source::default()), 0, None);
     let _noop = NoOpMetricsProvider::new(false, h.context.clone()).unwrap();
@@ -445,12 +459,13 @@ fn queued_records_render_with_registered_levels_after_debug_false() {
     let mut registry = h.context.registry.lock().unwrap();
     registry.configure(false, Vendor::Android);
     for (name, level) in [
-        ("marathon_logging", Level::INFO),
+        ("marathon_core::timing", Level::INFO),
         ("marathon_core::analytics::provider", Level::DEBUG),
         ("marathon_core::analytics::noop", Level::DEBUG),
         ("marathon_core::analytics::factory", Level::DEBUG),
     ] {
-        let record = LogRecord { target: module_path!().into(),
+        let record = LogRecord {
+            target: module_path!().into(),
             logger: name.into(),
             level,
             message: "visible".into(),

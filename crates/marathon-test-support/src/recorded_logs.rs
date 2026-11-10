@@ -1,86 +1,119 @@
 //! Historical diagnostic names decoded for native event assertions (WP 8.8).
 use serde_json::Value;
-pub fn target(name: &str) -> &str { match name {
-    "AdamDeviceProvider" => "marathon_android::provider",
-    "AndroidAppInstaller" => "marathon_android::installer",
-    "AndroidDevice" => "marathon_android::device",
-    "AppleMacosProvider" => "marathon_macos::provider",
-    "AppleSimulatorProvider" => "marathon_ios::device::simulator_provider",
-    "BackendGuardTest" => "marathon_core::analytics::event_pipeline",
-    "DebugTestRunListener" => "marathon_apple::listener::debug",
-    "KeyExchanger" => "marathon_apple::cmd::remote::ssh::sshj::wire",
-    "MetricsProviderFactory" => "marathon_core::analytics::factory",
-    "MetricsProviderImpl" => "marathon_core::analytics::provider",
-    "NmTestParser" => "marathon_apple::nm_test_parser",
-    "NoOpMetricsProvider" => "marathon_core::analytics::noop",
-    "Promise" => "marathon_apple::cmd::remote::ssh::sshj::wire",
-    "ROOT" => "marathon_adb::client::log",
-    "SSHClient" => "marathon_apple::cmd::remote::ssh::sshj::wire",
-    "Scheduler" => "marathon_core::execution::scheduler",
-    "ScreenCapturerTestRunListener" => "marathon_ios::listener::screenshot",
-    "SshjCommandExecutor" => "marathon_apple::cmd::remote::ssh::sshj::wire",
-    "TestRunProgressParser" => "marathon_apple::logparser::parser::progress",
-    "TimelineSummaryProvider" => "marathon_core::reporters::timeline",
-    "Timings" => "marathon_core::timing",
-    "TransportImpl" => "marathon_apple::cmd::remote::ssh::sshj::wire",
-    "XCTestParser" => "marathon_apple::xctest_parser",
-    "Xcodebuild" => "marathon_apple::xcodebuild_stderr",
-    "com.hierynomus.sshj.transport.verification.KnownHostMatchers" => "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
-    "com.malinskiy.adam.AndroidDebugBridgeClient" => "marathon_adb::client::log",
-    "com.malinskiy.adam.request.Request" => "marathon_adb::client::log",
-    "com.malinskiy.marathon.Marathon" => "marathon_core::marathon",
-    "com.malinskiy.marathon.android.RemoteFileManager" => "marathon_android::remote_file_manager",
-    "com.malinskiy.marathon.android.adam.AmInstrumentTestParser" => "marathon_android::services",
-    "com.malinskiy.marathon.android.adam.LogcatManager" => "marathon_android::device",
-    "com.malinskiy.marathon.android.executor.listeners.TestResultsListener" => "marathon_android::listener_factory",
-    "com.malinskiy.marathon.apple.AppleApplicationInstaller" => "marathon_ios::apple_simulator_media_importer",
-    "com.malinskiy.marathon.apple.AppleDeviceTestRunner" => "marathon_apple::apple_device_test_runner",
-    "com.malinskiy.marathon.apple.ArtifactProcessor" => "marathon_apple::artifact_processor",
-    "com.malinskiy.marathon.apple.RemoteFileManager" => "marathon_apple::remote_file_manager",
-    "com.malinskiy.marathon.apple.XcodebuildSession" => "marathon_apple::xcodebuild_session",
-    "com.malinskiy.marathon.apple.bin.nm.Nm" => "marathon_apple::bin::nm",
-    "com.malinskiy.marathon.apple.bin.xcrun.simctl.service.DeviceService" => "marathon_apple::bin::xcrun::simctl::service::device",
-    "com.malinskiy.marathon.apple.bin.xcrun.simctl.service.IoService" => "marathon_apple::bin::xcrun::simctl::service::io",
-    "com.malinskiy.marathon.apple.bin.xcrun.simctl.service.SimulatorService" => "marathon_apple::bin::xcrun::simctl::service::simulator",
-    "com.malinskiy.marathon.apple.bin.xcrun.xcodebuild.Xcodebuild" => "marathon_apple::bin::xcrun::xcodebuild",
-    "com.malinskiy.marathon.apple.bin.xcrun.xcresulttool.Xcresulttool" => "marathon_apple::bin::xcrun::xcresulttool",
-    "com.malinskiy.marathon.apple.cmd.FakeCommandExecutor" => "marathon_apple::cmd::test_support",
-    "com.malinskiy.marathon.apple.cmd.SharedTransfers" => "marathon_apple::cmd::shared_transfers",
-    "com.malinskiy.marathon.apple.cmd.local.KotlinProcessCommandExecutor" => "marathon_apple::cmd::local::kotlin_process_command_executor",
-    "com.malinskiy.marathon.apple.cmd.remote.rsync.RsyncFileBridge" => "marathon_apple::cmd::remote::rsync::rsync_file_bridge",
-    "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor" => "marathon_apple::cmd::remote::ssh::sshj::client",
-    "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutorFactory" => "marathon_apple::cmd::remote::ssh::sshj::factory",
-    "com.malinskiy.marathon.apple.device.ConnectionFactory" => "marathon_apple::device::connection_factory",
-    "com.malinskiy.marathon.apple.ios.AppleSimulatorDevice" => "marathon_ios::apple_simulator_device",
-    "com.malinskiy.marathon.apple.ios.AppleSimulatorMediaImporter" => "marathon_ios::apple_simulator_media_importer",
-    "com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider" => "marathon_ios::device::provisioning_plan",
-    "com.malinskiy.marathon.apple.ios.device.FakeSimulatorWorker" => "marathon_test_support::apple::fake_simulator_worker",
-    "com.malinskiy.marathon.apple.ios.device.SimulatorProvisioner" => "marathon_ios::device::simulator_provisioner",
-    "com.malinskiy.marathon.apple.ios.device.WorkerTracker" => "marathon_ios::device::device_tracker",
-    "com.malinskiy.marathon.apple.ios.listener.log.DeviceLogListener" => "marathon_ios::listener::device_log",
-    "com.malinskiy.marathon.apple.ios.listener.video.ScreenRecordingListener" => "marathon_ios::listener::video",
-    "com.malinskiy.marathon.apple.listener.ArtifactFinderListener" => "marathon_apple::listener::artifact",
-    "com.malinskiy.marathon.apple.listener.ResultBundleRunListener" => "marathon_apple::listener::result_bundle_run_listener",
-    "com.malinskiy.marathon.apple.listener.TestResultsListener" => "marathon_apple::listener::results",
-    "com.malinskiy.marathon.apple.macos.MacosDevice" => "marathon_macos::device",
-    "com.malinskiy.marathon.apple.model.AppleTestBundle" => "marathon_apple::model::apple_test_bundle",
-    "com.malinskiy.marathon.cli.ApplicationView" => "marathon_cli::application",
-    "com.malinskiy.marathon.device.screenshot.ScreenCapturer" => "marathon_core::screenshot",
-    "com.malinskiy.marathon.execution.command.parse.MarathonTestParseCommand" => "marathon_core::execution::parse_command",
-    "com.malinskiy.marathon.execution.progress.PoolProgressAccumulator" => "marathon_core::execution::progress",
-    "com.malinskiy.marathon.report.bill.BillingReporter" => "marathon_core::construction",
-    "io.qameta.allure.testfilter.FileTestPlanSupplier" => "marathon_core::filter::allure",
-    "marathon.test.WorldExecutor" => "marathon_test_support::apple::world_executor",
-    "marathon_apple::xcodebuild_stderr" => "marathon_logging",
-    "marathon_core::timing" => "marathon_logging",
-    "net.schmizz.sshj.transport.verification.OpenSSHKnownHosts" => "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
-    other => other,
-} }
+pub fn target(name: &str) -> &str {
+    match name {
+        "AdamDeviceProvider" => "marathon_android::provider",
+        "AndroidAppInstaller" => "marathon_android::installer",
+        "AndroidDevice" => "marathon_android::device",
+        "AppleMacosProvider" => "marathon_macos::provider",
+        "AppleSimulatorProvider" => "marathon_ios::device::simulator_provider",
+        "BackendGuardTest" => "marathon_core::analytics::event_pipeline",
+        "DebugTestRunListener" => "marathon_apple::listener::debug",
+        "KeyExchanger" => "marathon_apple::cmd::remote::ssh::sshj::wire",
+        "MetricsProviderFactory" => "marathon_core::analytics::factory",
+        "MetricsProviderImpl" => "marathon_core::analytics::provider",
+        "NmTestParser" => "marathon_apple::nm_test_parser",
+        "NoOpMetricsProvider" => "marathon_core::analytics::noop",
+        "Promise" => "marathon_apple::cmd::remote::ssh::sshj::wire",
+        "ROOT" => "marathon_adb::client::log",
+        "SSHClient" => "marathon_apple::cmd::remote::ssh::sshj::wire",
+        "Scheduler" => "marathon_core::execution::scheduler",
+        "ScreenCapturerTestRunListener" => "marathon_ios::listener::screenshot",
+        "SshjCommandExecutor" => "marathon_apple::cmd::remote::ssh::sshj::wire",
+        "TestRunProgressParser" => "marathon_apple::logparser::parser::progress",
+        "TimelineSummaryProvider" => "marathon_core::reporters::timeline",
+        "Timings" => "marathon_core::timing",
+        "TransportImpl" => "marathon_apple::cmd::remote::ssh::sshj::wire",
+        "XCTestParser" => "marathon_apple::xctest_parser",
+        "Xcodebuild" => "marathon_apple::xcodebuild_stderr",
+        "com.hierynomus.sshj.transport.verification.KnownHostMatchers" => {
+            "marathon_apple::cmd::remote::ssh::sshj::known_hosts"
+        }
+        "com.malinskiy.adam.AndroidDebugBridgeClient" => "marathon_adb::client::log",
+        "com.malinskiy.adam.request.Request" => "marathon_adb::client::log",
+        "com.malinskiy.marathon.Marathon" => "marathon_core::marathon",
+        "com.malinskiy.marathon.android.RemoteFileManager" => "marathon_android::remote_file_manager",
+        "com.malinskiy.marathon.android.adam.AmInstrumentTestParser" => "marathon_android::services",
+        "com.malinskiy.marathon.android.adam.LogcatManager" => "marathon_android::device",
+        "com.malinskiy.marathon.android.executor.listeners.TestResultsListener" => "marathon_android::listener_factory",
+        "com.malinskiy.marathon.apple.AppleApplicationInstaller" => "marathon_ios::apple_simulator_media_importer",
+        "com.malinskiy.marathon.apple.AppleDeviceTestRunner" => "marathon_apple::apple_device_test_runner",
+        "com.malinskiy.marathon.apple.ArtifactProcessor" => "marathon_apple::artifact_processor",
+        "com.malinskiy.marathon.apple.RemoteFileManager" => "marathon_apple::remote_file_manager",
+        "com.malinskiy.marathon.apple.XcodebuildSession" => "marathon_apple::xcodebuild_session",
+        "com.malinskiy.marathon.apple.bin.nm.Nm" => "marathon_apple::bin::nm",
+        "com.malinskiy.marathon.apple.bin.xcrun.simctl.service.DeviceService" => {
+            "marathon_apple::bin::xcrun::simctl::service::device"
+        }
+        "com.malinskiy.marathon.apple.bin.xcrun.simctl.service.IoService" => {
+            "marathon_apple::bin::xcrun::simctl::service::io"
+        }
+        "com.malinskiy.marathon.apple.bin.xcrun.simctl.service.SimulatorService" => {
+            "marathon_apple::bin::xcrun::simctl::service::simulator"
+        }
+        "com.malinskiy.marathon.apple.bin.xcrun.xcodebuild.Xcodebuild" => "marathon_apple::bin::xcrun::xcodebuild",
+        "com.malinskiy.marathon.apple.bin.xcrun.xcresulttool.Xcresulttool" => {
+            "marathon_apple::bin::xcrun::xcresulttool"
+        }
+        "com.malinskiy.marathon.apple.cmd.FakeCommandExecutor" => "marathon_apple::cmd::test_support",
+        "com.malinskiy.marathon.apple.cmd.SharedTransfers" => "marathon_apple::cmd::shared_transfers",
+        "com.malinskiy.marathon.apple.cmd.local.KotlinProcessCommandExecutor" => {
+            "marathon_apple::cmd::local::kotlin_process_command_executor"
+        }
+        "com.malinskiy.marathon.apple.cmd.remote.rsync.RsyncFileBridge" => {
+            "marathon_apple::cmd::remote::rsync::rsync_file_bridge"
+        }
+        "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutor" => {
+            "marathon_apple::cmd::remote::ssh::sshj::client"
+        }
+        "com.malinskiy.marathon.apple.cmd.remote.ssh.sshj.SshjCommandExecutorFactory" => {
+            "marathon_apple::cmd::remote::ssh::sshj::factory"
+        }
+        "com.malinskiy.marathon.apple.device.ConnectionFactory" => "marathon_apple::device::connection_factory",
+        "com.malinskiy.marathon.apple.ios.AppleSimulatorDevice" => "marathon_ios::apple_simulator_device",
+        "com.malinskiy.marathon.apple.ios.AppleSimulatorMediaImporter" => {
+            "marathon_ios::apple_simulator_media_importer"
+        }
+        "com.malinskiy.marathon.apple.ios.device.AppleSimulatorProvider" => "marathon_ios::device::provisioning_plan",
+        "com.malinskiy.marathon.apple.ios.device.FakeSimulatorWorker" => {
+            "marathon_test_support::apple::fake_simulator_worker"
+        }
+        "com.malinskiy.marathon.apple.ios.device.SimulatorProvisioner" => "marathon_ios::device::simulator_provisioner",
+        "com.malinskiy.marathon.apple.ios.device.WorkerTracker" => "marathon_ios::device::device_tracker",
+        "com.malinskiy.marathon.apple.ios.listener.log.DeviceLogListener" => "marathon_ios::listener::device_log",
+        "com.malinskiy.marathon.apple.ios.listener.video.ScreenRecordingListener" => "marathon_ios::listener::video",
+        "com.malinskiy.marathon.apple.listener.ArtifactFinderListener" => "marathon_apple::listener::artifact",
+        "com.malinskiy.marathon.apple.listener.ResultBundleRunListener" => {
+            "marathon_apple::listener::result_bundle_run_listener"
+        }
+        "com.malinskiy.marathon.apple.listener.TestResultsListener" => "marathon_apple::listener::results",
+        "com.malinskiy.marathon.apple.macos.MacosDevice" => "marathon_macos::device",
+        "com.malinskiy.marathon.apple.model.AppleTestBundle" => "marathon_apple::model::apple_test_bundle",
+        "com.malinskiy.marathon.cli.ApplicationView" => "marathon_cli::application",
+        "com.malinskiy.marathon.device.screenshot.ScreenCapturer" => "marathon_core::screenshot",
+        "com.malinskiy.marathon.execution.command.parse.MarathonTestParseCommand" => {
+            "marathon_core::execution::parse_command"
+        }
+        "com.malinskiy.marathon.execution.progress.PoolProgressAccumulator" => "marathon_core::execution::progress",
+        "com.malinskiy.marathon.report.bill.BillingReporter" => "marathon_core::construction",
+        "io.qameta.allure.testfilter.FileTestPlanSupplier" => "marathon_core::filter::allure",
+        "marathon.test.WorldExecutor" => "marathon_test_support::apple::world_executor",
+        "net.schmizz.sshj.transport.verification.OpenSSHKnownHosts" => {
+            "marathon_apple::cmd::remote::ssh::sshj::known_hosts"
+        }
+        other => other,
+    }
+}
 pub fn native_logs(value: &Value) -> Value {
     match value {
         Value::String(text) => Value::String(target(text).into()),
         Value::Array(items) => Value::Array(items.iter().map(native_logs).collect()),
-        Value::Object(fields) => Value::Object(fields.iter().map(|(key, value)| (target(key).into(), native_logs(value))).collect()),
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(key, value)| (target(key).into(), native_logs(value)))
+                .collect(),
+        ),
         other => other.clone(),
     }
 }

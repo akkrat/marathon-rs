@@ -5,11 +5,11 @@ use fake_worker::{
     script::{Action, Chunk, Matcher, Rule, Script},
     server::AuthPolicy,
 };
-use marathon_logging::{Level, LogSettings};
 use marathon_apple::cmd::remote::ssh::sshj::{
     SshAuthentication, SshCommandExecutor, SshjCommandExecutorFactory, config::SshLogging,
 };
 use marathon_core::error::Failure;
+use marathon_logging::{Level, LogSettings};
 use russh::keys::{Algorithm, PrivateKey};
 use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
@@ -101,7 +101,7 @@ pub type Events = Arc<Mutex<Vec<(String, Level, String, Option<Failure>)>>>;
 /// A registry configured like a run without `--debug`, and every event that reached the sink.
 pub fn logging(debug: bool) -> (SshLogging, Events) {
     let mut registry = LogSettings::default();
-    registry.debug = debug;
+    registry.configure(debug, marathon_logging::Vendor::Apple { compact_output: false });
     let events: Events = Arc::default();
     let sink = events.clone();
     let logging = SshLogging::new(

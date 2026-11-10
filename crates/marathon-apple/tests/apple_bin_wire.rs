@@ -4,7 +4,6 @@
 //! end with a quote pass through) and that env is dropped over SSH (A2), plus how the reply is interpreted.
 mod support;
 use base64::{Engine, prelude::BASE64_STANDARD};
-use marathon_logging::LogSettings;
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::CommandExecutor,
@@ -12,6 +11,7 @@ use marathon_apple::{
     model::XcodeVersion,
 };
 use marathon_config::vendor::{AppleTimeoutParameters, Codec, Display, Mask, apple_timeout_configuration};
+use marathon_logging::LogSettings;
 use std::sync::{Arc, Mutex};
 use support::{
     Runtime, context,
@@ -59,10 +59,7 @@ async fn wrappers_send_these_exec_strings_over_ssh() {
         executor: executor.clone(),
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
-        logging: SshLogging::new(
-            Arc::new(Mutex::new(LogSettings::default())),
-            Arc::new(|_, _, _, _| {}),
-        ),
+        logging: SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {})),
     };
     let env = AppleBinaryEnvironment::with_tools(tools, 1_800_000, 300_000);
     let c = &context();
@@ -154,10 +151,7 @@ async fn xcodebuild_runs_on_the_worker_with_the_unbuffered_prefix_d32() {
         executor: executor.clone(),
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
-        logging: SshLogging::new(
-            Arc::new(Mutex::new(LogSettings::default())),
-            Arc::new(|_, _, _, _| {}),
-        ),
+        logging: SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {})),
     };
     let env = AppleBinaryEnvironment::with_tools(tools, 1_800_000, 300_000);
     let c = &context();

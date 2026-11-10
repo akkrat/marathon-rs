@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/ios/src/main/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDevice.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use marathon_error::FailureKind;
 mod boot;
@@ -17,10 +17,7 @@ use crate::device::{
     timing::ProvisioningTiming,
     worker_provisioning_context::WorkerProvisioningContext,
 };
-use jcompat::{
-    file_manager::FileManager,
-    
-};
+use jcompat::file_manager::FileManager;
 use marathon_apple::{
     apple_device::{AppleDevice, apple_worker_id, storage_path_for},
     apple_test_bundle_identifier::AppleTestBundleIdentifier,
@@ -156,9 +153,7 @@ impl AppleSimulatorDevice {
         let udid = record.udid;
         let serial = format!("{udid}@{}", executor.host().id);
         let storage_path = storage_path_for(&udid);
-        let logger = services
-            .logging
-            .component("marathon_ios::apple_simulator_device");
+        let logger = services.logging.component("marathon_ios::apple_simulator_device");
         let remote = RemoteFileManager::new(
             storage_path.clone(),
             udid.clone(),

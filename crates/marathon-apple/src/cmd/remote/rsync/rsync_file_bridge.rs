@@ -1,6 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/cmd/remote/rsync/RsyncFileBridge.kt
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::RsyncTarget;
 use crate::cmd::{
@@ -9,10 +9,7 @@ use crate::cmd::{
     retained_tasks::RetainedTasks,
     stall_record::StallRecord,
 };
-use jcompat::{
-    file_manager::absolute_file_path,
-    
-};
+use jcompat::file_manager::absolute_file_path;
 use marathon_config::vendor::{RsyncConfiguration, SshAuthentication, SshConfiguration};
 use marathon_core::{
     error::{LeavePoolReason, VendorError, VendorResult},

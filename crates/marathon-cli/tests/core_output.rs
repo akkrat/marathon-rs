@@ -1,12 +1,12 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/progress/PoolProgressAccumulator.kt
 //! (shared console adapter regressions).
-use marathon_logging::{Level, LogSettings, OutputTarget, Vendor};
 use marathon_cli::{application::Console, core_output::RunConsoleSink};
 use marathon_core::{
     executor::{CoreExecutor, Signal},
     logging::LogRecord,
     output::OutputDriver,
 };
+use marathon_logging::{Level, LogSettings, OutputTarget, Vendor};
 use std::{
     io::{self, Write},
     sync::{Arc, Mutex},
@@ -110,8 +110,9 @@ fn registered_logger_levels_survive_and_sender_records_keep_raw_order() -> Resul
         Box::pin(async move {
             let q = core.log_queue();
             q.raw("before\n".into());
-            q.sender().push(LogRecord { target: module_path!().into(),
-                logger: "marathon_logging".into(),
+            q.sender().push(LogRecord {
+                target: module_path!().into(),
+                logger: "marathon_core::timing".into(),
                 at_millis: 0,
                 wall_millis: 0,
                 level: Level::INFO,
@@ -119,7 +120,8 @@ fn registered_logger_levels_survive_and_sender_records_keep_raw_order() -> Resul
                 cause: None,
             });
             q.raw("middle\n".into());
-            q.sender().push(LogRecord { target: module_path!().into(),
+            q.sender().push(LogRecord {
+                target: module_path!().into(),
                 logger: "marathon_core::analytics::provider".into(),
                 at_millis: 0,
                 wall_millis: 0,
@@ -147,6 +149,6 @@ fn registered_logger_levels_survive_and_sender_records_keep_raw_order() -> Resul
     // Registered before configure(false) at DEBUG; re-requesting it would have reset it to ERROR.
     assert!(at("middle") < at("provider warning") && at("provider warning") < at("diagnostic"));
     let registry = registry.lock().unwrap();
-    assert!(registry.enabled(&registry.component("marathon_logging"), Level::INFO));
+    assert!(registry.enabled(&registry.component("marathon_core::timing"), Level::INFO));
     Ok(())
 }

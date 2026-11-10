@@ -1,7 +1,6 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/cmd/WriteFileTest.kt
 use marathon_error::FailureKind;
 mod support;
-use marathon_logging::Component;
 use marathon_apple::cmd::{
     CommandExecutor, CommandHost, CommandRequest, CommandSession, failure,
     local::KotlinProcessCommandExecutor,
@@ -9,6 +8,7 @@ use marathon_apple::cmd::{
     write_file::{MAX_WRITTEN_FILE_SIZE, write_file},
 };
 use marathon_core::{error::VendorError, runtime::VendorFuture, vendor::VendorContext};
+use marathon_logging::Component;
 use std::{
     os::unix::fs::PermissionsExt,
     sync::{Arc, Mutex},

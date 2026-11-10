@@ -7,7 +7,7 @@
 //! `@cert-authority` entries never apply because no certificate host-key algorithm is proposed; the SSH-1
 //! `bits e n` form is skipped as unparseable.
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::config::SshLogging;
 use super::error::{FILE_NOT_FOUND_EXCEPTION, PATTERN_SYNTAX_EXCEPTION, SshFailure, io_failure};
@@ -18,10 +18,7 @@ use base64::{
     prelude::BASE64_STANDARD,
 };
 use hmac::{Hmac, KeyInit, Mac};
-use jcompat::{
-    JavaRegex,
-    
-};
+use jcompat::JavaRegex;
 use marathon_error::{FailureKind, SshKind};
 use russh::keys::PublicKey;
 use std::path::{Path, PathBuf};

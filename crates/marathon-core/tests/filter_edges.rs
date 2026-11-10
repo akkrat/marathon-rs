@@ -2,7 +2,6 @@
 //! (JVM differential probes and lifecycle regressions beyond the Kotlin tests).
 mod filter_support;
 use filter_support::*;
-use marathon_logging::Level;
 use marathon_config::schema::{CompositionOperation as Op, TestFilterConfiguration as C, TestPackageFilter};
 use marathon_core::{
     error::{Cancellation, OperationError, OperationResult},
@@ -15,6 +14,7 @@ use marathon_core::{
     },
     model::{DecodedWrapper as D, MetaValue as M, Test},
 };
+use marathon_logging::Level;
 use serde_json::{Value as J, json};
 use std::path::PathBuf;
 use std::{

@@ -15,7 +15,7 @@ use crate::{
     time::SchedulerClock,
     wiring::Tracker,
 };
-use jcompat::{formatting::format_percent, };
+use jcompat::formatting::format_percent;
 use marathon_config::schema::{ExecutionMode, ExecutionStrategyConfiguration};
 use marathon_error::FailureKind;
 use std::{collections::HashMap, rc::Rc, sync::Arc};

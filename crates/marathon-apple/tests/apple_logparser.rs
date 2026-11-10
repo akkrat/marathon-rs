@@ -1,6 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/test/kotlin/com/malinskiy/marathon/apple/logparser/parser/{DeviceFailureParserTest,TestRunProgressParserTest}.kt
 mod support;
-use marathon_logging::LogSettings;
 use marathon_apple::{
     cmd::remote::ssh::sshj::config::SshLogging,
     logparser::{
@@ -13,6 +12,7 @@ use marathon_apple::{
     test::TestEvent,
 };
 use marathon_core::time::{ClockResult, Timer};
+use marathon_logging::LogSettings;
 use std::sync::{Arc, Mutex};
 
 pub struct FixedTimer(pub i64);
@@ -32,10 +32,7 @@ impl Timer for FixedTimer {
     }
 }
 fn logging() -> SshLogging {
-    SshLogging::new(
-        Arc::new(Mutex::new(LogSettings::default())),
-        Arc::new(|_, _, _, _| {}),
-    )
+    SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {}))
 }
 fn parser(target: &str) -> TestRunProgressParser {
     TestRunProgressParser::new(Arc::new(FixedTimer(1537187696000)), target, logging())
@@ -719,7 +716,10 @@ fn jvm_streams_replay_events_errors_and_debug_lines() -> Result<(), Box<dyn std:
                 }
             }
         }
-        let mut recorded_logs = marathon_test_support::recorded_logs::native_logs(&row["logs"]).as_array().unwrap().clone();
+        let mut recorded_logs = marathon_test_support::recorded_logs::native_logs(&row["logs"])
+            .as_array()
+            .unwrap()
+            .clone();
         if let Some((_, _, seconds)) = D45_RECORDED_THROWS.iter().find(|(case, ..)| row["case"] == *case) {
             // D45: the JVM threw before this line.
             let name = if row["case"] == "real/xcode27-timeout" {

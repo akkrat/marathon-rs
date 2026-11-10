@@ -6,12 +6,9 @@
 //! `runCurrent` is a drain, `advanceUntilIdle` runs the virtual timers out, and Kotlin's
 //! `CompletableDeferred`s and `Channel`s that the devices wait on are `Gate`s and `Finish`es.
 #![allow(dead_code)]
-use marathon_logging::{Level, Component, LogSettings};
+use marathon_logging::{Component, Level, LogSettings};
 
-use jcompat::{
-    jtime::Instant,
-    
-};
+use jcompat::jtime::Instant;
 use marathon_config::{
     Configuration,
     binding::{BindingContext, Profile},

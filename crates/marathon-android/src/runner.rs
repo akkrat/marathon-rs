@@ -9,7 +9,7 @@ use crate::{
     models::*,
     support::*,
 };
-use jcompat::{ writers::KotlinValue};
+use jcompat::writers::KotlinValue;
 use marathon_adb::{
     instrument_request::{InstrumentOptions, TestRunnerRequest},
     testrunner::{MetricMap, TestEvent, TestIdentifier},

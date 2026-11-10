@@ -6,7 +6,6 @@
 //! itself sent no env. Only the `sh -c` wrappers are exercised: the executor resolves its program with the
 //! parent's PATH (as Java's ProcessBuilder does), the shell resolves the pipeline with the request's.
 mod support;
-use marathon_logging::{Component, LogSettings};
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, Tools},
     cmd::{
@@ -16,6 +15,7 @@ use marathon_apple::{
 };
 use marathon_config::vendor::{AppleTimeoutParameters, apple_timeout_configuration};
 use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
+use marathon_logging::{Component, LogSettings};
 use std::{
     os::unix::fs::PermissionsExt,
     sync::{Arc, Mutex},
@@ -88,10 +88,7 @@ async fn wrappers_run_these_commands_locally() {
         executor: executor.clone(),
         timeouts: Arc::new(apple_timeout_configuration(AppleTimeoutParameters::empty())),
         runtime: Arc::new(Runtime),
-        logging: SshLogging::new(
-            Arc::new(Mutex::new(LogSettings::default())),
-            Arc::new(|_, _, _, _| {}),
-        ),
+        logging: SshLogging::new(Arc::new(Mutex::new(LogSettings::default())), Arc::new(|_, _, _, _| {})),
     };
     let env = AppleBinaryEnvironment::with_tools(tools, 1_800_000, 300_000);
     let c = &context();

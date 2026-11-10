@@ -2,10 +2,10 @@
 //! and vendor/vendor-android/src/main/kotlin/com/malinskiy/marathon/android/executor/listeners/video/ScreenRecorderTestBatchListener.kt.
 use super::*;
 use crate::listeners::{AndroidTestRunListener, to_test};
-use marathon_logging::Level;
 use marathon_adb::testrunner::TestEvent;
 use marathon_config::ScreenRecordingPolicy;
 use marathon_core::{executor::shared::requested, runtime::*, vendor::VendorContext};
+use marathon_logging::Level;
 use std::path::PathBuf;
 
 /// Kotlin splits only on spaces, uses the last nonempty line, and normalizes the Int.

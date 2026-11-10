@@ -3,7 +3,7 @@
 
 use marathon_logging::LogSettings;
 
-use jcompat::{file_manager::FileManager, jtime::instant_of, };
+use jcompat::{file_manager::FileManager, jtime::instant_of};
 use marathon_core::{
     artifacts::FileManagerOutput,
     error::*,

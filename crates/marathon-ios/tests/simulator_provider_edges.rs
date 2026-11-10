@@ -45,12 +45,10 @@ async fn dynamic() -> TestResult<(ProviderHarness, TcpStream)> {
             port: port.into(),
         }
     })?;
-    p.h.services
-        .logging
-        .registry
-        .lock()
-        .unwrap()
-        .component("marathon_ios::device::simulator_provider");
+    p.h.services.logging.registry.lock().unwrap().component_with_level(
+        "marathon_ios::device::simulator_provider",
+        marathon_logging::Level::DEBUG,
+    );
     p.provider
         .initialize(p.h.services.context.clone())
         .await
@@ -639,12 +637,10 @@ async fn refused_connections_wait_five_seconds_then_connect_without_restarting_a
     });
     let recovery = Arc::new(Recovery::default());
     let provider = ProviderHarness::build(&h, connections, recovery.clone())?;
-    h.services
-        .logging
-        .registry
-        .lock()
-        .unwrap()
-        .component("marathon_ios::device::simulator_provider");
+    h.services.logging.registry.lock().unwrap().component_with_level(
+        "marathon_ios::device::simulator_provider",
+        marathon_logging::Level::DEBUG,
+    );
     provider
         .initialize(h.services.context.clone())
         .await
@@ -918,12 +914,10 @@ async fn substitution_cycles_escape_the_static_mapping_wrapper() -> TestResult {
 #[tokio::test]
 async fn lost_planning_warning_uses_kotlin_cause_descriptions_and_preserves_missing_targets() -> TestResult {
     let p = ProviderHarness::new(|_| {})?;
-    p.h.services
-        .logging
-        .registry
-        .lock()
-        .unwrap()
-        .component("marathon_ios::device::simulator_provider");
+    p.h.services.logging.registry.lock().unwrap().component_with_level(
+        "marathon_ios::device::simulator_provider",
+        marathon_logging::Level::WARN,
+    );
     let connected = Arc::downgrade(&p.h.worker);
     *p.h.worker.before.lock().unwrap() = Arc::new(move |_| {
         if let Some(worker) = connected.upgrade() {

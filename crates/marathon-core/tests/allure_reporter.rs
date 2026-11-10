@@ -365,12 +365,12 @@ fn invalid_environment_characters_leave_empty_file_and_report_transformer_except
 
 #[test]
 fn real_registration_failure_does_not_stop_later_html() {
-    use marathon_logging::LogSettings;
     use marathon_core::{
         analytics::{ExecutionReportGenerator, TrackerInternal},
         report::{DeviceConnectedEvent, Event},
         reporters::{html::HtmlSummaryReporter, timeline::TimelineReporter},
     };
+    use marathon_logging::LogSettings;
     let temp = Temp::new();
     checked(std::fs::write(temp.0.join("blocked"), b"file"));
     let root = temp.path("");

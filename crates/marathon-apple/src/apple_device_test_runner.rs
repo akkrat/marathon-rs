@@ -1,5 +1,5 @@
 //! Port of vendor/vendor-apple/base/src/main/kotlin/com/malinskiy/marathon/apple/AppleDeviceTestRunner.kt
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use crate::{
     apple_device::AppleDevice,
@@ -10,11 +10,7 @@ use crate::{
     test::{TestEvent, TestRequest},
     xcodebuild_session::{CLOSE_TIMEOUT, XcodebuildSession, device_lost},
 };
-use jcompat::{
-    jtime::Duration,
-    
-    writers::KotlinValue,
-};
+use jcompat::{jtime::Duration, writers::KotlinValue};
 use marathon_config::Configuration;
 use marathon_core::{
     error::{Failure, VendorError},

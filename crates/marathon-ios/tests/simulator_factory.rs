@@ -370,7 +370,7 @@ async fn factory_timing_read_order_matches_the_jvm() -> TestResult {
         .lock()
         .unwrap()
         .iter()
-        .find(|(name, _, _, _)| name == "marathon_logging")
+        .find(|(name, _, _, _)| name == "marathon_core::timing")
         .unwrap()
         .2
         .clone();

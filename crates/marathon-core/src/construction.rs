@@ -7,7 +7,7 @@
 //! the parse command. Vendor, analytics and file work runs on the vendor runtime; the
 //! concrete executor, console driver and contexts stay on core (`RunServices`).
 
-use marathon_logging::{Level, Component, LogSettings};
+use marathon_logging::{Component, Level, LogSettings};
 
 use crate::{
     analytics::{
@@ -38,10 +38,7 @@ use crate::{
     vendor::VendorServices,
     wiring::{RunDependencies, UsageLifecycle, VendorDependencies},
 };
-use jcompat::{
-    file_manager::{FileManager, child_file},
-    
-};
+use jcompat::file_manager::{FileManager, child_file};
 use marathon_config::{AnalyticsConfiguration, Configuration};
 use marathon_error::FailureKind;
 use std::path::PathBuf;
@@ -176,7 +173,8 @@ struct RecordLog {
 impl RecordLog {
     fn push(&self, logger: &str, level: Level, message: String, cause: Option<Failure>) {
         let (at_millis, wall_millis) = (self.stamp)();
-        self.logs.push(LogRecord { target: module_path!().into(),
+        self.logs.push(LogRecord {
+            target: module_path!().into(),
             logger: logger.to_owned(),
             at_millis,
             wall_millis,
@@ -319,10 +317,20 @@ async fn build(
     };
     let log: ServiceLog = {
         let record = record.clone();
-        Arc::new(move |logger: &Component, level, message: &str, cause: Option<&Failure>| {
-            let (at_millis, wall_millis) = (record.stamp)();
-            record.logs.push(LogRecord { target: logger.target().into(), logger: logger.name().into(), at_millis, wall_millis, level, message: message.into(), cause: cause.cloned() });
-        })
+        Arc::new(
+            move |logger: &Component, level, message: &str, cause: Option<&Failure>| {
+                let (at_millis, wall_millis) = (record.stamp)();
+                record.logs.push(LogRecord {
+                    target: logger.target().into(),
+                    logger: logger.name().into(),
+                    at_millis,
+                    wall_millis,
+                    level,
+                    message: message.into(),
+                    cause: cause.cloned(),
+                });
+            },
+        )
     };
     let logging = inputs.logging.clone();
     let registry = logging.clone();

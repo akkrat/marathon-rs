@@ -5,7 +5,7 @@
 
 use marathon_logging::OutputTarget;
 
-use jcompat::{jtime::instant_of, };
+use jcompat::jtime::instant_of;
 use marathon_cli::{
     application::{CliOutput, Process, failure_exit},
     run_cli,
@@ -66,8 +66,13 @@ fn main() -> ExitCode {
         Box::new(io::stderr()),
         stdout_target(),
         Box::new(|| chrono::Local::now().naive_local().and_utc().timestamp_millis()),
-    ) { Ok(output) => output, Err(error) => return failure_exit(FailureKind::Io, &error.to_string()) };
-    if let Err(error) = tracing::dispatcher::set_global_default(output.console().tracing_dispatch()) { return failure_exit(FailureKind::IllegalState, &error.to_string()); }
+    ) {
+        Ok(output) => output,
+        Err(error) => return failure_exit(FailureKind::Io, &error.to_string()),
+    };
+    if let Err(error) = tracing::dispatcher::set_global_default(output.console().tracing_dispatch()) {
+        return failure_exit(FailureKind::IllegalState, &error.to_string());
+    }
     let runner = ProductionRunner {
         factories: std::sync::Arc::new(missing_vendors()),
         cwd: process.cwd.clone(),

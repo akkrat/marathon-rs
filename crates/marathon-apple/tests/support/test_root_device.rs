@@ -5,10 +5,7 @@ use marathon_logging::{Component, LogSettings};
 
 use crate::support;
 use base64::{Engine, engine::general_purpose::STANDARD};
-use jcompat::{
-    jtime::Duration,
-    
-};
+use jcompat::jtime::Duration;
 use marathon_apple::{
     apple_device::AppleDevice,
     bin::{AppleBinaryEnvironment, Tools},
@@ -139,7 +136,7 @@ impl Fake {
             registry.clone(),
             Arc::new(move |logger, level, text, _| {
                 if logger.name() == "marathon_ios::apple_simulator_media_importer" {
-                    captured.lock().unwrap().push(json!({"logger":logger.name(),"level":format!("{level:?}").to_uppercase(),"message":text.replace(&root_text,"<bundle>")}));
+                    captured.lock().unwrap().push(json!({"logger":logger.name(),"level":level.as_str(),"message":text.replace(&root_text,"<bundle>")}));
                 }
             }),
         );

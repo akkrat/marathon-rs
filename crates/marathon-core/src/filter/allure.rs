@@ -9,8 +9,8 @@ use crate::{
     error::OperationResult,
     model::{MetaValue, Test},
 };
-use marathon_logging::Level;
 use marathon_error::FailureKind;
+use marathon_logging::Level;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 

@@ -2,7 +2,7 @@
 //! report/bill/BillingReporter.kt, report/raw/RawJsonReporter.kt,
 //! report/test/TestJsonReporter.kt and report/stdout/StdoutReporter.kt.
 
-use marathon_logging::{Level, Component};
+use marathon_logging::{Component, Level};
 
 use super::{json as schema, projection as p, *};
 use crate::{
@@ -16,7 +16,6 @@ use crate::{
 use jcompat::{
     formatting::format_stdout_duration,
     jtime::{instant_duration_millis, instant_to_epoch_milli},
-    
 };
 use marathon_error::FailureKind;
 use std::path::PathBuf;
@@ -189,7 +188,12 @@ pub struct BillingReporter {
     log: ServiceLog,
 }
 impl BillingReporter {
-    pub fn new(output: ReporterFiles, clock: &dyn WallClock, logger: Component, log: ServiceLog) -> OperationResult<Self> {
+    pub fn new(
+        output: ReporterFiles,
+        clock: &dyn WallClock,
+        logger: Component,
+        log: ServiceLog,
+    ) -> OperationResult<Self> {
         Ok(Self {
             output,
             default_start: clock

@@ -4,11 +4,7 @@ use marathon_logging::{LogSettings, Vendor};
 
 use marathon_error::{FailureKind, InjectedKind};
 pub mod runtime;
-use jcompat::{
-    file_manager::FileManager,
-    jtime::instant_of,
-    
-};
+use jcompat::{file_manager::FileManager, jtime::instant_of};
 use marathon_apple::{
     apple_device_registry::AppleDeviceRegistry,
     bin::AppleBinaryEnvironment,
@@ -275,7 +271,9 @@ impl Harness {
             log: {
                 let logs = logs.sender();
                 Arc::new(move |logger, level, message, cause| {
-                    logs.push(marathon_core::logging::LogRecord { target: logger.target().to_owned(), logger: logger.name().into(),
+                    logs.push(marathon_core::logging::LogRecord {
+                        target: logger.target().to_owned(),
+                        logger: logger.name().into(),
                         at_millis: 0,
                         wall_millis: 1234,
                         level,
