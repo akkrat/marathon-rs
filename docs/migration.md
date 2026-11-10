@@ -125,8 +125,9 @@ The Phase 8 rows apply when moving from 0.12.0 to 0.13.0-rc.1 as well as from Ko
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53, D54, D64 and D65. D65 can include a previously missed late pool, lengthen a run and correct its reports and
-existing exit status; it needs no configuration change. D2, D3, D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections
+D51, D53, D54, D64, D65 and D66. D65 can include a previously missed late pool, lengthen a run and correct its reports and
+existing exit status; it needs no configuration change. D66 turns a SIGQUIT, which used to end the run at once, into a
+logged state dump; a wrapper that sends SIGQUIT and then SIGTERM now gets the dump, then D52's reports and exit status. D2, D3, D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections
 below.
 
 ### A finite `uncompletedTestRetryQuota` (D47)

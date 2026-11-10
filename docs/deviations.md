@@ -6,7 +6,7 @@ is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences. D55–D65 ship in 0.13.0-rc.1 and remove JVM artefacts under
 [the Phase 8 contract](../PLAN.md#312-phase-8-contract), including the behaviour
-changes described below; they are separate from 0.12.0's Kotlin bug fixes.
+changes described below; they are separate from 0.12.0's Kotlin bug fixes. D66 comes after 0.13.0-rc.1.
 PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date.
 

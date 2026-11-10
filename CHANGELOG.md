@@ -2,6 +2,15 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- **SIGQUIT no longer ends a run** (D66). It logs a bounded dump of the run's state, at WARN on `marathon_core::diagnostics`:
+  the scheduler's phase, each pool's queue and devices, and the tests each device is running and for how long. The run then
+  carries on. A wrapper that sends SIGQUIT, waits and then sends SIGTERM gets the dump, then D52's reports and exit status;
+  before, the first signal ended the run with no reports. A wrapper that signals the whole process group still ends local
+  child commands such as `xcodebuild`, as with the JVM build.
+- A flaky analytics test that sometimes connected to a full accept queue is fixed (U194).
+
 ## 0.13.0-rc.1
 
 Release candidate of 0.13.0: removes the JVM artefacts required by Kotlin parity under [PLAN §3.12](PLAN.md#312-phase-8-contract), keeping the inputs, CLI, exit-code policy, result-data and worker-command contracts except for the approved differences below (D55–D65).
