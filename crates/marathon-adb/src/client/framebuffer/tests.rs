@@ -69,6 +69,7 @@ async fn buffered(name: &'static str, png_name: &'static str) {
     let adapter = BufferedImageScreenCaptureAdapter;
     for _ in 0..2 {
         let raw = capture(name).await;
+        let source = raw.buffer.clone();
         let expected_png = tokio::fs::read(fixture(png_name)).await.unwrap();
         let image = tokio::task::spawn_blocking(move || adapter.decode(&raw))
             .await
@@ -77,7 +78,12 @@ async fn buffered(name: &'static str, png_name: &'static str) {
         assert_eq!(image.width, 1080);
         assert_eq!(image.height, 1920);
         let hash = format!("{:x}", Sha256::digest(pixels(&image)));
-        assert_eq!(hash, oracle(&format!("frame-argb-sha256:{name}")), "{name}");
+        if matches!(name, "screencap_1" | "screencap_2") {
+            assert_eq!(hash, oracle(&format!("frame-argb-sha256:{name}")), "{name}");
+        }
+        if name == "screencap_3" {
+            assert_eq!(image.rgba, source, "sRGB samples pass through unchanged under D63");
+        }
         let expected = png_rgba(expected_png);
         assert!(
             image
@@ -232,7 +238,7 @@ mod buffered_image_screen_capture_adapter_test {
     }
 }
 #[tokio::test]
-async fn profile_transitions_and_protocol16_match_jvm() {
+async fn profile_transitions_and_protocol16_use_native_pixels_d63() {
     for version in [2u32, 16] {
         for color in [0u32, 1, 2] {
             let mut header = vec![version];
@@ -256,9 +262,16 @@ async fn profile_transitions_and_protocol16_match_jvm() {
             let image = BufferedImageScreenCaptureAdapter.decode(&raw).unwrap();
             let p = &image.rgba;
             let argb = i32::from_be_bytes([p[3], p[0], p[1], p[2]]);
+            let expected = if version == 16 {
+                [255, 0, 0, 255]
+            } else if color == 2 {
+                [77, 131, 174, 128]
+            } else {
+                [90, 130, 170, 128]
+            };
             assert_eq!(
-                argb.to_string(),
-                oracle(&format!("pixel:{version}:{color}")),
+                argb,
+                i32::from_be_bytes([expected[3], expected[0], expected[1], expected[2]]),
                 "version {version} color {color}"
             );
         }
@@ -266,7 +279,7 @@ async fn profile_transitions_and_protocol16_match_jvm() {
 }
 
 #[tokio::test]
-async fn raw_profile_roundtrip_matches_jvm() {
+async fn raw_profile_values_match_the_shared_decoder_d63() {
     for color in [0u32, 1, 2] {
         let words = [2u32, 32, color, 4, 1, 1, 0, 8, 16, 8, 8, 8, 24, 8];
         let bytes: Vec<u8> = words.into_iter().flat_map(u32::to_le_bytes).collect();
@@ -283,7 +296,16 @@ async fn raw_profile_roundtrip_matches_jvm() {
         let image = raw.to_buffered_image().unwrap();
         let p = &image.rgba;
         let argb = i32::from_be_bytes([p[3], p[0], p[1], p[2]]);
-        assert_eq!(argb.to_string(), oracle(&format!("raw-pixel:2:{color}")));
+        let expected = if color == 2 {
+            [77, 131, 174, 128]
+        } else {
+            [90, 130, 170, 128]
+        };
+        assert_eq!(
+            argb,
+            i32::from_be_bytes([expected[3], expected[0], expected[1], expected[2]])
+        );
+        assert_eq!(image, BufferedImageScreenCaptureAdapter.decode(&raw).unwrap());
     }
 }
 #[tokio::test]
@@ -313,5 +335,148 @@ async fn malformed_geometry_and_short_pixels_fail() {
             Err(AdbError::UnsupportedImageProtocol(_))
         ));
         s.finish().await;
+    }
+}
+
+#[tokio::test]
+async fn opaque_eight_bit_png_bytes_are_pinned_d63() -> Result<(), Box<dyn std::error::Error>> {
+    let raw = capture("screencap_1").await;
+    let image = raw.to_buffered_image()?;
+    assert_eq!(image, BufferedImageScreenCaptureAdapter.decode(&raw)?);
+    let png = image.encode_png()?;
+    assert_eq!(png.len(), 395_051);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&png)),
+        "4c685a153a993f373fc74cd4b614e75d175bd76f0d4e3f00b3d5c93159939025"
+    );
+    assert!(png.windows(5).any(|bytes| bytes == b"sRGB\x00"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn ten_bit_framebuffer_matches_independent_known_pixels_u190() -> Result<(), Box<dyn std::error::Error>> {
+    let raw = capture("screencap_1_unaligned").await;
+    let image = raw.to_buffered_image()?;
+    // Header: R/G/B occupy bits 0..10/10..20/20..30, alpha bits 30..32.
+    // For example 0xde868234 contains 564,416,488,3: nearest 255/1023
+    // normalization gives 141,104,122 and full alpha. See the independent proof.
+    for (x, y, word, expected) in [
+        (0, 0, 0xde868234u32, [141, 104, 122, 255]),
+        (500, 600, 0xef49a3b8, [237, 154, 188, 255]),
+        (1079, 1919, 0xd4c3511c, [71, 53, 83, 255]),
+        (100, 100, 0xebc9532c, [202, 149, 174, 255]),
+    ] {
+        let index = (y * 1080 + x) * 4;
+        assert_eq!(&raw.buffer[index..index + 4], &word.to_le_bytes());
+        assert_eq!(&image.rgba[index..index + 4], &expected);
+        assert_eq!(
+            raw.get_argb(index)?,
+            u32::from_be_bytes([expected[3], expected[0], expected[1], expected[2]])
+        );
+    }
+    assert_eq!(image, BufferedImageScreenCaptureAdapter.decode(&raw)?);
+    assert_eq!(image.encode_png()?.len(), 394_679);
+    Ok(())
+}
+
+fn packed_pixel(bytes: Vec<u8>) -> RawImage {
+    RawImage {
+        version: 2,
+        bits_per_pixel: 32,
+        color_space: None,
+        size: bytes.len() as u32,
+        width: (bytes.len() / 4) as u32,
+        height: 1,
+        red_offset: 0,
+        red_length: 8,
+        green_offset: 8,
+        green_length: 8,
+        blue_offset: 16,
+        blue_length: 8,
+        alpha_offset: 24,
+        alpha_length: 8,
+        buffer: bytes,
+    }
+}
+
+#[test]
+fn straight_alpha_channel_widths_and_missing_alpha_d63() -> Result<(), Box<dyn std::error::Error>> {
+    let mut raw = packed_pixel(vec![90, 130, 170, 0, 90, 130, 170, 128, 90, 130, 170, 255]);
+    assert_eq!(raw.to_buffered_image()?.rgba, raw.buffer);
+    assert_eq!(
+        BufferedImageScreenCaptureAdapter.decode(&raw)?,
+        raw.to_buffered_image()?
+    );
+    raw.alpha_length = 0;
+    assert_eq!(raw.to_buffered_image()?.rgba, [90, 130, 170, 255].repeat(3));
+    raw = packed_pixel(0x80000000u32.to_le_bytes().to_vec());
+    raw.red_length = 10;
+    raw.green_offset = 10;
+    raw.green_length = 10;
+    raw.blue_offset = 20;
+    raw.blue_length = 10;
+    raw.alpha_offset = 30;
+    raw.alpha_length = 2;
+    assert_eq!(raw.to_buffered_image()?.rgba, [0, 0, 0, 170]);
+    raw.red_length = 5;
+    raw.green_offset = 5;
+    raw.green_length = 6;
+    raw.blue_offset = 11;
+    raw.blue_length = 5;
+    raw.alpha_length = 0;
+    raw.buffer = (15u32 | 31 << 5 | 16 << 11).to_le_bytes().to_vec();
+    assert_eq!(raw.to_buffered_image()?.rgba, [123, 125, 132, 255]);
+    Ok(())
+}
+
+#[test]
+fn rgb565_colors_are_little_endian_for_both_adapters_d63() -> Result<(), Box<dyn std::error::Error>> {
+    let mut raw = packed_pixel(vec![0, 248, 224, 7, 31, 0, 255, 255]);
+    raw.bits_per_pixel = 16;
+    raw.width = 4;
+    let expected = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255];
+    for color in [None, Some(ColorSpace::Srgb), Some(ColorSpace::Unknown)] {
+        raw.color_space = color;
+        assert_eq!(raw.to_buffered_image()?.rgba, expected);
+        assert_eq!(
+            BufferedImageScreenCaptureAdapter.decode(&raw)?,
+            raw.to_buffered_image()?
+        );
+    }
+    raw.color_space = Some(ColorSpace::P3);
+    assert_eq!(
+        BufferedImageScreenCaptureAdapter.decode(&raw)?,
+        raw.to_buffered_image()?
+    );
+    Ok(())
+}
+
+#[test]
+fn malformed_decode_inputs_return_errors_d63() {
+    let valid = packed_pixel(vec![90, 130, 170, 255]);
+    for case in 0..10 {
+        let mut raw = valid.clone();
+        match case {
+            0 => raw.width = 0,
+            1 => raw.height = u32::MAX,
+            2 => raw.size = 3,
+            3 => {
+                raw.buffer.pop();
+            }
+            4 => raw.red_offset = 32,
+            5 => raw.red_length = 0,
+            6 => raw.red_length = 11,
+            7 => {
+                raw.blue_offset = 30;
+                raw.blue_length = 8;
+            }
+            8 => raw.bits_per_pixel = 24,
+            _ => {
+                raw.width = u32::MAX;
+                raw.height = u32::MAX;
+            }
+        }
+        assert!(raw.to_buffered_image().is_err(), "case {case}");
+        assert!(BufferedImageScreenCaptureAdapter.decode(&raw).is_err(), "case {case}");
     }
 }

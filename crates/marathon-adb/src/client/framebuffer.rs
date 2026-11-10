@@ -3,7 +3,7 @@
 //!
 //! Pixel conversion and PNG encoding are synchronous CPU work. Call `decode`/`encode_png` through
 //! the owning vendor task's `spawn_blocking` and join it (6.5/6.6b); capture itself only reads bytes.
-//! P4 replaces recycled AWT identity with owned images, retaining profile metadata and pixel values.
+//! D63 uses one straight-alpha decoder and standard sRGB output, retaining source color metadata.
 
 use super::{AdbError, ComplexRequest, Request, Socket, Target, request::create_base_request};
 use lcms2::{Intent, PixelFormat, Profile, Transform};
@@ -29,13 +29,6 @@ impl ColorSpace {
             Self::P3 => Some("DisplayP3.icc"),
         }
     }
-    pub fn profile(self) -> Option<&'static [u8]> {
-        match self {
-            Self::Unknown => None,
-            Self::Srgb => Some(include_bytes!("../../../../fixtures/adam/colorProfiles/sRGB.icc")),
-            Self::P3 => Some(include_bytes!("../../../../fixtures/adam/colorProfiles/DisplayP3.icc")),
-        }
-    }
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RawImage {
@@ -59,7 +52,7 @@ pub struct RawImage {
 pub struct FramebufferImage {
     pub width: u32,
     pub height: u32,
-    /// sRGB RGBA, equivalent to BufferedImage.getRGB(), after the selected ICC conversion.
+    /// Straight-alpha sRGB RGBA after any source color conversion.
     pub rgba: Vec<u8>,
     /// The source framebuffer's profile; rgba itself is already converted to sRGB.
     pub source_color_space: Option<ColorSpace>,
@@ -161,13 +154,13 @@ fn mask(length: u32) -> Result<u32, AdbError> {
         Err(AdbError::Runtime(format!("Unexpected mask length {length}")))
     }
 }
-fn expanded(value: u32, offset: u32, length: u32) -> Result<u8, AdbError> {
-    let v = (value.wrapping_shr(offset)) & mask(length)?;
-    Ok(if length < 8 {
-        (v << (8 - length)) + ((1 << (8 - length)) - 1)
-    } else {
-        v >> (length - 8)
-    } as u8)
+// The old Java 8-length shift erased RGB10 samples (U190); normalize their full range.
+fn component(value: u32, offset: u32, length: u32) -> Result<u32, AdbError> {
+    let maximum = mask(length)?;
+    if offset >= 32 || length > 32 - offset {
+        return Err(malformed());
+    }
+    Ok((((value >> offset) & maximum) * 255 + maximum / 2) / maximum)
 }
 impl RawImage {
     pub fn get_argb(&self, index: usize) -> Result<u32, AdbError> {
@@ -182,13 +175,15 @@ impl RawImage {
             }
             32 if b.len() >= 4 => {
                 let v = word(b, 0);
-                let part = |o, l| -> Result<u32, AdbError> {
-                    Ok((v.wrapping_shr(o) & mask(l)?).wrapping_shl(8u32.wrapping_sub(l)))
+                let alpha = if self.alpha_length == 0 {
+                    255
+                } else {
+                    component(v, self.alpha_offset, self.alpha_length)?
                 };
-                Ok(part(self.alpha_offset, self.alpha_length)?.wrapping_shl(24)
-                    | part(self.red_offset, self.red_length)?.wrapping_shl(16)
-                    | part(self.green_offset, self.green_length)?.wrapping_shl(8)
-                    | part(self.blue_offset, self.blue_length)?)
+                Ok(alpha << 24
+                    | component(v, self.red_offset, self.red_length)? << 16
+                    | component(v, self.green_offset, self.green_length)? << 8
+                    | component(v, self.blue_offset, self.blue_length)?)
             }
             _ => Err(AdbError::UnsupportedOperation(
                 "RawImage.getARGB(int) only works in 16 and 32 bit mode.".into(),
@@ -196,15 +191,30 @@ impl RawImage {
         }
     }
     pub fn to_buffered_image(&self) -> Result<FramebufferImage, AdbError> {
+        if !matches!(self.bits_per_pixel, 16 | 32) {
+            return Err(AdbError::UnsupportedOperation(
+                "RawImage.getARGB(int) only works in 16 and 32 bit mode.".into(),
+            ));
+        }
+        let bytes = u64::from(self.width)
+            .checked_mul(u64::from(self.height))
+            .and_then(|n| n.checked_mul(u64::from(self.bits_per_pixel / 8)))
+            .ok_or_else(malformed)?;
+        if self.width == 0
+            || self.height == 0
+            || bytes > 256 * 1024 * 1024
+            || bytes != u64::from(self.size)
+            || bytes != self.buffer.len() as u64
+        {
+            return Err(malformed());
+        }
         let mut rgba = Vec::with_capacity(self.width as usize * self.height as usize * 4);
-        for i in (0..self.buffer.len()).step_by((self.bits_per_pixel / 8).max(1) as usize) {
+        for i in (0..self.buffer.len()).step_by((self.bits_per_pixel / 8) as usize) {
             let v = self.get_argb(i)?;
             rgba.extend_from_slice(&[(v >> 16) as u8, (v >> 8) as u8, v as u8, (v >> 24) as u8]);
         }
-        // setRGB quantizes into the profile's 8-bit raster before getRGB converts back to sRGB.
-        if let Some(profile) = self.color_space.and_then(ColorSpace::profile) {
-            convert_profile(&mut rgba, JDK_SRGB, profile)?;
-            convert_profile(&mut rgba, profile, JDK_SRGB)?;
+        if self.color_space == Some(ColorSpace::P3) {
+            convert_p3_to_srgb(&mut rgba)?;
         }
         Ok(FramebufferImage {
             width: self.width,
@@ -221,58 +231,7 @@ impl BufferedImageScreenCaptureAdapter {
                 "BufferedImageScreenCaptureAdapter only works with 16 and 32 bit images".into(),
             ));
         }
-        if raw.bits_per_pixel == 16 && raw.color_space.and_then(ColorSpace::profile).is_some() {
-            return Err(AdbError::Runtime("Unsupported buffered image type 8".into()));
-        }
-        let pixels = u64::from(raw.width) * u64::from(raw.height);
-        if pixels * u64::from(raw.bits_per_pixel / 8) != raw.buffer.len() as u64 {
-            return Err(malformed());
-        }
-        let aligned = raw.alpha_offset == 24
-            && raw.alpha_length == 8
-            && raw.blue_offset == 16
-            && raw.blue_length == 8
-            && raw.green_offset == 8
-            && raw.green_length == 8
-            && raw.red_offset == 0
-            && raw.red_length == 8;
-        let mut rgba = Vec::with_capacity(pixels as usize * 4);
-        for b in raw.buffer.chunks_exact((raw.bits_per_pixel / 8) as usize) {
-            if raw.bits_per_pixel == 16 {
-                // ByteBuffer.asShortBuffer is big-endian; AWT rounds the component scaling.
-                let v = u32::from(u16::from_be_bytes([b[0], b[1]]));
-                rgba.extend_from_slice(&[
-                    ((((v >> 11) & 31) * 255 + 15) / 31) as u8,
-                    ((((v >> 5) & 63) * 255 + 31) / 63) as u8,
-                    (((v & 31) * 255 + 15) / 31) as u8,
-                    255,
-                ]);
-            } else if aligned {
-                rgba.extend_from_slice(b);
-            } else {
-                let value = word(b, 0);
-                let r = expanded(value, raw.red_offset, raw.red_length)?;
-                let g = expanded(value, raw.green_offset, raw.green_length)?;
-                let b = expanded(value, raw.blue_offset, raw.blue_length)?;
-                let a = expanded(value, raw.alpha_offset, raw.alpha_length)?;
-                let alpha = f64::from(a) / 255.0;
-                rgba.extend_from_slice(&[
-                    (f64::from(r) * alpha).round() as u8,
-                    (f64::from(g) * alpha).round() as u8,
-                    (f64::from(b) * alpha).round() as u8,
-                    255,
-                ]);
-            }
-        }
-        if let Some(profile) = raw.color_space.and_then(ColorSpace::profile) {
-            convert_profile(&mut rgba, profile, JDK_SRGB)?;
-        }
-        Ok(FramebufferImage {
-            width: raw.width,
-            height: raw.height,
-            rgba,
-            source_color_space: raw.color_space,
-        })
+        raw.to_buffered_image()
     }
 }
 impl FramebufferImage {
@@ -294,10 +253,10 @@ impl FramebufferImage {
 #[cfg(test)]
 mod tests;
 
-const JDK_SRGB: &[u8] = include_bytes!("../../../../fixtures/oracle/adb-request-jdk-srgb.icc");
-fn convert_profile(rgba: &mut [u8], input_profile: &[u8], output_profile: &[u8]) -> Result<(), AdbError> {
-    let input = Profile::new_icc(input_profile).map_err(|e| AdbError::Io(e.to_string()))?;
-    let output = Profile::new_icc(output_profile).map_err(|e| AdbError::Io(e.to_string()))?;
+fn convert_p3_to_srgb(rgba: &mut [u8]) -> Result<(), AdbError> {
+    let input = Profile::new_icc(include_bytes!("../../../../fixtures/adam/colorProfiles/DisplayP3.icc"))
+        .map_err(|e| AdbError::Io(e.to_string()))?;
+    let output = Profile::new_srgb();
     let transform = Transform::<[u16; 3], [u16; 3]>::new_flags(
         &input,
         PixelFormat::RGB_16,

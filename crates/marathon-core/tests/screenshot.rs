@@ -17,6 +17,7 @@ use marathon_core::{
     screenshot::*,
 };
 use report_probe_support::*;
+use sha2::{Digest, Sha256};
 use std::{
     io::Cursor,
     sync::{
@@ -96,8 +97,30 @@ fn jvm_all_rotations_swapped_and_square_frames() {
                 "capture-{}-{w}-{h}.gif",
                 rotation.value()
             ))));
-            assert_eq!(decoded(&actual), decoded(&expected), "rotation {rotation:?}, {w}x{h}");
-            assert_eq!(actual.windows(8).filter(|s| *s == b"NETSCAPE").count(), 2);
+            if w != h {
+                assert_eq!(decoded(&actual), decoded(&expected), "rotation {rotation:?}, {w}x{h}");
+            } else {
+                // C64's extra quarter-turn stays; D63 changes the 2→3 resize ties.
+                let [r, g, b, w] = [
+                    [255, 0, 0, 255],
+                    [0, 255, 0, 255],
+                    [0, 0, 255, 255],
+                    [255, 255, 255, 255],
+                ];
+                let [tl, tr, bl, br] =
+                    [[r, g, b, w], [b, r, w, g], [w, b, g, r], [g, w, r, b]][((rotation.value() + 1) % 4) as usize];
+                let pixels: Vec<u8> = [tl, tr, tr, bl, br, br, bl, br, br].into_iter().flatten().collect();
+                let frames = decoded(&actual);
+                assert_eq!(frames.len(), 2);
+                for frame in frames {
+                    assert_eq!(
+                        (frame.0, frame.1, frame.2, frame.3, frame.4),
+                        (3, 3, 0, gif::DisposalMethod::Any, None)
+                    );
+                    assert_eq!(frame.5, pixels);
+                }
+            }
+            assert_eq!(actual.windows(8).filter(|s| *s == b"NETSCAPE").count(), 1);
         }
     }
 }
@@ -121,6 +144,12 @@ fn gif_metadata_zero_frames_and_invalid_delays_match_jvm() {
         changed[gce + 4] ^= 1;
         assert_ne!(decoded(&changed), decoded(&expected));
         assert!(!bytes.windows(7).any(|w| w == b"Created"));
+        assert_eq!(bytes.windows(8).filter(|s| *s == b"NETSCAPE").count(), 1);
+        assert!(
+            bytes
+                .windows(19)
+                .any(|w| w == b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x01\x00\x00")
+        );
     }
     for delay in [-10, 655360] {
         let err = GifSequenceWriter::new(Vec::new(), delay, false).err().unwrap();
@@ -131,38 +160,37 @@ fn gif_metadata_zero_frames_and_invalid_delays_match_jvm() {
 }
 #[test]
 fn gradient_resize_geometry_and_measured_pixels() {
-    for (w, h) in [(7, 11), (11, 7), (2, 3), (3, 2)] {
-        let actual = checked(FrameTransform::default().transform(image(w, h, true), Rotation::Rotation0, 5, 8));
-        let expected = checked(image::open(fixture(&format!("resize-{w}-{h}.png")))).to_rgba8();
-        assert_eq!(actual.dimensions(), expected.dimensions());
-        let max = actual
-            .as_raw()
-            .iter()
-            .zip(expected.as_raw())
-            .map(|(a, b)| a.abs_diff(*b))
-            .max()
-            .unwrap();
-        println!("resize-{w}-{h} max channel difference {max}");
-        assert_eq!(max, 0);
+    for (w, h, xs, ys) in [
+        (7, 11, vec![0, 2, 3, 4, 6], vec![0, 2, 3, 4, 6, 7, 8, 10]),
+        (11, 7, vec![0, 2, 3, 4, 6, 7, 8, 10], vec![0, 2, 3, 4, 6]),
+        (2, 3, vec![0, 0, 1, 1, 1], vec![0, 0, 0, 1, 1, 2, 2, 2]),
+        (3, 2, vec![0, 0, 0, 1, 1, 2, 2, 2], vec![0, 0, 1, 1, 1]),
+    ] {
+        let input = image(w, h, true);
+        let actual = checked(FrameTransform::default().transform(input.clone(), Rotation::Rotation0, 5, 8));
+        assert_eq!(actual.dimensions(), (xs.len() as u32, ys.len() as u32));
+        for (y, &sy) in ys.iter().enumerate() {
+            for (x, &sx) in xs.iter().enumerate() {
+                assert_eq!(actual.get_pixel(x as u32, y as u32), input.get_pixel(sx, sy));
+            }
+        }
     }
 }
 #[test]
-fn resize_ties_follow_awt_fixed_point_sampling() {
-    let row = oracle("resize-ties");
-    let actual = checked(FrameTransform::default().transform(image(2, 4, false), Rotation::Rotation0, 1, 2));
+fn resize_ties_follow_native_nearest_sampling_d63() {
+    let input = RgbaImage::from_fn(2, 4, |x, y| Rgba([x as u8, y as u8, 0, 255]));
+    let reduced = checked(FrameTransform::default().transform(input.clone(), Rotation::Rotation0, 1, 2));
+    assert_eq!(reduced.into_raw(), [1, 1, 0, 255, 1, 3, 0, 255]);
+    let expanded = checked(FrameTransform::default().transform(input.clone(), Rotation::Rotation0, 3, 6));
+    assert_eq!(expanded.dimensions(), (3, 6));
     assert_eq!(
-        (actual.width(), actual.height()),
-        (
-            row["width"].as_u64().unwrap() as u32,
-            row["height"].as_u64().unwrap() as u32
-        )
+        expanded.rows().next().unwrap().map(|p| p[0]).collect::<Vec<_>>(),
+        [0, 1, 1]
     );
-    let argb: Vec<i64> = actual
-        .pixels()
-        .map(|p| i64::from(u32::from_be_bytes([p[3], p[0], p[1], p[2]]) as i32))
-        .collect();
-    assert_eq!(serde_json::json!(argb), row["pixels"]);
+    let same = checked(FrameTransform::default().transform(input.clone(), Rotation::Rotation0, 2, 4));
+    assert_eq!(same, input);
 }
+
 struct Script {
     frames: Mutex<std::collections::VecDeque<VendorResult<Option<RgbaFrame>>>>,
     calls: AtomicUsize,
@@ -404,49 +432,41 @@ fn persistent_dimensions_and_gradient_palette_measurement() {
             decoded(&checked(std::fs::read(fixture(&format!("reuse{i}.gif")))))
         );
     }
-    for name in ["alpha", "gradient"] {
-        let input = checked(image::open(fixture(&format!("{name}-input.png")))).to_rgba8();
-        let mut writer = checked(GifSequenceWriter::new(Vec::new(), 19, true));
-        checked(writer.write_to_sequence(&input));
-        let bytes = checked(writer.finish());
-        let actual = decoded(&bytes);
-        let expected = decoded(&checked(std::fs::read(fixture(&format!("{name}.gif")))));
-        assert_eq!(
-            (&actual[0].0, &actual[0].1, &actual[0].2, &actual[0].3, &actual[0].4),
-            (
-                &expected[0].0,
-                &expected[0].1,
-                &expected[0].2,
-                &expected[0].3,
-                &expected[0].4
-            )
-        );
-        // Absolute differences over every RGBA byte (alpha included), as approved for P1.
-        let measure = |a: &[u8], b: &[u8]| {
-            let differences: Vec<_> = a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).collect();
-            let max = *differences.iter().max().unwrap();
-            (
-                max,
-                differences.iter().map(|v| f64::from(*v)).sum::<f64>() / differences.len() as f64,
-            )
-        };
-        let (max, mean) = measure(&actual[0].5, &expected[0].5);
-        let (rust_max, rust_mean) = measure(&actual[0].5, input.as_raw());
-        let (jvm_max, jvm_mean) = measure(&expected[0].5, input.as_raw());
-        println!(
-            "{name}: rust/jvm max={max} mean={mean}; rust/input max={rust_max} mean={rust_mean}; jvm/input max={jvm_max} mean={jvm_mean}"
-        );
-        if name == "alpha" {
-            assert_eq!(actual, expected)
-        } else {
-            assert!(max <= 80 && mean <= 9.0);
-            // Pin the measurement documented in the findings: NeuQuant is further from the
-            // input than ImageIO's palette on this 1,024-colour witness.
-            // Alpha never differs here, so the RGB-only means are these times 4/3.
-            assert_eq!((max, rust_max, jvm_max), (77, 75, 5));
-            assert_eq!((mean, rust_mean, jvm_mean), (8.312744140625, 8.064697265625, 2.078125));
-        }
-    }
+    let name = "gradient";
+    let input = checked(image::open(fixture(&format!("{name}-input.png")))).to_rgba8();
+    let mut writer = checked(GifSequenceWriter::new(Vec::new(), 19, true));
+    checked(writer.write_to_sequence(&input));
+    let bytes = checked(writer.finish());
+    let actual = decoded(&bytes);
+    let expected = decoded(&checked(std::fs::read(fixture(&format!("{name}.gif")))));
+    assert_eq!(
+        (&actual[0].0, &actual[0].1, &actual[0].2, &actual[0].3, &actual[0].4),
+        (
+            &expected[0].0,
+            &expected[0].1,
+            &expected[0].2,
+            &expected[0].3,
+            &expected[0].4
+        )
+    );
+    // Absolute differences over every RGBA byte (alpha included), as approved for P1.
+    let measure = |a: &[u8], b: &[u8]| {
+        let differences: Vec<_> = a.iter().zip(b).map(|(a, b)| a.abs_diff(*b)).collect();
+        let max = *differences.iter().max().unwrap();
+        (
+            max,
+            differences.iter().map(|v| f64::from(*v)).sum::<f64>() / differences.len() as f64,
+        )
+    };
+    let (max, mean) = measure(&actual[0].5, &expected[0].5);
+    let (rust_max, rust_mean) = measure(&actual[0].5, input.as_raw());
+    let (jvm_max, jvm_mean) = measure(&expected[0].5, input.as_raw());
+    println!(
+        "{name}: rust/jvm max={max} mean={mean}; rust/input max={rust_max} mean={rust_mean}; jvm/input max={jvm_max} mean={jvm_mean}"
+    );
+    assert!(max <= 80 && mean <= 9.0);
+    assert_eq!((max, rust_max, jvm_max), (77, 75, 5));
+    assert_eq!((mean, rust_mean, jvm_mean), (8.312744140625, 8.064697265625, 2.078125));
 }
 
 #[derive(Default)]
@@ -623,6 +643,106 @@ fn cancellation_during_capture_write_and_delay_waits_for_cleanup() {
             assert_eq!(bytes, [0x3b])
         } else {
             assert_eq!(decoded(&bytes).len(), 1)
+        }
+    }
+}
+
+#[test]
+fn opaque_gif_bytes_are_pinned_d63() {
+    let input = checked(image::open(fixture("gradient-input.png"))).to_rgba8();
+    let mut writer = checked(GifSequenceWriter::new(Vec::new(), 19, true));
+    checked(writer.write_to_sequence(&input));
+    let bytes = checked(writer.finish());
+    assert_eq!(bytes.len(), 1470);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        "99041382c522e495f239b4c36cad29d340d36fab74e5ecb4de4c6188360cba83"
+    );
+    let input = RgbaImage::from_fn(2, 3, |x, y| Rgba([(x * 255) as u8, (y * 127) as u8, 0, 255]));
+    let mut writer = checked(GifSequenceWriter::new(Vec::new(), 19, true));
+    checked(writer.write_to_sequence(&input));
+    let bytes = checked(writer.finish());
+    assert_eq!(bytes.len(), 88);
+    assert_eq!(
+        format!("{:x}", Sha256::digest(&bytes)),
+        "92447fc0a7c30b135c647e1defb811c011bbe8d5e3afe694913b47d183db00e0"
+    );
+}
+
+#[test]
+fn gif_partial_alpha_uses_binary_transparency_d63() {
+    let input = checked(image::open(fixture("alpha-input.png"))).to_rgba8();
+    let mut writer = checked(GifSequenceWriter::new(Vec::new(), 19, true));
+    checked(writer.write_to_sequence(&input));
+    let bytes = checked(writer.finish());
+    let frames = decoded(&bytes);
+    assert_eq!(frames.len(), 1);
+    assert_eq!(
+        (frames[0].0, frames[0].1, frames[0].2, frames[0].3),
+        (4, 1, 1, gif::DisposalMethod::Any)
+    );
+    for (expected, actual) in input.pixels().zip(frames[0].5.as_chunks::<4>().0.iter()) {
+        if expected[3] == 0 {
+            assert_eq!(*actual, [0, 0, 0, 0]);
+        } else {
+            assert_eq!(*actual, [expected[0], expected[1], expected[2], 255]);
+        }
+    }
+}
+
+#[test]
+fn quantized_gif_above_256_colors_preserves_the_alpha_mask_d63() {
+    for variant in 0..3 {
+        let input = RgbaImage::from_fn(64, 64, |x, y| {
+            let alpha = if (x + 3 * y) % 7 == 0 {
+                0
+            } else if x % 2 == 0 {
+                128
+            } else {
+                255
+            };
+            match variant {
+                0 => Rgba([(x * 4) as u8, (y * 4) as u8, ((x + y) * 2) as u8, alpha]),
+                1 => Rgba([x as u8, y as u8, ((x + y) % 32) as u8, alpha]),
+                _ => Rgba([
+                    (255 - x * 4) as u8,
+                    (255 - y * 4) as u8,
+                    ((x * 13 + y * 7) % 256) as u8,
+                    alpha,
+                ]),
+            }
+        });
+        let colors: std::collections::HashSet<_> = input
+            .pixels()
+            .filter(|p| p[3] != 0)
+            .map(|p| [p[0], p[1], p[2]])
+            .collect();
+        assert!(colors.len() > 256);
+        let mut writer = checked(GifSequenceWriter::new(Vec::new(), 120, false));
+        let mut next = input.clone();
+        for pixel in next.pixels_mut() {
+            pixel[3] = if pixel[3] == 0 { 255 } else { 0 };
+        }
+        let next_colors: std::collections::HashSet<_> = next
+            .pixels()
+            .filter(|p| p[3] != 0)
+            .map(|p| [p[0], p[1], p[2]])
+            .collect();
+        assert!(next_colors.len() > 256);
+        checked(writer.write_to_sequence(&input));
+        checked(writer.write_to_sequence(&next));
+        let bytes = checked(writer.finish());
+        let frames = decoded(&bytes);
+        assert_eq!(frames.len(), 2);
+        assert_eq!(bytes.windows(8).filter(|s| *s == b"NETSCAPE").count(), 1);
+        for (frame, source) in frames.into_iter().zip([&input, &next]) {
+            assert_eq!(
+                (frame.0, frame.1, frame.2, frame.3),
+                (64, 64, 12, gif::DisposalMethod::Any)
+            );
+            for (expected, actual) in source.pixels().zip(frame.5.as_chunks::<4>().0.iter()) {
+                assert_eq!(actual[3], if expected[3] == 0 { 0 } else { 255 }, "variant {variant}");
+            }
         }
     }
 }

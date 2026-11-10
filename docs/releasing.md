@@ -166,6 +166,9 @@ not strictly open source but its terms allow what we do, and its entry records t
 made it. A `review` entry blocks a release until its terms are decided. Package builds and CI do not
 check the status, so ordinary CI stays green.
 
+D63 retires the adam and JDK sRGB profiles from the binary and this asset list;
+their copied fixtures remain unchanged. DisplayP3 remains embedded and listed.
+
 The source is `GPL-2.0-only` (`LICENSE`). `libxctest-parser` is excluded: neither the source
 tree nor an archive contains it, this repository's licence does not cover it, and an `xctest`
 run uses a copy that the user supplies (D20). Do not add it or its EULA to an archive.

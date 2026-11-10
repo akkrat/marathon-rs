@@ -380,19 +380,20 @@ class ReleaseTests(unittest.TestCase):
         with patch.object(r, 'CHANGELOG', REAL_CHANGELOG):
             r.preflight('0.11.0', dry_run)
 
-    def test_the_srgb_decision_is_recorded_and_its_file_is_unchanged(self):
+    def test_retired_srgb_profiles_remain_unchanged_but_are_not_embedded_d63(self):
         import hashlib
         manifest = tpl.load_assets()
-        asset = next(a for a in manifest['assets'] if a['component'].startswith('sRGB colour profile'))
-        self.assertEqual(asset['status'], 'redistributable')
-        decision = asset['decision']
-        for part in ('2026-11-04', 'project owner', 'unchanged', 'THIRD-PARTY-LICENSES', 'publicity'):
-            self.assertIn(part, decision)
-        self.assertNotIn('GPL', decision)
-        data = (tpl.ROOT / asset['files'][0]).read_bytes()
-        self.assertEqual(hashlib.sha256(data).hexdigest(), asset['sha256'])
+        embedded = {name for asset in manifest['assets'] for name in asset['files']}
+        for name, expected in (
+                ('fixtures/adam/colorProfiles/sRGB.icc',
+                 '2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e'),
+                ('fixtures/oracle/adb-request-jdk-srgb.icc',
+                 '87e382b9336e6a0417a4d860173109ab319a029cf2972e19833a3327c65bd7e4')):
+            self.assertNotIn(name, embedded)
+            self.assertEqual(hashlib.sha256((tpl.ROOT / name).read_bytes()).hexdigest(), expected)
         terms = '\n'.join(tpl.render_assets(manifest))
-        self.assertIn('provided that the file is not changed including the HP', terms)
+        self.assertNotIn('sRGB colour profile (sRGB IEC61966-2.1)', terms)
+        self.assertNotIn('JDK built-in sRGB profile', terms)
 
     def test_an_unresolved_asset_status_does_not_stop_the_package_build(self):
         manifest = tpl.load_assets()
@@ -445,7 +446,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_the_real_list_has_the_shape_the_dep_info_check_reads(self):
         files = r.listed_assets()
-        self.assertIn('fixtures/adam/colorProfiles/sRGB.icc', files)
+        self.assertIn('fixtures/adam/colorProfiles/DisplayP3.icc', files)
         self.assertNotIn('fixtures/adam/colorProfiles/README.md', files)
 
     def test_preflight_of_a_tag_on_main(self):
@@ -852,8 +853,7 @@ class ThirdPartyLicenseTests(unittest.TestCase):
         for expected in ('Other files compiled into marathon, not crates', 'HTML report JavaScript bundle (app.min.js)',
                          'fixtures/reporters/html/app.min.js', 'scheduler.production.min.js', 'Copyright (c) Facebook',
                          'iFrame Resizer', '4.3.2', 'Copyright (c) 2013-2021 David J. Bradshaw',
-                         'Display P3 colour profile', 'Copyright (c) 2018 Google Inc.', 'Hewlett-Packard',
-                         'Portions Copyright Eastman Kodak', 'Marti Maria Saguer', 'The Android Open Source Project',
+                         'Display P3 colour profile', 'Copyright (c) 2018 Google Inc.', 'The Android Open Source Project',
                          'crates/marathon-adb is a Rust port of adam'):
             self.assertIn(expected, text)
         self.assertNotIn('libxctest-parser', text)
@@ -900,9 +900,8 @@ const Q: &str = include_str!("../../../fixtures/after.txt");
 
     def test_the_asset_list_matches_this_repository_and_no_asset_awaits_a_decision(self):
         manifest = tpl.load_assets()
-        self.assertEqual({a['status'] for a in manifest['assets']}, {'open-source', 'redistributable'})
-        self.assertEqual([a['component'] for a in manifest['assets'] if a['status'] != 'open-source'],
-                         ['sRGB colour profile (sRGB IEC61966-2.1)'])
+        self.assertEqual({a['status'] for a in manifest['assets']}, {'open-source'})
+        self.assertEqual([a['component'] for a in manifest['assets'] if a['status'] != 'open-source'], [])
         for asset in manifest['assets']:
             for name in asset['licences']:
                 self.assertTrue((tpl.ROOT / name).is_file(), name)

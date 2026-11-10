@@ -550,16 +550,26 @@ impl AndroidDevice {
     }
     pub async fn get_screenshot(&self, timeout: Duration, context: VendorContext) -> VendorResult<Option<RgbaFrame>> {
         let result = timed(&context, millis(timeout)?, |signal| {
-            Box::pin(cancellable(signal, async {
-                let raw = self
-                    .bounded_client()
-                    .execute(ScreenCaptureRequest, Some(self.adb_serial()))
-                    .await
-                    .map_err(adb_error)?;
-                let converted = raw.to_buffered_image().map_err(adb_error)?;
+            Box::pin(async move {
+                let raw = cancellable(signal.clone(), async {
+                    self.bounded_client()
+                        .execute(ScreenCaptureRequest, Some(self.adb_serial()))
+                        .await
+                        .map_err(adb_error)
+                })
+                .await?;
+                // Join CPU conversion even when cancellation arrives while it runs.
+                let converted = blocking(self.runtime().dependencies.io.as_ref(), move || {
+                    raw.to_buffered_image().map_err(adb_error)
+                })
+                .await;
+                if let Some(reason) = signal.reason() {
+                    return Err(VendorError::Cancelled(reason));
+                }
+                let converted = converted?;
                 RgbaFrame::from_raw(converted.width, converted.height, converted.rgba)
                     .ok_or_else(|| adb_error(AdbError::UnsupportedImageProtocol("Invalid image dimensions".into())))
-            }))
+            })
         })
         .await;
         match result {

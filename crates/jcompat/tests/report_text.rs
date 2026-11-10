@@ -45,39 +45,6 @@ fn instant_epoch_millis_overflow_and_negative_boundary() {
     );
 }
 #[test]
-fn awt_nearest_index_matches_jvm_axis_maps() {
-    let rows: Vec<serde_json::Value> =
-        serde_json::from_str(include_str!("../../../fixtures/oracle/html-allure-gif/probe.json")).unwrap();
-    let oracle = |id: &str| {
-        rows.iter().find(|r| r["id"] == id).unwrap()["maps"]
-            .as_array()
-            .unwrap()
-            .clone()
-    };
-    let map = |s: u32, t: u32| (0..t).map(|d| awt_nearest_index(d, s, t)).collect::<Vec<_>>();
-    let small = oracle("resize-axis-small");
-    assert_eq!(small.len(), 256);
-    for row in small {
-        let (s, t) = (row[0].as_u64().unwrap() as u32, row[1].as_u64().unwrap() as u32);
-        let expected: Vec<u32> = row[2]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_u64().unwrap() as u32)
-            .collect();
-        assert_eq!(map(s, t), expected, "{s}->{t}");
-    }
-    // Large pairs include realistic screen sizes and ones only 32-bit fixed point reproduces.
-    for row in oracle("resize-axis-large") {
-        let (s, t) = (row[0].as_u64().unwrap() as u32, row[1].as_u64().unwrap() as u32);
-        let joined = map(s, t).iter().map(u32::to_string).collect::<Vec<_>>().join(",");
-        assert_eq!(format!("{:x}", md5::compute(joined)), row[2], "{s}->{t}");
-    }
-    // 2→1 ties go up, 2→3 ties go down.
-    assert_eq!((map(2, 1), map(2, 3)), (vec![1], vec![0, 0, 1]));
-}
-
-#[test]
 fn supplementary_history_ids_keep_the_exact_utf8_digest() {
     assert_eq!(
         allure_history_id("pkg.😀ｚ", "méthod🧪"),

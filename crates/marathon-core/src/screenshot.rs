@@ -114,7 +114,8 @@ impl<W: Write> GifSequenceWriter<W> {
                 )));
             }
         };
-        if self.encoder.is_none() {
+        let first_frame = self.encoder.is_none();
+        if first_frame {
             let stream = self
                 .stream
                 .take()
@@ -143,45 +144,25 @@ impl<W: Write> GifSequenceWriter<W> {
             .encoder
             .as_mut()
             .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "GIF already finished")))?;
-        // The JDK emits the application extension on every image. Its malformed
-        // CommentExtensions attribute produces no comment (C63).
-        encoder
-            .set_repeat(if self.continuous {
-                gif::Repeat::Infinite
-            } else {
-                gif::Repeat::Finite(1)
-            })
-            .map_err(gif_error)?;
+        if first_frame {
+            encoder
+                .set_repeat(if self.continuous {
+                    gif::Repeat::Infinite
+                } else {
+                    gif::Repeat::Finite(1)
+                })
+                .map_err(gif_error)?;
+        }
         let mut pixels = image.as_raw().clone();
         for pixel in pixels.as_chunks_mut::<4>().0 {
-            if pixel[3] < 255 {
+            if pixel[3] == 0 {
                 *pixel = [0, 0, 0, 0]
-            } else {
-                pixel[3] = 255
             }
         }
         let mut frame = gif::Frame::from_rgba_speed(width, height, &mut pixels, 10);
         frame.delay = self.delay;
         frame.dispose = gif::DisposalMethod::Any;
-        // ImageIO's palette conversion overrides the supplied FALSE flag when
-        // any source alpha is below 255, and reserves transparent index zero.
-        if let Some(index) = frame.transparent {
-            if index != 0 {
-                if let Some(palette) = frame.palette.as_mut() {
-                    for channel in 0..3 {
-                        palette.swap(channel, index as usize * 3 + channel)
-                    }
-                }
-                for pixel in frame.buffer.to_mut() {
-                    if *pixel == index {
-                        *pixel = 0
-                    } else if *pixel == 0 {
-                        *pixel = index
-                    }
-                }
-            }
-            frame.transparent = Some(0);
-        }
+        preserve_transparency(&mut frame, image)?;
         frame.needs_user_input = false;
         encoder.write_frame(&frame).map_err(gif_error)
     }
@@ -199,6 +180,39 @@ impl<W: Write> GifSequenceWriter<W> {
             Ok(stream)
         }
     }
+}
+// A GIF palette has one transparent index. Canonical zero-alpha RGB keeps the
+// source mask together; NeuQuant can still assign opaque colors that same index.
+fn preserve_transparency(frame: &mut gif::Frame<'_>, image: &RgbaFrame) -> VendorResult<()> {
+    let Some(transparent) = frame.transparent else {
+        return Ok(());
+    };
+    let palette = frame
+        .palette
+        .as_deref()
+        .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "Missing GIF palette")))?;
+    for (index, pixel) in frame.buffer.to_mut().iter_mut().zip(image.pixels()) {
+        if pixel[3] == 0 {
+            *index = transparent;
+        } else if *index == transparent {
+            *index = palette
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| *index != usize::from(transparent))
+                .min_by_key(|(_, color)| {
+                    color
+                        .iter()
+                        .zip(&pixel.0[..3])
+                        .map(|(&a, &b)| (i32::from(a) - i32::from(b)).pow(2))
+                        .sum::<i32>()
+                })
+                .map(|(index, _)| index as u8)
+                .ok_or_else(|| VendorError::Other(failure(FailureKind::IllegalState, "Missing opaque GIF color")))?;
+        }
+    }
+    Ok(())
 }
 fn gif_error(error: gif::EncodingError) -> VendorError {
     match error {
@@ -254,12 +268,12 @@ impl FrameTransform {
         if image.dimensions() == (tw as u32, th as u32) {
             return Ok(image);
         }
-        Ok(RgbaImage::from_fn(tw as u32, th as u32, |x, y| {
-            *image.get_pixel(
-                jcompat::report_text::awt_nearest_index(x, image.width(), tw as u32),
-                jcompat::report_text::awt_nearest_index(y, image.height(), th as u32),
-            )
-        }))
+        Ok(imageops::resize(
+            &image,
+            tw as u32,
+            th as u32,
+            imageops::FilterType::Nearest,
+        ))
     }
 }
 #[derive(Clone)]
@@ -433,5 +447,21 @@ impl ScreenCapturer {
             )
             .await
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn opaque_palette_collision_does_not_erase_pixels_d63() {
+        let image = RgbaImage::from_fn(3, 1, |x, _| match x {
+            0 => image::Rgba([70, 80, 90, 0]),
+            1 => image::Rgba([249, 0, 0, 128]),
+            _ => image::Rgba([0, 0, 0, 255]),
+        });
+        let mut frame = gif::Frame::from_palette_pixels(3, 1, [1, 0, 0], [0, 0, 0, 250, 0, 0], Some(0));
+        assert!(preserve_transparency(&mut frame, &image).is_ok());
+        assert_eq!(&*frame.buffer, [0, 1, 1]);
     }
 }

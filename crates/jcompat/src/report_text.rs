@@ -72,13 +72,3 @@ pub fn xml_text(text: &str) -> Result<String, XmlTextError> {
     }
     Ok(out)
 }
-
-/// AWT ScaledBlit nearest-neighbour sampling: the source is walked in 32-bit fixed
-/// point from a truncated half step by a truncated increment, so exact ties round up
-/// on 2→1 but down on 2→3. Matches every map in the JVM `resize-axis-*` rows.
-pub fn awt_nearest_index(destination: u32, source_size: u32, target_size: u32) -> u32 {
-    let scaled = u128::from(source_size) << 32;
-    let increment = scaled / u128::from(target_size);
-    let start = scaled / (2 * u128::from(target_size));
-    ((start + u128::from(destination) * increment) >> 32) as u32
-}

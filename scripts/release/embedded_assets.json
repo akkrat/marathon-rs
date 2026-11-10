@@ -82,37 +82,6 @@
       "licences": [
         "scripts/release/asset-licences/skcms.txt"
       ]
-    },
-    {
-      "component": "sRGB colour profile (sRGB IEC61966-2.1)",
-      "version": "2.1",
-      "spdx": "LicenseRef-HP-sRGB",
-      "status": "redistributable",
-      "decision": "Decided 2026-11-04 by the project owner: stays embedded under HP's terms, and is not marked open-source. The file is unchanged, HP's terms ship in THIRD-PARTY-LICENSES, and HP's name is not used in publicity.",
-      "sha256": "2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e",
-      "source": "Hewlett-Packard, through the resources of adam 0.5.8",
-      "files": [
-        "fixtures/adam/colorProfiles/sRGB.icc"
-      ],
-      "note": "Embedded unchanged.",
-      "licences": [
-        "scripts/release/asset-licences/hp-srgb.txt"
-      ]
-    },
-    {
-      "component": "JDK built-in sRGB profile",
-      "version": "OpenJDK 21.0.10",
-      "spdx": "GPL-2.0-only WITH Classpath-exception-2.0",
-      "status": "open-source",
-      "source": "ICC_Profile.getInstance(ColorSpace.CS_sRGB).getData() on the reference JDK; its tags name Little CMS, whose licence follows",
-      "files": [
-        "fixtures/oracle/adb-request-jdk-srgb.icc"
-      ],
-      "note": "",
-      "licences": [
-        "scripts/release/asset-licences/openjdk-classpath-exception.txt",
-        "scripts/release/asset-licences/lcms.txt"
-      ]
     }
   ]
 }
