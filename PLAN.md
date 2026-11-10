@@ -713,7 +713,6 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 Later candidates:
 
 - `jnum` and `jtime` (numbers and time; their parsers are the input syntax and stay)
-- Serde YAML writer instead of the Jackson YAML emulation.
 - `tracing` instead of logback emulation.
 - Plain async reads instead of Apple polling readers.
 - `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
