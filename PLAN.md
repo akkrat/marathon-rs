@@ -721,6 +721,7 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 | 8.13 | Design: Tokio tasks and cancellation instead of the coroutine emulation (docs/wp/8.13.md) | M | 8.11 |
 | 8.14 | Runtime cleanup: dead coroutine surface, bridge payload, defect fixes (docs/design/tokio-tasks.md §7) | M | 8.13 |
 | 8.15 | Concrete core runtime handles instead of single-implementation traits (docs/design/tokio-tasks.md §7) | M | 8.14 |
+| 8.16 | Plain image handling instead of the ImageIO/AWT emulation (docs/wp/8.16.md) | M | 8.15 |
 | 8.17 | Design: retire the remaining Kotlin coroutine quirks (docs/wp/8.17.md) | M | 8.15 |
 | 8.18 | Remove the unused cancellation tags and disposable completion registrations (docs/wp/8.18.md) | L | 8.17 |
 | 8.19 | Scheduler pool index, plain job storage and sealed completion (docs/design/coroutine-quirks.md) | M | 8.18 |
@@ -728,7 +729,6 @@ Implementer effort is **L**, **M** or **H**; H is used only for concurrency-heav
 Later candidates:
 
 - `jnum` and `jtime` (numbers and time; their parsers are the input syntax and stay)
-- `image`/`gif` instead of ImageIO/AWT and the JDK sRGB profile.
 - Retiring the Kotlin coroutine quirks: design-only WP 8.17; see docs/wp/8.17.md.
 - A YAML library with a small YAML 1.1 scalar layer instead of the SnakeYAML port, last because input risk is highest.
 
