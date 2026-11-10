@@ -743,7 +743,7 @@ class ReleaseTests(unittest.TestCase):
 
     def test_smoke_extracts_for_real_and_reaches_the_cli_check(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(ValueError, 'embedded version mismatch'):
+            with self.assertRaisesRegex(ValueError, 'CLI smoke failed'):
                 r.smoke(self.smoke_archive(Path(tmp)), VERSION)
 
     def test_smoke_refuses_wrong_licence_files(self):
@@ -773,6 +773,31 @@ class ReleaseTests(unittest.TestCase):
                     patch.object(r, functions[command]) as function:
                 r.main()
                 function.assert_called_once()
+
+
+class CliSmokeTests(unittest.TestCase):
+    """The packaged binary's `version` and `--help` are smoke-checked, not compared as text (PLAN §3.12)."""
+    VERSION = '0.13.0-rc.1'
+    STARTUP = '01:23:22.978 INFO marathon_cli::application: Starting marathon v0.13.0-rc.1, CliConfiguration: X\n'
+    HELP = 'Usage: marathon [OPTIONS] [COMMAND]\n\nCommands:\n  version  V\n  parse    P\n  run      R\n'
+
+    def test_version_with_its_startup_line_passes(self):
+        r.check_cli(['version'], self.VERSION, 0, self.STARTUP + self.VERSION + '\n', '')
+
+    def test_help_listing_the_commands_passes(self):
+        r.check_cli(['--help'], self.VERSION, 0, self.HELP, '')
+
+    def test_failures_are_refused(self):
+        for argv, code, out, err in (
+            (['version'], 0, self.STARTUP + '0.12.0\n', ''),
+            (['version'], 0, self.VERSION + '\n', ''),
+            (['version'], 1, self.STARTUP + self.VERSION + '\n', ''),
+            (['version'], 0, self.STARTUP + self.VERSION + '\n', 'warning\n'),
+            (['--help'], 0, 'Usage: marathon\n  run R\n', ''),
+            (['run'], 0, '', ''),
+        ):
+            with self.subTest(argv=argv, out=out), self.assertRaises(ValueError):
+                r.check_cli(argv, self.VERSION, code, out, err)
 
 
 class ThirdPartyLicenseTests(unittest.TestCase):

@@ -112,22 +112,22 @@ def check_archive(z, version):
 
 
 def check_cli(argv, version, returncode, stdout, stderr):
-    rows = [json.loads(line) for line in (ROOT / 'fixtures/oracle/cli-matrix.jsonl').read_text().splitlines()]
-    expected = next((row for row in rows[1:] if row['argv'] == argv and row['program'] == 'marathon'), None)
-    if expected is None:
-        raise ValueError(f'CLI matrix has no marathon row for {argv}')
-    expected = expected.get('rust') or expected
-    out = re.sub(r'^\d{2}:\d{2}:\d{2}\.\d{3}', '<TIME>', stdout, flags=re.M)
+    """A smoke test that the packaged binary runs, not a text comparison: PLAN §3.12 lets log, help and usage
+    wording change (D58, D61, and the log format of WP 8.8), so only what stays fixed is checked."""
+    if returncode != 0 or stderr != '':
+        raise ValueError(f'CLI smoke failed: {argv}: {returncode!r} {stdout!r} {stderr!r}')
+    lines = stdout.splitlines()
     if argv == ['version']:
-        out = out.replace(f'Starting marathon v{version},', 'Starting marathon v<VERSION>,')
-        lines = out.splitlines(keepends=True)
-        if not lines or lines[-1] != version + '\n':
+        if not lines or lines[-1] != version:
             raise ValueError('embedded version mismatch')
-        lines[-1] = '<VERSION>\n'
-        out = ''.join(lines)
-        out = re.sub(r'(VersionCommandCliConfiguration@)[0-9a-f]+', r'\1<HASH>', out)
-    if (returncode, out, stderr) != (expected['exit'], expected['stdout'], expected['stderr']):
-        raise ValueError(f'extracted CLI expectation mismatch: {argv}: {returncode!r} {stdout!r} {stderr!r}')
+        if not any(f'Starting marathon v{version},' in line for line in lines[:-1]):
+            raise ValueError(f'CLI smoke failed: {argv}: no startup line for {version}: {stdout!r}')
+    elif argv == ['--help']:
+        commands = {line.split()[0] for line in lines if line.startswith('  ') and line.split()}
+        if not stdout.startswith('Usage: marathon') or not {'version', 'parse', 'run'} <= commands:
+            raise ValueError(f'CLI smoke failed: {argv}: {stdout!r}')
+    else:
+        raise ValueError(f'no CLI smoke for {argv}')
 
 
 def smoke(archive, version):

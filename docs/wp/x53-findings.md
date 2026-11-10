@@ -78,3 +78,12 @@
 
 No new code defect found in the sampled sites. The missing approval dates and
 pending rc device/farm evidence are the outstanding documentation qualifications.
+
+## GitHub CI since Phase 8
+
+GitHub CI failed on every main commit from WP 8.4 on. Only the local and Linux gates were run before Phase 8's merges, and
+they don't run the release packaging check. `scripts/release/release.py`'s `check_cli` compared the packaged binary's
+`version` and `--help` output with the Kotlin CLI matrix's exact text, which D58 (no identity hash), D61 (clap help) and
+WP 8.8's log format change on purpose. It is now a smoke test of what PLAN §3.12 keeps fixed: exit 0, empty stderr, the
+`Starting marathon v<version>,` line and the version as the last line for `version`, and the three commands for `--help`.
+`scripts/release/test_release.py` has tests for each refusal.
