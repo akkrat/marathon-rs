@@ -1,9 +1,9 @@
 //! Port of adam 0.5.8 `adam/src/main/kotlin/com/malinskiy/adam/log/AdamLogging.kt`.
 //! adam portions: Copyright (C) 2019-2021 Anton Malinskiy; Apache-2.0.
 //!
-//! adam calls `KotlinLogging.logger` itself, not marathon's `LogSettings.logger`, so its loggers get no
-//! level of their own: they inherit through the logback hierarchy (ROOT, or `io.netty`/`io.vertx`). The
-//! level check therefore uses [`LogSettings::effective_level`] without registering the name.
+//! adam calls its own logger factory, not marathon's, so its loggers get no level of
+//! their own: they inherit the root level. The level check therefore uses
+//! [`LogSettings::enabled_target`] on the target alone.
 
 use std::sync::{Arc, Mutex};
 

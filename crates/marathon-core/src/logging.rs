@@ -17,8 +17,8 @@ pub struct LogRecord {
     pub logger: String,
     /// Scheduler time of the call: replay order and timelines.
     pub at_millis: i64,
-    /// Wall time (epoch millis) of the call, as logback stamps the event when it
-    /// is created; the rendered timestamp, however late the output task drains.
+    /// Wall time (epoch millis) of the call, stamped when the record is created;
+    /// replay order uses it however late the output task drains.
     pub wall_millis: i64,
     pub level: Level,
     pub message: String,

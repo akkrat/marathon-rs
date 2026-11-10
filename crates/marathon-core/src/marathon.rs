@@ -29,7 +29,7 @@ use std::{
     sync::Arc,
 };
 
-/// `private val log = LogSettings.logger {}` in Marathon.kt: kotlin-logging drops the `Kt` suffix.
+/// `private val log = LogSettings.logger {}` in Marathon.kt: the Kotlin logger drops the `Kt` suffix.
 pub const LOGGER: &str = "marathon_core::marathon";
 /// `TimingLog.LOGGER_NAME`.
 pub const TIMINGS: &str = "marathon_core::timing";

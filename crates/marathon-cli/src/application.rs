@@ -34,8 +34,8 @@ const D1_LINE: &str = "Crash reporting and usage analytics are not supported by 
 
 /// The run seam for WP 3.10: `marathonStartKoin(configuration, modules)` and `koin.get<Marathon>()`
 /// (`ApplicationView.kt:82-83`). A construction error escapes `execute` (uncaught, exit 1). `logging` and `console` are
-/// the registry and the console the startup lines used: logback has one `ConsoleAppender` on `System.out` and one
-/// Jansi state per process, so the appenders 3.10's `configure` installs write through `console`, as the crash log does.
+/// the registry and the console the startup lines used: there is one console on stdout per
+/// process, so what 3.10's `configure` installs writes through `console`, as the crash log does.
 pub trait CliRunner {
     fn construct(
         &self,

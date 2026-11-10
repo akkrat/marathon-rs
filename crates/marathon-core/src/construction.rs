@@ -134,7 +134,7 @@ pub struct RunInputs {
     pub signal_trigger: Option<Arc<SharedDeferred<i32>>>,
     /// Test seams for the OS relay; the default changes nothing.
     pub signal_hooks: SignalHooks,
-    /// Live runs print each queued record promptly, as logback does, rather than only at the
+    /// Live runs print each queued record promptly, as the console appender does, rather than only at the
     /// core's flush points. Replay and oracle runs keep those points and leave this false.
     pub live_output: bool,
 }

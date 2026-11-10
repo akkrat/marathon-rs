@@ -1,8 +1,10 @@
 # Core lifecycle and interface contract
 
-WP 8.8's [logging design](logging.md) describes the subscriber and writer pilot
-and the planned replacement of the logging sections below. At its milestone-1
-stop, the production logging and output lifecycle described here still applies.
+WP 8.8's [logging design](logging.md) describes production logging: the
+`tracing` subscriber, the per-configurator filter, the non-blocking console
+writer and the shutdown/flush deadlines. It supersedes the registry, layout
+and level mechanics in the sections below; the ownership and queue-order
+rules here still apply.
 
 Frozen by WP 0.6 against Kotlin `e47352f2`. Paths below are relative to
 `core/src/main/kotlin/com/malinskiy/marathon/` unless stated otherwise.
@@ -330,23 +332,23 @@ Tracker callbacks themselves can write to Graphite (`GraphiteTracker.trackTest`
 → `BasicGraphiteClient.SocketSender`), so the frozen Tracker methods are async.
 Await delegate side effects sequentially before processing the next event.
 
-`VendorDependencies.logging` is the per-run `Arc<Mutex<MarathonLogging>>`
-registry, also reachable through RunDependencies.vendor. Device loggers come
-from that registry. `LogConfigurator::configure(debug, logging)` sets the
-registry's debug flag **before** replacing/configuring appenders, matching
-`Marathon.kt:67–68`. Registry locks are short, never held across await, and
-registry mutation/configuration runs off core so core never blocks on the
-vendor-held mutex. Configure completes before the run starts.
+`VendorDependencies.logging` is the per-run `Arc<Mutex<LogSettings>>`
+(`marathon-logging`), also reachable through RunDependencies.vendor. Device
+loggers (`Component` handles) come from it. `configure_logging` sets the
+debug flag **before** the vendor configurator runs, matching
+`Marathon.kt:67–68`; the configurator then installs its filter through
+`LogSettings::configure`, which also reloads the CLI subscriber. Registry
+locks are short, never held across await, and registry
+mutation/configuration runs off core so core never blocks on the vendor-held
+mutex. Configure completes before the run starts.
 
 The console is per process too (WP 2.5 R1): `CliRunner::construct` receives
-the registry and the `Arc<Console>` (stdout sink plus the console appender's
-Jansi state) that the startup lines used. The appenders that `configure`
-installs write through that console, and so does the crash log after `run`
-fails, so the Jansi state carries across startup, run and crash output, as
-logback's single `ConsoleAppender` does. `Console::write_event` holds the
-Jansi state lock while it writes, so concurrent writers keep the parser's
-order. It is a blocking `std::sync` writer: only the off-core output task or
-the `main` thread may call it, never core.
+the registry and the `Arc<Console>` (the shared stdout queue writer) that the
+startup lines used. What `configure` installs writes through that console,
+and so does the crash log after `run` fails. One writer thread owns all
+stdout writes, so raw and formatted bytes never interleave mid-record.
+Enqueueing never blocks: only the writer thread may block on the sink, never
+core (see [logging.md](logging.md) for the queue bound and exit deadlines).
 ### Core log records (WP 3.6, frozen for 3.7/3.8)
 
 Core actors log the way Kotlin's `logger.<level>(cause) { message }` calls do,
@@ -356,10 +358,10 @@ but core may neither do I/O nor take the registry lock. They therefore append a
 
 | field | meaning |
 |---|---|
-| `logger: String` | the Kotlin logger name, e.g. `DevicePool[<pool>]_DeviceActor[<serial>]` |
+| `logger: String` | the diagnostic logger name, e.g. `DevicePool[<pool>]_DeviceActor[<serial>]`; the event target derives from it (see logging.md) |
 | `at_millis: i64` | scheduler time of the call: replay order and timelines only |
-| `wall_millis: i64` | wall time (epoch ms) when the record is created, as logback stamps an event; the rendered timestamp |
-| `level: jcompat::logging::Level` | as called; the registry decides whether it is enabled |
+| `wall_millis: i64` | wall time (epoch ms) when the record is created; replay order only — the rendered stamp comes from the subscriber's clock at drain time |
+| `level: marathon_logging::Level` | as called; the configurator filter decides whether it is enabled |
 | `message: String` | already interpolated (core's lazy message lambdas have no side effects) |
 | `cause: Option<Failure>` | the throwable, rendered as `Failure::stack_trace()` (§3.10 frames) |
 
@@ -373,14 +375,13 @@ into the ordered record list, so no sent record is skipped or reordered.
 The run's output task (3.10) drains them through the same `OutputDriver`
 (`OutputDriver::flush`) that pool progress uses, never `LogQueue::take`: the
 queue also holds ordered `Raw` output records, which `take` would leave behind.
-The console sink renders with `LogRecord::render` semantics (jcompat layout;
-the renderer supplies the thread name and the zone offset). For already
-registered loggers, including `Timings`, `MetricsProviderImpl`,
-`NoOpMetricsProvider` and `MetricsProviderFactory`, reuse the registered handle
-or resolve with `MarathonLogging::slf4j_logger(name)`. Never recreate them with
-`logger(name, None)`: that resets their INFO/DEBUG levels to ERROR after
-`configure(false)`, suppressing analytics output. Only previously unregistered
-names are created once with `MarathonLogging::logger(name, None)`.
+The console sink emits each record as a `tracing` event through the CLI
+subscriber (`LogRecord::emit`); the subscriber's timer supplies the stamp.
+Levels are not state on a logger handle: the per-configurator filter in
+`marathon-logging` decides from the event target alone, with specific-target
+exceptions (timings at INFO, the analytics factory/provider at DEBUG, ADB at
+DEBUG, and the rest listed in [logging.md](logging.md)). Creating a
+`Component` never changes any level.
 The wall clock is the host's (a clock read, not I/O); `LogQueue::set_wall_clock`
 replaces it, e.g. for replay. Send vendor-side owners that build records
 themselves (`TestRunResultsAccumulator`) take the same source as a
@@ -568,13 +569,13 @@ joining the pump to catch a batch taken after its last flush. Replay, oracle and
 test-support factory by default) start no pump and keep their flush points and bytes.
 
 `ConsoleSink::write` receives an owned batch off core. The CLI's additive
-`RunConsoleSink` uses the same `Arc<Console>` and logging registry as startup:
-raw text takes the Console text path with JVM UTF-8 replacement, and logs take
-`write_event`, retaining startup Jansi state. The sink resolves/caches Kotlin
-logger names and consults the current registry configuration per event. Stdout
+`RunConsoleSink` uses the same `Arc<Console>` as startup: raw text takes the
+Console text path with JVM UTF-8 replacement, and logs are emitted through
+the subscriber installed for the process (or a test dispatch). The
+subscriber's current filter decides per event. Stdout
 write/flush errors are swallowed as PrintStream does. Actual vendor task errors
-and tracker exceptions propagate. WP 3.10 constructs this adapter and supplies
-the local-zone-offset function; it must await final output draining.
+and tracker exceptions propagate. WP 3.10 constructs this adapter; it must
+await final output draining.
 
 Pool progress callbacks are serial owners. `test_ended` awaits raw output,
 stores the FSM transition, flushes any diagnostic, then awaits `Tracker::test`

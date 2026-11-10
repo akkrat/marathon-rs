@@ -1,154 +1,200 @@
-# Logging after WP 8.8
+# Logging (WP 8.8)
 
-Milestone 1 is a design stop. `cargo run -p marathon-cli --example tracing_pilot
--- version` exercises the real `run_cli` with `CliOutput::traced`; `run` also
-exercises missing/configuration/construction errors. The new subscriber tests
-include a real ADB rejection emitted from another thread. Production startup,
-existing constructors and differential adapters stay on their current path
-until review. No existing expectations, copied fixtures, parity rows or goldens
-change at this stop.
+Diagnostics are `tracing` events. §3.12.5 pins only the per-test progress
+lines and the end-of-run summary block; every other line uses the native
+format below and may change again under the same clause. There is no
+emulation left: `jcompat::logging` is deleted, no code abbreviates logger
+names, parses ANSI, fakes threads, or keeps per-logger mutable levels.
 
-## Subscriber and directives
+## Owners
 
-One `Registry` has a reloadable `Targets` filter and one `fmt` layer. Libraries
-emit events; the CLI owns the subscriber and writer guard. The pilot explicitly
-passes a `Dispatch` into CLI/ADB. Milestone 2 installs the same dispatch process
-wide before construction, so core/vendor tasks cannot lose a thread-local
-subscriber. The pilot reloads after configuration parsing; production reload
-belongs at the existing vendor configure-logging boundary, off core, after
-construction. No new flags or RUST_LOG overrides. Stable dependencies are
-`tracing` 0.1.44 and `tracing-subscriber` 0.3.23, verified against crates.io.
-
-`ordinary` below expands to `marathon_cli`, `marathon_core`, `marathon_config`,
-`marathon_android`, `marathon_apple`, `marathon_ios`, `marathon_macos`,
-`marathon_analytics`, `marathon_dex`, `marathon_test_support`.
-
-| Configurator | debug=false | debug=true | Format |
-|---|---|---|---|
-| Startup, before config | ordinary=debug | ordinary=debug | With time |
-| Android | ordinary=error | ordinary=debug | With time |
-| Apple, compactOutput=false | ordinary=error | ordinary=debug | With time |
-| Apple, compactOutput=true | ordinary=error | ordinary=debug | Without time |
-
-More specific directives apply in every configuration:
-
-| Target | Level | Existing decision |
+| Piece | Owner | Role |
 |---|---|---|
-| default / dependencies | error | Dependency noise suppressed; Netty/Vert.x are absent |
-| `marathon_cli::application` | debug | Startup logger stays enabled |
-| `marathon_adb` | debug | Adam inherits DEBUG ROOT; configure does not reset it |
-| `marathon_core::analytics::{factory,provider,noop}` | debug | Metrics loggers constructed before configure keep DEBUG |
-| `marathon_core::timing`, `marathon_ios::device::timing` | info | Timings visible with debug=false |
-| `marathon_apple::xcodebuild_stderr` | warn | Nonblank xcodebuild stderr remains visible |
-| `marathon_core::reporters::timeline` | debug; Apple overrides to error | Apple silences timeline |
-| `marathon_apple::cmd::remote::ssh::sshj::wire` | debug | Additionally gated by existing ssh.debug |
+| `Level`, `Component`, `LogSettings`, `Vendor`, `filter()`, `emit()` | `marathon-logging` | The filter and the bridge from owned records to `tracing` events. No I/O. |
+| `LogQueue`, `LogRecord`, `LateOutput` | `marathon-core::logging` | Core's non-blocking record queue: call order, scheduler/wall stamps for replay, raw+log single order. |
+| `TracingOutput`, `QueueWriter`, `RawWriter` | `marathon-cli::tracing_output` | The only subscriber and the only stdout writer. Two fmt layers (regular/compact) over one queue writer. |
+| `Console`, `CliOutput` | `marathon-cli::application` | Shared console for startup, run and crash output; wires `LogSettings::configure` to the subscriber reload. |
 
-Apple's other five suppression names are absent sshj implementation classes;
-do not invent Java-name targets. The russh `log` bridge must retain its ssh.debug
-forwarding gate without installing a second subscriber/dependency. HTTP debug
-gates stay at their call sites. As modules migrate, audit construction-time
-registrations and give deliberately retained exceptions specific targets;
-do not widen a crate to make quiet-mode tests pass. The pilot migrates CLI
-events and ADB's backend, leaving other call sites and queues for milestones 2/3.
+Libraries never install a subscriber, never format, and never write to a
+terminal. Core actors append owned `LogRecord`s to the per-run queue (core
+may do no I/O and takes no registry lock); vendor code logs through
+`Component` handles and service-log closures into the same queue. Targets
+are Rust module paths: `LogSettings::component` derives the target from the
+caller's file (`#[track_caller]`), so a component created in
+`crates/marathon-ios/src/device/simulator_provider.rs` is
+`marathon_ios::device::simulator_provider`. At the console sink each record
+becomes one `tracing` event via `marathon_logging::emit`, which caches one
+static callsite per (target, level) — dynamic core targets therefore have
+stable `Metadata`, working reloads, and zero per-event registry lookup.
+Call sites that already run off core (the ADB client adapter, the CLI) may
+use `tracing` macros directly against the same filter.
 
-## Lines and pinned bytes
+## Format
 
-Ordinary lines are `HH:mm:ss.SSS LEVEL rust_module: message key=value\n`.
-Time is local wall time; the injected clock must do no blocking I/O on core.
-Levels are full and unpadded. Compact Apple output omits time. Only the level
-gets ANSI colour on a terminal; redirected output has no formatter-generated
-escapes. Two real events, with a fixed clock:
+Regular (local `HH:mm:ss.SSS` from the subscriber's clock):
 
 ```text
-before: 12:34:56.789 [main] INFO  c.m.marathon.cli.ApplicationView - Checking Marathonfile config
-after:  12:34:56.789 INFO marathon_cli::application: Checking Marathonfile config
-
-before: W 12:34:56.789 [main] <com.malinskiy.adam.request.Request> adb server rejected command 000Chost:version
-after:  12:34:56.789 WARN marathon_adb::client::log: adb server rejected command 000Chost:version
+13:24:21.123 INFO marathon_cli::application: Starting marathon v0.10.1, CliConfiguration: ...
+13:24:22.456 ERROR marathon_core::execution::queue_actor: Message: ...
 ```
 
-Both after-events run in the pilot tests. The first before-event is pinned in
-`marathon-cli/tests/run_outcome.rs`; the second uses Adam's existing request
-message and runtime layout. In the wider port macros move to their producing
-modules; the pilot ADB adapter uses its own Rust module target, `client::log`.
+Compact (`apple.configuration.compactOutput`): no timestamp.
 
-`PoolProgressAccumulator::{line,started,ended}` in
-`marathon-core/src/execution/progress.rs` retains the percentage formatter,
-test names and status strings, then calls `LogQueue::raw`. CI uses that raw path.
-`StdoutReporter::generate` in `marathon-core/src/report/reporters.rs` builds the
-whole summary, including `Marathon run finished:`, pool headings, indentation,
-failure lists, overhead, `\tRaw: ...`, `Total time` and final blank line, then
-sends one `OutputRecord::Raw`. These generators/formatters stay unchanged.
+```text
+INFO marathon_core::timing: Device provider initialized in 0 ms (+0 ms since start)
+```
 
-Raw bytes bypass tracing, filters, colour and timestamps. Both raw records and
-formatted events enter the same FIFO writer as complete buffers; do not detect
-pinned output by matching log messages. Existing
-`progress_oracle::{progress_line_contract_for_each_status,started_ci_passes_fraction_and_prints_after_ci}`
-and `reporters::stdout_summary_contract` retain their expectations. The pilot
-sandwiches raw progress/summary bytes between coloured events and checks order.
+`tracing-subscriber`'s fmt layer owns color: ANSI on a terminal, plain when
+redirected. Marathon code contains no ANSI parser and no stream-state
+machine. Continuation lines of a message or stack trace keep their exact
+bytes and whitespace; a stack trace gets the same `\tat frame` prefix rule
+the Kotlin layout had (external frames in crash output keep theirs).
 
-## Non-blocking output and exit
+Raw output (progress, summary, test lists, YAML, exception text, worker
+output forwarding) goes through `RawWriter` to the same `QueueWriter`, so a
+formatted record and the raw bytes around it never interleave. Lossy UTF-8
+replacement for worker output and post-progress summary flushing are
+unchanged.
 
-`QueueWriter` sends owned buffers to an unbounded std channel. One dedicated
-thread writes and flushes them. Producers do no sink I/O or queue-capacity wait.
-A bounded appender would drop lines or block when full, so the pilot uses this
-small writer rather than tracing-appender. Its blocked-sink test enqueues
-200,000 writes, releases the sink and verifies every line. A persistently blocked
-sink can grow memory without limit.
+## Filter
 
-On success and errors, stop/join producers, then call `OutputGuard::shutdown`
-on the CLI thread before returning the requested exit code. Finish drains the
-queue, flushes and joins, returning the first sink error. Drop is an early-return
-fallback; never own the guard on core. The executable pilot explicitly shuts
-down on every run_cli outcome, and tests cover success and configuration error.
+`marathon_logging::filter(vendor, debug)` is the single decision, used both
+by `LogSettings::enabled` (laziness fences) and by the subscriber's reload
+layer (rendering). The vendor configurator installs it through
+`LogSettings::configure(debug, vendor)` after `configure_logging` sets the
+debug flag. Decisions, pinned by one `marathon-logging` unit test per row
+plus `configurators_preserve_levels_and_compact_output` in
+`marathon-cli/tests/tracing_output.rs`:
 
-Today ProductionRunner supplies `process::exit`: the first-signal hook flushes
-OutputDriver before calling it, and the second-signal listener calls it directly.
-Both skip destructors. Milestone 2 replaces this closure with
-`exit_after_flush(status)`: enqueue an exit barrier without waiting on core;
-the writer drains earlier buffers, flushes and exits with that status. The
-subprocess pilot proves exit 130, the final raw summary, and continued processing
-of exit requests after sink errors. Events after a barrier are outside its
-guarantee; OS-rejected bytes cannot be recovered.
+| Configurator | debug=false | debug=true | Why |
+|---|---|---|---|
+| Startup (before config) | `marathon_*=debug`, other=`error`, timeline=`debug` | same | Before the Marathonfile is read only the startup logger exists and the root level is DEBUG; unrelated dependencies stay at `error`. |
+| Android | `marathon_*=error`, other=`error`, timeline=`debug` | `marathon_*=debug`, other=`error`, timeline=`debug` | The ordinary level is chosen at `debug` and absolute; nothing sets it later. |
+| Apple, regular output | `marathon_*=error`, other=`error`, timeline=`error` | `marathon_*=debug`, other=`error`, timeline=`debug` | Only the `Timeline` suppression of the six Kotlin suppressions has a Rust target; the five sshj class names do not. |
+| Apple, compact output | `marathon_*=error`, other=`error`, timeline=`error` | `marathon_*=debug`, other=`error`, timeline=`error` | The compact branch explicitly disables `Timeline`. |
 
-A sink that never accepts a write cannot finish draining. Production integration
-still needs an off-core deadline/fallback preserving D52's second-signal
-emergency exit and existing cancellation deadlines, tested with a blocked sink.
-This is an explicit design-review risk; production signals are not switched here.
+Specific-target exceptions in every row: `marathon_cli::application=debug`
+(the startup logger, never widened to the crate), `marathon_adb=debug` (it
+inherits the root level, which no configurator resets),
+`marathon_core::analytics::factory=debug`,
+`marathon_core::analytics::provider=debug`,
+`marathon_core::analytics::noop=debug` (the analytics loggers, whose WARN
+diagnostics therefore print with debug off, as before),
+`marathon_core::timing=info`, `marathon_ios::device::timing=info`,
+`marathon_apple::xcodebuild_stderr=warn`,
+`marathon_ios::xcresult::timeline` per the table, and
+`marathon_apple::cmd::remote::ssh::sshj::wire=debug` gated additionally by
+`ssh.debug` on the `Component` (DEBUG only with ssh debug on; WARN/ERROR
+always). iOS provisioning timing records are emitted on
+`marathon_core::timing` today; the `marathon_ios::device::timing` directive
+is kept for that module's own records.
 
-## Files, goldens and tests
+Two registry details matter:
 
-No diagnostic file appender exists. Redirected stdout records the new diagnostic
-format alongside unchanged raw text. TimingLog is console-only; timing data in
-reports retains its encoders. `FileLogWriter`/`LogListener` in
-`marathon-core/src/artifacts.rs` write raw log attachments: Android selects
-`logcat`, iOS selects `xcodebuild-log`. XcodebuildStderrLog separately warns on
-the console; preserve the original listener lines. The iOS device-log listener
-runs `log stream --color none --style compact` into remote `device.log` and
-pulls it verbatim. Command-session stdout/stderr, embedded logcat HTML and failure
-stack traces remain external/result data, outside diagnostic formatting.
-Preserve file names, bytes and newline handling.
+- `LogSettings::enabled_target` with no vendor configured yet
+  (`Vendor::Startup`) honours the `debug` flag for the ordinary level:
+  `configure_logging` sets `debug` before the vendor configurator runs, and
+  a configurator may be inert (the test mock), so the flag alone decides
+  until `configure` installs a vendor. The subscriber's Startup filter is
+  only ever installed with `debug=true`, before the Marathonfile is read.
+- `LogSettings::set_level` / `component_with_level` pin one target ahead of
+  the filter. Production code never calls them; test harnesses use them to
+  capture one component's records while the rest of a run stays at its
+  configured level (the old explicit per-logger registrations in tests).
 
-After migration, build the YAML helper, re-bless only through
-`tools/differential/run bless` following its README, then run
-`tools/differential/run diff-golden --against a830d106`. Record changed
-views/files in `docs/wp/8.8-golden-diff.md`; prove the ordered progress stream
-and complete summary byte-identical, and result data/worker commands unchanged.
-In vendor_console.py normalize only the time token on a complete new-format
-prefix (`HH:mm:ss.SSS LEVEL marathon_<crate>::<module>:`). Keep level, target,
-message, fields and continuation lines exact; compact events have no time.
-Never apply this rule to raw output. Keep historical prefix handling. Adversarial
-tests must reject changed/missing/duplicated/reordered pinned lines and unblessed
-ordinary changes; only the deliberately updated view accepts a changed ordinary
-line. Existing wall-seam tape keys remain copied bytes; final code stops reading
-`library.logback.wall`.
+## Queue bound
 
-The [test inventory](../wp/8.8-test-changes.md) counts 60 existing log/console-text
-assertion files plus one new file with eight pilot tests. Existing assertions
-stay unchanged. Later, prefer structured diagnostic assertions; preserve raw
-progress/summary and result assertions, and list every changed test file there.
-Deleted parity tests require `n/a`, reason `8.8: §3.12.5`, and reviewer agreement.
-Run the workspace gate per milestone. Later integration tests cover actual
-SIGINT/SIGTERM, construction/report shutdown, second signal with a blocked sink,
-late vendor events, and one process subscriber across core/vendor runtimes.
-This stop does not remove emulation or claim full WP 8.8 acceptance.
+Finding (old code, `a830d106`): the core queue was **unbounded and
+non-blocking**. `LogQueue` pushed into a crossbeam `SegQueue` and an ordered
+`Vec`; `LateOutput` used an unbounded `std::sync::mpsc` channel to its
+forwarder. The output task drained in batches and never back-pressured a
+producer; a stalled sink grew memory, and only the exit deadlines bounded
+shutdown.
+
+The new writer keeps exactly that property: `QueueWriter` sends each
+formatted chunk over an unbounded `std::sync::mpsc` channel to one writer
+thread. `write` never waits for the sink, so core and vendor producers can
+never block on a full pipe. The trade-off is the same as before: memory is
+unbounded while a sink stalls. `tracing-appender` is therefore not used —
+its bounded worker (lossy or blocking) would change this property, and one
+writer must serve raw and formatted output anyway. New direct dependencies
+are only `tracing` and `tracing-subscriber`.
+
+## Shutdown, signals, late events
+
+The production signal path (`ProductionRunner` in
+`marathon-cli/src/runner.rs`, `Console` drop in `application.rs`) keeps
+D52's behaviour:
+
+- **First signal:** cancel and write what can be written (reports, then the
+  summary), bounded by the existing cancel limit. The exit path runs off
+  core: `exit_after_preparing` does the final queue forwarding on the
+  `marathon-exit-output` thread and a `marathon-exit` watchdog thread exits
+  the process after one second if the flush has not drained — a blocked
+  stdout (full pipe, stopped reader) cannot hang exit. Dropping the
+  `Console` on the ordinary path flushes with the same one-second deadline.
+  After the deadline the process exits anyway.
+- **Second signal:** `SignalHooks.immediate_exit` is `std::process::exit`
+  with the second signal's status (130/143). It does not wait for cleanup,
+  reports, the writer thread, or the flush deadline.
+- **Late vendor events:** vendor tasks that outlive the run task push
+  through `LogSender`/`LateOutput`. `LateOutput::close` is a fence:
+  everything pushed before it is forwarded to the console sink in order
+  before `close` returns, and records pushed after the fence are forwarded
+  by the same forwarder task while it lives. Once the console writer itself
+  has closed, a write fails explicitly with `BrokenPipe` and is counted in
+  `OutputStats.rejected` — never a panic, and never a silent success.
+  Nothing in any of these paths blocks the core thread.
+
+Tests: `shutdown_reports.rs::a_cancel_mid_test_writes_the_reports_and_does_not_bounce_the_test_d52_u161`
+(a real SIGTERM/SIGINT through the built binary; the summary block is in
+stdout), `signal_windows.rs::a_second_signal_exits_at_once_during_a_blocked_sink`
+and `a_stuck_console_does_not_hold_a_cancel_d52` (blocked sink, first vs
+second signal), `log_queue_output.rs::late_output_forwards_records_pushed_before_and_after_the_close_fence`,
+`tracing_output.rs::writes_after_close_are_rejected_not_lost_silently`,
+`blocked_sink_does_not_block_producers_or_shutdown` and
+`cancellation_flushes_before_exit_and_blocked_sink_obeys_deadline`.
+
+## Construction-time level audit
+
+The old registry froze a level on each logger at its first lookup
+(DEBUG while `debug` was still its default `true`); a later
+`configure(false)` never revisited it (C18). Every logger created during
+construction therefore kept DEBUG in a `debug: false` run. The audit of the
+old construction sites, per crate, and the new treatment:
+
+| Crate | Construction-time loggers (old kept level DEBUG) | Now |
+|---|---|---|
+| `marathon-cli` | the `ApplicationView` startup logger, created before config | Retained: `marathon_cli::application=debug` (specific target, not the crate). |
+| `marathon-core` | `FileManager`, `BillingReporter`, `TrackerFactory` (`registry_logger` in `construction.rs`), reporter constructors | Ordinary level. |
+| `marathon-core` (analytics) | `MetricsProviderFactory`, `MetricsProviderImpl`, `NoOpMetricsProvider` (registered in `analytics/`) | Retained: factory/provider/noop targets at `debug`. |
+| `marathon-core` | `Timings` (explicit INFO on first use, not construction) | Retained: `marathon_core::timing=info`. |
+| `marathon-adb` | adam's loggers (never registered; inherited ROOT) | Retained: `marathon_adb=debug`. |
+| `marathon-android` | `AdamDeviceProvider` (provider `new` in services construction), `AmInstrumentTestParser` (Kotlin constructs it before debug is set) | Ordinary level. |
+| `marathon-apple` | loggers created during services construction; sshj loggers are created per lookup at run time | Ordinary level; the wire keeps its `ssh.debug` gate; `xcodebuild` stderr keeps its explicit WARN as `marathon_apple::xcodebuild_stderr=warn`; of the six Apple ERROR suppressions only `Timeline` maps (`marathon_ios::xcresult::timeline`), the sshj class names have no Rust target and are dropped. |
+| `marathon-ios` | `AppleSimulatorProvider`/`provisioner` (constructed in `ios_vendor::construct`) | Ordinary level (test harnesses pin these targets with `set_level` to capture their records). |
+| `marathon-macos` | `AppleMacosProvider` (constructed in `vendor::construct`) | Ordinary level. |
+| `marathon-analytics` | no loggers of its own at construction (records flow through core analytics) | — |
+| `marathon-test-support` | `StubDevice` (inherited ROOT) | Ordinary level; test-only. |
+
+"Ordinary level" is the per-configurator `marathon_*` level from the table
+above — the level a logger created after `configure` always had. The level
+a run gets no longer depends on whether a handle happened to be created
+before configuration, and recreating a `Component` can never change it.
+
+## What is gone
+
+- `jcompat::logging` (layout, `%logger{N}` abbreviation, Jansi handling of
+  event text, mutable per-logger levels and laziness side effects) and its
+  oracle tests. C18, C20 and C24 in `docs/known-kotlin-bugs.md` are
+  superseded.
+- The `library.logback.wall` scenario-tape read: production stamps come from
+  the subscriber's clock; no Rust code reads that key. (The key still
+  exists in the frozen JVM oracle hooks under `tools/oracle`, which replay
+  historical captures.)
+- The thread column: records keep only scheduler/wall stamps internally
+  for replay; no fake thread names are rendered.
+
+The observed formats are pinned by `marathon-cli/tests/tracing_output.rs`
+and `cli_matrix.rs`; the contract bytes by the differential goldens
+(`docs/wp/8.8-golden-diff.md`).
