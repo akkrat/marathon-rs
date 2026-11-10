@@ -233,17 +233,15 @@ impl ActorHandler<Test> for ReceiveOnlyHandler {
 
 // R1-sol-1 / R1-wonder-1: handlers install own-job completion bookkeeping
 // before the first message; children and delay observe their own execution job.
-pub struct ContextHandler {
-    completion: Option<Box<dyn CompletionRegistration>>,
-}
+pub struct ContextHandler;
 impl ActorHandler<Test> for ContextHandler {
     fn started(&mut self, context: ActorContext<Test>) {
         let actor = Rc::downgrade(&context.actor);
-        self.completion = Some(context.task.job.invoke_on_completion(Box::new(move |_| {
+        context.task.job.invoke_on_completion(Box::new(move |_| {
             if let Some(actor) = actor.upgrade() {
                 actor.close();
             }
-        })));
+        }));
     }
     fn receive(&mut self, _message: Test, context: ActorContext<Test>) -> LocalFuture<'_, OperationResult<()>> {
         Box::pin(async move {

@@ -71,9 +71,6 @@ pub enum Completion {
     Cancelled(Cancellation),
     Failed(Failure),
 }
-pub trait CompletionRegistration {
-    fn dispose(&self);
-}
 /// Thread-safe cancellation observation for a vendor task. Requesting cancellation
 /// is owned by its Job; this handle does not grant the vendor parent ownership.
 pub trait CancellationSignal: Send + Sync {

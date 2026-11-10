@@ -165,22 +165,22 @@ fn cancellation_waits_for_body_cleanup_and_children() {
     });
 }
 #[test]
-fn completion_callbacks_are_once_late_and_disposable() {
+fn completion_callbacks_are_once_and_late_d64() {
     run(|core, _| {
         Box::pin(async move {
             let job = core.job(JobKind::Ordinary, None);
             let seen = Rc::new(RefCell::new(Vec::new()));
             let first = seen.clone();
             job.invoke_on_completion(Box::new(move |_| first.borrow_mut().push(1)));
-            let removed = seen.clone();
-            let registration = job.invoke_on_completion(Box::new(move |_| removed.borrow_mut().push(2)));
-            registration.dispose();
+            let second = seen.clone();
+            job.invoke_on_completion(Box::new(move |_| second.borrow_mut().push(2)));
             job.complete();
+            assert_eq!(*seen.borrow(), [1, 2]);
             job.cancel(cancelled("late"));
             job.complete();
             let late = seen.clone();
             job.invoke_on_completion(Box::new(move |_| late.borrow_mut().push(3)));
-            assert_eq!(*seen.borrow(), [1, 3]);
+            assert_eq!(*seen.borrow(), [1, 2, 3]);
             Ok(())
         })
     });

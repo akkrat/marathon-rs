@@ -17,19 +17,6 @@ pub(crate) type FailureHandler = Box<dyn FnOnce(Failure)>;
 struct Registration {
     callback: RefCell<Option<Callback>>,
 }
-struct RegistrationHandle {
-    registration: Rc<Registration>,
-    owner: Weak<RuntimeJob>,
-    node: Weak<Node>,
-}
-impl CompletionRegistration for RegistrationHandle {
-    fn dispose(&self) {
-        self.registration.callback.borrow_mut().take();
-        if let (Some(owner), Some(node)) = (self.owner.upgrade(), self.node.upgrade()) {
-            owner.remove_node(&node);
-        }
-    }
-}
 struct Node {
     job: Option<Rc<RuntimeJob>>,
     next: RefCell<Option<Rc<Node>>>,
@@ -348,7 +335,7 @@ impl RuntimeJob {
         }
     }
     /// Appends a registration, or returns the completion if the job has completed.
-    fn register(&self, callback: Callback) -> (RegistrationHandle, Option<Completion>) {
+    fn register(&self, callback: Callback) -> (Rc<Registration>, Option<Completion>) {
         let registration = Rc::new(Registration {
             callback: RefCell::new(Some(callback)),
         });
@@ -366,14 +353,9 @@ impl RuntimeJob {
             }
         };
         if completion.is_none() {
-            self.append(node.clone());
+            self.append(node);
         }
-        let handle = RegistrationHandle {
-            registration,
-            owner: self.myself.clone(),
-            node: Rc::downgrade(&node),
-        };
-        (handle, completion)
+        (registration, completion)
     }
     pub(crate) fn reports_failure(&self) -> bool {
         // JobImpl freezes exception ownership on attachment; completed parents
@@ -473,11 +455,12 @@ impl RuntimeJob {
             Ok(())
         })
     }
-    pub fn invoke_on_completion(&self, callback: Box<dyn FnOnce(Completion)>) -> Box<dyn CompletionRegistration> {
-        let (handle, completion) = self.register(Callback::User(callback));
+    /// Retains the callback until exactly-once completion, or invokes it immediately
+    /// if already complete. Registrations cannot be withdrawn (D64).
+    pub fn invoke_on_completion(&self, callback: Box<dyn FnOnce(Completion)>) {
+        let (registration, completion) = self.register(Callback::User(callback));
         if let Some(completion) = completion {
-            cascade(Step::Callback(handle.registration.clone(), completion));
+            cascade(Step::Callback(registration, completion));
         }
-        Box::new(handle)
     }
 }

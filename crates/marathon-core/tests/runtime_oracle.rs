@@ -351,7 +351,7 @@ fn vendor_signed_edges_match_same_jvm_corpus() {
 }
 #[test]
 fn structured_coroutines_corpus_matches_runtime() {
-    let actual = CoreExecutor::run_virtual(|core, driver| {
+    let mut actual = CoreExecutor::run_virtual(|core, driver| {
         Box::pin(async move {
             let mut rows = BTreeMap::new();
             let parent = core.job(JobKind::Supervisor, None);
@@ -407,10 +407,7 @@ fn structured_coroutines_corpus_matches_runtime() {
             let seen = Rc::new(std::cell::RefCell::new(Vec::new()));
             for n in [1, 2] {
                 let out = seen.clone();
-                let registration = job.invoke_on_completion(Box::new(move |_| out.borrow_mut().push(n)));
-                if n == 2 {
-                    registration.dispose();
-                }
+                job.invoke_on_completion(Box::new(move |_| out.borrow_mut().push(n)));
             }
             job.complete();
             let out = seen.clone();
@@ -512,7 +509,7 @@ fn structured_coroutines_corpus_matches_runtime() {
         })
     })
     .unwrap();
-    let expected: BTreeMap<String, String> =
+    let mut expected: BTreeMap<String, String> =
         include_str!("../../../fixtures/oracle/runtime/coroutines-1.8.1-structured.jsonl")
             .lines()
             .map(|line| {
@@ -523,6 +520,10 @@ fn structured_coroutines_corpus_matches_runtime() {
                 )
             })
             .collect();
+    // D64 retires disposal only; keep the immutable JVM row as historical evidence
+    // and compare every other structured coroutine row without an allowance.
+    assert_eq!(expected.remove("job:callback-order").as_deref(), Some("1,3"));
+    assert_eq!(actual.remove("job:callback-order").as_deref(), Some("1,2,3"));
     assert_eq!(actual, expected);
 }
 #[test]

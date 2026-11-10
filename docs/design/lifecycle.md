@@ -43,8 +43,9 @@ owner job's task context and runs once during construction,
 before any handler dispatch, so DeviceActor can install its own-job completion
 callback even when cancellation prevents the first message from running
 (`DeviceActor.kt:111–117`). Registering on an already-completed job immediately
-observes its completion. Retain completion registrations until disposal; do
-not capture a strong actor self-handle in a callback owned by its own job.
+observes its completion. WP 8.18 / D64 retains callbacks until completion;
+registrations cannot be withdrawn. Do not capture a strong actor self-handle in
+a callback owned by its own job.
 The runtime retains actor bookkeeping through completion, then releases the
 handler/context to avoid reference cycles. Actor constructors are in-crate
 WP 3.1 work, with explicit parent/runtime/clock/handler arguments.
@@ -142,8 +143,11 @@ cancellation reason through its explicit `cancellation_signal`. A cancellable
 observed-child traversal, `join_observed_children_in(caller)` (WP 3.6 carried
 item C3), races the protected traversal with
 that same explicit signal. Completion callbacks run exactly once,
-also when registered after completion. Callback registration returns a
-removable registration. Callbacks mutate core state on core; an I/O thread
+also when registered after completion, with late registration invoked immediately.
+WP 8.18 / D64 removes the public `CompletionRegistration` API and its handles;
+`invoke_on_completion` returns no handle and callbacks cannot be withdrawn.
+DeviceActor retains its weak capture and accounting-before-Terminated order.
+Callbacks mutate core state on core; an I/O thread
 may only enqueue a wakeup. Normal completion of an ordinary stand-alone Job
 requires explicit completion; finishing its children alone does not complete
 it. A body returning cancellation signals its own job and cancels its children,

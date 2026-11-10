@@ -83,7 +83,6 @@ struct Shared {
     /// actor job, never under the task that happens to run the transition.
     owner: RefCell<Option<TaskContext>>,
     actor: RefCell<Option<Weak<dyn Actor<DeviceEvent>>>>,
-    registration: RefCell<Option<Box<dyn CompletionRegistration>>>,
 }
 
 impl DeviceActor {
@@ -127,7 +126,6 @@ impl DeviceActor {
             terminated_notified: Cell::new(false),
             owner: RefCell::new(None),
             actor: RefCell::new(None),
-            registration: RefCell::new(None),
         });
         let clock: Rc<dyn SchedulerClock> = core.clock();
         #[cfg(feature = "test-support")]
@@ -570,13 +568,12 @@ impl ActorHandler<DeviceEvent> for DeviceActor {
         // pool receives Terminated exactly once (`:111–118`). Weak: the callback is
         // owned by the actor's own job.
         let shared = Rc::downgrade(&self.shared);
-        let registration = owner.invoke_on_completion(Box::new(move |_| {
+        owner.invoke_on_completion(Box::new(move |_| {
             if let Some(shared) = shared.upgrade() {
                 shared.transition(DeviceEvent::Terminate);
                 shared.notify_terminated();
             }
         }));
-        *self.shared.registration.borrow_mut() = Some(registration);
     }
 
     fn receive(
