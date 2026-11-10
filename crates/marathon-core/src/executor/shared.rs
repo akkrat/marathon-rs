@@ -117,6 +117,32 @@ impl<T: Send + Sync> SharedDeferred<T> {
         })
         .await
     }
+    pub fn complete(&self, value: VendorResult<T>) -> bool {
+        let won = self.value.set(value.map(Arc::new)).is_ok();
+        if won {
+            self.changed.notify_waiters();
+        }
+        won
+    }
+    pub fn cancel(&self, reason: Cancellation) -> bool {
+        self.complete(Err(VendorError::Cancelled(reason)))
+    }
+    pub fn completed(&self) -> Option<VendorResult<Arc<T>>> {
+        self.value.get().cloned()
+    }
+    pub fn wait(&self) -> VendorFuture<'_, Arc<T>> {
+        Box::pin(async move {
+            loop {
+                let changed = self.changed.notified();
+                let mut changed = std::pin::pin!(changed);
+                changed.as_mut().enable();
+                if let Some(value) = self.completed() {
+                    return value;
+                }
+                changed.await;
+            }
+        })
+    }
 }
 // Notify invokes this only when the cell seals. Snapshot the waiter's request
 // before forwarding the wake, since the executor can coalesce both wakes.
@@ -132,35 +158,6 @@ impl Wake for DeferredResume {
     fn wake_by_ref(self: &Arc<Self>) {
         let _ = self.cancellation.set(self.signal.reason());
         self.outer.wake();
-    }
-}
-
-impl<T: Send + Sync> Deferred<T> for SharedDeferred<T> {
-    fn complete(&self, value: VendorResult<T>) -> bool {
-        let won = self.value.set(value.map(Arc::new)).is_ok();
-        if won {
-            self.changed.notify_waiters();
-        }
-        won
-    }
-    fn cancel(&self, reason: Cancellation) -> bool {
-        self.complete(Err(VendorError::Cancelled(reason)))
-    }
-    fn completed(&self) -> Option<VendorResult<Arc<T>>> {
-        self.value.get().cloned()
-    }
-    fn wait(&self) -> VendorFuture<'_, Arc<T>> {
-        Box::pin(async move {
-            loop {
-                let changed = self.changed.notified();
-                let mut changed = std::pin::pin!(changed);
-                changed.as_mut().enable();
-                if let Some(value) = self.completed() {
-                    return value;
-                }
-                changed.await;
-            }
-        })
     }
 }
 

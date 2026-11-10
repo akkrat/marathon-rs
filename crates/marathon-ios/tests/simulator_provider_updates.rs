@@ -5,7 +5,6 @@ mod support;
 use marathon_config::vendor::DeviceProvider as Source;
 use marathon_core::{
     executor::shared::SharedDeferred,
-    runtime::Deferred,
     vendor::{Device, DeviceEvent, DeviceProvider},
 };
 use provider_support::*;

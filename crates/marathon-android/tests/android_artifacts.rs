@@ -12,7 +12,6 @@ use marathon_android::{
     listeners::*,
 };
 use marathon_config::{ScreenRecordingPolicy, vendor::*};
-use marathon_core::runtime::Deferred;
 use marathon_core::{artifacts::AttachmentCollector, listener::*, model::*, vendor::*};
 use serde_json::{Value, json};
 use std::path::PathBuf;

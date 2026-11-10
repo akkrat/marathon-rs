@@ -90,7 +90,7 @@ impl Device for RunnerDevice {
         c: Arc<Configuration>,
         p: DevicePoolId,
         b: BatchRef,
-        r: Arc<dyn Deferred<TestBatchResults>>,
+        r: Arc<Deferred<TestBatchResults>>,
         ctx: VendorContext,
     ) -> VendorFuture<'a, ()> {
         self.inner.execute(c, p, b, r, ctx)

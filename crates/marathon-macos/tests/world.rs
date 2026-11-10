@@ -16,7 +16,7 @@ use marathon_apple::{
 };
 use marathon_core::{
     executor::shared::SharedDeferred,
-    runtime::{Deferred, VendorFuture},
+    runtime::VendorFuture,
     vendor::{Device, DeviceProvider, VendorContext},
 };
 use marathon_macos::{AppleMacosProvider, provider::MacosConnections};

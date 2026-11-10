@@ -86,7 +86,7 @@ impl AndroidBatchExecutor for VirtualDuration {
         configuration: Arc<marathon_config::Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {

@@ -166,7 +166,7 @@ impl marathon_core::vendor::Device for NoDevice {
         _configuration: Arc<Configuration>,
         _pool: DevicePoolId,
         _batch: BatchRef,
-        _result: Arc<dyn Deferred<TestBatchResults>>,
+        _result: Arc<Deferred<TestBatchResults>>,
         _context: marathon_core::vendor::VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })

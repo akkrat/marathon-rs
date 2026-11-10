@@ -1,7 +1,7 @@
 //! Port of vendor/vendor-apple/ios/src/test/kotlin/com/malinskiy/marathon/apple/ios/AppleSimulatorDeviceArtifactTest.kt
 mod simulator_support;
 mod support;
-use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred, vendor::Device};
+use marathon_core::{executor::shared::SharedDeferred, vendor::Device};
 use simulator_support::*;
 use std::sync::Arc;
 #[tokio::test(start_paused = true)]

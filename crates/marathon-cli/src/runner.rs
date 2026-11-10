@@ -17,7 +17,6 @@ use marathon_core::{
     executor::{CoreExecutor, SharedDeferred, hooks::RuntimeHooks},
     logging::host_millis,
     model::ExecutionCommand,
-    runtime::Deferred,
 };
 use marathon_error::FailureKind;
 use marathon_logging::LogSettings;

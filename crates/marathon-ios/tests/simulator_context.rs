@@ -6,10 +6,7 @@ use marathon_apple::{
     device::connection_factory::{Bridge, ConnectionFuture, Executor},
 };
 use marathon_config::{devices::Transport, vendor::SshAuthentication};
-use marathon_core::{
-    runtime::{Deferred, VendorFuture},
-    vendor::VendorContext,
-};
+use marathon_core::{runtime::VendorFuture, vendor::VendorContext};
 use marathon_ios::{
     apple_simulator_device::AppleSimulatorDevice,
     device::{

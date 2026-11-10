@@ -10,7 +10,7 @@ use marathon_config::vendor::XcresultQueueConfiguration;
 use marathon_core::{
     error::{Cancellation, Failure, VendorError, VendorResult},
     executor::shared::{SharedDeferred, Signal, failure},
-    runtime::{CancellationSignal, Deferred, VendorFuture, VendorRuntime},
+    runtime::{CancellationSignal, VendorFuture, VendorRuntime},
     time::MonotonicClock,
     vendor::VendorContext,
 };

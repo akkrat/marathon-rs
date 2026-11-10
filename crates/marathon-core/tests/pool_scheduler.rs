@@ -483,7 +483,7 @@ impl Device for InvalidSerial {
         c: Arc<Configuration>,
         p: DevicePoolId,
         b: BatchRef,
-        r: Arc<dyn Deferred<TestBatchResults>>,
+        r: Arc<Deferred<TestBatchResults>>,
         x: VendorContext,
     ) -> VendorFuture<'a, ()> {
         self.0.execute(c, p, b, r, x)

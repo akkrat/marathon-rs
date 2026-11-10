@@ -230,8 +230,6 @@ impl CoreExecutor {
             Some(failure),
         );
     }
-}
-impl CoreExecutor {
     pub fn job(&self, kind: JobKind, parent: Option<JobRef>) -> JobRef {
         self.new_job(kind, parent, false)
     }

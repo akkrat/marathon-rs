@@ -14,7 +14,7 @@ use marathon_config::{
 };
 use marathon_core::{
     executor::shared::SharedDeferred,
-    runtime::{Deferred, VendorFuture},
+    runtime::VendorFuture,
     vendor::{DeviceEvent, DeviceProvider, VendorContext},
 };
 use marathon_error::FailureKind;

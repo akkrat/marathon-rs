@@ -76,7 +76,7 @@ impl AppleSimulatorDevice {
         &self,
         pool: DevicePoolId,
         batch: BatchRef,
-        deferred: Arc<dyn Deferred<TestBatchResults>>,
+        deferred: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorResult<ExecutionListeners> {
         let me = self.this()?;

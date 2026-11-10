@@ -24,7 +24,7 @@ impl AppleSimulatorDevice {
         configuration: Arc<Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorResult<()> {
         let outcome = self
@@ -44,7 +44,7 @@ impl AppleSimulatorDevice {
         configuration: Arc<Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: &VendorContext,
     ) -> VendorResult<()> {
         let job = Arc::new(BatchJob {
@@ -111,7 +111,7 @@ impl AppleSimulatorDevice {
         configuration: Arc<Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: &VendorContext,
     ) -> Result<(), RunError> {
         if let Some(reason) = context.cancellation.reason() {
@@ -178,7 +178,7 @@ impl AppleSimulatorDevice {
         outcome: Result<(), RunError>,
         job: &Arc<BatchJob>,
         batch: &str,
-        results: &Arc<dyn Deferred<TestBatchResults>>,
+        results: &Arc<Deferred<TestBatchResults>>,
         context: &VendorContext,
     ) -> VendorResult<()> {
         let completed = results.completed();

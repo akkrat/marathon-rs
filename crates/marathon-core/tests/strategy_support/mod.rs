@@ -221,7 +221,7 @@ impl Device for DeviceStub {
         _configuration: Arc<Configuration>,
         _pool: DevicePoolId,
         _batch: BatchRef,
-        _result: Arc<dyn Deferred<TestBatchResults>>,
+        _result: Arc<Deferred<TestBatchResults>>,
         _context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })

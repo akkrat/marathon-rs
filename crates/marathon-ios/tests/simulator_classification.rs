@@ -13,7 +13,6 @@ use marathon_core::{
     error::VendorError,
     executor::shared::SharedDeferred,
     model::{DevicePoolId, TestBatch},
-    runtime::Deferred,
     vendor::Device,
 };
 use simulator_support::*;

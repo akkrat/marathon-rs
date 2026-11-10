@@ -12,7 +12,6 @@ use marathon_config::vendor::{GrantLifecycle, IosPermission};
 use marathon_core::{
     error::VendorError,
     executor::shared::{SharedDeferred, Signal},
-    runtime::Deferred,
     vendor::{Device, VendorContext},
 };
 use simulator_support::*;

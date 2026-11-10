@@ -200,14 +200,6 @@ impl RuntimeTimeouts {
             Either::Right(result) => result,
         }
     }
-}
-fn preserve_failure(result: OperationResult<()>, reason: Cancellation) -> OperationResult<()> {
-    match result {
-        Err(OperationError::Failed(f)) => Err(f.into()),
-        _ => Err(reason.into()),
-    }
-}
-impl RuntimeTimeouts {
     /// The body receives the scope's child job. Join its cleanup before returning.
     /// Own expiry is Cancelled(Timeout); inner/external cancellation and failures
     /// propagate unchanged, including the original timeout scope identity.
@@ -235,6 +227,12 @@ impl RuntimeTimeouts {
                 Err(e) => Err(e),
             }
         })
+    }
+}
+fn preserve_failure(result: OperationResult<()>, reason: Cancellation) -> OperationResult<()> {
+    match result {
+        Err(OperationError::Failed(f)) => Err(f.into()),
+        _ => Err(reason.into()),
     }
 }
 struct SendClock {

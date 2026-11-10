@@ -350,7 +350,7 @@ impl Device for TestDevice {
         _: Arc<marathon_config::Configuration>,
         _: DevicePoolId,
         _: BatchRef,
-        _: Arc<dyn marathon_core::runtime::Deferred<TestBatchResults>>,
+        _: Arc<marathon_core::runtime::Deferred<TestBatchResults>>,
         _: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })

@@ -80,7 +80,7 @@ impl Device for TestDevice {
         _: Arc<Configuration>,
         _: DevicePoolId,
         _: BatchRef,
-        _: Arc<dyn Deferred<TestBatchResults>>,
+        _: Arc<Deferred<TestBatchResults>>,
         _: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async { Ok(()) })

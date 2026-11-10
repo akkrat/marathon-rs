@@ -10,7 +10,7 @@ use marathon_core::{
     error::{VendorError, VendorResult},
     executor::shared::SharedDeferred,
     model::{Attachment, AttachmentType, BatchRef, DevicePoolId, Test},
-    runtime::{Deferred, VendorFuture},
+    runtime::VendorFuture,
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;

@@ -124,7 +124,7 @@ pub fn passed(device: &DeviceRef, batch: &BatchRef) -> TestBatchResults {
 pub struct Execution {
     pub device: DeviceRef,
     pub batch: BatchRef,
-    pub result: Arc<dyn Deferred<TestBatchResults>>,
+    pub result: Arc<Deferred<TestBatchResults>>,
     pub context: VendorContext,
 }
 pub type PrepareScript = Arc<dyn Fn(VendorContext) -> VendorFuture<'static, ()> + Send + Sync>;
@@ -220,7 +220,7 @@ impl ScriptedDevice {
     async fn stub_execute(
         &self,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorResult<()> {
         context
@@ -328,7 +328,7 @@ impl Device for ScriptedDevice {
         _configuration: Arc<Configuration>,
         _pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         self.executes.fetch_add(1, Ordering::SeqCst);

@@ -61,7 +61,7 @@ pub trait AndroidBatchExecutor: Send + Sync {
         configuration: Arc<marathon_config::Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()>;
 }
@@ -73,7 +73,7 @@ impl AndroidBatchExecutor for PendingBatchExecutor {
         _configuration: Arc<marathon_config::Configuration>,
         _pool: DevicePoolId,
         _batch: BatchRef,
-        _result: Arc<dyn Deferred<TestBatchResults>>,
+        _result: Arc<Deferred<TestBatchResults>>,
         _context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async {
@@ -900,7 +900,7 @@ impl Device for AndroidDevice {
         configuration: Arc<marathon_config::Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         let device = self.clone();

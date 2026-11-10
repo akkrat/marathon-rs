@@ -9,7 +9,7 @@ use marathon_config::devices::{AppleTarget, Transport};
 use marathon_core::{
     error::{LeavePoolReason, VendorError, VendorResult},
     executor::shared::SharedDeferred,
-    runtime::{Deferred, VendorFuture, VendorRuntime, VendorTask, VendorTaskBody},
+    runtime::{VendorFuture, VendorRuntime, VendorTask, VendorTaskBody},
     vendor::{DeviceEvent, DeviceProvider},
 };
 use marathon_ios::device::simulator_provider::AppleSimulatorProvider;

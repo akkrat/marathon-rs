@@ -7,7 +7,6 @@ use marathon_apple::apple_device::AppleDevice;
 use marathon_config::devices::{AppleTarget, Transport};
 use marathon_core::{
     executor::shared::SharedDeferred,
-    runtime::Deferred,
     vendor::{Device, DeviceProvider},
 };
 use marathon_ios::device::simulator_provisioner::SimulatorProvisioner;

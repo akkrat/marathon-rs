@@ -7,7 +7,6 @@ mod support;
 use marathon_config::{devices::Transport, vendor::DeviceProvider as Source};
 use marathon_core::{
     executor::shared::SharedDeferred,
-    runtime::Deferred,
     vendor::{Device, DeviceProvider},
 };
 use marathon_ios::device::{simulator_factory::SimulatorCreating, simulator_provisioner::ProvisioningConnections};

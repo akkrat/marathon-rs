@@ -399,13 +399,21 @@ core `LocalSet`, the reasoned cancellation signals, `SharedDeferred`,
 `SharedChannel`, the retry loops and the replay `Timeline`. They differed from it
 on scope, and those points are adopted:
 
-1. **Merge single-implementation layers.** `Job`, `CoreRuntime` and
-   `TimeoutScope` each have exactly one implementation. Using the concrete types
-   (`Rc<RuntimeJob>` behind a `JobHandle`, a concrete `CoreExecutor` in
-   `TaskContext`) deletes the pointer-keyed job registry, its sweep and the
-   panicking `resolve()` without touching scheduling. `VendorRuntime`,
-   `VendorClock` and `CancellationSignal` stay traits (they have many
-   implementations). This replaces C and D as the substantive simplification.
+1. **Merge single-implementation layers (implemented by WP 8.15).**
+   `Job`, `CoreRuntime` and `TimeoutScope` each had exactly one implementation,
+   including tests. `JobRef = Rc<RuntimeJob>`, `Rc<CoreExecutor>` in
+   `TaskContext`/run wiring, and `Rc<RuntimeTimeouts>` replace those traits.
+   The pointer-keyed weak job registry, its amortized sweep and panicking
+   `resolve()` are deleted without changing scheduling. Private construction
+   and the dedicated thread's Send factory/result boundary prevent foreign
+   jobs from reaching another runtime; two `JobRef` compile-fail doctests pin
+   that ownership guarantee. A future constructor on an existing thread must
+   add owner validation. `Deferred<T>` is also a concrete alias for the sole
+   implementation, `SharedDeferred<T>`, with inherent completion/wait methods;
+   vendor signatures keep the name without trait objects. `VendorRuntime`,
+   `VendorClock`, `CancellationSignal`, `EventChannel` and `Actor` stay traits
+   (they have multiple implementations). This replaces C and D as the
+   substantive simplification.
 2. **B uses `try_recv` after the protected join.** The producer has already sent
    the payload when the join completes; awaiting a oneshot adds a suspension point
    (Tokio's cooperative budget can return `Pending` with a value present) where

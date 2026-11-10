@@ -400,7 +400,7 @@ async fn a_refusal_stays_final_when_the_same_plan_loses_its_planning_connection(
 /// the old claim, and the update's own plan decides.
 #[tokio::test(start_paused = true)]
 async fn a_refusal_seen_by_a_plan_that_outlived_a_remove_and_re_add_does_not_stop_the_new_one() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.start(&["a"]).await?;
     p.connected(1).await;
@@ -865,7 +865,7 @@ async fn every_given_up_simulator_comes_back_when_removed_and_added_back() -> Te
 /// claim, and the new one is the worker retry's.
 #[tokio::test(start_paused = true)]
 async fn a_setup_retry_from_before_a_removal_cannot_give_up_the_simulator_added_back() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.start(&["a"]).await?;
     let old = p.connected(1).await.remove(0);
@@ -910,7 +910,7 @@ async fn a_setup_retry_from_before_a_removal_cannot_give_up_the_simulator_added_
 /// claim, and the simulator gets an attempt of its own.
 #[tokio::test(start_paused = true)]
 async fn a_recovery_from_before_a_removal_cannot_refuse_the_simulator_added_back() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.start(&["a"]).await?;
     let old = p.connected(1).await.remove(0);
@@ -952,7 +952,7 @@ async fn a_recovery_from_before_a_removal_cannot_refuse_the_simulator_added_back
 /// that ends the retry doesn't give up the simulator added back, which has an attempt of its own.
 #[tokio::test(start_paused = true)]
 async fn a_worker_retry_attempt_from_before_a_removal_cannot_give_up_the_simulator_added_back() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.start(&["a"]).await?;
     p.connected(1).await;
@@ -1041,7 +1041,7 @@ async fn sibling_setups_keep_the_cap_of_four_but_their_pauses_can_overlap() -> T
 /// that then ends the retry started before it joined, so it goes to a retry of its own instead of being given up.
 #[tokio::test(start_paused = true)]
 async fn a_simulator_that_joins_a_retry_after_its_last_attempt_started_gets_a_retry_of_its_own() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.start(&["a"]).await?;
     p.connected(1).await;
@@ -1080,7 +1080,7 @@ async fn a_simulator_that_joins_a_retry_after_its_last_attempt_started_gets_a_re
 /// attempt joins the retry. When the older connection gets through, it leaves the newer entry to the retry's next attempt.
 #[tokio::test(start_paused = true)]
 async fn an_older_attempt_that_connects_late_leaves_the_simulator_added_back_to_the_next_attempt() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.start(&["a"]).await?;
     p.connected(1).await;
@@ -1126,7 +1126,7 @@ async fn an_older_attempt_that_connects_late_leaves_the_simulator_added_back_to_
 /// A plan claims every simulator of its worker before it lists them, so one parked meanwhile and taken along is charged.
 #[tokio::test(start_paused = true)]
 async fn a_simulator_parked_while_a_plan_lists_its_worker_keeps_the_setup_budget() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.h().worker.add(["b"]);
     p.start(&["a"]).await?;
@@ -1183,7 +1183,7 @@ async fn a_simulator_parked_while_a_plan_lists_its_worker_keeps_the_setup_budget
 /// As above: a refusal seen for a simulator parked while the plan listed its worker is kept.
 #[tokio::test(start_paused = true)]
 async fn a_simulator_parked_while_a_plan_lists_its_worker_keeps_its_refusal() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::new(|_| {})?;
     p.h().worker.add(["b"]);
     p.start(&["a"]).await?;

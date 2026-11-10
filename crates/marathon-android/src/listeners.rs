@@ -284,7 +284,7 @@ pub struct TestResultsListener {
     pub accumulator: AccumulatingResultTestRunListener,
     pub batch: BatchRef,
     pub device: DeviceRef,
-    pub deferred: Arc<dyn Deferred<TestBatchResults>>,
+    pub deferred: Arc<Deferred<TestBatchResults>>,
     pub attachments: Arc<AttachmentCollector>,
     pub log: Arc<dyn Fn(Level, String) + Send + Sync>,
 }

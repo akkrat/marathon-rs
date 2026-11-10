@@ -329,7 +329,7 @@ impl AndroidBatchExecutor for Lost {
         _: Arc<marathon_config::Configuration>,
         _: DevicePoolId,
         _: BatchRef,
-        _: Arc<dyn Deferred<TestBatchResults>>,
+        _: Arc<Deferred<TestBatchResults>>,
         _: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {

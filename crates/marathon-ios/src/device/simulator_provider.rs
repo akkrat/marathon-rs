@@ -33,7 +33,7 @@ use marathon_config::{
 use marathon_core::{
     error::{VendorError, VendorResult},
     executor::shared::{SharedChannel, SharedDeferred, Signal, requested},
-    runtime::{Deferred, EventChannel, VendorFuture, VendorRuntime, VendorTask},
+    runtime::{EventChannel, VendorFuture, VendorRuntime, VendorTask},
     vendor::{DeviceEvent, DeviceProvider, DeviceRef, VendorContext},
 };
 use marathon_logging::{Component, Level};

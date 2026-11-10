@@ -68,7 +68,7 @@ pub fn scheduling_contract(
     other: DeviceRef,
     batch: BatchRef,
     other_batch: BatchRef,
-    result: Arc<dyn Deferred<TestBatchResults>>,
+    result: Arc<Deferred<TestBatchResults>>,
 ) {
     let _same_device = device == other;
     let _same_batch_object = Arc::ptr_eq(&batch, &other_batch);
@@ -83,7 +83,7 @@ pub fn vendor_execution(
     context: VendorContext,
     batch: BatchRef,
     pool: DevicePoolId,
-    result: Arc<dyn Deferred<TestBatchResults>>,
+    result: Arc<Deferred<TestBatchResults>>,
 ) -> VendorFuture<'static, ()> {
     Box::pin(async move {
         device.0.prepare(configuration.clone(), context.clone()).await?;
@@ -274,7 +274,7 @@ pub fn cleanup_contract(runtime: &CoreExecutor, awaited: JobRef) -> JobRef {
 }
 
 // R1-sol-2 / R1-wonder-4: inner timeout escapes outer with_timeout_or_null.
-// Captured cells retain typed output across the object-safe unit task seam.
+// Captured cells retain typed output across the unit task seam.
 pub async fn nested_timeout_contract(
     deps: &RunDependencies,
     parent: TaskContext,

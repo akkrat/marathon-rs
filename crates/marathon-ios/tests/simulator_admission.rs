@@ -170,7 +170,7 @@ async fn default_recovery_pauses_0_30_60_seconds_then_fourth_loss_exhausts_the_i
 async fn recovery_waits_70_seconds_for_an_open_parsing_session_then_retires_only_that_device() -> TestResult {
     use marathon_apple::{apple_device::AppleDevice, test::TestRequest, xcodebuild_session::XcodebuildSession};
     use marathon_config::devices::Transport;
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let p = RecoveryHarness::fast()?;
     p.update(&["a", "b"]).await?;
     p.connected(2).await;
@@ -215,7 +215,7 @@ async fn recovery_waits_70_seconds_for_an_open_parsing_session_then_retires_only
 }
 #[tokio::test(start_paused = true)]
 async fn production_vendor_services_keep_default_retry_and_run_a_healthy_peer_before_late_admission() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred, vendor::DeviceEvent};
+    use marathon_core::{executor::shared::SharedDeferred, vendor::DeviceEvent};
     use marathon_ios::{device::simulator_provider::recovery::SimulatorRecovery, ios_vendor::IosVendor};
     let p = RecoveryHarness::new(|_| {})?;
     let late_worker = p.base.worker(support::worker("late"), &["a"]);

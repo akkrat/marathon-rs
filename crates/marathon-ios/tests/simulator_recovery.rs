@@ -6,7 +6,7 @@ mod simulator_support;
 mod support;
 use marathon_apple::apple_device::AppleDevice;
 use marathon_config::devices::Transport;
-use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred, vendor::DeviceProvider};
+use marathon_core::{executor::shared::SharedDeferred, vendor::DeviceProvider};
 use provider_support::*;
 use recovery_support::*;
 use simulator_support::*;

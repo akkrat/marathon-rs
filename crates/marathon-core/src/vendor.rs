@@ -53,7 +53,7 @@ pub trait Device: Send + Sync {
         configuration: Arc<Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()>;
     /// Kotlin dispose is synchronous; this async adapter awaits off-core work at

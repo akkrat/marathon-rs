@@ -31,7 +31,7 @@ use std::sync::Arc;
 pub struct TestResultsListenerConfig {
     pub batch: Arc<TestBatch>,
     pub device: DeviceRef,
-    pub deferred: Arc<dyn Deferred<TestBatchResults>>,
+    pub deferred: Arc<Deferred<TestBatchResults>>,
     pub timer: Arc<dyn Timer>,
     pub wall: WallSource,
     pub logs: LogSender,

@@ -223,7 +223,7 @@ impl MacosDevice {
         configuration: Arc<Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorResult<()> {
         let (listener, lines) = self.execution_listeners(pool, batch.clone(), result, context.clone())?;
@@ -264,7 +264,7 @@ impl MacosDevice {
         &self,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorResult<(CompositeTestRunListener, Vec<Arc<dyn LineListener>>)> {
         let device = self.retained()?;
@@ -612,7 +612,7 @@ impl Device for MacosDevice {
         configuration: Arc<Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {

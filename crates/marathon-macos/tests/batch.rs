@@ -186,7 +186,7 @@ async fn concurrent_disposal_joins_one_completion_and_result_delivery_is_indepen
     timeout(Duration::from_secs(60), running.closing.notified()).await?;
     let device = d.clone();
     let mut second = tokio::spawn(async move { device.dispose().await });
-    use marathon_core::runtime::Deferred;
+
     assert!(result.completed().is_some());
     still_waiting(&mut first).await;
     still_waiting(&mut second).await;
@@ -329,7 +329,6 @@ async fn preparation_continues_after_its_caller_is_cancelled() -> R {
 }
 #[tokio::test]
 async fn inline_bundle_pull_finishes_after_result_delivery_and_before_execute_returns() -> R {
-    use marathon_core::runtime::Deferred;
     let mut h = Harness::new("")?;
     Arc::make_mut(&mut h.options.vendor).xcresult.pulling_policy = marathon_config::vendor::PullingPolicy::Always;
     Arc::make_mut(&mut h.options.vendor).xcresult.remote_clean = true;

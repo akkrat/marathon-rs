@@ -20,9 +20,22 @@ is deliberately not Send. The vendor/I/O runtime is multi-threaded;
 awaiting core task on the core executor. It never polls vendor work on core
 merely because the future happens to implement Send.
 
+WP 8.15 uses concrete core handles: `JobRef = Rc<RuntimeJob>`,
+`TaskContext.core` and `RunDependencies.core` are `Rc<CoreExecutor>`, and
+`RunDependencies.timeouts` is `Rc<RuntimeTimeouts>`. Job construction is
+private to the executor module. The only executor constructors build one
+executor on a fresh dedicated thread; both the factory and result of a run
+must be Send. Neither an `Rc<CoreExecutor>` nor an `Rc<RuntimeJob>` can cross
+that boundary, so two runtimes' handles cannot be mixed. The compile-fail
+examples on `runtime::JobRef` pin capture into another run and escape as a
+run result. There is no pointer registry, sweep or downcast/resolve panic.
+Adding an executor constructor on an existing thread would require explicit
+owner validation first. `VendorRuntime`, `VendorClock`, `CancellationSignal`,
+`EventChannel` and `Actor` remain traits with multiple implementations.
+
 ### Explicit execution context and construction (R1-sol-1, R1-wonder-1/3)
 
-`CoreRuntime::spawn` and `spawn_cleanup` take `TaskBody`: a closure receiving
+`CoreExecutor::spawn` and `spawn_cleanup` take `TaskBody`: a closure receiving
 `TaskContext` with the **new task's** job, core runtime and scheduler clock.
 `ActorHandler::receive` receives `ActorContext<M>` with that same information
 for the executing receiver child and its self-handle. `started` receives the
@@ -61,11 +74,11 @@ operation it awaits can still return typed cancellation.
 WP 3.1 supplies concrete, generic in-crate constructors for Deferred<T>,
 EventChannel<T> and actors. They take explicit runtime/parent/context inputs
 as applicable and do not rely on service lookup. Their generic factory traits
-are not dependency handles. `TimeoutScope` is object-safe and is reachable
-as `RunDependencies.timeouts`; typed output crosses its unit-body seam in a
-captured local cell or Deferred<T>, just as typed vendor results cross the
-erased VendorRuntime task seam. `nested_timeout_contract` demonstrates a
-Vec<Test> result without a generic trait object.
+are not dependency handles. `RunDependencies.timeouts` carries the concrete
+`Rc<RuntimeTimeouts>`; typed output crosses its unit-body seam in a captured
+local cell or Deferred<T>, just as typed vendor results cross the erased
+VendorRuntime task seam. `nested_timeout_contract` demonstrates a Vec<Test>
+result across that unit-body seam.
 
 Kotlin `Marathon.run` uses `runBlocking`, `supervisorScope`, then `async`
 (`Marathon.kt:71–90`); Scheduler receives the current context (`:191–201`).
@@ -109,7 +122,7 @@ is retained by awaiting off-core work at the original source boundary.
 
 ## Jobs, deferred results and cancellation
 
-`runtime::Job` exposes distinct Active, Completing, Cancelling and Completed
+`runtime::JobRef` (`Rc<RuntimeJob>`) exposes distinct Active, Completing, Cancelling and Completed
 states; `JobKind` distinguishes ordinary and supervisor parents. Ordinary
 child failure cancels its parent and siblings. Supervisor child failure is
 isolated; cancelling the supervisor still cancels its children. Cancellation
@@ -121,8 +134,8 @@ requests are idempotent and may precede completion by arbitrarily long I/O.
 they do not infer a caller or rethrow the joined job's failure. Ordinary
 cancellable callers use `join_in(context.job.clone())`, preserving the caller's
 cancellation reason through its explicit `cancellation_signal`. A cancellable
-observed-child traversal, `join_observed_children_in(caller)` (an additive
-provided method, WP 3.6 carried item C3), races the protected traversal with
+observed-child traversal, `join_observed_children_in(caller)` (WP 3.6 carried
+item C3), races the protected traversal with
 that same explicit signal. Completion callbacks run exactly once,
 also when registered after completion. Callback registration returns a
 removable registration. Callbacks mutate core state on core; an I/O thread
@@ -154,7 +167,8 @@ The snapshot API is for callers requiring a snapshot; Scheduler must use the
 separate observed-child traversal contract. Do not reparent the subscription,
 join all future pools, or terminate the provider here to “fix” this race.
 
-`runtime::Deferred<T>` is shared and first-writer-wins: successful value,
+`runtime::Deferred<T>` is a concrete alias for `SharedDeferred<T>` (WP 8.15).
+It is shared and first-writer-wins: successful value,
 exceptional completion or cancellation seals it. It returns a Boolean for
 whether completion won, allows repeated await and synchronous inspection of
 an already-completed result. Awaiting an already-completed cell returns its
@@ -252,10 +266,10 @@ cancellation path or register cleanup independently and await it. Simultaneous
 completion/timeout is a scheduling race in live runs and an ordered event in
 replay. No new deadline is imposed on an unbounded Kotlin join.
 
-`TimeoutScope::with_timeout` returns its own expiry as
+`RuntimeTimeouts::with_timeout` returns its own expiry as
 `Err(OperationError::Cancelled(Cancellation::Timeout { scope, .. }))`; an inner
 timeout propagates unchanged with its original scope.
-`TimeoutScope::with_timeout_or_null` returns `Ok(None)` for only its own
+`RuntimeTimeouts::with_timeout_or_null` returns `Ok(None)` for only its own
 invocation's expiry, `Ok(Some(()))` for successful completion, and preserves
 inner/external cancellation and ordinary failure as Err. Each invocation
 allocates a fresh scope identity and supplies a child TaskContext to its body;

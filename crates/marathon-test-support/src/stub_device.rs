@@ -244,7 +244,7 @@ impl Device for StubDevice {
         _configuration: Arc<Configuration>,
         pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         Box::pin(async move {
@@ -343,7 +343,7 @@ impl StubDevice {
         &self,
         batch: &BatchRef,
         tests: Vec<String>,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorResult<()> {
         let done = SharedDeferred::new();
@@ -404,7 +404,7 @@ impl StubDevice {
     async fn execute_stub(
         &self,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorResult<()> {
         {

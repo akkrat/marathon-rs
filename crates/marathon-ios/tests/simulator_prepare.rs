@@ -280,7 +280,7 @@ async fn admission_is_taken_once_after_prepare_and_retires_the_device() -> TestR
 
 #[tokio::test(start_paused = true)]
 async fn parallel_preparation_failure_waits_for_its_cancelled_sibling_command() -> TestResult {
-    use marathon_core::{executor::shared::SharedDeferred, runtime::Deferred};
+    use marathon_core::executor::shared::SharedDeferred;
     let h = Harness::new(|v| v.bundle = None)?;
     let d = h.device().await?;
     let entered = SharedDeferred::new();

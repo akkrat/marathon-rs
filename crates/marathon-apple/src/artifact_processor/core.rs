@@ -66,7 +66,6 @@ pub struct AdmissionCore<T> {
 }
 impl<T> AdmissionCore<T> {
     pub fn new(capacity: i32, concurrency: i32, worker_capacity: i32) -> Self {
-        use marathon_core::runtime::Deferred;
         let done = SharedDeferred::new();
         done.complete(Ok(()));
         Self {

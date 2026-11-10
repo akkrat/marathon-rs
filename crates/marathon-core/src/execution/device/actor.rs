@@ -447,7 +447,7 @@ impl Shared {
         let shared = self.clone();
         let job = self.launch(move |context| async move {
             let (configuration, pool_id) = (shared.configuration.clone(), shared.pool_id.clone());
-            let cell: Arc<dyn Deferred<TestBatchResults>> = result.clone();
+            let cell: Arc<Deferred<TestBatchResults>> = result.clone();
             let outcome = shared
                 .vendor_call(EXECUTE, context.job.cancellation_signal(), move |device, vendor| {
                     Box::pin(async move { device.execute(configuration, pool_id, batch, cell, vendor).await })

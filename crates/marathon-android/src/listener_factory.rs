@@ -113,7 +113,7 @@ pub fn create(
     configuration: &Configuration,
     pool: DevicePoolId,
     batch: BatchRef,
-    deferred: Arc<dyn Deferred<TestBatchResults>>,
+    deferred: Arc<Deferred<TestBatchResults>>,
     slots: &ListenerSlots,
 ) -> VendorResult<CompositeTestRunListener> {
     let runtime = device.runtime();

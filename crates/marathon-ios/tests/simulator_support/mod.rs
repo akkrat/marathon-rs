@@ -393,7 +393,7 @@ impl Default for BatchScript {
 impl BatchScript {
     pub fn attach(self: &Arc<Self>, worker: &FakeSimulatorWorker) {
         use marathon_apple::cmd::{BaseCommand, CommandSession, SessionControl};
-        use marathon_core::runtime::{CancellationSignal, Deferred, VendorRuntime};
+        use marathon_core::runtime::{CancellationSignal, VendorRuntime};
         let script = self.clone();
         *worker.session.lock().unwrap() = Arc::new(move |cmd| {
             if cmd.get(2).is_none_or(|s| s != "test-without-building") {
@@ -497,7 +497,6 @@ pub async fn run_with(
     marathon_core::error::VendorResult<()>,
     Option<Arc<marathon_core::model::TestBatchResults>>,
 ) {
-    use marathon_core::runtime::Deferred;
     let result = marathon_core::executor::shared::SharedDeferred::new();
     let batch = Arc::new(marathon_core::model::TestBatch {
         tests: tests(),
@@ -530,7 +529,6 @@ pub fn spawn_batch(
     marathon_core::error::VendorResult<()>,
     Option<Arc<marathon_core::model::TestBatchResults>>,
 )> {
-    use marathon_core::runtime::Deferred;
     let configuration = h.services.configuration.clone();
     tokio::spawn(async move {
         let result = marathon_core::executor::shared::SharedDeferred::new();

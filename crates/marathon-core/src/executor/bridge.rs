@@ -122,7 +122,7 @@ mod tests {
     use super::*;
     use crate::{
         executor::{SharedDeferred, shared::requested},
-        runtime::{Deferred, VendorTask, VendorTaskBody},
+        runtime::{VendorTask, VendorTaskBody},
     };
     use futures_util::{FutureExt, task::noop_waker};
     use std::sync::Mutex;

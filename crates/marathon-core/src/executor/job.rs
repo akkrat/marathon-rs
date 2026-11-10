@@ -247,20 +247,9 @@ impl RuntimeJob {
             }
         }
         stack.push(Step::TryFinish(self.rc()));
-        for child in self.child_jobs().into_iter().rev() {
+        for child in self.children_snapshot().into_iter().rev() {
             stack.push(Step::Cancel(child, reason.clone()));
         }
-    }
-    fn child_jobs(&self) -> Vec<Rc<RuntimeJob>> {
-        let mut children = Vec::new();
-        let mut node = self.inner.borrow().head.clone();
-        while let Some(current) = node {
-            if let Some(job) = &current.job {
-                children.push(job.clone());
-            }
-            node = current.next.borrow().clone();
-        }
-        children
     }
     fn remove_node(&self, node: &Rc<Node>) {
         let mut inner = self.inner.borrow_mut();
@@ -391,8 +380,6 @@ impl RuntimeJob {
         // can detach and disappear before this task emits its handler record.
         !self.scoped.get() && !self.parent_handles_failure
     }
-}
-impl RuntimeJob {
     /// A cancellable join needs its caller; join() alone is protected.
     pub fn join_in(&self, caller: JobRef) -> LocalFuture<'_, Result<(), Cancellation>> {
         Box::pin(async move {

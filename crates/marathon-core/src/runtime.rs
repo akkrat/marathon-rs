@@ -83,12 +83,7 @@ pub trait CancellationSignal: Send + Sync {
 /// Parentless first-writer-wins cell, shared across core and vendor runtimes.
 /// Await cancellation is separate from stored failure. Completion never runs
 /// core callbacks inline on the completing vendor thread.
-pub trait Deferred<T>: Send + Sync {
-    fn complete(&self, value: VendorResult<T>) -> bool;
-    fn cancel(&self, reason: Cancellation) -> bool;
-    fn completed(&self) -> Option<VendorResult<Arc<T>>>;
-    fn wait(&self) -> VendorFuture<'_, Arc<T>>;
-}
+pub type Deferred<T> = crate::executor::SharedDeferred<T>;
 pub struct SendError<M> {
     pub message: M,
     pub cause: Option<Failure>,

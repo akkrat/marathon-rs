@@ -221,7 +221,7 @@ pub type BoxFuture = std::pin::Pin<Box<dyn Future<Output = VendorResult<()>> + S
 pub struct Execution {
     pub device: Arc<TestDevice>,
     pub batch: BatchRef,
-    pub result: Arc<dyn Deferred<TestBatchResults>>,
+    pub result: Arc<Deferred<TestBatchResults>>,
     pub context: VendorContext,
 }
 pub type OnPrepare = Arc<dyn Fn(VendorContext) -> BoxFuture + Send + Sync>;
@@ -407,7 +407,7 @@ impl Device for TestDevice {
         _configuration: Arc<Configuration>,
         _pool: DevicePoolId,
         batch: BatchRef,
-        result: Arc<dyn Deferred<TestBatchResults>>,
+        result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
     ) -> VendorFuture<'a, ()> {
         lock(&self.batches).push(methods(&batch.tests));

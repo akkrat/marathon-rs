@@ -6,7 +6,7 @@ mod support;
 use listener_support::{Bridge, context, device, harness};
 use marathon_apple::{cmd::CommandResult, listener::AppleTestRunListener, logparser::parser::DeviceFailureReason};
 use marathon_config::{schema::ScreenRecordingPolicy, vendor::*};
-use marathon_core::{artifacts::AttachmentCollector, error::VendorError, model::DeviceFeature, runtime::Deferred};
+use marathon_core::{artifacts::AttachmentCollector, error::VendorError, model::DeviceFeature};
 use marathon_ios::listener::{data_container_clear::*, device_log::*, screenshot::*, video::*};
 use marathon_test_support::apple::fake_simulator_worker::ok;
 use simulator_support::TestResult;

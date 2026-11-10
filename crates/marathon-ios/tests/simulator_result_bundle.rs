@@ -16,7 +16,6 @@ use marathon_core::{
     executor::shared::{SharedDeferred, Signal},
     listener::LogTarget,
     model::{DevicePoolId, TestBatch, TestBatchResults},
-    runtime::Deferred,
     vendor::{Device, DeviceRef, VendorContext},
 };
 use simulator_support::{artifacts::*, *};

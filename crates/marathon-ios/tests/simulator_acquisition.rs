@@ -12,7 +12,7 @@ use marathon_apple::{
 use marathon_config::devices::Transport;
 use marathon_core::{
     executor::shared::{SharedDeferred, Signal, requested},
-    runtime::{Deferred, VendorFuture},
+    runtime::VendorFuture,
     vendor::VendorContext,
 };
 use marathon_ios::device::{detached::DetachedConnections, simulator_provisioner::ProvisioningConnections};

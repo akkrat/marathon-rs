@@ -7,7 +7,6 @@ use marathon_apple::{
 use marathon_core::{
     error::VendorError,
     executor::shared::{SharedDeferred, Signal},
-    runtime::Deferred,
     vendor::{Device, VendorContext},
 };
 use simulator_support::*;
