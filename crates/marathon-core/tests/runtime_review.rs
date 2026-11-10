@@ -1,6 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/actor/Actor.kt
 //! and coroutines/ThreadPoolDispatcher.kt (review witnesses, pinned JVM probes).
 mod support;
+use marathon_core::time::SchedulerClock;
 use marathon_core::{
     error::*,
     executor::{RuntimeActor, SharedDeferred, Signal},
@@ -220,6 +221,14 @@ fn exception_handler_only_records_unhandled_failure() {
             assert_eq!(logs.len().to_string(), expected("exception-handler:calls"));
             assert_eq!(logs[0].message, "CoroutineContext closing due to unrecoverable error");
             assert_eq!(logs[0].exception, Some(failed("failure")));
+            let queued = core.log_queue().take();
+            assert_eq!(queued.len(), 1);
+            assert_eq!(queued[0].level, marathon_logging::Level::ERROR);
+            assert_eq!(queued[0].logger, "marathon_core::executor");
+            assert_eq!(queued[0].target(), "marathon_core::executor");
+            assert_eq!(queued[0].message, logs[0].message);
+            assert_eq!(queued[0].cause, logs[0].exception);
+            assert_eq!(queued[0].at_millis, core.clock().now_millis());
             parent.complete();
             Ok(())
         })

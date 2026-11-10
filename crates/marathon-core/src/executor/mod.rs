@@ -37,6 +37,7 @@ pub struct CoreExecutor {
     swept: std::cell::Cell<usize>,
     tracker: Arc<Tracker>,
     vendor: Arc<IoRuntime>,
+    #[cfg(any(test, feature = "test-support"))]
     completions: RefCell<Vec<completion_logging::CompletionLog>>,
     log: Rc<crate::logging::LogQueue>,
     pub(crate) mailboxes: RefCell<Vec<(&'static str, Rc<dyn MailboxProbe>)>>,
@@ -97,6 +98,7 @@ impl CoreExecutor {
                     swept: std::cell::Cell::new(0),
                     tracker: tracker.clone(),
                     vendor: Arc::new(IoRuntime { handle, tracker }),
+                    #[cfg(any(test, feature = "test-support"))]
                     completions: RefCell::new(Vec::new()),
                     log: Rc::default(),
                     mailboxes: RefCell::new(Vec::new()),
@@ -159,6 +161,7 @@ impl CoreExecutor {
             clock: self.clock.clone(),
         }
     }
+    #[cfg(any(test, feature = "test-support"))]
     pub fn completion_logs(&self) -> Vec<completion_logging::CompletionLog> {
         self.completions.borrow().clone()
     }
@@ -171,6 +174,7 @@ impl CoreExecutor {
     pub fn log_queue(&self) -> Rc<crate::logging::LogQueue> {
         self.log.clone()
     }
+    #[cfg(any(test, feature = "test-support"))]
     pub fn take_completion_logs(&self) -> Vec<completion_logging::CompletionLog> {
         std::mem::take(&mut self.completions.borrow_mut())
     }
@@ -234,22 +238,21 @@ impl CoreExecutor {
             self.tracker.clone(),
         ));
     }
-    /// In an actor scope the handler logs under the actor's logger, in call order
-    /// with the actor's own records; elsewhere it stays a loggerless CompletionLog.
+    /// Unhandled failures share the run's ordered output, including loggerless tasks.
     fn record_failure(&self, logger: Option<Rc<str>>, failure: Failure) {
-        match logger {
-            Some(logger) => self.log.log(
-                &logger,
-                crate::time::SchedulerClock::now_millis(&*self.clock),
-                marathon_logging::Level::ERROR,
-                completion_logging::UNRECOVERABLE.into(),
-                Some(failure),
-            ),
-            None => {
-                let log = completion_logging::completion_log(Completion::Failed(failure));
-                self.completions.borrow_mut().push(log);
-            }
+        #[cfg(any(test, feature = "test-support"))]
+        if logger.is_none() {
+            self.completions
+                .borrow_mut()
+                .push(completion_logging::completion_log(Completion::Failed(failure.clone())));
         }
+        self.log.log(
+            logger.as_deref().unwrap_or(module_path!()),
+            crate::time::SchedulerClock::now_millis(&*self.clock),
+            marathon_logging::Level::ERROR,
+            completion_logging::UNRECOVERABLE.into(),
+            Some(failure),
+        );
     }
 }
 impl CoreRuntime for CoreExecutor {
