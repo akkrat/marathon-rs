@@ -95,12 +95,30 @@ impl<F> Tracked<F> {
         }
     }
 }
+impl<F> Drop for Tracked<F> {
+    fn drop(&mut self) {
+        // Retire the ticket before dropping the future, which may retain wakers.
+        if self.ticket.state.swap(2, Ordering::SeqCst) == 1 {
+            self.ticket.tracker.release();
+        }
+        self.ticket.tracker.changed.notify_waiters();
+    }
+}
+struct Running<'a>(&'a Tracker);
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.0.release();
+        self.0.changed.notify_waiters();
+    }
+}
 impl<F: Future> Future for Tracked<F> {
     type Output = F::Output;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let ticket = self.ticket.clone();
         ticket.outer.register(cx.waker());
         ticket.tracker.acquire();
+        // A poll can unwind before the executor drops this tracked future.
+        let _running = Running(&ticket.tracker);
         if ticket.state.swap(0, Ordering::SeqCst) == 1 {
             ticket.tracker.release();
         }
@@ -109,8 +127,6 @@ impl<F: Future> Future for Tracked<F> {
         if result.is_ready() && ticket.state.swap(2, Ordering::SeqCst) == 1 {
             ticket.tracker.release();
         }
-        ticket.tracker.release();
-        ticket.tracker.changed.notify_waiters();
         result
     }
 }
@@ -122,6 +138,74 @@ mod tests {
         sync::{Barrier, Mutex, atomic::AtomicBool},
         thread,
     };
+
+    #[test]
+    fn dropping_an_unpolled_tracked_future_releases_its_ticket() {
+        let tracker = Arc::new(Tracker::default());
+        let task = Tracked::new(std::future::pending::<()>(), tracker.clone());
+        assert!(!tracker.idle());
+        drop(task);
+        assert!(tracker.idle(), "dropping an unpolled future leaked its runnable ticket");
+    }
+
+    #[test]
+    fn dropping_a_woken_tracked_future_releases_its_ticket_and_ignores_stale_wakes() {
+        let tracker = Arc::new(Tracker::default());
+        let mut task = Box::pin(Tracked::new(std::future::pending::<()>(), tracker.clone()));
+        let waker = futures_util::task::noop_waker();
+        assert!(task.as_mut().poll(&mut Context::from_waker(&waker)).is_pending());
+        assert!(tracker.idle());
+        let ticket = task.ticket.clone();
+        ticket.wake_by_ref();
+        assert!(!tracker.idle());
+        drop(task);
+        assert!(tracker.idle(), "dropping a woken future leaked its runnable ticket");
+        ticket.wake_by_ref();
+        assert!(tracker.idle(), "a stale wake reacquired a dropped future's ticket");
+    }
+
+    #[test]
+    fn dropping_a_suspended_tracked_future_ignores_stale_wakes() {
+        let tracker = Arc::new(Tracker::default());
+        let mut task = Box::pin(Tracked::new(std::future::pending::<()>(), tracker.clone()));
+        let waker = futures_util::task::noop_waker();
+        assert!(task.as_mut().poll(&mut Context::from_waker(&waker)).is_pending());
+        let ticket = task.ticket.clone();
+        drop(task);
+        ticket.wake_by_ref();
+        assert!(tracker.idle(), "a stale wake reacquired a dropped future's ticket");
+    }
+
+    #[test]
+    fn panicking_tracked_poll_releases_running_and_runnable_work() {
+        let tracker = Arc::new(Tracker::default());
+        let mut task = Box::pin(Tracked::new(
+            std::future::poll_fn(|cx| -> Poll<()> {
+                cx.waker().wake_by_ref();
+                panic!("tracked poll");
+            }),
+            tracker.clone(),
+        ));
+        let waker = futures_util::task::noop_waker();
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                task.as_mut().poll(&mut Context::from_waker(&waker))
+            }))
+            .is_err()
+        );
+        drop(task);
+        assert!(tracker.idle(), "a panicking poll leaked running or runnable work");
+    }
+
+    #[tokio::test]
+    async fn aborting_a_tracked_task_releases_its_ticket() {
+        let tracker = Arc::new(Tracker::default());
+        let task = tokio::spawn(Tracked::new(std::future::pending::<()>(), tracker.clone()));
+        task.abort();
+        let joined = tokio::time::timeout(std::time::Duration::from_secs(60), task).await;
+        assert!(matches!(joined, Ok(Err(error)) if error.is_cancelled()));
+        assert!(tracker.idle(), "aborting a tracked task leaked its runnable ticket");
+    }
 
     /// Runs one tracked future on its own thread, as the vendor runtime and the
     /// core thread each do; a wake through the ticket reaches `woken`.
