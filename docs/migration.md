@@ -90,10 +90,24 @@ oracle generation is independent of runtime installation.
 ## Changes that need action
 
 Most differences need nothing from you. These are the ones that can change what you see or what you must set. Each
-links to its entry in the [deviations guide](deviations.md).
+links to its entry in the [deviations guide](deviations.md) or the relevant Phase 8 evidence.
+The Phase 8 rows apply when moving from 0.12.0 to 0.13.0-rc.1 as well as from Kotlin.
 
 | If you… | What changed | Do |
 |---|---|---|
+| grep or parse marathon diagnostics ([WP 8.8](design/logging.md), [WP 8.11](wp/8.11-test-changes.md#other-group-3-diagnostic-changes)) | `tracing` uses `HH:mm:ss.SSS LEVEL marathon_crate::module: message`, without a thread column; Apple compact output omits time. Targets, wording and debug representations change. | Update matchers. Only per-test progress lines and the entire summary block, including `Marathon run finished` and `\tRaw:`, keep their text format. |
+| depend on provider WARN/INFO lines with `debug: false` ([WP 8.8](design/logging.md#debug-off-visibility-c18-superseded)) | Android, iOS and macOS provider and core construction diagnostics now follow the ordinary ERROR threshold instead of retaining a construction-time DEBUG level. Host-key warnings remain visible. | Set `debug: true` when those diagnostics are needed; update log-based alerts. |
+| classify generated failures or snapshot their traces ([D59](deviations.md#d59--generated-failures-use-plain-descriptions)) | Result files and logs use plain descriptions, such as `unexpected end of input`, without generated Java class names; external tool text stays verbatim. Hidden `config-dump` uses `error.kind` instead of `error.class`. | Update classifiers and snapshots; use structured statuses, and `error.kind` for developer dumps. |
+| snapshot CLI help or match usage errors ([D61](deviations.md#d61--cli-help-and-usage-use-clap)) | clap replaces Clikt's help, usage, suggestions and error wording. Commands, flags, defaults, boolean meaning, streams and exit codes stay. | Update text expectations; use exit codes for usage failures. |
+| consume Allure `environment.xml`, raw annotation strings or `annotationData.valueRegex` ([D58](deviations.md#d58--object-and-annotation-values-replace-identity-strings)) | Stateless objects use simple names, arrays use `[elements]`, decoded null uses `null`; filters match those values instead of identities. | Replace identity-based expectations and regexes with value-based ones. |
+| compare screenshots or GIF bytes ([D63](deviations.md#d63--screenshots-and-gifs-use-native-image-handling)) | P3 colours, channel decoding, resize ties and partial alpha can change pixels; multi-frame GIFs have one loop extension. Paths, dimensions, timing and references stay. | Review visual baselines and refresh affected image hashes, including multi-frame GIFs. |
+| rely on queue tie order, seeded order or exact batches ([D60](deviations.md#d60--equal-priority-tests-run-in-insertion-order)) | Ties are FIFO; keys are computed on insertion. Random seeds can assign another order; selector order/grouping, batch counts and report order can change. | Update order/batch snapshots and keep tests independent of execution order. |
+| match socket errors or malformed UTF-8 ([D57](deviations.md#d57--native-decoding-socket-text-and-basic-credentials)) | Native addresses drop Java's slash and compress IPv6; encoded surrogate bytes can produce more U+FFFD characters. Device IDs keep their spelling. | Update text matchers and malformed-input expectations. |
+| use non-ASCII HTTP Basic credentials for analytics ([D57](deviations.md#d57--native-decoding-socket-text-and-basic-credentials)) | Credentials now encode UTF-8 instead of ISO-8859-1 with out-of-range replacement. ASCII stays identical. | Check that the server accepts UTF-8 credentials. |
+| match malformed Unicode or rare supplementary-character sort order ([D55](deviations.md#d55--text-uses-unicode-characters)) | Lone surrogates become U+FFFD at decoding; supplementary/BMP ordering follows Unicode scalar order. Valid-Unicode fragmentation and Allure hashes stay. | Update those edge-case expectations; no change for ordinary valid text. |
+| predict artifact paths cut through an emoji or other supplementary character ([D56](deviations.md#d56--path-limits-keep-complete-characters)) | The cut stops before the whole character, one UTF-16 unit shorter; the path can now be written instead of failing. Empty components still fail. | Allow the shorter complete-character path. |
+| compare serialized YAML or JSON as text ([WP 8.9](wp/8.9.md), [WP 8.4](wp/8.4.md)) | Serde writers preserve ordered data but YAML formatting/quoting and JSON numeric/escape spellings may differ, including JSON embedded in HTML. Input parsing stays. | Compare parsed data for `parse` YAML, serialized configurations and JSON reports. |
+| set an Apple command output idle limit very close to expected silence ([D62](deviations.md#d62--apple-output-idle-limits-have-no-polling-margin)) | Expiry uses the configured limit exactly, without the old 20 ms polling margin; ready bytes still win. | Raise the limit if it relied on that margin. |
 | **have any Marathonfile that doesn't set `uncompletedTestRetryQuota`** ([D47](deviations.md#d47--an-unlimited-uncompletedtestretryquota-is-refused)) | **Breaking.** `marathon run` and `parse` now exit 1 when it is unset or 2147483647, because nothing else ends a run in which a test keeps coming back uncompleted. | Add `uncompletedTestRetryQuota: 5`, or the number of devices + 2 if that is more. [See below](#a-finite-uncompletedtestretryquota-d47). |
 | rely on an empty `/sdcard` ([D27](deviations.md#d27--prepare-no-longer-wipes-external-storage)) | Prepare no longer runs `rm -r $EXTERNAL_STORAGE`. Videos from an aborted run, or cut short by a lost connection in a run that still exits 0, stay on the device. | Clear what your tests need in the tests or in your device setup. |
 | set `socketIdleTimeout` ([D21](deviations.md#d21--socketidletimeout-means-what-it-says)) | It is now real milliseconds. It bounds only four requests: the adb server's version, a device's features, the property reads after boot and the removal of port forwards when a device is disposed. Kotlin read it as seconds, so `PT30S` lasted 30,000 s. | Remove it, or keep it at 30 s or more. `PT2S` now fails those requests on a slow adb server. |
@@ -111,7 +125,8 @@ links to its entry in the [deviations guide](deviations.md).
 | cancel runs with SIGINT or SIGTERM, or take a run's reports as a sign that it finished ([D52](deviations.md#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) | A cancelled run writes its reports and terminates its devices whatever `debug` says, and exits with 130 or 143 within 25 s. A second signal exits at once. | Allow 25 s before killing it, and read the exit code to tell whether a run finished. [See below](#cancelling-a-run). |
 
 These deviations need no action: D1, D4, D5, D7, D13, D15–D19, D22, D23, D26, D28–D30, D34, D36, D37, D40, D42, D45, D49,
-D51, D53 and D54. D2, D3, D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections
+D51, D53, D54, D64 and D65. D65 can include a previously missed late pool, lengthen a run and correct its reports and
+existing exit status; it needs no configuration change. D2, D3, D6, D8–D12, D14, D20, D24 and D25 have an action of their own, described in their entries and in the sections
 below.
 
 ### A finite `uncompletedTestRetryQuota` (D47)
@@ -197,10 +212,14 @@ Reports keep the established directory layout: device/billing JSON, JUnit,
 per-test and raw results, Allure, HTML/timeline, and vendor logs/media/artifacts.
 The complete contract is [PLAN §3.4](../PLAN.md#34-output-directory-complete-manifest).
 Account for the omitted JSON delegate field (D3), en-US formatting (D8), text
-decoding (D10/D11) and diagnostic changes (D12). Video parity compares decoded
-content and metadata, not identical encoded bytes. Existing Kotlin logger names,
-startup/runtime phases and progress lines remain part of the
-[logging contract](../PLAN.md#35-logs-startup-and-runtime-phases).
+decoding (D10/D11, D55/D57), complete-character path cuts (D56), object/annotation
+values (D58), generated failure wording (D59), execution-derived order (D60) and
+image changes (D63). Serde JSON/YAML output preserves ordered parsed data rather
+than text spelling. Video parity compares decoded content and metadata, not
+identical encoded bytes. Under [PLAN §3.12](../PLAN.md#312-phase-8-contract),
+per-test progress lines and the complete end-of-run summary block, including
+`Marathon run finished` and `\tRaw:`, keep their text format. Other diagnostics
+use [native tracing targets, formatting and visibility](design/logging.md).
 
 The single maintained completion-message/stream/exit table is
 [PLAN §3.1](../PLAN.md#31-cli-an-argument-and-exit-matrix). In particular,

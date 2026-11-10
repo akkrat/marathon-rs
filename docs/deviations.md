@@ -1,10 +1,12 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D54; implementation availability
+canonical. This guide covers D1–D65; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
-shipped differences.
+shipped differences. D55–D65 ship in 0.13.0-rc.1 and remove JVM artefacts under
+[the Phase 8 contract](../PLAN.md#312-phase-8-contract), including the behaviour
+changes described below; they are separate from 0.12.0's Kotlin bug fixes.
 
 ## D1 — Crash and usage telemetry
 
@@ -45,8 +47,9 @@ client replacement does not itself disable writes or require a service migration
 ## D5 — Retained defects
 
 Most Kotlin defects remain, including metadata lookup, dynamic-provider EOF and
-CI detection quirks. D14–D19 and D21–D54 fix the ones described in this guide, and
-the [ledger](known-kotlin-bugs.md) marks the rows they fix as fixed. Consult the
+CI detection quirks. D14–D19 and D21–D54 fix the ones described in this guide;
+D55–D65 remove JVM artefacts and also retire some retained quirks. The
+[ledger](known-kotlin-bugs.md) marks each affected row. Consult the
 ledger and its per-row status, and the
 [migration shortlist](migration.md#retained-behavior-to-account-for).
 
@@ -114,15 +117,16 @@ See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 ## D12 — Native CLI and process diagnostics
 
 Kotlin emits an SLF4J provider line, JVM stack frames and run-specific identity
-hashes. Native output omits that line and internal frames, retaining exception
-class, message and `Caused by:` lines; external tool traces pass through.
-Identity suffixes are stable, and `System Information:` lists OS facts instead
-of JVM properties. Native signal handling retains captured JVM exit statuses.
+hashes. Native output omits that line and internal frames. Through 0.12.0 it kept
+exception class names and stable identity suffixes; D59 now replaces generated
+class names with descriptions, and D58 replaces identities with values. Messages,
+`Caused by:` lines and external tool traces stay. `System Information:` lists OS
+facts instead of JVM properties. Native signal handling retains captured JVM exit statuses.
 
 Kotlin expands `@argfile`, provides `_MARATHON_COMPLETE` completion and wraps
-help to the terminal. Native help uses 79 columns, with no argfile expansion or
-completion script. Pass arguments directly, replace completion integration and
-update diagnostic parsers.
+help to the terminal. Through 0.12.0 native help used 79 columns; D61 now uses clap
+text. There is still no argfile expansion or completion script. Pass arguments
+directly, replace completion integration and update diagnostic parsers.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [CLI findings](wp/2.5-findings.md) and [run findings](wp/3.10-findings.md).
 
@@ -987,11 +991,11 @@ always accepted, and one test longer than the limit still makes a batch. Rejecte
 - A batch can now be longer. It stops at its configured `size`, or once its expected durations add up to
   `durationMillis`, which are what Kotlin meant. The duration is a stopping point, not a cap: the test that reaches it is
   still in the batch, so two 4 s tests make an 8 s batch with a 6 s limit, as in Kotlin.
-- With sorted tests every test keeps its place. Under ties, as with `no-sorting`, the order is the heap's: rejected tests go
-  to its end, so after such a batch tests can run in another order than in Kotlin.
-- Tests of two APKs in the order they were listed, without sorting, gain almost nothing: 1,000 tests at size 10 take 101
-  batches either way. Sorted, those take 100 instead of 150.
-- `class-name` and `isolate` batching are unchanged.
+- Through 0.12.0 sorted tests kept their place; ties followed heap order after rejected tests were re-added. D60 now gives
+  ties FIFO order, placing rejected tests after entries that were never polled.
+- In 0.12.0, two APKs in listed order without sorting took 101 batches for 1,000 tests at size 10, with or without D50.
+  D60 now fills 100. The sorted D50 comparison remains 100 instead of Kotlin's 150.
+- The `class-name` and `isolate` batching rules are unchanged; D60 can change their queue-derived order and grouping.
 
 Approved 2026-11-07 (project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [C33](known-kotlin-bugs.md) and the [x32 findings](wp/x32-findings.md).
@@ -1182,13 +1186,263 @@ Approved 2026-11-08 (project owner's decision). See [PLAN §3.11](../PLAN.md#311
 
 **Migration action:** none needed.
 
+## D55 — Text uses Unicode characters
+
+Kotlin and 0.12.0 could keep an unmatched UTF-16 surrogate in text until writing it,
+when it usually became `?`. The native runner now replaces it with U+FFFD (`�`)
+at decoding boundaries in escaped YAML/JSON, plists and other text inputs. Valid
+surrogate pairs at UTF-16 decoding boundaries still form one supplementary character.
+DEX retains Kotlin's historical UTF-8 interpretation of MUTF-8; D57 changes its
+replacement counts. Annotation or descriptor slices that split a pair also use U+FFFD.
+
+Sorting supplementary characters against U+E000–U+FFFF now follows Unicode scalar
+order, rather than UTF-16 unit order. Diagnostic abbreviations stop at whole
+characters. File/path limits still count UTF-16 units (see D56), Kotlin whitespace
+and line splitting stay, and fragmentation hashes and Allure history IDs are unchanged
+for valid Unicode.
+
+Approved as D55 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.2](wp/8.2.md), its
+[findings](wp/8.2-findings.md) and [test changes](wp/8.2-test-changes.md).
+
+**Migration action:** if you match malformed text or depend on this rare sort order,
+update those expectations. No action for ordinary valid text.
+
+## D56 — Path limits keep complete characters
+
+Kotlin's UTF-16 cut could leave half a supplementary character, such as an emoji.
+In 0.12.0, a `maxPath` or `maxFilename` cut there failed with `InvalidInput` and the
+file or folder was not written. The native runner now cuts before that character,
+one UTF-16 unit short of the limit, so the shorter valid path can be written.
+If dropping the character leaves an empty component, it still fails rather than
+using the parent directory. Limits, normalization and directory/diagnostic ordering
+are otherwise unchanged.
+
+Approved as D56 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.3](wp/8.3.md) and its
+[baseline probe and test changes](wp/8.3-test-changes.md).
+
+**Migration action:** if you predict truncated artifact paths, allow the shorter
+complete-character name at this boundary. Otherwise none needed.
+
+## D57 — Native decoding, socket text and Basic credentials
+
+Kotlin and 0.12.0 used the JDK's malformed UTF-8 replacement rules. Native decoding
+can produce more U+FFFD characters: encoded surrogate bytes `ED A0 80` now produce
+three, and truncated `ED A0` two, where the JDK produced one. This also affects
+DEX's historical UTF-8 interpretation of MUTF-8 and malformed process output.
+
+Connection diagnostics use native socket spelling, such as `127.0.0.1:5037` and
+`[::1]:5037`, without Java's leading slash or expanded IPv6 spelling; a configured
+DNS name is included where needed. Android device IDs and host text in result
+data keep their old spelling. HTTP Basic authentication now base64-encodes UTF-8
+`user:password`, instead of ISO-8859-1 with `?` for characters outside Latin-1.
+ASCII credentials and URL form/query encoding are unchanged.
+
+Approved as D57 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.3](wp/8.3.md) and its
+[test changes](wp/8.3-test-changes.md), including separate native expectations.
+
+**Migration action:** update socket-message and malformed-text matchers. If you use
+non-ASCII Basic credentials for analytics, check that the server accepts UTF-8.
+
+## D58 — Object and annotation values replace identity strings
+
+Kotlin printed object identities such as `Class@hash`; 0.12.0 substituted stable
+class-name hashes for stateless objects. Stateless configuration objects
+in Allure `environment.xml` now use their simple class name, such as
+`DisabledAnalytics`. Array annotation values use `[elements]`, with each element's
+ordinary rendering, and decoded null uses `null`. Raw reports and diagnostic lines
+use the same values, and cancellation job text drops its identity suffix.
+
+The `annotationData` filter now matches that text: nested array contents and decoded
+null can match; old identity patterns cannot. Existing outer-array element matching,
+wrapper delimiter extraction and skipping unboxed null stay. Data-class values,
+device IDs, report paths and other data are unchanged by D58. This supersedes F29
+and the identity part of D12; D59 separately changes exception names.
+
+Approved as D58 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.5](wp/8.5.md), the
+[reviewed golden diff](wp/8.5-golden-diff.md) and [test changes](wp/8.5-test-changes.md).
+
+**Migration action:** update `environment.xml` and raw-metadata expectations, and
+replace identity-based `annotationData.valueRegex` patterns with value patterns.
+
+## D59 — Generated failures use plain descriptions
+
+Kotlin and 0.12.0 printed Java exception class names in generated failure messages,
+stack traces and diagnostics. The native runner uses descriptions, for example
+`unexpected end of input: …` instead of `java.io.EOFException: …`. This reaches
+JUnit, Allure, per-test JSON and HTML reports as well as logs. A missing message
+leaves the description alone; cause order, frame text and empty messages stay.
+External instrumentation, xcodebuild, xcresult and other tool text stays verbatim,
+including any Java class names in it. Exit codes are unchanged by the wording change.
+
+The hidden developer command `config-dump` replaces `error.class` with `error.kind`,
+a stable identifier such as `config.rejected`. Cause strings use descriptions and
+keep their existing `: null` convention for an absent message.
+
+Approved as D59 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.6b](wp/8.6b.md), the
+[reviewed golden diff](wp/8.6b-golden-diff.md) and [test changes](wp/8.6b-test-changes.md).
+
+**Migration action:** update failure-text classifiers and snapshots; use structured
+statuses where possible. Developer `config-dump` consumers must read `error.kind`.
+
+## D60 — Equal-priority tests run in insertion order
+
+Kotlin and 0.12.0 used Java heap order for ties and queue listings, and computed
+sorting keys during comparisons. The native queue computes each entry's key on
+insertion, breaks ties first-in, first-out and lists tests in priority order.
+Duration and success-rate directions, NaN ties and signed-zero ordering stay.
+Backend history stays pinned when a queue is built (D34); re-added tests can use
+newer run-local duration observations while surviving entries keep their stored keys.
+Random sorting draws once per distinct test at its first insertion, retaining its
+cache across retries and queues, so the same seed can produce another order.
+
+Execution order, class-name batch order, retry bookkeeping and queue listings can
+change. With unchanged keys, batch membership changes where ties cross a batch
+boundary; changed random keys or new duration observations on re-add can also move
+tests between batches. The number of batch launches can change. Worker commands
+change only in queue-derived test-selector order/grouping (`adb -e class` lists
+and xcodebuild `-only-testing` selectors); executables, flags, non-test operands
+and command construction stay. Real-device report order follows execution order.
+The reviewed native goldens reorder selectors in six views, with the same batch
+members and every report file unchanged; batching limits and configuration stay.
+
+Approved as D60 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.7](wp/8.7.md), the
+[reviewed golden diff](wp/8.7-golden-diff.md) and [test changes](wp/8.7-test-changes.md).
+
+**Migration action:** remove dependencies on heap tie order or old seeded sequences;
+update selector-order and batch snapshots. Keep tests independent of execution order.
+
+## D61 — CLI help and usage use clap
+
+Kotlin and 0.12.0 reproduced Clikt's help, usage, suggestions and grouped errors,
+including a fixed 79-column native layout. These texts now come from clap.
+Commands, flags, defaults, boolean meaning, repeated-option handling and exit codes
+stay. Root options still do not propagate to subcommands. Help stays on stdout;
+usage errors stay on stderr. Parse help now names the actual `.yml` extension;
+file naming itself is unchanged.
+
+Approved as D61 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.10](wp/8.10.md) and its
+[117-case CLI matrix and test changes](wp/8.10-test-changes.md).
+
+**Migration action:** update help/usage snapshots and scripts matching parser error
+text. Use exit codes to detect usage failures.
+
+## D62 — Apple output idle limits have no polling margin
+
+Kotlin and 0.12.0's Apple command reader added a 20 ms backoff margin and noticed
+expiry on polling ticks: a 200 ms idle limit lasted 221–240 ms. It now expires
+at the configured limit on the vendor scheduler clock, independently of wall-clock
+jumps. Output arriving only within the removed margin can now time out; already
+readable bytes still win over expiry.
+
+Line splitting, the timeout kind/message, cancellation and terminal draining (D19)
+stay. A stream that reaches EOF while its process lives still stays open until
+process end or the idle limit (A25); a timeout still discards its partial tail (A24).
+This supersedes the polling and grace-period part of D10.
+
+Approved as D62 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.12](wp/8.12.md), its
+[design](wp/8.12-design.md) and [test changes](wp/8.12-test-changes.md).
+
+**Migration action:** if a very small Apple output idle limit relied on the extra
+margin, raise that limit to cover the intended silence.
+
+## D63 — Screenshots and GIFs use native image handling
+
+Kotlin and 0.12.0 emulated ImageIO/AWT colour conversion, resizing, transparency and
+GIF metadata. Framebuffers now share a straight-alpha RGBA decoder. Display P3 is
+converted once to sRGB; sRGB and unknown samples pass through. Header-defined
+16-bit layouts are honoured, RGB565 is little-endian in both adapters, and 32-bit
+channels use their full advertised range with nearest rounding and opaque missing
+alpha. This corrects flat-black raw 10-bit images (U190), wrong BGR565 colours
+(U191) and the buffered profiled-RGB565 rejection (N22).
+
+Nearest-neighbour resize ties can move edge pixels, P3 colours change, and explicit
+sRGB loses the former one-level conversion noise. In GIFs only zero alpha is
+transparent; nonzero alpha becomes opaque, with the exact source transparency mask
+preserved after palette quantization. The loop extension is written once, removing
+19 bytes per extra frame even when the pixels match. Ordinary opaque unprofiled
+8-bit PNGs and opaque single-frame GIFs with unchanged sampling/geometry have exact
+pre-change byte regressions; this does not promise unchanged bytes for all images.
+
+Paths, names, worker commands and Allure/HTML references stay. Configured dimensions,
+rotations (including C64), delay truncation/validation, loop value, disposal 0 and
+frame order stay. The registered native goldens have no image change; supplemental
+known-pixel, byte-hash and transparency tests cover the changed cases.
+
+Approved as D63 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.16](wp/8.16.md), its
+[findings](wp/8.16-findings.md), [golden audit](wp/8.16-golden-diff.md) and
+[test changes](wp/8.16-test-changes.md).
+
+**Migration action:** review and refresh image hashes or visual baselines for the
+affected cases; allow different encoded bytes for multi-frame GIFs.
+
+## D64 — Cancellation and completion lose unused JVM machinery
+
+The Kotlin-coroutine adapter in 0.12.0 carried ordinary cancellation tags and
+removable completion callbacks. The native runtime now has one ordinary
+cancellation tag and retains callbacks until their exactly-once completion.
+Late registration still runs immediately after completion. Internal debug text can
+say `Requested` where it said `Parent`; those tags never reliably described origin.
+The workspace-only `CompletionRegistration` API is removed; the crates are not
+published for external consumption.
+
+Failure payloads, timeout identity, propagation, supervisor isolation and device
+cleanup ordering stay. Configuration, results, worker commands, pinned progress
+and summary output, and exit codes are unchanged.
+
+Approved as D64 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.18](wp/8.18.md) and its
+[test changes](wp/8.18-test-changes.md).
+
+**Migration action:** none needed for CLI users.
+
+## D65 — Pools admitted during the final join are included
+
+Kotlin's coroutine-child traversal, carried into 0.12.0, could miss a pool admitted
+while the scheduler joined its final pool. A run could fail with `Expected to run …
+but no events received`, or pass without that pool's tests. The scheduler now joins
+each pool admitted before its first read of an absent next pool index and includes
+only that joined prefix in its outcome. Receipt of a device event or creation of
+an accumulator while history prefetch is pending is not yet pool admission.
+
+A run can end later, include previously omitted tests, commands, progress and
+result counts, and select a different existing exit status for the corrected
+outcome. Exit-code policy, command construction and progress/summary text formats
+stay. D48's per-pool wait and D52's cancellation bound still hold.
+
+Completing parents now seal their outcome before callbacks run and reject new
+work after sealing. Child storage and completion callbacks are separate; callback
+and diagnostic ordering can move, and callbacks cannot change a sibling's already
+prepared outcome. Registered native goldens and the configuration corpus stay
+unchanged; focused CLI tests cover the corrected late-pool reports and status.
+
+Approved as D65 in [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12);
+no individual approval date is recorded there. See [WP 8.19](wp/8.19.md) and its
+[test changes](wp/8.19-test-changes.md).
+
+**Migration action:** none needed. If a late pool adds tests or changes the outcome,
+check its results rather than relying on the earlier incomplete run.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)
 separately permits Jackson-internal parse-error wording, thread names and JVM
 frames in internal traces. Custom validation messages and configuration wrappers
-retain their contract; external xcodebuild, xcresult and instrumentation traces
-remain unchanged. These allowances are not additional numbered deviations.
+retain their input/validation contract under [PLAN §3.12](../PLAN.md#312-phase-8-contract);
+their error wording may change, including D59. External xcodebuild, xcresult and
+instrumentation traces remain unchanged. Phase 8 also replaces diagnostic logging
+with `tracing` ([format and visibility](design/logging.md), [reviewed golden audit](wp/8.8-golden-diff.md))
+and uses serde JSON/YAML writers whose text may differ while their ordered data
+stays equal ([WP 8.4](wp/8.4.md), [WP 8.9](wp/8.9.md)). Per-test progress and the complete end-of-run summary
+block, including `Marathon run finished` and `\tRaw:`, keep their text format.
+These allowances are not additional numbered deviations.
 
-This guide is updated in the same change that approves or amends a deviation.
-Proposals that are still pending are not listed here.
+This guide records approved differences. Proposals that are still pending are not listed here.

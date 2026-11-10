@@ -2,6 +2,127 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## 0.13.0-rc.1
+
+Release candidate of 0.13.0: removes the JVM artefacts required by Kotlin parity under [PLAN §3.12](PLAN.md#312-phase-8-contract), keeping the inputs, CLI, exit-code policy, result-data and worker-command contracts except for the approved differences below (D55–D65).
+
+### Check before you upgrade
+
+- **Log parsers:** update diagnostic prefix, target and wording matchers for `tracing`; some provider WARN/INFO lines now need `debug: true`. Per-test progress lines and the complete summary block, including `Marathon run finished` and `\tRaw:`, keep their text format.
+- **Failure classifiers:** generated messages and stack traces in reports and logs use plain descriptions instead of Java class names (D59). Update text expectations; external tool text stays verbatim. Hidden `config-dump` consumers must replace `error.class` with `error.kind`.
+- **CLI text:** update help, usage and parser-error snapshots for clap (D61). Commands, flags, defaults, boolean meaning, streams and exit codes stay.
+- **Allure and annotations:** update `environment.xml` and raw-metadata expectations from identities to simple object names, `[elements]` and `null`; update identity-based `annotationData.valueRegex` filters (D58).
+- **Image comparisons:** review screenshot/GIF baselines and refresh affected hashes for colour conversion, channel decoding, resize ties and transparency; multi-frame GIFs have one loop extension (D63). Paths, dimensions, frame timing and report references stay.
+- **Test order:** update tie-order, seeded-order and batch snapshots for FIFO ties and insertion-time keys; selector order/grouping and batch counts can change (D60).
+- **Serialized text:** compare YAML and JSON as parsed data. Serde writers can change YAML formatting/quoting and JSON numeric/escape spellings, including embedded report JSON (WPs 8.9, 8.4).
+- **Text and paths:** update malformed-Unicode, socket-error and rare Unicode sort expectations (D55, D57); path cuts through a supplementary character now stop before it and can be written (D56).
+- **Non-ASCII Basic credentials:** check that your analytics server accepts UTF-8 credentials (D57). ASCII credentials stay identical.
+- **Small Apple idle limits:** allow for expiry at the configured limit, without the old 20 ms polling margin (D62). Raise the limit if it relied on that margin.
+
+See [Changes that need action](docs/migration.md#changes-that-need-action) for the migration table and
+[the deviations guide](docs/deviations.md#d55--text-uses-unicode-characters) for each approved difference.
+The 0.12.0 requirements, including a finite `uncompletedTestRetryQuota`, still apply when upgrading from an older version.
+
+### Text, paths and credentials
+
+- Text uses native Unicode strings: lone surrogates become U+FFFD at decoding, supplementary/BMP sorting follows
+  Unicode scalar order, and diagnostic abbreviations keep whole characters. Valid-Unicode fragmentation hashes and
+  Allure history IDs stay exact; path limits still count UTF-16 units (D55).
+- A limit through a supplementary character cuts before it, allowing the shorter path to be written; an empty component
+  still fails (D56). Malformed UTF-8 replacement counts and socket diagnostic spelling become native; Basic credentials
+  use UTF-8. Device IDs and URL form/query bytes stay (D57).
+
+### Reports and CLI
+
+- Stateless Allure environment objects use simple class names; array annotation values show their elements and decoded
+  null shows `null`. Raw metadata and annotation filters use those same values (D58).
+- Generated failures use plain descriptions in JUnit, Allure, per-test JSON, HTML and logs; cause order and frame text stay.
+  External traces stay verbatim, and hidden `config-dump` exposes stable kind identifiers (D59).
+- clap replaces the Clikt text emulation, preserving the command/flag surface, defaults and exit codes (D61).
+- Serde replaces the JSON and YAML writer emulations while preserving ordered parsed data, null/omission and scalar types
+  (WPs 8.4, 8.9). YAML input still uses the YAML 1.1 reader. A metadata key containing NEL now round-trips without losing
+  that character (U184).
+
+### Scheduling, runtime and diagnostics
+
+- Equal-priority tests are FIFO, queue listings follow priority order and keys are computed on insertion. Random key
+  assignment can change for a seed; re-added entries can use newer local duration observations with backend history still
+  pinned to queue construction. Only queue-derived test-selector order/grouping changes in worker commands (D60).
+- Apple output uses async reads and the exact configured idle limit, preserving terminal draining and ready-byte precedence
+  (D62).
+- Ordinary cancellation has one tag and completion callbacks can no longer be withdrawn; payloads, timeout identity,
+  device cleanup, results and exit codes stay (D64).
+- The scheduler joins every pool admitted before it finds no next pool, correcting missed late-pool tests and outcomes.
+  A run can end later and select a different existing status. Completion seals parent and sibling outcomes before callbacks;
+  callback and diagnostic order can move. Per-pool waits and bounded cancellation remain (D65).
+- `tracing` replaces logback emulation: regular diagnostics use local time, level and Rust module target, and Apple compact
+  output omits time. The thread column is gone. Ordinary levels now consistently follow `debug`; host-key warnings stay
+  visible. Other diagnostic wording and debug representations can change (WPs 8.8, 8.11;
+  [logging design](docs/design/logging.md)). Progress and summary formats stay pinned.
+- Runtime cleanup now delivers unhandled diagnostics, releases first-poll panic cancellation gates, retires replay work
+  through destruction, consistently prefers parent cancellation on iOS and drops deep job trees without recursive stack
+  overflow (U185–U189, U193). These fixes add no configuration.
+
+### Screenshots and GIFs
+
+- Framebuffer decoding shares native straight-alpha RGBA, converts P3 once to sRGB, honours 16-bit channel headers and
+  corrects RGB565 and raw 10-bit output. Nearest resize ties and GIF partial-alpha handling change; GIF loop metadata is
+  emitted once (D63, U190, U191). Canonical RGBA8888 decoding avoids losing captures to needless conversion work (U192).
+- Ordinary opaque unprofiled 8-bit PNGs and opaque single-frame GIFs with unchanged sampling/geometry have exact byte
+  regressions. Other images can change visibly. Names, paths, dimensions, rotations, frame timing, loop value, disposal,
+  frame order, worker commands and Allure/HTML references remain as specified by D63.
+
+### Evidence
+
+- Phase 8 verification includes native contract goldens, the configuration corpus, historical JVM differential suites and
+  focused boundary/runtime tests, with gates on macOS and Linux.
+- Reviewed native diffs record [120 identity-value replacements](docs/wp/8.5-golden-diff.md),
+  [six generated EOF-name replacements in four report files](docs/wp/8.6b-golden-diff.md), and
+  [selector reordering in six views](docs/wp/8.7-golden-diff.md), with unchanged batch membership in those views.
+- The [logging audit](docs/wp/8.8-golden-diff.md) keeps all pinned console bytes exact. The
+  [image audit](docs/wp/8.16-golden-diff.md) finds no changes in the 18 registered native views; its limited image cases
+  are supplemented by independent known-pixel, encoded-byte and transparency tests. The
+  [late-pool CLI witnesses](docs/wp/8.19-test-changes.md) check corrected reports, progress, counts and existing statuses.
+- Real-device and farm runs of **this release candidate are pending**. Their results will be added before 0.13.0.
+  The real-host and private-farm evidence under 0.12.0 below applies to that release, not to this rc.
+
+### Known limits
+
+- There is no Windows, Intel Mac, Linux on ARM or universal build. The macOS binary requests macOS 11.0 or later; versions
+  older than the build and test hosts are not tested.
+- The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
+  [migration guide](docs/migration.md#install-the-native-entry-point).
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container, and the release
+  candidate of 0.12.0 ran on real emulators and a CI farm; this rc's trials are pending. musl's resolver asks DNS directly,
+  so an adb host given as a name that only the system's own name service knows, such as a `.local` name, is not found;
+  use `localhost` or an address.
+- The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
+  stand-in file, so what the library itself does is not covered by them. The archives do not contain it, and this project's
+  licence does not cover it.
+- The real macOS UI XCTest scenario could not be completed on macOS 27 and is not part of that evidence
+  ([U103](docs/found-bugs.md)).
+- No isolated shadow or canary results are recorded in this repository. Trial it in a disposable environment and keep your
+  JVM distribution for [rollback](docs/migration.md#trial-and-rollback).
+- An emulator that restarted during an adb outage (D22) repeats its failing batches until `uncompletedTestRetryQuota` runs
+  out.
+- A cancelled run on a worker whose SSH server ignores signals can leave xcodebuild running there, with only a debug line
+  saying how long the close took (D30, U183).
+- A failed readiness probe can cost a simulator 26 to 30 minutes with the defaults while another simulator keeps the pool alive.
+  If only the probe hangs and needs KILL it takes about 33 minutes. On the last device the run ends 180 s (D48's wait) after the
+  simulator left the pool, or after a test result it reports later, with "remaining tests will not run": about 9 to 11
+  minutes after its first boot, or about 3 minutes after a loss if the probe starts failing at a re-setup (D38).
+- A failed xcodebuild close retires its simulator, and a pool whose last device it was waits (D48), then ends (D30).
+- An Android device that left its pool but not adb's list, after a failed prepare or D49's limit, returns only if the list changes,
+  so a pool waiting for it uses up the limit for nothing (D48).
+- A batch that D22's hold kept waiting is charged an attempt when its server is given up, so with `uncompletedTestRetryQuota: 0`
+  tests can fail without having run (U160).
+- A queue that ends for a reason other than a metrics failure, such as a broken console, leaves the run hanging (U168).
+- A remote parse cut after other text, before its first status atom, can't be told from output that is not the
+  instrumentation protocol: it gives no tests for that bundle and is not retried. With several bundles the run goes on
+  without them (D25).
+- Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
+  harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
+
 ## 0.12.0
 
 This release fixes bugs of the Kotlin fork, each one an approved difference (D21–D54). Most Kotlin bugs remain; the
