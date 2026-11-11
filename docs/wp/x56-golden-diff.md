@@ -1,6 +1,10 @@
 # WP x56 golden diff
 
-Base for review: `bbb9594a`. Implementation captured: `a284d0d9`.
+Base for review: main `584462eb`. Original implementation: `75977f02`; audit: `0ebf2d76`.
+Review fixes captured: `a75a5780`.
+
+The owner rebase renamed `a284d0d9` to `75977f02` and `effc3453` to `0ebf2d76`.
+Both old/new commit trees are identical; the rebase changed no view or code.
 
 The generation was backed up outside the repository, then removed and re-blessed
 only through `tools/differential/run bless`, as documented in its README. The
@@ -9,12 +13,12 @@ recording or copied fixture was edited or re-recorded.
 
 ## What changed
 
-`tools/differential/run diff-golden --against bbb9594a` emits exactly one hunk,
+`tools/differential/run diff-golden --against 584462eb` emits exactly one hunk,
 in `fixtures/contract/native-v1/provenance.json`:
 
 ```diff
 -  "native_sha": "c85839599b3ce3d72e86826fbe2bbef4ab0917a7",
-+  "native_sha": "a284d0d9c061a94499c675b3cbeb696ad80fd466",
++  "native_sha": "a75a578061046818d7fb99eedf845267a324302a",
 ```
 
 Driver hash, oracle source, platform and Python provenance are unchanged.
