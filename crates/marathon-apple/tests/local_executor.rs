@@ -92,6 +92,12 @@ async fn actual_kill_returns_137_and_executor_remains_connected() {
             .unwrap();
         session.kill().unwrap();
         assert_eq!(session.await_result(&context()).await.unwrap().exit_code, Some(137));
+        assert_eq!(
+            session.base.exit_code.termination(),
+            Some(marathon_apple::cmd::base_command::CommandTermination::Signal(
+                "9".into()
+            ))
+        );
         session.close().await.unwrap();
         assert!(executor.connected());
         assert!(
@@ -113,6 +119,10 @@ async fn total_timeout_leaves_process_alive_until_explicit_close() {
             .await
             .unwrap();
         assert_eq!(session.await_result(&context()).await.unwrap().exit_code, None);
+        assert_eq!(
+            session.base.exit_code.termination(),
+            Some(marathon_apple::cmd::base_command::CommandTermination::BatchTimeout)
+        );
         assert!(session.is_alive());
         session.close().await.unwrap();
         // Polls the real child's exit; the deadline only catches a hang on a slow runner.

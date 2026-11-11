@@ -76,8 +76,11 @@ impl AppleSimulatorDevice {
         };
         let output = result.clone();
         let batch_id = batch.id.clone();
+        let caller_cancellation = context.cancellation.clone();
         self.retained.spawn(self.services.runtime.as_ref(), async move {
-            let outcome = device.run_batch(configuration, pool, batch, output, &ctx).await;
+            let outcome = device
+                .run_batch(configuration, pool, batch, output, &ctx, caller_cancellation)
+                .await;
             let completion = outcome.clone().map_err(RunError::into_vendor);
             *running.outcome.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
             {
@@ -113,6 +116,7 @@ impl AppleSimulatorDevice {
         batch: BatchRef,
         result: Arc<Deferred<TestBatchResults>>,
         context: &VendorContext,
+        caller_cancellation: Arc<dyn marathon_core::runtime::CancellationSignal>,
     ) -> Result<(), RunError> {
         if let Some(reason) = context.cancellation.reason() {
             return Err(VendorError::Cancelled(reason).into());
@@ -137,7 +141,8 @@ impl AppleSimulatorDevice {
                 None,
             );
         }
-        let (listeners, lines) = self.create_execution_listeners(pool, batch.clone(), result, context.clone())?;
+        let (listeners, lines) =
+            self.create_execution_listeners(pool, batch.clone(), result.clone(), context.clone())?;
         for line in &lines {
             self.add_line_listener(line.clone())?;
         }
@@ -161,6 +166,7 @@ impl AppleSimulatorDevice {
                 self.services.runtime.clone(),
                 self.services.logging.clone(),
             );
+            runner.observe_batch_results(result, caller_cancellation);
             runner.session_close_timeout =
                 marathon_apple::bin::java_duration_of_millis(self.services.timeouts.session_close_millis);
             runner

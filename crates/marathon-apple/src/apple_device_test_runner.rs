@@ -13,9 +13,9 @@ use crate::{
 use jcompat::jtime::Duration;
 use marathon_config::Configuration;
 use marathon_core::{
-    error::{Failure, VendorError},
-    model::TestBatch,
-    runtime::VendorRuntime,
+    error::{Cancellation, Failure, VendorError},
+    model::{TestBatch, TestBatchResults},
+    runtime::{CancellationSignal, Deferred, VendorRuntime},
     vendor::VendorContext,
 };
 use marathon_error::FailureKind;
@@ -93,6 +93,11 @@ pub struct AppleDeviceTestRunner {
     pub logging: SshLogging,
     pub session_close_timeout: Duration,
     logger: Component,
+    batch_diagnostics: Option<BatchDiagnostics>,
+}
+struct BatchDiagnostics {
+    results: Arc<Deferred<TestBatchResults>>,
+    caller_cancellation: Arc<dyn CancellationSignal>,
 }
 impl AppleDeviceTestRunner {
     pub fn new(device: Arc<dyn AppleDevice>, runtime: Arc<dyn VendorRuntime>, logging: SshLogging) -> Self {
@@ -103,7 +108,19 @@ impl AppleDeviceTestRunner {
             logging,
             session_close_timeout: CLOSE_TIMEOUT,
             logger,
+            batch_diagnostics: None,
         }
+    }
+    /// Observe final listener results and the caller outside the retained batch job.
+    pub fn observe_batch_results(
+        &mut self,
+        results: Arc<Deferred<TestBatchResults>>,
+        caller_cancellation: Arc<dyn CancellationSignal>,
+    ) {
+        self.batch_diagnostics = Some(BatchDiagnostics {
+            results,
+            caller_cancellation,
+        });
     }
     fn log(&self, level: Level, message: impl Into<String>, cause: Option<Failure>) {
         if self.logging.enabled(&self.logger, level) {
@@ -148,6 +165,7 @@ impl AppleDeviceTestRunner {
     ) -> Result<(), RunError> {
         let session = XcodebuildSession::new(self.runtime.clone(), self.logging.clone());
         let mut channel = None;
+        let mut had_test_result = false;
         let mut result: Result<(), RunError> = async {
             listener.before_test_run().await?;
             channel = Some(
@@ -157,6 +175,12 @@ impl AppleDeviceTestRunner {
             );
             if let Some(channel) = &channel {
                 while let Some(events) = channel.receive(context).await? {
+                    had_test_result |= events.iter().any(|event| match event {
+                        TestEvent::TestPassed { id, .. }
+                        | TestEvent::TestFailed { id, .. }
+                        | TestEvent::TestIgnored { id, .. } => tests.contains(id),
+                        _ => false,
+                    });
                     let processed = process_events(&events, listener).await;
                     #[cfg(feature = "test-support")]
                     channel.processed();
@@ -167,6 +191,8 @@ impl AppleDeviceTestRunner {
             Ok(())
         }
         .await;
+        // Artifact/listener cleanup may replace the returned error; it did not end xcodebuild.
+        let batch_end = result.clone();
         let mut run_failure = result.as_ref().err().cloned();
         if let Err(error) = &result
             && matches!(error.error, VendorError::Cancelled(_))
@@ -222,7 +248,11 @@ impl AppleDeviceTestRunner {
             channel.cancel();
         }
         let started = context.hooks.nanos("apple.AppleDeviceTestRunner.closeSession");
-        if let Some(close) = session.stop(self.session_close_timeout, context).await {
+        let close = session.stop(self.session_close_timeout, context).await;
+        if !matches!(&result, Err(error) if matches!(error.error, VendorError::Cancelled(Cancellation::Requested(_)))) {
+            self.warn_empty_batch(tests, had_test_result, &batch_end, &session, context);
+        }
+        if let Some(close) = close {
             let serial = self.device.info().serial_number.to_owned();
             let mut detail = failure(
                 FailureKind::IllegalState,
@@ -268,6 +298,99 @@ impl AppleDeviceTestRunner {
             );
         }
         result
+    }
+    fn warn_empty_batch(
+        &self,
+        tests: &[marathon_core::model::Test],
+        had_test_result: bool,
+        result: &Result<(), RunError>,
+        session: &XcodebuildSession,
+        context: &VendorContext,
+    ) {
+        let Some(diagnostics) = &self.batch_diagnostics else {
+            return;
+        };
+        // D52 cancels the caller before the retained job is asked to stop. Inspect both.
+        let requested = |reason| matches!(reason, Some(Cancellation::Requested(_)));
+        if tests.is_empty()
+            || requested(context.cancellation.reason())
+            || requested(diagnostics.caller_cancellation.reason())
+            || result
+                .as_ref()
+                .err()
+                .is_some_and(|e| matches!(e.error, VendorError::Cancelled(Cancellation::Requested(_))))
+        {
+            return;
+        }
+        let progress = diagnostics
+            .results
+            .completed()
+            .and_then(Result::ok)
+            .map_or(had_test_result, |results| {
+                results
+                    .finished
+                    .iter()
+                    .chain(&results.failed)
+                    .any(|result| tests.contains(&result.test))
+            });
+        if progress {
+            return;
+        }
+        let Some(observation) = session.observation() else {
+            return;
+        };
+        use crate::cmd::base_command::CommandTermination;
+        let error = result.as_ref().err().map(|error| &error.error);
+        let reason = if matches!(observation.termination, Some(CommandTermination::BatchTimeout)) {
+            "marathon ended the session: batch timeout".into()
+        } else if let Some(error) = error.filter(|error| error.failure().kind == FailureKind::Timeout) {
+            let timeout = if observation.output_timed_out {
+                "test output timeout"
+            } else {
+                "timeout"
+            };
+            format!("marathon ended the session: {timeout} ({})", error.failure().for_log())
+        } else if let Some(error) =
+            error.filter(|error| matches!(error, VendorError::Cancelled(Cancellation::Timeout { .. })))
+        {
+            format!("marathon ended the session: timeout ({})", error.failure().for_log())
+        } else if let Some(error) = error.filter(|error| {
+            matches!(
+                error.failure().kind,
+                FailureKind::Ssh(marathon_error::SshKind::Connection | marathon_error::SshKind::Transport)
+            )
+        }) {
+            format!(
+                "marathon ended the session: lost connection to the worker ({})",
+                error.failure().for_log()
+            )
+        } else {
+            match observation.termination {
+                Some(CommandTermination::Status(status)) => format!("xcodebuild exited with status {status}"),
+                Some(CommandTermination::Signal(signal)) => format!("xcodebuild was terminated by signal {signal}"),
+                Some(CommandTermination::NoStatus) => "xcodebuild ended without an exit status".into(),
+                Some(CommandTermination::BatchTimeout) => "marathon ended the session: batch timeout".into(),
+                None => match error {
+                    Some(error) => format!("marathon ended the session: {}", error.failure().for_log()),
+                    None => "xcodebuild ended without an exit status".into(),
+                },
+            }
+        };
+        let count = tests.len();
+        let logger = self.logging.component("marathon_apple::batch_outcome");
+        self.logging.log(
+            &logger,
+            Level::WARN,
+            || {
+                format!(
+                    "Apple test batch on {} returned no results for {count} tests after {} ms: {}",
+                    self.device.info().serial_number,
+                    observation.elapsed_millis,
+                    reason.replace(['\r', '\n'], " ")
+                )
+            },
+            None,
+        );
     }
 }
 pub async fn process_events(events: &[TestEvent], listener: &dyn AppleTestRunListener) -> Result<(), RunError> {

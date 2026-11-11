@@ -242,6 +242,7 @@ async fn exit_code(
     timeout: jcompat::jtime::Duration,
     closing: Arc<AtomicBool>,
 ) -> VendorResult<()> {
+    let mut termination = None;
     let result = async {
         let timeout_millis = millis(timeout)?;
         let waited: Arc<Mutex<Option<ExitWait>>> = Arc::new(Mutex::new(None));
@@ -270,7 +271,18 @@ async fn exit_code(
             Some(()) => match waited.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 // D7: a null result without expiry (another signal, no status) sends no stale TERM; the
                 // following close() is a no-op on the closed channel.
-                Some(Ok(code)) => Ok(code),
+                Some(Ok(code)) => {
+                    use crate::cmd::base_command::CommandTermination;
+                    let detail = if let Some(status) = channel.exit_status() {
+                        CommandTermination::Status(status)
+                    } else if let Some(signal) = channel.exit_signal() {
+                        CommandTermination::Signal(signal)
+                    } else {
+                        CommandTermination::NoStatus
+                    };
+                    termination = Some(detail);
+                    Ok(code)
+                }
                 Some(Err(error)) => Err(error.into_vendor()),
                 None => Err(VendorError::Other(failure(
                     FailureKind::IllegalState,
@@ -280,6 +292,7 @@ async fn exit_code(
             None => {
                 // The expired wait left the channel alone. TERM, then the bounded close, which gives a process that TERM
                 // does not end KILL, and fails if the peer never answers (T15h, D30).
+                termination = Some(crate::cmd::base_command::CommandTermination::BatchTimeout);
                 channel.signal(Sig::TERM).map_err(SshFailure::into_vendor)?;
                 channel.close_escalating().await.map_err(SshFailure::into_vendor)?;
                 Ok(None)
@@ -292,7 +305,7 @@ async fn exit_code(
         let _ = scope.cancelled().await;
         return Ok(());
     }
-    exit.complete(result);
+    exit.complete_observed(result, termination);
     Ok(())
 }
 

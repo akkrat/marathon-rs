@@ -815,7 +815,15 @@ async fn non_term_signal_exit_sends_no_stale_term() {
     let executor = ssh::connect(&fake).await;
     for command in ["killed", "segv"] {
         // T16: null exit code; D7: no TERM request follows on the closed channel, the connection survives.
-        assert_eq!(ssh::run(&executor, &[command], 5000).await.unwrap().exit_code, None);
+        let session = start(&executor, &[command], 5000).await;
+        assert_eq!(session.await_result(&context()).await.unwrap().exit_code, None);
+        assert_eq!(
+            session.base.exit_code.termination(),
+            Some(marathon_apple::cmd::base_command::CommandTermination::Signal(
+                if command == "killed" { "KILL" } else { "SEGV" }.into()
+            ))
+        );
+        session.close().await.unwrap();
     }
     assert!(!fake.transcript().await.iter().any(|e| e["event"] == "signal"));
     assert_eq!(
@@ -1051,6 +1059,10 @@ async fn timeout_close_failure_fails_the_exit_code_and_safe_execute_returns_null
     );
     // D30: Kotlin's later session close joins without bound. Here the timeout branch has already given up, so the close
     // fails at once with no new signal, and the one after it (approved P5) cancels and joins the scope.
+    assert_eq!(
+        session.base.exit_code.termination(),
+        Some(marathon_apple::cmd::base_command::CommandTermination::BatchTimeout)
+    );
     assert_eq!(fake.events_at_least("signal", 2).await.len(), 2);
     let later = other(
         tokio::time::timeout(Duration::from_secs(60), session.close())

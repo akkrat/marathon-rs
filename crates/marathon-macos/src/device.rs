@@ -225,8 +225,9 @@ impl MacosDevice {
         batch: BatchRef,
         result: Arc<Deferred<TestBatchResults>>,
         context: VendorContext,
+        caller_cancellation: Arc<dyn CancellationSignal>,
     ) -> VendorResult<()> {
-        let (listener, lines) = self.execution_listeners(pool, batch.clone(), result, context.clone())?;
+        let (listener, lines) = self.execution_listeners(pool, batch.clone(), result.clone(), context.clone())?;
         for line in &lines {
             self.listeners.add(line.clone());
         }
@@ -248,6 +249,7 @@ impl MacosDevice {
                 self.options.dependencies.io.clone(),
                 self.options.logging.clone(),
             );
+            runner.observe_batch_results(result, caller_cancellation);
             runner.session_close_timeout = self.options.session_close_timeout;
             runner
                 .execute(&configuration, &bundle, &batch, &listener, &context)
@@ -631,11 +633,14 @@ impl Device for MacosDevice {
             let running = job.clone();
             let mut own_context = context.clone();
             own_context.cancellation = job.cancellation.clone();
+            let caller_cancellation = context.cancellation.clone();
             self.tasks.spawn(&*self.options.dependencies.io, async move {
                 let outcome = if let Some(reason) = running.cancellation.reason() {
                     Err(VendorError::Cancelled(reason))
                 } else {
-                    device.run(configuration, pool, batch, result, own_context).await
+                    device
+                        .run(configuration, pool, batch, result, own_context, caller_cancellation)
+                        .await
                 };
                 {
                     let mut execution = device.execution.lock().unwrap_or_else(|e| e.into_inner());

@@ -368,6 +368,9 @@ pub fn failing() -> CommandResult {
 #[derive(Clone, Default)]
 pub struct OutputPlan {
     pub lines: Vec<String>,
+    pub exit_status: Option<Option<i32>>,
+    pub termination: Option<marathon_apple::cmd::base_command::CommandTermination>,
+    pub delay_millis: u64,
     pub failure: Option<marathon_core::error::Failure>,
     pub close_gate: Option<Arc<marathon_core::executor::shared::SharedDeferred<()>>>,
     pub hang: bool,
@@ -411,6 +414,9 @@ impl BatchScript {
             let lines = plan.lines;
             let failure = plan.failure;
             let hang = plan.hang;
+            let status = plan.exit_status.unwrap_or(Some(65));
+            let termination = plan.termination;
+            let delay = plan.delay_millis;
             let pump = Runtime.spawn(Box::pin(async move {
                 for line in lines {
                     stdout.send(line).await?;
@@ -418,9 +424,16 @@ impl BatchScript {
                 if hang {
                     scope.cancelled().await;
                 }
+                if delay > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
                 stdout.close(failure);
                 stderr.close(None);
-                exit.complete(Ok(Some(65)));
+                if let Some(termination) = termination {
+                    exit.complete_observed(Ok(status), Some(termination));
+                } else {
+                    exit.complete(Ok(status));
+                }
                 Ok(())
             }));
             base.scope.track(pump);

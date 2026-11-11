@@ -11,29 +11,58 @@ use marathon_error::FailureKind;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
+/// Diagnostic detail only; the command result keeps its historical numeric status.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CommandTermination {
+    Status(i32),
+    Signal(String),
+    NoStatus,
+    BatchTimeout,
+}
 #[derive(Clone)]
-pub struct ExitCode(watch::Sender<Option<VendorResult<Option<i32>>>>);
+pub struct ExitCode {
+    result: watch::Sender<Option<VendorResult<Option<i32>>>>,
+    termination: Arc<Mutex<Option<CommandTermination>>>,
+}
 impl Default for ExitCode {
     fn default() -> Self {
-        Self(watch::channel(None).0)
+        Self {
+            result: watch::channel(None).0,
+            termination: Arc::default(),
+        }
     }
 }
 impl ExitCode {
     pub fn complete(&self, result: VendorResult<Option<i32>>) -> bool {
-        self.0.send_if_modified(|value| {
+        let termination = result
+            .as_ref()
+            .ok()
+            .map(|code| code.map_or(CommandTermination::NoStatus, CommandTermination::Status));
+        self.complete_observed(result, termination)
+    }
+    pub fn complete_observed(
+        &self,
+        result: VendorResult<Option<i32>>,
+        termination: Option<CommandTermination>,
+    ) -> bool {
+        self.result.send_if_modified(|value| {
             if value.is_some() {
                 false
             } else {
+                *self.termination.lock().unwrap_or_else(|e| e.into_inner()) = termination;
                 *value = Some(result);
                 true
             }
         })
     }
+    pub fn termination(&self) -> Option<CommandTermination> {
+        self.termination.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
     pub fn is_completed(&self) -> bool {
-        self.0.borrow().is_some()
+        self.result.borrow().is_some()
     }
     pub async fn wait(&self) -> VendorResult<Option<i32>> {
-        let mut rx = self.0.subscribe();
+        let mut rx = self.result.subscribe();
         loop {
             if let Some(result) = rx.borrow().clone() {
                 return result;

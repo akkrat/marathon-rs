@@ -56,6 +56,10 @@ pub fn filter(configurator: Vendor, debug: bool) -> Targets {
             "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
             if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
         )
+        .with_target(
+            "marathon_apple::batch_outcome",
+            if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+        )
         .with_target("marathon_core::diagnostics", LevelFilter::WARN)
         .with_target("marathon_core::timing", LevelFilter::INFO)
         .with_target("marathon_ios::device::timing", LevelFilter::INFO)
@@ -334,6 +338,10 @@ mod tests {
                 "marathon_apple::cmd::remote::ssh::sshj::known_hosts",
                 if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
             ),
+            (
+                "marathon_apple::batch_outcome",
+                if debug { LevelFilter::DEBUG } else { LevelFilter::WARN },
+            ),
             ("marathon_core::diagnostics", LevelFilter::WARN),
             ("marathon_core::timing", LevelFilter::INFO),
             ("marathon_ios::device::timing", LevelFilter::INFO),
@@ -418,6 +426,26 @@ mod tests {
             assert!(filter.would_enable(target, &Level::ERROR), "{vendor:?}");
             assert!(!filter.would_enable(target, &Level::INFO), "{vendor:?}");
             assert!(!filter.would_enable(target, &Level::DEBUG), "{vendor:?}");
+        }
+    }
+    #[test]
+    fn batch_outcome_warns_in_every_configurator_with_debug_off() {
+        for vendor in [
+            Vendor::Startup,
+            Vendor::Android,
+            Vendor::Apple { compact_output: false },
+            Vendor::Apple { compact_output: true },
+        ] {
+            for debug in [false, true] {
+                let filter = filter(vendor, debug);
+                let target = "marathon_apple::batch_outcome";
+                assert!(filter.would_enable(target, &Level::WARN));
+                assert!(filter.would_enable(target, &Level::ERROR));
+                assert_eq!(filter.would_enable(target, &Level::DEBUG), debug);
+                let mut settings = LogSettings::default();
+                settings.configure(debug, vendor);
+                assert!(settings.enabled_target(target, Level::WARN));
+            }
         }
     }
     #[test]

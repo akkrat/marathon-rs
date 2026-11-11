@@ -52,6 +52,12 @@ async fn a_batch_cancelled_while_its_xcodebuild_session_is_open_ends_only_after_
     );
     v(d.dispose().await)?;
     v(d.join_pending().await)?;
+    assert!(
+        h.logs
+            .take()
+            .iter()
+            .all(|record| record.target != "marathon_apple::batch_outcome")
+    );
     Ok(())
 }
 #[tokio::test]
@@ -574,5 +580,101 @@ async fn a_lost_connection_fails_a_transfer_in_flight_as_an_ordinary_error_d54()
         .fake
         .lose(marathon_test_support::apple::fake_simulator_worker::connection_exception(keep_alive));
     assert_eq!(timeout(Duration::from_secs(60), pull).await??, Ok(false));
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_empty_macos_batch_warns_with_debug_off_x57() -> R {
+    let h = Harness::new("")?;
+    h.options
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .configure(false, marathon_logging::Vendor::Apple { compact_output: false });
+    let d = prepared(&h).await?;
+    let results = marathon_core::executor::shared::SharedDeferred::new();
+    v(d.execute(
+        d.options.dependencies.configuration.clone(),
+        marathon_core::model::DevicePoolId { name: "pool".into() },
+        Arc::new(marathon_core::model::TestBatch {
+            id: "batch".into(),
+            tests: vec![marathon_core::model::Test {
+                pkg: "UITests".into(),
+                clazz: "Suite".into(),
+                method: "test1".into(),
+                meta_properties: vec![],
+            }],
+        }),
+        results.clone(),
+        h.context.clone(),
+    )
+    .await)?;
+    assert_eq!(results.completed().unwrap().unwrap().uncompleted.len(), 1);
+    v(d.dispose().await)?;
+    v(d.join_pending().await)?;
+    let warnings = h
+        .logs
+        .take()
+        .into_iter()
+        .filter(|record| record.target == "marathon_apple::batch_outcome")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].level, marathon_logging::Level::WARN);
+    assert!(
+        warnings[0].message.starts_with(&format!(
+            "Apple test batch on {} returned no results for 1 tests after ",
+            d.info().serial_number
+        )),
+        "{:?}",
+        warnings[0]
+    );
+    assert!(warnings[0].message.ends_with(" ms: xcodebuild exited with status 0"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn cancelling_a_nonempty_macos_batch_does_not_warn_x57() -> R {
+    let h = Harness::new("")?;
+    let d = prepared(&h).await?;
+    let running = Running::install(&h, vec![]);
+    let signal = Signal::new();
+    let mut context = h.context.clone();
+    context.cancellation = signal.clone();
+    let device = d.clone();
+    let task = tokio::spawn(async move {
+        device
+            .execute(
+                device.options.dependencies.configuration.clone(),
+                marathon_core::model::DevicePoolId { name: "pool".into() },
+                Arc::new(marathon_core::model::TestBatch {
+                    id: "batch".into(),
+                    tests: vec![marathon_core::model::Test {
+                        pkg: "UITests".into(),
+                        clazz: "Suite".into(),
+                        method: "test1".into(),
+                        meta_properties: vec![],
+                    }],
+                }),
+                marathon_core::executor::shared::SharedDeferred::new(),
+                context,
+            )
+            .await
+    });
+    timeout(Duration::from_secs(60), running.opened.notified()).await?;
+    signal.cancel(cancelled("caller"));
+    running.release.notify_one();
+    assert!(matches!(
+        timeout(Duration::from_secs(60), task).await??,
+        Err(VendorError::Cancelled(_))
+    ));
+    v(d.dispose().await)?;
+    v(d.join_pending().await)?;
+    assert!(
+        h.logs
+            .take()
+            .iter()
+            .all(|record| record.target != "marathon_apple::batch_outcome")
+    );
     Ok(())
 }

@@ -215,6 +215,10 @@ async fn a_cancelled_batch_doesn_t_lose_the_simulator() -> TestResult {
     let logs = h.logs.lock().unwrap();
     assert!(
         logs.iter()
+            .all(|(target, _, _, _)| target != "marathon_apple::batch_outcome")
+    );
+    assert!(
+        logs.iter()
             .any(|(_, level, message, _)| *level == marathon_logging::Level::DEBUG
                 && message.starts_with("Batch cancelled: "))
     );
@@ -449,11 +453,165 @@ async fn a_wedged_batch_that_keeps_writing_output_ends_at_the_batch_timeout() ->
         )
         .await?;
     h.prepare(&d).await.unwrap();
-    let (r, result) = support::bounded(20, run(&h, &d)).await;
+    let (r, result) = support::watchdog(run(&h, &d)).await;
     assert!(r.is_ok(), "{r:?}");
     assert_eq!(result.unwrap().uncompleted.len(), 2);
     assert_eq!(*worker.timeouts.lock().unwrap(), [1000]);
     h.finish(&[d]).await;
     worker.close().await.unwrap();
+    let logs = h.logs.lock().unwrap();
+    let warnings = logs
+        .iter()
+        .filter(|(target, _, _, _)| target == "marathon_apple::batch_outcome")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].2.ends_with(": marathon ended the session: batch timeout"));
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn empty_batches_warn_once_with_exit_signal_missing_status_and_batch_timeout_x57() -> TestResult {
+    use marathon_apple::cmd::base_command::CommandTermination;
+    use marathon_logging::{Level, Vendor};
+    for (status, termination, reason) in [
+        (Some(65), None, "xcodebuild exited with status 65"),
+        (Some(0), None, "xcodebuild exited with status 0"),
+        (None, None, "xcodebuild ended without an exit status"),
+        (
+            None,
+            Some(CommandTermination::Signal("KILL".into())),
+            "xcodebuild was terminated by signal KILL",
+        ),
+        (
+            None,
+            Some(CommandTermination::BatchTimeout),
+            "marathon ended the session: batch timeout",
+        ),
+    ] {
+        let h = Harness::new(|_| {})?;
+        h.services
+            .logging
+            .registry
+            .lock()
+            .unwrap()
+            .configure(false, Vendor::Apple { compact_output: false });
+        let (d, s) = prepared(&h).await?;
+        *s.plan.lock().unwrap() = OutputPlan {
+            exit_status: Some(status),
+            termination,
+            delay_millis: 30_000,
+            ..Default::default()
+        };
+        let (outcome, results) = run(&h, &d).await;
+        assert!(outcome.is_ok(), "{outcome:?}");
+        let results = results.unwrap();
+        assert!(results.finished.is_empty() && results.failed.is_empty());
+        assert_eq!(results.uncompleted.len(), 2);
+        h.finish(std::slice::from_ref(&d)).await;
+        let logs = h.logs.lock().unwrap();
+        let warnings = logs
+            .iter()
+            .filter(|(target, _, _, _)| target == "marathon_apple::batch_outcome")
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1, "{logs:?}");
+        assert_eq!(warnings[0].1, Level::WARN);
+        assert_eq!(
+            warnings[0].2,
+            format!(
+                "Apple test batch on {} returned no results for 2 tests after 30000 ms: {reason}",
+                d.serial()
+            )
+        );
+        assert!(warnings[0].3.is_none());
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn empty_batches_warn_with_the_known_output_timeout_or_lost_connection_x57() -> TestResult {
+    use marathon_apple::cmd::remote::ssh::sshj::error::CONNECTION_EXCEPTION;
+    for (kind, message) in [
+        (FailureKind::Timeout, "idle timeout PT30S reached"),
+        (CONNECTION_EXCEPTION, "worker connection closed"),
+    ] {
+        let h = Harness::new(|_| {})?;
+        let (d, s) = prepared(&h).await?;
+        *s.plan.lock().unwrap() = OutputPlan {
+            lines: vec!["Test Case '-[Suite test1]' started.".into()],
+            failure: Some(failure(kind.clone(), message)),
+            delay_millis: 30_000,
+            ..Default::default()
+        };
+        let (outcome, results) = run(&h, &d).await;
+        assert!(outcome.is_err());
+        assert_eq!(results.unwrap().uncompleted.len(), 2);
+        h.finish(std::slice::from_ref(&d)).await;
+        let logs = h.logs.lock().unwrap();
+        let warnings = logs
+            .iter()
+            .filter(|(target, _, _, _)| target == "marathon_apple::batch_outcome")
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1, "{logs:?}");
+        let reason = if kind == FailureKind::Timeout {
+            "marathon ended the session: test output timeout (timed out: idle timeout PT30S reached)"
+        } else {
+            "marathon ended the session: lost connection to the worker (SSH connection failure: worker connection closed)"
+        };
+        assert_eq!(
+            warnings[0].2,
+            format!(
+                "Apple test batch on {} returned no results for 2 tests after 30000 ms: {reason}",
+                d.serial()
+            )
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn partial_batches_do_not_warn_about_empty_results_x57() -> TestResult {
+    for lines in [passed(1), failed(1)] {
+        let h = Harness::new(|_| {})?;
+        let (d, s) = prepared(&h).await?;
+        *s.plan.lock().unwrap() = OutputPlan {
+            lines,
+            failure: Some(failure(FailureKind::Timeout, "idle timeout PT30S reached")),
+            ..Default::default()
+        };
+        let (_, results) = run(&h, &d).await;
+        let results = results.unwrap();
+        assert_eq!(results.finished.len() + results.failed.len(), 1);
+        assert_eq!(results.uncompleted.len(), 1);
+        h.finish(&[d]).await;
+        assert!(
+            h.logs
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|(target, _, _, _)| target != "marathon_apple::batch_outcome")
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn results_for_tests_outside_the_batch_do_not_hide_its_empty_outcome_x57() -> TestResult {
+    let h = Harness::new(|_| {})?;
+    let (d, s) = prepared(&h).await?;
+    s.output(passed(3));
+    let (_, results) = run(&h, &d).await;
+    let results = results.unwrap();
+    assert_eq!(results.finished.len(), 1);
+    assert_eq!(results.uncompleted.len(), 2);
+    h.finish(&[d]).await;
+    assert_eq!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(target, _, _, _)| target == "marathon_apple::batch_outcome")
+            .count(),
+        1
+    );
     Ok(())
 }

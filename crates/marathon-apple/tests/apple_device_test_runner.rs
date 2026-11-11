@@ -514,3 +514,163 @@ async fn cancellation_logs_plain_debug_and_timeout_still_logs_stuck_x56() -> Tes
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn caller_cancellation_during_after_run_suppresses_the_empty_batch_warning_x57() -> TestResult {
+    struct CancelAfter(Arc<SessionScope>);
+    impl AppleTestRunListener for CancelAfter {
+        fn after_test_run(&self) -> VendorFuture<'_, ()> {
+            Box::pin(async move {
+                self.0.cancel(cancelled("caller cancelled during result collection"));
+                Ok(())
+            })
+        }
+    }
+    let (device, mut runner) = setup(Plan::default());
+    let caller = Arc::new(SessionScope::default());
+    runner.session_close_timeout = support::duration(60_000);
+    runner.observe_batch_results(marathon_core::runtime::Deferred::new(), caller.clone());
+    let logs = Arc::new(Mutex::new(vec![]));
+    let captured = logs.clone();
+    runner.logging = marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
+        runner.logging.registry.clone(),
+        Arc::new(move |logger, _, message, _| captured.lock().unwrap().push((logger.target().to_owned(), message))),
+    );
+    let tests = vec![marathon_core::model::Test {
+        pkg: "UITests".into(),
+        clazz: "Suite".into(),
+        method: "test1".into(),
+        meta_properties: vec![],
+    }];
+    let context = support::context();
+    v(runner
+        .execute_request(
+            TestRequest::new("/tmp", "test", false),
+            &tests,
+            &CancelAfter(caller),
+            &context,
+        )
+        .await)?;
+    assert!(context.cancellation.reason().is_none());
+    v(device.dispose().await)?;
+    assert!(
+        logs.lock()
+            .unwrap()
+            .iter()
+            .all(|(target, _)| target != "marathon_apple::batch_outcome")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_typed_timeout_warns_for_a_nonempty_batch_x57() -> TestResult {
+    use marathon_core::error::Cancellation;
+    let reason = Cancellation::Timeout {
+        scope: 1,
+        detail: failure(FailureKind::TimeoutCancelled, "batch deadline reached"),
+    };
+    let (device, mut runner) = setup(Plan {
+        output_failure: Some(VendorError::Cancelled(reason.clone())),
+        ..Default::default()
+    });
+    runner.session_close_timeout = support::duration(60_000);
+    runner.observe_batch_results(
+        marathon_core::runtime::Deferred::new(),
+        Arc::new(SessionScope::default()),
+    );
+    let logs = Arc::new(Mutex::new(vec![]));
+    let captured = logs.clone();
+    runner.logging = marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
+        runner.logging.registry.clone(),
+        Arc::new(move |logger, level, message, _| {
+            captured
+                .lock()
+                .unwrap()
+                .push((logger.target().to_owned(), level, message))
+        }),
+    );
+    let tests = vec![marathon_core::model::Test {
+        pkg: "UITests".into(),
+        clazz: "Suite".into(),
+        method: "test1".into(),
+        meta_properties: vec![],
+    }];
+    let listener = Listener::new(device.calls.clone(), "one");
+    let error = runner
+        .execute_request(
+            TestRequest::new("/tmp", "test", false),
+            &tests,
+            &listener,
+            &support::context(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.error, VendorError::Cancelled(reason));
+    v(device.dispose().await)?;
+    let logs = logs.lock().unwrap();
+    let warnings = logs
+        .iter()
+        .filter(|(target, _, _)| target == "marathon_apple::batch_outcome")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].1, marathon_logging::Level::WARN);
+    assert!(warnings[0].2.ends_with(
+        ": marathon ended the session: timeout (operation cancelled after timeout: batch deadline reached)"
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_later_listener_timeout_does_not_replace_the_session_end_reason_x57() -> TestResult {
+    struct After;
+    impl AppleTestRunListener for After {
+        fn after_test_run(&self) -> VendorFuture<'_, ()> {
+            Box::pin(async {
+                Err(VendorError::Other(failure(
+                    FailureKind::Timeout,
+                    "artifact collection timeout",
+                )))
+            })
+        }
+    }
+    let (device, mut runner) = setup(Plan::default());
+    runner.session_close_timeout = support::duration(60_000);
+    runner.observe_batch_results(
+        marathon_core::runtime::Deferred::new(),
+        Arc::new(SessionScope::default()),
+    );
+    let logs = Arc::new(Mutex::new(vec![]));
+    let captured = logs.clone();
+    runner.logging = marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
+        runner.logging.registry.clone(),
+        Arc::new(move |logger, _, message, _| captured.lock().unwrap().push((logger.target().to_owned(), message))),
+    );
+    let tests = vec![marathon_core::model::Test {
+        pkg: "UITests".into(),
+        clazz: "Suite".into(),
+        method: "test1".into(),
+        meta_properties: vec![],
+    }];
+    let error = runner
+        .execute_request(
+            TestRequest::new("/tmp", "test", false),
+            &tests,
+            &After,
+            &support::context(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.error,
+        VendorError::Other(failure(FailureKind::Timeout, "artifact collection timeout"))
+    );
+    v(device.dispose().await)?;
+    let logs = logs.lock().unwrap();
+    let warnings = logs
+        .iter()
+        .filter(|(target, _)| target == "marathon_apple::batch_outcome")
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].1.ends_with(": xcodebuild ended without an exit status"));
+    Ok(())
+}

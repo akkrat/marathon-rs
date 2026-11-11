@@ -86,7 +86,9 @@ diagnostics therefore print with debug off, as before),
 `marathon_core::reporters::timeline` per the table,
 `marathon_apple::cmd::remote::ssh::sshj::known_hosts=warn` with debug off (`debug` with debug on — a floor, not a cap; host-key
 warnings are security-relevant and stay visible; its matcher
-component uses the same target), and
+component uses the same target),
+`marathon_apple::batch_outcome=warn` with debug off (`debug` with debug on;
+an all-incomplete Apple batch must be diagnosable without debug), and
 `marathon_apple::cmd::remote::ssh::sshj::wire=debug` gated additionally by
 `ssh.debug` on the `Component` (with ssh debug off, only ERROR shows). iOS provisioning timing records are emitted on
 `marathon_core::timing` today; the `marathon_ios::device::timing` directive
@@ -237,12 +239,27 @@ all on `marathon_core::construction`); the iOS simulator provider
 (`marathon_macos::provider`). Their ERROR lines still show, and everything
 shows with `debug: true`, as for every other ordinary logger.
 
-One exception is kept on purpose: `marathon_apple::cmd::remote::ssh::sshj::known_hosts`
-has a WARN floor in every configurator, because unknown- or changed-host-key
-warnings are security-relevant and must not hide behind a debug flag. It is
+Two exceptions have a WARN floor in every configurator.
+`marathon_apple::cmd::remote::ssh::sshj::known_hosts` keeps unknown- or
+changed-host-key warnings visible because they are security-relevant and must
+not hide behind a debug flag. It is
 pinned by `marathon-logging`'s
 `known_hosts_warns_in_every_configurator_with_debug_off` and by the
 directive inventories.
+
+`marathon_apple::batch_outcome` explains an Apple batch with no finished, failed
+or ignored test result, because diagnosing an all-incomplete batch must not
+require a debug rerun. Once result listeners and session stop have finished, the
+shared Apple runner emits one WARN with the device serial (udid and worker
+host:port for SSH), batch size, session duration and the known exit status,
+signal, missing status, timeout or worker-connection failure. Session duration
+uses the vendor monotonic clock from launch through output completion or forced
+stop, before command cleanup; artifact collection can overlap a running session.
+Requested cancellation, including D52, and batches with any completed result are
+excluded. The target is a floor like
+`known_hosts` (`debug` with debug on), pinned by
+`batch_outcome_warns_in_every_configurator_with_debug_off`, the directive
+inventories and the CLI subscriber test. See [WP x57](../wp/x57-findings.md).
 
 ## What is gone
 

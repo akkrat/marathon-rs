@@ -167,7 +167,15 @@ async fn execute(
             tokio::select! {
                 result = child.wait() => break result.map(|status| {
                     use std::os::unix::process::ExitStatusExt;
-                    status.code().or_else(|| status.signal().map(|signal| 128 + signal))
+                    use crate::cmd::base_command::CommandTermination;
+                    let termination = if let Some(code) = status.code() {
+                        CommandTermination::Status(code)
+                    } else if let Some(signal) = status.signal() {
+                        CommandTermination::Signal(signal.to_string())
+                    } else {
+                        CommandTermination::NoStatus
+                    };
+                    (status.code().or_else(|| status.signal().map(|signal| 128 + signal)), termination)
                 }).map_err(io_error),
                 signal = signal_rx.recv(), if !signal_rx.is_closed() || !signal_rx.is_empty() => {
                     if let (Some((signal, ack)), Some(pid)) = (signal, child.id()) {
@@ -182,7 +190,14 @@ async fn execute(
             }
         };
         alive_monitor.store(false, Ordering::SeqCst);
-        actual.complete(result);
+        match result {
+            Ok((code, termination)) => {
+                actual.complete_observed(Ok(code), Some(termination));
+            }
+            Err(error) => {
+                actual.complete(Err(error));
+            }
+        }
         Ok(())
     }));
     let last_output = OutputActivity::new(context.clock.now_millis());
@@ -213,7 +228,7 @@ async fn execute(
                         tokio::select! {
                             biased;
                             reason = child.cancelled() => Err(VendorError::Cancelled(reason)),
-                            result = actual_exit.wait() => { result_exit.complete(result); Ok(()) },
+                            result = actual_exit.wait() => { result_exit.complete_observed(result, actual_exit.termination()); Ok(()) },
                         }
                     })
                 }),
@@ -221,7 +236,7 @@ async fn execute(
             .await;
         match result {
             Ok(None) => {
-                exit.complete(Ok(None));
+                exit.complete_observed(Ok(None), Some(crate::cmd::base_command::CommandTermination::BatchTimeout));
             }
             Ok(Some(())) => {}
             Err(error) => {

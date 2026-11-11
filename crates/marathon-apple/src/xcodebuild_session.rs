@@ -165,6 +165,13 @@ struct State {
     abandoned: bool,
     close_failure: Option<Failure>,
     task: Option<Arc<dyn VendorTask>>,
+    observation: Option<SessionObservation>,
+}
+#[derive(Clone)]
+pub(crate) struct SessionObservation {
+    pub elapsed_millis: i64,
+    pub termination: Option<crate::cmd::base_command::CommandTermination>,
+    pub output_timed_out: bool,
 }
 pub struct XcodebuildSession {
     state: Mutex<State>,
@@ -182,6 +189,9 @@ impl XcodebuildSession {
             runtime,
             logging,
         })
+    }
+    pub(crate) fn observation(&self) -> Option<SessionObservation> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).observation.clone()
     }
     pub fn closed(&self) -> bool {
         let s = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -222,6 +232,8 @@ impl XcodebuildSession {
         let task = self.runtime.spawn(Box::pin(async move {
             let mut ctx = context;
             ctx.cancellation = this.cancellation.clone();
+            let started = ctx.clock.now_millis();
+            let clock = ctx.clock.clone();
             // The opener owns transport acquisition cleanup; never drop it at cancellation.
             let opened = if let Some(reason) = this.cancellation.reason() {
                 Err(VendorError::Cancelled(reason))
@@ -240,6 +252,17 @@ impl XcodebuildSession {
                 }
                 Err(error) => Err(error),
             };
+            this.state.lock().unwrap_or_else(|e| e.into_inner()).observation = Some(SessionObservation {
+                elapsed_millis: clock.now_millis().saturating_sub(started).max(0),
+                output_timed_out: command.is_some()
+                    && result
+                        .as_ref()
+                        .err()
+                        .is_some_and(|error| error.failure().kind == FailureKind::Timeout),
+                termination: command
+                    .as_ref()
+                    .and_then(|command| command.base.exit_code.termination()),
+            });
             // Non-cancellation failures reach the reader before close. A producer cancellation
             // is rethrown in Kotlin, so its channel completes only after finally.
             let cancellation = matches!(result, Err(VendorError::Cancelled(_)));
