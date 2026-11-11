@@ -152,9 +152,9 @@ not require the host to complete within a tighter wall-time margin.
 - The x53 documentation branch is not in this base. There is no Unreleased or
   0.13.0 section in this checkout's changelog, so no changelog section was added
   or renamed. There are no ranges ending at D65 at this base to replace. After x53 is
-  merged, the orchestrator must advance its new ranges to D1–D66 and add the D66
+  merged, the orchestrator must advance its new ranges to D1–D67 and add the D66
   bullet to its top 0.13.0 section. D66's section and plan row are additive.
-- S-x54-7 closure: rebasing onto `9a968887` and commit `bbb9594a` superseded the old `Base: 65c70cd8` notes, added the Unreleased entry and advanced the documentation ranges to D1–D66.
+- S-x54-7 closure: rebasing onto `9a968887` and commit `bbb9594a` superseded the old `Base: 65c70cd8` notes, added the Unreleased entry and advanced the documentation ranges through D66 (the current guide covers D1–D67).
 - No migration table row is needed: wrappers need no action; the D66 guide says so.
 
 A wrapper that signals the process group also ends local child commands such as

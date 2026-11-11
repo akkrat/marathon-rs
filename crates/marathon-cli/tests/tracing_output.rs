@@ -178,12 +178,12 @@ fn a_blocked_sink_never_blocks_or_drops_producers() -> Result<(), Box<dyn std::e
 }
 
 #[test]
-fn ordinary_flush_timeout_keeps_status_and_queued_output_u196() -> Result<(), Box<dyn std::error::Error>> {
+fn ordinary_delayed_flush_recovers_with_status_and_ordered_output_u196() -> Result<(), Box<dyn std::error::Error>> {
     let buffer = Buffer::default();
     let stderr = Buffer::default();
     let (entered, waiting) = mpsc::channel();
     let (release, blocked) = mpsc::channel();
-    let (tracing, guard) = TracingOutput::new_with_exit_flush(
+    let (tracing, guard) = TracingOutput::new(
         Blocked {
             entered: Some(entered),
             release: blocked,
@@ -191,8 +191,8 @@ fn ordinary_flush_timeout_keeps_status_and_queued_output_u196() -> Result<(), Bo
         },
         false,
         |_| "12:34:56.789".into(),
-        std::time::Duration::ZERO,
     )?;
+    let completion_output = tracing.clone();
     let output = CliOutput::traced(tracing, Box::new(stderr.clone()));
     output.out("before command\n");
     waiting.recv_timeout(std::time::Duration::from_secs(60))?;
@@ -202,16 +202,41 @@ fn ordinary_flush_timeout_keeps_status_and_queued_output_u196() -> Result<(), Bo
         environment: vec![],
         now: jcompat::jtime::instant_of(0, 0).ok_or("invalid instant")?,
     };
-    assert_eq!(run_cli(&["version".into()], &process, &UnsupportedRunner, &output), 0);
-    assert_eq!(stderr.text()?, "Console flush failed: console flush deadline elapsed\n");
-    assert_eq!(buffer.text()?, "");
-    // Timing out the acknowledgement leaves the queued bytes available to drain.
+    let (completed, completion) = mpsc::channel();
+    let command = std::thread::spawn(move || {
+        let status = run_cli(&["version".into()], &process, &UnsupportedRunner, &output);
+        let _ = completed.send(status);
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !completion_output.completion_started() {
+        assert!(std::time::Instant::now() < deadline, "command never reached flush");
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    // A negative window past the old one-second budget: the gate still holds the sink.
+    let premature = completion.recv_timeout(std::time::Duration::from_millis(1100));
+    let early_stderr = stderr.text()?;
+    let early_stdout = buffer.text()?;
     release.send(())?;
-    guard.shutdown_with_timeout(std::time::Duration::from_secs(60))?;
+    let status = match premature {
+        Ok(status) => status,
+        Err(mpsc::RecvTimeoutError::Timeout) => completion.recv_timeout(std::time::Duration::from_secs(60))?,
+        Err(error) => return Err(error.into()),
+    };
+    command.join().map_err(|_| "command panicked")?;
+    guard.shutdown()?;
+    assert!(matches!(premature, Err(mpsc::RecvTimeoutError::Timeout)));
+    assert_eq!(early_stderr, "");
+    assert_eq!(early_stdout, "");
+    assert_eq!(status, 0);
     let text = buffer.text()?;
-    assert!(text.starts_with("before command\n12:34:56.789 INFO marathon_cli::application: Starting marathon"));
-    assert!(text.ends_with(&format!("{}\n", marathon_cli::application::VERSION)));
-    assert_eq!(stderr.text()?, "Console flush failed: console flush deadline elapsed\n");
+    let version = marathon_cli::application::VERSION;
+    assert_eq!(
+        text,
+        format!(
+            "before command\n12:34:56.789 INFO marathon_cli::application: Starting marathon v{version}, command: version\n{version}\n"
+        )
+    );
+    assert_eq!(stderr.text()?, "");
     Ok(())
 }
 
@@ -224,6 +249,30 @@ impl Write for Broken {
         Ok(())
     }
 }
+#[test]
+fn ordinary_sink_errors_keep_status_and_diagnostics() -> Result<(), Box<dyn std::error::Error>> {
+    let stderr = Buffer::default();
+    let output = CliOutput::new(
+        Box::new(Broken),
+        Box::new(stderr.clone()),
+        marathon_logging::OutputTarget::Pipe,
+        Box::new(|_| "time".into()),
+    )?;
+    let directory = tempfile::tempdir()?;
+    let process = Process {
+        cwd: directory.path().into(),
+        environment: vec![],
+        now: jcompat::jtime::instant_of(0, 0).ok_or("invalid instant")?,
+    };
+    assert_eq!(run_cli(&["version".into()], &process, &UnsupportedRunner, &output), 0);
+    output.shutdown();
+    assert_eq!(
+        stderr.text()?,
+        "Console flush failed: sink failed\nConsole shutdown failed: sink failed\n"
+    );
+    Ok(())
+}
+
 /// WP 8.8: once the writer has closed, a late write fails explicitly (and is counted)
 /// instead of panicking or silently succeeding; everything written before stays written.
 #[test]
@@ -310,6 +359,10 @@ fn queued_records_render_raw_traces_at_their_own_time() -> Result<(), Box<dyn st
 fn shutdown_reports_sink_failure() -> io::Result<()> {
     let (output, guard) = TracingOutput::new(Broken, false, |_| "time".into())?;
     output.writer().write_all(b"line\n")?;
+    assert_eq!(
+        output.flush().err().map(|e| e.to_string()).as_deref(),
+        Some("sink failed")
+    );
     assert_eq!(
         guard.shutdown().err().map(|e| e.to_string()).as_deref(),
         Some("sink failed")

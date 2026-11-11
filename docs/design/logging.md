@@ -167,9 +167,12 @@ D52's behaviour:
   core: `exit_after_preparing` does the final queue forwarding on the
   `marathon-exit-output` thread and a `marathon-exit` watchdog thread exits
   the process after one second if the flush has not drained — a blocked
-  stdout (full pipe, stopped reader) cannot hang exit. Dropping the
-  `Console` on the ordinary path flushes with the same one-second deadline.
-  After the deadline the process exits anyway. The signal hook never
+  stdout (full pipe, stopped reader) cannot hang exit. Ordinary completion
+  (D67) instead shares one 60-second deadline between `CliOutput::flush`'s
+  acknowledgement and the later `OutputGuard` drain, starting at the flush
+  (or the drain if no flush ran). Both stages use only its remaining time;
+  a stalled console can delay normal exit by up to 60 seconds.
+  After the applicable deadline the process exits anyway. The signal hook never
   completes after queueing that exit, so `Marathon::run` cannot return a
   failure ahead of it (the one `process::exit` comes from the writer or the
   watchdog, or from a second signal); `exit_after_flush` after the writer

@@ -2,6 +2,10 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- Ordinary console completion now shares one 60-second deadline for flushing and draining output (D67), avoiding premature flush failures on loaded hosts. A stalled console can delay normal exit by up to 60 seconds; signal cancellation bounds stay unchanged.
+
 ## 0.13.0-rc.2
 
 Second release candidate of 0.13.0. It contains everything in 0.13.0-rc.1, which ran without regressions on real iOS,

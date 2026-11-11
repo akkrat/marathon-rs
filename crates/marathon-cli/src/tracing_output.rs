@@ -7,11 +7,12 @@ use std::{
     fmt,
     io::{self, Write},
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
         mpsc,
     },
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 use tracing::{Dispatch, Event, Subscriber};
 use tracing_subscriber::{
@@ -40,6 +41,18 @@ pub fn exit_once(status: i32) -> ! {
 pub use marathon_logging::{Vendor as Configurator, filter};
 
 pub(crate) const EXIT_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
+const ORDINARY_COMPLETION: Duration = Duration::from_secs(60);
+
+struct CompletionDeadline {
+    deadline: OnceLock<Instant>,
+    timeout: Duration,
+}
+impl CompletionDeadline {
+    fn deadline(&self) -> Instant {
+        *self.deadline.get_or_init(|| Instant::now() + self.timeout)
+    }
+}
+
 const OPEN: u8 = 0;
 const DRAINING: u8 = 1;
 const CLOSED: u8 = 2;
@@ -106,22 +119,26 @@ pub struct OutputGuard {
     writer: QueueWriter,
     thread: Option<JoinHandle<io::Result<()>>>,
     done: mpsc::Receiver<()>,
-    exit_flush: std::time::Duration,
+    completion: Arc<CompletionDeadline>,
 }
 impl OutputGuard {
     pub fn shutdown(mut self) -> io::Result<()> {
-        self.finish(self.exit_flush)
+        self.finish(self.completion.deadline())
     }
     pub fn shutdown_with_timeout(mut self, timeout: std::time::Duration) -> io::Result<()> {
-        self.finish(timeout)
+        self.finish((Instant::now() + timeout).min(self.completion.deadline()))
     }
-    fn finish(&mut self, timeout: std::time::Duration) -> io::Result<()> {
+    fn finish(&mut self, deadline: Instant) -> io::Result<()> {
         let Some(thread) = self.thread.take() else {
             return Ok(());
         };
         self.writer.0.phase.store(DRAINING, Ordering::SeqCst);
         let _ = self.writer.0.send.send(Command::Finish);
-        if self.done.recv_timeout(timeout).is_err() {
+        if self
+            .done
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .is_err()
+        {
             let stats = self.writer.stats();
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
@@ -136,7 +153,7 @@ impl OutputGuard {
 }
 impl Drop for OutputGuard {
     fn drop(&mut self) {
-        let _ = self.finish(self.exit_flush);
+        let _ = self.finish(self.completion.deadline());
     }
 }
 
@@ -151,7 +168,7 @@ pub struct TracingOutput {
     writer: QueueWriter,
     exit: mpsc::Sender<ExitRequest>,
     prepare_exit: mpsc::Sender<ExitWork>,
-    exit_flush: std::time::Duration,
+    completion: Arc<CompletionDeadline>,
 }
 fn copy_error(error: &Option<io::Error>) -> io::Result<()> {
     error
@@ -193,6 +210,10 @@ impl TracingOutput {
         stamp: impl Fn(Option<i64>) -> String + Send + Sync + 'static,
         exit_flush: std::time::Duration,
     ) -> io::Result<(Self, OutputGuard)> {
+        let completion = Arc::new(CompletionDeadline {
+            deadline: OnceLock::new(),
+            timeout: ORDINARY_COMPLETION,
+        });
         let (send, receive) = mpsc::channel();
         let writer = QueueWriter(Arc::new(Queue {
             send,
@@ -284,15 +305,19 @@ impl TracingOutput {
                 writer: writer.clone(),
                 exit,
                 prepare_exit,
-                exit_flush,
+                completion: completion.clone(),
             },
             OutputGuard {
                 writer,
                 thread: Some(thread),
                 done: completed,
-                exit_flush,
+                completion,
             },
         ))
+    }
+    #[cfg(feature = "test-seams")]
+    pub fn completion_started(&self) -> bool {
+        self.completion.deadline.get().is_some()
     }
     pub fn dispatch(&self) -> Dispatch {
         self.dispatch.clone()
@@ -301,6 +326,8 @@ impl TracingOutput {
         self.writer.clone()
     }
     pub fn flush(&self) -> io::Result<()> {
+        // Ordinary completion starts here; the guard drains against this same deadline.
+        let deadline = self.completion.deadline();
         let (send, receive) = mpsc::channel();
         self.writer
             .0
@@ -308,7 +335,7 @@ impl TracingOutput {
             .send(Command::Flush(send))
             .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "console writer stopped"))?;
         receive
-            .recv_timeout(self.exit_flush)
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "console flush deadline elapsed"))?
     }
     /// Exits with `status` once everything queued is written. If the writer
@@ -428,5 +455,94 @@ where
         write!(writer, "{}: ", event.metadata().target())?;
         context.format_fields(writer.by_ref(), event)?;
         writeln!(writer)
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+
+    struct Stalled {
+        entered: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+        stopped: mpsc::Sender<()>,
+    }
+    impl Write for Stalled {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.entered.send(()).map_err(io::Error::other)?;
+            self.release
+                .recv_timeout(Duration::from_secs(60))
+                .map_err(io::Error::other)?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Drop for Stalled {
+        fn drop(&mut self) {
+            let _ = self.stopped.send(());
+        }
+    }
+
+    #[test]
+    fn stalled_flush_and_drain_share_one_deadline_u196() -> io::Result<()> {
+        let (entered, waiting) = mpsc::channel();
+        let (release, blocked) = mpsc::channel();
+        let (stopped, finished) = mpsc::channel();
+        let (output, guard) = TracingOutput::new(
+            Stalled {
+                entered,
+                release: blocked,
+                stopped,
+            },
+            false,
+            |_| "time".into(),
+        )?;
+        output.writer().write_all(b"queued")?;
+        waiting
+            .recv_timeout(Duration::from_secs(60))
+            .map_err(io::Error::other)?;
+        // Consume the ordinary allowance deterministically, without waiting a real minute.
+        output
+            .completion
+            .deadline
+            .set(Instant::now() - Duration::from_secs(1))
+            .map_err(|_| io::Error::other("completion already started"))?;
+        let error = output
+            .flush()
+            .err()
+            .ok_or_else(|| io::Error::other("flush did not expire"))?;
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(error.to_string(), "console flush deadline elapsed");
+        // The sink stays gated through both stages. Flush used all of the shared allowance;
+        // draining must get the same expired deadline, rather than a fresh timeout.
+        assert_eq!(guard.completion.deadline(), output.completion.deadline());
+        assert_eq!(
+            guard.completion.deadline().saturating_duration_since(Instant::now()),
+            Duration::ZERO
+        );
+        let (drained, drain) = mpsc::channel();
+        let shutdown = thread::spawn(move || {
+            let _ = drained.send(guard.shutdown());
+        });
+        // Deliberate expiry: a fresh 60-second budget must fail this bound, with
+        // ample scheduling margin compared with an already expired wait.
+        let result = drain.recv_timeout(Duration::from_secs(5));
+        release.send(()).map_err(io::Error::other)?;
+        shutdown.join().map_err(|_| io::Error::other("shutdown panicked"))?;
+        let error = result
+            .map_err(io::Error::other)?
+            .err()
+            .ok_or_else(|| io::Error::other("drain did not expire"))?;
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        assert_eq!(
+            error.to_string(),
+            "console drain deadline elapsed (accepted 1, written 0, rejected 0)"
+        );
+        finished
+            .recv_timeout(Duration::from_secs(60))
+            .map_err(io::Error::other)?;
+        Ok(())
     }
 }

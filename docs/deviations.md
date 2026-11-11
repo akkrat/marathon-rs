@@ -1,12 +1,12 @@
 # Approved differences from Kotlin marathon
 
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) is
-canonical. This guide covers D1–D66; implementation availability
+canonical. This guide covers D1–D67; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
 shipped differences. D55–D65 ship in 0.13.0-rc.1 and remove JVM artefacts under
 [the Phase 8 contract](../PLAN.md#312-phase-8-contract), including the behaviour
-changes described below; they are separate from 0.12.0's Kotlin bug fixes. D66 ships in 0.13.0-rc.2.
+changes described below; they are separate from 0.12.0's Kotlin bug fixes. D66 ships in 0.13.0-rc.2. D67 is approved for 0.13.0.
 PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date.
 
@@ -1484,6 +1484,33 @@ Approved 2026-11-11 (project owner's decision). See
 
 **Migration action:** none needed. Wrappers may keep sending SIGQUIT, waiting,
 then SIGTERM: they now get diagnostics followed by D52's reports and exit status.
+
+## D67 — ordinary console completion has one 60-second deadline
+
+Ordinary CLI completion previously reused the one-second signal flush budget
+for its acknowledgement wait, then started another one-second drain wait.
+Loaded CI and farm hosts could print `Console flush failed` despite a successful
+command, and a later drain timeout could let the process exit with queued output
+unwritten (U196).
+
+The ordinary path now starts one 60-second deadline at the final flush (or at
+guard shutdown if no flush ran). The acknowledgement wait and subsequent drain
+both consume its remaining time. A recovering sink can finish without a spurious
+diagnostic; a stalled console can now delay normal exit by up to 60 seconds,
+including both waits together. Expiry and actual sink errors retain their
+diagnostics and the command's exit status. Producers remain nonblocking and
+queued output retains its order.
+
+The first-signal watchdog stays at one second, the second signal still exits
+immediately, and D66 SIGQUIT stays unchanged. There is no configuration option.
+Result files, worker commands, pinned progress and summary text stay unchanged.
+
+Approved 2026-11-11 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x60 findings](wp/x60-findings.md).
+
+**Migration action:** none needed. Allow up to 60 seconds for a normal finish
+when the console is stalled; signal cancellation keeps its existing bounds.
 
 ## Other accepted text differences
 
