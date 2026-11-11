@@ -6,7 +6,8 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 This release removes the JVM artefacts required by Kotlin parity under [PLAN §3.12](PLAN.md#312-phase-8-contract), keeping the
 inputs, CLI, exit-code policy, result-data and worker-command contracts except for the approved differences below
-(D55–D65). D66 and D67 change how SIGQUIT and console completion are handled. It has the code of 0.13.0-rc.2 plus D67 and the log wording listed under "Signals, console and logs".
+(D55–D65). D66 and D67 change how SIGQUIT and console completion are handled. It has the code of 0.13.0-rc.2 plus D67
+and further log wording; "Signals, console and logs" below lists all of these changes.
 
 ### Check before you upgrade
 
