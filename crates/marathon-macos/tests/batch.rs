@@ -623,7 +623,7 @@ async fn an_empty_macos_batch_warns_with_debug_off_x57() -> R {
     assert_eq!(warnings[0].level, marathon_logging::Level::WARN);
     assert!(
         warnings[0].message.starts_with(&format!(
-            "Apple test batch on {} returned no results for 1 tests after ",
+            "Apple test batch on {} returned no results for 1 test after ",
             d.info().serial_number
         )),
         "{:?}",

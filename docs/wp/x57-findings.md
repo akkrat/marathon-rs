@@ -191,7 +191,7 @@ original implementation; this review run tests only the four changed crates.
 Additional examples asserted by tests (compact form):
 
 ```text
-WARN marathon_apple::batch_outcome: Apple test batch on udid returned no results for 1 tests after 0.0 s: xcodebuild could not be started: no such file or directory: xcrun
+WARN marathon_apple::batch_outcome: Apple test batch on udid returned no results for 1 test after 0.0 s: xcodebuild could not be started: no such file or directory: xcrun
 WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 2.4 s: xcodebuild exited with status 65
 ```
 

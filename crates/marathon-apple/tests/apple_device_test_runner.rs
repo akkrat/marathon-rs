@@ -740,7 +740,7 @@ async fn an_unopened_command_warns_that_xcodebuild_could_not_be_started_x57() ->
         assert_eq!(
             warnings[0].2,
             format!(
-                "Apple test batch on {} returned no results for 1 tests after 0.0 s: xcodebuild could not be started: {reason}",
+                "Apple test batch on {} returned no results for 1 test after 0.0 s: xcodebuild could not be started: {reason}",
                 device.info().serial_number
             )
         );

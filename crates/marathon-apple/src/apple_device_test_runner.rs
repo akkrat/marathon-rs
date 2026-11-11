@@ -389,8 +389,9 @@ impl AppleDeviceTestRunner {
             Level::WARN,
             || {
                 format!(
-                    "Apple test batch on {} returned no results for {count} tests after {}: {}",
+                    "Apple test batch on {} returned no results for {count} {} after {}: {}",
                     self.device.info().serial_number,
+                    if count == 1 { "test" } else { "tests" },
                     if observation.elapsed_millis < 10_000 {
                         format!("{:.1} s", observation.elapsed_millis as f64 / 1000.0)
                     } else {
