@@ -1,7 +1,7 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/Marathon.kt
 //! (WP 0.2b tools/oracle/module controlled dispatcher seam).
-use super::{CoreExecutor, clock::TimerRequest, tracking::Tracked};
-use crate::{error::*, runtime::*, time::*};
+use super::{CoreExecutor, clock::TimerRequest};
+use crate::{error::OperationResult, runtime::*, time::*};
 use std::{
     cell::RefCell,
     rc::Rc,
@@ -40,13 +40,12 @@ impl CoreExecutor {
     }
 }
 impl ControlledReplay {
-    /// Unlike VendorTask::join, this handle waits for Tracked's destruction too.
-    /// Use it when a test asserts quiescence immediately after vendor completion.
-    pub fn spawn_vendor(&self, body: VendorFuture<'static, ()>) -> tokio::task::JoinHandle<VendorResult<()>> {
-        self.core
-            .vendor
-            .handle
-            .spawn(Tracked::new(body, self.core.tracker.clone()))
+    /// The production cancellable adapter, with a physical completion fence.
+    /// This relies on Tokio 1.53.2 dropping the future before firing the join
+    /// waker (verified in task/core.rs and task/harness.rs), not a documented
+    /// JoinHandle guarantee. Recheck that ordering when upgrading Tokio.
+    pub fn spawn_vendor_cancellable(&self, body: VendorTaskBody) -> (Arc<dyn VendorTask>, tokio::task::JoinHandle<()>) {
+        self.core.vendor.spawn_cancellable_with_join(body)
     }
     pub fn set_hooks(&self, hooks: Arc<dyn ReplayHooks>) {
         *self.hooks.borrow_mut() = Some(hooks);

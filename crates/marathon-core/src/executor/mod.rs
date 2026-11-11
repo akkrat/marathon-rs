@@ -270,17 +270,14 @@ struct IoRuntime {
     handle: tokio::runtime::Handle,
     tracker: Arc<Tracker>,
 }
-impl VendorRuntime for IoRuntime {
-    fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
-        self.spawn_cancellable(Box::new(move |_| body))
-    }
-    fn spawn_cancellable(&self, body: VendorTaskBody) -> Arc<dyn VendorTask> {
+impl IoRuntime {
+    fn spawn_cancellable_tracked(&self, body: VendorTaskBody) -> (Arc<dyn VendorTask>, tokio::task::JoinHandle<()>) {
         let task = Arc::new(IoTask {
             signal: Signal::new(),
             result: SharedDeferred::new(),
         });
         let output = task.clone();
-        self.handle.spawn(Tracked::new(
+        let physical = self.handle.spawn(Tracked::new(
             async move {
                 // Erased VendorFuture has no signal argument. Its completion remains
                 // joinable; cancellation-aware operations use an explicit signal.
@@ -300,7 +297,19 @@ impl VendorRuntime for IoRuntime {
             },
             self.tracker.clone(),
         ));
-        task
+        (task, physical)
+    }
+    #[cfg(feature = "test-support")]
+    fn spawn_cancellable_with_join(&self, body: VendorTaskBody) -> (Arc<dyn VendorTask>, tokio::task::JoinHandle<()>) {
+        self.spawn_cancellable_tracked(body)
+    }
+}
+impl VendorRuntime for IoRuntime {
+    fn spawn(&self, body: VendorFuture<'static, ()>) -> Arc<dyn VendorTask> {
+        self.spawn_cancellable(Box::new(move |_| body))
+    }
+    fn spawn_cancellable(&self, body: VendorTaskBody) -> Arc<dyn VendorTask> {
+        self.spawn_cancellable_tracked(body).0
     }
     fn spawn_blocking(&self, body: Box<dyn FnOnce() -> VendorResult<()> + Send>) -> Arc<dyn VendorTask> {
         let task = Arc::new(IoTask {

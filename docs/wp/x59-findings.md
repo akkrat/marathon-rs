@@ -1,7 +1,8 @@
 # WP x59 — CI replay and console flush flakes
 
 Scope: the two failures reported on the Ubuntu 22.04 CI runner on 2026-11-11.
-The implementation changes tests only. Item 2 requires a product decision;
+The changes are tests and their supporting spawn seam, with no change to
+production task semantics. Item 2 requires a product decision;
 its proposal below is not implemented. No JVM evidence, comparator allowance,
 configuration, exit status, pinned output or production deadline is changed.
 
@@ -38,25 +39,36 @@ stress reproduced the failure twice. The existing `VendorTask::join` would
 not supply the missing fence either: `IoRuntime` seals its result cell before
 returning its final poll, before `Tracked` is destroyed.
 
-The test-support-only `ControlledReplay::spawn_vendor` seam therefore spawns
-`Tracked` work on the same vendor Tokio handle with the same tracker, and
-returns the physical Tokio `JoinHandle`. Tokio 1.53.2 replaces the future
-with its output (destroying `Tracked`) before marking the task complete and
-waking that handle (`runtime/task/core.rs::store_output` and
-`runtime/task/harness.rs::{poll_future,complete}`). Awaiting both handles is
-thus a teardown fence. This seam bypasses `IoRuntime`'s result-cell and
-cancellation adapter; those are not the ordering contract this test pins and
-remain covered by the other runtime tests. The feature-gated replay support
-is the only changed source module; production executors and tracking stay
-unchanged.
+The review found that the initial `ControlledReplay::spawn_vendor` seam
+bypassed the production cancellable adapter. S-x59-1 replaces it with
+`spawn_vendor_cancellable`, which exposes, under `test-support` only, the
+`VendorTask` and the physical Tokio `JoinHandle` from the existing `IoRuntime`
+spawn. Both production `spawn_cancellable` and this seam call one shared
+construction; production continues to discard the physical handle. The task's
+own signal, panic capture, signal-authoritative result override and `IoTask`
+result cell are all preserved. The bypass seam is removed.
 
-After receiving `0` then `1`, the test joins both physical tasks, checks both
-outcomes, drains current work and asserts quiescence. It still uses the same
-vendor clock and executor, tracked futures, one-at-a-time registration drains,
-one-millisecond equal deadline, channel order and 2,000-trace loop. The joins
-happen after the order assertions, so they cannot serialize or manufacture the
-observed send order. No sleeps, extra guessed yields or wider timeouts are
-used.
+Tokio 1.53.2 replaces the future with its output (destroying `Tracked`)
+before marking the task complete and waking that handle
+(`runtime/task/core.rs::store_output` and
+`runtime/task/harness.rs::{poll_future,complete}`). This is the implementation
+ordering verified for the pinned version, not a documented `JoinHandle`
+guarantee. S-x59-3 records that limitation at the seam: a Tokio upgrade must
+recheck it. No tracker or timer implementation changes.
+
+After receiving `0` then `1`, the ordering test joins both production result
+cells and both physical tasks, drains current work and asserts quiescence.
+It still uses the same production cancellation/result path, vendor clock and
+executor, tracked futures, one-at-a-time registration drains, one-millisecond
+equal deadline, channel order and 2,000-trace loop. The joins happen after the
+order assertions, so they cannot serialize or manufacture the observed send
+order. No sleeps, extra guessed yields or wider timeouts are used.
+
+S-x59-2 applies the same fence to
+`cross_executor_vendor_delay_continuation_and_bridge_are_drained`: its
+production result join is followed by the physical join and current-work
+drain before the quiescence assertion. Its virtual 6/7 ms boundary and
+observed value assertions stay unchanged.
 
 ### Stress evidence
 
@@ -79,17 +91,52 @@ The drain-only attempt: 998 passed, two failed (executions 463 and 977),
 in 149.97 seconds, with the same quiescence error. That attempt was replaced
 by the physical-task joins described above.
 
-Final fix: 1,000 passed, zero failed, in 145.93 seconds, under the same
-four busy workers and per-process guard. Every execution still ran all
+Initial bypass seam (superseded in review): 1,000 passed, zero failed, in
+145.93 seconds, under the same four busy workers and per-process guard. Every execution still ran all
 2,000 traces: two million passing traces. This is bounded stress evidence,
 not a claim about every possible Linux scheduling interleaving.
 
-Temporary removal of just the final physical-task joins (retaining the
-new spawn seam and post-receive drain) failed at execution 153 with the
+Temporary removal of just that initial seam's physical-task joins (retaining
+the bypass spawn seam and post-receive drain) failed at execution 153 with the
 same `scheduler: runnable work remains` error and exit 101. The harness
 stopped at that first failure, after 22.33 seconds; 152 executions had passed.
 The joins were restored before all final checks. This isolates the completion
 fence rather than relying only on the original baseline failure.
+
+### Review follow-up stress
+
+The review follow-up starts at `fd7f4966`, preserving the release-note fix.
+The revised seam retains the production adapter in both fenced tests.
+With the same four busy workers, `--test-threads=1` and 60-second per-process
+hang guard:
+
+- Adapter-preserving ordering test: 1,000 passed, zero failed in 131.21 s;
+  all 2,000 traces per execution retained (two million passing traces).
+- Adapter-preserving bridge test: 1,000 passed, zero failed in 2.96 s;
+  original 6/7 ms virtual-time boundaries and observed value retained.
+
+Temporarily removing only the ordering test's physical wait, while retaining
+its production result-cell joins and current-work drain, passed all 2,000
+executions in 261.39 s. This bounded run did not reproduce the error and is
+not evidence that a result-cell join guarantees tracked destruction.
+
+An intermediate reversion removed the entire join block but retained the
+task handles until the receive assertions. It showed no failure through 800
+reported executions and was stopped because that retention did not match the
+original test's lifetime. Its harness exited 130 on the requested interrupt;
+all busy workers were joined. It is not counted as a complete stress run.
+
+The original-lifetime reversion immediately drops both handles returned by
+the new adapter-preserving seam, retaining the post-receive drain. It passed
+all 2,000 executions in 260.98 s without reproducing the error. Both fixed
+physical waits were restored before the final package and lint checks. The
+bridge test's fence remained in place during every ordering-test reversion.
+
+These new negative runs did not supply a new failing witness. The older CI,
+unmodified-baseline and initial-seam reversion failures above remain the
+recorded failure evidence. The code-level completion/destruction distinction
+motivates the fence; the bounded new runs do not prove it redundant or prove
+all scheduling interleavings safe.
 
 ## U196: ordinary console flush under host load
 
@@ -147,22 +194,25 @@ points to that document as the authority for writer shutdown.
 ### Recommendation: a separate ordinary completion budget
 
 Recommend a product change, rather than ignoring this stderr in the
-configuration differential suite: give the ordinary `TracingOutput::flush`
-and ordinary `OutputGuard` drain a separate 60-second budget, retaining the
-one-second signal exit watchdog, second-signal immediate exit, queue ordering
-and nonblocking producers. Do not increase `EXIT_FLUSH` globally, since it
-currently also controls the signal watchdog. Update the ordinary-path wording
-in `docs/design/logging.md` with the change; introduce no configuration knob.
+configuration differential suite. The reviewer's S-x59-4 refinement is
+**one shared 60-second ordinary deadline covering flush plus drain**,
+with the **one-second signal watchdog unchanged**. Both ordinary stages must
+consume the remaining time from that one deadline, rather than each starting
+a fresh 60-second wait. Second-signal immediate exit, queue ordering and
+nonblocking producers stay unchanged. Do not increase `EXIT_FLUSH` globally,
+since it currently also controls the signal watchdog; introduce no
+configuration knob.
 
 Sixty seconds is a bounded allowance for a heavily scheduled host and a slow
 sink, not a guarantee that arbitrary overload will finish. A permanently
-blocked ordinary sink could then consume two sequential waits (up to about
-120 seconds plus scheduling), which is the explicit trade-off for preserving
-normal command output. The signal watchdog must still end that process after
-its existing one-second preparation/flush budget when cancellation is requested.
-An implementation should decide whether one shared ordinary completion
-deadline is preferable to those two waits, and pin that choice in gated
-writer tests before changing it.
+blocked ordinary sink can consume that single budget, rather than two
+sequential waits totalling about 120 seconds. A requested cancellation still
+uses the existing one-second preparation/flush watchdog budget. The later
+product WP must update the ordinary-path sentence in
+`docs/design/logging.md`'s "Shutdown, signals, late events" section (currently
+saying ordinary flush uses the same one-second deadline), add a D-row, and
+pin the shared deadline in gated writer tests. Those product and contract
+changes are not implemented here.
 
 A comparator exception would normalize away a production diagnostic and could
 allow an incomplete configuration dump to appear acceptable. Merely retrying
@@ -182,7 +232,8 @@ this branch.
 
 All builds use `CARGO_BUILD_JOBS=6`, `CARGO_INCREMENTAL=0` and
 `CARGO_PROFILE_DEV_DEBUG=0`. The initial disk check had 144 GiB available,
-above the brief's 20 GB stop threshold.
+above the brief's 20 GB stop threshold. The review follow-up disk check
+had 139 GiB available.
 
 The first `python3 -I tools/differential/test_evidence.py` run failed
 (107 tests, 91 errors) because the fresh worktree had not built the native
@@ -190,7 +241,7 @@ YAML helper. The documented `cargo build -q -p snakeyaml --example yaml_tree`
 prerequisite and a clean rerun are included in the final checks below.
 No assertions or comparator rules were relaxed to handle that prerequisite.
 
-Final checks completed so far:
+Initial implementation checks (before review):
 
 - `cargo fmt --check`: passed.
 - `cargo clippy -p marathon-core -p marathon-cli --all-targets -- -D warnings`:
@@ -205,6 +256,25 @@ Final checks completed so far:
   windows.
 - `git diff --check`: passed.
 
+### Review follow-up verification
+
+The mechanical source comparison against `fd7f4966` confirmed that the
+shared cancellable body changes only by retaining and returning the existing
+physical handle. `cargo check -p marathon-core --lib` passed with the
+production feature set, without the test-support seam. The native YAML
+helper build passed. All final checks below used the restored fences:
+
+- `cargo fmt --check`: passed.
+- `cargo clippy -p marathon-core -p marathon-cli --all-targets -- -D warnings`:
+  passed.
+- `cargo test -p marathon-core -p marathon-cli --no-fail-fast`: passed;
+  899 passed, zero failed, seven existing ignored tests across 85 targets.
+  Includes both revised runtime races, the strict configuration differential,
+  whole-vendor differential, flush-timeout witness, shutdown reports and
+  signal windows.
+- `python3 -I tools/differential/make_registry.py --check`: passed.
+- `python3 -I tools/differential/test_evidence.py`: all 107 tests passed.
+- `git diff --check`: passed.
 
 The brief's explicit gate override applies: `scripts/check.sh`,
 `scripts/remote-check.sh` and the workspace test suite are not run. No Linux

@@ -290,7 +290,7 @@ fn cross_executor_vendor_delay_continuation_and_bridge_are_drained() {
             let parent = core.job(JobKind::Supervisor, None);
             let cell = SharedDeferred::new();
             let output = cell.clone();
-            let vendor = core.vendor().spawn_cancellable(Box::new(move |signal| {
+            let (vendor, physical) = driver.spawn_vendor_cancellable(Box::new(move |signal| {
                 Box::pin(async move {
                     clock.delay(7, signal).await?;
                     output.complete(Ok(42));
@@ -313,6 +313,10 @@ fn cross_executor_vendor_delay_continuation_and_bridge_are_drained() {
             replay(driver.advance_to(7).await);
             assert_eq!(observed.get(), 42);
             assert_eq!(vendor.join().await, Ok(()));
+            physical
+                .await
+                .unwrap_or_else(|error| panic!("vendor task join failed: {error}"));
+            replay(driver.drain_current().await);
             replay(driver.assert_quiescent());
             parent.complete();
             Ok(())
@@ -760,10 +764,12 @@ fn same_deadline_vendor_continuations_keep_registration_order() {
                 for n in 0..2 {
                     let clock = core.vendor_clock();
                     let out = channel.clone();
-                    tasks.push(driver.spawn_vendor(Box::pin(async move {
-                        clock.delay(1, Signal::new()).await?;
-                        assert!(out.try_send(n).is_ok());
-                        Ok(())
+                    tasks.push(driver.spawn_vendor_cancellable(Box::new(move |signal| {
+                        Box::pin(async move {
+                            clock.delay(1, signal).await?;
+                            assert!(out.try_send(n).is_ok());
+                            Ok(())
+                        })
                     })));
                     replay(driver.drain_current().await);
                 }
@@ -771,11 +777,11 @@ fn same_deadline_vendor_continuations_keep_registration_order() {
                 assert_eq!(channel.receive().await, Ok(Some(0)));
                 assert_eq!(channel.receive().await, Ok(Some(1)));
                 // Channel delivery precedes tracked-task teardown.
-                for task in tasks {
-                    match task.await {
-                        Ok(result) => assert_eq!(result, Ok(())),
-                        Err(error) => panic!("vendor task join failed: {error}"),
-                    }
+                for (task, physical) in tasks {
+                    assert_eq!(task.join().await, Ok(()));
+                    physical
+                        .await
+                        .unwrap_or_else(|error| panic!("vendor task join failed: {error}"));
                 }
                 replay(driver.drain_current().await);
                 replay(driver.assert_quiescent());
