@@ -4,8 +4,8 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## 0.13.0-rc.2
 
-Second release candidate of 0.13.0. It contains everything in 0.13.0-rc.1 below, which ran without regressions on real
-iOS, macOS and Android hosts, plus the changes listed here. Upgrading from 0.12.0 needs the checks in 0.13.0-rc.1's
+Second release candidate of 0.13.0. It contains everything in 0.13.0-rc.1, which ran without regressions on real iOS,
+macOS and Android hosts (see its section in CHANGELOG.md or its GitHub release), plus the changes listed here. Upgrading from 0.12.0 needs the checks in 0.13.0-rc.1's
 "Check before you upgrade".
 
 - Apple batches with no test results now log one warning with the device, batch size, session duration in seconds and exit, launch-failure or timeout reason, visible with `debug: false`. Cancelled runs and partial batches do not produce this warning.
