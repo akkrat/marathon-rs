@@ -177,6 +177,44 @@ fn a_blocked_sink_never_blocks_or_drops_producers() -> Result<(), Box<dyn std::e
     Ok(())
 }
 
+#[test]
+fn ordinary_flush_timeout_keeps_status_and_queued_output_u196() -> Result<(), Box<dyn std::error::Error>> {
+    let buffer = Buffer::default();
+    let stderr = Buffer::default();
+    let (entered, waiting) = mpsc::channel();
+    let (release, blocked) = mpsc::channel();
+    let (tracing, guard) = TracingOutput::new_with_exit_flush(
+        Blocked {
+            entered: Some(entered),
+            release: blocked,
+            buffer: buffer.clone(),
+        },
+        false,
+        |_| "12:34:56.789".into(),
+        std::time::Duration::ZERO,
+    )?;
+    let output = CliOutput::traced(tracing, Box::new(stderr.clone()));
+    output.out("before command\n");
+    waiting.recv_timeout(std::time::Duration::from_secs(60))?;
+    let directory = tempfile::tempdir()?;
+    let process = Process {
+        cwd: directory.path().into(),
+        environment: vec![],
+        now: jcompat::jtime::instant_of(0, 0).ok_or("invalid instant")?,
+    };
+    assert_eq!(run_cli(&["version".into()], &process, &UnsupportedRunner, &output), 0);
+    assert_eq!(stderr.text()?, "Console flush failed: console flush deadline elapsed\n");
+    assert_eq!(buffer.text()?, "");
+    // Timing out the acknowledgement leaves the queued bytes available to drain.
+    release.send(())?;
+    guard.shutdown_with_timeout(std::time::Duration::from_secs(60))?;
+    let text = buffer.text()?;
+    assert!(text.starts_with("before command\n12:34:56.789 INFO marathon_cli::application: Starting marathon"));
+    assert!(text.ends_with(&format!("{}\n", marathon_cli::application::VERSION)));
+    assert_eq!(stderr.text()?, "Console flush failed: console flush deadline elapsed\n");
+    Ok(())
+}
+
 struct Broken;
 impl Write for Broken {
     fn write(&mut self, _: &[u8]) -> io::Result<usize> {
