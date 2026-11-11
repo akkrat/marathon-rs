@@ -109,15 +109,66 @@ fn generated_message_for_log(kind: &FailureKind, message: &str) -> Option<Cow<'s
     if let Some(fixed) = fixed {
         return Some(Cow::Borrowed(fixed));
     }
+    if matches!(kind, FailureKind::Apple(AppleKind::Boot | AppleKind::NotBooted)) {
+        let (prefix, reason) = if *kind == FailureKind::Apple(AppleKind::Boot) {
+            (
+                "it failed to boot: ".to_owned(),
+                message.strip_prefix("it failed to boot: ")?,
+            )
+        } else {
+            let (device, reason) = message
+                .strip_prefix("Simulator ")?
+                .split_once(" is taken out of its pool: it failed to boot: ")?;
+            (
+                format!("Simulator {device} is taken out of its pool: it failed to boot: "),
+                reason,
+            )
+        };
+        return boot_timeout_for_log(reason).map(|reason| Cow::Owned(format!("{prefix}{reason}")));
+    }
     if !matches!(kind, FailureKind::Timeout | FailureKind::Ssh(_)) {
         return None;
     }
-    let text = message.strip_prefix("idle timeout ")?.strip_suffix(" reached")?;
+    let (prefix, text, suffix) = if let Some(text) = message
+        .strip_prefix("idle timeout ")
+        .and_then(|s| s.strip_suffix(" reached"))
+    {
+        ("idle timeout ", text, " reached")
+    } else {
+        (
+            "xcodebuild session has not closed within ",
+            message.strip_prefix("xcodebuild session has not closed within ")?,
+            "",
+        )
+    };
     let duration = jcompat::jtime::parse_duration(text)?;
-    // Only Reader.kt's generated Duration Display spelling belongs to this projection.
+    // Only the canonical spelling of Marathon-generated duration messages is projected.
     if duration.to_string() != text {
         return None;
     }
+    Some(Cow::Owned(format!("{prefix}{}{suffix}", duration_for_log(duration))))
+}
+
+/// The generated boot-timeout reason also appears in stored preparation failures.
+pub fn boot_failure_for_log(reason: &str) -> String {
+    boot_timeout_for_log(reason).unwrap_or_else(|| reason.to_owned())
+}
+fn boot_timeout_for_log(reason: &str) -> Option<String> {
+    let (text, state) = reason
+        .strip_prefix("it has not booted within ")?
+        .split_once(", its state is ")?;
+    let duration = jcompat::jtime::parse_duration(text)?;
+    if duration.to_string() != text {
+        return None;
+    }
+    Some(format!(
+        "it has not booted within {}, its state is {state}",
+        duration_for_log(duration)
+    ))
+}
+
+/// Diagnostic seconds, preserving fractional and negative durations without floating-point loss.
+pub fn duration_for_log(duration: jcompat::jtime::Duration) -> String {
     let nanos = i128::from(duration.seconds()) * 1_000_000_000 + i128::from(duration.nanos());
     let sign = if nanos < 0 { "-" } else { "" };
     let magnitude = nanos.abs();
@@ -129,7 +180,7 @@ fn generated_message_for_log(kind: &FailureKind, message: &str) -> Option<Cow<'s
         let digits = format!("{fraction:09}");
         format!("{sign}{seconds}.{}", digits.trim_end_matches('0'))
     };
-    Some(Cow::Owned(format!("idle timeout {seconds} s reached")))
+    format!("{seconds} s")
 }
 
 // flatten_suppressed retains generated headers in the otherwise opaque frame text.
@@ -375,6 +426,54 @@ mod tests {
         failure.kind = FailureKind::External("runner.CustomFailure".into());
         assert_eq!(failure.for_log(), failure);
         assert_eq!(batch_return_reason_for_log(trace), trace);
+    }
+
+    #[test]
+    fn boot_duration_projection_preserves_stored_reasons_x60() {
+        let reason = "it has not booted within PT0.5S, its state is BOOTING after 500 ms, attempt 2 of 2";
+        let message =
+            format!("Simulator device on worker worker is taken out of its pool: it failed to boot: {reason}");
+        let failure = Failure::from_kind(FailureKind::Apple(AppleKind::NotBooted), Some(message.clone()));
+        assert_eq!(failure.for_log().message, Some(message.replace("PT0.5S", "0.5 s")));
+        assert_eq!(failure.message.as_deref(), Some(message.as_str()));
+        let external = Failure::from_kind(FailureKind::External("runner.CustomFailure".into()), Some(message));
+        assert_eq!(external.for_log(), external);
+        assert_eq!(
+            boot_failure_for_log("simctl boot failed (PT0.5S), its state is SHUTDOWN"),
+            "simctl boot failed (PT0.5S), its state is SHUTDOWN"
+        );
+        assert_eq!(
+            boot_failure_for_log("it has not booted within PT00.5S, its state is BOOTING"),
+            "it has not booted within PT00.5S, its state is BOOTING"
+        );
+    }
+
+    #[test]
+    fn session_close_duration_is_projected_only_for_diagnostics_x60() {
+        for (iso, plain) in [("PT1M10S", "70 s"), ("PT0.2S", "0.2 s")] {
+            let message = format!("xcodebuild session has not closed within {iso}");
+            let timeout = Failure::from_kind(FailureKind::Timeout, Some(message.clone()));
+            assert_eq!(
+                timeout.for_log().to_string(),
+                format!("timed out: xcodebuild session has not closed within {plain}")
+            );
+            assert_eq!(timeout.message.as_deref(), Some(message.as_str()));
+            assert_eq!(timeout.stack_trace(), format!("timed out: {message}\n"));
+            let mut wrapper = Failure::from_kind(FailureKind::IllegalState, Some("outer".into()));
+            wrapper.cause = Some(Box::new(timeout));
+            assert!(wrapper.for_log().stack_trace().contains(plain));
+            assert!(wrapper.stack_trace().contains(iso));
+            let external = Failure::from_kind(FailureKind::External("runner.CustomFailure".into()), Some(message));
+            assert_eq!(external.for_log(), external);
+        }
+        for message in [
+            "xcodebuild session has not closed within PT070S",
+            "external xcodebuild session has not closed within PT1M10S",
+            "xcodebuild session has not closed within PT1M10S\nexternal",
+        ] {
+            let timeout = Failure::from_kind(FailureKind::Timeout, Some(message.into()));
+            assert_eq!(timeout.for_log(), timeout);
+        }
     }
 
     #[test]

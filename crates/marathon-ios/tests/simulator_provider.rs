@@ -187,7 +187,7 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> TestResult {
         == "marathon_ios::device::simulator_provider"
         && *level == marathon_logging::Level::INFO
         && *s
-            == marathon_apple::bin::xcrun::xcresulttool::describe_timeout(&p.h.services.vendor.timeout_configuration)));
+            == "xcresulttool timeout is 300 s (timeoutConfiguration.xcresulttool; when not set, the larger of shell 300 s and 120 s)"));
     p.finish().await
 }
 #[tokio::test(start_paused = true)]

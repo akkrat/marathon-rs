@@ -180,7 +180,7 @@ fn invoke(args: &[&str], cwd: &Path, runner: &dyn CliRunner, stdout: &Buffer, st
     run_cli(&args, &process, runner, &output)
 }
 
-const START: &str = "12:34:56.789 INFO marathon_cli::application: Starting marathon v0.10.1, command: run marathonfile=Marathonfile analyticsTracking=true bugsnagReporting=true\n\
+const START: &str = "12:34:56.789 INFO marathon_cli::application: Starting marathon v0.10.1, command: run marathonfile=Marathonfile cliFlags: analyticsTracking=true bugsnagReporting=true\n\
 12:34:56.789 INFO marathon_cli::application: Checking Marathonfile config\n\
 12:34:56.789 INFO marathon_cli::application: Crash reporting and usage analytics are not supported by this build; --bugsnag, --analyticsTracking, bugsnagReporting and analyticsTracking are ignored\n";
 
@@ -360,6 +360,18 @@ fn run_flags_reach_the_configuration_merge() {
         Ok(Outcome::Succeed(true)),
     );
     assert_eq!(r.seen[0], "construct analyticsTracking=true bugsnagReporting=false");
+}
+
+#[test]
+fn startup_names_cli_flags_when_marathonfile_overrides_them_x60() {
+    let config = format!("{ANDROID}analyticsTracking: false\nbugsnagReporting: false\n");
+    let r = marathon(&["run"], &config, Ok(Outcome::Succeed(true)));
+    assert!(
+        r.stdout
+            .contains("cliFlags: analyticsTracking=true bugsnagReporting=true\n")
+    );
+    assert_eq!(r.seen[0], "construct analyticsTracking=false bugsnagReporting=false");
+    assert_eq!((r.stderr.as_str(), r.exit), ("", 0));
 }
 
 // ---- D47: the table in docs/wp/x30-findings.md ------------------------------------------------------------------------

@@ -236,7 +236,7 @@ fn cli_matrix_matches_the_reference_build() -> Result<(), Box<dyn std::error::Er
                     (
                         "run",
                         fields
-                            .replace(", analyticsTracking=", " analyticsTracking=")
+                            .replace(", analyticsTracking=", " cliFlags: analyticsTracking=")
                             .replace(", bugsnagReporting=", " bugsnagReporting="),
                     )
                 } else if let Some(fields) = config

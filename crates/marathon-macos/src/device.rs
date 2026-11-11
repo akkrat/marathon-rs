@@ -369,7 +369,7 @@ impl MacosDevice {
                 format!(
                     "Cancelled batch on {} has not finished within {}, not waiting for it any longer",
                     self.serial.to_owned(),
-                    self.options.cancelled_batch_timeout
+                    marathon_core::error::duration_for_log(self.options.cancelled_batch_timeout)
                 ),
                 None,
             );

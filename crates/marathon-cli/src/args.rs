@@ -30,7 +30,7 @@ impl CliConfiguration {
                 analytics_tracking,
                 bugsnag_reporting,
             } => format!(
-                "run marathonfile={} analyticsTracking={analytics_tracking} bugsnagReporting={bugsnag_reporting}",
+                "run marathonfile={} cliFlags: analyticsTracking={analytics_tracking} bugsnagReporting={bugsnag_reporting}",
                 marathonfile.to_string_lossy().into_owned()
             ),
             Self::Parse {

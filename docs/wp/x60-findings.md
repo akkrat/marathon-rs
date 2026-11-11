@@ -44,6 +44,71 @@ states no ordinary numeric bound, so it needs no edit. D67 is recorded in
 PLAN, deviations, migration, the changelog and U196's fixed row. The
 current deviation ranges were advanced through D67 as requested.
 
+## B. Log text and data boundaries
+
+The catch-all DeviceActor ERROR is now
+`Batch on <device> failed (<error>); treating it as recoverable`, using
+`Failure::for_log` for the error and retaining the original throwable in the
+record. It does not promise retries: the existing queue and retry quota decide
+what happens to returned tests.
+
+The separate `Unknown vendor exception caught:\n` prefix is part of the
+cancellation/returned-batch reason: `execute_batch` seals the deferred with it,
+`account_for` forwards it through `FromDevice::ReturnTestBatch`, and the pool
+passes it to `QueueMessage::ReturnBatch`. The queue uses the reason only for
+its DEBUG diagnostic; it builds incomplete results with `stacktrace: None`.
+Thus this prefix currently reaches internal reason data and DEBUG logs, not
+result-file traces or pinned progress/summary lines. Its producer, the
+returned-batch projection envelopes and the tests pinning that reason remain
+unchanged, keeping this edit limited to the standalone ERROR wording.
+
+Startup comes from `CliConfiguration::log_description` in `args.rs`, called
+before Marathonfile loading. The run description now labels the two booleans
+`cliFlags: analyticsTracking=... bugsnagReporting=...`; defaults and explicit
+flags still have exactly their previous parsing/merge behavior. A new
+`run_outcome` test uses CLI defaults with both Marathonfile values false and
+checks that construction sees false while the startup line identifies the CLI
+values. D1's ignored-telemetry notice is unchanged.
+
+The release helper is actually `scripts/release/release.py::check_cli`.
+It checks version, status, empty stderr, a versioned startup prefix and help
+commands, not the exact run description. `CliSmokeTests` stays unchanged and
+passes. Existing `run_outcome` diagnostic assertions and the CLI matrix's
+startup translation now expect the `cliFlags` label. No committed oracle or
+pinned progress/summary golden was edited or re-recorded.
+
+### Duration sites changed
+
+All plain durations use the existing x57 convention, seconds with ` s`,
+including exact fractions (`120.5 s`, `0.3 s`) and negative values. The
+integer/nanosecond formatter was factored out of the existing idle-timeout
+projection as `duration_for_log`; no floating point is used.
+
+| Site | Diagnostic change | Data boundary |
+|---|---|---|
+| `marathon-apple/src/bin/xcrun/xcresulttool.rs::describe_timeout` | Effective xcresulttool, shell and fallback durations use seconds | Called by both iOS `simulator_provider::initialize_inner` and macOS `provider::initialize`; configuration is unchanged |
+| `marathon-ios/src/apple_simulator_device/execution.rs::join_cancelled` | Cancelled-batch wait uses seconds | WARN only |
+| `marathon-macos/src/device.rs` cancelled-batch wait | Cancelled-batch wait uses seconds | WARN only |
+| `marathon-ios/src/apple_simulator_device/boot.rs::boot_for_preparation` | Boot-wait duration uses seconds in the WARN | Its original reason and elapsed-time hook reads are unchanged |
+| `marathon-ios/src/apple_simulator_device/boot.rs::shutdown_after_failed_boot` | Shutdown budget uses seconds | WARN only |
+| `marathon-core/src/error.rs::Failure::for_log` boot failures | Known generated boot-timeout reasons use seconds, including the later NotBooted failure diagnostic | Stored Boot/NotBooted messages retain ISO durations; external simctl text remains opaque |
+| `marathon-core/src/error.rs::Failure::for_log` session close | `xcodebuild_session::stop`'s generated close timeout uses seconds when logged, including nested causes | Stored close failures retain ISO durations |
+
+The sweep covered all crates' log/tracing calls, duration imports and duration
+format sites, including inferred `wait`/`budget` values. Reader idle timeouts
+were already projected by x57. SSH timeout units already have their x56
+projection; keepalive warnings already use seconds. Numeric milliseconds,
+worker command durations, parsing, configuration renderers, result data and
+external tool text are unchanged.
+
+The `apple-bin` oracle contains five `describeTimeout` rows pinning the old
+pure helper's diagnostic string. The recordings remain unchanged: only those
+five Rust assertion expectations now name the exact new diagnostic strings,
+including the fractional case. Provider capture tests independently assert
+the new text. Boot, shutdown, cancelled-batch, core catch-table and CLI capture
+tests assert the new logs; projection tests assert stored ISO messages and
+opaque external text remain unchanged.
+
 ## Verification
 
 All Rust builds use `CARGO_BUILD_JOBS=6`, `CARGO_INCREMENTAL=0` and
@@ -73,6 +138,40 @@ The configuration differential test and signal-window tests passed in that
 initial run. No fixture, golden or stderr comparator was changed. Full gates,
 remote checks and workspace-wide tests are reserved for the orchestrator by
 the brief.
+
+Final verification after both parts:
+
+- Changed crates: `marathon-core`, `marathon-apple`, `marathon-cli`,
+  `marathon-ios`, `marathon-macos`. The test run also includes their normal
+  dependents `marathon-android`, `marathon-analytics`, `marathon-test-support`.
+- `cargo clippy -p marathon-core -p marathon-apple -p marathon-cli
+  -p marathon-ios -p marathon-macos --all-targets -- -D warnings`: passed.
+- Targeted catch-table, duration projection, Apple helper, CLI matrix/outcome,
+  provider, macOS batch and iOS preparation/disposal tests: passed. The first
+  new iOS boot log assertions needed an explicit WARN capture level in the
+  debug-off harness; after that test-only correction, all 22 preparation and
+  four disposal tests passed.
+- `python3 -I scripts/release/test_release.py CliSmokeTests`: 3 passed.
+  The unchanged `check_cli` also passed against the built binary's actual
+  `version` and `--help` output (the untagged build's fallback version).
+- `python3 -I scripts/check_plan_dag.py`,
+  `python3 -I tools/differential/make_registry.py --check`, and
+  `python3 -I tools/differential/run validate`: passed.
+- Final `python3 -I tools/differential/test_evidence.py`: 107 passed.
+- Full crate verification:
+  `cargo test -p marathon-core -p marathon-apple -p marathon-cli
+  -p marathon-ios -p marathon-macos -p marathon-android -p marathon-analytics
+  -p marathon-test-support --no-fail-fast`: exit 0; 2,218 passed, 0 failed,
+  33 ignored across 214 test targets, including doc tests. Configuration and
+  vendor differentials, report generation, ordinary-output witnesses and
+  first/second-signal/SIGQUIT checks all passed with strict comparisons.
+- `cargo fmt --check` and `git diff --check`: passed before each commit.
+
+No committed fixture or golden changed. No comparator gained a stderr
+allowance. The normal suite's 33 ignored tests were not forced; no new real
+farm/hardware run was performed. `scripts/check.sh`, `scripts/remote-check.sh`
+and workspace-wide tests were not run, as the brief reserves them for the
+orchestrator. No approval decision remains open for this WP.
 
 ## Incidental bugs
 

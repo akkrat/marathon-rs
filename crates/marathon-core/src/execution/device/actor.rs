@@ -551,7 +551,11 @@ impl Shared {
                     let failure = error.failure().clone();
                     shared.log(
                         Level::ERROR,
-                        "Unknown vendor exception caught. Considering this a recoverable error".into(),
+                        format!(
+                            "Batch on {} failed ({}); treating it as recoverable",
+                            shared.serial,
+                            failure.for_log()
+                        ),
                         Some(failure.clone()),
                     );
                     result.cancel(cancellation(text(&[

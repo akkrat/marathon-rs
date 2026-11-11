@@ -120,7 +120,12 @@ wrappers, recursively through typed causes. Known generated suppressed/cause
 headers inside copied stacktrace text use that same mapping. Generated
 `idle timeout PT30S reached` messages similarly render as
 `idle timeout 30 s reached` (including fractional durations); only diagnostics
-change, while stored failures and result text retain the ISO duration. Returned-batch
+change, while stored failures and result text retain the ISO duration. Generated
+session-close and simulator boot-timeout diagnostics use the same projection.
+Provider startup, cancelled-batch and failed-boot shutdown warnings render
+configured durations as seconds, preserving fractional values. Startup telemetry
+values are labelled `cliFlags` because the Marathonfile can override them.
+Returned-batch
 reasons are projected only at their log sites, within the actor-generated failure
 envelopes; the original reason data stays unchanged. `LogRecord::emit` uses that
 projection; ordinary `Display`, stored failures and opaque external frame/tool

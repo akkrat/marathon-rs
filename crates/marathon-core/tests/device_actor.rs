@@ -377,7 +377,7 @@ fn a_failed_preparation_is_retried_until_it_succeeds() {
 /// Kotlin's catch table over what the vendor threw (DeviceActor.kt:190–207).
 #[test]
 fn every_vendor_outcome_maps_to_its_log_and_transition() {
-    let unknown = "Error Unknown vendor exception caught. Considering this a recoverable error";
+    let unknown = "Error Batch on serial-1 failed (invalid state: boom); treating it as recoverable";
     let ise_trace = "Unknown vendor exception caught:\ninvalid state: boom\n";
     let returned = |reason: &str| format!("ReturnTestBatch(same batch=true, reason={reason})");
     let terminated = |log: &str| {
@@ -478,7 +478,10 @@ fn every_vendor_outcome_maps_to_its_log_and_transition() {
             .await;
         })
     });
-    assert!(texts(&outcome).contains(&unknown.to_owned()));
+    assert!(
+        texts(&outcome)
+            .contains(&"Error Batch on serial-1 failed (runtime failure: boom); treating it as recoverable".to_owned())
+    );
     assert_eq!(
         outcome.describe()[1..],
         [

@@ -9,7 +9,10 @@ use crate::{
     xcresult::{LegacyDecode, decode_legacy},
 };
 use marathon_config::vendor::AppleTimeoutConfiguration;
-use marathon_core::{error::VendorResult, vendor::VendorContext};
+use marathon_core::{
+    error::{VendorResult, duration_for_log},
+    vendor::VendorContext,
+};
 use marathon_logging::{Component, Level};
 
 /// The first Xcode whose `xcresulttool get` reads result bundle objects only with `--legacy` (without it,
@@ -37,7 +40,9 @@ impl ResultBundleFormat {
 pub fn describe_timeout(timeouts: &AppleTimeoutConfiguration) -> String {
     format!(
         "xcresulttool timeout is {} (timeoutConfiguration.xcresulttool; when not set, the larger of shell {} and {})",
-        timeouts.xcresulttool, timeouts.shell, DEFAULT_XCRESULTTOOL
+        duration_for_log(timeouts.xcresulttool),
+        duration_for_log(timeouts.shell),
+        duration_for_log(DEFAULT_XCRESULTTOOL)
     )
 }
 

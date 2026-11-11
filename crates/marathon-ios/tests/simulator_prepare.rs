@@ -124,6 +124,12 @@ async fn a_probe_that_never_succeeds_is_bounded_by_boot_wait_and_erases_nothing_
 async fn a_boot_that_does_not_finish_within_boot_wait_is_retried_once_and_then_takes_the_simulator_out_of_its_pool()
 -> TestResult {
     let h = Harness::new(|_| {})?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
     h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
     let d = h.device().await?;
     let e = h.prepare(&d).await.unwrap_err();
@@ -135,6 +141,17 @@ async fn a_boot_that_does_not_finish_within_boot_wait_is_retried_once_and_then_t
         }
     ));
     assert!(e.failure().message.as_ref().unwrap().to_owned().contains("PT0.5S"));
+    assert!(e.failure().for_log().to_string().contains("within 0.5 s,"));
+    assert!(!e.failure().for_log().to_string().contains("PT0.5S"));
+    assert!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, level, message, _)| *level == marathon_logging::Level::WARN
+                && message.contains("failed to boot: it has not booted within 0.5 s,"))
+    );
+
     assert_eq!(h.boot.boots.load(Ordering::SeqCst), 2);
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 2);
     assert_eq!(h.boot.reads.load(Ordering::SeqCst), 57);
@@ -150,6 +167,12 @@ async fn a_simulator_that_does_not_shut_down_after_a_failed_boot_is_left_as_it_i
         v.timeout_configuration.shell = duration(100);
         v.timeout_configuration.boot_wait = duration(300);
     })?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
     h.boot.finish_after.store(usize::MAX, Ordering::SeqCst);
     let count = h.boot.clone();
     *h.worker.session.lock().unwrap() = Arc::new(move |cmd| {
@@ -172,6 +195,14 @@ async fn a_simulator_that_does_not_shut_down_after_a_failed_boot_is_left_as_it_i
     assert!(h.prepare(&d).await.is_err());
     assert_eq!(h.boot.shutdowns.load(Ordering::SeqCst), 2);
     assert!(d.lost());
+    assert!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, level, message, _)| *level == marathon_logging::Level::WARN
+                && message.contains("not shut down within 0.3 s after a failed boot"))
+    );
     h.finish(std::slice::from_ref(&d)).await;
     Ok(())
 }

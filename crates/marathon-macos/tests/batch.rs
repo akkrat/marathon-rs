@@ -240,7 +240,7 @@ async fn default_budgets_and_fresh_disposal_wait_use_virtual_time() -> R {
     assert!(
         warnings
             .iter()
-            .all(|r| r.level == marathon_logging::Level::WARN && r.message.to_owned().contains("PT1M10S"))
+            .all(|r| r.level == marathon_logging::Level::WARN && r.message.to_owned().contains("within 70 s,"))
     );
     running.release.notify_one();
     v(d.join_pending().await)?;

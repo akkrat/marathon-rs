@@ -931,6 +931,22 @@ fn pure_helpers_match_kotlin() {
         };
         // P1: non-ASCII digits are rejected.
         let expected = match case.as_str() {
+            // PLAN §3.12.5: diagnostic duration wording; JVM recordings stay unchanged.
+            "describeTimeout/119/null" => json!(
+                "xcresulttool timeout is 120 s (timeoutConfiguration.xcresulttool; when not set, the larger of shell 119 s and 120 s)"
+            ),
+            "describeTimeout/119/5" => json!(
+                "xcresulttool timeout is 5 s (timeoutConfiguration.xcresulttool; when not set, the larger of shell 119 s and 120 s)"
+            ),
+            "describeTimeout/121/null" => json!(
+                "xcresulttool timeout is 121 s (timeoutConfiguration.xcresulttool; when not set, the larger of shell 121 s and 120 s)"
+            ),
+            "describeTimeout/121/5" => json!(
+                "xcresulttool timeout is 5 s (timeoutConfiguration.xcresulttool; when not set, the larger of shell 121 s and 120 s)"
+            ),
+            "describeTimeout/fractional" => json!(
+                "xcresulttool timeout is 120.5 s (timeoutConfiguration.xcresulttool; when not set, the larger of shell 120.5 s and 120 s)"
+            ),
             "XcodeVersion/１４.0" => {
                 json!({"class": "number-format", "message": "For input string: \"１４\"", "cause": null})
             }

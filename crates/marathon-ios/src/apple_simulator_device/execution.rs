@@ -305,7 +305,9 @@ impl AppleSimulatorDevice {
                 format!(
                     "Cancelled batch on {} has not finished within {}, taking the device out of the run",
                     self.serial,
-                    marathon_apple::bin::java_duration_of_millis(self.services.timeouts.cancelled_batch_millis)
+                    marathon_core::error::duration_for_log(marathon_apple::bin::java_duration_of_millis(
+                        self.services.timeouts.cancelled_batch_millis
+                    ))
                 ),
                 None,
             );

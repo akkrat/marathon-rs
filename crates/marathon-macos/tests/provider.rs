@@ -32,7 +32,7 @@ async fn initialize_logs_the_effective_xcresulttool_timeout() -> R {
     assert_eq!(messages[0].level, marathon_logging::Level::INFO);
     assert_eq!(
         messages[0].message.to_owned(),
-        "xcresulttool timeout is PT5M (timeoutConfiguration.xcresulttool; when not set, the larger of shell PT5M and PT2M)"
+        "xcresulttool timeout is 300 s (timeoutConfiguration.xcresulttool; when not set, the larger of shell 300 s and 120 s)"
     );
     v(p.terminate().await)?;
     Ok(())

@@ -98,6 +98,12 @@ async fn disposal_runs_the_on_dispose_lifecycle_only_after_the_running_batch_has
 async fn a_cancelled_batch_that_has_not_finished_in_time_takes_the_simulator_out_of_the_run_and_disposal_still_waits_for_it()
 -> TestResult {
     let h = harness(1000)?;
+    h.services
+        .logging
+        .registry
+        .lock()
+        .unwrap()
+        .set_level("marathon_ios::apple_simulator_device", marathon_logging::Level::WARN);
     let (d, _) = prepared(&h).await?;
     let gate = PermissionGate::attach(&h);
     let signal = Signal::new();
@@ -112,6 +118,14 @@ async fn a_cancelled_batch_that_has_not_finished_in_time_takes_the_simulator_out
     gate.entered.wait().await.unwrap();
     signal.cancel(cancelled("caller"));
     assert!(matches!(batch.await?.0, Err(VendorError::Cancelled(_))));
+    assert!(
+        h.logs
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, level, message, _)| *level == marathon_logging::Level::WARN
+                && message.contains("has not finished within 1 s, taking the device out of the run"))
+    );
     assert!(d.retired());
     assert!(!gate.finished.load(Ordering::SeqCst));
     let disposal = d.dispose();

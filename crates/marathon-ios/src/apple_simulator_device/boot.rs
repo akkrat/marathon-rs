@@ -76,18 +76,20 @@ impl AppleSimulatorDevice {
             let Some(failure) = self.boot_failure(context).await? else {
                 return Ok(());
             };
-            let reason = format!(
-                "{failure} after {} ms, attempt {attempt} of 2",
+            let suffix = format!(
+                "after {} ms, attempt {attempt} of 2",
                 self.nanos("ios.AppleSimulatorDevice.bootForPreparation")?
                     .wrapping_sub(started)
                     / 1_000_000
             );
+            let reason = format!("{failure} {suffix}");
             self.log(
                 Level::WARN,
                 format!(
-                    "Simulator {} on worker {} failed to boot: {reason}",
+                    "Simulator {} on worker {} failed to boot: {} {suffix}",
                     self.udid,
-                    self.executor.host().id
+                    self.executor.host().id,
+                    marathon_core::error::boot_failure_for_log(&failure)
                 ),
                 None,
             );
@@ -210,9 +212,10 @@ impl AppleSimulatorDevice {
             Ok(None) => self.log(
                 Level::WARN,
                 format!(
-                    "Simulator {} on worker {}: not shut down within {budget} after a failed boot",
+                    "Simulator {} on worker {}: not shut down within {} after a failed boot",
                     self.udid,
-                    self.executor.host().id
+                    self.executor.host().id,
+                    marathon_core::error::duration_for_log(budget)
                 ),
                 None,
             ),
