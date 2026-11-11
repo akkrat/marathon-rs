@@ -156,8 +156,7 @@ are only `tracing` and `tracing-subscriber`.
 ## Shutdown, signals, late events
 
 The production signal path (`ProductionRunner` in
-`marathon-cli/src/runner.rs`, `Console` drop in `application.rs`) keeps
-D52's behaviour:
+`marathon-cli/src/runner.rs`) keeps D52's behaviour during the run:
 
 - **SIGQUIT (D66):** a separate process-lifetime Unix listener is installed before
   config loading unless the signal was inherited as ignored. Setup failure warns
@@ -167,17 +166,13 @@ D52's behaviour:
   explicit header timestamp remains in compact output. It never enters the
   shutdown relay; before/after a run it may be silent. Dump construction panics
   become WARN events and leave the task running. Dumps remain unthrottled.
-- **First SIGINT/SIGTERM:** cancel and write what can be written (reports, then the
+- **First SIGINT/SIGTERM during the run:** cancel and write what can be written (reports, then the
   summary), bounded by the existing cancel limit. The exit path runs off
   core: `exit_after_preparing` does the final queue forwarding on the
   `marathon-exit-output` thread and a `marathon-exit` watchdog thread exits
   the process after one second if the flush has not drained — a blocked
-  stdout (full pipe, stopped reader) cannot hang exit. Ordinary completion
-  (D67) instead shares one 60-second deadline between `CliOutput::flush`'s
-  acknowledgement and the later `OutputGuard` drain, starting at the flush
-  (or the drain if no flush ran). Both stages use only its remaining time;
-  a stalled console can delay normal exit by up to 60 seconds.
-  After the applicable deadline the process exits anyway. The signal hook never
+  stdout (full pipe, stopped reader) cannot hang signal exit. After the
+  deadline the process exits anyway. The signal hook never
   completes after queueing that exit, so `Marathon::run` cannot return a
   failure ahead of it (the one `process::exit` comes from the writer or the
   watchdog, or from a second signal); `exit_after_flush` after the writer
@@ -186,9 +181,17 @@ D52's behaviour:
   `tracing_output::exit_once`: the writer, the watchdog and a second signal can
   reach it at nearly the same time, libc `exit` must not run on two threads at
   once, so the first caller exits and a later one parks.
-- **Second signal:** `SignalHooks.immediate_exit` is `exit_once` with the
+- **Second signal during the run:** `SignalHooks.immediate_exit` is `exit_once` with the
   second signal's status (130/143). It does not wait for cleanup,
   reports, the writer thread, or the flush deadline.
+- **Ordinary completion after the run (D67):** `CliOutput::flush` and the later
+  `OutputGuard` drain share one 60-second deadline, starting at the flush (or
+  the drain if no flush ran). Both stages use only its remaining time. The
+  signal relay has stopped, while Tokio's handlers remain installed:
+  SIGINT/SIGTERM are not acted on and there is no second-signal escape. This
+  window already existed for about two seconds; a stalled console can now
+  hold exit for up to 60 seconds. A wrapper needing a hard stop then must use
+  SIGKILL. D66 SIGQUIT behavior is unchanged.
 - **Late vendor events:** vendor tasks that outlive the run task push
   through `LogSender`/`LateOutput`. `LateOutput::close` is a fence:
   everything pushed before it is forwarded to the console sink in order

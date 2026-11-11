@@ -6,7 +6,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 - Diagnostic logs describe recoverable batch failures plainly, label startup telemetry values as CLI flags, and show timeout durations in seconds. Stored failures, configuration dumps, results and progress/summary text retain their existing formats.
 
-- Ordinary console completion now shares one 60-second deadline for flushing and draining output (D67), avoiding premature flush failures on loaded hosts. A stalled console can delay normal exit by up to 60 seconds; signal cancellation bounds stay unchanged.
+- Ordinary console completion now shares one 60-second deadline for flushing and draining output (D67), avoiding premature flush failures on loaded hosts. Signals during the run keep the one-second output watchdog, immediate second-signal exit and D66 SIGQUIT behavior. After the run finishes, SIGINT/SIGTERM are not acted on during console completion; this existing window grows from about two seconds to up to 60 seconds on a stalled console. A wrapper needing a hard stop then must use SIGKILL.
 
 ## 0.13.0-rc.2
 

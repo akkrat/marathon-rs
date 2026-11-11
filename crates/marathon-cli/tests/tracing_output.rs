@@ -36,6 +36,19 @@ fn setup(buffer: Buffer, terminal: bool) -> io::Result<(TracingOutput, marathon_
 }
 
 #[test]
+fn huge_shutdown_timeout_drains_queued_output() -> io::Result<()> {
+    let buffer = Buffer::default();
+    let (output, guard) = setup(buffer.clone(), false)?;
+    output.writer().write_all(b"queued\n")?;
+    guard.shutdown_with_timeout(std::time::Duration::MAX)?;
+    assert_eq!(
+        buffer.text().map_err(|error| io::Error::other(error.to_string()))?,
+        "queued\n"
+    );
+    Ok(())
+}
+
+#[test]
 fn cli_version_and_error_drain_before_return() -> Result<(), Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     let process = Process {

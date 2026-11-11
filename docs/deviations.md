@@ -1501,16 +1501,20 @@ including both waits together. Expiry and actual sink errors retain their
 diagnostics and the command's exit status. Producers remain nonblocking and
 queued output retains its order.
 
-The first-signal watchdog stays at one second, the second signal still exits
-immediately, and D66 SIGQUIT stays unchanged. There is no configuration option.
-Result files, worker commands, pinned progress and summary text stay unchanged.
+During the run, the first-signal watchdog stays at one second, the second
+signal still exits immediately, and D66 SIGQUIT stays unchanged. After the run
+finishes, SIGINT/SIGTERM are not acted on while the console output completes;
+there is no second-signal escape. This window already existed for about two
+seconds; D67 lengthens it to up to 60 seconds on a stalled console. There is no
+configuration option. Result files, worker commands, pinned progress and summary
+text stay unchanged.
 
 Approved 2026-11-11 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
 [x60 findings](wp/x60-findings.md).
 
-**Migration action:** none needed. Allow up to 60 seconds for a normal finish
-when the console is stalled; signal cancellation keeps its existing bounds.
+**Migration action:** a wrapper needing a hard stop during post-run console
+completion must use SIGKILL. SIGINT/SIGTERM cannot shorten that wait.
 
 ## Other accepted text differences
 

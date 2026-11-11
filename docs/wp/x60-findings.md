@@ -14,8 +14,12 @@ guard timeout is clamped to that same deadline. Neither stage can restart
 its allowance. The deadline is not measured from construction or run startup.
 
 The ordinary allowance is 60 seconds. `EXIT_FLUSH` remains one second and
-still bounds only the signal watchdog, including preparation. Second-signal
-immediate exit and D66 SIGQUIT are unchanged. Queue messages, admission,
+still bounds the signal watchdog, including preparation, during the run.
+Second-signal immediate exit during the run and D66 SIGQUIT are unchanged.
+After the run finishes, SIGINT/SIGTERM are not acted on during console
+completion, with no second-signal escape. This window already existed for
+about two seconds; D67 lengthens it to up to 60 seconds on a stalled console.
+A wrapper needing a hard stop then must use SIGKILL. Queue messages, admission,
 ordering, nonblocking producers and the existing expiry diagnostics are
 unchanged. No configuration knob or differential stderr tolerance was added.
 
@@ -32,12 +36,12 @@ Tests:
   avoiding a real minute of waiting. Flush must report expiry, and drain
   must retain that expired deadline and finish before a fresh 60-second
   allowance could expire. The sink remains gated until shutdown returns;
-  the test then releases and awaits the writer. Its five-second bound
+  the test then releases and awaits the writer. Its 30-second bound
   deliberately separates immediate expiry from a restarted minute.
 - `shutdown_reports_sink_failure` now checks both the flush and drain
   diagnostics for a genuine sink failure.
 - Existing signal-window and cancellation subprocess tests retain their
-  first/second-signal assertions.
+  first/second-signal assertions during the run.
 
 The lifecycle design delegates writer deadline policy to logging.md and
 states no ordinary numeric bound, so it needs no edit. D67 is recorded in
@@ -172,6 +176,35 @@ allowance. The normal suite's 33 ignored tests were not forced; no new real
 farm/hardware run was performed. `scripts/check.sh`, `scripts/remote-check.sh`
 and workspace-wide tests were not run, as the brief reserves them for the
 orchestrator. No approval decision remains open for this WP.
+
+## Review fixes (S-x60-1–4)
+
+S-x60-1 is a documentation correction, as chosen by the orchestrator.
+`Marathon::run_under` calls `relay.stop()` before returning; Tokio's installed
+handlers remain. The later `run_cli` flush and console drain therefore have
+no SIGINT/SIGTERM handling or second-signal escape. D67 lengthens this existing
+post-run window from about two seconds to up to 60 seconds. The public docs now
+distinguish it from signal cancellation during the run and tell wrappers to
+use SIGKILL when they need a hard stop. Signal handling code is unchanged.
+
+S-x60-2 joins D67 to the PLAN §3.11 table. S-x60-3 widens the deliberate
+expiry test's upper bound from five to 30 seconds, preserving its distinction
+from a fresh 60-second drain with more margin for loaded runners. S-x60-4 uses
+`Instant::checked_add` for an explicit drain timeout, falling back to the shared
+completion deadline on overflow. `huge_shutdown_timeout_drains_queued_output`
+checks that `Duration::MAX` drains queued output without panicking.
+
+Review-fix verification:
+
+- `cargo test -p marathon-cli --lib --test tracing_output`: passed, 3 unit
+  tests and 15 console integration tests, including the shared-deadline,
+  delayed-recovery and huge-timeout regressions.
+- `cargo clippy -p marathon-cli --all-targets -- -D warnings`: passed.
+- `cargo fmt --check`, `git diff --check` and
+  `python3 -I scripts/check_plan_dag.py`: passed.
+- Builds kept the brief's resource limits. Full gates, remote checks and
+  workspace tests were not run, as requested. No signal-handling code,
+  fixture, golden or comparator was changed by this follow-up.
 
 ## Incidental bugs
 

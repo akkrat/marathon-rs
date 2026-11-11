@@ -126,7 +126,9 @@ impl OutputGuard {
         self.finish(self.completion.deadline())
     }
     pub fn shutdown_with_timeout(mut self, timeout: std::time::Duration) -> io::Result<()> {
-        self.finish((Instant::now() + timeout).min(self.completion.deadline()))
+        let completion_deadline = self.completion.deadline();
+        let deadline = Instant::now().checked_add(timeout).unwrap_or(completion_deadline);
+        self.finish(deadline.min(completion_deadline))
     }
     fn finish(&mut self, deadline: Instant) -> io::Result<()> {
         let Some(thread) = self.thread.take() else {
@@ -528,7 +530,7 @@ mod completion_tests {
         });
         // Deliberate expiry: a fresh 60-second budget must fail this bound, with
         // ample scheduling margin compared with an already expired wait.
-        let result = drain.recv_timeout(Duration::from_secs(5));
+        let result = drain.recv_timeout(Duration::from_secs(30));
         release.send(()).map_err(io::Error::other)?;
         shutdown.join().map_err(|_| io::Error::other("shutdown panicked"))?;
         let error = result
