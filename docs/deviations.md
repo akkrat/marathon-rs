@@ -114,6 +114,11 @@ Kotlin can corrupt UTF-8 characters and split logcat lines at read boundaries.
 Native shell/logcat text preserves characters and partial lines across reads;
 shell v1 bytes remain raw. No configuration change is needed; update comparisons
 that expected corrupted characters or artificial line breaks.
+
+Kotlin's adb transport also takes its buffers from a process-wide pool of 1,024
+that waits without a limit once it is empty. Native requests use their own
+buffers, so there is no pool to run out. Seen in the field: a JVM run on a CI
+farm stalled with all threads waiting on the exhausted pool.
 See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
 [ADB findings](wp/6.1-findings.md) and [logcat findings](wp/6.5-findings.md).
 
