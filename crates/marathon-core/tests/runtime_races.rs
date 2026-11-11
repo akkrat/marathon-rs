@@ -756,21 +756,28 @@ fn same_deadline_vendor_continuations_keep_registration_order() {
             for _ in 0..2_000 {
                 let start = core.clock().now_millis();
                 let channel = marathon_core::executor::SharedChannel::new();
+                let mut tasks = Vec::new();
                 for n in 0..2 {
                     let clock = core.vendor_clock();
                     let out = channel.clone();
-                    core.vendor().spawn_cancellable(Box::new(move |signal| {
-                        Box::pin(async move {
-                            clock.delay(1, signal).await?;
-                            assert!(out.try_send(n).is_ok());
-                            Ok(())
-                        })
-                    }));
+                    tasks.push(driver.spawn_vendor(Box::pin(async move {
+                        clock.delay(1, Signal::new()).await?;
+                        assert!(out.try_send(n).is_ok());
+                        Ok(())
+                    })));
                     replay(driver.drain_current().await);
                 }
                 replay(driver.advance_to(start + 1).await);
                 assert_eq!(channel.receive().await, Ok(Some(0)));
                 assert_eq!(channel.receive().await, Ok(Some(1)));
+                // Channel delivery precedes tracked-task teardown.
+                for task in tasks {
+                    match task.await {
+                        Ok(result) => assert_eq!(result, Ok(())),
+                        Err(error) => panic!("vendor task join failed: {error}"),
+                    }
+                }
+                replay(driver.drain_current().await);
                 replay(driver.assert_quiescent());
             }
             Ok(())
