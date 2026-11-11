@@ -34,7 +34,7 @@ async fn profiles_reuse_first_available_unused_records_once_and_preserve_input_o
         .await?;
     let (logging, _) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing);
+    let planner = PlanCalculator::new(logging.clone(), timing, None);
     let targets = vec![
         AppleTarget::Host,
         AppleTarget::Simulator {
@@ -106,7 +106,7 @@ async fn shutdown_is_serial_and_final_eligibility_is_read_after_the_last_await()
     });
     let (logging, logs) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing);
+    let planner = PlanCalculator::new(logging.clone(), timing, None);
     let expected = order.clone();
     let plan = planner
         .plan(
@@ -184,7 +184,7 @@ async fn registration_during_inventory_is_excluded_from_profile_reuse() -> TestR
     });
     let (logging, _) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing);
+    let planner = PlanCalculator::new(logging.clone(), timing, None);
     let p = profile();
     let plan = planner
         .plan(
@@ -213,7 +213,7 @@ async fn host_warning_precedes_missing_simulator_error() -> TestResult {
     let h = Harness::new();
     let (logging, logs) = logging();
     let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
-    let planner = PlanCalculator::new(logging.clone(), timing);
+    let planner = PlanCalculator::new(logging.clone(), timing, None);
     logging
         .registry
         .lock()
@@ -245,5 +245,74 @@ async fn host_warning_precedes_missing_simulator_error() -> TestResult {
         serde_json::json!(logs.iter().map(|(_, level, _, _)| level.as_str()).collect::<Vec<_>>()),
         witness("planner-log-order")
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_simulator_log_uses_effective_authentication_x56_r1() -> TestResult {
+    use marathon_config::vendor::SshAuthentication;
+    for override_auth in [
+        None,
+        Some(SshAuthentication::Password {
+            username: "override".into(),
+            password: "not-for-logs".into(),
+        }),
+    ] {
+        let h = Harness::new();
+        let (logging, logs) = logging();
+        let timing = ProvisioningTiming::new(Arc::new(SystemTimer::new(h.clock.clone()).unwrap()), logging.clone());
+        let planner = PlanCalculator::new(
+            logging,
+            timing,
+            Some(SshAuthentication::PublicKey {
+                username: "runner".into(),
+                key: "/keys/test-key".into(),
+            }),
+        );
+        let transport = Transport::Ssh {
+            addr: "worker.invalid".into(),
+            port: 22,
+            authentication: override_auth.clone(),
+            check_reachability: false,
+        };
+        let original = transport.clone();
+        let plan = planner
+            .plan(
+                &transport,
+                &h.bin,
+                &[AppleTarget::Simulator { udid: "missing".into() }],
+                &h.cycle,
+                Vec::new,
+                false,
+                || {
+                    Ok(CurrentDevices {
+                        eligible_disposed: vec![],
+                        kept: vec![],
+                    })
+                },
+                &h.context,
+            )
+            .await?;
+        assert_eq!(transport, original);
+        assert!(plan.existing_simulators.is_empty());
+        let logs = logs.lock().unwrap();
+        let message = &logs
+            .iter()
+            .find(|(_, level, _, _)| *level == marathon_logging::Level::ERROR)
+            .unwrap()
+            .2;
+        let auth = if override_auth.is_some() {
+            "password (user='override')"
+        } else {
+            "public key (user=runner, key=/keys/test-key)"
+        };
+        assert_eq!(
+            message,
+            &format!(
+                "udid missing is not available at ssh worker.invalid:22 (authentication={auth}, check_reachability=false)"
+            )
+        );
+        assert!(!message.contains("not-for-logs"));
+    }
     Ok(())
 }

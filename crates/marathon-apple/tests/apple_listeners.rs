@@ -873,10 +873,7 @@ async fn accumulator_forwards_stamped_logs_even_when_callback_fails() {
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].wall_millis, 77);
     assert_eq!(records[0].at_millis, 0);
-    assert_eq!(
-        records[0].logger,
-        "com.malinskiy.marathon.execution.result.TestRunResultsAccumulator"
-    );
+    assert_eq!(records[0].logger, "marathon_core::execution::result");
     assert_eq!(
         records[0].message.to_owned(),
         "received test event without test start for p.C.m"

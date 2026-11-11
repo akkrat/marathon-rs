@@ -164,11 +164,8 @@ fn jvm_v2_setup_statuses_and_exact_custom_logs() {
         logs.iter()
             .any(|r| r.message == "Multiple organizations with name = org found. Using first one, id = id1")
     );
-    assert!(
-        logs.iter()
-            .filter(|r| r.logger.ends_with("InfluxDb2Provider"))
-            .all(|r| r.logger == "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider")
-    );
+    assert!(logs.iter().any(|r| r.logger == "marathon_analytics::influx2"));
+    assert!(logs.iter().all(|r| !r.logger.starts_with("com.malinskiy")));
     assert!(logs.iter().any(|r|r.message=="Creating InfluxDB 2 bucket: orgId = id1, bucket = bucket, retention: everySeconds=2592000 shardGroupDurationSeconds=0"));
 }
 #[test]

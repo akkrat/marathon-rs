@@ -394,9 +394,15 @@ impl Shared {
                     .and_then(|c| c.err())
                     .and_then(|error| error.failure().message.to_owned())
                     .unwrap_or(reason);
+                let diagnostic = batch_return_reason_for_log(&reason);
                 self.log(
                     Level::DEBUG,
-                    text(&[&"Returning batch ", &execution.test_batch.id, &". Reason: ", &reason]),
+                    text(&[
+                        &"Returning batch ",
+                        &execution.test_batch.id,
+                        &". Reason: ",
+                        &diagnostic,
+                    ]),
                     None,
                 );
                 FromDevice::ReturnTestBatch(self.device.clone(), execution.test_batch.clone(), reason)

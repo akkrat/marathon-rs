@@ -114,8 +114,12 @@ levels retain their existing meanings.
 
 `Failure::for_log` projects only the known Marathon-generated job-cancellation
 messages, generated SSH timeout units and the exact generated device-loss
-wrappers, recursively through typed causes. `LogRecord::emit` uses that projection; ordinary `Display`, stored
-failures, frames and external tool text keep their bytes. Apple listeners have a
+wrappers, recursively through typed causes. Known generated suppressed/cause
+headers inside copied stacktrace text use that same mapping. Returned-batch
+reasons are projected only at their log sites, within the actor-generated failure
+envelopes; the original reason data stays unchanged. `LogRecord::emit` uses that
+projection; ordinary `Display`, stored failures and opaque external frame/tool
+text keep their bytes. Apple listeners have a
 cancellation callback whose default forwards the original report message to
 `test_run_failed`; the composite preserves callback order and the debug listener
 uses the separate diagnostic. Thus a cancellation cannot echo the report's

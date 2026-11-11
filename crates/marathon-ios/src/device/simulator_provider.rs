@@ -241,7 +241,11 @@ impl AppleSimulatorProvider {
             analytics_tracking: binding.analytics_tracking,
             bugsnag_reporting: binding.bugsnag_reporting,
         });
-        let planner = PlanCalculator::new(services.logging.clone(), services.timing.clone());
+        let planner = PlanCalculator::new(
+            services.logging.clone(),
+            services.timing.clone(),
+            services.vendor.ssh.authentication.clone(),
+        );
         let owner = Arc::new(Mutex::new(Weak::<Self>::new()));
         let weak = owner.clone();
         let provisioner = SimulatorProvisioner::new(

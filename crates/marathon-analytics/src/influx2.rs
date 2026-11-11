@@ -39,10 +39,7 @@ impl Influx2Client {
         debug: bool,
         context: MetricsContext,
     ) -> OperationResult<Arc<Self>> {
-        register(
-            &context,
-            "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
-        )?;
+        register(&context, "marathon_analytics::influx2")?;
         let token = text(&config.token)?;
         let http = Arc::new(Http::new(
             &config.url,
@@ -74,7 +71,7 @@ impl Influx2Client {
         if candidates.len() > 1 {
             log(
                 &context,
-                "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
+                "marathon_analytics::influx2",
                 Level::WARN,
                 format!("Multiple organizations with name = {organization} found. Using first one, id = {id}"),
                 None,
@@ -103,7 +100,7 @@ impl Influx2Client {
             let rp = &config.retention_policy_configuration;
             log(
                 &context,
-                "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Provider",
+                "marathon_analytics::influx2",
                 Level::INFO,
                 format!(
                     "Creating InfluxDB 2 bucket: orgId = {id}, bucket = {bucket}, retention: everySeconds={} shardGroupDurationSeconds={}",
@@ -378,10 +375,7 @@ pub struct Influx2Tracker {
 }
 impl Influx2Tracker {
     pub fn new(client: Arc<Influx2Client>, read_only: bool) -> OperationResult<Self> {
-        register(
-            &client.context,
-            "com.malinskiy.marathon.analytics.external.influx2.InfluxDb2Tracker",
-        )?;
+        register(&client.context, "marathon_analytics::influx2")?;
         Ok(Self { client, read_only })
     }
     pub async fn track_test(&self, event: &TestEvent) -> OperationResult<()> {

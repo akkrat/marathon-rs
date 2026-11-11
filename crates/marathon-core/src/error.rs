@@ -37,20 +37,15 @@ impl Failure {
     pub fn for_log(&self) -> Self {
         let mut rendered = self.clone();
         rendered.cause = self.cause.as_deref().map(|cause| Box::new(cause.for_log()));
-        if self.kind == FailureKind::JobCancelled
-            && matches!(
-                self.message.as_deref(),
-                Some("DeferredCoroutine was cancelled" | "LazyDeferredCoroutine was cancelled")
-            )
+        if let Some(message) = self
+            .message
+            .as_deref()
+            .and_then(|message| generated_message_for_log(&self.kind, message))
         {
-            rendered.message = Some("task was cancelled".into());
+            rendered.message = Some(message.into());
         }
-        if self.kind == FailureKind::Timeout {
-            rendered.message = match self.message.as_deref() {
-                Some("Timeout expired: 30000 MILLISECONDS") => Some("no response after 30 s".into()),
-                Some("Timeout expired: 1 NANOSECONDS") => Some("no response after 1 ns".into()),
-                _ => self.message.clone(),
-            };
+        if !matches!(self.kind, FailureKind::External(_)) {
+            rendered.stacktrace = self.stacktrace.as_deref().map(trace_for_log);
         }
         if matches!(self.kind, FailureKind::Ssh(_))
             && let (Some(cause), Some(diagnostic)) = (self.cause.as_deref(), rendered.cause.as_deref())
@@ -97,6 +92,81 @@ impl Failure {
         text
     }
 }
+fn generated_message_for_log(kind: &FailureKind, message: &str) -> Option<&'static str> {
+    match (kind, message) {
+        (FailureKind::JobCancelled, "DeferredCoroutine was cancelled" | "LazyDeferredCoroutine was cancelled") => {
+            Some("task was cancelled")
+        }
+        (FailureKind::Timeout | FailureKind::Ssh(_), "Timeout expired: 30000 MILLISECONDS") => {
+            Some("no response after 30 s")
+        }
+        (FailureKind::Timeout | FailureKind::Ssh(_), "Timeout expired: 1 NANOSECONDS") => {
+            Some("no response after 1 ns")
+        }
+        _ => None,
+    }
+}
+
+// flatten_suppressed retains generated headers in the otherwise opaque frame text.
+fn trace_for_log(trace: &str) -> String {
+    trace
+        .split_inclusive('\n')
+        .map(|line| {
+            let body = line.trim_start_matches('\t');
+            let indentation = &line[..line.len() - body.len()];
+            let (label, body) = ["Suppressed: ", "Caused by: "]
+                .into_iter()
+                .find_map(|label| body.strip_prefix(label).map(|body| (label, body)))
+                .unwrap_or(("", body));
+            let (body, newline) = body.strip_suffix('\n').map_or((body, ""), |body| (body, "\n"));
+            match generated_header_for_log(body) {
+                Some(header) => format!("{indentation}{label}{header}{newline}"),
+                None => line.to_owned(),
+            }
+        })
+        .collect()
+}
+fn generated_header_for_log(header: &str) -> Option<String> {
+    let kinds = [
+        FailureKind::DeviceLost,
+        FailureKind::JobCancelled,
+        FailureKind::Timeout,
+        FailureKind::Ssh(SshKind::Connection),
+        FailureKind::Ssh(SshKind::Transport),
+        FailureKind::Ssh(SshKind::Authentication),
+    ];
+    let mut rest = header;
+    let mut prefix = String::new();
+    loop {
+        let (kind, body) = kinds
+            .iter()
+            .find_map(|kind| rest.strip_prefix(format!("{kind}: ").as_str()).map(|body| (kind, body)))?;
+        prefix.push_str(&format!("{kind}: "));
+        if *kind == FailureKind::DeviceLost {
+            rest = body;
+            continue;
+        }
+        let body = if *kind == FailureKind::JobCancelled {
+            body.strip_suffix("; job=LazyDeferredCoroutine{Cancelled}")
+                .filter(|body| *body == "LazyDeferredCoroutine was cancelled")
+                .unwrap_or(body)
+        } else {
+            body
+        };
+        return generated_message_for_log(kind, body).map(|message| format!("{prefix}{message}"));
+    }
+}
+
+/// Only the actor's generated failure envelopes contain rendered traces; other reasons are opaque data.
+pub fn batch_return_reason_for_log(reason: &str) -> String {
+    for prefix in ["Test batch failed execution:\n", "Unknown vendor exception caught:\n"] {
+        if let Some(trace) = reason.strip_prefix(prefix) {
+            return format!("{prefix}{}", trace_for_log(trace));
+        }
+    }
+    reason.to_owned()
+}
+
 impl Cancellation {
     /// The CancellationException Kotlin throws for this cancellation.
     pub fn failure(&self) -> &Failure {
@@ -262,6 +332,24 @@ mod tests {
         let mut wrapper = loss.clone();
         wrapper.message = Some("external LazyDeferredCoroutine".into());
         assert_eq!(wrapper.for_log().message, wrapper.message);
+    }
+
+    #[test]
+    fn diagnostic_projection_handles_suppressed_trace_fields_without_mutating_data() {
+        let trace = "\tat external.Frame(Timeout expired: 30000 MILLISECONDS)\n\tSuppressed: job cancelled: LazyDeferredCoroutine was cancelled\n\tCaused by: timed out: Timeout expired: 30000 MILLISECONDS\n\t\tSuppressed: SSH connection failure: Timeout expired: 1 NANOSECONDS\nexternal LazyDeferredCoroutine was cancelled\n";
+        let mut failure = Failure::from_kind(FailureKind::Io, Some("outer".into()));
+        failure.stacktrace = Some(trace.into());
+        let original = failure.clone();
+        assert_eq!(
+            failure.for_log().stacktrace.as_deref(),
+            Some(
+                "\tat external.Frame(Timeout expired: 30000 MILLISECONDS)\n\tSuppressed: job cancelled: task was cancelled\n\tCaused by: timed out: no response after 30 s\n\t\tSuppressed: SSH connection failure: no response after 1 ns\nexternal LazyDeferredCoroutine was cancelled\n"
+            )
+        );
+        assert_eq!(failure, original);
+        failure.kind = FailureKind::External("runner.CustomFailure".into());
+        assert_eq!(failure.for_log(), failure);
+        assert_eq!(batch_return_reason_for_log(trace), trace);
     }
 
     #[test]

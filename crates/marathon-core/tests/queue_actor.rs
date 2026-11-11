@@ -293,3 +293,26 @@ fn completed_batch_results_are_passed_to_analytics() {
         })
     });
 }
+
+#[test]
+fn returned_batch_reason_is_projected_only_for_the_log_x56_r1() {
+    run(move |core| {
+        Box::pin(async move {
+            let queue = Queue::spawn(&core, setup(0, 1, vec![test_1()]));
+            let replies = queue.request(&test_device_info(), None).await;
+            let batch = batch_of(&replies[0]);
+            let reason = "Test batch failed execution:\ntest batch execution failure: outer\n\tSuppressed: job cancelled: DeferredCoroutine was cancelled\n\tCaused by: timed out: Timeout expired: 1 NANOSECONDS\n";
+            queue
+                .send(QueueMessage::ReturnBatch(test_device_info(), batch, reason.into()))
+                .await;
+            let events = queue.trace.drain();
+            let message = events
+                .iter()
+                .find_map(|event| event[2].as_str().filter(|text| text.starts_with("onReturnBatch ")))
+                .unwrap();
+            assert!(message.contains("task was cancelled") && message.contains("no response after 1 ns"));
+            assert!(!message.contains("DeferredCoroutine") && !message.contains("NANOSECONDS"));
+            Ok(())
+        })
+    });
+}

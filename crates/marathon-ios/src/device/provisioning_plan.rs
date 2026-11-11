@@ -2,16 +2,18 @@
 //! and AppleSimulatorProvider.kt:683–774 (shared planning/shutdown helper; provider owns final live eligibility).
 
 use super::{
-    error::ProvisioningResult,
-    timing::{ProvisioningTiming, transport_text},
-    worker_provisioning_context::WorkerProvisioningContext,
+    error::ProvisioningResult, timing::ProvisioningTiming, worker_provisioning_context::WorkerProvisioningContext,
 };
 use indexmap::{IndexMap, IndexSet};
+use marathon_apple::device::connection_factory::transport_log_text;
 use marathon_apple::{
     bin::{AppleBinaryEnvironment, xcrun::simctl::model::SimctlDeviceState},
     cmd::remote::ssh::sshj::config::SshLogging,
 };
-use marathon_config::devices::{AppleTarget, SimulatorProfile, Transport};
+use marathon_config::{
+    devices::{AppleTarget, SimulatorProfile, Transport},
+    vendor::SshAuthentication,
+};
 use marathon_core::vendor::VendorContext;
 use marathon_logging::{Component, Level};
 
@@ -31,14 +33,16 @@ pub struct PlanCalculator {
     logging: SshLogging,
     logger: Component,
     timing: ProvisioningTiming,
+    default_auth: Option<SshAuthentication>,
 }
 impl PlanCalculator {
-    pub fn new(logging: SshLogging, timing: ProvisioningTiming) -> Self {
+    pub fn new(logging: SshLogging, timing: ProvisioningTiming, default_auth: Option<SshAuthentication>) -> Self {
         let logger = logging.component("marathon_ios::device::provisioning_plan");
         Self {
             logging,
             logger,
             timing,
+            default_auth,
         }
     }
     #[allow(clippy::too_many_arguments)]
@@ -88,7 +92,12 @@ impl PlanCalculator {
                 self.logging.log(
                     &self.logger,
                     Level::ERROR,
-                    || format!("udid {udid} is not available at {}", transport_text(transport, "Local")),
+                    || {
+                        format!(
+                            "udid {udid} is not available at {}",
+                            transport_log_text(transport, self.default_auth.as_ref(), "Local")
+                        )
+                    },
                     None,
                 );
             }

@@ -155,7 +155,7 @@ impl Bundle {
                 .plan_folder(FolderType::DeviceFiles, Some(&self.pool.name), Some(&owner));
             let fm_logger = {
                 let registry = self.logging.registry.lock().unwrap_or_else(|e| e.into_inner());
-                let name = "com.malinskiy.marathon.io.FileManager";
+                let name = "FileManager";
                 registry.component(name)
             };
             let local = plan

@@ -260,7 +260,7 @@ impl TestRunResultsAccumulator {
                 // Rc state; adapters forward them without rendering.
                 self.logs.push(LogRecord {
                     target: module_path!().into(),
-                    logger: "com.malinskiy.marathon.execution.result.TestRunResultsAccumulator".to_owned(),
+                    logger: module_path!().into(),
                     at_millis: 0,
                     wall_millis: (self.wall)(),
                     level: Level::DEBUG,

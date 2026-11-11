@@ -500,13 +500,14 @@ impl QueueActor {
         reason: String,
         signal: Arc<dyn CancellationSignal>,
     ) -> OperationResult<()> {
+        let diagnostic = batch_return_reason_for_log(&reason);
         self.log(
             Level::DEBUG,
             text(&[
                 &|m| m.push_str("onReturnBatch "),
                 &|m| m.push_str(&device.serial_number.clone()),
                 &|m| m.push_str(". reason="),
-                &|m| m.push_str(&reason.clone()),
+                &|m| m.push_str(&diagnostic),
             ]),
         );
         let mut results = Vec::with_capacity(batch.tests.len());

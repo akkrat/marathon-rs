@@ -701,3 +701,46 @@ fn log_records_carry_wall_time_from_creation() {
     assert_eq!(record.message, "called");
     assert_eq!(record.target(), "marathon_core::execution::device::actor");
 }
+
+#[test]
+fn returning_a_batch_projects_its_diagnostic_but_preserves_reason_data_x56_r1() {
+    let mut failure = ise("outer");
+    failure.stacktrace = Some("\tSuppressed: job cancelled: LazyDeferredCoroutine was cancelled\n\tCaused by: timed out: Timeout expired: 30000 MILLISECONDS\n".into());
+    for error in [
+        VendorError::BatchExecution(failure.clone()),
+        VendorError::Other(failure),
+    ] {
+        let prefix = if matches!(error, VendorError::BatchExecution(_)) {
+            "Test batch failed execution:\n"
+        } else {
+            "Unknown vendor exception caught:\n"
+        };
+        let original_reason = format!("{prefix}{}", error.failure().stack_trace());
+        let outcome = scenario(PoolMode::Open, move |run| {
+            Box::pin(async move {
+                run.start_batch(ScriptedDevice::scripted(execute_script(move |_| {
+                    let error = error.clone();
+                    async move { Err(error) }
+                })))
+                .await;
+            })
+        });
+        let messages = outcome.received();
+        let reason = messages
+            .iter()
+            .find_map(|message| match message {
+                FromDevice::ReturnTestBatch(_, _, reason) => Some(reason),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(reason, &original_reason);
+        let logs = outcome.logs();
+        let message = &logs
+            .iter()
+            .find(|log| log.message.starts_with("Returning batch "))
+            .unwrap()
+            .message;
+        assert!(message.contains("task was cancelled") && message.contains("no response after 30 s"));
+        assert!(!message.contains("LazyDeferredCoroutine") && !message.contains("MILLISECONDS"));
+    }
+}
