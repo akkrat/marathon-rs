@@ -13,14 +13,19 @@ and their caller's cancellation signal with the shared runner. Finished or
 failed results for a test in this batch suppress the warning (ignored tests are
 finished results); output for unrelated tests cannot hide an empty batch.
 If collection itself failed before publishing results, a completed test event
-provides the fallback. A started test alone does not count. An empty batch
-or a request that never starts a session does not warn.
+provides the fallback. A started test alone does not count. An empty batch or
+a `check_closed` rejection before `produce` does not warn. A command-open failure
+inside `produce` does warn, saying `xcodebuild could not be started` with its
+known reason; it does not claim that Marathon ended a running command.
 
 `XcodebuildSession::produce` records elapsed vendor-clock milliseconds from
 launch to output completion or forced stop, before command cleanup. This is
 session duration, including command acquisition and output draining, rather
 than a remote process CPU/runtime measurement. Artifact collection can overlap
 a still-running session; a slow final close does not inflate the duration.
+The line renders seconds: one decimal below 10 s, whole seconds (truncated) at
+10 s and above. For a command-open failure the elapsed value measures the launch
+attempt, not a running xcodebuild process.
 The serial is the same `udid@worker` value used by other device diagnostics;
 the SSH worker id includes its user and `host:port`.
 
@@ -47,22 +52,24 @@ returned and stored failures keep their original text.
 
 These messages are asserted by the paused-clock simulator tests (the regular
 subscriber adds its timestamp; compact output does not). Each case has two
-incomplete tests and exactly one event on the new target:
+incomplete tests and exactly one event on the new target. The output-timeout and
+lost-connection rows use injected failures, not the real idle timer or a real
+SSH connection drop:
 
 ```text
-WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30000 ms: xcodebuild exited with status 65
-WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30000 ms: xcodebuild exited with status 0
-WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30000 ms: xcodebuild was terminated by signal KILL
-WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30000 ms: xcodebuild ended without an exit status
-WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30000 ms: marathon ended the session: batch timeout
-WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30000 ms: marathon ended the session: test output timeout (timed out: idle timeout PT30S reached)
-WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30000 ms: marathon ended the session: lost connection to the worker (SSH connection failure: worker connection closed)
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30 s: xcodebuild exited with status 65
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30 s: xcodebuild exited with status 0
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30 s: xcodebuild was terminated by signal KILL
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30 s: xcodebuild ended without an exit status
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30 s: marathon ended the session: batch timeout
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30 s: marathon ended the session: test output timeout (timed out: idle timeout 30 s reached)
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 30 s: marathon ended the session: lost connection to the worker (SSH connection failure: worker connection closed)
 ```
 
 The runner's injected typed-timeout test also asserts the suffix
 `marathon ended the session: timeout (operation cancelled after timeout: batch deadline reached)`.
 The macOS test asserts one warning for its one missing test, status 0 and a
-measured millisecond duration. Local process signal metadata is separately
+measured duration in seconds. Local process signal metadata is separately
 asserted as signal `9`, so it is distinguishable from an actual exit status 137.
 SSH signal metadata is checked against the fake SSH worker's KILL and SEGV
 reports, without changing the numeric status or sending an extra signal.
@@ -89,7 +96,7 @@ New or extended witnesses:
 
 - `marathon-ios/tests/simulator_batch.rs`: statuses 65 and 0, missing status,
   signal, batch timeout, output timeout, reachable worker-connection failure,
-  exact 30000 ms session duration, one warning, partial passed/failed batches,
+  exact 30 s session duration, one warning, partial passed/failed/ignored batches,
   unrelated-test results that must not suppress the warning,
   and requested cancellation with no warning. The existing live local-process
   batch-timeout witness also checks the new reason.
@@ -153,4 +160,87 @@ crate suite runs fresh native vendor captures against the unchanged goldens and
 replays committed configuration evidence.
 Historical fixtures and parity rows are unchanged. Workspace and remote gates
 are reserved for the orchestrator by the implementation brief; neither is run
-here. Only changed crates and their production dependents are tested.
+here. Only changed crates and their production dependents were tested in the
+original implementation; this review run tests only the four changed crates.
+
+## Review fixes (S-x57-1–4)
+
+- **S-x57-1:** observations carry whether a command was opened. Missing xcrun,
+  invalid workdir and SSH exec failure before launch now say `xcodebuild could
+  not be started`, retaining the original returned error. The runner test injects
+  these three open failures inside `produce`, checks exactly one warning and
+  confirms that no command-close callback ran. The pre-produce `check_closed`
+  rejection remains distinct.
+- **S-x57-2:** elapsed time uses one decimal below 10 s and whole seconds from
+  10 s onward. Paused-clock batch tests assert `0.0 s`, `2.4 s`, `9.9 s`, `10 s`
+  and `1800 s`. The existing hours/minutes/seconds helper is pinned to summary
+  output and does not provide this format, so that formatter is untouched.
+  `Failure::for_log` now projects the exact canonical generated idle-timeout
+  message to plain seconds, retaining nanosecond precision for the configured
+  timeout reason. Typed data, ordinary Display and stack traces remain unchanged.
+  Tests cover fractional, negative, zero and large durations; malformed,
+  noncanonical, prefixed and External messages stay opaque. Cause chains, SSH
+  inherited messages and generated suppressed/cause headers use the same mapping.
+- **S-x57-3:** the partial-batch witness now includes a skipped test. Output-timeout
+  and worker-connection warnings are explicitly documented as injected-failure
+  witnesses. The batch test also asserts the original timeout/connection message
+  remains in the returned failure chain.
+- **S-x57-4:** the logging crate-mapping row now names the batch-outcome WARN floor
+  and states that it has no JVM counterpart.
+
+Additional examples asserted by tests (compact form):
+
+```text
+WARN marathon_apple::batch_outcome: Apple test batch on udid returned no results for 1 tests after 0.0 s: xcodebuild could not be started: no such file or directory: xcrun
+WARN marathon_apple::batch_outcome: Apple test batch on a@local returned no results for 2 tests after 2.4 s: xcodebuild exited with status 65
+```
+
+### Other diagnostic sites reached by the idle-timeout projection
+
+The rewrite is restricted to a typed Timeout/SSH failure whose complete message
+matches the generated `idle timeout <canonical Duration> reached` form. The
+production generator remains `marathon-apple/src/extensions/reader.rs`; it is
+unchanged. Apart from the new WARN, the same failure can be rendered by these
+existing diagnostic consumers (paths relative to `crates/`):
+
+- `marathon-core/src/logging.rs::LogRecord::emit`: causes on queued vendor/core
+  records, including device-actor execution, cancellation and critical-error
+  diagnostics, task-completion logs and vendor disposal/setup error logs.
+- `marathon-core/src/execution/device/actor.rs`: the prepare-error message and
+  generated returned-batch diagnostic envelopes; `execution/queue.rs` renders
+  those same envelopes. Their transmitted reason strings stay unchanged.
+- `marathon-apple/src/apple_device_test_runner.rs` and `xctest_parser.rs`:
+  explicit cancellation/timeout diagnostic projections when the failure is
+  nested in their cancellation cause.
+- `marathon-apple/src/cmd/remote/ssh/sshj/{error,config}.rs`: inherited SSH failure
+  messages, transport `Dying because` and promise `woke to` diagnostics if the
+  same typed generated failure reaches them.
+- `marathon-cli/src/application.rs`: uncaught run-failure diagnostic rendering.
+
+These are conditional consumers, not new emissions: only a matching generated
+idle-timeout message changes. External frame/tool text stays unchanged. Core
+unit tests verify both original failure equality and the ordinary stored trace;
+the simulator witness verifies the returned original ISO message.
+
+Review verification (same six-job, nonincremental, dev-debug-off build settings):
+
+- `cargo test -p marathon-core -p marathon-apple -p marathon-ios -p marathon-macos
+  --no-fail-fast`: exit 0; 1,778 passed, 0 failed, 26 existing ignored tests
+  across 167 test/doc-test targets. Only the four changed crates were selected.
+- Focused core diagnostic tests: 7 passed. Focused runner/simulator/macOS batch
+  targets: 19 + 22 + 17 passed.
+- Temporarily disabling the new command-open distinction made the open-failure
+  regression fail at its intended warning assertion (exit 101). Restoring the
+  exact source bytes and rerunning the runner target: 19 passed. No real-time
+  timing assumptions were introduced; the new async tests use a paused clock.
+- Clippy for the four changed crates, `--all-targets -- -D warnings`: passed.
+- `cargo fmt --check`: passed.
+- `tools/differential/run native-vendors`: all 16 complete vendor captures
+  passed against unchanged goldens. No result-file, command or pinned
+  progress/summary change was found. Stored timeout text remains ISO-8601.
+- `python3 -I tools/differential/make_registry.py --check`: passed unchanged.
+- Local repository check: clean.
+
+No workspace/remote gate, unchanged-crate test suite, real Apple-device/farm or
+Linux check was run in this review pass. No fixtures, parity rows, D-rows or
+configuration fields changed.

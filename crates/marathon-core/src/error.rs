@@ -3,6 +3,7 @@
 
 use marathon_config::binding::ConfigurationError;
 pub use marathon_error::*;
+use std::borrow::Cow;
 
 /// Preserve kind, nullable message and causal chain for classification/output.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,8 +93,8 @@ impl Failure {
         text
     }
 }
-fn generated_message_for_log(kind: &FailureKind, message: &str) -> Option<&'static str> {
-    match (kind, message) {
+fn generated_message_for_log(kind: &FailureKind, message: &str) -> Option<Cow<'static, str>> {
+    let fixed = match (kind, message) {
         (FailureKind::JobCancelled, "DeferredCoroutine was cancelled" | "LazyDeferredCoroutine was cancelled") => {
             Some("task was cancelled")
         }
@@ -104,7 +105,31 @@ fn generated_message_for_log(kind: &FailureKind, message: &str) -> Option<&'stat
             Some("no response after 1 ns")
         }
         _ => None,
+    };
+    if let Some(fixed) = fixed {
+        return Some(Cow::Borrowed(fixed));
     }
+    if !matches!(kind, FailureKind::Timeout | FailureKind::Ssh(_)) {
+        return None;
+    }
+    let text = message.strip_prefix("idle timeout ")?.strip_suffix(" reached")?;
+    let duration = jcompat::jtime::parse_duration(text)?;
+    // Only Reader.kt's generated Duration Display spelling belongs to this projection.
+    if duration.to_string() != text {
+        return None;
+    }
+    let nanos = i128::from(duration.seconds()) * 1_000_000_000 + i128::from(duration.nanos());
+    let sign = if nanos < 0 { "-" } else { "" };
+    let magnitude = nanos.abs();
+    let seconds = magnitude / 1_000_000_000;
+    let fraction = magnitude % 1_000_000_000;
+    let seconds = if fraction == 0 {
+        format!("{sign}{seconds}")
+    } else {
+        let digits = format!("{fraction:09}");
+        format!("{sign}{seconds}.{}", digits.trim_end_matches('0'))
+    };
+    Some(Cow::Owned(format!("idle timeout {seconds} s reached")))
 }
 
 // flatten_suppressed retains generated headers in the otherwise opaque frame text.
@@ -350,6 +375,84 @@ mod tests {
         failure.kind = FailureKind::External("runner.CustomFailure".into());
         assert_eq!(failure.for_log(), failure);
         assert_eq!(batch_return_reason_for_log(trace), trace);
+    }
+
+    #[test]
+    fn idle_timeout_diagnostics_use_plain_seconds_and_preserve_failure_data() {
+        for (text, plain) in [
+            ("PT30S", "30"),
+            ("PT1M30S", "90"),
+            ("PT0.02S", "0.02"),
+            ("PT0.000000001S", "0.000000001"),
+            ("PT-0.02S", "-0.02"),
+            ("PT0S", "0"),
+            ("PT2562047788015215H30M7S", "9223372036854775807"),
+        ] {
+            let message = format!("idle timeout {text} reached");
+            let timeout = Failure::from_kind(FailureKind::Timeout, Some(message.clone()));
+            assert_eq!(
+                timeout.for_log().to_string(),
+                format!("timed out: idle timeout {plain} s reached")
+            );
+            assert_eq!(timeout.message.as_deref(), Some(message.as_str()));
+            assert_eq!(timeout.stack_trace(), format!("timed out: {message}\n"));
+            for kind in [FailureKind::Io, FailureKind::External("runner.CustomFailure".into())] {
+                let external = Failure::from_kind(kind, Some(message.clone()));
+                assert_eq!(external.for_log(), external);
+            }
+        }
+        for message in [
+            "idle timeout pt30s reached",
+            "idle timeout PT030S reached",
+            "idle timeout PTbadS reached",
+            "external idle timeout PT30S reached",
+            "idle timeout PT30S reached\nexternal",
+        ] {
+            let failure = Failure::from_kind(FailureKind::Timeout, Some(message.into()));
+            assert_eq!(failure.for_log(), failure);
+        }
+    }
+
+    #[test]
+    fn idle_timeout_projection_reaches_causes_wrappers_and_generated_headers_only() {
+        let timeout = Failure::from_kind(FailureKind::Timeout, Some("idle timeout PT30S reached".into()));
+        let mut ssh = Failure::from_kind(FailureKind::Ssh(SshKind::Connection), timeout.message.clone());
+        ssh.cause = Some(Box::new(timeout));
+        let mut loss = Failure::from_kind(FailureKind::DeviceLost, Some(ssh.to_string()));
+        loss.cause = Some(Box::new(ssh));
+        loss.stacktrace = Some(
+            "\tat external.Frame(idle timeout PT30S reached)\n\tSuppressed: timed out: idle timeout PT30S reached\n"
+                .into(),
+        );
+        let original = loss.clone();
+        let diagnostic = loss.for_log();
+        assert_eq!(
+            diagnostic.message.as_deref(),
+            Some("SSH connection failure: idle timeout 30 s reached")
+        );
+        assert!(
+            diagnostic
+                .stack_trace()
+                .contains("Caused by: timed out: idle timeout 30 s reached")
+        );
+        assert_eq!(
+            diagnostic.stacktrace.as_deref(),
+            Some(
+                "\tat external.Frame(idle timeout PT30S reached)\n\tSuppressed: timed out: idle timeout 30 s reached\n"
+            )
+        );
+        for prefix in ["Test batch failed execution:\n", "Unknown vendor exception caught:\n"] {
+            let reason = format!("{prefix}timed out: idle timeout PT30S reached\n");
+            assert_eq!(
+                batch_return_reason_for_log(&reason),
+                format!("{prefix}timed out: idle timeout 30 s reached\n")
+            );
+        }
+        assert_eq!(loss, original);
+        assert_eq!(
+            batch_return_reason_for_log("external timed out: idle timeout PT30S reached"),
+            "external timed out: idle timeout PT30S reached"
+        );
     }
 
     #[test]

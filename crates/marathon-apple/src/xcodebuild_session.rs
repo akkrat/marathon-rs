@@ -170,6 +170,7 @@ struct State {
 #[derive(Clone)]
 pub(crate) struct SessionObservation {
     pub elapsed_millis: i64,
+    pub command_opened: bool,
     pub termination: Option<crate::cmd::base_command::CommandTermination>,
     pub output_timed_out: bool,
 }
@@ -254,6 +255,7 @@ impl XcodebuildSession {
             };
             this.state.lock().unwrap_or_else(|e| e.into_inner()).observation = Some(SessionObservation {
                 elapsed_millis: clock.now_millis().saturating_sub(started).max(0),
+                command_opened: command.is_some(),
                 output_timed_out: command.is_some()
                     && result
                         .as_ref()

@@ -33,6 +33,7 @@ use tokio::sync::Notify;
 pub struct Plan {
     pub events: Vec<Vec<TestEvent>>,
     pub output_failure: Option<VendorError>,
+    pub open_failure: Option<VendorError>,
     pub closing_failure: Option<VendorError>,
     pub wait_close: bool,
     pub hang_output: bool,
@@ -209,7 +210,12 @@ impl AppleDevice for RunnerDevice {
             );
             Ok(session.produce(
                 context.clone(),
-                move |_| async move { Ok(command) },
+                move |_| async move {
+                    if let Some(error) = plan.open_failure {
+                        return Err(error);
+                    }
+                    Ok(command)
+                },
                 move |_, sender, ctx| async move {
                     for events in plan.events {
                         sender.send(events).await?;

@@ -117,7 +117,10 @@ levels retain their existing meanings.
 `Failure::for_log` projects only the known Marathon-generated job-cancellation
 messages, generated SSH timeout units and the exact generated device-loss
 wrappers, recursively through typed causes. Known generated suppressed/cause
-headers inside copied stacktrace text use that same mapping. Returned-batch
+headers inside copied stacktrace text use that same mapping. Generated
+`idle timeout PT30S reached` messages similarly render as
+`idle timeout 30 s reached` (including fractional durations); only diagnostics
+change, while stored failures and result text retain the ISO duration. Returned-batch
 reasons are projected only at their log sites, within the actor-generated failure
 envelopes; the original reason data stays unchanged. `LogRecord::emit` uses that
 projection; ordinary `Display`, stored failures and opaque external frame/tool
@@ -215,7 +218,7 @@ old construction sites, per crate, and the new treatment:
 | `marathon-core` | `Timings` (explicit INFO on first use, not construction) | Retained: `marathon_core::timing=info`. |
 | `marathon-adb` | adam's loggers (never registered; inherited ROOT) | Retained: `marathon_adb=debug`. |
 | `marathon-android` | `AdamDeviceProvider` (provider `new` in services construction), `AmInstrumentTestParser` (Kotlin constructs it before debug is set) | Ordinary level. |
-| `marathon-apple` | loggers created during services construction; sshj loggers are created per lookup at run time | Ordinary level; the wire keeps its `ssh.debug` gate; `xcodebuild` stderr keeps its explicit WARN as `marathon_apple::xcodebuild_stderr=warn`; of the six Apple ERROR suppressions only `Timeline` maps (`marathon_core::reporters::timeline`), the sshj class names have no Rust target and are dropped. The sshj `known_hosts` logger and its matchers (one target) retain a WARN floor in every configurator. |
+| `marathon-apple` | loggers created during services construction; sshj loggers are created per lookup at run time | Ordinary level; the wire keeps its `ssh.debug` gate; `xcodebuild` stderr keeps its explicit WARN as `marathon_apple::xcodebuild_stderr=warn`; of the six Apple ERROR suppressions only `Timeline` maps (`marathon_core::reporters::timeline`), the sshj class names have no Rust target and are dropped. The sshj `known_hosts` logger and its matchers (one target) retain a WARN floor in every configurator; `marathon_apple::batch_outcome` also has a WARN floor (no JVM counterpart). |
 | `marathon-ios` | `AppleSimulatorProvider`/`provisioner` (constructed in `ios_vendor::construct`) | Ordinary level (test harnesses pin these targets with `set_level` to capture their records). |
 | `marathon-macos` | `AppleMacosProvider` (constructed in `vendor::construct`) | Ordinary level. |
 | `marathon-analytics` | no loggers of its own at construction (records flow through core analytics) | — |
@@ -252,8 +255,10 @@ or ignored test result, because diagnosing an all-incomplete batch must not
 require a debug rerun. Once result listeners and session stop have finished, the
 shared Apple runner emits one WARN with the device serial (udid and worker
 host:port for SSH), batch size, session duration and the known exit status,
-signal, missing status, timeout or worker-connection failure. Session duration
-uses the vendor monotonic clock from launch through output completion or forced
+signal, missing status, timeout or worker-connection failure. A command-open
+failure says `xcodebuild could not be started` with the known reason. Elapsed
+time renders as seconds (one decimal below 10 s, whole seconds thereafter).
+Session duration uses the vendor monotonic clock from launch through output completion or forced
 stop, before command cleanup; artifact collection can overlap a running session.
 Requested cancellation, including D52, and batches with any completed result are
 excluded. The target is a floor like

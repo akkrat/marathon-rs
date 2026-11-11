@@ -629,7 +629,7 @@ async fn an_empty_macos_batch_warns_with_debug_off_x57() -> R {
         "{:?}",
         warnings[0]
     );
-    assert!(warnings[0].message.ends_with(" ms: xcodebuild exited with status 0"));
+    assert!(warnings[0].message.ends_with(" s: xcodebuild exited with status 0"));
     Ok(())
 }
 

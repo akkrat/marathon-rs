@@ -518,7 +518,7 @@ async fn empty_batches_warn_once_with_exit_signal_missing_status_and_batch_timeo
         assert_eq!(
             warnings[0].2,
             format!(
-                "Apple test batch on {} returned no results for 2 tests after 30000 ms: {reason}",
+                "Apple test batch on {} returned no results for 2 tests after 30 s: {reason}",
                 d.serial()
             )
         );
@@ -543,7 +543,12 @@ async fn empty_batches_warn_with_the_known_output_timeout_or_lost_connection_x57
             ..Default::default()
         };
         let (outcome, results) = run(&h, &d).await;
-        assert!(outcome.is_err());
+        assert!(
+            std::iter::successors(Some(outcome.as_ref().unwrap_err().failure()), |failure| failure
+                .cause
+                .as_deref())
+            .any(|failure| failure.kind == kind && failure.message.as_deref() == Some(message))
+        );
         assert_eq!(results.unwrap().uncompleted.len(), 2);
         h.finish(std::slice::from_ref(&d)).await;
         let logs = h.logs.lock().unwrap();
@@ -553,14 +558,14 @@ async fn empty_batches_warn_with_the_known_output_timeout_or_lost_connection_x57
             .collect::<Vec<_>>();
         assert_eq!(warnings.len(), 1, "{logs:?}");
         let reason = if kind == FailureKind::Timeout {
-            "marathon ended the session: test output timeout (timed out: idle timeout PT30S reached)"
+            "marathon ended the session: test output timeout (timed out: idle timeout 30 s reached)"
         } else {
             "marathon ended the session: lost connection to the worker (SSH connection failure: worker connection closed)"
         };
         assert_eq!(
             warnings[0].2,
             format!(
-                "Apple test batch on {} returned no results for 2 tests after 30000 ms: {reason}",
+                "Apple test batch on {} returned no results for 2 tests after 30 s: {reason}",
                 d.serial()
             )
         );
@@ -570,7 +575,14 @@ async fn empty_batches_warn_with_the_known_output_timeout_or_lost_connection_x57
 
 #[tokio::test(start_paused = true)]
 async fn partial_batches_do_not_warn_about_empty_results_x57() -> TestResult {
-    for lines in [passed(1), failed(1)] {
+    for lines in [
+        passed(1),
+        failed(1),
+        vec![
+            "Test Case '-[Suite test1]' started.".into(),
+            "Test Case '-[Suite test1]' skipped (0.100 seconds).".into(),
+        ],
+    ] {
         let h = Harness::new(|_| {})?;
         let (d, s) = prepared(&h).await?;
         *s.plan.lock().unwrap() = OutputPlan {
@@ -613,5 +625,39 @@ async fn results_for_tests_outside_the_batch_do_not_hide_its_empty_outcome_x57()
             .count(),
         1
     );
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn empty_batch_session_lengths_use_plain_seconds_x57() -> TestResult {
+    for (delay_millis, elapsed) in [
+        (0, "0.0 s"),
+        (2_400, "2.4 s"),
+        (9_900, "9.9 s"),
+        (10_000, "10 s"),
+        (1_800_000, "1800 s"),
+    ] {
+        let h = Harness::new(|_| {})?;
+        let (d, s) = prepared(&h).await?;
+        *s.plan.lock().unwrap() = OutputPlan {
+            delay_millis,
+            ..Default::default()
+        };
+        assert!(run(&h, &d).await.0.is_ok());
+        h.finish(std::slice::from_ref(&d)).await;
+        let logs = h.logs.lock().unwrap();
+        let warnings = logs
+            .iter()
+            .filter(|(target, _, _, _)| target == "marathon_apple::batch_outcome")
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(
+            warnings[0].2,
+            format!(
+                "Apple test batch on {} returned no results for 2 tests after {elapsed}: xcodebuild exited with status 65",
+                d.serial()
+            )
+        );
+    }
     Ok(())
 }

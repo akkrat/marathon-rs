@@ -341,7 +341,13 @@ impl AppleDeviceTestRunner {
         };
         use crate::cmd::base_command::CommandTermination;
         let error = result.as_ref().err().map(|error| &error.error);
-        let reason = if matches!(observation.termination, Some(CommandTermination::BatchTimeout)) {
+        let reason = if !observation.command_opened {
+            let detail = error.map_or_else(
+                || "unknown launch failure".into(),
+                |error| error.failure().for_log().to_string(),
+            );
+            format!("xcodebuild could not be started: {detail}")
+        } else if matches!(observation.termination, Some(CommandTermination::BatchTimeout)) {
             "marathon ended the session: batch timeout".into()
         } else if let Some(error) = error.filter(|error| error.failure().kind == FailureKind::Timeout) {
             let timeout = if observation.output_timed_out {
@@ -383,9 +389,13 @@ impl AppleDeviceTestRunner {
             Level::WARN,
             || {
                 format!(
-                    "Apple test batch on {} returned no results for {count} tests after {} ms: {}",
+                    "Apple test batch on {} returned no results for {count} tests after {}: {}",
                     self.device.info().serial_number,
-                    observation.elapsed_millis,
+                    if observation.elapsed_millis < 10_000 {
+                        format!("{:.1} s", observation.elapsed_millis as f64 / 1000.0)
+                    } else {
+                        format!("{} s", observation.elapsed_millis / 1000)
+                    },
                     reason.replace(['\r', '\n'], " ")
                 )
             },

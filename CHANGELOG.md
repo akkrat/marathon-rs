@@ -4,7 +4,7 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
-- Apple batches with no test results now log one warning with the device, batch size, session duration and exit or timeout reason, visible with `debug: false`. Cancelled runs and partial batches do not produce this warning.
+- Apple batches with no test results now log one warning with the device, batch size, session duration in seconds and exit, launch-failure or timeout reason, visible with `debug: false`. Cancelled runs and partial batches do not produce this warning.
 
 - Diagnostic logs use plain values: run failures no longer say `kotlin.Unit`, cancellations are no longer reported as stuck tests, and Kotlin class renderings are removed from log lines.
 

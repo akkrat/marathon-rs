@@ -674,3 +674,76 @@ async fn a_later_listener_timeout_does_not_replace_the_session_end_reason_x57() 
     assert!(warnings[0].1.ends_with(": xcodebuild ended without an exit status"));
     Ok(())
 }
+
+#[tokio::test(start_paused = true)]
+async fn an_unopened_command_warns_that_xcodebuild_could_not_be_started_x57() -> TestResult {
+    for (kind, message, reason) in [
+        (FailureKind::NoSuchFile, "xcrun", "no such file or directory: xcrun"),
+        (
+            FailureKind::Io,
+            "invalid working directory",
+            "I/O error: invalid working directory",
+        ),
+        (
+            FailureKind::Ssh(marathon_error::SshKind::Connection),
+            "exec request refused",
+            "SSH connection failure: exec request refused",
+        ),
+    ] {
+        let failure = VendorError::Other(failure(kind, message));
+        let (device, mut runner) = setup(Plan {
+            open_failure: Some(failure.clone()),
+            ..Default::default()
+        });
+        runner.session_close_timeout = support::duration(60_000);
+        runner.observe_batch_results(
+            marathon_core::runtime::Deferred::new(),
+            Arc::new(SessionScope::default()),
+        );
+        let logs = Arc::new(Mutex::new(vec![]));
+        let captured = logs.clone();
+        runner.logging = marathon_apple::cmd::remote::ssh::sshj::config::SshLogging::new(
+            runner.logging.registry.clone(),
+            Arc::new(move |logger, level, message, _| {
+                captured
+                    .lock()
+                    .unwrap()
+                    .push((logger.target().to_owned(), level, message))
+            }),
+        );
+        let tests = vec![marathon_core::model::Test {
+            pkg: "UITests".into(),
+            clazz: "Suite".into(),
+            method: "test1".into(),
+            meta_properties: vec![],
+        }];
+        let listener = Listener::new(device.calls.clone(), "one");
+        let error = runner
+            .execute_request(
+                TestRequest::new("/tmp", "test", false),
+                &tests,
+                &listener,
+                &support::context(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.error, failure);
+        v(device.dispose().await)?;
+        assert!(!device.calls.lock().unwrap().iter().any(|call| call == "closed"));
+        let logs = logs.lock().unwrap();
+        let warnings = logs
+            .iter()
+            .filter(|(target, _, _)| target == "marathon_apple::batch_outcome")
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].1, marathon_logging::Level::WARN);
+        assert_eq!(
+            warnings[0].2,
+            format!(
+                "Apple test batch on {} returned no results for 1 tests after 0.0 s: xcodebuild could not be started: {reason}",
+                device.info().serial_number
+            )
+        );
+    }
+    Ok(())
+}
