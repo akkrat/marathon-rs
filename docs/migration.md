@@ -91,7 +91,7 @@ oracle generation is independent of runtime installation.
 
 Most differences need nothing from you. These are the ones that can change what you see or what you must set. Each
 links to its entry in the [deviations guide](deviations.md) or the relevant Phase 8 evidence.
-The Phase 8 rows apply when moving from 0.12.0 to the 0.13.0 release candidates as well as from Kotlin.
+The Phase 8 rows apply when moving from 0.12.0 to 0.13.0 as well as from Kotlin.
 
 | If you… | What changed | Do |
 |---|---|---|

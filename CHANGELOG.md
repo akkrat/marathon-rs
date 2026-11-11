@@ -2,32 +2,11 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
-## Unreleased
+## 0.13.0
 
-- Diagnostic logs describe recoverable batch failures plainly, label startup telemetry values as CLI flags, and show timeout durations in seconds. Stored failures, configuration dumps, results and progress/summary text retain their existing formats.
-
-- Ordinary console completion now shares one 60-second deadline for flushing and draining output (D67), avoiding premature flush failures on loaded hosts. Signals during the run keep the one-second output watchdog, immediate second-signal exit and D66 SIGQUIT behavior. After the run finishes, SIGINT/SIGTERM are not acted on during console completion; this existing window grows from about two seconds to up to 60 seconds on a stalled console. A wrapper needing a hard stop then must use SIGKILL.
-
-## 0.13.0-rc.2
-
-Second release candidate of 0.13.0. It contains everything in 0.13.0-rc.1, which ran without regressions on real iOS,
-macOS and Android hosts (see its section in CHANGELOG.md or its GitHub release), plus the changes listed here. Upgrading from 0.12.0 needs the checks in 0.13.0-rc.1's
-"Check before you upgrade".
-
-- Apple batches with no test results now log one warning with the device, batch size, session duration in seconds and exit, launch-failure or timeout reason, visible with `debug: false`. Cancelled runs and partial batches do not produce this warning.
-
-- Diagnostic logs use plain values: run failures no longer say `kotlin.Unit`, cancellations are no longer reported as stuck tests, and Kotlin class renderings are removed from log lines.
-
-- **SIGQUIT no longer ends a run** (D66). It logs a bounded dump of the run's state, at WARN on `marathon_core::diagnostics`:
-  the scheduler's phase, each pool's queue and devices, and the tests each device is running and for how long. The run then
-  carries on. A wrapper that sends SIGQUIT, waits and then sends SIGTERM gets the dump, then D52's reports and exit status;
-  before, the first signal ended the run with no reports. A wrapper that signals the whole process group still ends local
-  child commands such as `xcodebuild`, as with the JVM build.
-- A flaky analytics test that sometimes connected to a full accept queue is fixed (U194).
-
-## 0.13.0-rc.1
-
-Release candidate of 0.13.0: removes the JVM artefacts required by Kotlin parity under [PLAN §3.12](PLAN.md#312-phase-8-contract), keeping the inputs, CLI, exit-code policy, result-data and worker-command contracts except for the approved differences below (D55–D65).
+This release removes the JVM artefacts required by Kotlin parity under [PLAN §3.12](PLAN.md#312-phase-8-contract), keeping the
+inputs, CLI, exit-code policy, result-data and worker-command contracts except for the approved differences below
+(D55–D65). D66 and D67 change how SIGQUIT and console completion are handled. It has the code of 0.13.0-rc.2 plus D67 and the log wording listed under "Signals, console and logs".
 
 ### Check before you upgrade
 
@@ -42,6 +21,9 @@ Release candidate of 0.13.0: removes the JVM artefacts required by Kotlin parity
 - **Text and paths:** update malformed-Unicode, socket-error and rare Unicode sort expectations (D55, D57); path cuts through a supplementary character now stop before it and can be written (D56).
 - **Non-ASCII Basic credentials:** check that your analytics server accepts UTF-8 credentials (D57). ASCII credentials stay identical.
 - **Small Apple idle limits:** allow for expiry at the configured limit, without the old 20 ms polling margin (D62). Raise the limit if it relied on that margin.
+- **Signal wrappers:** SIGQUIT no longer ends a run: it logs a state dump and the run carries on (D66). Stop a run with
+  SIGTERM or SIGINT. After a run has finished, a stalled console can hold the exit for up to 60 seconds, and SIGINT/SIGTERM
+  are not acted on then; use SIGKILL for a hard stop (D67).
 
 See [Changes that need action](docs/migration.md#changes-that-need-action) for the migration table and
 [the deviations guide](docs/deviations.md#d55--text-uses-unicode-characters) for each approved difference.
@@ -96,6 +78,19 @@ The 0.12.0 requirements, including a finite `uncompletedTestRetryQuota`, still a
   regressions. Other images can change visibly. Names, paths, dimensions, rotations, frame timing, loop value, disposal,
   frame order, worker commands and Allure/HTML references remain as specified by D63.
 
+### Signals, console and logs
+
+- **SIGQUIT no longer ends a run** (D66). It logs a bounded dump of the run's state, at WARN on `marathon_core::diagnostics`:
+  the scheduler's phase, each pool's queue and devices, and the tests each device is running and for how long. The run then
+  carries on. A wrapper that sends SIGQUIT, waits and then sends SIGTERM gets the dump, then D52's reports and exit status;
+  before, the first signal ended the run with no reports. A wrapper that signals the whole process group still ends local
+  child commands such as `xcodebuild`, as with the JVM build.
+- Ordinary console completion now shares one 60-second deadline for flushing and draining output (D67), avoiding premature flush failures on loaded hosts. Signals during the run keep the one-second output watchdog, immediate second-signal exit and D66 SIGQUIT behavior. After the run finishes, SIGINT/SIGTERM are not acted on during console completion; this existing window grows from about two seconds to up to 60 seconds on a stalled console. A wrapper needing a hard stop then must use SIGKILL.
+- Apple batches with no test results now log one warning with the device, batch size, session duration in seconds and exit, launch-failure or timeout reason, visible with `debug: false`. Cancelled runs and partial batches do not produce this warning.
+- Diagnostic logs use plain values: run failures no longer say `kotlin.Unit`, cancellations are no longer reported as stuck tests, and Kotlin class renderings are removed from log lines.
+- Diagnostic logs describe recoverable batch failures plainly, label startup telemetry values as CLI flags, and show timeout durations in seconds. Stored failures, configuration dumps, results and progress/summary text retain their existing formats.
+- A flaky analytics test that sometimes connected to a full accept queue is fixed (U194).
+
 ### Evidence
 
 - Phase 8 verification includes native contract goldens, the configuration corpus, historical JVM differential suites and
@@ -107,8 +102,16 @@ The 0.12.0 requirements, including a finite `uncompletedTestRetryQuota`, still a
   [image audit](docs/wp/8.16-golden-diff.md) finds no changes in the 18 registered native views; its limited image cases
   are supplemented by independent known-pixel, encoded-byte and transparency tests. The
   [late-pool CLI witnesses](docs/wp/8.19-test-changes.md) check corrected reports, progress, counts and existing statuses.
-- Real-device and farm runs of **this release candidate are pending**. Their results will be added before 0.13.0.
-  The real-host and private-farm evidence under 0.12.0 below applies to that release, not to this rc.
+- 0.13.0-rc.1 ran on real hosts: the macOS build on a Mac with Xcode 27.2, with iOS 18.6, 26.4 and 27.0 simulators and
+  macOS tests, locally and over SSH to a second Mac as a real worker; the static Linux build on two API 36 Android
+  emulators. Per-test results and reports matched 0.12.0's runs, including SIGTERM and SIGINT cancels.
+- 0.13.0-rc.2 repeated a short local iOS run with the same per-test results. A SIGQUIT logged the state dump and the run
+  carried on; SIGQUIT then SIGTERM exited 143 with its reports. The warning for a batch without results appeared for a
+  killed `xcodebuild` and for a test that hit its output timeout, and not for a SIGINT or a healthy run.
+- Outside this repository, the maintainer ran 0.13.0-rc.1 and the JVM build side by side on private CI farms: the macOS
+  build on 80 iOS simulators and the static Linux build on 32 Android emulators, with the same passed tests on both
+  sides; a smaller iOS job also ran on rc.2. These runs are private and cannot be checked here.
+- D67 and the log wording added after rc.2 were tested against fakes and the built binary only, not on real hosts.
 
 ### Known limits
 
@@ -116,8 +119,8 @@ The 0.12.0 requirements, including a finite `uncompletedTestRetryQuota`, still a
   older than the build and test hosts are not tested.
 - The macOS binary is ad-hoc signed and not notarised; see the note on quarantine in the
   [migration guide](docs/migration.md#install-the-native-entry-point).
-- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container, and the release
-  candidate of 0.12.0 ran on real emulators and a CI farm; this rc's trials are pending. musl's resolver asks DNS directly,
+- The static Linux binary is checked at release time with `version` and `--help` in an Alpine container, and
+  0.13.0-rc.1 ran on real emulators and a CI farm. musl's resolver asks DNS directly,
   so an adb host given as a name that only the system's own name service knows, such as a `.local` name, is not found;
   use `localhost` or an address.
 - The `xctest` test parser needs a `libxctest-parser` library that you supply (D20). The differential suites run it with a
@@ -146,6 +149,16 @@ The 0.12.0 requirements, including a finite `uncompletedTestRetryQuota`, still a
   without them (D25).
 - Apple event/line scheduling can move a boundary line between per-test and batch logs (A20). The Phase 8 differential
   harness gates that interleaving; production retains it ([WP 8.12](docs/wp/8.12-test-changes.md#differential-only-eventline-gates)).
+
+## 0.13.0-rc.2
+
+The second release candidate of 0.13.0, published on 2026-11-11 as a pre-release for trial runs. It added D66, the
+warning for Apple batches without results and plain log wording to rc.1; 0.13.0 adds D67 and further log wording.
+
+## 0.13.0-rc.1
+
+The first release candidate of 0.13.0, published on 2026-11-11 as a pre-release for trial runs. Its changes are
+all in 0.13.0 above.
 
 ## 0.12.0
 

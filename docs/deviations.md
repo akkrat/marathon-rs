@@ -4,9 +4,10 @@
 canonical. This guide covers D1–D67; implementation availability
 is qualified by the [README](../README.md). Each entry describes the Kotlin
 behavior, native behavior and migration action. Pending proposals are not
-shipped differences. D55–D65 ship in 0.13.0-rc.1 and remove JVM artefacts under
+shipped differences. D55–D67 ship in 0.13.0. D55–D65 remove JVM artefacts under
 [the Phase 8 contract](../PLAN.md#312-phase-8-contract), including the behaviour
-changes described below; they are separate from 0.12.0's Kotlin bug fixes. D66 ships in 0.13.0-rc.2. D67 is approved for 0.13.0.
+changes described below; D66 and D67 change signal and console handling. They are separate from 0.12.0's Kotlin bug
+fixes. D55–D65 first shipped in 0.13.0-rc.1 and D66 in 0.13.0-rc.2.
 PLAN §3.11 records no per-row approval dates for D55–D65. Its heading date,
 2026-10-12, is the section's original approval date.
 
