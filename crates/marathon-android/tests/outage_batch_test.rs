@@ -189,6 +189,10 @@ fn a_batch_given_back_before_it_starts_never_starts_d70() {
             assert!(matches!(result.completed(), Some(Ok(_))));
             // Nor once it has run.
             assert!(!device.0.withdraw_unstarted(&late));
+            // The device does not keep the result, which holds the device: neither would ever be freed.
+            let cell = Arc::downgrade(&result);
+            drop(result);
+            assert!(cell.upgrade().is_none(), "the device keeps the batch's result");
 
             // Given back before `execute` was even called, as the core can when the device leaves at once.
             let unseen = batch("unseen", vec![]);
@@ -419,6 +423,10 @@ fn a_batch_given_up_between_instrumentations_keeps_what_the_first_gave_d70() {
                 outcome.map_err(|e| e.failure().clone())
             );
             assert_eq!(instrumentations(&server).len(), 1);
+            // Completed from the device's record, which does not keep it: the result holds the device.
+            let cell = Arc::downgrade(&result);
+            drop((results, result));
+            assert!(cell.upgrade().is_none(), "the device keeps the batch's result");
             Ok(())
         })
     });

@@ -49,7 +49,9 @@ const REQUEST_LOSSES_PER_DEVICE: u32 = 3;
 /// device runs one batch at a time.
 struct BatchRecord {
     batch: BatchRef,
-    result: Option<Arc<Deferred<TestBatchResults>>>,
+    /// Weak: a completed result holds the device, which holds this record. While the batch is parked, `execute` holds
+    /// the result, so it can still be completed from here.
+    result: Weak<Deferred<TestBatchResults>>,
     stage: Stage,
 }
 enum Stage {
@@ -802,7 +804,7 @@ impl AndroidDevice {
         }
         *record = Some(BatchRecord {
             batch: batch.clone(),
-            result: Some(result.clone()),
+            result: Arc::downgrade(result),
             stage: Stage::Unstarted,
         });
         true
@@ -1119,7 +1121,7 @@ impl Device for AndroidDevice {
             Some(r) if Arc::ptr_eq(&r.batch, batch) => match std::mem::replace(&mut r.stage, Stage::Withdrawn) {
                 Stage::Unstarted | Stage::Withdrawn => true,
                 Stage::Parked(results) => {
-                    if let Some(result) = &r.result {
+                    if let Some(result) = r.result.upgrade() {
                         result.complete(Ok(results));
                     }
                     false
@@ -1133,7 +1135,7 @@ impl Device for AndroidDevice {
             _ => {
                 *record = Some(BatchRecord {
                     batch: batch.clone(),
-                    result: None,
+                    result: Weak::new(),
                     stage: Stage::Withdrawn,
                 });
                 true
