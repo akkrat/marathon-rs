@@ -4,6 +4,13 @@ The section for a version becomes the text of its GitHub release, which carries 
 
 ## Unreleased
 
+- A run whose test queue fails now ends at once with exit 1 (0 with `ignoreFailures`), writes its reports and logs
+  `Marathon run failed` with the cause, instead of hanging until it is killed. A console that refuses a progress line
+  no longer stops the run: the line is lost, the test is still reported, and one warning is logged (D68).
+- A test that has finished is no longer run again: a strict-mode retry granted to the attempt that completed the test,
+  and copies of a completed test in a batch a device gave back, are dropped, and a retry that is not run returns its
+  quota. A failed copy beside a retried copy of the same test is now reported too. Reports can show fewer executions
+  (D69).
 - **Android: an adb outage no longer fails tests that never ran** (D70). When an adb server stays away, or a device stays
   `offline`, until its device is given up, a batch the device was waiting to start goes back to the queue without using
   up any of `uncompletedTestRetryQuota`, so with a small quota those tests now run later instead of failing. In a batch of

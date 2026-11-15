@@ -1038,8 +1038,8 @@ Separately, when filters take a non-empty list to nothing, a run logs an ERROR l
 `No tests left to run after filtering: blocklist simple-class-name removed 12`. It still exits 0, because an empty shard
 fragment is legitimate. `parse` writes its empty list as before, with no warning.
 
-Metrics from a working backend are byte for byte the same, except points still queued when a close runs out of time. A queue that ends for any other reason still hangs the run
-([U168](found-bugs.md)). Approved 2026-11-07 (project owner's decision). See
+Metrics from a working backend are byte for byte the same, except points still queued when a close runs out of time. A queue that ended for any other reason still hung the run
+([U168](found-bugs.md)) until [D68](#d68--a-failed-queue-ends-the-run-a-failed-progress-line-does-not). Approved 2026-11-07 (project owner's decision). See
 [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12), [C62, C38, C11 and C25](known-kotlin-bugs.md) and
 the [x34 findings](wp/x34-findings.md).
 
@@ -1521,6 +1521,92 @@ Approved 2026-11-11 (project owner's decision). See
 
 **Migration action:** a wrapper needing a hard stop during post-run console
 completion must use SIGKILL. SIGINT/SIGTERM cannot shorten that wait.
+
+## D68 — A failed queue ends the run, a failed progress line does not
+
+Each pool's queue hands out the batches and accounts for their results. Any
+error out of its handler ended the queue; the pool read the closed queue as "no
+work left", nothing ended the run, and CI had to kill it ([U168](found-bugs.md)).
+D51 took analytics backends out of this path; a console that refused a progress
+line, NaN progress, a failed clock read for a returned batch, a batching, bundle
+or replay error and a failure at the Tracker seam could still cause it.
+
+**A console failure costs the line, not the run.** When the console fails to take
+the output flushed around a per-test progress line (either flush in
+`test_ended` or `test_started`), that output is lost and the test is still
+accounted for: its state changes and its result is tracked, so it is in the
+reports. The first such failure in a run logs one WARN on
+`marathon_core::execution::progress` (visible with `debug: true`); later ones are
+silent. A cancelled write still stops the queue, as cancellation does
+everywhere. The run's own flushes, D67's final deadline and the signal path are
+unchanged.
+
+**Any other queue error ends the run with its cause.** The pool terminates its
+devices as when its queue drains and fails with the queue's error. A failed pool
+already stopped the run's other pools, cancelling the batches they have in
+flight as a D52 cancel does; that policy is kept. The Scheduler then returns the
+queue's error instead of reading the pools' progress, also when the pool had
+closed before it heard of the error, so such a run never reports success. The
+run finishes as any failed run: the reports hold every result that reached a
+queue, the provider is terminated, `Marathon run failed` is logged with the
+cause, and the exit status is the existing one for a failed run: 1, or 0 with
+`ignoreFailures: true`. There is no new timeout: the devices stop as at a normal
+drain or a cancel. In the stub witness the run ends at the moment of the error,
+with a batch running in the failed pool and another pool still preparing its
+device.
+
+Runs that completed are unchanged: result files, worker commands, the pinned
+progress and summary text and exit codes. Approved 2026-11-15 (project owner's
+decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
+and the [x61 findings](wp/x61-findings.md).
+
+**Migration action:** none. A run that used to hang now exits 1; its cause is
+in the `Marathon run failed` line. A missing progress line with a
+`Cannot write progress to the console` warning means the console refused it.
+
+## D69 — A finished test is not run again
+
+Three Kotlin queue bugs ran tests after they had finished, or never finished
+their accounting:
+
+- Under fast ALL_SUCCESS (strict mode), a failure that is granted a retry also
+  completes the test, yet the retry was queued and ran again, and its result
+  was tracked as not final ([C45](known-kotlin-bugs.md)).
+- When a batch held two failed copies of one test (class-name batching with a
+  flaky copy) and only one was retried, the other was never ended: no progress
+  line, no tracked result, and the test kept an extra total
+  ([C46](known-kotlin-bugs.md)).
+- A batch rejected by a device that left before starting it was queued again
+  whole, including copies of a test that another device had completed
+  meanwhile; they ran again ([C47](known-kotlin-bugs.md)).
+
+Native builds:
+
+- do not queue a retry whose attempt leaves the test finished, also when an
+  earlier copy in the same batch finished it. That attempt leaves the test's
+  totals and the total retry quota it took is given back. The per-test limit
+  counts failures, not retries, and is unchanged.
+- tell retried results apart by their position in the batch, so every failed
+  copy is ended exactly once.
+- drop a rejected batch's copies of finished tests from the queue and from the
+  totals, and do not restore their retry workers. A retry dropped this way
+  keeps its quota charge. The other copies are queued again as before, in
+  [D60](#d60--equal-priority-tests-run-in-insertion-order) order.
+
+A copy that is already running elsewhere when its test finishes still runs and
+is reported as a non-final result, as before. The phantom total of
+[C5](known-kotlin-bugs.md) is unchanged.
+
+Reports can hold fewer executions and fewer non-final results for strict-mode
+retries, flaky copies in class-name batches and rejected batches, and such runs
+end sooner. Progress percentages follow the exact totals. A refunded retry can
+let another test of the pool be retried, which can change that test's outcome.
+None of the registered native goldens change. Approved 2026-11-15 (project
+owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12)
+and the [x61 findings](wp/x61-findings.md).
+
+**Migration action:** none. Execution counts in reports and dashboards can drop
+for the runs above.
 
 ## D70 — An adb outage does not charge or break tests that never started
 

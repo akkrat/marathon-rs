@@ -96,6 +96,13 @@ Rust lexical ownership or the thread on which a task was created:
   a child of that detached job (`:61`), not of the pool actor's job.
 - The queue and device actor jobs are children of that supervisor
   (`:63–74,308`). Each actor's receiver is a child of its own actor job.
+- D68: the supervisor isolates a queue job that fails, so the pool registers a
+  completion callback on it in `started`. Only a handler error completes that
+  job as Failed (a drain closes it and the supervisor cancels it), and the
+  callback then sends the pool `QueueFailed` with the cause. The pool terminates
+  its devices and fails, which fails the detached Scheduler job and cancels
+  every pool; after its join the Scheduler returns the first failed queue's
+  cause, in pool order, instead of aggregating progress.
 - Device prepare/execute/readiness/termination tasks are children of the
   device actor job (`DeviceActor.kt:154–218`). The result Deferred created
   at `:59` is parentless. Cancelling an awaiter must not seal that result.
@@ -255,7 +262,7 @@ Required order, with source evidence:
 | Completed/ReturnBatch precedes ConfirmOutcome; queue's Notify precedes OutcomeProcessed | `DevicePoolActor.kt:122–126,148–160`; `queue/QueueActor.kt:88–102,193–199` |
 | Queue checks emptiness and records active batch without suspension between them | `queue/QueueActor.kt:324–335` |
 | Observe durations before handling finished → uncompleted → failed; remove active batch, then notify | `queue/QueueActor.kt:106–123` |
-| RejectBatch uses batch **reference** identity; requeues without an attempt | `queue/QueueActor.kt:174–186` |
+| RejectBatch uses batch **reference** identity; requeues without an attempt, except copies of tests already terminal, which leave the totals (D69) | `queue/QueueActor.kt:174–186` |
 | Pool sends IsEmpty after earlier queue messages and waits for its response **or queue job completion**, then cancels supervisor and closes itself | `DevicePoolActor.kt:263–280` |
 | Sequential composite listener calls and closes; no failure isolation | `execution/listener/CompositeLineListener.kt:3–12` |
 | Attachment listeners run in registration order | `report/attachment/AttachmentProviderDelegate.kt:7–15` |
