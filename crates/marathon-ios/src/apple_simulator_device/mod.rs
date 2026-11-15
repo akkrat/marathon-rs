@@ -118,6 +118,9 @@ struct State {
     admission: Option<Admission>,
     policy: marathon_apple::device::batch_failure_policy::BatchFailurePolicy,
     running: Option<Arc<execution::BatchJob>>,
+    /// U179: preparations still running, which disposal stops and waits for. Disposal takes them under the same lock
+    /// that installs it, so none starts after that.
+    preparations: Vec<Arc<prepare::PreparationJob>>,
     last_session: Option<Arc<marathon_apple::xcodebuild_session::XcodebuildSession>>,
 }
 pub struct AppleSimulatorDevice {
@@ -200,6 +203,7 @@ impl AppleSimulatorDevice {
                 services.vendor.max_batches_without_progress,
             ),
             running: None,
+            preparations: Vec::new(),
             last_session: None,
         };
         Arc::new_cyclic(move |me| Self {
@@ -292,7 +296,8 @@ impl AppleSimulatorDevice {
             state.lost = true;
         }
     }
-    /// Retained cancellation-ignoring preparation/batch work is joined explicitly by its run owner.
+    /// Joins every retained task: preparations, batches and disposal. Disposal itself stops and waits for preparations
+    /// and the batch within its bound (U179), so this is for owners that need the rest too, such as tests.
     pub async fn join_retained(&self) -> VendorResult<()> {
         for task in self.retained.take() {
             task.join().await?;

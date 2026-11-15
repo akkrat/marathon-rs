@@ -20,6 +20,12 @@ impl From<VendorError> for PrepareError {
         Self::Vendor(error)
     }
 }
+/// U179: one preparation, which disposal can stop and wait for without joining the retained task that runs it.
+pub(super) struct PreparationJob {
+    pub(super) signal: Arc<Signal>,
+    /// Completed when the preparation's work has ended, whatever its outcome.
+    pub(super) done: Arc<SharedDeferred<()>>,
+}
 impl AppleSimulatorDevice {
     pub(super) async fn prepare_device(&self, context: VendorContext) -> VendorResult<()> {
         let started = self.timing.elapsed()?;
@@ -35,13 +41,32 @@ impl AppleSimulatorDevice {
             .map(String::clone)
             .collect::<Vec<_>>();
         let device = self.this()?;
-        let signal = Signal::new();
+        // U179: registered under the lock that disposal installs itself with, and with no await before the spawn, so
+        // disposal either sees this preparation or this one sees disposal.
+        let job = {
+            let mut state = self.state();
+            if state.disposal.is_some() {
+                return Err(VendorError::Cancelled(marathon_core::error::Cancellation::Requested(
+                    failure(
+                        FailureKind::IllegalState,
+                        format!("Device {} has been disposed", self.serial),
+                    ),
+                )));
+            }
+            let job = Arc::new(PreparationJob {
+                signal: Signal::new(),
+                done: SharedDeferred::new(),
+            });
+            state.preparations.push(job.clone());
+            job
+        };
         let ctx = VendorContext {
-            cancellation: signal.clone(),
+            cancellation: job.signal.clone(),
             ..context.clone()
         };
         let completed = SharedDeferred::new();
         let result = completed.clone();
+        let running = job.clone();
         self.retained.spawn(self.services.runtime.as_ref(), async move {
             let outcome = device
                 .services
@@ -69,12 +94,14 @@ impl AppleSimulatorDevice {
                     }
                 });
             result.complete(Ok(outcome));
+            device.state().preparations.retain(|p| !Arc::ptr_eq(p, &running));
+            running.done.complete(Ok(()));
             Ok(())
         });
         let result = match completed.wait_in(context.cancellation.clone()).await {
             Ok(outcome) => (*outcome).clone(),
             Err(error) => {
-                signal.cancel(marathon_core::error::Cancellation::Requested(failure(
+                job.signal.cancel(marathon_core::error::Cancellation::Requested(failure(
                     FailureKind::JobCancelled,
                     "DeferredCoroutine was cancelled",
                 )));

@@ -88,6 +88,9 @@ pub struct FakeSimulatorWorker {
     pub xcodebuild_version: Mutex<Vec<String>>,
     pub before: Mutex<BeforeHook>,
     pub session: Mutex<SessionHook>,
+    /// Refuse a request whose context is already cancelled, as the SSH and local executors do. Off by default, so the
+    /// worlds recorded without it keep their transcripts.
+    pub refuses_cancelled: AtomicBool,
     /// D54: why the connection was lost, once `lose` has been called.
     lost: tokio::sync::watch::Sender<Option<Failure>>,
 }
@@ -114,6 +117,7 @@ impl FakeSimulatorWorker {
             xcodebuild_version: Mutex::new(vec!["Xcode 16.4".into(), "Build version 16F6".into()]),
             before: Mutex::new(Arc::new(|_| Box::pin(async { Ok(None) }))),
             session: Mutex::new(Arc::new(|_| Ok(None))),
+            refuses_cancelled: AtomicBool::new(false),
             lost: tokio::sync::watch::channel(None).0,
         }
     }
@@ -244,8 +248,13 @@ impl CommandExecutor for FakeSimulatorWorker {
         self.connected.load(Ordering::SeqCst)
     }
     fn log_error(&self, _: String) {}
-    fn execute(&self, request: CommandRequest, _: VendorContext) -> VendorFuture<'_, CommandSession> {
+    fn execute(&self, request: CommandRequest, context: VendorContext) -> VendorFuture<'_, CommandSession> {
         Box::pin(async move {
+            if self.refuses_cancelled.load(Ordering::SeqCst)
+                && let Some(reason) = context.cancellation.reason()
+            {
+                return Err(VendorError::Cancelled(reason));
+            }
             self.commands
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
