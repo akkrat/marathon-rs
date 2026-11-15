@@ -30,6 +30,9 @@ final ordinary deadline and the signal path.
 
 ### Abnormal queue completion (`pool.rs`, `scheduler.rs`)
 
+*Steps 1–4 below are the first round's design. Review round 1 replaced the
+pool-side message with a Scheduler-side callback; see "Review round 1 (Sol)".*
+
 The queue's job is a child of the pool supervisor, which isolates its failure:
 before D68 a handler error logged `Task stopped due to unrecoverable error`,
 closed the queue, and the pool read the closed queue as "no work" (`send_to_queue`
@@ -231,8 +234,8 @@ No registered native golden changes: `differential_vendors`,
 
 ## Incidental bugs
 
-- **Uncompleted copy of a finished test is queued again (Kotlin, new C-row
-  candidate).** `QueueActor.kt:141–148` / `queue.rs` `handle_uncompleted_tests`:
+- **Uncompleted copy of a finished test is queued again (Kotlin, now C86, fixed
+  by D69 in review round 1).** `QueueActor.kt:141–148` / `queue.rs` `handle_uncompleted_tests`:
   an INCOMPLETE result (a returned batch, or `uncompleted` in a completed batch)
   for a test that another device has already completed gets `testEnded(final =
   false)`, which returns `null` on the terminal state, and the copy is
@@ -240,3 +243,122 @@ No registered native golden changes: `differential_vendors`,
   test (fast ANY_SUCCESS, two copies: the first passes, the second comes back
   INCOMPLETE → queue `[C0]`, state `Passed{total: 2, done: 1}`). Same class as
   C45/C47 but not in this WP's brief; not fixed.
+
+## Review round 1 (Sol)
+
+### S-x61-1 (high): a queue failure could still leave the run hanging
+
+The reviewer's race, reproduced exactly: pool A runs a batch that only a cancel
+ends; pool B's only test passes and its Track waits. B's last device leaves, so
+B (after the device's Terminated) asks its queue `IsEmpty` and waits. The Track
+then fails: the queue job completes Failed, its callback queues `QueueFailed` in
+B's mailbox, B's `queue_has_work` sees the queue's job end and reads "no work",
+and `terminate_now` closes B's mailbox, discarding `QueueFailed`. A stays active; the Scheduler stays in
+`joining-pools` for ever and its post-join check is never reached. On
+`0b019b24` the new witness fails with the state dump
+`scheduler=active phase=joining-pools`, pool A `running`, pool B completed.
+
+**Fix.** The failure no longer travels through the pool. When the Scheduler
+creates a pool it registers a completion callback on the pool's queue job
+(`Inner::on_queue_failure`). On `Failed(cause)` the callback keeps the first
+cause in a run-level slot (`queue_failure`) and cancels the Scheduler's
+detached job with `Requested(cause)`. That is what a failed pool used to do
+through `ChildFailed`, and what D52's `stop_execution` does: every pool actor
+and supervisor is cancelled, so the batches in flight are cancelled before the
+Scheduler waits for the pools. After the join loop the Scheduler returns the
+slot's cause instead of aggregating progress. The pool-side `QueueFailed`
+message, its handler and the pool's callback are removed, so `pool.rs` and
+`pool_message.rs` now differ from the base only by `pool.rs`'s module comment.
+
+- The callback holds the Scheduler job weakly (the queue job is its
+  descendant) and the slot by `Rc`; it does not depend on the pool's mailbox.
+- First cause wins (`get_or_insert_with`), in time order rather than pool
+  order.
+- Bounded: no new wait. A cancel completes the pools as D52 does.
+- **Fatal-error policy:** unchanged in effect: all pools are stopped. The
+  failed pool's devices are now stopped by the cancel rather than by a
+  `Terminate` sent just before the same cancel, which was a no-op difference.
+- The callback is registered right after `DevicePoolActor::spawn`, before the
+  queue can handle a message, and `invoke_on_completion` also covers a job
+  that has already completed.
+
+**Cases re-checked.**
+
+- Single pool, last result's Track fails:
+  `pool_scheduler::a_queue_that_fails_on_the_last_result_is_not_a_success_d68`
+  (unchanged, passes).
+- Two pools, failure with active work while the other pool prepares:
+  `queue_failure_run::a_failed_queue_ends_the_run_with_its_cause_while_another_pool_is_alive_d68`
+  (unchanged, passes; still ends before 10,000 ms with exactly the cause once).
+- The shutdown race: new
+  `pool_scheduler::a_queue_that_fails_while_its_pool_shuts_down_still_ends_the_run_d68`,
+  virtual time, a gated Track (no sleeps). Asserts B's queue completed Failed,
+  the run ended at 1,500 ms (the moment the Track failed), the outcome is
+  `VendorError::Other` with exactly `track failed`, both pools ended, and A's
+  batch was stopped (one batch, none retried).
+- D52 racing the failure: the same test's second case cancels the Scheduler
+  job and the run context (what `stop_execution` does) in the same moment the
+  Track fails. The run ends at once with `Cancelled`, as any D52 cancel does.
+- Late messages: there is no pool-side message any more. A pool that closes
+  first is harmless; a failure after the Scheduler's join (a pool admitted
+  after the join closed admission, D65) only cancels an already finished job.
+
+**Reverts.** On `0b019b24` the new witness fails (state dump above). With the
+fix, removing only the callback's cancel fails both the new witness and the
+single-pool one; removing only the slot check fails both (the single-pool run
+returns `Ok(true)`, the race returns a progress-derived result).
+
+### S-x61-2 (low): wording, and the D69 extension
+
+(a) The CHANGELOG said "a retry that is not run returns its quota", which
+includes C47's dropped retry, whose charge is deliberately kept. It now names
+which drops return quota (C45) and which keep it (C47). The D69 section of
+`docs/deviations.md` and the PLAN row already said so; `docs/migration.md`
+makes no quota claim.
+
+(b) The incidental bug became C86 and is fixed under D69.
+`handle_uncompleted_tests` notes whether the test is terminal before its
+`test_ended`; a non-final INCOMPLETE then cannot change that. If it was, the
+copy is not `rerun_test`-ed (so not queued and its worker not added to
+`retry_workers`) and `remove_test(test, 1)` takes it out of the totals. Its
+`test_ended` still runs once: one progress line and one Track, not final,
+status INCOMPLETE, as before. A non-terminal test keeps today's behaviour.
+
+The quota-exceeded branch (`final = true`) is unchanged: it never requeued.
+For a test that is already terminal it still tracks the copy as a non-final
+FAILURE and leaves it in the totals, as the Kotlin marathon does; changing
+that is not in this brief.
+
+Witnesses (both failed before the fix where they should):
+
+- `queue_behaviour::a_late_incomplete_copy_of_a_finished_test_is_not_run_again_d69`
+  — fast ANY_SUCCESS, two copies of C0: A1's passes and completes it, then
+  B1's comes back INCOMPLETE, once as a returned batch and once as
+  `uncompleted` in a completed batch. Exactly one Track `(C0, serial-B1,
+  INCOMPLETE, false)`, `Passed{total 1, done 1, running -2}`, queue `[C1]`, no
+  retry workers, `Notify { retry_workers: [] }`; C1 then runs and the queue
+  terminates with quota untouched. Before the fix: `Notify { retry_workers:
+  ["worker-B"] }` and C0 queued again.
+- `queue_behaviour::an_incomplete_copy_of_an_unfinished_test_is_still_run_again_d69`
+  — the counterpart: C0 comes back INCOMPLETE before it finished, is queued
+  again with `worker-A` marked, and the rerun's pass completes it at
+  `Passed{1, 1, -2}`. Passes before and after the fix.
+
+Docs: PLAN D69 row and the list entry (C86), `docs/deviations.md` D69 (a fourth
+bug and a fourth native rule; the "reports can hold fewer executions" line),
+`docs/migration.md`, CHANGELOG, and the new C86 row in
+`docs/known-kotlin-bugs.md`. It is a Kotlin bug, so it is not in
+`docs/found-bugs.md`.
+
+**Contract and goldens (PLAN §3.12).** Result data changes only by having
+fewer executions for runs that hit C86, as for the rest of D69. No JVM queue
+recording covers it: the full `queue_oracle` replay and the
+`d69_supersedes_exactly_the_c45_to_c47_recordings` negative test pass
+unchanged, and the registered native goldens (`differential_*` in
+marathon-cli) pass unchanged, so there is no golden-diff note.
+
+### Owner decision
+
+- C86 takes the next free C number on `main`; another WP in the batch may
+  claim the same number before this merges.
+
