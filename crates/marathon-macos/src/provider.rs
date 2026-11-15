@@ -55,7 +55,7 @@ pub struct AppleMacosProvider {
     pub registry: Arc<AppleDeviceRegistry>,
     connections: Arc<dyn MacosConnections>,
     devices: Mutex<IndexMap<String, Arc<MacosDevice>>>,
-    // A89: failed setup/replaced allocations keep ownership, without adding factory release calls.
+    /// Every device constructed, for `join_pending`, including one whose setup failed or that was replaced.
     retained: Mutex<Vec<Arc<MacosDevice>>>,
     leases: Mutex<Vec<Executor>>,
     channel: Arc<SharedChannel<DeviceEvent>>,
@@ -173,6 +173,23 @@ impl AppleMacosProvider {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(executor.clone());
+        let device = match self.set_up(executor.clone(), transport, bridge, &context).await {
+            Ok(device) => device,
+            Err(error) => {
+                // A89 (D74): a lease taken for a setup that failed is released at once; the setup's error is kept.
+                self.release_logged(executor).await;
+                return Err(error);
+            }
+        };
+        self.connect(device, &context).await
+    }
+    async fn set_up(
+        &self,
+        executor: Executor,
+        transport: Transport,
+        bridge: Bridge,
+        context: &VendorContext,
+    ) -> VendorResult<Arc<MacosDevice>> {
         let deps = &self.options.dependencies;
         let binary = AppleBinaryEnvironment::new(
             executor,
@@ -181,9 +198,9 @@ impl AppleMacosProvider {
             deps.io.clone(),
             self.options.logging.clone(),
         );
-        let mut udid = binary.system_profiler.get_provisioning_udid(&context).await?;
+        let mut udid = binary.system_profiler.get_provisioning_udid(context).await?;
         if marathon_apple::bin::kt::trim(&udid).is_empty() {
-            udid = binary.ioreg.get_udid(&context).await?;
+            udid = binary.ioreg.get_udid(context).await?;
         }
         let device = MacosDevice::new(udid, transport, binary, bridge, self.options.clone());
         self.retained
@@ -194,7 +211,7 @@ impl AppleMacosProvider {
             .hooks
             .instant("core.Track.trackProviderDevicePreparing")
             .map_err(crate::clock_error)?;
-        device.setup(&context).await?;
+        device.setup(context).await?;
         let finish = context
             .hooks
             .instant("core.Track.trackProviderDevicePreparing")
@@ -202,7 +219,22 @@ impl AppleMacosProvider {
         deps.tracker
             .device_provider_init(&device.info().serial_number, start, finish)
             .await?;
-        self.connect(device, &context).await
+        Ok(device)
+    }
+    /// A failed release costs only that lease: it is logged, and never replaces the error or outcome of the work
+    /// that took it.
+    async fn release_logged(&self, executor: Executor) {
+        let host = executor.host().id.clone();
+        if let Err(error) = self.connections.release(executor).await
+            && self.options.logging.enabled(&self.logger, Level::ERROR)
+        {
+            (self.options.logging.sink)(
+                &self.logger,
+                Level::ERROR,
+                format!("Failed to release connection to worker {host}"),
+                Some(error.failure().clone()),
+            );
+        }
     }
     async fn connect(&self, device: Arc<MacosDevice>, _context: &VendorContext) -> VendorResult<()> {
         let previous = self
@@ -215,7 +247,10 @@ impl AppleMacosProvider {
                 Level::ERROR,
                 "replaced existing device MacosDevice with new MacosDevice.".into(),
             );
-            previous.dispose().await?;
+            // A89 (D74): the replaced Mac's lease is released after its disposal, whether or not that failed.
+            let disposed = previous.dispose().await;
+            self.release_logged(previous.executor()).await;
+            disposed?;
             self.registry.remove(&DeviceRef(previous));
         }
         let event = DeviceEvent::Connected(self.registry.register(device));
@@ -347,11 +382,10 @@ impl DeviceProvider for AppleMacosProvider {
             self.log(Level::DEBUG, "Terminating AppleMacosProvider".into());
             self.channel.close(None);
             let results = futures_util::future::join_all(self.snapshot().into_iter().map(|device| async move {
-                let outcome = async {
-                    device.dispose().await?;
-                    self.connections.release(device.executor()).await
-                }
-                .await;
+                // A82 for macOS (D74): the release follows the disposal whatever its outcome; the disposal's error wins.
+                let disposed = device.dispose().await;
+                let released = self.connections.release(device.executor()).await;
+                let outcome = disposed.and(released);
                 if let Err(error) = outcome
                     && error.failure().kind.is_fatal()
                 {

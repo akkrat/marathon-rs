@@ -145,8 +145,6 @@ struct Parked {
     for_: ParkedFor,
     /// Run time of the failure, or of the devices update that added it back. The worker retry's limit counts from here.
     since: i64,
-    /// Whether its replacement keeps the old lease for release at termination (A90).
-    retained: bool,
 }
 /// D44: why a simulator is parked. Only one that a retry still owns goes into another plan on its worker: a sibling's
 /// retries plan that worker too, and would otherwise ask again for what was refused or given up on.
@@ -387,17 +385,10 @@ impl AppleSimulatorProvider {
             state.skipped_removed.shift_remove(&id);
             let previous = state.devices.insert(id.clone(), device.clone());
             if let Some(previous) = &previous {
-                // A90 also holds for a worker-loss predecessor replaced later, by a retry of its recovery.
-                let parked = state
-                    .parked
-                    .iter()
-                    .find(|p| Arc::ptr_eq(&p.handle, &previous.handle))
-                    .map(|p| p.retained);
                 state.parked.retain(|p| !Arc::ptr_eq(&p.handle, &previous.handle));
-                let recovering = state.recovering.iter().any(|d| Arc::ptr_eq(d, &previous.handle));
-                if parked.unwrap_or(!recovering) {
-                    state.replaced.push(previous.handle.clone());
-                }
+                // A90 (D74): every predecessor keeps its lease for release at termination, whatever replaced it. A handle
+                // leaves the map only here, so it is added once.
+                state.replaced.push(previous.handle.clone());
             }
             self.services.registry.register(device.handle.clone());
             // A removal that sees this device in the map finds its connect raised, or waiting to be.
@@ -1319,9 +1310,9 @@ async fn dispose_then_release(
     dispose: impl std::future::Future<Output = VendorResult<()>>,
     release: impl std::future::Future<Output = VendorResult<()>>,
 ) {
-    if dispose.await.is_ok() {
-        let _ = release.await;
-    }
+    // A82 (D74): the release follows the disposal whatever its outcome.
+    let _ = dispose.await;
+    let _ = release.await;
 }
 #[cfg(test)]
 mod tests {
@@ -1363,7 +1354,7 @@ mod tests {
         assert_eq!(*sent.lock().unwrap(), [0, 1]);
     }
     #[tokio::test]
-    async fn a82_throwing_disposal_skips_the_device_connection_release() {
+    async fn a82_throwing_disposal_still_releases_the_device_connection_d74() {
         let released = std::sync::atomic::AtomicUsize::new(0);
         dispose_then_release(
             async { Err(other(FailureKind::IllegalState, "dispose failed")) },
@@ -1378,9 +1369,8 @@ mod tests {
             .map(|s| serde_json::from_str::<serde_json::Value>(s).unwrap())
             .find(|r| r["case"] == "A82-throwing-dispose-skips-release")
             .unwrap();
-        assert_eq!(
-            released.load(std::sync::atomic::Ordering::SeqCst) as u64,
-            row["value"]["released"].as_u64().unwrap()
-        );
+        // D74: the JVM skips the release (A82); native termination makes it once, as after a disposal that succeeded.
+        assert_eq!(row["value"]["released"].as_u64(), Some(0));
+        assert_eq!(released.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 }

@@ -242,12 +242,10 @@ impl RecoveryHarness {
         self.h().boot.exit.store(0, Ordering::SeqCst);
     }
     pub async fn finish(&self) -> TestResult {
-        self.provider.terminate().await.map_err(test_error)?;
-        // A90 is only expected on worker-loss replacement. These fake leases are counters.
-        Ok(())
+        self.balanced().await
     }
     pub async fn balanced(&self) -> TestResult {
-        self.finish().await?;
+        self.provider.terminate().await.map_err(test_error)?;
         eventually(|| {
             self.base.connections.acquired.load(Ordering::SeqCst)
                 == self.base.connections.released.load(Ordering::SeqCst)

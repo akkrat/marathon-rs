@@ -627,8 +627,6 @@ impl SimulatorRecovery {
                                 false => ParkedFor::Retry,
                             },
                             since: now,
-                            // A90, as below: only a connected loss's predecessor is retained.
-                            retained: loss.is_some() || readded,
                         });
                     }
                     usable
@@ -637,19 +635,6 @@ impl SimulatorRecovery {
             state.recovering.retain(|d| {
                 !lost.iter().any(|old| Arc::ptr_eq(d, old)) || again_for.iter().any(|again| Arc::ptr_eq(d, again))
             });
-            // A90: worker-loss replacement predecessors are not retained by the source.
-            if loss.is_some() || readded {
-                for old in lost {
-                    let id = apple_id(old.udid(), transport);
-                    if state
-                        .devices
-                        .get(&id)
-                        .is_none_or(|current| !Arc::ptr_eq(&current.handle, old))
-                    {
-                        state.replaced.push(old.clone());
-                    }
-                }
-            }
             (failures, again_for)
         });
         for device in again_for {

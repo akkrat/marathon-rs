@@ -79,7 +79,7 @@ async fn file_boundaries_and_equal_transport_overwrite() -> R {
     Ok(())
 }
 #[tokio::test]
-async fn static_host_lifecycle_identity_queue_and_retained_leases() -> R {
+async fn static_host_lifecycle_identity_queue_and_released_leases_d74() -> R {
     let mut h = Harness::new("")?;
     Arc::make_mut(&mut h.options.vendor).devices_file = None;
     std::fs::write(
@@ -107,7 +107,8 @@ async fn static_host_lifecycle_identity_queue_and_retained_leases() -> R {
     assert_ne!(first, second);
     v(p.terminate().await)?;
     assert_eq!(c.creates.load(Ordering::SeqCst), 2);
-    assert_eq!(c.releases.load(Ordering::SeqCst), 1);
+    // D74: the replaced Mac's lease too (A89: the JVM releases only the current one).
+    assert_eq!(c.releases.load(Ordering::SeqCst), 2);
     assert!(matches!(
         v(p.subscribe().receive().await)?,
         Some(DeviceEvent::Connected(_))
@@ -155,7 +156,8 @@ async fn null_executor_setup_failure_and_udid_fallback() -> R {
         }
         v(p.join_pending().await)?;
         v(p.terminate().await)?;
-        assert_eq!(c.releases.load(Ordering::SeqCst), usize::from(mode == "fallback"));
+        // D74: a lease taken before a failed setup is released (A89: the JVM never releases it).
+        assert_eq!(c.releases.load(Ordering::SeqCst), usize::from(mode != "null"));
     }
     Ok(())
 }

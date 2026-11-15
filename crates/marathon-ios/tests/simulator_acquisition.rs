@@ -242,7 +242,7 @@ impl Connector for CurrentConnector {
     }
 }
 #[tokio::test(start_paused = true)]
-async fn a90_worker_loss_leaks_predecessor_lease_while_connected_loss_retains_and_releases_it() -> TestResult {
+async fn a90_worker_loss_and_connected_loss_both_release_the_predecessor_lease_d74() -> TestResult {
     use marathon_core::vendor::DeviceProvider;
     use marathon_ios::device::simulator_provider::{
         AppleSimulatorProvider, ProviderRecovery, recovery::SimulatorRecovery,
@@ -322,18 +322,11 @@ async fn a90_worker_loss_leaks_predecessor_lease_while_connected_loss_retains_an
             .find(|v| v["case"] == case)
             .unwrap()["value"]
             .clone();
-        assert_eq!(
-            old.closed.load(Ordering::SeqCst) == 0,
-            expected["oldRemaining"].as_bool().unwrap()
-        );
-        assert_eq!(fresh.closed.load(Ordering::SeqCst), usize::from(!connected_loss));
-        if !connected_loss {
-            factory
-                .dispose(old.clone())
-                .await
-                .map_err(provider_support::test_error)?;
-        }
+        // D74: the JVM leaves the worker-loss predecessor's lease open (A90); native termination releases it as it
+        // does a connected loss's.
+        assert_eq!(expected["oldRemaining"].as_bool().unwrap(), !connected_loss);
         assert_eq!(old.closed.load(Ordering::SeqCst), 1);
+        assert_eq!(fresh.closed.load(Ordering::SeqCst), usize::from(!connected_loss));
     }
     Ok(())
 }
