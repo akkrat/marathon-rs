@@ -124,7 +124,14 @@ Each fails without the change:
   revert, because a probe to an offline device leaves no shell record and a lost device reads unhealthy anyway; it was
   changed to keep the new device online.
 
-Existing suites, unchanged, pass: see the final report for the commands run.
+Commands run, all passing: `cargo fmt --check`; `cargo clippy -p marathon-adb -p marathon-android --all-targets -- -D
+warnings`; `cargo test -p marathon-adb -p marathon-android` (24 test binaries, including `reconnect_test`'s 25 whole-run
+scenarios and the existing grace, outage and D70 suites, unchanged); `cargo test -p marathon-cli --no-fail-fast` (two
+targets first failed because this fresh checkout lacked the `snakeyaml` `yaml_tree` example that `scripts/check.sh` builds
+first; both passed once it was built); `python3 -I tools/differential/make_registry.py --check`,
+`tools/differential/test_evidence.py` and `scripts/check_plan_dag.py`. The registry was regenerated because the fake's
+`world.rs`, a pinned scenario input, changed; only its hash moved. Not run, per the batch's gate rule: `scripts/check.sh`,
+`scripts/remote-check.sh`, `cargo test --workspace`.
 
 ## Not verified
 
