@@ -12,6 +12,11 @@ The section for a version becomes the text of its GitHub release, which carries 
   starting it, which keep theirs; and a copy of a completed test that comes back incomplete, which is reported once as
   before. A failed copy beside a retried copy of the same test is now reported too. Reports can show fewer executions
   (D69).
+- **Android: devices returning after an adb outage or a brief `offline` no longer delay other devices** (U170). A device
+  that came back is checked and has its logcat and reverse port forwards restored alongside the others, up to 8 at a time
+  per adb server, so one that does not answer no longer holds up another device's 10 s grace or keeps the rest of its
+  server waiting. After an adb server restart each device takes new tests as soon as its own restoring is done. Commands
+  and results are unchanged. No configuration change.
 - **Android: an adb outage no longer fails tests that never ran** (D70). When an adb server stays away, or a device stays
   `offline`, until its device is given up, a batch the device was waiting to start goes back to the queue without using
   up any of `uncompletedTestRetryQuota`, so with a small quota those tests now run later instead of failing. In a batch of

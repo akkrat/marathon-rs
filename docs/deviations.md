@@ -278,7 +278,8 @@ adb server went away. Native builds reconnect, with a backoff of up to 8 s, and 
 loopback server again the way startup does. Devices keep their work during an outage,
 and new batches wait. A test running when the server went away fails as uncompleted and is retried.
 Once the server is back, a device still listed carries on, with its logcat and reverse port
-forwards restored; one not listed within `waitForDevicesTimeoutMillis` is disconnected. An emulator
+forwards restored: each takes new batches once its own are, up to 8 devices per adb server being restored at a time, so
+one that does not answer holds up no other ([U170](found-bugs.md)). One not listed within `waitForDevicesTimeoutMillis` is disconnected. An emulator
 that itself restarted during the outage looks the same when it is listed again under the same serial:
 it is not prepared again, so its batches fail on the missing APKs. `uncompletedTestRetryQuota`, which must be finite
 ([D47](#d47--an-unlimited-uncompletedtestretryquota-is-refused)), ends them when it runs out, and a small one fails the tests. This is a known limit. A plain adb server restart does not restart emulators. A server
@@ -680,12 +681,11 @@ configuration change. Meanwhile no batch starts on it and it takes no new work. 
 retried, as in any lost connection. A device that returns keeps its actor, with its logcat and reverse port forwards restored.
 
 - A device still passing through at 10 s is disconnected, as before but later.
-- The limits are checked between rounds of reading the device list, and a round also asks each device that returned for
-  its properties, one after another (one `getprop` each, bounded by `timeoutConfiguration.shell`, 20 s by default). No
-  other device's limit is checked meanwhile, so a device can be held past its 10 s or 3 s by up to the sum of the
-  outstanding probes' timeouts: 20 s for each device that returned and does not answer. Restoring a returned device's
-  logcat, up to 1 s, and each of its reverse port forwards, up to `timeoutConfiguration.portForward` (which defaults to
-  `shell`), adds to it. The killed emulator below reaches its retry path that much later ([U170](found-bugs.md)).
+- A device that returned is asked for its properties (one `getprop`, bounded by `timeoutConfiguration.shell`, 20 s by
+  default), and its logcat (up to 1 s) and each of its reverse port forwards (up to `timeoutConfiguration.portForward`,
+  which defaults to `shell`) are restored. It takes no new batch until that is done. This runs beside the reading of the
+  device list, for up to 8 devices per adb server at a time, so a device that does not answer holds up no other device's
+  limit ([U170](found-bugs.md)).
 - A device that goes `offline` and then leaves the list has 3 s, since a real blip passes through an empty list for up to
   a second. A killed emulator looks like this, so its retry path starts about 3.25 s after it dies, where it was immediate.
 - A device leaving the list directly from `device`, or reaching a state such as `unauthorized`, is disconnected at once.
