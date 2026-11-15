@@ -98,6 +98,71 @@ fn render_error(err: &DexError) -> Value {
     object
 }
 
+/// D75: the JVM lists a JUnit3 test once per dex re-scan when it carries an
+/// array-valued annotation (N11). These recordings keep those repeats; the
+/// native parser lists each test once. Exactly this many later entries per
+/// APK are dropped, each equal to an earlier entry of the same name except
+/// for array ids, and the remaining array ids are renumbered by first visit
+/// as DexOracle.java numbers them. Any other APK must have no such repeat.
+const D75_REPEATS: [(&str, usize); 1] = [("abstract-class-in-second-dex.apk", 8)];
+
+fn d75_without_value_duplicates(apk: &str, tests: &Value) -> Value {
+    let allowed = D75_REPEATS.iter().find(|(name, _)| *name == apk).map_or(0, |(_, n)| *n);
+    let (kept, repeats) = d75_drop_repeats(tests);
+    assert_eq!(repeats, allowed, "D75 repeats recorded for {apk}");
+    kept
+}
+
+/// Test helper: the allowance with an explicit expected repeat count.
+fn d75_without_value_duplicates_n(tests: &Value, allowed: usize) -> Value {
+    let (kept, repeats) = d75_drop_repeats(tests);
+    assert_eq!(repeats, allowed);
+    kept
+}
+
+fn d75_drop_repeats(tests: &Value) -> (Value, usize) {
+    fn without_ids(value: &Value) -> Value {
+        match value {
+            Value::Array(items) if items.len() == 3 && items[0] == "array" => {
+                Value::Array(vec![items[0].clone(), without_ids(&items[1])])
+            }
+            Value::Array(items) => Value::Array(items.iter().map(without_ids).collect()),
+            Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), without_ids(v))).collect()),
+            other => other.clone(),
+        }
+    }
+    fn renumber(value: &mut Value, ids: &mut HashMap<u64, usize>) {
+        match value {
+            Value::Array(items) if items.len() == 3 && items[0] == "array" => {
+                let next = ids.len();
+                let id = *ids.entry(items[2].as_u64().unwrap()).or_insert(next);
+                items[2] = id.into();
+                renumber(&mut items[1], ids);
+            }
+            Value::Array(items) => items.iter_mut().for_each(|item| renumber(item, ids)),
+            Value::Object(map) => map.values_mut().for_each(|item| renumber(item, ids)),
+            _ => {}
+        }
+    }
+    let Some(methods) = tests.as_array() else {
+        return (tests.clone(), 0);
+    };
+    let mut seen = Vec::new();
+    let mut kept = Vec::new();
+    for method in methods {
+        let content = without_ids(method);
+        if seen.contains(&content) {
+            continue;
+        }
+        seen.push(content);
+        kept.push(method.clone());
+    }
+    let repeats = methods.len() - kept.len();
+    let mut kept = Value::Array(kept);
+    renumber(&mut kept, &mut HashMap::new());
+    (kept, repeats)
+}
+
 fn custom_of(row: &Value) -> Vec<String> {
     row["customAnnotations"]
         .as_array()
@@ -146,7 +211,8 @@ fn check_row(row: &Value) {
     }
     match marathon_dex::find_test_methods(&path, &custom_of(row)) {
         Ok(methods) => {
-            assert_eq!(render_methods(&methods), row["tests"], "tests for {apk}");
+            let expected = d75_without_value_duplicates(apk, &row["tests"]);
+            assert_eq!(render_methods(&methods), expected, "tests for {apk}");
         }
         Err(err) => {
             assert!(row.get("testsError").is_some(), "unexpected error for {apk}: {err}");
@@ -261,4 +327,73 @@ fn missing_apk_errors_match_jvm() {
     assert_eq!(render_error(&tests_err), expected["testsError"]);
     assert_eq!(render_error(&info_err), expected["instrumentationInfoError"]);
     assert_eq!(render_error(&pkg_err), expected["appPackageNameError"]);
+}
+
+/// D75 witness: the two-dex fixture lists every test once, the eight JUnit3
+/// tests the JVM repeats included.
+#[test]
+fn every_test_of_the_two_dex_fixture_is_listed_once_d75() {
+    for custom in [vec![], vec![String::new()]] {
+        let methods = marathon_dex::find_test_methods(&apk_for("abstract-class-in-second-dex.apk"), &custom).unwrap();
+        let mut names: Vec<&str> = methods.iter().map(|m| m.test_name.as_str()).collect();
+        let total = names.len();
+        names.dedup();
+        assert_eq!(names.len(), total, "{names:?}");
+        assert_eq!(total, 21);
+    }
+}
+
+fn d75_method(name: &str, array_id: u64, element: &str) -> Value {
+    serde_json::json!({
+        "testName": name,
+        "annotations": [{"name": "dalvik.annotation.Throws", "inherited": false,
+            "values": [["value", ["array", [["type", element]], array_id]]]}],
+    })
+}
+
+#[test]
+fn d75_allowance_drops_exactly_the_recorded_repeats_and_renumbers_arrays() {
+    let recorded = Value::Array(vec![
+        d75_method("a#test", 0, "Ljava/lang/Exception;"),
+        d75_method("a#test", 1, "Ljava/lang/Exception;"),
+        d75_method("b#test", 2, "Ljava/lang/Exception;"),
+    ]);
+    let filtered = d75_without_value_duplicates_n(&recorded, 1);
+    assert_eq!(
+        filtered,
+        Value::Array(vec![
+            d75_method("a#test", 0, "Ljava/lang/Exception;"),
+            d75_method("b#test", 1, "Ljava/lang/Exception;"),
+        ])
+    );
+}
+
+#[test]
+#[should_panic(expected = "D75 repeats recorded for probe.apk")]
+fn d75_allowance_rejects_a_repeat_in_an_unlisted_apk() {
+    let recorded = Value::Array(vec![
+        d75_method("a#test", 0, "Ljava/lang/Exception;"),
+        d75_method("a#test", 1, "Ljava/lang/Exception;"),
+    ]);
+    d75_without_value_duplicates("probe.apk", &recorded);
+}
+
+#[test]
+#[should_panic(expected = "D75 repeats recorded for abstract-class-in-second-dex.apk")]
+fn d75_allowance_rejects_a_different_repeat_count() {
+    let recorded = Value::Array(vec![
+        d75_method("a#test", 0, "Ljava/lang/Exception;"),
+        d75_method("a#test", 1, "Ljava/lang/Exception;"),
+    ]);
+    d75_without_value_duplicates("abstract-class-in-second-dex.apk", &recorded);
+}
+
+/// Same name, different array content: not a repeat, kept.
+#[test]
+fn d75_allowance_keeps_a_same_name_entry_with_different_content() {
+    let recorded = Value::Array(vec![
+        d75_method("a#test", 0, "Ljava/lang/Exception;"),
+        d75_method("a#test", 1, "Ljava/io/IOException;"),
+    ]);
+    assert_eq!(d75_without_value_duplicates_n(&recorded, 0), recorded);
 }

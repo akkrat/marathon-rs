@@ -71,7 +71,8 @@ pub struct TestMethod {
 /// data classes: Float/Double use Java compare semantics (NaNs equal,
 /// signed zeros distinct); arrays compare by backing-array reference —
 /// probed on the pinned JAR (a fresh equal-content array is NOT equal).
-/// That identity rule is why JUnit3 discovery can emit duplicates.
+/// That identity rule made JUnit3 discovery emit duplicates (N11), so it
+/// de-duplicates by content instead (D75).
 #[derive(Clone, Debug)]
 pub enum DecodedValue {
     Byte(i8),
@@ -730,24 +731,60 @@ const DEFAULT_DESCRIPTORS: [&str; 15] = [
     "Landroid/test/SyncBaseInstrumentation;",
 ];
 
-/// findJUnit3Tests. WP 6.4 approved P4 (iterative fixpoint) on the
-/// premise that the result SET is identical — a JVM probe disproved it:
-/// TestMethods are re-created on every re-scan, DecodedArrayValue
-/// equality is array reference equality, so the drop-last recursion emits
-/// duplicates for any test carrying an array-valued annotation (8
-/// duplicated tests in abstract-class-in-second-dex.apk). The recursion
-/// shape is therefore replicated exactly; see docs/wp/6.4-findings.md.
+/// findJUnit3Tests. The drop-last recursion is kept (prefixes n…1)
+/// because each re-scan can find classes whose superclass descriptor a
+/// later dex registered in an earlier pass. Upstream de-duplicates the
+/// re-created TestMethods with data-class equality, where decoded arrays
+/// compare by reference, so a test with an array-valued annotation was
+/// emitted once per pass (N11; 8 duplicates in
+/// abstract-class-in-second-dex.apk). D75 de-duplicates by content,
+/// keeping the first-seen entry.
 fn find_junit3_tests(dex_files: &[DexFile]) -> DexResult<Vec<TestMethod>> {
     let mut descriptors: Vec<String> = DEFAULT_DESCRIPTORS.iter().map(|d| (*d).to_owned()).collect();
     let mut test_names: Vec<TestMethod> = Vec::new();
     for prefix in (1..=dex_files.len()).rev() {
         for dex in &dex_files[..prefix] {
             for method in find_junit3_tests_in_dex(dex, &mut descriptors)? {
-                push_unique(&mut test_names, method);
+                if !test_names.iter().any(|seen| same_test_content(seen, &method)) {
+                    test_names.push(method);
+                }
             }
         }
     }
     Ok(test_names)
+}
+
+/// D75: TestMethod equality with decoded arrays compared element by
+/// element instead of by reference. Annotation values keep the
+/// order-insensitive Map comparison of TestAnnotation's equals.
+fn same_test_content(a: &TestMethod, b: &TestMethod) -> bool {
+    a.test_name == b.test_name
+        && a.annotations.len() == b.annotations.len()
+        && a.annotations
+            .iter()
+            .zip(&b.annotations)
+            .all(|(x, y)| same_annotation_content(x, y))
+}
+
+fn same_annotation_content(a: &TestAnnotation, b: &TestAnnotation) -> bool {
+    a.name == b.name
+        && a.inherited == b.inherited
+        && a.values.len() == b.values.len()
+        && a.values.iter().all(|(k, v)| {
+            b.values
+                .iter()
+                .find(|(other, _)| other == k)
+                .is_some_and(|(_, w)| same_value_content(v, w))
+        })
+}
+
+fn same_value_content(a: &DecodedValue, b: &DecodedValue) -> bool {
+    match (a, b) {
+        (DecodedValue::Array(x), DecodedValue::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(v, w)| same_value_content(v, w))
+        }
+        _ => a == b,
+    }
 }
 
 fn find_junit3_tests_in_dex(dex: &DexFile, descriptors: &mut Vec<String>) -> DexResult<Vec<TestMethod>> {
