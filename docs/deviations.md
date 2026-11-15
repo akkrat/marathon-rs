@@ -1522,6 +1522,47 @@ Approved 2026-11-11 (project owner's decision). See
 **Migration action:** a wrapper needing a hard stop during post-run console
 completion must use SIGKILL. SIGINT/SIGTERM cannot shorten that wait.
 
+## D70 — An adb outage does not charge or break tests that never started
+
+Kotlin has no outage handling; D22 and D41 added it, and left two gaps. A batch that a device took while an adb server
+outage or a brief `offline` kept it waiting came back as uncompleted when the device was given up, and each of its tests
+was charged one attempt although none had run. With `uncompletedTestRetryQuota: 0` those tests failed without running
+([U160](found-bugs.md)). And in a batch of several instrumentations ([D28](#d28--each-instrumentation-runs-only-its-own-tests))
+only the first waited: the next one started on the dead server or the offline device and failed ([U166](found-bugs.md)).
+
+Native builds now do the following, with no configuration change:
+
+- **Each instrumentation waits.** Every instrumentation of a batch waits for the server to return or the grace period to
+  end, as the batch's first already did, before any of its device commands and outside `testBatchTimeoutMillis`. Then it
+  runs. A cancel ([D52](#d52--a-cancel-writes-the-reports-and-cleans-up-within-a-limit)) ends the wait.
+- **A batch that never started goes back uncharged.** Starting means sending an instrumentation, which is recorded when it
+  is sent: the lack of test results does not prove that nothing ran. A device given up while it holds a batch none of
+  whose instrumentations was sent gives the batch back to the queue as one that never reached the device. Its tests run
+  later, on whichever device comes, with their retry counts as they were.
+- **A batch partly run keeps what it ran.** A device given up between two instrumentations of a batch ends it with the
+  results of those that ran, as when the device is lost there: their finished tests count and are not run again, and the
+  tests of the instrumentations that never started are uncompleted and charged one attempt. The whole batch used to come
+  back, so its finished tests ran again.
+- **Nothing more starts on a device given up.** A batch waiting on a device that has been given up waits until the run
+  stops the device, instead of starting on it and failing.
+- **It stays bounded.** Only a device that leaves gives a batch back uncharged. A device that stays and keeps failing
+  before it starts its batch is charged as before, so its retries still run out. A batch given back is not a test that
+  ended, so [D48](#d48--a-pool-that-lost-its-last-device-waits-for-one-to-return)'s wait goes on: a device that keeps
+  coming back and leaving before it starts its batch still ends the pool at the limit.
+
+Once an instrumentation has been sent its batch is charged as before, even if the device leaves a moment later. A device
+given up in the moment between an instrumentation's end and the wait for the next one can still have its whole batch
+returned and charged, as before. A healthy run sends the same commands, in the same order, and logs the same lines.
+After an outage or a grace period between two instrumentations of a batch, the next instrumentation's commands come once
+the device is back, where they used to come during the outage and fail. The reports of a run with an outage hold fewer
+uncompleted attempts, and a run with a small `uncompletedTestRetryQuota` can pass where it failed. New debug lines:
+`Batch <id> waits for its adb server or device before its next instrumentation`, `Rejecting batch <id>: device <serial>
+left before starting it` and `pool <pool>: device <serial> left before starting test batch <id>`. Approved 2026-11-15
+(project owner's decision). See [PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12),
+[U160 and U166](found-bugs.md) and the [x63 findings](wp/x63-findings.md).
+
+**Migration action:** none.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)

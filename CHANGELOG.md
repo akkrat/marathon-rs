@@ -2,6 +2,14 @@
 
 The section for a version becomes the text of its GitHub release, which carries the date.
 
+## Unreleased
+
+- **Android: an adb outage no longer fails tests that never ran** (D70). When an adb server stays away, or a device stays
+  `offline`, until its device is given up, a batch the device was waiting to start goes back to the queue without using
+  up any of `uncompletedTestRetryQuota`, so with a small quota those tests now run later instead of failing. In a batch of
+  several test APKs, each instrumentation now waits for the device to return, and one given up between them keeps the
+  results of the part that ran. No configuration change.
+
 ## 0.13.0
 
 This release removes the JVM artefacts required by Kotlin parity under [PLAN §3.12](PLAN.md#312-phase-8-contract), keeping the

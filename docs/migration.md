@@ -137,6 +137,10 @@ finishes, SIGINT/SIGTERM are not acted on during console completion. This window
 already existed for about two seconds; a stalled console can now hold exit for
 up to 60 seconds. A wrapper needing a hard stop then must use SIGKILL.
 
+[D70](deviations.md#d70--an-adb-outage-does-not-charge-or-break-tests-that-never-started) needs no action. After an adb
+server outage or a brief `offline`, a batch that never started is no longer charged, so tests that used to fail without
+running now run, and each instrumentation of a batch waits for the device as the first did.
+
 ### A finite `uncompletedTestRetryQuota` (D47)
 
 Add one line at the top level of every Marathonfile, on Android, iOS and macOS alike:
