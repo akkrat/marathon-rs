@@ -1732,6 +1732,52 @@ Approved 2026-11-15 (project owner's decision), with `ALL_SUCCESS` allowed by a 
 **Migration action:** none for existing configurations, which keep their meaning. A Marathonfile that uses `fixed`
 cannot be read by the Kotlin marathon.
 
+## D75 — a JUnit3 test is listed once
+
+The test parser of Kotlin marathon (dex-test-parser 2.3.4) finds JUnit3 tests by scanning
+the test APK's dex files several times, dropping the last dex each time, and merges the
+results as a set. Annotation values that are arrays compare by identity there, and every
+scan builds new arrays, so a JUnit3 test with an array-valued annotation is listed once per
+scan. Kotlin's `@Throws`, which compiles to `dalvik.annotation.Throws`, is the usual case: in
+an APK with two dex files such a test is listed, and run, twice (N11).
+
+The native parser keeps the scans and merges their results by content: the test name and
+its annotations, with arrays compared element by element. The first-seen entry and order
+are kept. Each test is listed and run once. JUnit4 discovery is unchanged, and so is the
+case of a method found by both the JUnit3 and the JUnit4 rules.
+
+The differential test still compares against the JVM recordings: for
+`abstract-class-in-second-dex.apk` it drops exactly the 8 recorded repeats, and any other
+APK must have none.
+
+Approved 2026-11-15 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x66 findings](wp/x66-findings.md).
+
+**Migration action:** none. A multi-dex test APK whose JUnit3 tests carry array-valued
+annotations runs each of them once, so its test count, batches and run time can drop.
+
+## D76 — a hosted xctest inside the app is not pushed twice
+
+For a hosted XCTest bundle, Kotlin marathon pushes the app under test to the worker and
+then pushes the xctest to `<app>/PlugIns/<name>` there. It meant to skip the second push
+when the xctest already sits in the app's `PlugIns`, as Xcode builds it, but compares a
+`File` to a `Path`, which is never equal (A9).
+
+The native factory skips that push when the xctest's real path is the app's real path
+followed by `PlugIns/<name>`, the place the app push already filled. A bundle elsewhere,
+a symlinked bundle or `PlugIns` (the app push carries those as links), a macOS bundle
+under `Contents/PlugIns`, or a path that cannot be resolved is pushed as before. The
+files on the worker and the generated xctestrun are the same as before; the worker sees
+one rsync fewer per setup.
+
+Approved 2026-11-15 (project owner's decision). See
+[PLAN §3.11](../PLAN.md#311-deliberate-deviations-approved-2026-10-12) and the
+[x66 findings](wp/x66-findings.md).
+
+**Migration action:** none. A wrapper or log check that counts worker transfers sees one
+fewer for an iOS unit-test bundle built inside its app.
+
 ## Other accepted text differences
 
 [PLAN §3.10](../PLAN.md#310-accepted-differences-same-behaviour-different-text)

@@ -155,6 +155,10 @@ times, and allows it with `executionStrategy.mode: ALL_SUCCESS` (all runs must p
 their meaning, and `probability` with `ALL_SUCCESS` is still rejected; a Marathonfile that uses `fixed` cannot be read
 by the Kotlin marathon.
 
+D75 and D76 need no action. An Android test APK with several dex files runs each JUnit3 test once, also when it carries an
+array-valued annotation such as Kotlin's `@Throws`, so such a run can have fewer tests. An iOS unit-test bundle built inside
+its app is no longer pushed to the worker a second time after the app; the files on the worker stay the same.
+
 ### A finite `uncompletedTestRetryQuota` (D47)
 
 Add one line at the top level of every Marathonfile, on Android, iOS and macOS alike:

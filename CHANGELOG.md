@@ -27,6 +27,10 @@ The section for a version becomes the text of its GitHub release, which carries 
   rejected there. Under `ANY_SUCCESS`, set `fast: false` to run every copy after a pass. The Kotlin marathon does not
   accept it. Without `fast`, the summary's passed/failed line follows each test's last run (C87); the exit code and
   the `Raw:` line reflect every run.
+- Android: a JUnit3 test with an array-valued annotation, such as Kotlin's `@Throws`, in a test APK with several dex files
+  is now listed and run once, not once per dex file (D75).
+- iOS: a unit-test bundle built inside its app is no longer pushed to the worker again after the app, saving one transfer
+  per simulator setup; the files on the worker are unchanged (D76).
 
 ## 0.13.0
 
