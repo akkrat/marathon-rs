@@ -1,7 +1,9 @@
 //! Port of core/src/main/kotlin/com/malinskiy/marathon/execution/queue/QueueActor.kt
 //!
 //! A line-by-line port, including the fork's retry placement and the Kotlin bugs
-//! listed in docs/known-kotlin-bugs.md (C5, C30, C45–C47), with D60's ordered queue.
+//! listed in docs/known-kotlin-bugs.md (C5, C30), with D60's ordered queue. D69
+//! replaces C45–C47: a test that is finished is not queued again, and the copies
+//! that will not run leave its totals.
 use marathon_logging::Level;
 
 use crate::{
@@ -118,6 +120,8 @@ pub struct QueueSnapshot {
     pub queue: Vec<Test>,
     pub retry_workers: Vec<(Test, Vec<String>)>,
     pub active_batches: Vec<String>,
+    /// The fixed quota's total retries left, or None without a retry strategy.
+    pub total_retries_left: Option<i32>,
 }
 #[cfg(feature = "test-support")]
 pub type QueueObserver = Rc<dyn Fn(QueueSnapshot)>;
@@ -561,13 +565,27 @@ impl QueueActor {
             return Ok(());
         }
         self.active_batches.shift_remove(serial);
-        // Also tests that completed on another device meanwhile (C47).
-        self.queue.add_all(batch.tests.iter().cloned());
-        if let Some(pairs) = self.active_retries.remove(serial) {
-            for (test, worker) in pairs {
-                self.retry_workers.entry(test).or_default().push(worker);
+        // D69 (C47): a copy of a test that completed on another device meanwhile will never run,
+        // so it leaves the test's totals instead of the queue taking it again.
+        let progress = self.progress.clone();
+        let mut progress = progress.lock().await;
+        let mut requeued = Vec::with_capacity(batch.tests.len());
+        for test in &batch.tests {
+            if progress.is_terminal(test) {
+                progress.remove_test(test, 1);
+            } else {
+                requeued.push(test.clone());
             }
         }
+        self.queue.add_all(requeued);
+        if let Some(pairs) = self.active_retries.remove(serial) {
+            for (test, worker) in pairs {
+                if !progress.is_terminal(&test) {
+                    self.retry_workers.entry(test).or_default().push(worker);
+                }
+            }
+        }
+        drop(progress);
         self.on_batch_released().await
     }
 
@@ -749,19 +767,33 @@ impl QueueActor {
         signal: &Arc<dyn CancellationSignal>,
     ) -> OperationResult<()> {
         self.debug("handle failed tests ", &device.serial_number);
-        let retry_list = self.retry.process(&self.pool_id, failed, &self.shard, progress);
-        for result in &retry_list {
+        let retried = self.retry.retried(&self.pool_id, failed, &self.shard, progress);
+        for &index in &retried {
+            let result = &failed[index];
             let action = progress
                 .test_ended(device, result, false, signal.clone())
                 .await
                 .map_err(vendor_error)?;
             self.process_test_action(action, result, progress);
-            // Queued again even when the attempt just completed the test (C45).
-            self.rerun_test(&result.test, device);
+            if progress.is_terminal(&result.test) {
+                // D69 (C45): this attempt, or an earlier copy in the batch, completed the test, so the
+                // retry granted for it is not run: its total and its quota are given back.
+                progress.remove_test(&result.test, 1);
+                self.retry.refund();
+            } else {
+                self.rerun_test(&result.test, device);
+            }
         }
-        // By Test equality: another failed copy of a retried test is never ended (C46).
-        let retried: Vec<&Test> = retry_list.iter().map(|retry| &retry.test).collect();
-        for result in failed.iter().filter(|result| !retried.contains(&&result.test)) {
+        // D69 (C46): by position, so that every failed copy that was not retried is ended once,
+        // also beside a retried copy of the same test.
+        let mut retried = retried.into_iter().peekable();
+        let mut others = Vec::with_capacity(failed.len());
+        for (index, result) in failed.iter().enumerate() {
+            if retried.next_if_eq(&index).is_none() {
+                others.push(result);
+            }
+        }
+        for result in others {
             let action = progress
                 .test_ended(device, result, false, signal.clone())
                 .await
@@ -820,6 +852,10 @@ impl QueueActor {
                     .map(|(test, workers)| (test.clone(), workers.clone()))
                     .collect(),
                 active_batches: self.active_batches.keys().cloned().collect(),
+                total_retries_left: match &self.retry {
+                    RetryStrategy::NoRetry => None,
+                    RetryStrategy::FixedQuota(strategy) => Some(strategy.watchdog().total_allowed_retry_left()),
+                },
             });
         }
     }

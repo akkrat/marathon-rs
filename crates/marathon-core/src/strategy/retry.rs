@@ -42,9 +42,33 @@ impl RetryStrategy {
         shard: &TestShard,
         progress: &mut dyn RetryProgress,
     ) -> Vec<TestResult> {
+        self.retried(pool, failed, shard, progress)
+            .into_iter()
+            .map(|index| failed[index].clone())
+            .collect()
+    }
+
+    /// As `process`, by position in `failed`: D69 tells copies of one test apart, which equal
+    /// results cannot do (C46).
+    pub fn retried(
+        &mut self,
+        pool: &DevicePoolId,
+        failed: &[TestResult],
+        shard: &TestShard,
+        progress: &mut dyn RetryProgress,
+    ) -> Vec<usize> {
         match self {
             Self::NoRetry => Vec::new(),
-            Self::FixedQuota(strategy) => strategy.process(pool, failed, shard, progress),
+            Self::FixedQuota(strategy) => strategy.retried(pool, failed, shard, progress),
+        }
+    }
+
+    /// D69: gives back the total quota a granted retry took, when the queue does not run it
+    /// because the attempt it was granted for completed the test (C45). The per-test limit
+    /// counts failures, not retries, so it has nothing to give back.
+    pub fn refund(&mut self) {
+        if let Self::FixedQuota(strategy) = self {
+            strategy.watchdog.refund();
         }
     }
 }
@@ -78,9 +102,23 @@ impl FixedQuotaRetryStrategy {
         shard: &TestShard,
         progress: &mut dyn RetryProgress,
     ) -> Vec<TestResult> {
-        failed
-            .iter()
-            .filter(|result| {
+        self.retried(pool, failed, shard, progress)
+            .into_iter()
+            .map(|index| failed[index].clone())
+            .collect()
+    }
+
+    /// The positions in `failed` of the results granted a retry, in order.
+    pub fn retried(
+        &mut self,
+        pool: &DevicePoolId,
+        failed: &[TestResult],
+        shard: &TestShard,
+        progress: &mut dyn RetryProgress,
+    ) -> Vec<usize> {
+        (0..failed.len())
+            .filter(|&index| {
+                let result = &failed[index];
                 self.accumulator.record(pool, &result.test);
                 let flaky = shard.flaky_tests.iter().filter(|t| **t == result.test).count() as i32;
                 let failures = self.accumulator.count(pool, &result.test).wrapping_add(flaky);
@@ -90,7 +128,6 @@ impl FixedQuotaRetryStrategy {
                     && progress.retry_test(&result.test) != Some(TestAction::Complete)
                     && self.watchdog.request_retry(failures)
             })
-            .cloned()
             .collect()
     }
 }
@@ -114,6 +151,11 @@ impl RetryWatchdog {
         self.total_allowed_retry_left = self.total_allowed_retry_left.wrapping_sub(1);
         let total_allowed = self.total_allowed_retry_left >= 0;
         total_allowed && failures <= self.max_retry_per_test_quota
+    }
+
+    /// D69: undoes the decrement of a granted retry that is not run.
+    pub fn refund(&mut self) {
+        self.total_allowed_retry_left = self.total_allowed_retry_left.wrapping_add(1);
     }
 
     pub fn retry_possible(&self, failures: i32) -> bool {

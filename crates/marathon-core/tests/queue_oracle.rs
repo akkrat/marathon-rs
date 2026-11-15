@@ -1,6 +1,7 @@
 //! Port of tools/oracle/queue-probes/QueueProbes.kt: replays fixtures/oracle/queue/queue.jsonl, the JVM run of the
 //! real QueueActor, message by message. D60 gives the recorded inputs explicit native key,
 //! batch and queue-order expectations; accounting, replies, logs and final states remain exact.
+//! D69 supersedes the three recordings of C45–C47; `queue_behaviour` pins their native contract.
 #[path = "support/queue.rs"]
 mod support;
 use marathon_core::{
@@ -393,13 +394,21 @@ fn native_expected(mut row: Value) -> Value {
     row
 }
 
-/// Replays the rows whose case starts with one of `prefixes` (all rows for none).
+/// D69: the recordings of C45 (K1), C46 (K2) and C47 (K4), which the native queue no longer reproduces. They stay in
+/// the fixture unedited and are left out of the replay; `d69_supersedes_exactly_the_c45_to_c47_recordings` checks
+/// that they differ exactly where D69 says.
+const SUPERSEDED_D69: [&str; 3] = ["K1:", "K2:", "K4:"];
+fn superseded(case: &str) -> bool {
+    SUPERSEDED_D69.iter().any(|prefix| case.starts_with(prefix))
+}
+
+/// Replays the rows whose case starts with one of `prefixes` (all rows for none), except those D69 supersedes.
 fn replay(prefixes: &'static [&'static str]) {
     let rows: Vec<Value> = rows()
         .into_iter()
         .filter(|row| {
             let case = row["case"].as_str().unwrap();
-            prefixes.is_empty() || prefixes.iter().any(|prefix| case.starts_with(prefix))
+            !superseded(case) && (prefixes.is_empty() || prefixes.iter().any(|prefix| case.starts_with(prefix)))
         })
         .map(native_expected)
         .collect();
@@ -557,28 +566,52 @@ fn native_replay_rejects_queue_and_accounting_mutations() {
     assert_eq!(mismatches_of(vec![tampered]).len(), 1);
 }
 
-/// C45: the attempt that completes a test under fast ALL_SUCCESS is still queued as a retry and runs again.
+/// D69 narrows the replay by exactly three recordings, and each still differs from the native queue only from the
+/// message D69 changes on: K1 (C45) from the failure whose retry is no longer queued, K2 (C46) at the batch whose
+/// second failed copy is now ended and at the pass that now completes the test, K4 (C47) from the rejection that no
+/// longer queues the completed test. The native expectations are `queue_behaviour`'s `_d69` tests.
 #[test]
-fn retried_attempt_that_completes_the_test_is_queued_again() {
-    replay(&["K1:"]);
-}
-
-/// C46: retried tests are matched by Test equality, so a second failed copy of one is never ended.
-#[test]
-fn second_failed_copy_of_a_retried_test_is_never_ended() {
-    replay(&["K2:"]);
+fn d69_supersedes_exactly_the_c45_to_c47_recordings() {
+    let rows: Vec<Value> = rows()
+        .into_iter()
+        .filter(|row| superseded(row["case"].as_str().unwrap()))
+        .collect();
+    assert_eq!(rows.len(), SUPERSEDED_D69.len());
+    let differing: Vec<String> = mismatches_of(rows.into_iter().map(native_expected).collect())
+        .iter()
+        .map(|mismatch| {
+            let line = mismatch.lines().next().unwrap();
+            let what = match line.find(": step ") {
+                Some(at) => line[at + 2..].split(' ').take(2).collect::<Vec<_>>().join(" "),
+                None => line.rsplit(": ").next().unwrap().to_owned(),
+            };
+            format!("{} {what}", &line[..2])
+        })
+        .collect();
+    assert_eq!(
+        differing,
+        [
+            "K1 step 1",
+            "K1 step 2",
+            "K1 step 3",
+            "K1 step 4",
+            "K1 step 5",
+            "K1 step 6",
+            "K1 progress",
+            "K2 step 1",
+            "K2 step 3",
+            "K4 step 3",
+            "K4 step 4",
+            "K4 step 5",
+            "K4 progress",
+        ]
+    );
 }
 
 /// K3 refuted: ClassName takes every copy, so each copy consumes one retry worker.
 #[test]
 fn copies_of_one_test_in_a_class_name_batch_are_dispatched_per_copy() {
     replay(&["K3:"]);
-}
-
-/// C47: a rejected batch queues its tests again although one of them completed on another device meanwhile.
-#[test]
-fn rejected_batch_queues_a_test_that_completed_meanwhile() {
-    replay(&["K4:"]);
 }
 
 /// C5 through the real accumulator and queue: the refused retry still adds to the test's total.
